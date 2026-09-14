@@ -343,13 +343,27 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>([
                         if (!ref.current) {
                             return () => {}
                         }
+                        // A drag fires the observer many times per frame. Dispatch at most once
+                        // per frame, so the scene does not re-render on every tick.
+                        let frame: number | null = null
                         const observer = new ResizeObserver(() => {
-                            if (ref?.current) {
-                                actions.setMainContentRect(ref.current.getBoundingClientRect())
+                            if (frame !== null) {
+                                return
                             }
+                            frame = requestAnimationFrame(() => {
+                                frame = null
+                                if (ref?.current) {
+                                    actions.setMainContentRect(ref.current.getBoundingClientRect())
+                                }
+                            })
                         })
                         observer.observe(ref.current)
-                        return () => observer.disconnect()
+                        return () => {
+                            observer.disconnect()
+                            if (frame !== null) {
+                                cancelAnimationFrame(frame)
+                            }
+                        }
                     }, 'resizeObserver')
                 }
             }
