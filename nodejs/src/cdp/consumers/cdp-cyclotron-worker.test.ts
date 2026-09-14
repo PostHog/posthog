@@ -7,6 +7,7 @@ import { closeHub, createHub } from '~/common/utils/db/hub'
 import { configureEventLoopYield, getEventLoopYieldThresholdMs } from '~/common/utils/event-loop-yield'
 import { UUIDT } from '~/common/utils/utils'
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
+import { getEventLoopYieldCount } from '~/tests/helpers/event-loop'
 import { createTestTeamFixture } from '~/tests/helpers/sql'
 
 import { Hub, Team } from '../../types'
@@ -492,32 +493,22 @@ describe('CdpCyclotronWorker', () => {
 
         describe('thread relief', () => {
             jest.setTimeout(10000)
-            let interval: NodeJS.Timeout
-            const blockTime = 200
+            const blockTimeMs = 100
             let originalThresholdMs: number
 
             beforeEach(() => {
                 jest.spyOn(Date, 'now').mockRestore()
                 jest.useRealTimers()
                 originalThresholdMs = getEventLoopYieldThresholdMs()
-                configureEventLoopYield(blockTime)
+                configureEventLoopYield(blockTimeMs / 2)
             })
 
             afterEach(() => {
-                clearInterval(interval)
                 configureEventLoopYield(originalThresholdMs)
             })
 
-            it('should process batches in a way that does not block the main thread', async () => {
-                let lastCheck = Date.now()
-                let longestDelay = 0
-
-                interval = setInterval(() => {
-                    // Sets up an interval loop so we can see how long the longest delay between ticks is
-                    longestDelay = Math.max(longestDelay, Date.now() - lastCheck)
-                    lastCheck = Date.now()
-                }, 1)
-
+            it('lets the event loop run while processing a batch of slow invocations', async () => {
+                // Never returns, so each invocation runs until the timeout stops it.
                 const evilFunctionCode = `
                         fn fibonacci(number) {
                             print('I AM FIBONACCI. ')
@@ -539,27 +530,21 @@ describe('CdpCyclotronWorker', () => {
                     })
                 )
 
-                processor.hogExecutorAsync.hogExecutor['config'].executionTimeoutMs = blockTime
+                processor.hogExecutorAsync.hogExecutor['config'].executionTimeoutMs = blockTimeMs
 
                 const numberToTest = 5
                 const invocations = Array.from({ length: numberToTest }, () =>
                     createExampleInvocation(evilFunction, globals)
                 )
-                const results = await processor.processInvocations(invocations)
 
-                const timings = results.flatMap(
-                    (x) => (x.invocation.state as CyclotronJobInvocationHogFunction['state']).timings
-                )
+                const yieldsBefore = await getEventLoopYieldCount('hog-exec', 'true')
+                await processor.processInvocations(invocations)
+                const yieldsAfter = await getEventLoopYieldCount('hog-exec', 'true')
 
-                const total = timings.reduce((acc, timing) => acc + timing.duration_ms, 0)
-
-                // Timings is semi random so we can't test for exact values
-                expect(total).toBeGreaterThan(200 * numberToTest)
-                expect(total).toBeLessThan(300 * numberToTest) // the hog exec limiter isn't exact
-
-                await new Promise((resolve) => setTimeout(resolve, 1))
-
-                expect(longestDelay).toBeLessThan(300) // Rough upper bound of the hog exec limiter
+                // Every invocation blocks past the yield threshold, so the worker must
+                // hand the loop back after each one. A worker that runs hog without the
+                // yield wrapper records no yields at all.
+                expect(yieldsAfter - yieldsBefore).toBeGreaterThanOrEqual(numberToTest)
             })
         })
     })
