@@ -32,12 +32,18 @@ measure coverage of the candidates together:
 
 ```sql
 SELECT count() AS generations,
-       round(100 * countIf(isNotNull(properties.$ai_product)) / count(), 1) AS pct_ai_product,
-       round(100 * countIf(isNotNull(properties.$ai_span_name)) / count(), 1) AS pct_span_name,
-       round(100 * countIf(isNotNull(properties.$ai_agent_name)) / count(), 1) AS pct_agent_name
+       round(100 * countIf(isNotNull(nullIf(toString(properties.$ai_product), '')))
+             / count(), 1) AS pct_ai_product,
+       round(100 * countIf(isNotNull(nullIf(toString(properties.$ai_span_name), '')))
+             / count(), 1) AS pct_span_name,
+       round(100 * countIf(isNotNull(nullIf(toString(properties.$ai_agent_name), '')))
+             / count(), 1) AS pct_agent_name
 FROM events
 WHERE event = '$ai_generation' AND timestamp >= now() - INTERVAL 7 DAY
 ```
+
+Each count reads an empty tag as unset, so a property the app sets to `''` does not look covered. Use the
+same expression for any other candidate you add.
 
 Group by the best-covered one, and keep the unset rows visible so you see how much traffic it misses:
 
