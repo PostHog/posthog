@@ -153,6 +153,31 @@ export class TaskService {
       }
     }
 
+    if (
+      input.workspaceMode === "cloud" &&
+      input.runtime !== "pi" &&
+      (input.adapter ?? "claude") === "claude"
+    ) {
+      try {
+        input = {
+          ...input,
+          claudeCloudModelAccess:
+            await this.sessionService.resolveClaudeCloudModelAccess(
+              input.claudeCloudModelAccess,
+            ),
+        };
+      } catch (error) {
+        return {
+          success: false,
+          failedStep: "validation",
+          error:
+            error instanceof Error
+              ? error.message
+              : "Could not check Claude plan billing.",
+        };
+      }
+    }
+
     const creator = new TaskCreationSaga(
       {
         posthogClient,

@@ -25,6 +25,7 @@ import type { EvaluationConfig as TeamEvaluationConfig } from '../settings/llmPr
 import { getUnhealthyProviderKey } from '../settings/providerKeyStateUtils'
 import { EvaluationRunsStats, queryEvaluationRuns, queryEvaluationRunsStats } from '../utils'
 import { evaluationErrorMessage } from './apiErrors'
+import { evaluationIsDetector } from './constants'
 import {
     evaluationCanResolveModel,
     evaluationSupportsReports,
@@ -148,7 +149,11 @@ function toSentimentEvaluation(evaluation: EvaluationConfig): SentimentEvaluatio
     }
 }
 
-function filterEvaluationRuns(runs: EvaluationRun[], filter: EvaluationRunsFilter): EvaluationRun[] {
+function filterEvaluationRuns(
+    runs: EvaluationRun[],
+    filter: EvaluationRunsFilter,
+    evaluation: EvaluationConfig | null
+): EvaluationRun[] {
     if (filter === 'all') {
         return runs
     }
@@ -157,11 +162,12 @@ function filterEvaluationRuns(runs: EvaluationRun[], filter: EvaluationRunsFilte
     // A skipped run carries result=false when the evaluation disallows N/A, so it has to be
     // excluded before the outcome is read or it lands in the fail bucket without being graded.
     const gradedRuns = completedRuns.filter((r) => !r.skipped)
+    const passingResult = !(evaluation && evaluationIsDetector(evaluation))
     if (filter === 'pass') {
-        return gradedRuns.filter((r) => r.result === true)
+        return gradedRuns.filter((r) => r.result === passingResult)
     }
     if (filter === 'fail') {
-        return gradedRuns.filter((r) => r.result === false)
+        return gradedRuns.filter((r) => r.result === !passingResult)
     }
     if (filter === 'na') {
         return gradedRuns.filter((r) => r.result === null)
@@ -379,6 +385,9 @@ export interface llmEvaluationLogicActions {
     setTriggerConditions: (conditions: EvaluationConditionSet[]) => {
         conditions: EvaluationConditionSet[]
     }
+    setTrueIsFailure: (trueIsFailure: boolean) => {
+        trueIsFailure: boolean
+    }
     testHogOnSample: (_?: void) => void
     testHogOnSampleFailure: (
         error: string,
@@ -417,7 +426,10 @@ export interface llmEvaluationLogicMeta {
             evaluation: EvaluationConfig | null,
             providerKeys: LLMProviderKey[]
         ) => LLMProviderKey | null
-        runsSummary: (runsStats: EvaluationRunsStats | null) => {
+        runsSummary: (
+            runsStats: EvaluationRunsStats | null,
+            evaluation: EvaluationConfig | null
+        ) => {
             applicabilityRate: number
             errors: number
             failed: number
@@ -427,7 +439,8 @@ export interface llmEvaluationLogicMeta {
         } | null
         filteredEvaluationRuns: (
             evaluationRuns: EvaluationRun[],
-            evaluationRunsFilter: EvaluationRunsFilter
+            evaluationRunsFilter: EvaluationRunsFilter,
+            evaluation: EvaluationConfig | null
         ) => EvaluationRun[]
         breadcrumbs: (
             evaluation: EvaluationConfig | null,
@@ -475,6 +488,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
         setEvaluationPrompt: (prompt: string) => ({ prompt }),
         setEvaluationEnabled: (enabled: boolean) => ({ enabled }),
         setAllowsNA: (allowsNA: boolean) => ({ allowsNA }),
+        setTrueIsFailure: (trueIsFailure: boolean) => ({ trueIsFailure }),
         setTriggerConditions: (conditions: EvaluationConditionSet[]) => ({ conditions }),
         setModelConfiguration: (modelConfiguration: ModelConfiguration | null) => ({ modelConfiguration }),
         setEvaluationType: (evaluationType: EvaluationType) => ({ evaluationType }),
@@ -626,6 +640,10 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                     state && isBooleanEvaluationOutput(state.output_type)
                         ? { ...state, output_config: { ...state.output_config, allows_na: allowsNA } }
                         : state,
+                setTrueIsFailure: (state, { trueIsFailure }) =>
+                    state && isBooleanEvaluationOutput(state.output_type)
+                        ? { ...state, output_config: { ...state.output_config, true_is_failure: trueIsFailure } }
+                        : state,
                 setTriggerConditions: (state, { conditions }) =>
                     state
                         ? {
@@ -766,6 +784,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 setEvaluationPrompt: () => true,
                 setEvaluationEnabled: () => true,
                 setAllowsNA: () => true,
+                setTrueIsFailure: () => true,
                 setTriggerConditions: () => true,
                 setModelConfiguration: () => true,
                 setEvaluationType: () => true,
@@ -1150,13 +1169,14 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
         ],
 
         runsSummary: [
-            (s) => [s.runsStats],
-            (stats: EvaluationRunsStats | null) => {
+            (s) => [s.runsStats, s.evaluation],
+            (stats: EvaluationRunsStats | null, evaluation: EvaluationConfig | null) => {
                 if (!stats || stats.total === 0) {
                     return null
                 }
 
-                const { total, applicable, passed } = stats
+                const { total, applicable, trueCount } = stats
+                const passed = evaluation && evaluationIsDetector(evaluation) ? applicable - trueCount : trueCount
                 // Applicable runs excludes N/A results
                 const failed = applicable - passed
 
@@ -1172,9 +1192,12 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
         ],
 
         filteredEvaluationRuns: [
-            (s) => [s.evaluationRuns, s.evaluationRunsFilter],
-            (runs: EvaluationRun[], filter: EvaluationRunsFilter): EvaluationRun[] =>
-                filterEvaluationRuns(runs, filter),
+            (s) => [s.evaluationRuns, s.evaluationRunsFilter, s.evaluation],
+            (
+                runs: EvaluationRun[],
+                filter: EvaluationRunsFilter,
+                evaluation: EvaluationConfig | null
+            ): EvaluationRun[] => filterEvaluationRuns(runs, filter, evaluation),
         ],
 
         breadcrumbs: [

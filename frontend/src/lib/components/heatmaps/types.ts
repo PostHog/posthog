@@ -17,7 +17,7 @@ export type HeatmapEventFilter = {
     properties?: Record<string, any>[]
 }
 
-export type HeatmapKind = 'click' | 'rageclick' | 'mousemove' | 'scrolldepth'
+export type HeatmapKind = 'click' | 'rageclick' | 'deadclick' | 'mousemove' | 'scrolldepth'
 
 export type HeatmapRequestType = {
     type: HeatmapKind
@@ -32,7 +32,7 @@ export type HeatmapRequestType = {
 
 export type HeatmapFilters = {
     enabled: boolean
-    type?: string
+    type?: HeatmapKind
     viewportAccuracy?: number
     aggregation?: HeatmapRequestType['aggregation']
 }

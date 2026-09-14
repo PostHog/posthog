@@ -13,6 +13,7 @@ from posthog.temporal.oauth import (
     PosthogMcpScopes,
     SandboxOAuthApplication,
     ScoutScopePosture,
+    WizardIdentityBlockedError,
     create_oauth_access_token_for_user as _create_oauth_access_token_for_user,
     create_wizard_oauth_access_token_for_user as _create_wizard_oauth_access_token_for_user,
     resolve_scopes,
@@ -179,6 +180,8 @@ def create_oauth_access_token(
         token_options["include_mcp_builtin_agent_scope"] = True
     if is_interactive_signals_run(task, run_state):
         token_options["include_interactive_run_scope"] = True
+    if task.origin_product == Task.OriginProduct.SLACK:
+        token_options["include_slack_run_scope"] = True
     return create_oauth_access_token_for_user(actor, task.team_id, **token_options)
 
 
@@ -255,6 +258,10 @@ def create_wizard_oauth_access_token(task: Task) -> str:
 
     try:
         return _create_wizard_oauth_access_token_for_user(task.created_by, task.team_id)
+    except WizardIdentityBlockedError as err:
+        # Fatal: the ban holds until someone edits the flag, so retrying only burns
+        # attempts against a settled answer.
+        raise TaskInvalidStateError(str(err), {"team_id": task.team_id}, cause=err) from err
     except RuntimeError as err:
         raise OAuthTokenError(str(err), {"team_id": task.team_id}, cause=err) from err
 
@@ -267,6 +274,7 @@ def create_oauth_access_token_for_user(
     application: SandboxOAuthApplication = "array",
     include_mcp_builtin_agent_scope: bool = False,
     include_interactive_run_scope: bool = False,
+    include_slack_run_scope: bool = False,
     sandbox_task_id: UUID | None = None,
 ) -> str:
     """Create an OAuth access token for a sandbox app, scoped to a specific team."""
@@ -280,6 +288,8 @@ def create_oauth_access_token_for_user(
             token_options["include_mcp_builtin_agent_scope"] = True
         if include_interactive_run_scope:
             token_options["include_interactive_run_scope"] = True
+        if include_slack_run_scope:
+            token_options["include_slack_run_scope"] = True
         return _create_oauth_access_token_for_user(user, team_id, **token_options)
     except RuntimeError as err:
         raise OAuthTokenError(str(err), {"team_id": team_id}, cause=err) from err

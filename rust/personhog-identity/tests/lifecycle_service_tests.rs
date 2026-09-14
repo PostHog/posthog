@@ -35,6 +35,7 @@ async fn delete_status(request: DeletePersonsRequest) -> Code {
             execute_timeout: Duration::from_secs(1),
             poll_interval: Duration::from_millis(10),
             attempt_alert_threshold: 5,
+            gc_batch_limit: 10_000,
         },
     ));
     let tables = IdentityTables::real();
@@ -42,6 +43,7 @@ async fn delete_status(request: DeletePersonsRequest) -> Code {
         engine,
         Arc::new(SimLeader::new(pool, tables.person.clone())),
         tables,
+        common::FAN_OUT_CONCURRENCY,
     );
     service
         .delete_persons(Request::new(request))

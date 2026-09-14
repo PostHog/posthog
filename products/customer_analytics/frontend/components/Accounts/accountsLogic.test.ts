@@ -187,8 +187,13 @@ describe('accountsLogic', () => {
     it('starts with empty filters', () => {
         expect(logic.values.searchQuery).toBe('')
         expect(logic.values.tagsFilter).toEqual([])
-        expect(logic.values.allRolesUnassigned).toBe(false)
+        expect(logic.values.assignmentStatus).toBe('all')
         expect(logic.values.assignedToFilter).toEqual([])
+    })
+
+    it('defaults to showing all accounts, omitting the assignment filter', () => {
+        const filters = logic.values.accountsQuerySource?.filters ?? []
+        expect(filters.some((filter) => filter.kind === 'assigned' || filter.kind === 'unassigned')).toBe(false)
     })
 
     it('runs the list and overview through typed Postgres queries', () => {
@@ -356,9 +361,22 @@ describe('accountsLogic', () => {
         expect(logic.values.metricsQuery?.columns).toEqual([])
     })
 
-    it('setAllRolesUnassigned toggles the flag', () => {
-        logic.actions.setAllRolesUnassigned(true)
-        expect(logic.values.allRolesUnassigned).toBe(true)
+    it('setAssignmentStatus drives the canonical status and its query filter', () => {
+        logic.actions.setAssignmentStatus('unassigned')
+        expect(logic.values.assignmentStatus).toBe('unassigned')
+        expect(logic.values.accountsQuerySource?.filters).toContainEqual({ kind: 'unassigned' })
+
+        logic.actions.setAssignmentStatus('assigned')
+        expect(logic.values.assignmentStatus).toBe('assigned')
+        expect(logic.values.accountsQuerySource?.filters).toContainEqual({ kind: 'assigned' })
+
+        logic.actions.setAssignmentStatus('all')
+        expect(logic.values.assignmentStatus).toBe('all')
+        expect(
+            (logic.values.accountsQuerySource?.filters ?? []).some(
+                (filter) => filter.kind === 'assigned' || filter.kind === 'unassigned'
+            )
+        ).toBe(false)
     })
 
     describe('assignedTo filter and "my accounts" shortcut', () => {
@@ -409,21 +427,21 @@ describe('accountsLogic', () => {
             expect(logic.values.activeFilterCount).toBe(1)
         })
 
-        it('enabling it clears the unassigned flag', async () => {
-            logic.actions.setAllRolesUnassigned(true)
+        it('selecting users forces the assigned status', async () => {
+            logic.actions.setAssignmentStatus('unassigned')
             logic.actions.setAssignedToFilter([7])
             await expectLogic(logic).toFinishAllListeners()
 
             expect(logic.values.assignedToFilter).toEqual([7])
-            expect(logic.values.allRolesUnassigned).toBe(false)
+            expect(logic.values.assignmentStatus).toBe('assigned')
         })
 
-        it('enabling the unassigned flag clears the assigned-to filter', async () => {
+        it('leaving the assigned status clears the assigned-to filter', async () => {
             logic.actions.setAssignedToFilter([7])
-            logic.actions.setAllRolesUnassigned(true)
+            logic.actions.setAssignmentStatus('unassigned')
             await expectLogic(logic).toFinishAllListeners()
 
-            expect(logic.values.allRolesUnassigned).toBe(true)
+            expect(logic.values.assignmentStatus).toBe('unassigned')
             expect(logic.values.assignedToFilter).toEqual([])
         })
 
@@ -431,7 +449,10 @@ describe('accountsLogic', () => {
             await expectLogic(logic, () => {
                 logic.actions.setAssignedToCurrentUser(true)
             }).toFinishAllListeners()
-            expect(router.values.hashParams.view).toEqual({ assignedTo: [CURRENT_USER_ID] })
+            expect(router.values.hashParams.view).toEqual({
+                assignmentStatus: 'assigned',
+                assignedTo: [CURRENT_USER_ID],
+            })
         })
 
         it('restores the assigned-to filter from the view hash, independent of the viewer', async () => {
@@ -632,10 +653,30 @@ describe('accountsLogic', () => {
             expect(router.values.hashParams.view).toEqual({
                 search: 'acme',
                 tags: ['enterprise'],
+                assignmentStatus: 'assigned',
                 assignedTo: [7],
                 sort: { column: 'name', direction: 'desc' },
                 tileFilter: TILE_FILTER,
             })
+        })
+
+        it('marks an explicit status in the hash while other filters are present', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setTagsFilter(['enterprise'])
+                logic.actions.setAssignmentStatus('all')
+            }).toFinishAllListeners()
+
+            // A legacy hash with no status field restores as assigned-only, so a non-default
+            // hash must carry `all` explicitly rather than being mistaken for legacy.
+            expect(router.values.hashParams.view).toEqual({ tags: ['enterprise'], assignmentStatus: 'all' })
+        })
+
+        it('reads a legacy hash without a status field as assigned-only', async () => {
+            router.actions.push(urls.customerAnalyticsAccounts(), {}, { view: { tags: ['enterprise'] } })
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.assignmentStatus).toBe('assigned')
+            expect(logic.values.accountsQuerySource?.filters).toContainEqual({ kind: 'assigned' })
         })
 
         it('keeps the hash empty for the default view', async () => {
@@ -741,6 +782,14 @@ describe('accountsLogic', () => {
 
             const expansion = accountsExpansionLogic.findMounted()
             expect(expansion?.values.activeTabByAccount[ACCOUNT_ID]).toBe(DEFAULT_ACCOUNT_TAB)
+        })
+
+        it('accepts the tasks tab from an account deep link', async () => {
+            router.actions.push(urls.customerAnalyticsAccount(ACCOUNT_ID, 'tasks'))
+            await expectLogic(logic).toFinishAllListeners()
+
+            const expansion = accountsExpansionLogic.findMounted()
+            expect(expansion?.values.activeTabByAccount[ACCOUNT_ID]).toBe('tasks')
         })
 
         it('falls back to the default tab for an unknown tab', async () => {

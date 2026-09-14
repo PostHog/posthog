@@ -3,6 +3,9 @@ from uuid import UUID
 
 MAX_ATTEMPTS = 5
 
+# Histories without this marker must retain the legacy persistence command during replay.
+DEFER_KNOWLEDGE_GAPS_UNTIL_RESOLUTION_PATCH = "defer-knowledge-gaps-until-resolution-2026-09"
+
 # Stable namespace for deterministic per-ticket trace ids (uuid5).
 AI_REPLY_TRACE_NAMESPACE = UUID("a1b2c3d4-5678-4e9f-ab12-cd34ef567890")
 SCORE_THRESHOLD = 0.5

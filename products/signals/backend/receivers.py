@@ -4,9 +4,12 @@ Kept in one place so cross-cutting side effects of report state changes have a s
 rather than being sprinkled across every dismissal entrypoint (Slack, REST, bulk, …).
 """
 
+from __future__ import annotations
+
 import json
 from datetime import datetime, timedelta
-from typing import Any
+from functools import partial
+from typing import TYPE_CHECKING, Any
 
 from django.db import transaction
 from django.db.models import QuerySet
@@ -19,17 +22,17 @@ import posthoganalytics
 
 from posthog.event_usage import groups
 
-from products.signals.backend.implementation_pr import PrCloseReason
 from products.signals.backend.models import SignalReport, SignalReportArtefact
-from products.signals.backend.report_assignments import sync_task_pull_request_to_assignments
 from products.signals.backend.report_embeddings import (
     emit_report_embedding,
     emit_report_tombstone,
     render_report_document,
 )
 from products.signals.backend.scout_harness.suggestions import mark_stale_if_fleet_changed
-from products.signals.backend.tasks import close_dismissed_report_pr
 from products.tasks.backend.facade.task_run_signals import connect_task_run_post_save
+
+if TYPE_CHECKING:
+    from products.signals.backend.implementation_pr import PrCloseReason
 
 logger = structlog.get_logger(__name__)
 
@@ -54,19 +57,47 @@ def sync_task_run_pr_to_assignments(sender: type, instance: Any, created: bool, 
         if update_fields is not None and "output" not in update_fields:
             return
         output = instance.output if isinstance(instance.output, dict) else {}
-        pr_url = output.get("pr_url")
-        if not isinstance(pr_url, str) or not pr_url:
+        # Function-local: the assignment sync reaches the tasks facade and the task module reaches
+        # the signals contracts, both forbidden at django.setup() by the startup-import-budget test.
+        from products.signals.backend.pull_requests import apply_report_completion
+        from products.signals.backend.report_assignments import sync_task_pull_request_to_assignments  # noqa: PLC0415
+        from products.signals.backend.tasks import link_report_tracker_issues  # noqa: PLC0415
+        from products.tasks.backend.facade.api import read_pr_urls
+
+        pr_urls = read_pr_urls(output)
+        if not pr_urls:
             return
         ai_stage = (instance.state or {}).get("ai_stage")
         if ai_stage in {"research", "repo_selection"} or (isinstance(ai_stage, str) and ai_stage.startswith("scout:")):
             return
-        sync_task_pull_request_to_assignments(
-            team_id=instance.team_id,
-            task_id=str(instance.task_id),
-            pr_url=pr_url,
-            pr_state=output.get("pr_state") if isinstance(output.get("pr_state"), str) else None,
-            pr_merged=output.get("pr_merged") is True,
-        )
+        with transaction.atomic():
+            reports = list(
+                SignalReport.objects.select_for_update()
+                .filter(team_id=instance.team_id)
+                .filter(SignalReport.reports_for_task_filter(str(instance.task_id)))
+                .order_by("id")
+            )
+            for pr_url in pr_urls:
+                primary = pr_url == output.get("pr_url")
+                updated = sync_task_pull_request_to_assignments(
+                    team_id=instance.team_id,
+                    task_id=str(instance.task_id),
+                    pr_url=pr_url,
+                    pr_state=output.get("pr_state") if primary and isinstance(output.get("pr_state"), str) else None,
+                    pr_merged=primary and output.get("pr_merged") is True,
+                )
+                if updated:
+                    # Dispatch after commit so a rolled-back sync never edits a pull request body.
+                    transaction.on_commit(
+                        partial(
+                            link_report_tracker_issues.delay,
+                            team_id=instance.team_id,
+                            task_id=str(instance.task_id),
+                            pr_url=pr_url,
+                        )
+                    )
+            for report in reports:
+                apply_report_completion(report)
     except Exception:
         logger.exception("signals.task_run_pr_assignment_sync_failed", task_run_id=str(instance.id))
 
@@ -177,6 +208,23 @@ def capture_prior_state(
     )
 
 
+def _status_changed_on_this_save(
+    instance: SignalReport,
+    *,
+    created: bool,
+    update_fields: set[str] | None,
+    prior_status: str | None,
+) -> bool:
+    """Whether this save is the one that moved the report to another status."""
+    if created:
+        # Reports born SUPPRESSED by the scout safety/actionability judge never surfaced a PR.
+        return False
+    # React only to the save that performed the transition, not later edits.
+    if update_fields is not None and "status" not in update_fields:
+        return False
+    return prior_status is not None and prior_status != instance.status
+
+
 def _pr_close_reason(
     instance: SignalReport,
     *,
@@ -184,13 +232,9 @@ def _pr_close_reason(
     update_fields: set[str] | None,
     prior_status: str | None,
 ) -> PrCloseReason | None:
-    if created:
-        # Reports born SUPPRESSED by the scout safety/actionability judge never surfaced a PR.
-        return None
-    # React only to the save that performed the transition, not later edits.
-    if update_fields is not None and "status" not in update_fields:
-        return None
-    if prior_status is None or prior_status == instance.status:
+    if not _status_changed_on_this_save(
+        instance, created=created, update_fields=update_fields, prior_status=prior_status
+    ):
         return None
     # The pull request's own observed state drove this transition, so there is nothing left to close.
     if getattr(instance, "_status_from_pr_state", False):
@@ -226,6 +270,10 @@ def close_pr_when_report_dismissed(
     hooking the model here covers them all without each caller opting in. A resolve closes the PR
     only when the state API flagged it (see ``_pr_close_reason``).
     """
+    # Function-local: the task module reaches the signals contracts, which the
+    # startup-import-budget test forbids at django.setup().
+    from products.signals.backend.tasks import close_dismissed_report_pr, close_report_tracker_issue  # noqa: PLC0415
+
     prior_status = getattr(instance, "_prior_status", None)
     reason = _pr_close_reason(
         instance,
@@ -234,6 +282,22 @@ def close_pr_when_report_dismissed(
         prior_status=prior_status,
     )
     if reason is None:
+        if not _status_changed_on_this_save(
+            instance, created=created, update_fields=update_fields, prior_status=prior_status
+        ):
+            return
+        team_id = instance.team_id
+        report_id = str(instance.id)
+        if getattr(instance, "_status_from_pr_state", False) and instance.status == SignalReport.Status.RESOLVED:
+            transaction.on_commit(
+                lambda: close_report_tracker_issue.delay(report_id=report_id, team_id=team_id, completed=True)
+            )
+        elif instance.status == SignalReport.Status.DELETED:
+            # A deleted report leaves the inbox for good, so nothing will ever answer its work
+            # item. The issue closes as not done, because no pull request completed the work.
+            transaction.on_commit(
+                lambda: close_report_tracker_issue.delay(report_id=report_id, team_id=team_id, completed=False)
+            )
         return
 
     team_id = instance.team_id

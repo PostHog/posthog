@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import Optional
 
-from clickhouse_driver.errors import ServerException
+from clickhouse_driver.errors import NetworkError, ServerException, SocketTimeoutError
 
 from posthog.hogql.errors import ExposedHogQLError
 
@@ -1047,10 +1047,17 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
 # CHQueryErrorQueryWasCancelled (394) is deliberately absent: a deploy cancelling in-flight queries
 # and an operator or user deliberately killing one are indistinguishable at this layer, so callers
 # that want the deploy case retried opt in themselves (see COHORT_RECALCULATION_TRANSIENT_ERRORS).
+# The two clickhouse_driver classes are raised only while a connection is being opened (connect, or
+# the ping-then-reconnect on a stale pooled socket), before any query is sent, so nothing has run and
+# a retry is safe. They are not ServerExceptions, so wrap_clickhouse_query_error passes them through
+# untouched: a bare "Code: 209. (host:9440)" is the driver's 10s connect_timeout firing, typically
+# because a node dropped out of the cluster's load balancer for a few seconds.
 CH_TRANSIENT_ERRORS = (
     CHQueryErrorS3Error,
     CHQueryErrorS3FileChangedDuringRead,
     CHQueryErrorTableIsReadOnly,
     ClickHouseAtCapacity,
     ClickHouseClusterMemoryLimitExceeded,
+    NetworkError,
+    SocketTimeoutError,
 )

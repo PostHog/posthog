@@ -10,12 +10,12 @@ from posthog.hogql import ast
 from posthog.hogql.constants import HogQLQuerySettings
 from posthog.hogql.parser import parse_expr, parse_select
 
-from posthog.hogql_queries.utils.breakdowns import NOT_IN_COHORT_ID
+from posthog.hogql_queries.utils.breakdowns import ALL_USERS_COHORT_ID, NOT_IN_COHORT_ID
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
+from posthog.hogql_queries.utils.sampling import correct_result_for_sampling
 from posthog.hogql_queries.utils.timestamp_utils import format_label_date, get_earliest_timestamp_unfiltered
 from posthog.hogql_queries.utils.utils import get_start_of_interval_hogql, get_start_of_interval_hogql_str
 from posthog.interval_specs import get_interval_func
-from posthog.queries.util import correct_result_for_sampling
 from posthog.utils import DATERANGE_MAP, relative_date_parse
 
 from products.product_analytics.backend.hogql_queries.funnels.base import JOIN_ALGOS, FunnelBase
@@ -387,7 +387,10 @@ class FunnelTrendsUDF(FunnelUDFMixin, FunnelBase):
 
             if breakdown_clause:
                 breakdown_value = period_row[-1]
-                if breakdown_value in (None, [None], 0):
+                is_all_users_cohort = (
+                    self.context.breakdownType == BreakdownType.COHORT and breakdown_value == ALL_USERS_COHORT_ID
+                )
+                if not is_all_users_cohort and breakdown_value in (None, [None], 0):
                     serialized_result.update({"breakdown_value": ["None"]})
                 elif isinstance(breakdown_value, str) or (
                     isinstance(breakdown_value, list) and all(isinstance(item, str) for item in breakdown_value)
@@ -435,13 +438,24 @@ class FunnelTrendsUDF(FunnelUDFMixin, FunnelBase):
         data = []
         days = []
         labels = []
+        reached_from_step_count = []
+        reached_to_step_count = []
         for row in summary:
             timestamp: datetime = row["timestamp"]
             data.append(row["conversion_rate"])
             hour_min_sec = " %H:%M:%S" if interval.value == "hour" else ""
             days.append(timestamp.strftime(f"%Y-%m-%d{hour_min_sec}"))
             labels.append(format_label_date(timestamp, self._date_range(), self.context.team.week_start_day))
-        return {"count": count, "data": data, "days": days, "labels": labels}
+            reached_from_step_count.append(row["reached_from_step_count"])
+            reached_to_step_count.append(row["reached_to_step_count"])
+        return {
+            "count": count,
+            "data": data,
+            "days": days,
+            "labels": labels,
+            "reached_from_step_count": reached_from_step_count,
+            "reached_to_step_count": reached_to_step_count,
+        }
 
     def _date_range(self):
         return QueryDateRange(

@@ -1,10 +1,16 @@
 import pytest
+from unittest.mock import MagicMock, patch
 
 from django.db.models import Field
 
 from pydantic import ValidationError
 
+from posthog.hogql import ast
+from posthog.hogql.functions.mapping import find_hogql_aggregation, find_hogql_function, find_hogql_posthog_function
+from posthog.hogql.visitor import TraversingVisitor
+
 from products.signals.backend.emission.fetchers.data_warehouse import data_warehouse_record_fetcher
+from products.signals.backend.emission.google_search_console_opportunities import google_search_console_record_fetcher
 from products.signals.backend.emission.registry import (
     _SIGNAL_TABLE_CONFIGS,
     SignalSourceTableConfig,
@@ -24,6 +30,50 @@ _BASE_FIELDS = {
     "partition_field": "created_at",
     "fields": ("id",),
 }
+
+
+_HOGQL_RECORD_FETCHERS = (data_warehouse_record_fetcher, google_search_console_record_fetcher)
+
+
+class _CallNameCollector(TraversingVisitor):
+    def __init__(self) -> None:
+        self.names: list[str] = []
+
+    def visit_call(self, node: ast.Call) -> None:
+        self.names.append(node.name)
+        super().visit_call(node)
+
+
+def _build_fetcher_query(config: SignalSourceTableConfig, last_synced_at: str | None) -> ast.SelectQuery:
+    """Run the real fetcher against a stubbed executor and return the AST it built."""
+    captured: dict[str, ast.SelectQuery] = {}
+
+    def fake_execute(query, **kwargs):
+        captured["query"] = query
+        result = MagicMock()
+        result.results = []
+        result.columns = []
+        return result
+
+    with patch(
+        "products.signals.backend.emission.fetchers.data_warehouse.execute_hogql_query", side_effect=fake_execute
+    ):
+        data_warehouse_record_fetcher(
+            team=MagicMock(),
+            config=config,
+            context={"table_name": "source.table", "last_synced_at": last_synced_at, "extra": {}},
+        )
+    return captured["query"]
+
+
+def _unknown_function_names(query: ast.SelectQuery) -> list[str]:
+    collector = _CallNameCollector()
+    collector.visit(query)
+    return [
+        name
+        for name in collector.names
+        if not (find_hogql_function(name) or find_hogql_aggregation(name) or find_hogql_posthog_function(name))
+    ]
 
 
 @pytest.fixture(autouse=True)
@@ -198,3 +248,25 @@ class TestAutoRegistered:
     def test_registered_identity_is_an_enableable_config_choice(self, source_product: str, source_type: str) -> None:
         assert source_product in _field_choices("source_product")
         assert source_type in _field_choices("source_type")
+
+
+class TestRegisteredConfigsBuildValidHogQL:
+    """Guard the whole registry: a source whose query cannot parse or names an unknown function
+    fails here instead of failing silently on every sync in production."""
+
+    @staticmethod
+    def _hogql_configs() -> list[tuple[tuple[str, str], SignalSourceTableConfig]]:
+        return [
+            (key, config)
+            for key, config in sorted(_SIGNAL_TABLE_CONFIGS.items())
+            if config.record_fetcher in _HOGQL_RECORD_FETCHERS
+        ]
+
+    @pytest.mark.parametrize("last_synced_at", [None, "2025-01-01T00:00:00Z"])
+    def test_every_source_query_parses_and_uses_known_functions(self, last_synced_at):
+        configs = self._hogql_configs()
+        assert len(configs) > 1, "the registry sweep matched no warehouse-backed source"
+        unknown = {
+            key: _unknown_function_names(_build_fetcher_query(config, last_synced_at)) for key, config in configs
+        }
+        assert {key: names for key, names in unknown.items() if names} == {}

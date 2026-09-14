@@ -138,6 +138,7 @@ def _register_snapshots(
             added_count += 1
 
     # Generate upload URLs for missing artifacts
+    artifact_store.lock_artifact_registry(repo_id)
     missing_hashes = artifact_store.find_missing_hashes(repo_id, list(all_hashes))
     storage = ArtifactStorage(str(repo_id))
 

@@ -10,7 +10,7 @@ import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { SelectableCard } from 'scenes/experiments/components/SelectableCard'
 import { experimentLogic } from 'scenes/experiments/experimentLogic'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
-import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
+import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/types'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'

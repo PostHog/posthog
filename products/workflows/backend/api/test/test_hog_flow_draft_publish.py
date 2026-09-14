@@ -1,4 +1,4 @@
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
@@ -500,7 +500,7 @@ class TestHogFlowDraftPublish(APIBaseTest):
 
     def test_publish_with_expired_token_is_rejected(self):
         flow_id = self._create_active_flow()
-        with freeze_time("2026-01-01T00:00:00Z"):
+        with time_machine.travel("2026-01-01T00:00:00Z", tick=False):
             self._stage_draft(flow_id)
             confirm_token = self._publish_preview(flow_id).json()["confirm_token"]
 

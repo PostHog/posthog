@@ -3,7 +3,7 @@ from typing import Any, ClassVar, Optional, cast
 from uuid import UUID
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
@@ -454,7 +454,7 @@ class TestResolver(BaseTest):
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_resolve_constant_type(self):
-        with freeze_time("2020-01-10 00:00:00"):
+        with time_machine.travel("2020-01-10 00:00:00", tick=False):
             expr = self._select(
                 "SELECT 1, 'boo', true, 1.1232, null, {date}, {datetime}, {uuid}, {array}, {array12}, {tuple}",
                 placeholders={
@@ -1454,6 +1454,20 @@ class TestResolver(BaseTest):
         node = self._select("select 1.0 + 200 as key from events")
         node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
         self._assert_first_columm_is_type(node, ast.FloatType(nullable=False))
+
+        # a duration typed as DateTime brings back the toTimeZone wrap that fails with code 43
+        node = self._select("select timestamp - timestamp as key from events")
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
+        self._assert_first_columm_is_type(node, ast.FloatType(nullable=False))
+
+        # Int32 days, where Float would lose divideDecimal on a division of a decimal branch
+        node = self._select("select toDate(timestamp) - toDate(timestamp) as key from events")
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
+        self._assert_first_columm_is_type(node, ast.IntegerType(nullable=False))
+
+        node = self._select("select timestamp - 1 as key from events")
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
+        self._assert_first_columm_is_type(node, ast.DateTimeType(nullable=False))
 
     def test_boolean_types(self):
         node: ast.SelectQuery = self._select("select true and false as key from events")

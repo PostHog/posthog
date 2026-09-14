@@ -21,7 +21,8 @@ message BillingUsageRecord {
   // so producers cannot supply one.
   int64 team_id = 1;
 
-  // Stamp this from the producer's own clock when it emits, never from a customer payload.
+  // Stamp this from trusted server capture time when available; otherwise use the producer's
+  // emission clock. Never use a customer payload.
   // It is part of the identity, so a value a customer controls would let them decide
   // whether their own records deduplicate.
   int64 timestamp_ms = 2;

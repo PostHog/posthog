@@ -21,6 +21,7 @@ from products.batch_exports.backend.service import (
 from products.batch_exports.backend.temporal.batch_exports import FinishBatchExportRunInputs, finish_batch_export_run
 from products.batch_exports.backend.temporal.metrics import get_export_finished_metric, get_export_started_metric
 from products.batch_exports.backend.temporal.pipeline.internal_stage import (
+    NON_RETRYABLE_ERRORS,
     BatchExportInsertIntoInternalStageInputs,
     InternalStageResult,
     insert_into_internal_stage_activity,
@@ -70,11 +71,10 @@ INITIAL_RETRY_INTERVAL_SECONDS = 1
 DEFAULT_MAX_RETRY_INTERVAL_SECONDS = 3600
 DEFAULT_MAX_STAGE_RETRY_INTERVAL_SECONDS = 600
 
-STAGE_NON_RETRYABLE_ERROR_TYPES = (
-    "InvalidFilterError",
-    "DataIntervalEndInFutureError",
-    "HogQLQueryResourceLimitExceededError",
-)
+# The staging activity returns these as an `InternalStageResult.error` rather than raising, so
+# Temporal normally never sees them. They stay listed here to stop an endless retry loop if one is
+# ever raised from a path the activity's own handling does not cover.
+STAGE_NON_RETRYABLE_ERROR_TYPES = tuple(error.__name__ for error in NON_RETRYABLE_ERRORS)
 
 
 @frozen
@@ -147,14 +147,16 @@ def _get_status_for_activity_error(error: exceptions.ActivityError) -> BatchExpo
     if isinstance(error.cause, exceptions.CancelledError):
         return BatchExportRun.Status.CANCELLED
 
+    # Both activities report their non-retryable errors through their result rather than by raising,
+    # so this covers only one escaping from a path that handling does not reach.
     if isinstance(error.cause, exceptions.ApplicationError) and error.cause.type in STAGE_NON_RETRYABLE_ERROR_TYPES:
         return BatchExportRun.Status.FAILED
 
     # Reaching this outside tests means one of two assumptions broke, so `finish_batch_export_run`
     # logs it. Callers pass `maximum_attempts=0` with no schedule-to-close or run timeout, so a
     # retryable error (or activity timeout) retries forever and never surfaces here; and a terminal
-    # error from the destination activity comes back as a `BatchExportResult` with `error_repr`
-    # rather than raising. That leaves `TEST`, which forces `maximum_attempts=1`.
+    # error from either activity comes back as a result with an error rather than raising. That
+    # leaves `TEST`, which forces `maximum_attempts=1`.
     return BatchExportRun.Status.FAILED_RETRYABLE
 
 
@@ -235,7 +237,7 @@ async def execute_batch_export_using_internal_stage(
     maximum_stage_retry_interval_seconds: int = DEFAULT_MAX_STAGE_RETRY_INTERVAL_SECONDS,
     override_start_to_close_timeout_seconds: int | None = None,
     is_workflows: bool = False,
-) -> BatchExportResultType:
+) -> BatchExportResult:
     """Run one batch export: stage its data, write it to the destination, record how it went.
 
     All batch exports boil down to inserting some data somewhere, and they all follow the same error
@@ -263,7 +265,8 @@ async def execute_batch_export_using_internal_stage(
             query.
 
     Returns:
-        The destination activity's result.
+        The destination activity's result, or a plain `BatchExportResult` carrying the staging
+        error when staging failed for a reason the user has to resolve.
     """
     if hasattr(inputs, "batch_export"):
         batch_export_inputs: _BatchExportInputsProtocol = inputs.batch_export  # ty: ignore[invalid-assignment]
@@ -320,6 +323,11 @@ async def execute_batch_export_using_internal_stage(
                 non_retryable_error_types=list(STAGE_NON_RETRYABLE_ERROR_TYPES),
             ),
         )
+
+        if stage_result.error is not None:
+            finish_inputs.status = BatchExportRun.Status.FAILED
+            finish_inputs.latest_error = stage_result.error.message
+            return BatchExportResult(error=stage_result.error)
 
         batch_export_inputs.stage_folder = stage_result.stage_folder
         batch_export_inputs.records_total = stage_result.records_total

@@ -62,7 +62,7 @@ export const CreateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe("Default setting for 'Discard client IP data' for new projects in this organization."),
     default_role_id: zod
-        .string()
+        .uuid()
         .nullish()
         .describe('ID of the role to automatically assign to new members joining the organization'),
 })
@@ -120,7 +120,7 @@ export const UpdateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe("Default setting for 'Discard client IP data' for new projects in this organization."),
     default_role_id: zod
-        .string()
+        .uuid()
         .nullish()
         .describe('ID of the role to automatically assign to new members joining the organization'),
 })
@@ -178,7 +178,7 @@ export const PartialUpdateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe("Default setting for 'Discard client IP data' for new projects in this organization."),
     default_role_id: zod
-        .string()
+        .uuid()
         .nullish()
         .describe('ID of the role to automatically assign to new members joining the organization'),
 })

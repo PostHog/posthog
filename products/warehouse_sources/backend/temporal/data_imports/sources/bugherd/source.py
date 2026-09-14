@@ -105,7 +105,7 @@ class BugherdSource(ResumableSource[BugherdSourceConfig, BugherdResumeConfig]):
             name=SchemaExternalDataSourceType.BUGHERD,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="BugHerd",
-            caption="""Enter your BugHerd API key to sync your organization, projects, tasks, and users into the PostHog Data warehouse.
+            caption="""Enter your BugHerd API key to sync your organization, projects, tasks, task comments, board columns, and users into the PostHog Data warehouse.
 
 Find your API key in BugHerd under **Settings > General Settings** (organization owner/admin access is required).""",
             docsUrl="https://posthog.com/docs/cdp/sources/bugherd",

@@ -19,6 +19,8 @@ export interface AttachedContextItem {
     value?: string
     /** Rendered into the context blocks as usual but never shown as a composer chip (so not dismissable either). */
     hidden?: boolean
+    /** Whether the user can dismiss the item from the composer. Defaults to true. */
+    dismissible?: boolean
     /**
      * Items sharing a `dismissGroup` are dismissed together: closing any chip in the group also
      * detaches the group's hidden items, so a chip never claims control it doesn't have. Dismissal

@@ -19,6 +19,11 @@ on:
             - 'products/desktop/pnpm-lock.yaml'
             - 'products/desktop/pnpm-workspace.yaml'
 
+env:
+    # npm's audit blocks the pnpm bootstrap. See .github/actions/pnpm-install for why.
+    NPM_CONFIG_AUDIT: 'false'
+    NPM_CONFIG_FUND: 'false'
+
 jobs:
     verify:
         name: Verify agent release build

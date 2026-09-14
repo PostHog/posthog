@@ -19,6 +19,7 @@ from cryptography.hazmat.primitives import serialization
 from snowflake.connector.connection import SnowflakeConnection
 from snowflake.connector.constants import FIELD_ID_TO_NAME, QueryStatus
 from snowflake.connector.cursor import ResultMetadata
+from snowflake.connector.errorcode import ER_FAILED_TO_CONNECT_TO_DB, ER_RETRYABLE_CODE
 from snowflake.connector.errors import HttpError, InterfaceError, OperationalError
 from structlog.contextvars import bind_contextvars
 from temporalio import activity, exceptions, workflow
@@ -531,6 +532,15 @@ def load_private_key(private_key: str, passphrase: str | None) -> bytes:
     )
 
 
+def _is_connect_error_retryable(err: Exception) -> bool:
+    """Only retry connect failures that another attempt can fix.
+
+    Anything else, like invalid credentials or an unknown account, fails the same way
+    however often we try.
+    """
+    return isinstance(err, OperationalError) and err.errno in (ER_FAILED_TO_CONNECT_TO_DB, ER_RETRYABLE_CODE)
+
+
 class SnowflakeClient:
     """Snowflake connection client used in batch exports."""
 
@@ -621,9 +631,12 @@ class SnowflakeClient:
         self.logger.debug("Initializing Snowflake connection")
         self.ensure_snowflake_logger_level("INFO")
 
-        try:
+        async def open_connection() -> SnowflakeConnection:
+            # The semaphore is held for the connect call only, and released before any
+            # retry delay, so that one export waiting to retry does not keep every other
+            # export on this worker from connecting.
             async with CONNECTION_SEMAPHORE:
-                connection = await asyncio.to_thread(
+                return await asyncio.to_thread(
                     snowflake.connector.connect,
                     user=self.user,
                     password=self.password,
@@ -634,20 +647,29 @@ class SnowflakeClient:
                     # wrap role in quotes in case it contains lowercase or special characters
                     role=f'"{self.role}"' if self.role is not None else None,
                     private_key=self.private_key,
-                    # Logins can be slow, and a login timeout raises a
-                    # non-retryable connection error, so allow extra time.
-                    login_timeout=20,
+                    login_timeout=10,
                     # Pin Snowflake's per-session statement count to 1 to block
                     # multi-statement execution. This is already the connector default,
                     # but setting it explicitly means an account-level override cannot
                     # accidentally enable multi-statement execution.
                     session_parameters={"MULTI_STATEMENT_COUNT": 1},
                 )
+
+        connect_with_retries = make_retryable_with_exponential_backoff(
+            open_connection,
+            max_attempts=5,
+            initial_retry_delay=1,
+            max_delay_jitter=1,
+            retryable_exceptions=(OperationalError,),
+            is_exception_retryable=_is_connect_error_retryable,
+        )
+
+        try:
+            connection = await connect_with_retries()
             connection.telemetry_enabled = False
 
         except OperationalError as err:
-            if err.errno == 251012:
-                # 251012: Generic retryable error code
+            if err.errno == ER_RETRYABLE_CODE:
                 raise SnowflakeRetryableConnectionError(
                     "Could not connect to Snowflake but this error may be retried"
                 ) from err

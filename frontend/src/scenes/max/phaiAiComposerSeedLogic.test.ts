@@ -25,7 +25,7 @@ describe('phaiAiComposerSeedLogic', () => {
         { consent: true, autoSubmit: true },
         { consent: false, autoSubmit: false },
     ])(
-        'forwards the /ai ask query as a seed with autoSubmit=$autoSubmit when consent is $consent',
+        'forwards each /ai ask navigation once with autoSubmit=$autoSubmit when consent is $consent',
         ({ consent, autoSubmit }) => {
             initKeaTests(true, undefined, undefined, {
                 ...MOCK_DEFAULT_ORGANIZATION,
@@ -34,7 +34,7 @@ describe('phaiAiComposerSeedLogic', () => {
             seedLogic = composerSeedLogic()
             seedLogic.mount()
 
-            router.actions.push(urls.ai(undefined, 'Explain this dashboard'))
+            router.actions.push(urls.ai(undefined, 'Explain this dashboard'), { source: 'homepage' }, { panel: 'max' })
 
             logic = phaiAiComposerSeedLogic()
             logic.mount()
@@ -43,6 +43,18 @@ describe('phaiAiComposerSeedLogic', () => {
                 prompt: 'Explain this dashboard',
                 autoSubmit,
             })
+            expect(router.values.searchParams).toEqual({ source: 'homepage' })
+            expect(router.values.hashParams).toEqual({ panel: 'max' })
+
+            seedLogic.actions.consumeSeed()
+            router.actions.replace(router.values.location.pathname, router.values.searchParams, {})
+            expect(seedLogic.values.seed).toBeNull()
+            logic.unmount()
+            logic.mount()
+            expect(seedLogic.values.seed).toBeNull()
+
+            router.actions.push(urls.ai(undefined, 'Explain this dashboard'))
+            expect(seedLogic.values.seed).toEqual({ prompt: 'Explain this dashboard', autoSubmit })
         }
     )
 })

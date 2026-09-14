@@ -15,6 +15,7 @@ from rest_framework.authentication import SessionAuthentication
 
 from posthog.clickhouse.query_tagging import get_query_tag_value
 from posthog.constants import POSTHOG_INTERNAL_EMAIL_SUFFIX
+from posthog.helpers.oauth_pending_connection import PendingOAuthConnection
 from posthog.models import Organization, User
 from posthog.models.activity_logging.model_activity import is_impersonated_session
 from posthog.models.team import Team
@@ -22,10 +23,14 @@ from posthog.oauth_provenance import get_oauth_client_id, is_first_party_oauth_c
 from posthog.settings import SITE_URL
 from posthog.synthetic_user import SyntheticUser
 from posthog.temporal.oauth import POSTHOG_AI_OAUTH_APP_CLIENT_IDS, SIGNALS_OAUTH_APP_CLIENT_IDS
-from posthog.utils import get_instance_realm
+from posthog.utils import get_instance_realm, get_instance_region
 
 if TYPE_CHECKING:
     from rest_framework.request import Request
+
+
+def _is_hosted_dev_deployment() -> bool:
+    return get_instance_region() == "DEV"
 
 
 def report_user_signed_up(
@@ -40,11 +45,15 @@ def report_user_signed_up(
     role_at_organization: str = "",  # select input to ask what the user role is at the org
     referral_source: str = "",  # free text input to ask users where did they hear about us
     referral_source_ai_prompt: str = "",  # prompt they used when discovering PostHog via AI
+    oauth_connection: Optional[PendingOAuthConnection] = None,  # the app whose OAuth request sent them to sign up
 ) -> None:
     """
     Reports that a new user has joined. Only triggered when a new user is actually created (i.e. when an existing user
     joins a new organization, this event is **not** triggered; see `report_user_joined_organization`).
     """
+    if _is_hosted_dev_deployment():
+        return
+
     if not user.distinct_id:
         return
 
@@ -60,6 +69,9 @@ def report_user_signed_up(
         "referral_source_ai_prompt": referral_source_ai_prompt,
         "is_email_verified": user.is_email_verified,
     }
+    if oauth_connection is not None:
+        props["signup_oauth_client_name"] = oauth_connection.client_name
+        props["signup_oauth_client_id"] = oauth_connection.client_id
     if user_analytics_metadata is not None:
         props.update(user_analytics_metadata)
 
@@ -629,6 +641,9 @@ def report_user_or_team_action(
 
 
 def report_organization_deleted(user: User, organization: Organization):
+    if _is_hosted_dev_deployment():
+        return
+
     if not user.distinct_id:
         return
     posthoganalytics.capture(
@@ -640,6 +655,9 @@ def report_organization_deleted(user: User, organization: Organization):
 
 
 def report_organization_deletion_initiated(user: User, organization: Organization):
+    if _is_hosted_dev_deployment():
+        return
+
     if not user.distinct_id:
         return
     posthoganalytics.capture(
@@ -653,6 +671,9 @@ def report_organization_deletion_initiated(user: User, organization: Organizatio
 def report_organization_deletion_completed(user_id: int, organization_id: str) -> None:
     from posthog.models import User as UserModel
     from posthog.ph_client import ph_scoped_capture
+
+    if _is_hosted_dev_deployment():
+        return
 
     user = UserModel.objects.filter(id=user_id).first()
     if not user or not user.distinct_id:

@@ -48,13 +48,34 @@ import type { LLMSkillFileManifestApi, LLMSkillVersionSummaryApi } from 'product
 import type { SkillFormFileValues } from './llmSkillLogic'
 import { SkillLogicProps, SkillMode, isSkill, llmSkillLogic } from './llmSkillLogic'
 import { llmSkillsLogic } from './llmSkillsLogic'
-import { SKILL_NAME_MAX_LENGTH, SKILL_DESCRIPTION_MAX_LENGTH } from './skillConstants'
+import {
+    PRODUCT_OWNED_SKILL_NAME_PREFIXES,
+    SKILL_NAME_MAX_LENGTH,
+    SKILL_DESCRIPTION_MAX_LENGTH,
+} from './skillConstants'
 import { skillFileLogic } from './skillFileLogic'
 import { collectFilesFromDrop } from './skillFileUpload'
 import { SkillOwners } from './SkillOwners'
-import { SkillPublishReviewModal, openArchiveSkillDialog, openPublishToCommunityDialog } from './skillSceneComponents'
+import {
+    SkillPublishReviewModal,
+    openArchiveSkillDialog,
+    openPublishToCommunityDialog,
+    openRenameSkillDialog,
+} from './skillSceneComponents'
 
 const MonacoDiffEditor = lazyWithRetry(() => import('lib/components/MonacoDiffEditor'))
+
+/** Why this skill cannot be renamed, or undefined when it can be.
+ *
+ * Scouts and ReviewHog skills keep their settings under the skill name, so the backend refuses to
+ * rename them. Say so up front instead of letting the click come back a 400.
+ */
+function renameBlockedReason(skillName: string | null): string | undefined {
+    if (skillName === null || !PRODUCT_OWNED_SKILL_NAME_PREFIXES.some((prefix) => skillName.startsWith(prefix))) {
+        return undefined
+    }
+    return 'Skills that run on a schedule or a pull request keep settings under their name, so they cannot be renamed'
+}
 
 export const scene: SceneExport<SkillLogicProps> = {
     component: LLMSkillScene,
@@ -90,6 +111,7 @@ export function LLMSkillScene(): JSX.Element {
         selectedVersion,
         isSkillAccessDenied,
         hasSkillLoadError,
+        renamingSkill,
     } = useValues(llmSkillLogic)
     const { searchParams } = useValues(router)
     // Reuse the list scene's publish flow: its action, per-skill in-flight guard, and resolved
@@ -103,6 +125,7 @@ export function LLMSkillScene(): JSX.Element {
         submitSkillForm,
         requestPublish,
         deleteSkill,
+        renameSkill,
         setMode,
         setSkillFormValues,
         loadMoreVersions,
@@ -178,6 +201,8 @@ export function LLMSkillScene(): JSX.Element {
                   ? 'Switch to the latest version to publish'
                   : undefined
         : undefined
+
+    const renameDisabledReason = renameBlockedReason(isSkill(skill) ? skill.name : null)
 
     const content =
         isViewMode || !canEditSkill ? (
@@ -255,6 +280,22 @@ export function LLMSkillScene(): JSX.Element {
                                                     fullWidth
                                                 >
                                                     Publish to community
+                                                </LemonButton>
+                                            </AccessControlAction>
+                                        )}
+
+                                        {isSkill(skill) && (
+                                            <AccessControlAction
+                                                resourceType={AccessControlResourceType.LlmSkill}
+                                                minAccessLevel={AccessControlLevel.Editor}
+                                            >
+                                                <LemonButton
+                                                    onClick={() => openRenameSkillDialog(skill.name, renameSkill)}
+                                                    disabledReason={renamingSkill ? 'Renaming…' : renameDisabledReason}
+                                                    data-attr="llma-skill-rename-button"
+                                                    fullWidth
+                                                >
+                                                    Rename
                                                 </LemonButton>
                                             </AccessControlAction>
                                         )}
@@ -866,8 +907,8 @@ function SkillEditForm({
                 label="Name"
                 help={
                     isNewSkill
-                        ? `Lowercase letters, numbers, and hyphens only. Max ${SKILL_NAME_MAX_LENGTH} characters. Cannot be changed later.`
-                        : 'This name is used to fetch the skill from your code.'
+                        ? `Lowercase letters, numbers, and hyphens only. Max ${SKILL_NAME_MAX_LENGTH} characters.`
+                        : 'This name is used to fetch the skill from your code. Change it with Rename in the More menu.'
                 }
             >
                 <LemonInput
@@ -875,7 +916,7 @@ function SkillEditForm({
                     placeholder="my-skill-name"
                     maxLength={SKILL_NAME_MAX_LENGTH}
                     fullWidth
-                    disabledReason={!isNewSkill ? 'Skill name cannot be changed after creation' : undefined}
+                    disabledReason={!isNewSkill ? 'Use Rename in the More menu to change the name' : undefined}
                 />
             </LemonField>
 

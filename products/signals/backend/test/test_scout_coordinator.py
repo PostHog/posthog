@@ -6,7 +6,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from unittest.mock import AsyncMock, patch
 
 from django.test import override_settings
@@ -526,12 +526,27 @@ async def test_authoring_skill_auto_registers_enabled_config_and_runs(ateam):
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
-async def test_non_scout_skills_are_ignored(ateam):
+async def test_skill_without_the_prefix_is_not_auto_registered(ateam):
+    # Auto-registration is the one job the prefix keeps. A bare-named skill is not a scout until
+    # something registers a config for it, so the coordinator neither seeds nor dispatches it.
     await database_sync_to_async(_create_skill)(ateam, "custom-helper")
 
     assert await _run_activity() == []
     count = await database_sync_to_async(SignalScoutConfig.all_teams.filter(team=ateam).count)()
     assert count == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_bare_named_skill_with_a_config_is_dispatched(ateam):
+    # The config row is the identity marker, so a scout registered under a name the prefix rule
+    # would have rejected runs on its schedule like any other.
+    await database_sync_to_async(_create_skill)(ateam, "my-churn-watch", seeded=False)
+    await database_sync_to_async(_create_config)(ateam, "my-churn-watch", enabled=True)
+
+    planned = await _run_activity()
+
+    assert [p.skill_name for p in planned] == ["my-churn-watch"]
 
 
 @pytest.mark.django_db
@@ -554,18 +569,48 @@ def test_register_missing_configs_stamps_scout_category():
         assert helper.category == ""
 
 
+@pytest.mark.django_db
+def test_register_missing_configs_reports_bare_named_scouts_as_live():
+    # The return value is what the coordinator dispatches from. It has to cover a scout that
+    # already holds a config under a bare name, not just the prefixed skills scanned for seeding.
+    org = Organization.objects.create(name="bare-name-org", is_ai_data_processing_approved=True)
+    team = Team.objects.create(organization=org, name="bare-name-team")
+    with team_scope(team.id, canonical=True):
+        _create_skill(team, "signals-scout-prefixed")
+        bare = _create_skill(team, "my-churn-watch", seeded=False)
+        _create_config(team, "my-churn-watch")
+        _create_config(team, "orphan-watch")
+
+        live = register_missing_configs(team.id)
+
+        # The orphan has a config but no skill, so it stays out of the dispatchable set.
+        assert live == {"signals-scout-prefixed", "my-churn-watch"}
+        # A bare-named scout reaches the skills UI's Scouts tab too.
+        bare.refresh_from_db()
+        assert bare.category == "scout"
+
+
 @pytest.mark.asyncio
 @pytest.mark.django_db
-async def test_config_whose_skill_is_gone_is_skipped(ateam):
-    # A config whose `signals-scout-*` skill was deleted (or is no longer latest) must not be
-    # dispatched — its child workflow would only fail in load_skill_for_run every tick.
-    await database_sync_to_async(_create_skill)(ateam, "signals-scout-live")
-    await database_sync_to_async(_create_config)(ateam, "signals-scout-live", enabled=True)
-    await database_sync_to_async(_create_config)(ateam, "signals-scout-ghost", enabled=True)
+@pytest.mark.parametrize(
+    "live_name,ghost_name",
+    [
+        ("signals-scout-live", "signals-scout-ghost"),
+        # Liveness reads the config's skill rather than the name, so the same guard has to hold
+        # for a bare-named scout.
+        ("my-live-watch", "my-ghost-watch"),
+    ],
+)
+async def test_config_whose_skill_is_gone_is_skipped(ateam, live_name, ghost_name):
+    # A config whose skill was deleted (or is no longer latest) must not be dispatched — its
+    # child workflow would only fail in load_skill_for_run every tick.
+    await database_sync_to_async(_create_skill)(ateam, live_name)
+    await database_sync_to_async(_create_config)(ateam, live_name, enabled=True)
+    await database_sync_to_async(_create_config)(ateam, ghost_name, enabled=True)
 
     planned = await _run_activity()
 
-    assert [p.skill_name for p in planned] == ["signals-scout-live"]
+    assert [p.skill_name for p in planned] == [live_name]
 
 
 # ── Schedule: deterministic due-check, no sampling ──────────────────────────────
@@ -957,7 +1002,7 @@ async def test_stamp_activity_advances_dispatched_configs_to_their_slot_anchor(a
         ateam, "signals-scout-foo", enabled=True, run_interval_minutes=1440, last_run_at=old
     )
 
-    with freeze_time(_DISPATCHED_AT):
+    with time_machine.travel(_DISPATCHED_AT, tick=False):
         env = ActivityEnvironment()
         await env.run(
             stamp_dispatched_signals_scout_runs_activity,
@@ -992,7 +1037,7 @@ async def test_stamp_activity_keeps_the_wall_clock_for_cron_and_probed_configs(a
         ateam, "signals-scout-foo", run_interval_minutes=1440, **config_kwargs
     )
 
-    with freeze_time(_DISPATCHED_AT):
+    with time_machine.travel(_DISPATCHED_AT, tick=False):
         env = ActivityEnvironment()
         await env.run(
             stamp_dispatched_signals_scout_runs_activity,
@@ -1017,7 +1062,7 @@ async def test_stamp_activity_falls_back_to_the_wall_clock_when_slot_alignment_i
     )
     payload = {**_allowlist_payload(), "slot_aligned_dispatch": False}
 
-    with freeze_time(_DISPATCHED_AT), patch(_PAYLOAD_PATH, side_effect=lambda *a, **k: payload):
+    with time_machine.travel(_DISPATCHED_AT, tick=False), patch(_PAYLOAD_PATH, side_effect=lambda *a, **k: payload):
         env = ActivityEnvironment()
         await env.run(
             stamp_dispatched_signals_scout_runs_activity,

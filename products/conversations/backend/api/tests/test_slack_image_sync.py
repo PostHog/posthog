@@ -9,7 +9,7 @@ from products.conversations.backend.slack import (
     extract_slack_files,
     split_slack_attachments,
 )
-from products.conversations.backend.tasks import _read_image_bytes_for_slack_upload, post_reply_to_slack
+from products.conversations.backend.tasks.slack import _read_image_bytes_for_slack_upload, post_reply_to_slack
 
 VALID_PNG_BYTES = (
     b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x02\x00\x00\x00\x90wS\xde"
@@ -254,11 +254,11 @@ class TestSlackImageOutbound(SimpleTestCase):
         payload = _read_image_bytes_for_slack_upload(1, "https://example.com/test.png")
         assert payload is None
 
-    @patch("products.conversations.backend.tasks.resolve_slack_avatar_by_email", return_value=None)
-    @patch("products.conversations.backend.tasks.Team.objects.get")
-    @patch("products.conversations.backend.tasks._upload_image_to_slack_thread")
-    @patch("products.conversations.backend.tasks._read_image_bytes_for_slack_upload")
-    @patch("products.conversations.backend.tasks.get_slack_client")
+    @patch("products.conversations.backend.tasks.slack.resolve_slack_avatar_by_email", return_value=None)
+    @patch("products.conversations.backend.tasks.slack.Team.objects.get")
+    @patch("products.conversations.backend.tasks.slack._upload_image_to_slack_thread")
+    @patch("products.conversations.backend.tasks.slack._read_image_bytes_for_slack_upload")
+    @patch("products.conversations.backend.tasks.slack.get_slack_client")
     def test_post_reply_to_slack_uploads_rich_images(
         self,
         mock_get_client: MagicMock,
@@ -310,8 +310,8 @@ class TestSlackImageOutbound(SimpleTestCase):
             ("avatar_not_found", None, None),
         ]
     )
-    @patch("products.conversations.backend.tasks.Team.objects.get")
-    @patch("products.conversations.backend.tasks.get_slack_client")
+    @patch("products.conversations.backend.tasks.slack.Team.objects.get")
+    @patch("products.conversations.backend.tasks.slack.get_slack_client")
     def test_post_reply_to_slack_icon_url_from_avatar(
         self,
         _label: str,
@@ -327,7 +327,7 @@ class TestSlackImageOutbound(SimpleTestCase):
         fake_team.conversations_settings = {}
         mock_team_get.return_value = fake_team
 
-        with patch("products.conversations.backend.tasks.resolve_slack_avatar_by_email", return_value=avatar_url):
+        with patch("products.conversations.backend.tasks.slack.resolve_slack_avatar_by_email", return_value=avatar_url):
             post_reply_to_slack(
                 ticket_id="ticket-avatar",
                 team_id=1,
@@ -346,11 +346,11 @@ class TestSlackImageOutbound(SimpleTestCase):
         else:
             assert "icon_url" not in call_kwargs
 
-    @patch("products.conversations.backend.tasks.resolve_slack_avatar_by_email", return_value=None)
-    @patch("products.conversations.backend.tasks.Team.objects.get")
-    @patch("products.conversations.backend.tasks._upload_image_to_slack_thread")
-    @patch("products.conversations.backend.tasks._read_image_bytes_for_slack_upload")
-    @patch("products.conversations.backend.tasks.get_slack_client")
+    @patch("products.conversations.backend.tasks.slack.resolve_slack_avatar_by_email", return_value=None)
+    @patch("products.conversations.backend.tasks.slack.Team.objects.get")
+    @patch("products.conversations.backend.tasks.slack._upload_image_to_slack_thread")
+    @patch("products.conversations.backend.tasks.slack._read_image_bytes_for_slack_upload")
+    @patch("products.conversations.backend.tasks.slack.get_slack_client")
     def test_post_reply_to_slack_continues_when_image_upload_fails(
         self,
         mock_get_client: MagicMock,

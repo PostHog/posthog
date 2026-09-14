@@ -67,6 +67,8 @@ pub struct QueryArg {
     pub server: String,
     pub queryid: i64,
     pub since: Option<String>,
+    /// Series bucket width: 10s, 1m (default), 5m or 1h.
+    pub bucket: Option<String>,
 }
 #[derive(Deserialize, schemars::JsonSchema)]
 pub struct DbArg {
@@ -158,16 +160,23 @@ impl PgMcp {
         .map_err(err)?)
     }
     #[tool(
-        description = "Everything about one query id: text, per-minute series, latency percentiles from sampled logs (p50/p90/p95/p99), slowest samples, execution plans (Aurora plan stats and auto_explain), wait events."
+        description = "Everything about one query id: text, bucketed calls/mean series, latency percentiles per bucket and for the whole range from sampled logs (p50/p90/p95/p99, weighted for the server's log sampling settings), slowest samples, execution plans (Aurora plan stats and auto_explain), wait events."
     )]
     async fn query_detail(
         &self,
         Parameters(a): Parameters<QueryArg>,
     ) -> Result<CallToolResult, McpError> {
         let (f, t) = range(&a.since)?;
-        ok(q::query_detail(&self.state.db, &a.server, a.queryid, f, t)
-            .await
-            .map_err(err)?)
+        ok(q::query_detail(
+            &self.state.db,
+            &a.server,
+            a.queryid,
+            f,
+            t,
+            a.bucket.as_deref().unwrap_or("1m"),
+        )
+        .await
+        .map_err(err)?)
     }
     #[tool(
         description = "Wait-event breakdown over time (average active sessions by wait event, sampled every 10s) plus exact Aurora wait counts/times when available."
@@ -339,9 +348,15 @@ impl ServerHandler for PgMcp {
 }
 
 pub fn service(state: Arc<AppState>) -> StreamableHttpService<PgMcp, LocalSessionManager> {
+    let mut config = StreamableHttpServerConfig::default();
+    if state.allowed_hosts.is_empty() {
+        config = config.disable_allowed_hosts();
+    } else {
+        config = config.with_allowed_hosts(state.allowed_hosts.clone());
+    }
     StreamableHttpService::new(
         move || Ok(PgMcp::new(state.clone())),
         LocalSessionManager::default().into(),
-        StreamableHttpServerConfig::default(),
+        config,
     )
 }

@@ -142,7 +142,7 @@ export function SelfDrivingOnboardingFlow(): JSX.Element {
     // including the one this mounts on.
     useOnMountEffect(() => {
         if (stepIndex === 0) {
-            reportOnboardingStarted('welcome', SELF_DRIVING_ONBOARDING_EVENT_PROPS)
+            reportOnboardingStarted(SELF_DRIVING_ONBOARDING_EVENT_PROPS)
         }
     })
     useEffect(() => {

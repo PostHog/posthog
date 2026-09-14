@@ -256,6 +256,8 @@ export function createParseAndAnonymizeMessageStep<T extends ParseMessageStepInp
             return dlq('distinct_id_header_body_mismatch')
         }
 
+        MlMirrorMetrics.incrementMlJsonLdEvents(meta.jsonLdEventCount)
+
         const parsedMessage: ParsedMessageData = {
             metadata: {
                 partition: message.partition,
@@ -270,6 +272,7 @@ export function createParseAndAnonymizeMessageStep<T extends ParseMessageStepInp
             // Events live in `preSerialized` — consumers use its lines + per-event metadata.
             eventsByWindowId: {},
             preSerialized: {
+                windowId: meta.windowId,
                 lines: result.lines!,
                 events: meta.events,
                 consoleLogCount: meta.consoleLogCount,

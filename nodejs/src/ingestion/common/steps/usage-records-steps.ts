@@ -7,7 +7,7 @@ import { EVENTS_USAGE_KEY, UsageKeyResolver } from '~/ingestion/common/usage-rec
 import { BeforeBatchStep } from '~/ingestion/framework/batching-pipeline'
 import { PipelineResult, ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
-import { Person } from '~/types'
+import { EventHeaders, Person } from '~/types'
 
 export interface EventUsageBatchContext {
     eventUsageBatch: UsageRecordBatch
@@ -28,6 +28,7 @@ export function createEventUsageBeforeBatchStep<TInput, CInput, CBatch>(
 
 export interface RecordEventUsageInput {
     preparedEvent: { teamId: number; event: string; eventUuid: string; distinctId: string; timestamp: string }
+    headers: Pick<EventHeaders, 'now'>
     eventUsageBatch: UsageRecordBatch
     processPerson?: boolean
     person?: Person
@@ -58,6 +59,7 @@ export interface EventUsageRecord {
     teamId: number
     usageKey: string
     recordId: string
+    timestampMs?: number
 }
 
 export interface EventUsageRecordContext {
@@ -96,7 +98,9 @@ export function createRecordEventUsageStep<T extends RecordEventUsageInput>(
         }
         const { teamId } = input.preparedEvent
         const recordId = analyticsRecordId(input.preparedEvent)
-        const eventUsageRecords: EventUsageRecord[] = [{ teamId, usageKey, recordId }]
+        const captureTimestampMs = input.headers.now?.getTime()
+        const timestampMs = Number.isFinite(captureTimestampMs) ? captureTimestampMs : undefined
+        const eventUsageRecords: EventUsageRecord[] = [{ teamId, usageKey, recordId, timestampMs }]
         // Mirrors the report's enhanced-persons query: the plain billable count plus a `person_mode`
         // filter, so an event billed under its own key is outside both. Reading the mode stored on
         // the event rather than `processPerson` keeps force upgrades counted.
@@ -104,7 +108,7 @@ export function createRecordEventUsageStep<T extends RecordEventUsageInput>(
             usageKey === EVENTS_USAGE_KEY &&
             resolvePersonMode(input.person, input.processPerson ?? false) !== 'propertyless'
         ) {
-            eventUsageRecords.push({ teamId, usageKey: 'enhanced_person_events', recordId })
+            eventUsageRecords.push({ teamId, usageKey: 'enhanced_person_events', recordId, timestampMs })
         }
         return Promise.resolve(ok({ ...input, eventUsageRecords }))
     }
@@ -127,7 +131,8 @@ export function createRecordEventUsageAfterIngestStep<T extends RecordEventUsage
                     input.ingested,
                     record.teamId,
                     record.usageKey,
-                    record.recordId
+                    record.recordId,
+                    record.timestampMs
                 )
             }
         }

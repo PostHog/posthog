@@ -612,7 +612,7 @@ const MatviewFailureEmailOptions = (): JSX.Element | null => {
             <SimpleSwitch
                 setting="materialized_view_sync_failed_daily"
                 label="Daily digest"
-                description="One email a day listing every failing view."
+                description="One email a day summarizing failing views."
                 dataAttr="materialized_view_sync_failed_daily"
             />
             <SimpleSwitch

@@ -1,6 +1,10 @@
 import { AlertConditionType, InsightThresholdType } from '~/queries/schema/schema-general'
 
-import { deriveAlertCheckPreviewSeries, deriveTrendsAlertPreviewSeries } from './trendsAlertPreview'
+import {
+    deriveAlertCheckPreviewSeries,
+    deriveTrendsAlertPreviewSeries,
+    deriveTrendsBreakdownAlertPreview,
+} from './trendsAlertPreview'
 
 describe('deriveTrendsAlertPreviewSeries', () => {
     it.each([
@@ -15,6 +19,41 @@ describe('deriveTrendsAlertPreviewSeries', () => {
             labels,
             relative: true,
         })
+    })
+
+    it.each([
+        [
+            'moves a relative breakdown onto the compared intervals and gaps the rows that cannot compare',
+            AlertConditionType.RELATIVE_INCREASE,
+            InsightThresholdType.PERCENTAGE,
+            [
+                { key: '0', label: 'Chrome', data: [NaN, 100] },
+                { key: '1', label: 'Safari', data: [100, 100] },
+            ],
+            ['b', 'c'],
+        ],
+        [
+            'keeps an absolute breakdown on the raw intervals',
+            AlertConditionType.ABSOLUTE_VALUE,
+            InsightThresholdType.ABSOLUTE,
+            [
+                { key: '0', label: 'Chrome', data: [0, 4, 8] },
+                { key: '1', label: 'Safari', data: [2, 4, 8] },
+            ],
+            ['a', 'b', 'c'],
+        ],
+    ])('%s', (_case, conditionType, thresholdType, rows, labels) => {
+        expect(
+            deriveTrendsBreakdownAlertPreview(
+                [
+                    { key: '0', label: 'Chrome', data: [0, 4, 8] },
+                    { key: '1', label: 'Safari', data: [2, 4, 8] },
+                ],
+                ['a', 'b', 'c'],
+                conditionType,
+                thresholdType
+            )
+        ).toEqual({ rows, labels })
     })
 
     it('returns an empty series when checks is undefined', () => {

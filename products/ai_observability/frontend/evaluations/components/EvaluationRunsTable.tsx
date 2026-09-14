@@ -8,6 +8,7 @@ import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 
 import { EvaluationResultTag, getEvaluationResultSortValue } from '../../components/EvaluationResultTag'
 import { EvaluationRunTargetCell } from '../../components/EvaluationRunTargetCell'
+import { evaluationIsDetector } from '../constants'
 import { evaluationSupportsRunOutcomes } from '../evaluationCapabilities'
 import { llmEvaluationLogic } from '../llmEvaluationLogic'
 import { EvaluationRun, SentimentEvaluationRunsFilter } from '../types'
@@ -43,6 +44,8 @@ export function EvaluationRunsTable(): JSX.Element {
     const { refreshEvaluationRuns } = useActions(llmEvaluationLogic)
     const showOutcomeFilters = evaluationSupportsRunOutcomes(evaluation)
     const showSentimentFilters = evaluation?.evaluation_type === 'sentiment'
+    // Every run in this table belongs to `evaluation`, so its polarity applies to the whole column.
+    const trueIsFailure = !!evaluation && evaluationIsDetector(evaluation)
 
     // A filter is hiding rows when the evaluation has runs but none match the current filter.
     const filterHidesRuns = evaluationRuns.length > 0 && filteredEvaluationRuns.length === 0
@@ -95,9 +98,12 @@ export function EvaluationRunsTable(): JSX.Element {
         {
             title: 'Result',
             key: 'result',
-            render: (_, run) => <EvaluationResultTag run={run} />,
+            render: (_, run) => <EvaluationResultTag run={run} trueIsFailure={trueIsFailure} />,
             sorter: (a, b) => {
-                return getEvaluationResultSortValue(b) - getEvaluationResultSortValue(a)
+                return (
+                    getEvaluationResultSortValue(b, { trueIsFailure }) -
+                    getEvaluationResultSortValue(a, { trueIsFailure })
+                )
             },
         },
         {

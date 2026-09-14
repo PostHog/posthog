@@ -106,6 +106,9 @@ function sanitizeContentType(contentType: string | undefined, fallback: string):
 // actual send target — see `canDedupeByEmail`.
 const DEFAULT_EMAIL_TO_TEMPLATE_RE = /^\s*\{\{\s*person\.properties\.email\s*\}\}\s*$/
 
+// One account assignment filter is spread over these three keys.
+const ASSIGNMENT_FILTER_KEYS = ['assignment_status', 'assigned_to_user_ids', 'all_roles_unassigned'] as const
+
 function canDedupeByEmail(hogFlow: { actions?: unknown }): boolean {
     if (!Array.isArray(hogFlow.actions)) {
         return false
@@ -1324,7 +1327,17 @@ export class CdpApi {
                 throw new Error('Batch resolver producer is not configured (missing CYCLOTRON_NODE_DATABASE_URL)')
             }
 
-            const audienceType = req.body.filters?.audience_type ?? hogFlow.trigger.filters.audience_type
+            const snapshotFilters: BatchResolverState['filters'] | undefined = req.body.filters
+            const audienceType = snapshotFilters?.audience_type ?? hogFlow.trigger.filters.audience_type
+            // A snapshot saved before assignment statuses existed carries assignee ids or the legacy
+            // flag, but no status. Resolved key by key, it inherits the live trigger's status, and
+            // Django rejects a status paired with assignee ids, so the run fails instead of sending
+            // the audience the confirm check validated. One source answers for all three keys.
+            const assignmentFilters =
+                snapshotFilters && ASSIGNMENT_FILTER_KEYS.some((key) => snapshotFilters[key] !== undefined)
+                    ? snapshotFilters
+                    : hogFlow.trigger.filters
+            const assignmentStatus = assignmentFilters.assignment_status
             const initialState: BatchResolverState = {
                 batchJobId: parent_run_id,
                 teamId: team.id,
@@ -1334,15 +1347,14 @@ export class CdpApi {
                     // trigger here would let an edit landing after the confirm check widen the send.
                     // Fallback covers callers that predate the snapshot.
                     audience_type: audienceType,
-                    properties: req.body.filters?.properties ?? (hogFlow.trigger.filters.properties || []),
+                    properties: snapshotFilters?.properties ?? (hogFlow.trigger.filters.properties || []),
                     filter_test_accounts:
-                        req.body.filters?.filter_test_accounts ??
+                        snapshotFilters?.filter_test_accounts ??
                         (hogFlow.trigger.filters.filter_test_accounts || false),
-                    tag_names: req.body.filters?.tag_names ?? hogFlow.trigger.filters.tag_names,
-                    assigned_to_user_ids:
-                        req.body.filters?.assigned_to_user_ids ?? hogFlow.trigger.filters.assigned_to_user_ids,
-                    all_roles_unassigned:
-                        req.body.filters?.all_roles_unassigned ?? hogFlow.trigger.filters.all_roles_unassigned,
+                    tag_names: snapshotFilters?.tag_names ?? hogFlow.trigger.filters.tag_names,
+                    assignment_status: assignmentStatus,
+                    assigned_to_user_ids: assignmentFilters.assigned_to_user_ids,
+                    all_roles_unassigned: assignmentStatus ? undefined : assignmentFilters.all_roles_unassigned,
                 },
                 variables: req.body.variables ?? {},
                 groupTypeIndex: typeof req.body.group_type_index === 'number' ? req.body.group_type_index : undefined,

@@ -1,6 +1,14 @@
 import type { SignalReport } from "@posthog/shared/types";
+import { useInboxReportActionDraftStore } from "@posthog/ui/features/inbox/stores/inboxReportActionDraftStore";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, renderHook, waitFor } from "@testing-library/react";
+import {
+  act,
+  render,
+  renderHook,
+  screen,
+  waitFor,
+} from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -10,6 +18,8 @@ const mocks = vi.hoisted(() => ({
   trackResult: vi.fn(),
   actionTrackerArgs: [] as unknown[],
   resultTrackerArgs: [] as unknown[],
+  toastSuccess: vi.fn(),
+  toastError: vi.fn(),
 }));
 
 vi.mock("@posthog/ui/features/auth/authClient", () => ({
@@ -30,7 +40,7 @@ vi.mock("@posthog/ui/features/inbox/hooks/useReportActionTracker", () => ({
 }));
 
 vi.mock("@posthog/ui/primitives/toast", () => ({
-  toast: { success: vi.fn(), error: vi.fn() },
+  toast: { success: mocks.toastSuccess, error: mocks.toastError },
 }));
 
 import { useInboxReportResolveAction } from "./useInboxReportResolveAction";
@@ -47,26 +57,47 @@ const report: SignalReport = {
   updated_at: "2026-08-20T09:00:00Z",
 };
 
-function wrapper({ children }: { children: ReactNode }): React.JSX.Element {
+function createWrapper(queryClient = new QueryClient()) {
+  return function Wrapper({
+    children,
+  }: {
+    children: ReactNode;
+  }): React.JSX.Element {
+    return (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    );
+  };
+}
+
+const wrapper = createWrapper(
+  new QueryClient({
+    defaultOptions: {
+      queries: { retry: false },
+      mutations: { retry: false },
+    },
+  }),
+);
+
+function ResolveActionHarness(): React.JSX.Element {
+  const { dialog, openDialog } = useInboxReportResolveAction(report);
   return (
-    <QueryClientProvider
-      client={
-        new QueryClient({
-          defaultOptions: {
-            queries: { retry: false },
-            mutations: { retry: false },
-          },
-        })
-      }
-    >
-      {children}
-    </QueryClientProvider>
+    <>
+      <button type="button" onClick={() => openDialog()}>
+        Open resolve
+      </button>
+      {dialog}
+    </>
   );
 }
 
 describe("useInboxReportResolveAction", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    useInboxReportActionDraftStore.setState({
+      generation: 0,
+      dismiss: {},
+      resolve: {},
+    });
   });
 
   it("tracks triage outcomes and blocks overlapping resolve requests", async () => {
@@ -101,5 +132,139 @@ describe("useInboxReportResolveAction", () => {
         expect.any(Number),
       ),
     );
+  });
+
+  it("updates the list before the request finishes without a success toast", async () => {
+    let finishRequest: ((value: SignalReport) => void) | undefined;
+    mocks.updateState.mockReturnValue(
+      new Promise<SignalReport>((resolve) => {
+        finishRequest = resolve;
+      }),
+    );
+    const queryClient = new QueryClient();
+    const listKey = [
+      "inbox",
+      "signal-reports",
+      "list",
+      { status: "ready" },
+    ] as const;
+    queryClient.setQueryData(listKey, { results: [report], count: 1 });
+    const invalidate = vi
+      .spyOn(queryClient, "invalidateQueries")
+      .mockReturnValue(new Promise<void>(() => {}));
+    const { result } = renderHook(() => useInboxReportResolveAction(report), {
+      wrapper: createWrapper(queryClient),
+    });
+
+    act(() => result.current.resolveWithReason("fixed_outside_posthog"));
+    await waitFor(() => expect(mocks.updateState).toHaveBeenCalledOnce());
+    expect(queryClient.getQueryData(listKey)).toEqual({
+      results: [],
+      count: 0,
+    });
+    await act(async () => finishRequest?.({ ...report, status: "resolved" }));
+
+    expect(mocks.toastSuccess).not.toHaveBeenCalled();
+    expect(invalidate).toHaveBeenCalled();
+  });
+
+  it("restores the list when the request fails", async () => {
+    mocks.updateState.mockRejectedValue(new Error("Request failed"));
+    const queryClient = new QueryClient({
+      defaultOptions: { mutations: { retry: false } },
+    });
+    const listKey = [
+      "inbox",
+      "signal-reports",
+      "list",
+      { status: "ready" },
+    ] as const;
+    queryClient.setQueryData(listKey, { results: [report], count: 1 });
+    const { result } = renderHook(() => useInboxReportResolveAction(report), {
+      wrapper: createWrapper(queryClient),
+    });
+
+    act(() => result.current.resolveWithReason("fixed_outside_posthog"));
+
+    await waitFor(() =>
+      expect(queryClient.getQueryData(listKey)).toEqual({
+        results: [report],
+        count: 1,
+      }),
+    );
+    expect(mocks.toastError).toHaveBeenCalledWith("Request failed");
+  });
+
+  it("reopens a failed resolve with the submitted reason and note", async () => {
+    const user = userEvent.setup();
+    mocks.updateState.mockRejectedValue(new Error("Request failed"));
+    const queryClient = new QueryClient({
+      defaultOptions: { mutations: { retry: false } },
+    });
+    render(<ResolveActionHarness />, {
+      wrapper: createWrapper(queryClient),
+    });
+
+    await user.click(screen.getByText("Open resolve"));
+    await user.click(
+      screen.getByRole("radio", { name: "Fixed outside PostHog" }),
+    );
+    const note = screen.getByPlaceholderText(
+      "Optional: link to the fix or explain what changed",
+    );
+    await user.type(note, "Fixed in a separate change");
+    await user.click(screen.getByText("Resolve report"));
+
+    await waitFor(() =>
+      expect(
+        screen.getByRole("radio", { name: "Fixed outside PostHog" }),
+      ).toBeChecked(),
+    );
+    expect(
+      screen.getByPlaceholderText(
+        "Optional: link to the fix or explain what changed",
+      ),
+    ).toHaveValue("Fixed in a separate change");
+  });
+
+  it("restores retry input after the action screen unmounts", async () => {
+    const user = userEvent.setup();
+    let rejectRequest: ((error: Error) => void) | undefined;
+    mocks.updateState.mockReturnValue(
+      new Promise<SignalReport>((_resolve, reject) => {
+        rejectRequest = reject;
+      }),
+    );
+    const queryClient = new QueryClient({
+      defaultOptions: { mutations: { retry: false } },
+    });
+    const firstRender = render(<ResolveActionHarness />, {
+      wrapper: createWrapper(queryClient),
+    });
+
+    await user.click(screen.getByText("Open resolve"));
+    await user.click(
+      screen.getByRole("radio", { name: "Fixed outside PostHog" }),
+    );
+    await user.type(
+      screen.getByPlaceholderText(
+        "Optional: link to the fix or explain what changed",
+      ),
+      "Retain this note",
+    );
+    await user.click(screen.getByText("Resolve report"));
+    firstRender.unmount();
+    await act(async () => rejectRequest?.(new Error("Request failed")));
+
+    render(<ResolveActionHarness />, { wrapper: createWrapper(queryClient) });
+
+    expect(
+      await screen.findByRole("radio", { name: "Fixed outside PostHog" }),
+    ).toBeChecked();
+    expect(
+      screen.getByPlaceholderText(
+        "Optional: link to the fix or explain what changed",
+      ),
+    ).toHaveValue("Retain this note");
   });
 });

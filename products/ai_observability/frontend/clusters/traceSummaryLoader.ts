@@ -16,7 +16,8 @@ export async function loadTraceSummaries(
     existingSummaries: Record<string, TraceSummary>,
     windowStart: string,
     windowEnd: string,
-    level: ClusteringLevel = 'trace'
+    level: ClusteringLevel,
+    detectorEvaluationIds: string[]
 ): Promise<Record<string, TraceSummary>> {
     const missingItemIds = itemIds.filter((id) => !existingSummaries[id])
 
@@ -25,7 +26,7 @@ export async function loadTraceSummaries(
     }
 
     if (level === 'evaluation') {
-        return loadEvaluationSummaries(missingItemIds, windowStart, windowEnd)
+        return loadEvaluationSummaries(missingItemIds, windowStart, windowEnd, detectorEvaluationIds)
     }
 
     const eventName = level === 'generation' ? '$ai_generation_summary' : '$ai_trace_summary'
@@ -85,7 +86,8 @@ export async function loadTraceSummaries(
 async function loadEvaluationSummaries(
     evalIds: string[],
     windowStart: string,
-    windowEnd: string
+    windowEnd: string,
+    detectorEvaluationIds: string[]
 ): Promise<Record<string, TraceSummary>> {
     // Cluster members can include eval events from Stage B's embedding lookback,
     // which extends a few days past the UI's run-day window. Widen by 7 days on
@@ -101,7 +103,8 @@ async function loadEvaluationSummaries(
                 properties.$ai_evaluation_runtime as runtime,
                 properties.$ai_target_event_id as target_generation_id,
                 properties.$ai_trace_id as trace_id,
-                timestamp
+                timestamp,
+                properties.$ai_evaluation_id as evaluation_id
             FROM events
             WHERE event = '$ai_evaluation'
                 AND timestamp >= parseDateTimeBestEffort(${windowStart}) - INTERVAL 7 DAY
@@ -120,7 +123,7 @@ async function loadEvaluationSummaries(
         if (!evalId) {
             continue
         }
-        const verdict = deriveVerdict(r[2], r[3])
+        const verdict = deriveVerdict(r[2], r[3], detectorEvaluationIds.includes(r[9] || ''))
         const name = r[1] || 'Evaluation'
         summaries[evalId] = {
             traceId: r[7] || '',
@@ -158,7 +161,8 @@ export interface EvaluationItemAttributes {
 export async function loadEvaluationItemAttributes(
     evalIds: string[],
     windowStart: string,
-    windowEnd: string
+    windowEnd: string,
+    detectorEvaluationIds: string[]
 ): Promise<Record<string, EvaluationItemAttributes>> {
     if (evalIds.length === 0) {
         return {}
@@ -172,7 +176,8 @@ export async function loadEvaluationItemAttributes(
                 toString(uuid) as eval_id,
                 properties.$ai_evaluation_name as name,
                 properties.$ai_evaluation_result as result,
-                properties.$ai_evaluation_applicable as applicable
+                properties.$ai_evaluation_applicable as applicable,
+                properties.$ai_evaluation_id as evaluation_id
             FROM events
             WHERE event = '$ai_evaluation'
                 AND timestamp >= parseDateTimeBestEffort(${windowStart}) - INTERVAL 7 DAY
@@ -191,7 +196,7 @@ export async function loadEvaluationItemAttributes(
         }
         out[evalId] = {
             evaluatorName: r[1] || 'Unknown',
-            verdict: deriveVerdict(r[2], r[3]),
+            verdict: deriveVerdict(r[2], r[3], detectorEvaluationIds.includes(r[4] || '')),
         }
     }
     return out
@@ -223,17 +228,18 @@ export function formatEvalTitle(summary: TraceSummary | undefined, maxReasoningC
     return `${name} — ${preview}`
 }
 
-function deriveVerdict(result: string | null, applicable: string | null): 'pass' | 'fail' | 'n/a' | 'unknown' {
+export function deriveVerdict(
+    result: string | null,
+    applicable: string | null,
+    trueIsFailure: boolean
+): 'pass' | 'fail' | 'n/a' | 'unknown' {
     const a = (applicable || '').toLowerCase()
     if (a === 'false') {
         return 'n/a'
     }
     const v = (result || '').toLowerCase()
-    if (v === 'true') {
-        return 'pass'
+    if (v !== 'true' && v !== 'false') {
+        return 'unknown'
     }
-    if (v === 'false') {
-        return 'fail'
-    }
-    return 'unknown'
+    return (v === 'true') === trueIsFailure ? 'fail' : 'pass'
 }
