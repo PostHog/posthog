@@ -110,17 +110,17 @@ from .config import (
 _LEGACY_KEYCHAIN_SERVICE = "posthog-claude-oauth-token"
 _POSTHOG_COMMIT_SIGNING_HANDBOOK_URL = "https://posthog.com/handbook/engineering/security#commit-signing"
 
-# Reaching a devbox requires a Tailscale ACL grant. Engineers get it from
-# group:engineering in the cloud-infra tailnet policy; without it the Coder
+# Reaching a devbox requires a Tailscale ACL grant. Every employee gets it from
+# group:employees in the cloud-infra tailnet policy; without it the Coder
 # control plane (10.70.0.1:443) is simply unroutable and every devbox command
 # fails at the reachability check.
 _TAILNET_POLICY_URL = "https://github.com/PostHog/posthog-cloud-infra/blob/main/tailnet-policy.hujson"
 _TAILNET_ACCESS_PREREQ = (
-    f"Devbox access needs you on the `{EXPECTED_TAILNET}` tailnet (not dev / "
-    "prod-us / prod-eu / internal — those are for CI runners and subnet "
-    "routers), with your email in `group:engineering` in "
-    "posthog-cloud-infra/tailnet-policy.hujson.\n"
-    f"    Not granted yet? Add yourself via PR: {_TAILNET_POLICY_URL}"
+    f"Devbox access needs you on the `{EXPECTED_TAILNET}` tailnet. The dev, "
+    "prod-us, prod-eu and internal tailnets are for CI runners and subnet "
+    "routers and don't reach devboxes. Every PostHog employee has access "
+    "through `group:employees` in posthog-cloud-infra/tailnet-policy.hujson.\n"
+    f"    Still blocked on the right tailnet? Ask Team DevEx. Policy: {_TAILNET_POLICY_URL}"
 )
 
 WORKSPACE_STATUS_COLORS = {
