@@ -1297,13 +1297,19 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
             )
             if filter_conditions:
                 candidates = candidates + sql.SQL(" AND ") + and_join(filter_conditions)
+            # `IN` never matches a key holding NULL, so a nullable key would go unprobed.
+            # GROUP BY treats NULLs as equal, and the merge sees them the same way.
+            key_matches: list[sql.Composable] = [
+                sql.SQL("(t.{key} = c.{key} OR (t.{key} IS NULL AND c.{key} IS NULL))").format(key=key)
+                for key in key_columns
+            ]
             conditions.append(
-                sql.SQL("({cols}) IN ({candidates})").format(
-                    cols=sql.SQL(", ").join(key_columns), candidates=candidates
+                sql.SQL("EXISTS (SELECT 1 FROM ({candidates}) AS c WHERE {matches})").format(
+                    candidates=candidates, matches=and_join(key_matches)
                 )
             )
 
-        query = sql.SQL("SELECT {cols} FROM {table}").format(cols=sql.SQL(", ").join(key_columns), table=table)
+        query = sql.SQL("SELECT {cols} FROM {table} AS t").format(cols=sql.SQL(", ").join(key_columns), table=table)
         if conditions:
             query = query + sql.SQL(" WHERE ") + and_join(conditions)
         group_by = sql.SQL(", ").join(sql.SQL(str(i + 1)) for i, _ in enumerate(primary_keys))

@@ -914,8 +914,18 @@ class TestHasDuplicatePrimaryKeys:
         )
 
         executed = cursor.execute.call_args.args[0].as_string()
-        assert "IN (SELECT DISTINCT" in executed
-        assert executed.index("GROUP BY") > executed.index("IN (SELECT DISTINCT")
+        assert "EXISTS (SELECT 1 FROM (SELECT DISTINCT" in executed
+        assert executed.index("GROUP BY") > executed.index("EXISTS (SELECT 1 FROM (SELECT DISTINCT")
+
+    def test_window_matches_a_null_key_as_well(self, impl: Any, cursor: Any, logger: Any) -> None:
+        cursor.fetchone.return_value = None
+        impl.has_duplicate_primary_keys(
+            cursor, "public", "t", ["id", "region"], logger, incremental_window=("updated_at", ">", "2026-01-01")
+        )
+        executed = cursor.execute.call_args.args[0].as_string()
+        assert '(t."id" = c."id" OR (t."id" IS NULL AND c."id" IS NULL))' in executed
+        assert '(t."region" = c."region" OR (t."region" IS NULL AND c."region" IS NULL))' in executed
+        assert " IN (" not in executed
 
     def test_row_filters_bound_both_sides_of_the_check(self, impl: Any, cursor: Any, logger: Any) -> None:
         cursor.fetchone.return_value = None

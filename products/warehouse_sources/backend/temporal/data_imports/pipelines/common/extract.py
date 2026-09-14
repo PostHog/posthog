@@ -318,6 +318,16 @@ async def persist_primary_keys(
     is_incremental: bool,
     logger: FilteringBoundLogger,
 ) -> None:
+    await _persist_detected_primary_keys(schema, resource, is_incremental, logger)
+    await persist_verified_primary_keys(schema, resource, logger)
+
+
+async def _persist_detected_primary_keys(
+    schema: "ExternalDataSchema",
+    resource: SourceResponse,
+    is_incremental: bool,
+    logger: FilteringBoundLogger,
+) -> None:
     """Persist a freshly resolved primary key so future runs stop depending on flaky live
     detection (e.g. a Snowflake `SHOW PRIMARY KEYS` that intermittently returns nothing).
 
