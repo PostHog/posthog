@@ -57,7 +57,7 @@ listeners(({ actions, values }) => ({
 })),
 ```
 
-Statuses: `loading` (not yet known - the gate holds a spinner, never flashes the empty dashboard), `unknown` (detection failed with no earlier answer - the gate fails open to the scene), `needs-setup`, `waiting-for-data` (optional middle state: instrumented but no traffic yet), `has-data`. Binary products simply never emit `waiting-for-data`. **Your detection logic must handle its failure path** - a query that fails forever must not leave the status `loading`. Statuses are stamped with the team they were detected for, so project switches automatically reset to `loading`.
+Statuses: `loading` (not yet known - the gate holds a spinner, never flashes the empty dashboard), `unknown` (detection failed with no earlier answer - the gate fails open to the scene), `needs-setup`, `waiting-for-data` (optional middle state: instrumented but no traffic yet), `has-data`. Binary products simply never emit `waiting-for-data`. **Your detection logic must handle its failure path** - a query that fails forever must not leave the status `loading`. Statuses are stamped with the team they were detected for, so project switches automatically reset to `loading`. A bespoke logic must therefore re-report whenever the current team changes - otherwise the earlier stamp stays, and the gate reads it as `loading` for good. As a backstop, `loading` fails open to `unknown` after `SETUP_STATUS_FAIL_OPEN_MS` of visible time with no answer for the current team.
 
 ### 2. Create the config
 

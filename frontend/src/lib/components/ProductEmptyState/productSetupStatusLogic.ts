@@ -1,4 +1,4 @@
-import { MakeLogicType, actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import posthog from 'posthog-js'
 import { v4 as uuid } from 'uuid'
 
@@ -14,6 +14,14 @@ import type { ProductEmptyStateMode, ProductSetupStatus } from './types'
 export interface ProductSetupStatusLogicProps {
     productKey: ProductKey
 }
+
+/**
+ * How long `loading` may hold a surface before it fails open to `unknown`. Detection can
+ * stall for good - a check that never returns, or an answer stamped for a team that never
+ * comes back - and the gate covers the whole scene while it does, with no way out but a
+ * reload.
+ */
+export const SETUP_STATUS_FAIL_OPEN_MS = 10000
 
 interface DetectedStatus {
     status: ProductSetupStatus
@@ -51,6 +59,9 @@ export interface productSetupStatusLogicActions {
     ) => {
         status: ProductSetupStatus
         teamId: number | null
+    }
+    armFailOpenClock: () => {
+        value: true
     }
     reportSetupInteraction: (
         action: string,
@@ -99,6 +110,9 @@ export interface productSetupStatusLogicActions {
     }
     skipEmptyState: () => {
         value: true
+    }
+    timeOutLoading: (teamId: number | null) => {
+        teamId: number | null
     }
     unskipEmptyState: () => {
         value: true
@@ -159,6 +173,8 @@ export const productSetupStatusLogic = kea<productSetupStatusLogicType>([
         applyDetectedStatus: (status: ProductSetupStatus, teamId: number | null) => ({ status, teamId }),
         skipEmptyState: true,
         unskipEmptyState: true,
+        timeOutLoading: (teamId: number | null) => ({ teamId }),
+        armFailOpenClock: true,
         setSkippedForTeam: (teamId: number, skipped: boolean) => ({ teamId, skipped }),
         setSetupAttempt: (projectKey: string, attempt: SetupAttempt) => ({ projectKey, attempt }),
         reportSetupShown: (mode: ProductEmptyStateMode, preview: boolean = false) => ({ mode, preview }),
@@ -219,7 +235,7 @@ export const productSetupStatusLogic = kea<productSetupStatusLogicType>([
                 status === 'waiting-for-data' ? 'waiting-for-data' : 'needs-setup',
         ],
     }),
-    listeners(({ actions, values, props }) => ({
+    listeners(({ actions, values, props, cache }) => ({
         reportSetupShown: ({ mode, preview }) => {
             actions.reportSetupInteraction('shown', mode, null, preview)
         },
@@ -249,6 +265,10 @@ export const productSetupStatusLogic = kea<productSetupStatusLogicType>([
             })
         },
         applyDetectedStatus: ({ status, teamId }) => {
+            if (teamId === values.currentTeamId) {
+                // The current team has its answer, so the clock has nothing left to rescue.
+                cache.disposables.dispose('fail-open')
+            }
             const attempt = values.setupAttempt
             if (
                 status === 'has-data' &&
@@ -284,6 +304,48 @@ export const productSetupStatusLogic = kea<productSetupStatusLogicType>([
             }
             actions.applyDetectedStatus(status, values.currentTeamId)
         },
+        timeOutLoading: ({ teamId }) => {
+            posthog.capture('product empty state detection timed out', {
+                product_key: props.productKey,
+                project_id: teamId,
+            })
+            // `unknown` is the fail-open answer: surfaces render the real product, and the
+            // no-downgrade rule above keeps a late `needs-setup` from replacing it.
+            actions.applyDetectedStatus('unknown', teamId)
+        },
+        // Arms the clock for whichever team is current, once per team: the team reloads on
+        // its own every 30 seconds, and re-arming on each of those would keep pushing the
+        // deadline out so it never arrives. A hidden tab pauses the clock, so time only runs
+        // while someone is looking at the stalled surface.
+        armFailOpenClock: () => {
+            if (cache.armedTeamId === values.currentTeamId) {
+                return
+            }
+            cache.armedTeamId = values.currentTeamId
+            // The disposables plugin clears the timer when the tab hides and runs this setup
+            // again when the tab comes back. The budget must therefore carry across the pause.
+            // A fresh ten seconds on each return lets a user who switches tabs hold the spinner
+            // for the whole session, which is the stall this clock exists to end. Each arming
+            // owns its budget, so the teardown of an earlier one cannot spend it.
+            const budget = { remainingMs: SETUP_STATUS_FAIL_OPEN_MS }
+            cache.disposables.add(() => {
+                const resumedAt = Date.now()
+                const id = window.setTimeout(() => {
+                    budget.remainingMs = 0
+                    if (values.status === 'loading') {
+                        actions.timeOutLoading(values.currentTeamId)
+                    }
+                }, budget.remainingMs)
+                return () => {
+                    clearTimeout(id)
+                    budget.remainingMs = Math.max(0, budget.remainingMs - (Date.now() - resumedAt))
+                }
+            }, 'fail-open')
+        },
+        // A new team has no answer yet, so the clock starts again for it.
+        [teamLogic.actionTypes.loadCurrentTeamSuccess]: () => {
+            actions.armFailOpenClock()
+        },
         skipEmptyState: () => {
             posthog.capture('product empty state skipped', { product_key: props.productKey })
             if (values.currentTeamId) {
@@ -297,4 +359,7 @@ export const productSetupStatusLogic = kea<productSetupStatusLogicType>([
             }
         },
     })),
+    afterMount(({ actions }) => {
+        actions.armFailOpenClock()
+    }),
 ])
