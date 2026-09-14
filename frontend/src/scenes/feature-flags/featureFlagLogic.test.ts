@@ -331,6 +331,11 @@ describe('featureFlagLogic', () => {
             expect(lemonToast.info).toHaveBeenCalledTimes(1)
 
             const [, options] = jest.mocked(lemonToast.info).mock.calls[0]
+            // Scoped to this flag. The default id hashes the message, which names no flag, so a
+            // notice still open for another flag would swallow this one as a duplicate and keep a
+            // button that reloads that other flag.
+            expect(options?.toastId).toBe('feature-flag-agent-change-1')
+
             await expectLogic(logic, () => void options?.button?.action())
                 .toDispatchActions(['loadFeatureFlag', 'loadFeatureFlagSuccess'])
                 .toFinishAllListeners()
