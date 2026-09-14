@@ -1,10 +1,11 @@
 import { MakeLogicType, actions, afterMount, connect, kea, key, path, props } from 'kea'
 import { loaders } from 'kea-loaders'
 
+import { apiMutator } from 'lib/api-orval-mutator'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { visionAlertsEventsList } from '../generated/api'
-import type { VisionAlertEventApi } from '../generated/api.schemas'
+import type { PaginatedVisionAlertEventListApi, VisionAlertEventApi } from '../generated/api.schemas'
 
 export interface ScannerAlertEventsLogicProps {
     alertId: string
@@ -113,11 +114,7 @@ export const scannerAlertEventsLogic = kea<scannerAlertEventsLogicType>([
                     if (!nextUrl) {
                         return values.eventsPage
                     }
-                    const params = new URL(nextUrl).searchParams
-                    const data = await visionAlertsEventsList(String(values.currentTeamId), props.alertId, {
-                        limit: Number(params.get('limit')),
-                        offset: Number(params.get('offset')),
-                    })
+                    const data = await apiMutator<PaginatedVisionAlertEventListApi>(nextUrl, { method: 'GET' })
                     return {
                         results: [...values.eventsPage.results, ...data.results],
                         next: data.next ?? null,
