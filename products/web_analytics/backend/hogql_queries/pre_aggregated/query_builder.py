@@ -14,8 +14,9 @@ from products.web_analytics.backend.hogql_queries.pre_aggregated.property_transf
     PreAggregatedPropertyTransformer,
 )
 
-# The pre-aggregated tables keep the entry hostname and pathname, but not the full entry URL.
-CUSTOM_CHANNEL_FIELDS_ABSENT_FROM_PRE_AGGREGATED = {CustomChannelField.URL}
+# The pre-aggregated tables keep the entry pathname, but not the entry URL. Their `host` column holds the
+# event host, so a session that spans two hosts carries a host the live path would not match against.
+CUSTOM_CHANNEL_FIELDS_ABSENT_FROM_PRE_AGGREGATED = {CustomChannelField.URL, CustomChannelField.HOSTNAME}
 
 # V1 tables have been removed - always use v2 tables
 get_stats_table = lambda use_v2: "web_pre_aggregated_stats"

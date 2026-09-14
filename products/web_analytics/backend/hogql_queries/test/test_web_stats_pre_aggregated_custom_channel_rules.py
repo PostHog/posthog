@@ -36,6 +36,14 @@ def _rule(channel_type: str, key: CustomChannelField, value: str) -> CustomChann
     )
 
 
+# The pre-aggregated tables hold no entry URL, and their host column is the event host rather than the
+# session entry host, so a rule on either field must fall back to the live path.
+FIELDS_ABSENT_FROM_PRE_AGGREGATED = [
+    ("url", CustomChannelField.URL, "https://example.com/pricing", "Pricing page"),
+    ("hostname", CustomChannelField.HOSTNAME, "example.com", "Main site"),
+]
+
+
 class TestWebStatsPreAggregatedCustomChannelRules(WebAnalyticsPreAggregatedTestBase):
     def _setup_test_data(self):
         with time_machine.travel("2024-01-01T09:00:00Z", tick=False):
@@ -115,23 +123,27 @@ class TestWebStatsPreAggregatedCustomChannelRules(WebAnalyticsPreAggregatedTestB
         assert channel_type in {result[0] for result in preagg_response.results}
         assert self._sort_results(preagg_response.results) == self._sort_results(live_response.results)
 
-    def test_custom_rule_on_url_falls_back_to_live_query(self):
-        custom_rules = [_rule("Pricing page", CustomChannelField.URL, "https://example.com/pricing")]
+    @parameterized.expand(FIELDS_ABSENT_FROM_PRE_AGGREGATED)
+    def test_custom_rule_on_absent_field_falls_back_to_live_query(self, _name, key, value, channel_type):
+        custom_rules = [_rule(channel_type, key, value)]
 
         response = self._calculate(use_preagg=True, custom_rules=custom_rules)
 
         assert response.preComputeStrategy == WebAnalyticsPreComputeStrategy.LIVE
-        assert "Pricing page" in {result[0] for result in response.results}
+        assert channel_type in {result[0] for result in response.results}
 
-    def test_channel_type_filter_with_custom_rule_on_url_falls_back_to_live_query(self):
-        custom_rules = [_rule("Pricing page", CustomChannelField.URL, "https://example.com/pricing")]
+    @parameterized.expand(FIELDS_ABSENT_FROM_PRE_AGGREGATED)
+    def test_channel_type_filter_with_custom_rule_on_absent_field_falls_back_to_live_query(
+        self, _name, key, value, channel_type
+    ):
+        custom_rules = [_rule(channel_type, key, value)]
 
         response = self._calculate(
             use_preagg=True,
             custom_rules=custom_rules,
             breakdown_by=WebStatsBreakdown.BROWSER,
             properties=[
-                SessionPropertyFilter(key="$channel_type", value="Pricing page", operator="exact", type="session")
+                SessionPropertyFilter(key="$channel_type", value=channel_type, operator="exact", type="session")
             ],
         )
 
