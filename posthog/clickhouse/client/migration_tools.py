@@ -1,7 +1,8 @@
 import logging
 from functools import cache
-from typing import Optional
+from typing import Any, Optional, Protocol
 
+from clickhouse_driver import Client
 from infi.clickhouse_orm import migrations
 
 from posthog import settings
@@ -16,6 +17,16 @@ from posthog.settings.data_stores import (
 )
 
 logger = logging.getLogger("migrations")
+
+
+class HostQuery(Protocol):
+    """A statement that builds itself from the host it runs on, for syntax that moved between
+    the ClickHouse versions PostHog supports. `sql` is the form migration tooling prints."""
+
+    @property
+    def sql(self) -> str: ...
+
+    def __call__(self, client: Client) -> Any: ...
 
 
 @cache
@@ -33,7 +44,7 @@ def _collapses_to_all_nodes() -> bool:
 
 
 def run_sql_with_exceptions(
-    sql: str,
+    sql: str | HostQuery,
     node_roles: list[NodeRole] | NodeRole | None = None,
     sharded: Optional[bool] = None,
     is_alter_on_replicated_table: Optional[bool] = None,
@@ -48,8 +59,8 @@ def run_sql_with_exceptions(
     it accommodates operations such as those on replicated tables.
 
     Parameters:
-    sql: str
-        The SQL query to be executed.
+    sql: str | HostQuery
+        The SQL query to be executed, or a query that picks its statement from the server version.
     node_roles: List of roles to execute the migration on, optional (default is NodeRole.DATA if not specified)
         Specifies which type of node the query should target during execution.
         In general, run everything on NodeRole.DATA except changes to sharded tables / writable distributed tables.
@@ -90,7 +101,7 @@ def run_sql_with_exceptions(
     def run_migration():
         cluster = get_migrations_cluster()
 
-        query = Query(sql)
+        query = Query(sql) if isinstance(sql, str) else sql
 
         if sharded and is_alter_on_replicated_table:
             is_local_or_test = _collapses_to_all_nodes()
@@ -115,7 +126,7 @@ def run_sql_with_exceptions(
 
     # Attach metadata for validation tools
     # Use original_node_roles (before debug override) for validation purposes
-    operation._sql = sql
+    operation._sql = sql if isinstance(sql, str) else sql.sql
     operation._node_roles = original_node_roles
     # node_roles_list reflects the debug/hobby override (e.g. collapsed to NodeRole.ALL),
     # i.e. the roles this migration actually targets under the current settings.
