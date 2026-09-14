@@ -739,7 +739,10 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
                 sub_dict: dict = sub.model_dump() if hasattr(sub, "model_dump") else sub  # type: ignore[assignment]
                 self._validate_detector_params(sub_dict)
         else:
-            self._validate_detector_params(value)
+            # Range-check the coerced values, not the raw body. Pydantic accepts a numeric string
+            # such as "10" and converts it, so comparing the raw body would raise a TypeError and
+            # return a 500 where a 400 belongs. Unset params stay None in the dump and are skipped.
+            self._validate_detector_params(root.model_dump())
 
         return validated.model_dump() if hasattr(validated, "model_dump") else value
 
@@ -1003,7 +1006,7 @@ class AlertSimulateSerializer(serializers.Serializer):
                 sub_dict: dict = sub.model_dump() if hasattr(sub, "model_dump") else sub  # type: ignore[assignment]
                 AlertSerializer._validate_detector_params(sub_dict)
         else:
-            AlertSerializer._validate_detector_params(value)
+            AlertSerializer._validate_detector_params(root.model_dump())
 
         return validated.model_dump() if hasattr(validated, "model_dump") else value
 
