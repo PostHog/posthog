@@ -595,13 +595,14 @@ export class HogFlowExecutorService {
                     hogExecutorOptions: options?.hogExecutorOptions,
                 })
 
-                if (handlerResult.error) {
-                    throw handlerResult.error instanceof Error ? handlerResult.error : new Error(handlerResult.error)
-                }
-
+                // Stored before the error so `on_error: continue` still sees what the step returned.
                 if (handlerResult.result) {
                     this.trackActionResult(result, currentAction, handlerResult.result)
                     result.execResult = handlerResult.result
+                }
+
+                if (handlerResult.error) {
+                    throw handlerResult.error instanceof Error ? handlerResult.error : new Error(handlerResult.error)
                 }
 
                 if (handlerResult.finished) {
