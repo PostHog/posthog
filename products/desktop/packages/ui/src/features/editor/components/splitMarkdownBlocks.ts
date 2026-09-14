@@ -78,37 +78,6 @@ export function splitMarkdownBlocks(src: string): string[] {
   return blocks;
 }
 
-export interface MarkdownBlockSplit {
-  src: string;
-  blocks: string[];
-}
-
-export function splitMarkdownBlocksFrom(
-  src: string,
-  previous: MarkdownBlockSplit | null,
-): MarkdownBlockSplit {
-  if (
-    !previous ||
-    previous.blocks.length === 0 ||
-    src.length < previous.src.length ||
-    !src.startsWith(previous.src)
-  ) {
-    return { src, blocks: splitMarkdownBlocks(src) };
-  }
-  // Re-cut the stable blocks from the CURRENT source instead of carrying the old
-  // strings over: a substring keeps its whole backing string alive, so reusing them
-  // would pin one full copy of the message per frame that ever stabilized a block.
-  const stable: string[] = [];
-  let tailStart = 0;
-  for (let i = 0; i < previous.blocks.length - 1; i++) {
-    const end = tailStart + previous.blocks[i].length;
-    stable.push(src.slice(tailStart, end));
-    tailStart = end;
-  }
-  const tail = splitMarkdownBlocks(src.slice(tailStart));
-  return { src, blocks: stable.concat(tail) };
-}
-
 /**
  * For a block that ends inside an unterminated code fence, split it into the
  * prose/markdown preceding the OPEN fence and the code accumulated so far (the

@@ -15,10 +15,9 @@ import { EvidenceRefChip } from "@posthog/ui/features/editor/components/Evidence
 import { githubRefChipFor } from "@posthog/ui/features/editor/components/githubRefChipFor";
 import { MessageChartCard } from "@posthog/ui/features/editor/components/MessageChartCard";
 import {
-  type MarkdownBlockSplit,
   markOpenLinkDestination,
   parseOpenFence,
-  splitMarkdownBlocksFrom,
+  splitMarkdownBlocks,
 } from "@posthog/ui/features/editor/components/splitMarkdownBlocks";
 import {
   BareFileLink,
@@ -279,43 +278,18 @@ export const ChatMarkdown = memo(function ChatMarkdown({
   );
 });
 
-function useMarkdownSplit(
-  content: string,
-  seed?: MarkdownBlockSplit,
-): MarkdownBlockSplit {
-  const ref = useRef<MarkdownBlockSplit | null>(null);
-  if (seed && seed.src === content) {
-    ref.current = seed;
-  } else if (ref.current?.src !== content) {
-    ref.current = splitMarkdownBlocksFrom(content, ref.current);
-  }
-  return ref.current;
-}
-
 const LARGE_TAIL_CHARS = 2_000;
+const TAIL_CHARS_PER_INTERVAL_MS = 100;
 const MIN_TAIL_PARSE_INTERVAL_MS = 100;
 const MAX_TAIL_PARSE_INTERVAL_MS = 500;
-const MAX_INTERVAL_TAIL_CHARS = 50_000;
 
 function tailParseInterval(tailLength: number): number {
-  const span = MAX_INTERVAL_TAIL_CHARS - LARGE_TAIL_CHARS;
-  const progress = Math.min(
-    1,
-    Math.max(0, tailLength - LARGE_TAIL_CHARS) / span,
-  );
-  return (
-    MIN_TAIL_PARSE_INTERVAL_MS +
-    progress * (MAX_TAIL_PARSE_INTERVAL_MS - MIN_TAIL_PARSE_INTERVAL_MS)
-  );
-}
-
-function useStreamingTail(block: string) {
-  return useMemo(
-    () => ({
-      openFence: parseOpenFence(block),
-      linked: markOpenLinkDestination(block, PENDING_LINK_DESTINATION),
-    }),
-    [block],
+  return Math.min(
+    MAX_TAIL_PARSE_INTERVAL_MS,
+    Math.max(
+      MIN_TAIL_PARSE_INTERVAL_MS,
+      tailLength / TAIL_CHARS_PER_INTERVAL_MS,
+    ),
   );
 }
 
@@ -333,16 +307,26 @@ export const ChatStreamingMarkdown = memo(function ChatStreamingMarkdown({
   content,
   renderObjectTags,
 }: ChatMarkdownProps) {
-  const liveSplit = useMarkdownSplit(content);
-  const liveTailLength = liveSplit.blocks[liveSplit.blocks.length - 1].length;
+  const tailLengthRef = useRef(0);
   const renderedContent = useThrottledValue(
     content,
-    tailParseInterval(liveTailLength),
-    liveTailLength > LARGE_TAIL_CHARS,
+    tailParseInterval(tailLengthRef.current),
+    tailLengthRef.current > LARGE_TAIL_CHARS,
   );
-  const { blocks } = useMarkdownSplit(renderedContent, liveSplit);
+  const blocks = useMemo(
+    () => splitMarkdownBlocks(renderedContent),
+    [renderedContent],
+  );
   const lastIndex = blocks.length - 1;
-  const tail = useStreamingTail(blocks[lastIndex]);
+  const tailBlock = blocks[lastIndex];
+  tailLengthRef.current = tailBlock.length;
+  const tail = useMemo(
+    () => ({
+      openFence: parseOpenFence(tailBlock),
+      linked: markOpenLinkDestination(tailBlock, PENDING_LINK_DESTINATION),
+    }),
+    [tailBlock],
+  );
 
   return (
     <div className="flex flex-col gap-3 [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">
