@@ -77,9 +77,6 @@ export async function readFeedbackImage(file: File): Promise<FeedbackImage> {
   return {
     id: `${file.name}:${file.size}:${file.lastModified}`,
     name: file.name,
-    dataUrl:
-      file.size <= MAX_FEEDBACK_IMAGE_BYTES
-        ? await blobToDataUrl(file)
-        : await resizeImage(file),
+    dataUrl: await resizeImage(file),
   };
 }
