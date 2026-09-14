@@ -146,6 +146,11 @@ class TestRewriteObjectTagsForSlack(unittest.TestCase):
             ("tag_inside_fenced_code", '```xml\n<insight id="1">x</insight>\n```'),
             ("tag_inside_unclosed_fence", 'Example:\n```xml\n<insight id="1">x</insight>'),
             ("tag_inside_tilde_fence", '~~~\n<insight id="1">x</insight>\n~~~'),
+            ("indented_code", '    <insight id="1">Example</insight>\n'),
+            ("tab_indented_code", '\t<insight id="1">Example</insight>\n'),
+            ("quoted_fence", '> ```xml\n> <insight id="1">Example</insight>\n> ```'),
+            ("multiline_inline_code", 'Use ``one\n<insight id="1">Example</insight>\ntwo``.'),
+            ("long_fence", '````xml\n```\n<insight id="1">Example</insight>\n````'),
             ("text_without_tags", "plain **bold** text"),
         ]
     )

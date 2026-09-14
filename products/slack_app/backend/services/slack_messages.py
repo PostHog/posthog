@@ -35,6 +35,7 @@ from slack_sdk.errors import SlackApiError
 from slack_sdk.http_retry.builtin_handlers import RateLimitErrorRetryHandler
 
 from posthog.dataclasses import frozen
+from posthog.helpers.markdown_code import markdown_code_spans
 from posthog.models.integration import Integration, SlackIntegration
 from posthog.utils import absolute_uri
 
@@ -193,11 +194,7 @@ _RE_OBJECT_TAG_OPEN = re.compile(r"<([a-z][\w-]*)((?:\s+[a-z][\w-]*\s*=\s*\"[^\"
 # opener that never closes — quadratic on a reply that repeats an unclosed `<hogql>`.
 _RE_OBJECT_TAG_CLOSE = {kind: re.compile(rf"</{re.escape(kind)}\s*>") for kind in _OBJECT_TAG_KINDS}
 _RE_OBJECT_TAG_ATTR = re.compile(r"([a-z][\w-]*)\s*=\s*\"([^\"]*)\"")
-# Fenced blocks and inline code spans, so a tag quoted as an example keeps its markup. Triple
-# backticks are matched before the single-backtick form so a fence isn't split at its inner
-# backticks.
-_RE_CODE_SEGMENT = re.compile(r"(```[\s\S]*?```|`[^`\n]*`)")
-_XML_ATTR_ENTITIES = (("&quot;", '"'), ("&apos;", "'"), ("&lt;", "<"), ("&gt;", ">"), ("&amp;", "&"))
+_XML_ATTR_ENTITIES = (("&quot;", '"'), ("&apos;", "'"), ("&amp;", "&"))
 
 
 def _unescape_xml_attr(value: str) -> str:
@@ -210,9 +207,10 @@ def _object_tag_label(kind: str, raw_attrs: str, body: str) -> str:
     attrs = {name: _unescape_xml_attr(value) for name, value in _RE_OBJECT_TAG_ATTR.findall(raw_attrs)}
     # A `hogql` body is the SQL itself, which is the chip's payload rather than something to
     # read, so only its label survives. Every other kind carries its display text in the body.
-    return attrs.get("title", "").strip() or (
-        attrs.get("label", "").strip() if kind in ("hogql", "sql") else body.strip()
+    label = attrs.get("title", "").strip() or (
+        (attrs.get("label", "").strip() or "SQL query") if kind in ("hogql", "sql") else body.strip()
     )
+    return label.replace("<", "&lt;").replace(">", "&gt;")
 
 
 def _flatten_object_tags_segment(segment: str) -> str:
@@ -266,12 +264,14 @@ def flatten_object_tags(text: str) -> str:
     """
     if not text:
         return text
-    # ``re.split`` with a capturing group yields alternating text/code segments; the odd
-    # (code) segments pass through untouched.
-    return "".join(
-        segment if index % 2 else _flatten_object_tags_segment(segment)
-        for index, segment in enumerate(_RE_CODE_SEGMENT.split(text))
-    )
+    pieces: list[str] = []
+    cursor = 0
+    for span in markdown_code_spans(text):
+        pieces.append(_flatten_object_tags_segment(text[cursor : span.start]))
+        pieces.append(text[span.start : span.stop])
+        cursor = span.stop
+    pieces.append(_flatten_object_tags_segment(text[cursor:]))
+    return "".join(pieces)
 
 
 def flatten_block_text(node: Any) -> list[str]:

@@ -10,6 +10,7 @@
         "eventsource-parser": "*",
         "kea-subscriptions": "catalog:",
         "marked": "*",
+        "mdast-util-from-markdown": "^2.0.3",
         "monaco-editor": "^0.55.1",
         "posthog-js": "catalog:",
         "react-intersection-observer": "^9.5.3",
@@ -17,6 +18,7 @@
     },
     "devDependencies": {
         "@testing-library/react": "*",
+        "@types/mdast": "^4.0.4",
         "kea-test-utils": "catalog:",
         "msw": "*"
     },

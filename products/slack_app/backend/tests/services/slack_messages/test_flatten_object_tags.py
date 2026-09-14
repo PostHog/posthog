@@ -8,6 +8,8 @@ from products.slack_app.backend.services.slack_messages import flatten_object_ta
 class TestFlattenObjectTags(unittest.TestCase):
     @parameterized.expand(
         [
+            ("hogql_without_label", "<hogql>SELECT 1</hogql>", "SQL query"),
+            ("sql_without_label", "<sql>SELECT 1</sql>", "SQL query"),
             (
                 "inline_reference_keeps_label",
                 'The <insight id="9pQx3">checkout funnel</insight> dropped',
@@ -72,6 +74,56 @@ class TestFlattenObjectTags(unittest.TestCase):
                 "inbox_report_is_flattened",
                 '<report id="report-1">Investigation</report>',
                 "Investigation",
+            ),
+            (
+                "tilde_fence",
+                '~~~xml\n<insight id="1">Example</insight>\n~~~',
+                '~~~xml\n<insight id="1">Example</insight>\n~~~',
+            ),
+            ("open_fence", '```xml\n<insight id="1">Example</insight>', '```xml\n<insight id="1">Example</insight>'),
+            (
+                "long_fence",
+                '````xml\n```\n<insight id="1">Example</insight>\n````',
+                '````xml\n```\n<insight id="1">Example</insight>\n````',
+            ),
+            ("indented_code", '    <insight id="1">Example</insight>\n', '    <insight id="1">Example</insight>\n'),
+            ("tab_indented_code", '\t<insight id="1">Example</insight>\n', '\t<insight id="1">Example</insight>\n'),
+            (
+                "quoted_fence",
+                '> ```xml\n> <insight id="1">Example</insight>\n> ```',
+                '> ```xml\n> <insight id="1">Example</insight>\n> ```',
+            ),
+            (
+                "double_backtick",
+                'Use ``<insight id="1">Example</insight>``.',
+                'Use ``<insight id="1">Example</insight>``.',
+            ),
+            (
+                "multiline_inline_code",
+                'Use ``one\n<insight id="1">Example</insight>\ntwo``.',
+                'Use ``one\n<insight id="1">Example</insight>\ntwo``.',
+            ),
+            (
+                "escaped_channel_mention",
+                '<insight title="&lt;!channel&gt;">Example</insight>',
+                "&lt;!channel&gt;",
+            ),
+            (
+                "escaped_user_mention",
+                '<hogql label="&lt;@U000EXAMPLE&gt;">SELECT 1</hogql>',
+                "&lt;@U000EXAMPLE&gt;",
+            ),
+            (
+                "literal_mention_in_title",
+                '<insight title="<!channel>">Example</insight>',
+                "&lt;!channel&gt;",
+            ),
+            ("literal_mention_in_body", '<insight id="1"><!here></insight>', "&lt;!here&gt;"),
+            ("explicit_mention_outside_tag", "<!here>", "<!here>"),
+            (
+                "mixed_code_and_prose",
+                'Read <insight id="1">One</insight>.\n\n~~~xml\n<insight id="1">Example</insight>\n~~~\n\nRead <insight id="2">Two</insight>.',
+                'Read One.\n\n~~~xml\n<insight id="1">Example</insight>\n~~~\n\nRead Two.',
             ),
             ("empty_text_unchanged", "", ""),
             ("plain_text_unchanged", "No tags here", "No tags here"),

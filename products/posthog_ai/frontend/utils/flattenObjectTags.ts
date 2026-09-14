@@ -1,3 +1,6 @@
+import type { Nodes } from 'mdast'
+import { fromMarkdown } from 'mdast-util-from-markdown'
+
 const OBJECT_TAG_KINDS = new Set([
     'insight',
     'hogql',
@@ -24,7 +27,6 @@ const OBJECT_TAG_KINDS = new Set([
 
 const OPEN_TAG = /<([a-z][\w-]*)((?:\s+[a-z][\w-]*\s*=\s*"[^"]*")*)\s*(\/?)>/g
 const ATTRIBUTE = /([a-z][\w-]*)\s*=\s*"([^"]*)"/g
-const CODE_SEGMENT = /(```[\s\S]*?```|`[^`\n]*`)/
 const XML_ENTITIES: Record<string, string> = {
     '&quot;': '"',
     '&apos;': "'",
@@ -41,7 +43,8 @@ function tagLabel(kind: string, rawAttributes: string, body: string): string {
         ])
     )
     return (
-        attributes.title?.trim() || (kind === 'hogql' || kind === 'sql' ? attributes.label?.trim() || '' : body.trim())
+        attributes.title?.trim() ||
+        (kind === 'hogql' || kind === 'sql' ? attributes.label?.trim() || 'SQL query' : body.trim())
     )
 }
 
@@ -78,8 +81,21 @@ function flattenSegment(segment: string): string {
 }
 
 export function flattenObjectTags(text: string): string {
-    return text
-        .split(CODE_SEGMENT)
-        .map((segment, index) => (index % 2 ? segment : flattenSegment(segment)))
-        .join('')
+    const pieces: string[] = []
+    let cursor = 0
+    function preserveCode(node: Nodes): void {
+        if (node.type === 'code' || node.type === 'inlineCode') {
+            const start = node.position?.start.offset
+            const end = node.position?.end.offset
+            if (start !== undefined && end !== undefined) {
+                pieces.push(flattenSegment(text.slice(cursor, start)), text.slice(start, end))
+                cursor = end
+            }
+        } else if ('children' in node) {
+            node.children.forEach(preserveCode)
+        }
+    }
+    preserveCode(fromMarkdown(text))
+    pieces.push(flattenSegment(text.slice(cursor)))
+    return pieces.join('')
 }

@@ -15,6 +15,7 @@ from collections.abc import Callable
 from urllib.parse import quote
 
 from posthog.dataclasses import frozen
+from posthog.helpers.markdown_code import markdown_code_spans
 
 # Slack keeps a link's URL out of the message text limit, but the chat API rejects URLs past
 # this size, and a SQL editor deep link carries the whole query in the query string.
@@ -29,7 +30,6 @@ _RE_OPEN_TAG = re.compile(r"<([a-z][\w-]*)((?:\s+[a-z][\w-]*\s*=\s*\"[^\"]*\")*)
 _RE_CLOSE_TAG = re.compile(r"</([a-z][\w-]*)\s*>")
 _RE_ATTR = re.compile(r"([a-z][\w-]*)\s*=\s*\"([^\"]*)\"")
 _RE_FENCE_LINE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
-_RE_BACKTICK_RUN = re.compile(r"`+")
 _RE_UUID = re.compile(r"^[0-9a-f]{8}-[0-9a-f-]{27,}$", re.IGNORECASE)
 _RE_LABEL_UNSAFE = re.compile(r"[\[\]|]")
 _LABEL_ANGLE_ENTITIES = {"<": "&lt;", ">": "&gt;"}
@@ -128,60 +128,8 @@ def _parse_attrs(raw: str) -> dict[str, str]:
     return {match.group(1): _unescape_xml(match.group(2)) for match in _RE_ATTR.finditer(raw)}
 
 
-def _inline_code_spans(line: str, offset: int) -> list[_Span]:
-    """CommonMark inline code on one line: a run of N backticks closes on the next run of exactly N."""
-    runs = list(_RE_BACKTICK_RUN.finditer(line))
-    spans: list[_Span] = []
-    index = 0
-    while index < len(runs):
-        opener = runs[index]
-        length = opener.end() - opener.start()
-        closer_index = next(
-            (i for i in range(index + 1, len(runs)) if runs[i].end() - runs[i].start() == length),
-            None,
-        )
-        if closer_index is None:
-            index += 1
-            continue
-        spans.append(_Span(start=offset + opener.start(), end=offset + runs[closer_index].end()))
-        index = closer_index + 1
-    return spans
-
-
 def _code_spans(text: str) -> list[_Span]:
-    """Fenced blocks and inline code, found in one pass over the lines.
-
-    Mirrors the desktop renderer's fence rules: a backtick or tilde fence of three or more, closed
-    only by a run of the same character at least as long with nothing else on the line, and an
-    unclosed fence runs to the end of the text.
-    """
-    spans: list[_Span] = []
-    fence_char = ""
-    fence_length = 0
-    fence_start = 0
-    offset = 0
-    for line in text.split("\n"):
-        fence = _RE_FENCE_LINE.match(line)
-        if fence_char:
-            closes = (
-                fence is not None
-                and fence.group(1)[0] == fence_char
-                and len(fence.group(1)) >= fence_length
-                and line[fence.end() :].strip() == ""
-            )
-            if closes:
-                spans.append(_Span(start=fence_start, end=offset + len(line)))
-                fence_char = ""
-        elif fence:
-            fence_char = fence.group(1)[0]
-            fence_length = len(fence.group(1))
-            fence_start = offset
-        else:
-            spans.extend(_inline_code_spans(line, offset))
-        offset += len(line) + 1
-    if fence_char:
-        spans.append(_Span(start=fence_start, end=len(text)))
-    return spans
+    return [_Span(start=span.start, end=span.stop) for span in markdown_code_spans(text)]
 
 
 def _scan_tags(text: str, skip_spans: list[_Span]) -> list[_Tag]:

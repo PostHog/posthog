@@ -27,6 +27,8 @@ describe('flattenObjectTags', () => {
 
     it.each([
         ['SQL label', '<hogql label="Result">SELECT 1</hogql>', 'Result'],
+        ['SQL without a label', '<hogql>SELECT 1</hogql>', 'SQL query'],
+        ['SQL alias without a label', '<sql>SELECT 1</sql>', 'SQL query'],
         ['SQL alias', '<sql label="Result">SELECT 1</sql>', 'Result'],
         ['block title', '<hogql title="Daily signups" display="block">SELECT 1</hogql>', 'Daily signups'],
         ['empty block', '<replay id="example" display="block"/>', ''],
@@ -36,6 +38,35 @@ describe('flattenObjectTags', () => {
         ['code fence', '```xml\n<insight id="1">One</insight>\n```', '```xml\n<insight id="1">One</insight>\n```'],
         ['partial tag', 'Read <insight id="1">One', 'Read <insight id="1">One'],
         ['Slack mentions', '<@U000EXAMPLE|Example>', '<@U000EXAMPLE|Example>'],
+        [
+            'tilde_fence',
+            '~~~xml\n<insight id="1">Example</insight>\n~~~',
+            '~~~xml\n<insight id="1">Example</insight>\n~~~',
+        ],
+        ['open_fence', '```xml\n<insight id="1">Example</insight>', '```xml\n<insight id="1">Example</insight>'],
+        [
+            'long_fence',
+            '````xml\n```\n<insight id="1">Example</insight>\n````',
+            '````xml\n```\n<insight id="1">Example</insight>\n````',
+        ],
+        ['indented_code', '    <insight id="1">Example</insight>\n', '    <insight id="1">Example</insight>\n'],
+        ['tab_indented_code', '\t<insight id="1">Example</insight>\n', '\t<insight id="1">Example</insight>\n'],
+        [
+            'quoted_fence',
+            '> ```xml\n> <insight id="1">Example</insight>\n> ```',
+            '> ```xml\n> <insight id="1">Example</insight>\n> ```',
+        ],
+        ['double_backtick', 'Use ``<insight id="1">Example</insight>``.', 'Use ``<insight id="1">Example</insight>``.'],
+        [
+            'multiline_inline_code',
+            'Use ``one\n<insight id="1">Example</insight>\ntwo``.',
+            'Use ``one\n<insight id="1">Example</insight>\ntwo``.',
+        ],
+        [
+            'mixed code and prose',
+            'Read <insight id="1">One</insight>.\n\n~~~xml\n<insight id="1">Example</insight>\n~~~\n\nRead <insight id="2">Two</insight>.',
+            'Read One.\n\n~~~xml\n<insight id="1">Example</insight>\n~~~\n\nRead Two.',
+        ],
         ['empty reply', '', ''],
     ])('handles %s', (_name, content, expected) => {
         expect(flattenObjectTags(content)).toBe(expected)

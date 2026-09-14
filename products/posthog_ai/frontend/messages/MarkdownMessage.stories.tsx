@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/react'
+import type { ReactElement } from 'react'
 
 import { MarkdownMessage } from './MarkdownMessage'
 
@@ -23,7 +24,7 @@ export const DesktopConversation: Story = {}
 
 export const Narrow: Story = {
     decorators: [
-        (Story) => (
+        (Story): ReactElement => (
             <div className="w-[520px]">
                 <Story />
             </div>
