@@ -646,6 +646,23 @@ export const ProjectSetActiveSchema = z.object({
     projectId: z.number().int().positive(),
 })
 
+/**
+ * Project id for a tool that can also target the session's active project.
+ *
+ * `@current` is the spelling the tool descriptions offer, but a path param typed
+ * as an integer rejects that literal before any handler runs. Resolving it here
+ * leaves `undefined`, so the handler's own fallback answers from the MCP
+ * session's active project. Forwarding `@current` to the API instead would
+ * resolve it from the user's saved team, a different project whenever the
+ * session has switched.
+ */
+export const ProjectIdOrCurrentSchema = z
+    .preprocess(
+        (value) => (value === '@current' ? undefined : castStringToInt(value)),
+        z.number().int().positive().optional()
+    )
+    .describe("Project ID. Omit it, or pass `@current`, to target the caller's active project.")
+
 // Debug MCP UI Apps
 export const DebugMcpUiAppsSchema = z.object({
     message: z.string().optional().describe('Optional message to include in the debug data'),

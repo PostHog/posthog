@@ -306,6 +306,7 @@
         },
         "correlation_config": {},
         "customer_analytics_config": {
+            "description": "Customer analytics event mapping. Each event field takes an events node object, for example `{\"kind\": \"EventsNode\", \"event\": \"$pageview\"}`. Pass `{}` to clear one. Null is rejected.",
             "properties": {
                 "account_group_type_index": {
                     "anyOf": [
@@ -426,10 +427,10 @@
             ]
         },
         "id": {
-            "description": "Project ID, or `@current` to target the caller's active project.",
-            "maximum": 2147483647,
-            "minimum": -2147483648,
-            "type": "number"
+            "description": "Project ID. Omit it, or pass `@current`, to target the caller's active project.",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991,
+            "type": "integer"
         },
         "inject_web_apps": {
             "anyOf": [
@@ -4091,7 +4092,9 @@
             ]
         },
         "session_recording_linked_flag": {},
-        "session_recording_masking_config": {},
+        "session_recording_masking_config": {
+            "description": "Replay masking. An object with any of `maskAllInputs` (boolean), `maskTextSelector` (string) and `blockSelector` (string), or null to clear it. No other keys are accepted."
+        },
         "session_recording_minimum_duration_milliseconds": {
             "anyOf": [
                 {
@@ -4129,7 +4132,7 @@
             "description": "Fraction of sessions to record, as a decimal string between `0.00` and `1.00` (e.g. `0.1` = 10%)."
         },
         "session_recording_trigger_groups": {
-            "description": "V2 trigger groups configuration for session recording. If present, takes precedence over legacy trigger fields."
+            "description": "Replay trigger groups, which take precedence over the legacy trigger fields. Shape: `{\"version\": 2, \"fallbackSampleRate\": 0-1 (optional), \"groups\": [...]}`. Each group needs `id`, `sampleRate` (0-1) and `conditions`, and accepts `name` and `minDurationMs` (0-30000). `conditions` accepts `matchType` (\"any\" or \"all\"), `events` (event names, or objects with `name` and `properties`), `urls` (objects with `url` as a regex and `matching` set to \"regex\"), `flag` (a flag key or an object with `key`) and `properties`."
         },
         "session_recording_trigger_match_type_config": {
             "anyOf": [
@@ -4273,6 +4276,5 @@
             "type": "object"
         }
     },
-    "required": ["id"],
     "type": "object"
 }

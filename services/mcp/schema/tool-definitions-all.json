@@ -9396,7 +9396,7 @@
         }
     },
     "project-settings-update": {
-        "description": "Update a project's settings using PATCH semantics — only the fields included in the request body are changed. Use `project-get` first to inspect current settings. Always confirm changes with the user before applying.",
+        "description": "Update a project's settings using PATCH semantics — only the fields included in the request body are changed. Omit `id` to update the caller's active project. Use `project-get` first to inspect current settings. Always confirm changes with the user before applying.",
         "category": "Core",
         "feature": "core",
         "summary": "Update project settings",
