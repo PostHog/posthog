@@ -63,7 +63,7 @@ export interface metricsCatalogLogicActions {
         item: _MetricPickerNameApi;
     };
     retrySparkline: (item: MetricCatalogItem) => {
-        item: MetricCatalogItem;
+        item: _MetricPickerNameApi;
     };
     setSearch: (search: string) => {
         search: string;
