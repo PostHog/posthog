@@ -19,6 +19,7 @@ import structlog
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import extend_schema, extend_schema_field, extend_schema_serializer
 from prometheus_client import Counter
+from redis.exceptions import LockError
 from rest_framework import mixins, serializers, status, viewsets
 from rest_framework.exceptions import APIException, PermissionDenied, Throttled, ValidationError
 from rest_framework.permissions import IsAuthenticated
@@ -1485,8 +1486,8 @@ class IntegrationViewSet(
             "is_private_without_access": channel.get("is_private_without_access", False),
         }
 
-    @staticmethod
-    def _update_cached_slack_channel(key: str, channel_id: str, channel: dict | None) -> None:
+    @classmethod
+    def _update_cached_slack_channel(cls, key: str, channel_id: str, channel: dict | None) -> None:
         """Write a live single-channel answer into the cached list, or drop the channel when Slack
         returns none for it.
 
@@ -1495,6 +1496,28 @@ class IntegrationViewSet(
         old "PostHog is not in this channel" warning again on the next page load. A channel Slack
         no longer returns is gone or no longer visible to the app, so the list must stop offering
         it for the same reason.
+
+        Every write reads the whole list and writes it back, and the picker re-checks every channel
+        it warned about at the same time, so the writes are serialized per list. Without that, two
+        concurrent re-checks each write their own copy and the later one drops the earlier's update,
+        which puts the warning back for that channel on the next page load.
+        """
+        lock = getattr(cache, "lock", None)
+        if lock is None:
+            # A cache backend without locks (a test using locmem) has no concurrent writers either.
+            cls._rewrite_cached_slack_channel(key, channel_id, channel)
+            return
+        try:
+            with lock(f"{key}/write", timeout=5, blocking_timeout=2):
+                cls._rewrite_cached_slack_channel(key, channel_id, channel)
+        except LockError:
+            # The live answer already went back to the caller, so losing the write only leaves the
+            # cached list to age out, which is what happened before it was written at all.
+            logger.warning("slack_channels_cache_patch_contended", key=key, channel_id=channel_id)
+
+    @staticmethod
+    def _rewrite_cached_slack_channel(key: str, channel_id: str, channel: dict | None) -> None:
+        """Replace or remove one channel in the cached list.
 
         The list keeps its original expiry so refreshing one channel cannot hold a whole stale list
         warm, and keeps its `lastRefreshedAt` so the picker's refresh cooldown is unaffected, and

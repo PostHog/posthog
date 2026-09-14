@@ -326,9 +326,12 @@ export const slackIntegrationLogic = kea<slackIntegrationLogicType>([
                     const generation = values.channelListGeneration
                     try {
                         const res = await api.integrations.slackChannelsById(props.id, channelId, forceRefresh)
-                        // The by-id endpoint always calls Slack live, so a success is real proof
-                        // the connection works again.
-                        actions.setSlackIntegrationInactive(null)
+                        if (forceRefresh) {
+                            // Matches the list loader: only a forced lookup provably reached Slack,
+                            // so only it may hide the reconnect banner. A plain lookup can be served
+                            // from the backend's cached list while the token is still revoked.
+                            actions.setSlackIntegrationInactive(null)
+                        }
                         if (values.channelListGeneration !== generation) {
                             // A forced refresh landed while this lookup was in flight. Its list is
                             // the newer answer, and a non-forced lookup can be served from the
