@@ -169,6 +169,46 @@ export const defaultMocks: Mocks = {
             MOCK_DEFAULT_ORGANIZATION_MEMBER,
             MOCK_SECOND_ORGANIZATION_MEMBER,
         ]),
+        '/api/organizations/:organization_id/members/project_access/': {
+            results: [
+                {
+                    organization_membership_id: MOCK_DEFAULT_ORGANIZATION_MEMBER.id,
+                    projects: [
+                        {
+                            team_id: MOCK_DEFAULT_TEAM.id,
+                            team_name: MOCK_DEFAULT_TEAM.name,
+                            access_level: 'admin',
+                            resolved: {
+                                access_level: 'admin',
+                                source: 'org_admin',
+                                source_subject: null,
+                                source_resource: 'project',
+                                source_resource_id: null,
+                                subject_name: null,
+                            },
+                        },
+                    ],
+                },
+                {
+                    organization_membership_id: MOCK_SECOND_ORGANIZATION_MEMBER.id,
+                    projects: [
+                        {
+                            team_id: MOCK_DEFAULT_TEAM.id,
+                            team_name: MOCK_DEFAULT_TEAM.name,
+                            access_level: 'member',
+                            resolved: {
+                                access_level: 'member',
+                                source: 'object',
+                                source_subject: 'default',
+                                source_resource: 'project',
+                                source_resource_id: String(MOCK_DEFAULT_TEAM.id),
+                                subject_name: null,
+                            },
+                        },
+                    ],
+                },
+            ],
+        },
         '/api/organizations/:organization_id/invites/': toPaginatedResponse([MOCK_DEFAULT_ORGANIZATION_INVITE]),
         '/api/organizations/:organization_id/plugins/': toPaginatedResponse([MOCK_DEFAULT_PLUGIN]),
         '/api/organizations/:organization_id/plugins/repository/': [],
