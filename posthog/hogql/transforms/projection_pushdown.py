@@ -65,6 +65,9 @@ class ProjectionPushdownOptimizer(TraversingVisitor):
         if node.order_by:
             for expr in node.order_by:
                 self.visit(expr)
+        if node.interpolate:
+            for expr in node.interpolate:
+                self.visit(expr)
         if node.limit:
             self.visit(node.limit)
         if node.offset:

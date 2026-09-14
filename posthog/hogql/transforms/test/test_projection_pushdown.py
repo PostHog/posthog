@@ -650,6 +650,11 @@ class TestProjectionPushdown(BaseTest):
                 {"b"},
             ),
             (
+                "interpolate",
+                "SELECT a FROM (SELECT * FROM (SELECT 1 AS a, 2 AS b)) AS sub ORDER BY a WITH FILL INTERPOLATE (sub.b)",
+                {"a", "b"},
+            ),
+            (
                 "window_expr",
                 "SELECT a, count() OVER w FROM (SELECT * FROM (SELECT 1 AS a, 2 AS b)) AS sub "
                 "WINDOW w AS (PARTITION BY sub.b)",
