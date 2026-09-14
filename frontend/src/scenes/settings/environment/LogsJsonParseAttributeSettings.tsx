@@ -61,7 +61,7 @@ export function LogsJsonParseAttributeSettings(): JSX.Element {
                     type="primary"
                     onClick={() =>
                         updateCurrentTeam({
-                            logs_settings: { ...currentTeam.logs_settings, json_parse_logs_attribute_key: trimmed },
+                            logs_settings: { json_parse_logs_attribute_key: trimmed },
                         })
                     }
                     disabledReason={restrictedReason || (trimmed === savedKey ? 'No changes to save' : undefined)}
