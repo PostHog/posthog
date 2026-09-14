@@ -4,6 +4,7 @@ import {
   getScoutOrigin,
   prettifyScoutSkillName,
   resolveScoutRouteName,
+  scoutDisplayName,
 } from "@posthog/core/scouts/scoutPresentation";
 import { ANALYTICS_EVENTS } from "@posthog/shared";
 import { useAgentsPageActions } from "@posthog/ui/features/agents/agentsPageStore";
@@ -39,7 +40,6 @@ export function ScoutDetailView({
     isError: configsError,
   } = configsQuery;
   const skillName = resolveScoutRouteName(routeName, configs);
-  const displayName = prettifyScoutSkillName(skillName);
   const runsQuery = useScoutRuns(skillName);
   const {
     data: runsWindow,
@@ -51,6 +51,9 @@ export function ScoutDetailView({
   const { updateConfig } = useScoutConfigMutations();
 
   const config = configs?.find((entry) => entry.skill_name === skillName);
+  const displayName = config
+    ? scoutDisplayName(config)
+    : prettifyScoutSkillName(skillName);
   const scoutRuns = useMemo(
     () =>
       (runsWindow?.runs ?? []).filter((run) => run.skill_name === skillName),

@@ -51,7 +51,7 @@ export function splitScratchpadKey(key: string): {
 
 /** `signals-scout-apm` → `apm`. The fleet prefix is noise once you're inside
  * the scouts surface. */
-export function scoutDisplayName(skill: string): string {
+export function stripScoutFleetPrefix(skill: string): string {
   return skill.replace(/^signals-scout-/, "");
 }
 
