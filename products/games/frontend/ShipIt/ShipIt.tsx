@@ -28,7 +28,7 @@ import {
     step,
 } from './shipItGame'
 
-/** A frame longer than this means the tab was backgrounded, so hold the game where the player left it. */
+/** A frame longer than this means the tab was backgrounded, so the frame is dropped rather than played. */
 const MAX_FRAME_MS = 100
 
 const BEST_SCORE_KEY = 'ship-it-best-score'
@@ -250,9 +250,11 @@ export function ShipIt(): JSX.Element {
         let previous = performance.now()
 
         const tick = (now: number): void => {
-            const dtMs = Math.min(MAX_FRAME_MS, now - previous)
+            const dtMs = now - previous
             previous = now
-            setState((current) => step(current, dtMs, Math.random))
+            if (dtMs <= MAX_FRAME_MS) {
+                setState((current) => step(current, dtMs, Math.random))
+            }
             frame = requestAnimationFrame(tick)
         }
 
@@ -321,6 +323,10 @@ export function ShipIt(): JSX.Element {
             >
                 <Track state={state} />
                 <Overlay state={state} started={started} best={best} onStart={start} onAdvance={advance} />
+            </div>
+
+            <div className="sr-only" aria-live="polite">
+                {`Lane ${state.lane + 1} of ${LANE_COUNT}`}
             </div>
 
             <div className="flex flex-wrap gap-2 justify-between items-center">

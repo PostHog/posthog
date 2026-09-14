@@ -21,8 +21,8 @@ describe('ShipIt', () => {
         })
     }
 
-    function laneOf(container: HTMLElement): string | undefined {
-        return container.querySelector<HTMLElement>('.ShipIt__pr')?.style.top
+    function laneOf(container: HTMLElement): string | null {
+        return container.querySelector<HTMLElement>('.ShipIt__pr')?.style.top ?? null
     }
 
     beforeEach(() => {

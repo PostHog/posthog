@@ -147,6 +147,9 @@ describe('shipItGame', () => {
         expect(waiting.progress).toBe(100)
         expect(waiting.phase).toBe('coding')
 
+        const held = run(waiting, 500)
+        expect(held.score).toBe(waiting.score)
+
         const enqueued = step({ ...waiting, lane: 1, items: [itemAt('trunk_merge', 1)] }, 100, noHits)
         expect(enqueued.phase).toBe('queued')
     })

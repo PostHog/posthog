@@ -330,7 +330,9 @@ export function step(state: GameState, dtMs: number, random: () => number): Game
     }
 
     if (next.phase === 'coding') {
-        if (isMergeable(next)) {
+        // The last level holds at full progress until a /trunk merge tile arrives, so the score stops
+        // with the bar. Otherwise a player could wait there and collect for as long as they dodge.
+        if (isMergeable(next) && next.progress < 100) {
             next.progress = Math.min(100, next.progress + (dtMs / PROGRESS_MS_TO_FULL) * 100)
             next.score += dtMs / 100
         }
