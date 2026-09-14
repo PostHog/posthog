@@ -497,17 +497,21 @@ class TestGetRows:
             ]
         ]
 
-    def test_a_detail_call_that_ran_out_of_retries_still_fails_the_table(self) -> None:
-        # Only a rejected describe produces a list-only row. Tolerating every detail failure
-        # would turn an exhausted throttle into a table of names with no detail columns.
-        with pytest.raises(AwsSesError, match="TooManyRequestsException"):
-            self._run(
-                [
-                    {"DedicatedIpPools": ["marketing-pool"]},
-                    AwsSesError("TooManyRequestsException", "Rate exceeded", "dedicated_ip_pools", "/path"),
-                ],
-                endpoint="dedicated_ip_pools",
-            )
+    @pytest.mark.parametrize(
+        "endpoint,page,code",
+        [
+            ("dedicated_ip_pools", {"DedicatedIpPools": ["marketing-pool"]}, "TooManyRequestsException"),
+            ("email_identities", {"EmailIdentities": [{"IdentityName": "example.com"}]}, "BadRequestException"),
+        ],
+    )
+    def test_a_detail_failure_the_table_cannot_absorb_still_fails_the_job(
+        self, endpoint: str, page: dict[str, Any], code: str
+    ) -> None:
+        # A list-only row needs both a rejected describe and a table whose list response carries
+        # the row. GetEmailIdentity holds the DKIM and verification columns, so a name-only
+        # identity row would replace a complete one on the next full refresh.
+        with pytest.raises(AwsSesError, match=code):
+            self._run([page, AwsSesError(code, "rejected", endpoint, "/path")], endpoint=endpoint)
 
     def test_an_empty_page_yields_no_batch_but_still_completes_the_walk(self) -> None:
         batches, _, manager = self._run([suppression_page([])])

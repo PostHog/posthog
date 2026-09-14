@@ -251,11 +251,8 @@ def _fanout_page_rows(
             if error.code == "NotFoundException":
                 logger.debug(f"Skipping {endpoint_config.name} item deleted mid-sync. name={name}")
                 continue
-            if error.code != "BadRequestException":
+            if not endpoint_config.tolerate_rejected_detail or error.code != "BadRequestException":
                 raise
-            # ListDedicatedIpPools reports the shared pool and the default dedicated pool, and
-            # GetDedicatedIpPool then rejects both. The list response alone still reports that
-            # the item exists, so one item AWS refuses to describe must not fail the table.
             logger.debug(f"Reporting {endpoint_config.name} item from the list response alone. name={name}")
 
         row = normalize_row(endpoint_config, item) if isinstance(item, dict) else {}
@@ -404,8 +401,8 @@ def endpoint_permission_reason(
                         )
                     except AwsSesError as error:
                         # A sync reports an item AWS refuses to describe from the list response
-                        # alone, so a rejected detail call leaves the table loadable.
-                        if error.code != "BadRequestException":
+                        # alone, so a rejected detail call leaves this table loadable.
+                        if not endpoint_config.tolerate_rejected_detail or error.code != "BadRequestException":
                             raise
     except AwsSesError as error:
         return _permission_reason(error)

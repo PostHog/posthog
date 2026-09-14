@@ -33,6 +33,10 @@ class AwsSesEndpointConfig:
     # Fan-out: column carrying the item name. Set explicitly on every row because detail
     # responses (GetEmailIdentity) do not echo the name back.
     name_column: str | None = None
+    # Fan-out: report an item from the list response alone when AWS rejects its detail call.
+    # Only safe where the list response already carries the row, because every fan-out table is
+    # a full refresh, so a list-only row replaces a complete one instead of merging beside it.
+    tolerate_rejected_detail: bool = False
     # ListSuppressedDestinations accepts a server-side `StartDate` filter, which is what makes
     # that endpoint genuinely incremental.
     supports_start_date: bool = False
@@ -88,6 +92,10 @@ AWS_SES_ENDPOINTS: dict[str, AwsSesEndpointConfig] = {
         page_size=100,
         detail_path="/v2/email/dedicated-ip-pools/{name}",
         name_column="pool_name",
+        # ListDedicatedIpPools reports the shared pool and the default dedicated pool, and
+        # GetDedicatedIpPool rejects a describe on either. The detail call only adds the scaling
+        # mode, so the list response alone still reports which pools the account has.
+        tolerate_rejected_detail=True,
     ),
     "dedicated_ips": AwsSesEndpointConfig(
         name="dedicated_ips",
