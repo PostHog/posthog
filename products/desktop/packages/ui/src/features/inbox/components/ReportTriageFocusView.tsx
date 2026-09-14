@@ -37,6 +37,8 @@ export interface ReportTriageFocusViewProps {
   prShortcut: "open" | "create" | null;
   /** Shows the X hint: pressing it removes the current user from reviewers. */
   canRemoveSelfFromReviewers: boolean;
+  /** True while the remove-me-as-reviewer request is in flight. */
+  removingReviewer: boolean;
   actions: ReactNode;
   reviewers?: ReactNode;
   onExit: () => void;
@@ -57,6 +59,7 @@ export function ReportTriageFocusView({
   expanded,
   prShortcut,
   canRemoveSelfFromReviewers,
+  removingReviewer,
   actions,
   reviewers,
   onExit,
@@ -108,7 +111,15 @@ export function ReportTriageFocusView({
         </Button>
       )}
 
-      <section className="overflow-hidden rounded-lg border border-border bg-(--color-panel-solid)">
+      <section className="relative overflow-hidden rounded-lg border border-border bg-(--color-panel-solid)">
+        <div
+          aria-hidden
+          className={
+            removingReviewer
+              ? "quill-section-loading quill-section-loading--active"
+              : "quill-section-loading"
+          }
+        />
         <div className="flex flex-col gap-4 p-5">
           {sourceMeta && SourceIcon && (
             <div className="flex items-center gap-2 font-medium text-[13px] text-gray-10">
