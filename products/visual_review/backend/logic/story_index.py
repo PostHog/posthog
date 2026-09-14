@@ -63,18 +63,20 @@ class StoryIndex:
 
 @frozen
 class ThemeSplit:
-    """An identifier with its theme taken out, and that theme. The theme is empty when there is none."""
+    """An identifier taken apart around its theme. The theme is empty when the identifier carries none."""
 
-    rest: str
+    story_id: str
     theme: str
+    browser_suffix: str
+
+    @property
+    def rest(self) -> str:
+        """Everything but the theme, so a chromium and a webkit snapshot of one story never share it."""
+        return f"{self.story_id}{self.browser_suffix}"
 
 
 def split_theme(identifier: str) -> ThemeSplit:
-    """Take the theme out of an identifier and keep everything else.
-
-    A browser suffix stays in `rest`, so a chromium snapshot and a webkit snapshot of one story never
-    share a `rest`.
-    """
+    """Take an identifier apart into the story id, the theme and the browser suffix."""
     rest = identifier
     browser_suffix = ""
     for browser in _SUFFIXED_BROWSERS:
@@ -84,8 +86,8 @@ def split_theme(identifier: str) -> ThemeSplit:
             break
     for theme in _THEMES:
         if rest.endswith(f"--{theme}"):
-            return ThemeSplit(rest=f"{rest.removesuffix(f'--{theme}')}{browser_suffix}", theme=theme)
-    return ThemeSplit(rest=identifier, theme="")
+            return ThemeSplit(story_id=rest.removesuffix(f"--{theme}"), theme=theme, browser_suffix=browser_suffix)
+    return ThemeSplit(story_id=identifier, theme="", browser_suffix="")
 
 
 def _strip_theme_and_browser(identifier: str) -> str | None:
@@ -93,15 +95,8 @@ def _strip_theme_and_browser(identifier: str) -> str | None:
 
     None when the identifier carries no theme, which means the test runner did not write it.
     """
-    rest = identifier
-    for browser in _SUFFIXED_BROWSERS:
-        if rest.endswith(f"--{browser}"):
-            rest = rest.removesuffix(f"--{browser}")
-            break
-    for theme in _THEMES:
-        if rest.endswith(f"--{theme}"):
-            return rest.removesuffix(f"--{theme}")
-    return None
+    split = split_theme(identifier)
+    return split.story_id if split.theme else None
 
 
 def story_path(index: StoryIndex, identifier: str) -> str | None:
