@@ -728,7 +728,7 @@ describe('FetchRunner', () => {
     ])('expires month %s history with cache control %s', async (month, cacheControl, expiresAt) => {
         const harness = build({ cache: { requestTimeMs: NOW_MS, responseTimeMs: NOW_MS, cacheControl } })
         const [attempt] = await harness.runner.run(
-            [candidate({ originalRef: `imageurl:v2:7:1:${month}:${'a'.repeat(22)}` })],
+            [candidate({ originalRef: `imageurl:v2:7:${month}:${'a'.repeat(22)}` })],
             new Map()
         )
         expect(attempt.history?.nextFetchAtMs).toBe(expiresAt)

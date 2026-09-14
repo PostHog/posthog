@@ -21,7 +21,7 @@ describe('VersionedCrawlHistory', () => {
         const shared = new MemoryHistory()
         const images = new MemoryHistory()
         const history = new VersionedCrawlHistory(shared, images)
-        const september = 'imageurl:v2:7:1:2026-09:aaaaaaaaaaaaaaaaaaaaaa'
+        const september = 'imageurl:v2:7:2026-09:aaaaaaaaaaaaaaaaaaaaaa'
         const october = september.replace('2026-09', '2026-10')
         const origin = 'https://example.com'
         const policies = (['robots', 'tdmrep'] as const).map((kind) => ({
