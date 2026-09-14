@@ -32,7 +32,7 @@ describe('buildMlMirrorServerConfig', () => {
         expect(
             () =>
                 new IngestionSessionReplayMlMirrorServer({
-                    AI_RESEARCH_REPLAY_PRIVACY_TABLE: table,
+                    AI_RESEARCH_REPLAY_KEY_TABLE: table,
                     AI_RESEARCH_REPLAY_KMS_KEY_ARN: kmsKey,
                 })
         ).toThrow('ML privacy requires a DynamoDB table and a KMS key ARN')

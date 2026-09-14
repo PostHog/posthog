@@ -6,6 +6,7 @@ import { RedisConnectionConfig } from '~/common/utils/db/redis'
 
 export type MlMirrorConfig = {
     AI_RESEARCH_REPLAY_PRIVACY_TABLE: string
+    AI_RESEARCH_REPLAY_KEY_TABLE: string
     AI_RESEARCH_REPLAY_KMS_KEY_ARN: string
     AI_RESEARCH_REPLAY_AWS_REGION: string
     AI_RESEARCH_REPLAY_KMS_REQUESTS_PER_SECOND: number
@@ -219,6 +220,7 @@ export type MlMirrorConfig = {
 export function getDefaultMlMirrorConfig(): MlMirrorConfig {
     return {
         AI_RESEARCH_REPLAY_PRIVACY_TABLE: '',
+        AI_RESEARCH_REPLAY_KEY_TABLE: '',
         AI_RESEARCH_REPLAY_KMS_KEY_ARN: '',
         AI_RESEARCH_REPLAY_AWS_REGION: 'us-east-1',
         AI_RESEARCH_REPLAY_KMS_REQUESTS_PER_SECOND: 100,
@@ -290,6 +292,7 @@ export function getDefaultMlMirrorConfig(): MlMirrorConfig {
 export function getMlMirrorConfig(env: Record<string, string | undefined> = process.env): MlMirrorConfig {
     return overrideConfigWithEnv(getDefaultMlMirrorConfig(), {
         ...env,
+        AI_RESEARCH_REPLAY_KEY_TABLE: env.AI_RESEARCH_REPLAY_KEY_TABLE ?? env.AI_RESEARCH_REPLAY_PRIVACY_TABLE,
         AI_RESEARCH_REPLAY_S3_PREFIX: env.AI_RESEARCH_REPLAY_S3_PREFIX ?? env.SESSION_RECORDING_ML_S3_PREFIX,
         AI_RESEARCH_REPLAY_PSEUDONYM_SECRET:
             env.AI_RESEARCH_REPLAY_PSEUDONYM_SECRET ?? env.SESSION_RECORDING_ML_PSEUDONYM_SECRET,
