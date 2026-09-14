@@ -3,12 +3,15 @@ import '@testing-library/jest-dom'
 import { cleanup, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { initKeaTests } from '~/test/init'
+import { SidePanelTab } from '~/types'
 
 import { captureInboxReportAction } from '../../inboxAnalytics'
-import { inboxTaskKickoffLogic } from '../../inboxTaskKickoffLogic'
+import { inboxTaskKickoffLogic, REPORT_AI_PANEL } from '../../inboxTaskKickoffLogic'
 import { SignalReport, SignalReportStatus } from '../../types'
 import { DiscussReportButton } from './DiscussReportButton'
+import { ReportDiscussionComposer } from './ReportDiscussionComposer'
 
 jest.mock('../../inboxAnalytics', () => ({
     ...jest.requireActual('../../inboxAnalytics'),
@@ -50,10 +53,15 @@ describe('DiscussReportButton', () => {
         jest.restoreAllMocks()
     })
 
-    async function openPopover(report: SignalReport): Promise<ReturnType<typeof userEvent.setup>> {
+    async function openPanel(report: SignalReport): Promise<ReturnType<typeof userEvent.setup>> {
         const user = userEvent.setup()
         render(<DiscussReportButton report={report} reportUrl="https://app/report-1" />)
         await user.click(screen.getByText('Ask AI'))
+        expect(sidePanelStateLogic.values.selectedTab).toBe(SidePanelTab.Max)
+        expect(sidePanelStateLogic.values.selectedTabOptions).toBe(REPORT_AI_PANEL)
+        expect(inboxTaskKickoffLogic.values.reportChatContext?.report.id).toBe(report.id)
+        expect(discussReport).not.toHaveBeenCalled()
+        render(<ReportDiscussionComposer report={report} reportUrl="https://app/report-1" />)
         return user
     }
 
@@ -61,58 +69,38 @@ describe('DiscussReportButton', () => {
         return jest.mocked(captureInboxReportAction).mock.calls[call][0].extra?.question_source
     }
 
-    it('fills the textarea from a suggestion without asking AI', async () => {
-        // The whole point of the row: it is a starting draft, not a send button. Submitting on click
-        // would spend a paid Opus run on a mis-click and take away the chance to edit the question.
-        const user = await openPopover(makeReport([SUGGESTION]))
+    it('sends a suggestion with one click from the report sidebar', async () => {
+        const user = await openPanel(makeReport([SUGGESTION]))
 
         await user.click(screen.getByText(SUGGESTION))
 
-        expect(screen.getByRole('textbox')).toHaveValue(SUGGESTION)
-        expect(discussReport).not.toHaveBeenCalled()
-        expect(captureInboxReportAction).not.toHaveBeenCalled()
+        expect(discussReport).toHaveBeenCalledTimes(1)
+        expect(discussReport).toHaveBeenCalledWith(
+            expect.objectContaining({ id: 'report-1' }),
+            'https://app/report-1',
+            SUGGESTION
+        )
+        expect(questionSourceOf()).toBe('suggested')
     })
 
     it.each([
         [
-            'sending a suggestion as written',
-            'suggested',
-            async (user: ReturnType<typeof userEvent.setup>) => await user.click(screen.getByText(SUGGESTION)),
-        ],
-        [
-            'narrowing a suggestion before sending',
-            'edited_suggestion',
-            async (user: ReturnType<typeof userEvent.setup>) => {
-                await user.click(screen.getByText(SUGGESTION))
-                await user.type(screen.getByRole('textbox'), ' Last 7 days only.')
-            },
-        ],
-        [
-            'emptying the box and writing another question',
+            'writing a question',
             'typed',
             async (user: ReturnType<typeof userEvent.setup>) => {
-                await user.click(screen.getByText(SUGGESTION))
-                await user.clear(screen.getByRole('textbox'))
                 await user.type(screen.getByRole('textbox'), 'Something else entirely?')
             },
         ],
         [
-            'selecting the filled box and typing over it',
+            'replacing a draft',
             'typed',
             async (user: ReturnType<typeof userEvent.setup>) => {
-                // Select-all-and-replace never empties the box, so provenance can't be tracked from an
-                // intermediate value: the question that arrives keeps nothing of the suggestion.
-                await user.click(screen.getByText(SUGGESTION))
-                await user.click(screen.getByRole('textbox'))
+                await user.type(screen.getByRole('textbox'), 'A first draft')
                 await user.keyboard('{Control>}a{/Control}Something else entirely?')
             },
         ],
     ])('reports question_source after %s', async (_name, expected, act) => {
-        // This property is the only way to tell whether the suggestions are worth offering. Collapsing
-        // any of the three into another makes the readout lie about it: crediting an edited question as
-        // `suggested` overstates them, and crediting a cleared box as `edited_suggestion` understates
-        // the questions readers write for themselves.
-        const user = await openPopover(makeReport([SUGGESTION]))
+        const user = await openPanel(makeReport([SUGGESTION]))
 
         await act(user)
         await user.click(screen.getByTestId('inbox-report-ask-ai-submit'))
@@ -124,7 +112,7 @@ describe('DiscussReportButton', () => {
     it('carries the suggestion count so a typed question can be read in context', async () => {
         // A `typed` question on a report that offered nothing is not evidence against suggestions, so
         // the count is what makes the source readable.
-        const user = await openPopover(makeReport())
+        const user = await openPanel(makeReport())
 
         await user.type(screen.getByRole('textbox'), 'Who is affected?')
         await user.click(screen.getByTestId('inbox-report-ask-ai-submit'))
@@ -142,15 +130,15 @@ describe('DiscussReportButton', () => {
             { ...makeReport([SUGGESTION]), status: SignalReportStatus.RESOLVED },
         ],
     ])('renders no suggestion rows for %s', async (_name, report) => {
-        await openPopover(report)
+        await openPanel(report)
 
-        expect(screen.queryByText('Suggestions')).not.toBeInTheDocument()
+        expect(screen.queryByTestId('inbox-report-ask-ai-suggestion')).not.toBeInTheDocument()
     })
 
     it('does not invite actions where the kickoff wrapper would only answer', async () => {
         // The kickoff prompt pins the agent to answering on a resolved report, so a placeholder
         // saying "tell AI what to do next" would promise an action the run won't carry out.
-        await openPopover({ ...makeReport(), status: SignalReportStatus.RESOLVED })
+        await openPanel({ ...makeReport(), status: SignalReportStatus.RESOLVED })
 
         expect(screen.getByPlaceholderText('Ask a question about this report')).toBeInTheDocument()
     })

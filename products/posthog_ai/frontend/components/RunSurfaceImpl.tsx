@@ -188,11 +188,13 @@ function RunSurfaceBootstrap({ taskId }: { taskId: string }): null {
 
 /** Thread slot: the streamed run thread, with the shared run-log skeleton during the first bootstrap. */
 function RunSurfaceThread({
+    restoreReadPosition = false,
     className,
     listClassName,
     rowClassName,
     showContextUsage = false,
 }: {
+    restoreReadPosition?: boolean
     className?: string
     listClassName?: string
     rowClassName?: string
@@ -237,6 +239,7 @@ function RunSurfaceThread({
     // Turn feedback: only interactive, non-scout surfaces collect ratings.
     return (
         <ThreadView
+            scrollRestorationKey={restoreReadPosition ? taskId : undefined}
             className={className}
             listClassName={listClassName}
             rowClassName={rowClassName}
