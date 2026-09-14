@@ -18,6 +18,8 @@ export enum ErrorCodes {
     InvalidInvite = 'invalid_invite',
     InvalidRecipient = 'invalid_recipient',
     UserAlreadyMember = 'user_already_member',
+    OrganizationDeactivated = 'organization_deactivated',
+    OrganizationPendingDeletion = 'organization_pending_deletion',
     Unknown = 'unknown',
 }
 
@@ -257,6 +259,10 @@ export const inviteSignupLogic = kea<inviteSignupLogicType>([
                                 actions.setError({ code: ErrorCodes.InvalidRecipient, detail: e.detail })
                             } else if (e.code === 'user_already_member') {
                                 actions.setError({ code: ErrorCodes.UserAlreadyMember, detail: e.detail })
+                            } else if (e.code === 'organization_deactivated') {
+                                actions.setError({ code: ErrorCodes.OrganizationDeactivated, detail: e.detail })
+                            } else if (e.code === 'organization_pending_deletion') {
+                                actions.setError({ code: ErrorCodes.OrganizationPendingDeletion, detail: e.detail })
                             } else if (e.code === 'account_exists') {
                                 location.href = e.detail
                             } else {

@@ -368,6 +368,8 @@ function InviteInvalid(): JSX.Element {
         [ErrorCodes.InvalidInvite]: 'This invite link is invalid or expired',
         [ErrorCodes.UserAlreadyMember]: "You're already a member",
         [ErrorCodes.InvalidRecipient]: "This invite link can't be used",
+        [ErrorCodes.OrganizationDeactivated]: 'This organization is deactivated',
+        [ErrorCodes.OrganizationPendingDeletion]: 'This organization is scheduled for deletion',
         [ErrorCodes.Unknown]: "We couldn't validate this invite link",
     }
 
@@ -404,6 +406,10 @@ function InviteInvalid(): JSX.Element {
                 )}
             </>
         ),
+        // The server text already names the next step, and a replacement invite hits the same block,
+        // so these two must not append the "ask for a new one" advice the other buckets carry.
+        [ErrorCodes.OrganizationDeactivated]: error?.detail,
+        [ErrorCodes.OrganizationPendingDeletion]: error?.detail,
         [ErrorCodes.Unknown]: (
             <>
                 {error?.detail} There was an issue with your invite link. Please try again in a few seconds. If the
