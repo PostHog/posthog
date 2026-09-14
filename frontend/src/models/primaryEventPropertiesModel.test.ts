@@ -14,6 +14,8 @@ describe('the primary event properties model', () => {
 
     let logic: ReturnType<typeof primaryEventPropertiesModel.build>
 
+    const flushPendingLoaders = (): Promise<unknown> => new Promise((resolve) => setTimeout(resolve, 0))
+
     beforeEach(() => {
         useMocks({
             get: {
@@ -48,6 +50,42 @@ describe('the primary event properties model', () => {
                 primaryProperties: { my_event: 'existing_prop' },
                 loadedEventNames: ['my_event'],
             })
+    })
+
+    it('keeps both batches when two loads for different events overlap', async () => {
+        // Holders raise their own load: each inspector row asks for one event name, while the
+        // recording and the seekbar ask for a batch. So overlapping loads are the normal case.
+        let releaseFirst: () => void = () => {}
+        let releaseSecond: () => void = () => {}
+        const firstGate = new Promise<void>((resolve) => {
+            releaseFirst = resolve
+        })
+        const secondGate = new Promise<void>((resolve) => {
+            releaseSecond = resolve
+        })
+        useMocks({
+            get: {
+                '/api/projects/:team_id/event_definitions/primary_properties/': async ({ request }) => {
+                    if (new URL(request.url).searchParams.getAll('names').includes('first_event')) {
+                        await firstGate
+                        return [200, { primary_properties: { first_event: 'first_prop' } }]
+                    }
+                    await secondGate
+                    return [200, { primary_properties: { second_event: 'second_prop' } }]
+                },
+            },
+        })
+
+        logic.actions.loadPrimaryProperties({ names: ['first_event'] })
+        logic.actions.loadPrimaryProperties({ names: ['second_event'] })
+
+        releaseFirst()
+        await flushPendingLoaders()
+        releaseSecond()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.primaryProperties).toEqual({ first_event: 'first_prop', second_event: 'second_prop' })
+        expect(logic.values.loadedEventNames).toEqual(['first_event', 'second_event'])
     })
 
     it('folds the API response into the loaded map when a pin succeeds', async () => {
@@ -119,7 +157,6 @@ describe('the primary event properties model', () => {
         // This model has no mount of its own, so its last holder can unmount mid-request. A loader
         // that reads values afterwards throws "[KEA] Can not find path", which kea-loaders reports
         // through its onFailure hook. Nothing to report is the whole point of the guard.
-        const flushPendingLoaders = (): Promise<unknown> => new Promise((resolve) => setTimeout(resolve, 0))
 
         it('reports nothing when the last holder unmounts mid-load', async () => {
             let releaseLoad: () => void = () => {}
