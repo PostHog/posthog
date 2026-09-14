@@ -51,6 +51,9 @@ export const config = {
     recordingApiSecret: process.env.INTERNAL_API_SECRET || '',
     // The listing hits ClickHouse through recording-api, so internalFetch's 3s default aborts it under load.
     blockListingTimeoutMs: parsePositiveInt(process.env.BLOCK_LISTING_TIMEOUT_MS, 30_000),
+    // Attempts for the listing itself. A transient ClickHouse blip costs a second request here
+    // rather than a whole activity retry, which relaunches Chromium and redoes the render.
+    blockListingAttempts: parsePositiveInt(process.env.BLOCK_LISTING_ATTEMPTS, 3),
     // Renders above this many compressed bytes fail permanently instead of loading the pod into its
     // memory limit. Deliberately generous: the every-render byte log is what tightens it over time.
     maxRecordingCompressedBytes: parsePositiveInt(process.env.MAX_RECORDING_COMPRESSED_BYTES, 512 * 1024 * 1024),

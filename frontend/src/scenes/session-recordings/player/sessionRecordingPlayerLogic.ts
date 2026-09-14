@@ -91,6 +91,12 @@ import { shouldUpdatePlaybackPosition } from './utils/snapshot-sync'
 import { SessionRecordingPlayerExplorerProps } from './view-explorer/SessionRecordingPlayerExplorer'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
+
+// rrweb builds its replay iframe a beat after the player chrome paints, and the own-document player
+// frame widens that window further.
+const REPLAYER_IFRAME_WAIT_MS = 5000
+const REPLAYER_IFRAME_POLL_MS = 100
+
 export const PLAYBACK_SPEEDS = [0.5, 1, 1.5, 2, 3, 4, 8, 16]
 export const ONE_FRAME_MS = 100 // We don't really have frames but this feels granular enough
 export const ONE_SECOND_MS = 1000
@@ -645,6 +651,7 @@ export interface sessionRecordingPlayerLogicValues {
     playingState: SessionPlayerState.PLAY | SessionPlayerState.PAUSE
     playingTimeTracking: PlayerTimeTracking
     quickEmojiIsOpen: boolean
+    replayerNotReadyReason: string | null
     reportedReplayerErrors: Set<string>
     resolution: {
         height: number
@@ -1145,6 +1152,7 @@ export interface sessionRecordingPlayerLogicMeta {
             sessionPlayerMetaData: SessionRecordingType | null,
             currentTimestamp: number | undefined
         ) => string | undefined
+        replayerNotReadyReason: (player: Player | null) => string | null
         resolution: (
             sessionPlayerData: SessionPlayerData,
             currentTimestamp: number | undefined,
@@ -2133,6 +2141,11 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     }
                 }
             },
+        ],
+        replayerNotReadyReason: [
+            (s) => [s.player],
+            (player: Player | null): string | null =>
+                player?.replayer?.iframe ? null : 'Wait for the recording to load',
         ],
         resolution: [
             (s) => [s.sessionPlayerData, s.currentTimestamp, s.currentSegment],
@@ -3354,17 +3367,33 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 height: parseFloat(iframe.height),
             })
         },
-        exportRecording: ({
-            format,
-            timestamp = 0,
-            mode = SessionRecordingPlayerMode.Screenshot,
-            duration = 5,
-            filename = '',
-        }) => {
+        exportRecording: async (
+            { format, timestamp = 0, mode = SessionRecordingPlayerMode.Screenshot, duration = 5, filename = '' },
+            breakpoint
+        ) => {
             actions.setPause()
-            const iframe = values.rootFrame?.querySelector('iframe')
+            // The export buttons and the screenshot hotkey are live before rrweb builds its iframe,
+            // so an early click used to fail outright. Wait for the frame instead.
+            const findIframe = (): HTMLIFrameElement | null =>
+                values.player?.replayer?.iframe ?? values.rootFrame?.querySelector('iframe') ?? null
+            const startedAt = performance.now()
+            const waitUntil = startedAt + (IS_TEST_MODE ? 200 : REPLAYER_IFRAME_WAIT_MS)
+            let iframe = findIframe()
+            while (!iframe && performance.now() < waitUntil) {
+                // The breakpoint stops this wait when the player unmounts, so an abandoned
+                // export cannot keep polling a torn-down logic.
+                await breakpoint(REPLAYER_IFRAME_POLL_MS)
+                iframe = findIframe()
+            }
             if (!iframe) {
-                lemonToast.error('Cannot export recording. Please try again.')
+                // The only trace this branch leaves: it never reaches the export API.
+                posthog.capture('replay export blocked', {
+                    sessionId: values.sessionRecordingId,
+                    format,
+                    mode,
+                    waitedMs: Math.round(performance.now() - startedAt),
+                })
+                lemonToast.error('The recording is still loading. Try the export again in a moment.')
                 return
             }
 
