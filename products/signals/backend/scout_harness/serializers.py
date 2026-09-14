@@ -86,6 +86,7 @@ from products.skills.backend.api.skill_serializers import (
     validate_skill_name_value,
 )
 from products.skills.backend.models.skills import LLMSkill
+from products.tasks.backend.facade import api as tasks_facade
 
 logger = structlog.get_logger(__name__)
 
@@ -2641,6 +2642,91 @@ def _normalize_mcp_gateway_server_ids(value: list[UUID]) -> list[str]:
     return [str(server_id) for server_id in value]
 
 
+# Matches the cap on a task's repositories: a scout's sandbox provisions through the same clone
+# path, and every extra repo is another clone on every run.
+MAX_SCOUT_REPOSITORIES = 10
+
+_REPOSITORIES_HELP = (
+    "GitHub repositories this scout clones into its sandbox, each in `organization/repo` format. "
+    "Set them for a scout that reads code, so it can search the tree and run the project's own "
+    "tests instead of reading files one API call at a time. Empty (the default) leaves the sandbox "
+    "without a checkout. The scout's GitHub access stays read-only either way, so a repository "
+    f"listed here is never writable from a run. At most {MAX_SCOUT_REPOSITORIES}, each reachable "
+    "through the project's GitHub connection. Applies from the scout's next run."
+)
+
+
+def _scout_repositories_field(*, read_only: bool = False) -> serializers.ListField:
+    return serializers.ListField(
+        child=serializers.CharField(max_length=255),
+        read_only=read_only,
+        required=False,
+        max_length=MAX_SCOUT_REPOSITORIES,
+        help_text=_REPOSITORIES_HELP,
+    )
+
+
+# Serializer context key a caller sets after running `assert_scout_repositories_reachable` itself,
+# so validation does not run it a second time. The config PATCH does this before it takes the row
+# lock, because the check can call GitHub.
+REPOSITORIES_REACHABILITY_CHECKED_CONTEXT_KEY = "scout_repositories_reachability_checked"
+
+
+def _normalize_scout_repositories(value: list[str]) -> list[str]:
+    repositories: list[str] = []
+    for repository in value:
+        normalized = repository.strip().lower()
+        parts = normalized.split("/")
+        if len(parts) != 2 or not parts[0] or not parts[1]:
+            raise serializers.ValidationError(f"'{repository}' must be in the format organization/repo.")
+        if normalized in repositories:
+            raise serializers.ValidationError(f"'{normalized}' is listed twice.")
+        repositories.append(normalized)
+    return repositories
+
+
+def assert_scout_repositories_reachable(team: Team, repositories: list[str]) -> None:
+    """Refuse any pinned repository the scout's runs could not clone.
+
+    Checked against the installation a read-only sandbox token is minted from, which is the
+    credential a scout run clones with. Anything else would accept a pin that only fails once the
+    scout is already running. A team with no reachable GitHub connection can only pin nothing.
+    May refresh the GitHub repository cache over the network, so keep it out of any transaction.
+    """
+    # Scout configs live on the canonical team and a run mints from that team's installation, so a
+    # request that came in on a child environment is checked against the parent.
+    team_id = team.parent_team_id or team.id
+    integration_id = tasks_facade.readonly_github_integration_id(team_id)
+    if integration_id is None:
+        raise serializers.ValidationError("Connect GitHub to this project before pinning repositories to a scout.")
+    inaccessible = tasks_facade.inaccessible_repositories_via_integration(team_id, integration_id, repositories)
+    if inaccessible:
+        raise serializers.ValidationError(
+            f"Not reachable through this project's GitHub connection: {', '.join(inaccessible)}. "
+            "Check the spelling, or add the repository to the project's GitHub installation."
+        )
+
+
+def validate_scout_repositories(value: list[str], context: dict, *, current: list[str] | None = None) -> list[str]:
+    """Normalize pinned repositories and check they are reachable, unless nothing changed.
+
+    A whole-config resend carries the stored list back unchanged, and a settings save or an MCP
+    update does that on every write, so an unchanged list skips the GitHub-backed check.
+    """
+    repositories = _normalize_scout_repositories(value)
+    if not repositories or context.get(REPOSITORIES_REACHABILITY_CHECKED_CONTEXT_KEY):
+        return repositories
+    if current is not None and repositories == [repository.lower() for repository in current]:
+        return repositories
+    get_team = context.get("get_team")
+    # Some create paths pass a `team` object instead of the routed `get_team` lambda.
+    team = get_team() if callable(get_team) else context.get("team")
+    if not isinstance(team, Team):
+        raise RuntimeError("Scout config repository validation requires team in its context")
+    assert_scout_repositories_reachable(team, repositories)
+    return repositories
+
+
 # Sorted so the help text, the error message, and the picker all name the scopes in one order.
 GRANTABLE_WRITE_SCOPES: list[str] = sorted(SCOUT_GRANTABLE_WRITE_SCOPES)
 
@@ -2855,6 +2941,9 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
         help_text=_SCOUT_TAGS_HELP_TEXT,
     )
     mcp_gateway_server_ids = _mcp_gateway_server_ids_field(read_only=True)
+    # Writable-shaped for the same reason as `tags`: a read-only array serializes as
+    # `readonly string[]`, which a client cannot hand straight back to the patch call.
+    repositories = _scout_repositories_field()
     write_scopes = _write_scopes_field(read_only=True)
 
     @extend_schema_field(OpenApiTypes.STR)
@@ -2900,6 +2989,7 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
             "network_access",
             "model",
             "mcp_gateway_server_ids",
+            "repositories",
             "write_scopes",
             "last_run_at",
             "consecutive_failure_count",
@@ -2958,7 +3048,54 @@ def _capture_auto_pause_reverted(
         )
 
 
-class SignalScoutConfigUpdateSerializer(serializers.ModelSerializer):
+class _ScoutConfigCapabilityFieldsMixin(serializers.Serializer):
+    """What a scout may use, declared once for the create and the update body.
+
+    Both paths write the same config columns, so a field that differed between them would let a
+    scout be created with a capability its settings form could not show or edit.
+    """
+
+    model = serializers.CharField(
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        max_length=200,
+        help_text=_SCOUT_MODEL_HELP,
+    )
+    tags = _scout_tags_field()
+    structured_output_schema = StructuredOutputSchemaField(
+        required=False,
+        allow_null=True,
+        help_text=_STRUCTURED_OUTPUT_SCHEMA_HELP,
+    )
+    mcp_gateway_server_ids = _mcp_gateway_server_ids_field()
+    repositories = _scout_repositories_field()
+    write_scopes = _write_scopes_field()
+
+    def validate_run_cron_schedule(self, value: str | None) -> str | None:
+        return _validate_run_cron_schedule(value) if value is not None else None
+
+    def validate_tags(self, value: list[str]) -> list[str]:
+        return _validate_scout_tags(value)
+
+    def validate_model(self, value: str | None) -> str | None:
+        return _validate_scout_model(value, self.context, current=self.instance.model if self.instance else None)
+
+    def validate_structured_output_schema(self, value: dict | None) -> dict | None:
+        return _validate_structured_output_schema(value)
+
+    def validate_mcp_gateway_server_ids(self, value: list[UUID]) -> list[str]:
+        return _normalize_mcp_gateway_server_ids(value)
+
+    def validate_repositories(self, value: list[str]) -> list[str]:
+        current = self.instance.repositories if isinstance(self.instance, SignalScoutConfig) else None
+        return validate_scout_repositories(value, self.context, current=current)
+
+    def validate_write_scopes(self, value: list[str]) -> list[str]:
+        return _validate_write_scopes(value)
+
+
+class SignalScoutConfigUpdateSerializer(_ScoutConfigCapabilityFieldsMixin, serializers.ModelSerializer):
     """Editable display name, schedule, enablement, and emit posture for one scout config."""
 
     enabled = serializers.BooleanField(
@@ -3014,42 +3151,9 @@ class SignalScoutConfigUpdateSerializer(serializers.ModelSerializer):
             "`no_output` quiet warning. Set it on watchdog scouts whose value is staying quiet."
         ),
     )
-    model = serializers.CharField(
-        required=False,
-        allow_null=True,
-        allow_blank=True,
-        max_length=200,
-        help_text=_SCOUT_MODEL_HELP,
-    )
-    tags = _scout_tags_field()
-    structured_output_schema = StructuredOutputSchemaField(
-        required=False,
-        allow_null=True,
-        help_text=_STRUCTURED_OUTPUT_SCHEMA_HELP,
-    )
-    mcp_gateway_server_ids = _mcp_gateway_server_ids_field()
-    write_scopes = _write_scopes_field()
-
-    def validate_run_cron_schedule(self, value: str | None) -> str | None:
-        return _validate_run_cron_schedule(value) if value is not None else None
 
     def validate_output_destinations(self, value: dict) -> dict:
         return _validate_output_destinations(value, self.context)
-
-    def validate_tags(self, value: list[str]) -> list[str]:
-        return _validate_scout_tags(value)
-
-    def validate_model(self, value: str | None) -> str | None:
-        return _validate_scout_model(value, self.context, current=self.instance.model if self.instance else None)
-
-    def validate_structured_output_schema(self, value: dict | None) -> dict | None:
-        return _validate_structured_output_schema(value)
-
-    def validate_mcp_gateway_server_ids(self, value: list[UUID]) -> list[str]:
-        return _normalize_mcp_gateway_server_ids(value)
-
-    def validate_write_scopes(self, value: list[str]) -> list[str]:
-        return _validate_write_scopes(value)
 
     def update(self, instance: SignalScoutConfig, validated_data: dict) -> SignalScoutConfig:
         output_destinations = validated_data.get("output_destinations")
@@ -3138,11 +3242,12 @@ class SignalScoutConfigUpdateSerializer(serializers.ModelSerializer):
             "auto_pause_exempt",
             "tags",
             "mcp_gateway_server_ids",
+            "repositories",
             "write_scopes",
         ]
 
 
-class SignalScoutConfigOptionsSerializer(serializers.Serializer):
+class SignalScoutConfigOptionsSerializer(_ScoutConfigCapabilityFieldsMixin, serializers.Serializer):
     """Schedule, enablement, and delivery options accepted while creating a scout."""
 
     enabled = serializers.BooleanField(
@@ -3194,31 +3299,6 @@ class SignalScoutConfigOptionsSerializer(serializers.Serializer):
             "Takes precedence over `run_interval_minutes`; occurrences must be at least 30 minutes apart."
         ),
     )
-    model = serializers.CharField(
-        required=False,
-        allow_null=True,
-        allow_blank=True,
-        max_length=200,
-        help_text=_SCOUT_MODEL_HELP,
-    )
-    tags = _scout_tags_field()
-    structured_output_schema = StructuredOutputSchemaField(
-        required=False,
-        allow_null=True,
-        help_text=_STRUCTURED_OUTPUT_SCHEMA_HELP,
-    )
-
-    mcp_gateway_server_ids = _mcp_gateway_server_ids_field()
-    write_scopes = _write_scopes_field()
-
-    def validate_run_cron_schedule(self, value: str | None) -> str | None:
-        return _validate_run_cron_schedule(value) if value is not None else None
-
-    def validate_tags(self, value: list[str]) -> list[str]:
-        return _validate_scout_tags(value)
-
-    def validate_model(self, value: str | None) -> str | None:
-        return _validate_scout_model(value, self.context)
 
     def validate_output_destinations(self, value: dict) -> dict:
         context = self.context
@@ -3226,15 +3306,6 @@ class SignalScoutConfigOptionsSerializer(serializers.Serializer):
             team = context.get("team")
             context = {**context, "project_id": getattr(team, "project_id", None)}
         return _validate_output_destinations(value, context)
-
-    def validate_structured_output_schema(self, value: dict | None) -> dict | None:
-        return _validate_structured_output_schema(value)
-
-    def validate_mcp_gateway_server_ids(self, value: list[UUID]) -> list[str]:
-        return _normalize_mcp_gateway_server_ids(value)
-
-    def validate_write_scopes(self, value: list[str]) -> list[str]:
-        return _validate_write_scopes(value)
 
 
 class SignalScoutConfigCreateSerializer(SignalScoutConfigOptionsSerializer):
