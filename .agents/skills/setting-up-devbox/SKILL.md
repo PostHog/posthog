@@ -40,6 +40,7 @@ Every other devbox command runs the same reachability check first, so fix a fail
 
 `hogli devbox:setup` is interactive, so ask the user to run it in their own terminal.
 It installs the Coder CLI at the server's version into `~/.hogli/bin`, logs in, installs the pinned mutagen binary for `devbox:sync`, and writes the `coder.*` SSH host entries that `devbox:ssh` and `devbox:exec` use.
+`~/.hogli/bin` is not on `PATH`, so call that CLI as `~/.hogli/bin/coder` when a step needs `coder` directly.
 Each optional step has a `--configure-<step>` and `--skip-configure-<step>` flag: `ssh`, `git-identity`, `git-signing`, `region`, `dotfiles`, `claude`.
 Run it again when a command prints `Coder CLI vX does not match server vY`, because it reinstalls the matching CLI.
 
@@ -54,9 +55,14 @@ hogli devbox:start
 
 This creates the box on first use and resumes it after a stop.
 It brings up the PostHog stack only when the workspace has `--start-app` set, which is covered in [Run the PostHog app](#run-the-posthog-app).
-`--region` (`us-east-1` or `eu-central-1`) and `--disk` (`100` or `200` GiB) apply only when the box is created, and a box's region can't change.
-The default box is `devbox-<coder-user>`.
-A labeled box is `devbox-<coder-user>-<label>`; target it with `-n <label>` on any command.
+`--disk` (`100` or `200` GiB) applies only when the box is created.
+`--region` (`us-east-1` or `eu-central-1`) starts that region's default box and creates it if it doesn't exist, so leave it off when resuming an existing box.
+A box's region can't change.
+
+The default box is `devbox-<coder-user>`, and a labeled box is `devbox-<coder-user>-<label>`.
+Boxes in `eu-central-1` add an `-eu` suffix, for example `devbox-<coder-user>-eu`.
+`hogli devbox:list` shows the exact names.
+Target a labeled box with `-n <label>` on commands that act on a box.
 
 ### 4. Connect
 
@@ -125,13 +131,14 @@ For example, `devbox-jane-d` owned by `jane-d` on `coder.dev.posthog.dev` is `ht
 The user must be on the tailnet, and the browser goes through Coder sign-in first.
 
 Verify the link before handing it over.
-This passes the session token to curl on stdin, so it stays out of the output and out of the process list:
+Coder runs the template's health check against the app, so read that status instead of sending a request with the user's session token:
 
 ```bash
-coder login token | sed 's/^/Coder-Session-Token: /' | curl -s -o /dev/null -w '%{http_code}' -H @- "https://app--<workspace>--<coder-user>.<coder-host>/_health/"
+~/.hogli/bin/coder list --output json | jq -r '.[] | select(.name=="<workspace>") | .latest_build.resources[]?.agents[]?.apps[]? | select(.slug=="app") | .health'
 ```
 
-A `200` means Coder routes to a healthy app.
+`healthy` means Coder routes the URL to a working app.
+`initializing` means the check hasn't passed yet, and `unhealthy` means it keeps failing.
 
 `hogli devbox:forward` is the alternative when the user wants `localhost`.
 It tunnels box port 8010 to `localhost:8010` and holds the terminal until stopped.
@@ -142,13 +149,12 @@ Pass `--port 8011` when a local stack already uses 8010.
 - **Tokens on the box:** store them as Coder user secrets, which reach every box the user owns. `hogli devbox:secret:set GH_TOKEN` reads the value from a hidden prompt or from `--file`. Never put a token on a command line or in the conversation. A secret reaches only boxes started after it is set, so run `hogli devbox:restart` on a running box. The template documents `CLAUDE_CODE_OAUTH_TOKEN`, `GH_TOKEN`, `OP_SERVICE_ACCOUNT_TOKEN`, `ANTHROPIC_API_KEY`, and `OPENAI_API_KEY`. `devbox:secret:list` shows names only.
 - **A second box with the same state:** `hogli devbox:clone --as <label>` copies a running box's full disk into `devbox-<coder-user>-<label>`. Only the owner can clone a box.
 - **Template updates:** `hogli devbox:update` applies the latest template when the box is outdated.
-- **Disk full:** unlike the other commands, `hogli devbox:cleanup:disk` with no workspace cleans the local machine, not a devbox. Pass `-n <label>` to clean a labeled box. The default box has no label, so run the cleanup on it with `hogli devbox:exec -- bash -lc 'cd ~/posthog && ./bin/hogli devbox:cleanup:disk'`. `--docker` also prunes stopped containers, and `--cargo` also removes Rust build output, which forces a full rebuild.
-- **Pairing:** `hogli devbox:share --user <coder-user> --role use` grants access, `devbox:users` lists usernames, and `devbox:unshare` revokes access.
+- **Disk full:** run the cleanup on the box with `hogli devbox:exec -- bash -lc 'cd ~/posthog && ./bin/hogli devbox:cleanup:disk'`, and add `-n <label>` after `devbox:exec` for a labeled box. Don't call `hogli devbox:cleanup:disk` from this machine: with no workspace it cleans this machine, and with `-n` it fails on the box because it runs `hogli` in a shell whose `PATH` doesn't include it. `--docker` also prunes stopped containers, and `--cargo` also removes Rust build output, which forces a full rebuild.
+- **Pairing:** `hogli devbox:share --user <coder-user> --role use` grants access, and `devbox:users` lists usernames. `devbox:unshare` removes access only after `hogli devbox:restart`.
 - **Build and agent logs:** `hogli devbox:logs -f`.
 - **Personal setup:** the box works as shipped. Changes made on the box survive stops and updates. `hogli devbox:setup --configure-dotfiles` applies a dotfiles repo on every start and runs its executable `install.sh`. Neither is required, so don't push one over the other.
 
 ## Gotchas
 
-- Don't use `hogli devbox:task`. The Coder deployment no longer runs Coder Tasks. Start a normal box and drive the agent over `devbox:exec` instead.
 - Never echo a secret value into the transcript, logs, a PR, or a command line.
 - `code-server` (`devbox:open --web`) has no SSH agent forwarding, so commit signing fails there. Use VS Code Desktop, Cursor, or JetBrains over SSH to sign commits.
