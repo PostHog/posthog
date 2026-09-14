@@ -21,6 +21,7 @@ import { useSpaceTreeStore } from "@posthog/ui/features/canvas/stores/spaceTreeS
 import { ConsentScreen } from "@posthog/ui/features/consent/ConsentScreen";
 import { useConsentAnalytics } from "@posthog/ui/features/consent/consentAnalytics";
 import { useOrgConsent } from "@posthog/ui/features/consent/useOrgConsent";
+import { QuarantinedRouteNotice } from "@posthog/ui/features/crash-recovery/QuarantinedRouteNotice";
 import { AddDirectoryDialog } from "@posthog/ui/features/folder-picker/AddDirectoryDialog";
 import { ErrorDetailsDialog } from "@posthog/ui/features/notifications/ErrorDetailsDialog";
 import { OnboardingFlow } from "@posthog/ui/features/onboarding/components/OnboardingFlow";
@@ -39,6 +40,7 @@ import { ErrorBoundary } from "@posthog/ui/shell/ErrorBoundary";
 import { ensureSession } from "@posthog/ui/shell/firstRun";
 import { logger } from "@posthog/ui/shell/logger";
 import { openExternalUrl } from "@posthog/ui/shell/openExternal";
+import { takeQuarantinedRoute } from "@posthog/ui/shell/quarantinedRoute";
 import {
   rememberStartupLocation,
   resolveStartupLocation,
@@ -55,6 +57,10 @@ interface AppProps {
 }
 
 const log = logger.scope("app");
+
+// Read at module load, because reading clears the parameter off the URL and
+// that has to happen before the router starts writing to history.
+const quarantinedRoute = takeQuarantinedRoute();
 
 function App({ devToolbar }: AppProps) {
   const { isBootstrapped } = useAuthSession();
@@ -180,6 +186,7 @@ function App({ devToolbar }: AppProps) {
           startupIdentity,
           authenticatedClient,
           spacesLayoutEnabledRef.current,
+          quarantinedRoute,
         );
         if (firstRun) {
           showChannelList({ keepForRoute: firstRun.generalChannelId });
@@ -314,6 +321,9 @@ function App({ devToolbar }: AppProps) {
             across every route (not just the canvas space). Renders null. */}
         <CanvasGenerationToaster />
         <PendingPromptRecovery />
+        {quarantinedRoute ? (
+          <QuarantinedRouteNotice route={quarantinedRoute} />
+        ) : null}
       </motion.div>
     );
   };

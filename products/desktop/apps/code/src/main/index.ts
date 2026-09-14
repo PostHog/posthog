@@ -108,7 +108,12 @@ import {
 import { isMacosPackagedUnsafeBundleLocation } from "./utils/macos-packaged-install-guard";
 import { installMainFetchLogging } from "./utils/network-fetch-logger";
 import { installRendererNetworkLogging } from "./utils/network-webrequest-logger";
-import { createWindow, onMainWindowClosed } from "./window";
+import {
+  appRouteFromUrl,
+  createRouteCrashTracker,
+} from "./utils/renderer-crash-recovery";
+import { setQuarantinedRoute } from "./utils/store";
+import { createWindow, loadAppShell, onMainWindowClosed } from "./window";
 import { installYoutubeEmbedReferrer } from "./youtube-embed-referrer";
 
 type FileWatcherEventsByKind = {
@@ -176,6 +181,7 @@ const RECOVERABLE_RENDER_REASONS = new Set([
 const CRASH_LOOP_WINDOW_MS = 30_000;
 const CRASH_LOOP_THRESHOLD = 3;
 const recentCrashTimestamps: number[] = [];
+const routeCrashTracker = createRouteCrashTracker();
 // Electron reports renderers torn down during quit as "killed", which is also
 // a recoverable reason, so recovery has to be gated on shutdown state instead.
 let shutdownStarted = false;
@@ -228,31 +234,56 @@ app.on("render-process-gone", (_event, webContents, details) => {
     return;
   }
 
-  if (RECOVERABLE_RENDER_REASONS.has(details.reason)) {
-    if (isCrashLoop()) {
-      log.error("Crash loop detected, stopping auto-recovery", {
-        crashesInWindow: recentCrashTimestamps.length,
-        windowMs: CRASH_LOOP_WINDOW_MS,
-      });
-      return;
-    }
-    log.info("Recovering from renderer crash", { reason: details.reason });
-    const win = BrowserWindow.fromWebContents(webContents);
-    if (!win || win.isDestroyed()) {
-      log.warn("No window to recover");
-      return;
-    }
+  if (!RECOVERABLE_RENDER_REASONS.has(details.reason)) return;
+
+  const win = BrowserWindow.fromWebContents(webContents);
+  if (!win || win.isDestroyed()) {
+    log.warn("No window to recover");
+    return;
+  }
+
+  const bringToFront = (): void => {
+    log.info("Bringing window to foreground");
+    win.show();
+    win.moveTop();
+    win.focus();
+    app.focus({ steal: true });
+  };
+
+  // A reload keeps the route fragment, so a route that crashes the renderer
+  // crashes it again on every recovery, and the app restores that same route
+  // on the next launch. Quarantine the route instead and load the app without
+  // it, which is what lets the window come back usable.
+  const route = appRouteFromUrl(webContents.getURL());
+  if (route && routeCrashTracker.record(route, Date.now())) {
+    log.error("Route crashed the renderer repeatedly, quarantining it", {
+      route,
+      reason: details.reason,
+    });
+    setQuarantinedRoute(route);
     setImmediate(() => {
       if (win.isDestroyed()) return;
-      log.info("Reloading webContents");
-      win.webContents.reload();
-      log.info("Bringing window to foreground");
-      win.show();
-      win.moveTop();
-      win.focus();
-      app.focus({ steal: true });
+      loadAppShell(win);
+      bringToFront();
     });
+    return;
   }
+
+  if (isCrashLoop()) {
+    log.error("Crash loop detected, stopping auto-recovery", {
+      crashesInWindow: recentCrashTimestamps.length,
+      windowMs: CRASH_LOOP_WINDOW_MS,
+    });
+    return;
+  }
+
+  log.info("Recovering from renderer crash", { reason: details.reason });
+  setImmediate(() => {
+    if (win.isDestroyed()) return;
+    log.info("Reloading webContents");
+    win.webContents.reload();
+    bringToFront();
+  });
 });
 
 app.on("child-process-gone", (_event, details) => {

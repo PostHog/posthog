@@ -33,6 +33,7 @@ import {
   saveFullScreenDisplayBounds,
   saveFullScreenState,
   setRestoreFullScreenOnNextLaunch,
+  takeQuarantinedRoute,
   type WindowStateSchema,
   windowStateStore,
 } from "./utils/store";
@@ -46,6 +47,10 @@ const MAIN_WINDOW_VITE_NAME = "main_window";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+const RENDERER_FILE_PATH = path.join(
+  __dirname,
+  `../renderer/${MAIN_WINDOW_VITE_NAME}/index.html`,
+);
 
 function isPositionOnScreen(x: number, y: number): boolean {
   const displays = screen.getAllDisplays();
@@ -185,6 +190,31 @@ function setupEditableContextMenu(window: BrowserWindow): void {
       { role: "selectAll", enabled: editFlags.canSelectAll },
     ];
     Menu.buildFromTemplate(template).popup({ window });
+  });
+}
+
+/**
+ * Loads the app at its own entry point, without a route fragment. A reload
+ * keeps the fragment, so this is also how the window leaves a route that
+ * crashes it. A quarantined route travels to the renderer as a query
+ * parameter, because the renderer decides what to tell the user about it.
+ */
+export function loadAppShell(window: BrowserWindow): void {
+  const quarantinedRoute = takeQuarantinedRoute();
+  if (quarantinedRoute) {
+    log.info("Loading app without the quarantined route", { quarantinedRoute });
+  }
+
+  if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
+    const url = new URL(MAIN_WINDOW_VITE_DEV_SERVER_URL);
+    if (quarantinedRoute) {
+      url.searchParams.set("quarantinedRoute", quarantinedRoute);
+    }
+    void window.loadURL(url.toString());
+    return;
+  }
+  void window.loadFile(RENDERER_FILE_PATH, {
+    query: quarantinedRoute ? { quarantinedRoute } : undefined,
   });
 }
 
@@ -376,16 +406,12 @@ export function createWindow(): void {
     },
   });
 
-  const rendererFilePath = path.join(
-    __dirname,
-    `../renderer/${MAIN_WINDOW_VITE_NAME}/index.html`,
-  );
   // The URL the renderer is served from, used to tell in-app navigations from
   // external links. In dev it's the Vite server origin; in prod it's the
   // packaged index.html file URL.
   const appHome = MAIN_WINDOW_VITE_DEV_SERVER_URL
     ? new URL(MAIN_WINDOW_VITE_DEV_SERVER_URL)
-    : pathToFileURL(rendererFilePath);
+    : pathToFileURL(RENDERER_FILE_PATH);
 
   setupExternalLinkHandlers(mainWindow, appHome);
   setupArtifactPreviewWebviews(mainWindow);
@@ -393,11 +419,7 @@ export function createWindow(): void {
   setupCrashLogging(mainWindow);
   buildApplicationMenu();
 
-  if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
-    mainWindow.loadURL(MAIN_WINDOW_VITE_DEV_SERVER_URL);
-  } else {
-    mainWindow.loadFile(rendererFilePath);
-  }
+  loadAppShell(mainWindow);
 
   mainWindow.on("closed", () => {
     if (saveTimeout) {

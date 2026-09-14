@@ -104,6 +104,29 @@ describe("startup location", () => {
     expect(client.startOnboardingSession).not.toHaveBeenCalled();
   });
 
+  it("skips a saved location the host quarantined", async () => {
+    vi.spyOn(stateStorage, "getItem").mockImplementation(async (key) =>
+      key.includes(":v2:") ? "/spaces/general-id/tasks/crashy" : null,
+    );
+    const client = {
+      provisionDefaultTaskChannels: vi.fn().mockResolvedValue({
+        channels: [personal, general],
+        personal_created: false,
+        general_created: false,
+      }),
+      startOnboardingSession: vi.fn().mockResolvedValue("crashy"),
+    };
+
+    await expect(
+      resolveStartupLocation(
+        identity,
+        client,
+        true,
+        "/spaces/general-id/tasks/crashy",
+      ),
+    ).resolves.toEqual({ href: "/spaces/general-id", firstRun: null });
+  });
+
   it("lands a first-run user on the general space home", async () => {
     vi.spyOn(stateStorage, "getItem").mockResolvedValue(null);
     const client = {
