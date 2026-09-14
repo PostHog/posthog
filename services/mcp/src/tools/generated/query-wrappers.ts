@@ -1068,6 +1068,8 @@ const AssistantRetentionQuery = z.object({
     retentionFilter: AssistantRetentionFilter.describe('Properties specific to the retention insight'),
 })
 
+const positive_integer = z.coerce.number().int().min(1)
+
 const AssistantStickinessEventsNode = z.object({
     custom_name: z.string().optional(),
     event: z.string().nullable().describe('The event or `null` for all events.').optional(),
@@ -1114,8 +1116,6 @@ const AssistantStickinessDisplayType = z.enum(['ActionsLineGraph', 'ActionsBar',
 
 const StickinessOperator = z.enum(['gte', 'lte', 'exact'])
 
-const positive_integer = z.coerce.number().int().min(1)
-
 const StickinessCriteria = z.object({
     operator: StickinessOperator,
     value: positive_integer,
@@ -1144,7 +1144,6 @@ const AssistantStickinessFilter = z.object({
 })
 
 const AssistantStickinessQuery = z.object({
-    aggregation_group_type_index: z.union([integer, z.null()]).describe('Groups aggregation').optional(),
     compareFilter: CompareFilter.describe(
         'Compare to date range. When enabled, shows the current and previous period side by side.'
     ).optional(),
@@ -1159,7 +1158,7 @@ const AssistantStickinessQuery = z.object({
     )
         .default('day')
         .optional(),
-    intervalCount: integer
+    intervalCount: positive_integer
         .describe(
             'How many base intervals comprise one stickiness period. Defaults to 1. For example, `interval: "day"` with `intervalCount: 7` groups by 7-day periods.'
         )

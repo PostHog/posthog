@@ -10,6 +10,7 @@ import {
 import {
     buildRunCreateRequest,
     getCapabilityLadder,
+    getDefaultModelForRuntimeAdapter,
     getEffortsForModel,
     getModelLabel,
     getRuntimeAdapterForModel,
@@ -33,6 +34,34 @@ describe('composerModels', () => {
             supported_efforts: ['low', 'medium', 'high'],
         },
     ]
+
+    it.each([
+        [null, 'gpt-5.6-sol'],
+        ['gpt-5.6-luna', 'gpt-5.6-luna'],
+        ['openai/gpt-5.6-luna', 'gpt-5.6-luna'],
+        ['claude-opus-4-8', 'gpt-5.6-sol'],
+        ['retired-model', 'gpt-5.6-sol'],
+    ])('selects the Codex default with preference %s', (preference, expected) => {
+        const catalogue: ModelChoiceApi[] = [
+            ...CATALOGUE,
+            {
+                runtime_adapter: 'codex',
+                model: 'gpt-5.6-sol',
+                display_name: 'GPT-5.6 Sol',
+                supported_efforts: ['low', 'medium', 'high'],
+            },
+        ]
+
+        expect(getDefaultModelForRuntimeAdapter(catalogue, RuntimeAdapterEnumApi.Codex, preference)).toBe(expected)
+    })
+
+    it.each([
+        [CATALOGUE, RuntimeAdapterEnumApi.Codex, 'gpt-5.6-luna'],
+        [CATALOGUE, RuntimeAdapterEnumApi.Claude, 'claude-opus-4-8'],
+        [[], RuntimeAdapterEnumApi.Codex, null],
+    ])('uses an available model when no preferred default is available', (catalogue, adapter, expected) => {
+        expect(getDefaultModelForRuntimeAdapter(catalogue, adapter, 'retired-model')).toBe(expected)
+    })
 
     // The runtime follows from the model, so a Codex pick must not launch on the Claude adapter — and each
     // runtime validates permission modes against its own vocabulary, so `bypassPermissions` has to become

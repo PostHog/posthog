@@ -7,9 +7,7 @@ from django.utils import timezone
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.clickhouse.client import sync_execute
-
-from products.metrics.backend.tests._seeder import seed_metric
+from products.metrics.backend.tests._seeder import seed_metric, truncate_metrics_tables
 
 
 class TestMetricAttributesAPI(ClickhouseTestMixin, APIBaseTest):
@@ -19,10 +17,7 @@ class TestMetricAttributesAPI(ClickhouseTestMixin, APIBaseTest):
     @classmethod
     def setUpTestData(cls):
         super().setUpTestData()
-        # metric_attributes is fed by MVs on metrics1, so truncating metrics1
-        # alone (as sibling test classes do) leaves attribute rows behind.
-        sync_execute("TRUNCATE TABLE IF EXISTS metrics1")
-        sync_execute("TRUNCATE TABLE IF EXISTS metric_attributes")
+        truncate_metrics_tables()
 
         cls.now = timezone.now().replace(second=0, microsecond=0)
         recent = [(cls.now - dt.timedelta(minutes=m), 1.0) for m in (2, 3, 4)]

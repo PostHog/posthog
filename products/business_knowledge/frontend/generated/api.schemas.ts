@@ -114,6 +114,18 @@ export interface GapTopicActionResultApi {
     readonly updated: number
 }
 
+export interface BusinessKnowledgeSettingsApi {
+    /** When true, PostHog learns reusable knowledge from public human replies on resolved support tickets. Requires Support to be enabled for this environment. */
+    learn_from_support_enabled: boolean
+    /** Whether Support is enabled for this environment. Learning cannot be turned on while this is false. */
+    readonly support_enabled: boolean
+}
+
+export interface PatchedBusinessKnowledgeSettingsUpdateApi {
+    /** When true, PostHog learns reusable knowledge from public human replies on resolved support tickets. Rejected when Support is off for this environment. */
+    learn_from_support_enabled?: boolean
+}
+
 /**
  * * `text` - Text
  * * `url` - URL

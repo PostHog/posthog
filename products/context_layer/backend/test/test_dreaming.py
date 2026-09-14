@@ -169,6 +169,7 @@ class TestDreamingLane(BaseTest):
         assert context.model == "gpt-5.6-sol"
         assert context.reasoning_effort == "high"
         assert context.initial_permission_mode == "bypassPermissions"
+        assert context.posthog_mcp_scopes == [*dreaming.MCP_READ_SCOPES, dreaming.CONTEXT_LAYER_INTERNAL_SCOPE]
         assert trigger_mock.call_args.kwargs["ai_stage"] == dreaming.DREAM_AI_STAGE
         prompt = trigger_mock.call_args.args[0]
         assert prompt.startswith(

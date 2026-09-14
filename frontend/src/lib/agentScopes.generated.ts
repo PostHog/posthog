@@ -33,6 +33,8 @@ export const AGENT_USE_CASE_SCOPES = [
     'conversation:read',
     'customer_analytics:read',
     'customer_analytics:write',
+    'customer_task:read',
+    'customer_task:write',
     'data_catalog:read',
     'data_catalog:write',
     'data_catalog_approval:write',

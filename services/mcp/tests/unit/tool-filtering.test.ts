@@ -978,6 +978,7 @@ describe('Tool Filtering - Feature Flags', () => {
                 'user-interviews',
                 'customer-analytics-csp',
                 'customer-analytics-feature-requests',
+                'customer-analytics-customer-tasks',
                 'notebooks-collaboration',
                 'revamped-py-notebooks',
                 'notebook-generated-widgets',

@@ -14,6 +14,9 @@ use personhog_identity::storage::postgres::PostgresIdentityStorage;
 
 /// The production table set. Most tests run here; the raw-SQL assertion
 /// helpers in the test binaries assume it.
+/// Leader fan-out width the suites run with; production reads it from config.
+pub const FAN_OUT_CONCURRENCY: usize = 8;
+
 pub fn default_tables() -> IdentityTables {
     IdentityTables::real()
 }

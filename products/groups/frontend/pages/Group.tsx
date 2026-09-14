@@ -1,0 +1,286 @@
+import { useActions, useMountedLogic, useValues } from 'kea'
+import { router } from 'kea-router'
+
+import { IconRefresh } from '@posthog/icons'
+import { LemonButton } from '@posthog/lemon-ui'
+import { useFeatureFlagVariantKey } from '@posthog/react'
+
+import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
+import { NotFound } from 'lib/components/NotFound'
+import { PropertiesTable } from 'lib/components/PropertiesTable'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { Link } from 'lib/lemon-ui/Link'
+import { Spinner, SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
+import { NotebookNodeType } from 'scenes/notebooks/types'
+import { groupDisplayId } from 'scenes/persons/GroupActorDisplay'
+import { RelatedFeatureFlags } from 'scenes/persons/RelatedFeatureFlags'
+import { SceneExport } from 'scenes/sceneTypes'
+import { SessionRecordingsPlaylist } from 'scenes/session-recordings/playlist/SessionRecordingsPlaylist'
+import { DEFAULT_RECORDING_FILTERS } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
+import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
+
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { Query } from '~/queries/Query/Query'
+import type { ActionFilter } from '~/types'
+import {
+    ActivityScope,
+    FilterLogicalOperator,
+    GroupsTabType,
+    PersonsTabType,
+    PropertyDefinitionType,
+    PropertyFilterType,
+    PropertyOperator,
+} from '~/types'
+
+import { FeedbackButton } from 'products/customer_analytics/frontend/components/FeedbackButton'
+import { GroupProfileCanvas } from 'products/customer_analytics/frontend/components/GroupProfileCanvas'
+import { GroupLogicProps, groupLogic } from 'products/groups/frontend/logics/groupLogic'
+
+import { GroupDashboardCard } from '../cards/GroupDashboardCard'
+import { GroupNotebookCard } from '../cards/GroupNotebookCard'
+import { GroupCaption } from '../components/GroupCaption'
+import { GroupOverview } from '../components/GroupOverview'
+import { RelatedGroups } from '../components/RelatedGroups'
+
+export const scene: SceneExport<GroupLogicProps> = {
+    component: Group,
+    logic: groupLogic,
+    paramsToProps: ({ params: { groupTypeIndex, groupKey } }) => ({
+        groupTypeIndex: parseInt(groupTypeIndex ?? '0'),
+        groupKey: decodeURIComponent(groupKey ?? ''),
+    }),
+}
+
+export function Group(): JSX.Element {
+    const mountedGroupLogic = useMountedLogic(groupLogic)
+    const {
+        logicProps,
+        groupData,
+        groupDataLoading,
+        groupTypeName,
+        groupType,
+        groupTab,
+        groupEventsQuery,
+        groupEventsQueryIsDirty,
+        backTo,
+        backNavigation,
+    } = useValues(mountedGroupLogic)
+    const { groupKey, groupTypeIndex } = logicProps
+    const { setGroupEventsQuery, resetGroupEventsQuery, editProperty, deleteProperty } = useActions(mountedGroupLogic)
+    const { currentTeam } = useValues(teamLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const groupProfileVariant = useFeatureFlagVariantKey(FEATURE_FLAGS.GROUP_PROFILE_EXPERIMENT)
+    const isProfileEnabled = groupProfileVariant === 'test'
+    const showProfile = featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS] || isProfileEnabled
+
+    if (!groupData || !groupType) {
+        return groupDataLoading ? <SpinnerOverlay sceneLevel /> : <NotFound object="group" />
+    }
+
+    const activeTab = groupTab ?? (showProfile ? 'profile' : 'overview')
+
+    return (
+        <SceneContent>
+            <SceneTitleSection
+                name={groupDisplayId(groupData.group_key, groupData.group_properties)}
+                resourceType={{ type: 'group' }}
+                forceBackTo={backTo}
+                actions={
+                    <>
+                        <FeedbackButton id="customer-analytics-group-profile-feedback-button" />
+                        <NotebookSelectButton
+                            size="small"
+                            type="secondary"
+                            resource={{
+                                type: NotebookNodeType.Group,
+                                attrs: {
+                                    id: groupKey,
+                                    groupTypeIndex: groupTypeIndex,
+                                },
+                            }}
+                        />
+                    </>
+                }
+            />
+            <GroupCaption groupData={groupData} groupTypeName={groupTypeName} />
+            <SceneDivider />
+            <LemonTabs
+                sceneInset
+                activeKey={activeTab}
+                onChange={(tab) =>
+                    router.actions.push(
+                        urls.group(String(groupTypeIndex), groupKey, true, tab),
+                        backNavigation ? { backUrl: backNavigation.url, backName: backNavigation.name } : undefined
+                    )
+                }
+                tabs={[
+                    ...(showProfile
+                        ? [
+                              {
+                                  key: GroupsTabType.PROFILE,
+                                  label: <span data-attr="groups-profile-tab">Profile</span>,
+                                  content: <GroupProfileCanvas group={groupData} attachTo={mountedGroupLogic} />,
+                              },
+                          ]
+                        : []),
+                    {
+                        key: GroupsTabType.OVERVIEW,
+                        label: <span data-attr="groups-overview-tab">Overview</span>,
+                        content: showProfile ? <GroupDashboardCard /> : <GroupOverview groupData={groupData} />,
+                    },
+                    ...(featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS] && groupData.notebook
+                        ? [
+                              {
+                                  key: GroupsTabType.NOTES,
+                                  label: <span data-attr="groups-notes-tab">Notes</span>,
+                                  content: <GroupNotebookCard shortId={groupData.notebook} />,
+                              },
+                          ]
+                        : []),
+                    {
+                        key: PersonsTabType.PROPERTIES,
+                        label: <span data-attr="groups-properties-tab">Properties</span>,
+                        content: (
+                            <PropertiesTable
+                                type={PropertyDefinitionType.Group}
+                                properties={groupData.group_properties || {}}
+                                embedded={false}
+                                onEdit={editProperty}
+                                onDelete={deleteProperty}
+                                searchable
+                                collapsible
+                            />
+                        ),
+                    },
+                    {
+                        key: PersonsTabType.EVENTS,
+                        label: <span data-attr="groups-events-tab">Events</span>,
+                        content: groupEventsQuery ? (
+                            <Query
+                                query={groupEventsQuery}
+                                setQuery={setGroupEventsQuery}
+                                context={{
+                                    refresh: 'force_blocking',
+                                    // Browses this group's captured events. The query carries no
+                                    // contextKey, so the pick is never saved as a table view.
+                                    includeHiddenEvents: true,
+                                    customActions: (
+                                        <LemonButton
+                                            key="reset-group-events-filters"
+                                            type="secondary"
+                                            size="small"
+                                            icon={<IconRefresh />}
+                                            onClick={() => resetGroupEventsQuery()}
+                                            disabledReason={groupEventsQueryIsDirty ? undefined : 'No active filters'}
+                                            data-attr="group-events-reset-filters"
+                                        >
+                                            Reset all filters
+                                        </LemonButton>
+                                    ),
+                                }}
+                            />
+                        ) : (
+                            <Spinner />
+                        ),
+                    },
+                    {
+                        key: PersonsTabType.SESSION_RECORDINGS,
+                        label: <span data-attr="group-session-recordings-tab">Recordings</span>,
+                        content: (
+                            <>
+                                {!currentTeam?.session_recording_opt_in ? (
+                                    <div className="mb-4">
+                                        <LemonBanner type="info">
+                                            Session recordings are currently disabled for this project. To use this
+                                            feature, please go to your{' '}
+                                            <Link to={`${urls.settings('project')}#recordings`}>project settings</Link>{' '}
+                                            and enable it.
+                                        </LemonBanner>
+                                    </div>
+                                ) : (
+                                    <div className="SessionRecordingPlaylistHeightWrapper">
+                                        <SessionRecordingsPlaylist
+                                            logicKey={`groups-recordings-${groupKey}-${groupTypeIndex}`}
+                                            updateSearchParams
+                                            filters={{
+                                                ...DEFAULT_RECORDING_FILTERS,
+                                                duration: [
+                                                    {
+                                                        type: PropertyFilterType.Recording,
+                                                        key: 'duration',
+                                                        value: 1,
+                                                        operator: PropertyOperator.GreaterThan,
+                                                    },
+                                                ],
+                                            }}
+                                            pinnedFilters={{
+                                                type: FilterLogicalOperator.And,
+                                                values: [
+                                                    {
+                                                        type: 'events',
+                                                        name: 'All events',
+                                                        properties: [
+                                                            {
+                                                                key: `$group_${groupTypeIndex} = '${groupKey}'`,
+                                                                type: 'hogql',
+                                                            },
+                                                        ],
+                                                    } as ActionFilter,
+                                                ],
+                                            }}
+                                        />
+                                    </div>
+                                )}
+                            </>
+                        ),
+                    },
+                    {
+                        key: PersonsTabType.RELATED,
+                        label: (
+                            <div className="flex items-center" data-attr="group-related-tab">
+                                Related people & groups
+                            </div>
+                        ),
+                        tooltip: `People and groups that have shared events with this ${groupTypeName} in the last 90 days.`,
+                        content: <RelatedGroups id={groupKey} groupTypeIndex={groupTypeIndex} />,
+                    },
+                    {
+                        key: PersonsTabType.FEATURE_FLAGS,
+                        label: <span data-attr="groups-related-flags-tab">Feature flags</span>,
+                        tooltip: `Only shows feature flags with targeting conditions based on ${groupTypeName} properties.`,
+                        content: (
+                            <RelatedFeatureFlags
+                                distinctId={groupData.group_key}
+                                groupTypeIndex={groupTypeIndex}
+                                groups={{ [groupType]: groupKey }}
+                            />
+                        ),
+                    },
+                    {
+                        key: PersonsTabType.HISTORY,
+                        label: 'History',
+                        content: (
+                            <ActivityLog
+                                scope={ActivityScope.GROUP}
+                                id={`${groupTypeIndex}-${groupKey}`}
+                                caption={
+                                    <LemonBanner type="info">
+                                        This page only shows changes made by users in the PostHog site. Automatic
+                                        changes from the API aren't shown here.
+                                    </LemonBanner>
+                                }
+                            />
+                        ),
+                    },
+                ]}
+            />
+        </SceneContent>
+    )
+}

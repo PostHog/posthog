@@ -7,6 +7,7 @@ import { SeriesGlyph } from 'lib/components/SeriesGlyph'
 import { parseDateInTimezone } from 'lib/utils/datetime'
 import { percentage } from 'lib/utils/numbers'
 import { alphabet } from 'lib/utils/strings'
+import { shortTimeZone } from 'lib/utils/timezones'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import {
     FormattedDateOptions,
@@ -95,11 +96,16 @@ function formatRowValue(
 /** Spells out the weekday on daily buckets, matching the classic insight tooltip. */
 function formatHeaderDate(date: string | undefined, options: FormattedDateOptions): string {
     const formattedDate = getFormattedDate(date, options)
-    if (options.interval !== 'day' || typeof date !== 'string') {
+    if (typeof date !== 'string') {
         return formattedDate
     }
-    const parsed = parseDateInTimezone(date, options.timezone ?? 'UTC')
-    return parsed.isValid() ? `${parsed.format('dddd')}, ${formattedDate}` : formattedDate
+    const timezone = options.timezone ?? 'UTC'
+    const parsed = parseDateInTimezone(date, timezone)
+    const tzSuffix = ` (${shortTimeZone(timezone, parsed.isValid() ? parsed.toDate() : undefined) ?? 'UTC'})`
+    if (options.interval !== 'day') {
+        return `${formattedDate}${tzSuffix}`
+    }
+    return parsed.isValid() ? `${parsed.format('dddd')}, ${formattedDate}${tzSuffix}` : `${formattedDate}${tzSuffix}`
 }
 
 // ── SeriesLabel ────────────────────────────────────────────────────────────

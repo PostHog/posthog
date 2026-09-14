@@ -587,6 +587,7 @@ SPECTACULAR_SETTINGS = {
             "ScannerProviderEnum": "products.replay_vision.backend.models.replay_scanner.ScannerProvider",
             # Matches replay_vision's VisionAlertState.
             "LogsAlertConfigurationStateEnum": "products.logs.backend.models.LogsAlertConfiguration.State",
+            "LogsPatternsSourceEnum": ["stored_patterns", "body_mining"],
             #
             # The published name is already derived by a different choice set, so the
             # entry holds this one apart.
@@ -660,6 +661,17 @@ SPECTACULAR_SETTINGS = {
                 "workflow_variable",
             ],
             "PropertyGroupTypeEnum": ["cohort", "person", "group"],
+            # ReportMetric and its snapshot-only list projection share this inline set.
+            "ReportMetricKindEnum": [
+                "affected_users",
+                "affected_sessions",
+                "occurrences",
+                "conversion_rate",
+                "error_rate",
+                "duration",
+                "revenue",
+                "custom",
+            ],
             "TaskRunBootstrapCreateRequestInitialPermissionModeEnum": [
                 "default",
                 "acceptEdits",
@@ -695,6 +707,7 @@ SPECTACULAR_SETTINGS = {
             ],
             "TileSpacingEnum": ["tight", "condensed", "standard", "relaxed", "wide"],
             "DataQualityCheckSeverityEnum": ["error", "warn"],
+            "DataQualityScheduleIntervalEnum": "products.data_quality.backend.facade.enums.schedule_interval_choices",
             "CanvasStateScopeEnum": ["user", "shared"],
             "CanvasKindEnum": ["freeform", "grid", "component"],
             "CanvasPlacementStatusEnum": ["pending", "generating", "live", "failed"],

@@ -16,6 +16,7 @@ from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubR
 from posthog.event_usage import groups
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
+from posthog.models.integration import SlackIntegration
 from posthog.models.organization import BillingPeriod
 from posthog.models.scoping import with_team_scope
 from posthog.ph_client import ph_scoped_capture
@@ -38,11 +39,17 @@ from products.signals.backend.report_generation.repo_activity import (
     repository_activity_needs_rebuild,
 )
 from products.signals.backend.reviewer_pr_assignment import assign_reviewers_to_pull_request
+from products.signals.backend.reviewer_pr_ready import open_pull_request_ready_for_review
 from products.signals.backend.scout_harness.inactivity import sweep_inactive_scouts
 from products.signals.backend.scout_harness.slack_delivery import (
     DELIVERABLE_REPORT_STATUSES,
     ScoutSlackOutputType,
     ScoutSlackPermanentDeliveryError,
+    _ensure_dm_recipient_eligible,
+    _newer_report_delivery_queued,
+    _post_scout_report_thread_replies,
+    _slack_channel_id,
+    _slack_integration_for_project,
     clear_latest_scout_report_delivery,
     mark_latest_scout_report_delivery,
     post_scout_emission_to_slack,
@@ -174,6 +181,122 @@ def _scout_slack_retry_countdown(exc: Exception, retries: int) -> int:
 
 
 @shared_task(
+    name="products.signals.backend.tasks.deliver_scout_slack_thread_replies",
+    ignore_result=True,
+    acks_late=True,
+    reject_on_worker_lost=True,
+)
+@with_team_scope(canonical=True)
+def deliver_scout_slack_thread_replies(
+    team_id: int,
+    integration_id: int,
+    channel: str,
+    thread_ts: str,
+    delivery_id: str,
+    reply_blocks: list[list[dict]],
+    fallback: str,
+    chunk_offset: int,
+    attempt: int = 1,
+    report_id: str | None = None,
+    report_revision: str | None = None,
+) -> None:
+    """Continue a rate-limited report thread without holding or retrying the lead-message worker."""
+    team = Team.objects.only("project_id").get(id=team_id)
+    integration = _slack_integration_for_project(integration_id=integration_id, project_id=team.project_id)
+    slack = SlackIntegration(integration)
+    channel_id = _slack_channel_id(channel)
+
+    def _schedule_retry(
+        countdown: int,
+        blocks: list[list[dict]],
+        offset: int,
+        retry_thread_ts: str,
+        retry_fallback: str,
+    ) -> None:
+        if attempt >= _SCOUT_SLACK_MAX_RETRIES:
+            logger.warning(
+                "scout_slack_report_thread_reply_exhausted",
+                team_id=team_id,
+                integration_id=integration_id,
+                channel=channel_id,
+                delivery_id=delivery_id,
+                chunk_index=offset,
+                attempts=attempt,
+            )
+            return
+        deliver_scout_slack_thread_replies.apply_async(
+            kwargs={
+                "team_id": team_id,
+                "integration_id": integration_id,
+                "channel": channel,
+                "thread_ts": retry_thread_ts,
+                "delivery_id": delivery_id,
+                "reply_blocks": blocks,
+                "fallback": retry_fallback,
+                "chunk_offset": offset,
+                "attempt": attempt + 1,
+                **({"report_id": report_id} if report_id is not None else {}),
+                **({"report_revision": report_revision} if report_revision is not None else {}),
+            },
+            countdown=countdown,
+        )
+
+    if report_id is not None:
+        report = SignalReport.objects.filter(id=report_id, team_id=team_id).only("status", "updated_at").first()
+        if report is None:
+            logger.info("scout_slack_report_thread_reply_report_missing", team_id=team_id, report_id=report_id)
+            return
+        if report.status not in DELIVERABLE_REPORT_STATUSES:
+            logger.info(
+                "scout_slack_report_thread_reply_report_not_surfaced",
+                team_id=team_id,
+                report_id=report_id,
+                report_status=report.status,
+            )
+            return
+        if report_revision is not None and report.updated_at.isoformat() != report_revision:
+            logger.info(
+                "scout_slack_report_thread_reply_report_changed",
+                team_id=team_id,
+                report_id=report_id,
+            )
+            return
+        if _newer_report_delivery_queued(report_id, delivery_id, integration_id, channel):
+            logger.info(
+                "scout_slack_report_thread_reply_yielded_to_newer_delivery",
+                team_id=team_id,
+                report_id=report_id,
+                delivery_id=delivery_id,
+            )
+            return
+
+    try:
+        _ensure_dm_recipient_eligible(slack, channel_id)
+    except ScoutSlackPermanentDeliveryError:
+        raise
+    except Exception as exc:
+        _schedule_retry(
+            _scout_slack_retry_countdown(exc, attempt - 1),
+            reply_blocks,
+            chunk_offset,
+            thread_ts,
+            fallback,
+        )
+        return
+
+    _post_scout_report_thread_replies(
+        slack.client,
+        channel_id=channel_id,
+        thread_ts=thread_ts,
+        delivery_id=delivery_id,
+        reply_blocks=reply_blocks,
+        fallback=fallback,
+        schedule_retry=_schedule_retry,
+        chunk_offset=chunk_offset,
+    )
+
+
+@shared_task(
     name="products.signals.backend.tasks.deliver_scout_slack_output",
     ignore_result=True,
     bind=True,
@@ -230,12 +353,37 @@ def deliver_scout_slack_output(
                     report_status=report.status,
                 )
                 return
+
+            def _schedule_thread_reply_retry(
+                countdown: int,
+                blocks: list[list[dict]],
+                offset: int,
+                thread_ts: str,
+                fallback: str,
+            ) -> None:
+                deliver_scout_slack_thread_replies.apply_async(
+                    kwargs={
+                        "team_id": team_id,
+                        "integration_id": integration_id,
+                        "channel": channel,
+                        "thread_ts": thread_ts,
+                        "delivery_id": delivery_id,
+                        "reply_blocks": blocks,
+                        "fallback": fallback,
+                        "chunk_offset": offset,
+                        "report_id": output_id,
+                        "report_revision": report.updated_at.isoformat(),
+                    },
+                    countdown=countdown,
+                )
+
             post_scout_report_to_slack(
                 report,
                 run,
                 delivery_id=delivery_id,
                 integration_id=integration_id,
                 channel=channel,
+                schedule_thread_reply_retry=_schedule_thread_reply_retry,
                 edit_note=edit_note,
                 thread_reports=thread_reports,
             )
@@ -406,6 +554,22 @@ def assign_reviewers_on_implementation_pr(team_id: int, report_id: str, pr_url: 
     reports its own failures and this never retries: the next pull request event queues it again.
     """
     assign_reviewers_to_pull_request(team_id=team_id, report_id=report_id, pr_url=pr_url)
+
+
+@shared_task(
+    name="products.signals.backend.tasks.open_implementation_pr_for_review",
+    ignore_result=True,
+    max_retries=0,
+)
+@with_team_scope()
+def open_implementation_pr_for_review(team_id: int, report_id: str, pr_url: str) -> None:
+    """Take a report's implementation PR out of draft when its suggested reviewers asked for that.
+
+    Runs on a worker for the same reason as reviewer assignment: the GitHub calls must not hold up
+    the claim, sync, or webhook that queued it. Best-effort end to end, so this never retries.
+    Unlike assignment, a retry could also fight a reviewer who redrafted the pull request in between.
+    """
+    open_pull_request_ready_for_review(team_id=team_id, report_id=report_id, pr_url=pr_url)
 
 
 def _capture_refund_sync_event(refund: SignalReportRefund, event: str, extra: dict[str, object]) -> None:

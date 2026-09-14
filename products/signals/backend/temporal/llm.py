@@ -21,6 +21,11 @@ logger = structlog.get_logger(__name__)
 
 MATCHING_MODEL = os.getenv("SIGNAL_MATCHING_LLM_MODEL", "claude-sonnet-5")
 
+# Both safety stages resolve their model from here. The default is a literal rather than
+# MATCHING_MODEL, so a matching-model swap leaves the gate on the model its prompt was measured
+# against, and moving the gate takes a deliberate change to this setting.
+SAFETY_MODEL = os.getenv("SIGNAL_SAFETY_LLM_MODEL") or "claude-sonnet-5"
+
 
 @frozen
 class ModelCapabilities:
@@ -141,9 +146,11 @@ async def call_llm(
     retries: int = MAX_RETRIES,
     stage: Optional[str] = None,
     ai_product: Optional[str] = None,
+    model: Optional[str] = None,
 ) -> T:
+    model = model or MATCHING_MODEL
     # Native Anthropic Messages endpoint so prefilling and extended thinking carry over unchanged.
-    capabilities = get_model_capabilities(MATCHING_MODEL)
+    capabilities = get_model_capabilities(model)
     thinking = thinking and capabilities.thinking != "none"
     # Prefill is what keeps non-thinking responses free of markdown fences; without it we lean on
     # the fence stripper the thinking path already uses.
@@ -172,12 +179,12 @@ async def call_llm(
         messages.append({"role": "assistant", "content": "{"})
 
     create_kwargs: dict = {
-        "model": MATCHING_MODEL,
+        "model": model,
         "system": system_prompt,
         "messages": messages,
         "max_tokens": MAX_RESPONSE_TOKENS,
         "timeout": TIMEOUT,
-        **effort_kwargs(MATCHING_MODEL),
+        **effort_kwargs(model),
     }
     if capabilities.temperature:
         create_kwargs["temperature"] = temperature

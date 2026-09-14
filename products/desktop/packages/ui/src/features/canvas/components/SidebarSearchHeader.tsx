@@ -4,6 +4,7 @@ import {
   formatHotkey,
   SHORTCUTS,
 } from "@posthog/ui/features/command/keyboard-shortcuts";
+import { ChromeBar } from "@posthog/ui/primitives/ChromeBar";
 import {
   type ReactElement,
   type KeyboardEvent as ReactKeyboardEvent,
@@ -54,14 +55,9 @@ export function SidebarSearchHeader({
 
   return (
     <>
-      <div className="flex h-10 shrink-0 items-center gap-2 border-border border-b pr-2 pl-3">
+      <ChromeBar actions={actions}>
         <h2 className="font-bold text-base">{title}</h2>
-        {actions && (
-          <div className="ml-auto flex shrink-0 items-center gap-1">
-            {actions}
-          </div>
-        )}
-      </div>
+      </ChromeBar>
       <div className="shrink-0 px-2 pt-2">
         <AutocompleteInput
           ref={searchRef}
