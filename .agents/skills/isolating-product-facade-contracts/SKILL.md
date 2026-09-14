@@ -275,7 +275,7 @@ records the decrease. See `products/architecture.md` § Wiring couplings.
   `facade-accepts(<parameter>)` and `facade-logic`. The matching lines of
   `products/model_crossing_uses_baseline.txt` record what the facades do today and only shrink, so a
   new finding fails the lint. Regenerate with `bin/hogli product:crossings --all --write-baseline`,
-  and see `products/architecture.md` § The shape check.
+  and the rule is `products/architecture.md` § Facades: The Public Interface.
 - Declare every relation field that crosses a product boundary with
   `related_name="+"` — the reverse-accessor ratchet blocks new unsealed ones.
 - Do not register a signal receiver on another boundary's sender; use the moves

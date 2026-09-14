@@ -27,7 +27,7 @@ something outside the watched subtree, because the watch would then miss the cod
 promises rather than what a caller does. `facade-returns` and `facade-accepts(<parameter>)` mean a
 public facade callable puts a Django, a DRF or an ORM type on its signature; `facade-logic` means a
 capability submodule holds bodies instead of re-exports. An import linter sees the same edge either
-way, so the shape is frozen here. See `products/architecture.md` § The shape check.
+way, so the shape is frozen here. The rule is `products/architecture.md` § Facades: The Public Interface.
 
 The check is strict equality, not "no worse than": a line that disappears must be deleted from the
 file in the same change, so the file can never go stale behind the code.

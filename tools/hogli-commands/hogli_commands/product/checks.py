@@ -967,7 +967,7 @@ class IsolationChainCheck(ProductCheck):
 _CROSSING_LEDGER = "products/model_crossing_uses_baseline.txt"
 
 # The remedy the lint prints per finding kind. Each one is the move that removes the row, not advice
-# to think about the row. products/architecture.md § The shape check is the doctrine copy.
+# to think about the row. The rule is products/architecture.md § Facades: The Public Interface.
 _FACADE_SHAPE_REMEDIES: dict[str, str] = {
     "returns": "return a frozen contract from facade/contracts.py instead of the ORM object",
     "accepts": "take ids and contracts, so the caller never holds a Django or a DRF object "

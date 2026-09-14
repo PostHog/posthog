@@ -24,7 +24,7 @@
 # submodule holds bodies rather than re-exports, and its count is how many are left. The first
 # column says what crosses — `<product>.<Class>`, `<library>.<Type>`, or the facade module for a
 # `facade-logic` line — and the consumer column holds the symbol or the module that carries it.
-# See products/architecture.md § The shape check for the move that clears each kind.
+# The rule is products/architecture.md § Facades: The Public Interface.
 #
 # Counts may only go down, and a line that disappears must be deleted here too.
 #
@@ -77,6 +77,7 @@ customer_analytics.AccountRelationshipDefinition products.customer_analytics.bac
 customer_analytics.CustomPropertyDefinition products.customer_analytics.backend.facade.testing.create_custom_property_definition facade-returns 1
 customer_analytics.CustomPropertyDefinition products.customer_analytics.backend.facade.testing.create_custom_property_value facade-accepts(definition) 1
 customer_analytics.CustomPropertyValue products.customer_analytics.backend.facade.testing.create_custom_property_value facade-returns 1
+customer_analytics.CustomerTask products.customer_analytics.backend.facade.testing.create_customer_task facade-returns 1
 customer_analytics.FeatureRequest products.customer_analytics.backend.facade.testing.create_feature_request facade-returns 1
 customer_analytics.FeatureRequest products.customer_analytics.backend.facade.testing.create_feature_request_account_link facade-accepts(feature_request) 1
 customer_analytics.FeatureRequest products.customer_analytics.backend.facade.testing.create_feature_request_history facade-accepts(feature_request) 1
@@ -146,10 +147,10 @@ data_modeling.DataWarehouseSavedQuery products.data_modeling.backend.facade.api.
 data_modeling.DataWarehouseSavedQuery products.data_modeling.backend.facade.api.latest_saved_query_materialization_job facade-accepts(saved_query) 1
 data_modeling.DataWarehouseSavedQuery products.data_modeling.backend.facade.api.materialize_saved_query facade-accepts(saved_query) 1
 data_modeling.DataWarehouseSavedQuery products.data_modeling.backend.facade.api.promote_view_nodes_to_matview facade-accepts(saved_query) 1
-data_modeling.DataWarehouseSavedQuery products.data_modeling.backend.facade.api.resume_saved_query facade-accepts(saved_query) 1
 data_modeling.DataWarehouseSavedQuery products.data_modeling.backend.facade.api.saved_query_materialized_at facade-accepts(saved_query) 1
 data_modeling.DataWarehouseSavedQuery products.data_modeling.backend.facade.api.suspension_state_for_saved_query facade-accepts(saved_query) 1
 data_modeling.DataWarehouseSavedQuery products.data_modeling.backend.facade.api.sync_saved_query_to_dag facade-accepts(saved_query) 1
+data_modeling.DataWarehouseSavedQuery products.data_modeling.backend.facade.api.unsuspend_saved_query facade-accepts(saved_query) 1
 data_modeling.DataWarehouseSavedQuery products.data_modeling.backend.facade.api.update_node_type facade-accepts(saved_query) 1
 data_modeling.DataWarehouseSavedQuery products.endpoints.backend.facade.temporal.prepare_executable_query facade-accepts(saved_query) 1
 data_modeling.DataWarehouseSavedQuery products.warehouse_sources.backend.facade.hogql.get_view_or_table_by_name facade-returns 1
@@ -157,20 +158,27 @@ data_modeling.Node products.data_modeling.backend.facade.api.clear_node_suspensi
 data_modeling.Node products.data_modeling.backend.facade.api.get_declared_target facade-accepts(node) 1
 data_modeling.Node products.data_modeling.backend.facade.api.is_node_suspended facade-accepts(node) 1
 data_modeling.Node products.data_modeling.backend.facade.api.mark_node_suspended facade-accepts(node) 1
-data_modeling.Node products.data_modeling.backend.facade.api.resume_nodes facade-accepts(nodes) 1
-data_modeling.Node products.data_modeling.backend.facade.api.resume_nodes facade-accepts(only_if) 1
 data_modeling.Node products.data_modeling.backend.facade.api.set_declared_target facade-accepts(node) 1
 data_modeling.Node products.data_modeling.backend.facade.api.start_node_materialization facade-accepts(node) 1
 data_modeling.Node products.data_modeling.backend.facade.api.suspension_reset_at facade-accepts(node) 1
 data_modeling.Node products.data_modeling.backend.facade.api.suspension_state facade-accepts(node) 1
 data_modeling.Node products.data_modeling.backend.facade.api.sync_saved_query_to_dag facade-returns 1
+data_modeling.Node products.data_modeling.backend.facade.api.unsuspend_nodes facade-accepts(nodes) 1
+data_modeling.Node products.data_modeling.backend.facade.api.unsuspend_nodes facade-accepts(only_if) 1
 data_quality.DataQualityCheck products.data_quality.backend.facade.api.checks_for_subject facade-returns 1
+data_quality.DataQualityCheck products.data_quality.backend.facade.api.edit_check facade-accepts(authorize) 1
 data_quality.DataQualityCheck products.data_quality.backend.facade.api.edit_check facade-accepts(check) 1
 data_quality.DataQualityCheck products.data_quality.backend.facade.api.edit_check facade-returns 1
+data_quality.DataQualityCheck products.data_quality.backend.facade.api.live_subject_checks facade-accepts(checks) 1
+data_quality.DataQualityCheck products.data_quality.backend.facade.api.live_subject_checks facade-returns 1
+data_quality.DataQualityCheck products.data_quality.backend.facade.api.readable_check_subjects facade-accepts(queryset) 1
+data_quality.DataQualityCheck products.data_quality.backend.facade.api.readable_check_subjects facade-returns 1
 data_quality.DataQualityCheck products.data_quality.backend.facade.api.record_check_run facade-accepts(quality_check) 1
 data_quality.DataQualityCheck products.data_quality.backend.facade.api.soft_delete_check facade-accepts(check) 1
 data_quality.DataQualityCheck products.data_quality.backend.facade.api.subject_locations facade-accepts(checks) 1
 data_quality.DataQualityCheck products.data_quality.backend.facade.api.upsert_check facade-returns 1
+data_quality.DataQualityCheck products.data_quality.backend.facade.api.visible_check_queryset facade-accepts(queryset) 1
+data_quality.DataQualityCheck products.data_quality.backend.facade.api.visible_check_queryset facade-returns 1
 data_quality.DataQualityCheck products.data_quality.backend.facade.api.visible_checks facade-accepts(checks) 1
 data_quality.DataQualityCheck products.data_quality.backend.facade.api.visible_checks facade-returns 1
 data_quality.DataQualityCheckRun products.data_quality.backend.facade.api.record_check_run facade-returns 1
@@ -219,6 +227,7 @@ django.Q products.data_quality.backend.facade.api.unreadable_suites_q facade-ret
 django.Q products.tasks.backend.facade.api.general_channel_q facade-returns 1
 django.Q products.tasks.backend.facade.api.get_latest_pr_url_by_task facade-accepts(conditions) 1
 django.Q products.tasks.backend.facade.api.get_merged_pr_task_ids facade-accepts(conditions) 1
+django.Q products.tasks.backend.facade.api.get_pull_requests_for_tasks facade-accepts(conditions) 1
 django.Q products.tasks.backend.facade.api.latest_task_run_pr_merged_subquery facade-accepts(conditions) 1
 django.Q products.tasks.backend.facade.api.latest_task_run_pr_url_subquery facade-accepts(conditions) 1
 django.Q products.tasks.backend.facade.api.personal_channel_q facade-returns 1
@@ -236,7 +245,15 @@ django.QuerySet products.data_catalog.backend.facade.api.certifications_for_team
 django.QuerySet products.data_catalog.backend.facade.api.metrics_for_team facade-returns 1
 django.QuerySet products.data_catalog.backend.facade.api.metrics_visible_to_user facade-returns 1
 django.QuerySet products.data_catalog.backend.facade.api.relationships_for_team facade-returns 1
+django.QuerySet products.data_quality.backend.facade.activity.model_activity facade-accepts(queryset) 1
+django.QuerySet products.data_quality.backend.facade.activity.model_activity facade-returns 1
 django.QuerySet products.data_quality.backend.facade.api.checks_for_subject facade-returns 1
+django.QuerySet products.data_quality.backend.facade.api.live_subject_checks facade-accepts(checks) 1
+django.QuerySet products.data_quality.backend.facade.api.live_subject_checks facade-returns 1
+django.QuerySet products.data_quality.backend.facade.api.readable_check_subjects facade-accepts(queryset) 1
+django.QuerySet products.data_quality.backend.facade.api.readable_check_subjects facade-returns 1
+django.QuerySet products.data_quality.backend.facade.api.visible_check_queryset facade-accepts(queryset) 1
+django.QuerySet products.data_quality.backend.facade.api.visible_check_queryset facade-returns 1
 django.QuerySet products.error_tracking.backend.facade.api.query_new_error_issues facade-returns 1
 django.QuerySet products.legal_documents.backend.facade.api.annotate_signed_baa facade-accepts(queryset) 1
 django.QuerySet products.legal_documents.backend.facade.api.annotate_signed_baa facade-returns 1
@@ -611,6 +628,7 @@ product_analytics.Insight products.slack_app.backend.slack_link_unfurl instance-
 product_analytics.Insight products.surveys.backend.api.survey instance-single 1
 product_analytics.Insight surveys.Survey.linked_insight reverse-accessor(surveys_linked_insight) 1
 product_analytics:backend/facade/models.py products.product_analytics.backend.facade.models facade-logic 1
+product_analytics:backend/facade/queries.py products.product_analytics.backend.facade.queries facade-logic 1
 product_analytics:backend/hogql_queries/ ee.clickhouse.views.test.test_experiment_saved_metrics drives(TrendsQuery) 2
 product_analytics:backend/hogql_queries/ posthog.api.test.dashboards.test_dashboard drives(TrendsQuery) 6
 product_analytics:backend/hogql_queries/ posthog.api.test.test_alert_15_minute_interval drives(TrendsQuery) 1
@@ -725,6 +743,7 @@ typing.Any products.error_tracking.backend.facade.api.get_top_issues_for_team fa
 typing.Any products.error_tracking.backend.facade.issues.assign_issue facade-accepts(user) 1
 typing.Any products.error_tracking.backend.facade.issues.bulk_update_issues facade-accepts(user) 1
 typing.Any products.error_tracking.backend.facade.issues.update_issue facade-accepts(user) 1
+typing.Any products.error_tracking.backend.facade.symbol_sets.bulk_check_upload facade-accepts(team) 1
 typing.Any products.error_tracking.backend.facade.symbol_sets.bulk_finish_upload facade-accepts(team) 1
 typing.Any products.error_tracking.backend.facade.symbol_sets.bulk_start_upload facade-accepts(team) 1
 typing.Any products.error_tracking.backend.facade.symbol_sets.create_deprecated_symbol_set facade-accepts(team) 1

@@ -838,8 +838,8 @@ def unwatched_model_surface(product_dir: Path) -> set[str]:
 # tach and import-linter read import edges only. They see that a facade imports a model module, but
 # not that a facade function returns the model, takes a DRF request, or hides a Django object behind
 # `Any`. The rules below read the signatures themselves, so publicness comes from the shape of the
-# API and not from the location of the file. The kinds, and the move that clears each one, are in
-# products/architecture.md § The shape check.
+# API and not from the location of the file. The rule is
+# products/architecture.md § Facades: The Public Interface; checks.py holds the move that clears each kind.
 
 # Capability submodules re-export wiring and hold no logic of their own. A task body or a workflow
 # definition here sits in the one package core imports, so the product cannot change it without
@@ -1516,8 +1516,8 @@ def facade_shape_findings(backend_dir: Path, name: str) -> list[FacadeShapeFindi
     every capability submodule that holds a body rather than a re-export.
 
     crossings.py turns each finding into a `facade-*` line of the model-crossing ledger, which is
-    where the ratchet holds it. products/architecture.md § The shape check carries the kinds and the
-    move that clears each one.
+    where the ratchet holds it. The rule is products/architecture.md § Facades: The Public Interface,
+    and checks.py holds the move that clears each kind.
     """
     findings: list[FacadeShapeFinding] = []
     model_names = _ModelNames(backend_dir)

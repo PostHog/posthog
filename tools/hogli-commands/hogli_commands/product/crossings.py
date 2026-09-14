@@ -43,8 +43,8 @@ The fifth channel reads the other end of the boundary: what a facade signature p
 linter sees the same edge whether a facade imports a model module to build contracts or to return
 the model, so publicness has to come from the shape of the API and not from the location of the
 file. isolation.py reads the signatures; each finding lands as one of the disallowed kinds
-`facade-returns`, `facade-accepts(<parameter>)` and `facade-logic`. See
-products/architecture.md § The shape check.
+`facade-returns`, `facade-accepts(<parameter>)` and `facade-logic`. The rule is
+products/architecture.md § Facades: The Public Interface.
 """
 
 from __future__ import annotations
@@ -1762,8 +1762,8 @@ NEW_LINE_INSTRUCTION = (
     "traversal alive); seal it, remove the explicit query name, and give callers a facade read "
     "function. A 'drives(...)' line is a test outside the product that executes one of its query "
     "runners; move that test into the product. A 'facade-...' line is a facade that puts a Django, a "
-    "DRF or an ORM type on its own boundary, or a capability submodule that holds bodies; see "
-    "products/architecture.md § The shape check for the move that clears each kind. A coupling that "
+    "DRF or an ORM type on its own boundary, or a capability submodule that holds bodies; the "
+    "lint prints the move that clears each kind. A coupling that "
     "must stand is a doctrine amendment: hand-edit the line in, and record why in "
     "products/architecture.md § Wiring couplings. Regenerating the baseline cannot add a line."
 )
@@ -1795,7 +1795,7 @@ BASELINE_HEADER = f"""\
 # submodule holds bodies rather than re-exports, and its count is how many are left. The first
 # column says what crosses — `<product>.<Class>`, `<library>.<Type>`, or the facade module for a
 # `facade-logic` line — and the consumer column holds the symbol or the module that carries it.
-# See products/architecture.md § The shape check for the move that clears each kind.
+# The rule is products/architecture.md § Facades: The Public Interface.
 #
 # Counts may only go down, and a line that disappears must be deleted here too.
 #
