@@ -363,6 +363,44 @@ describe('featureFlagLogic', () => {
             expect(logic.values.isFormDirty).toBe(true)
             expect(lemonToast.info).toHaveBeenCalledTimes(1)
         })
+
+        // The reaction fires per completed call, so a turn that changes this flag twice starts two
+        // refreshes. Needs its own setup: both requests have to be in flight at once, with the test
+        // choosing which one answers last.
+        it('discards a refresh response that a newer refresh superseded', async () => {
+            let releaseFirstResponse: () => void = () => {}
+            const firstResponseHeld = new Promise<void>((resolve) => {
+                releaseFirstResponse = resolve
+            })
+            let requestCount = 0
+
+            useMocks({
+                get: {
+                    [FLAG_URL]: async () => {
+                        requestCount += 1
+                        if (requestCount === 1) {
+                            await firstResponseHeld
+                            return [200, { ...MOCK_FEATURE_FLAG, name: 'first agent change' }]
+                        }
+                        return [200, { ...MOCK_FEATURE_FLAG, name: 'second agent change' }]
+                    },
+                },
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.refreshFeatureFlagAfterAgentChange()
+                logic.actions.refreshFeatureFlagAfterAgentChange()
+            }).toDispatchActions(['refreshFeatureFlagSuccess'])
+
+            expect(logic.values.featureFlag.name).toBe('second agent change')
+
+            releaseFirstResponse()
+            await expectLogic(logic).toFinishAllListeners()
+
+            // The older response must not put the page or its baseline back.
+            expect(logic.values.featureFlag.name).toBe('second agent change')
+            expect(logic.values.originalFeatureFlag?.name).toBe('second agent change')
+        })
     })
 
     describe('saveFeatureFlag error handling', () => {

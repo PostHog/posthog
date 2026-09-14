@@ -3242,18 +3242,24 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             null as FeatureFlagType | null,
             {
                 // `afterAgentChange` is unused here; refreshFeatureFlagSuccess reads it off the payload.
-                refreshFeatureFlag: async (_payload?: { afterAgentChange?: boolean }) => {
+                refreshFeatureFlag: async (_payload: { afterAgentChange?: boolean } | undefined, breakpoint) => {
                     if (!props.id || props.id === 'new' || props.id === 'link') {
                         return null
                     }
+                    let retrievedFlag: FeatureFlagType
                     try {
-                        const retrievedFlag: FeatureFlagType = await api.featureFlags.get(props.id)
-                        return variantKeyToIndexFeatureFlagPayloads(retrievedFlag)
+                        retrievedFlag = await api.featureFlags.get(props.id)
                     } catch {
                         // Swallow errors — this is a silent background reconciliation, so a
                         // transient failure shouldn't surface a toast or get reported.
                         return null
                     }
+                    // A second mutation can start a newer refresh while this one is open. Discard this
+                    // response if so, or a slow earlier request would overwrite the newer flag, its
+                    // baseline and its list entry, as the status loader below does for its verdict.
+                    // The breakpoint sits after the catch, which would otherwise swallow it.
+                    breakpoint()
+                    return variantKeyToIndexFeatureFlagPayloads(retrievedFlag)
                 },
             },
         ],
