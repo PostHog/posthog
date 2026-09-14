@@ -33,6 +33,9 @@ tools:
     data-catalog-metrics-checks-list:
         operation: data_catalog_metrics_checks_list
         enabled: false
+    data-catalog-metrics-checks-output-schema-retrieve:
+        operation: data_catalog_metrics_checks_output_schema_retrieve
+        enabled: false
     data-catalog-metrics-checks-partial-update:
         operation: data_catalog_metrics_checks_partial_update
         enabled: false
@@ -266,6 +269,9 @@ tools:
         enabled: false
     data-quality-checks-list:
         operation: data_quality_checks_list
+        enabled: false
+    data-quality-checks-metric-subjects-list:
+        operation: data_quality_checks_metric_subjects_list
         enabled: false
     data-quality-runs-create:
         operation: data_quality_runs_create
