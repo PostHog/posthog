@@ -4,7 +4,13 @@ import { useStorybookMocks } from '~/mocks/browser'
 
 import { SlackNotificationsSection } from './SlackNotificationsSection'
 
-const WORKSPACE = { id: 1, kind: 'slack', display_name: 'PostHog', config: {}, created_at: '2026-01-01T00:00:00Z' }
+const WORKSPACE = {
+    id: 1,
+    kind: 'slack',
+    display_name: 'PostHog',
+    config: { scope: 'chat:write,channels:read,users:read' },
+    created_at: '2026-01-01T00:00:00Z',
+}
 
 const CHANNELS = [
     { id: 'C0123ABC456', name: 'self-driving', is_private: false, is_member: true, is_ext_shared: false },

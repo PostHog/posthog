@@ -24,6 +24,8 @@ describe('slackIntegrationLogic — loadAllSlackChannels search & pagination', (
         { id: 'C2', name: 'engineering' },
     ]
     let nextChannelByIdResponse: SlackChannelType | null = null
+    // Set by the out-of-order test so the by-id lookup answers only when it releases this.
+    let holdChannelByIdLookup: Promise<void> | null = null
 
     const buildChannel = (id: string, name: string): SlackChannelType => ({
         id,
@@ -38,16 +40,20 @@ describe('slackIntegrationLogic — loadAllSlackChannels search & pagination', (
         lastChannelsQuery = {}
         lastChannelByIdQuery = {}
         nextChannelByIdResponse = null
+        holdChannelByIdLookup = null
         nextChannelsResponse = [
             { id: 'C1', name: 'general' },
             { id: 'C2', name: 'engineering' },
         ]
         useMocks({
             get: {
-                '/api/environments/:team_id/integrations/:id/channels': ({ request }) => {
+                '/api/environments/:team_id/integrations/:id/channels': async ({ request }) => {
                     const query = Object.fromEntries(new URL(request.url).searchParams.entries())
                     if (query.channel_id) {
                         lastChannelByIdQuery = query
+                        if (holdChannelByIdLookup) {
+                            await holdChannelByIdLookup
+                        }
                         return [200, { channels: nextChannelByIdResponse ? [nextChannelByIdResponse] : [] }]
                     }
                     lastChannelsQuery = query
@@ -158,6 +164,29 @@ describe('slackIntegrationLogic — loadAllSlackChannels search & pagination', (
         // force_refresh is what makes the answer live: the backend otherwise serves the channel
         // from the same hour-old list that reported the app missing.
         expect(lastChannelByIdQuery).toMatchObject({ channel_id: 'C1', force_refresh: 'true' })
+        expect(logic.values.isMemberOfSlackChannel('C1')).toBe(true)
+    })
+
+    it('discards a by-id answer that a forced refresh overtook', async () => {
+        let releaseLookup: () => void = () => {}
+        holdChannelByIdLookup = new Promise((resolve) => {
+            releaseLookup = resolve
+        })
+        // The lookup is about to answer with the membership the backend cache still holds.
+        nextChannelByIdResponse = { ...buildChannel('C1', 'general'), is_member: false }
+        logic.actions.loadSlackChannelById('C1')
+
+        nextChannelsResponse = [{ id: 'C1', name: 'general' }]
+        // Not toFinishAllListeners: the held by-id lookup is a pending listener of its own.
+        await expectLogic(logic, () => {
+            logic.actions.loadAllSlackChannels(true)
+        }).toDispatchActions(['loadAllSlackChannelsSuccess'])
+        expect(logic.values.isMemberOfSlackChannel('C1')).toBe(true)
+
+        await expectLogic(logic, () => releaseLookup()).toDispatchActions(['loadSlackChannelByIdSuccess'])
+
+        // The refresh fetched its list after the lookup started, so the lookup must not write its
+        // older membership over it.
         expect(logic.values.isMemberOfSlackChannel('C1')).toBe(true)
     })
 

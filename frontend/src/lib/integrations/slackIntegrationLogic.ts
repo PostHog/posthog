@@ -39,6 +39,7 @@ export interface slackIntegrationLogicValues {
     allSlackUsersLoading: boolean
     attemptedSlackChannelIds: Record<string, true>
     attemptedSlackUserIds: Record<string, true>
+    channelListGeneration: number
     getChannelRefreshButtonDisabledReason: () => string
     getUsersRefreshButtonDisabledReason: () => string
     isMemberOfSlackChannel: (channel: string) => boolean | null
@@ -322,11 +323,19 @@ export const slackIntegrationLogic = kea<slackIntegrationLogicType>([
             null as SlackChannelType | null,
             {
                 loadSlackChannelById: async ({ channelId, forceRefresh }) => {
+                    const generation = values.channelListGeneration
                     try {
                         const res = await api.integrations.slackChannelsById(props.id, channelId, forceRefresh)
                         // The by-id endpoint always calls Slack live, so a success is real proof
                         // the connection works again.
                         actions.setSlackIntegrationInactive(null)
+                        if (values.channelListGeneration !== generation) {
+                            // A forced refresh landed while this lookup was in flight. Its list is
+                            // the newer answer, and a non-forced lookup can be served from the
+                            // backend cache the refresh just replaced, so drop this one. Null keeps
+                            // the by-id record untouched.
+                            return null
+                        }
                         return res.channels[0] || null
                     } catch (e: any) {
                         if (e?.code === SLACK_INTEGRATION_INACTIVE_ERROR_CODE) {
@@ -354,6 +363,14 @@ export const slackIntegrationLogic = kea<slackIntegrationLogicType>([
             {
                 loadSlackChannelById: (state, { channelId }) => ({ ...state, [channelId]: true }),
                 loadAllSlackChannels: (state, { forceRefresh }) => (forceRefresh ? {} : state),
+            },
+        ],
+        channelListGeneration: [
+            0,
+            {
+                // Counts forced refreshes so a by-id lookup can tell whether the list moved under
+                // it while it was in flight. Read in the loader, never rendered.
+                loadAllSlackChannels: (state, { forceRefresh }) => (forceRefresh ? state + 1 : state),
             },
         ],
         _fetchedSlackChannelsById: [

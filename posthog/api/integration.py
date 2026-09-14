@@ -1486,17 +1486,22 @@ class IntegrationViewSet(
         }
 
     @staticmethod
-    def _replace_cached_slack_channel(key: str, channel: dict) -> None:
-        """Write a live single-channel answer over its copy in the cached list.
+    def _update_cached_slack_channel(key: str, channel_id: str, channel: dict | None) -> None:
+        """Write a live single-channel answer into the cached list, or drop the channel when Slack
+        returns none for it.
 
-        Without this the cached list keeps answering with the membership Slack reported up to an
-        hour ago, so someone who invites the app to a channel and re-checks it sees the fix, and
-        then sees the old "PostHog is not in this channel" warning again on the next page load.
-        The list keeps its original expiry so refreshing one channel cannot hold a whole stale
-        list warm, and keeps its `lastRefreshedAt` so the picker's refresh cooldown is unaffected.
+        Without this the cached list keeps answering with what Slack reported up to an hour ago, so
+        someone who invites the app to a channel and re-checks it sees the fix, and then sees the
+        old "PostHog is not in this channel" warning again on the next page load. A channel Slack
+        no longer returns is gone or no longer visible to the app, so the list must stop offering
+        it for the same reason.
+
+        The list keeps its original expiry so refreshing one channel cannot hold a whole stale list
+        warm, and keeps its `lastRefreshedAt` so the picker's refresh cooldown is unaffected, and
+        its order, which decides what each page of the picker holds.
         """
         data = cache.get(key)
-        if data is None or not any(existing["id"] == channel["id"] for existing in data["channels"]):
+        if data is None or not any(existing["id"] == channel_id for existing in data["channels"]):
             return
         last_refreshed = parse_datetime(data.get("lastRefreshedAt") or "")
         if last_refreshed is None:
@@ -1504,7 +1509,12 @@ class IntegrationViewSet(
         remaining_seconds = int(SLACK_CHANNELS_CACHE_SECONDS - (timezone.now() - last_refreshed).total_seconds())
         if remaining_seconds <= 0:
             return
-        channels = [channel if existing["id"] == channel["id"] else existing for existing in data["channels"]]
+        channels = []
+        for existing in data["channels"]:
+            if existing["id"] != channel_id:
+                channels.append(existing)
+            elif channel is not None:
+                channels.append(channel)
         cache.set(key, {**data, "channels": channels}, remaining_seconds)
 
     @staticmethod
@@ -1561,8 +1571,11 @@ class IntegrationViewSet(
                 _reraise_slack_api_error(e)
             if channel:
                 serialized_channel = self._serialize_slack_channel(channel)
-                self._replace_cached_slack_channel(key, serialized_channel)
+                self._update_cached_slack_channel(key, channel_id, serialized_channel)
                 return Response({"channels": [serialized_channel]})
+            # Only a forced lookup reaches Slack for a channel the cached list still holds, so this
+            # drops a channel the workspace no longer offers rather than leaving it pickable.
+            self._update_cached_slack_channel(key, channel_id, None)
             return Response({"channels": []})
 
         search = query_serializer.validated_data["search"]
