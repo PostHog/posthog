@@ -22,6 +22,7 @@ from products.signals.backend.auto_start import (
     _resolve_supersede,
     maybe_autostart_implementation_task,
 )
+from products.signals.backend.implementation_pr import fetch_implementation_prs_for_reports
 from products.signals.backend.models import SignalReport, SignalReportArtefact
 from products.signals.backend.report_assignments import create_claim, release_claim, update_assignments_for_pull_request
 from products.signals.backend.report_claims import ReportClaim, get_active_claim
@@ -346,6 +347,23 @@ class TestSupersedeHandover(BaseTest):
         self.github.close_pull_request.return_value = {"success": True}
         assert not reconcile_replacement(self.team.id, str(replacement.id))
         assert self.handover(replacement).status == "completed"
+
+    def test_lost_close_response_recovers_from_github_state(self) -> None:
+        replacement = self.start_replacement()
+        self.complete(replacement)
+
+        def close_then_timeout(repository, number):
+            self.prs[number]["state"] = "closed"
+            raise TimeoutError("Response lost after GitHub accepted the close")
+
+        self.github.close_pull_request.side_effect = close_then_timeout
+        assert reconcile_replacement(self.team.id, str(replacement.id))
+        assert not reconcile_replacement(self.team.id, str(replacement.id))
+        assert self.handover(replacement).results[OLD_PR] == "already_closed"
+        assert self.handover(replacement).status == "completed"
+        prs = fetch_implementation_prs_for_reports([str(self.report.id)], team_id=self.team.id)[str(self.report.id)]
+        assert next(pr for pr in prs if pr.url == OLD_PR).state == "closed"
+        self.github.close_pull_request.assert_called_once_with("example/repo", 1)
 
     def test_missing_output_exhausts_retries_and_releases_the_claim(self) -> None:
         replacement = self.start_replacement()

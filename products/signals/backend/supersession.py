@@ -228,6 +228,23 @@ def research_implementation_context(team_id: int, report_id: str) -> Implementat
         return ImplementationResearchContext()
 
 
+def _target_already_closed(team_id: int, target: ImplementationTarget) -> bool:
+    from products.signals.backend.report_assignments import update_assignments_for_pull_request
+
+    parsed = GitHubIntegrationBase.parse_pull_request_url(target.pr_url)
+    assert parsed is not None
+    github = GitHubIntegration.first_for_team_repository(team_id, parsed.repository)
+    current = github.get_pull_request(parsed.repository, parsed.number) if github else {}
+    if not current.get("success"):
+        raise RuntimeError("Could not verify predecessor state")
+    closed = current.get("state") == "closed" and not current.get("merged")
+    if closed:
+        update_assignments_for_pull_request(
+            team_ids=[team_id], repository=parsed.repository, pr_number=parsed.number, pr_state="closed"
+        )
+    return closed
+
+
 def latest_handover(replacement: SignalReportArtefact) -> ImplementationHandover | None:
     if replacement.task_id is None:
         return None
@@ -413,7 +430,7 @@ def reconcile_replacement(team_id: int, replacement_id: str) -> bool:
                 progress.results[target.pr_url] = "skipped"
                 continue
             pr = linked[target.pr_url]
-            if pr.state == "closed":
+            if _target_already_closed(team_id, target):
                 progress.results[target.pr_url] = "already_closed"
                 continue
             candidate = eligible.get(target.pr_url)
