@@ -90,11 +90,9 @@ _invalid_token_cache: TTLCache = TTLCache(maxsize=_INVALID_TOKEN_CACHE_SIZE, ttl
 _invalid_token_lock = threading.Lock()
 _PUSH_INTEGRATION_KINDS = ("firebase", "apns")
 
-VALID_PLATFORMS = ("android", "ios")
-
-# `platform` is validated and echoed but never stored: the property is keyed on app_id and the
-# provider is resolved from app_id alone. Requiring it rejected every posthog-android build that
-# loses the field to R8, and a rejected device re-posts on every app open and never registers.
+# `platform` is accepted and ignored. The property is keyed on app_id and the provider is resolved
+# from app_id alone, so the field has no job. Rejecting on it cost a registration per device: a
+# rejected device re-posts on every app open and never registers.
 
 
 # A device registration payload is a handful of short string fields (distinct_id, device_token,
@@ -383,18 +381,7 @@ def push_subscriptions(request: Request):
     assert isinstance(device_token, str)
     assert isinstance(app_id, str)
 
-    if not platform:
-        platform = None
-    elif not isinstance(platform, str) or platform not in VALID_PLATFORMS:
-        return _rejection_response(
-            request,
-            f"Invalid platform. Must be one of: {', '.join(VALID_PLATFORMS)}.",
-            error_type="validation_error",
-            code="invalid_platform",
-            status_code=status.HTTP_400_BAD_REQUEST,
-            team_id=team.id,
-            app_id=app_id,
-        )
+    platform = platform if isinstance(platform, str) and platform else None
 
     # Skip the JSONB lookup when the team has no integration for this app_id, which is the endpoint's
     # normal case. A cache miss or outage returns None and falls through to the real query.

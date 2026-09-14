@@ -345,7 +345,7 @@ class TestPushSubscriptionsAPI(BaseTest):
         assert len(rejected) == 2
         assert all(entry["app_id"] == "my-firebase-project" for entry in rejected)
 
-    def test_invalid_platform(self):
+    def test_unexpected_platform_value_is_accepted_and_echoed(self):
         response = self._post(
             {
                 "distinct_id": "user-1",
@@ -355,8 +355,8 @@ class TestPushSubscriptionsAPI(BaseTest):
             }
         )
 
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "Invalid platform" in response.json()["detail"]
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["platform"] == "windows_phone"
 
     @patch("products.messaging.backend.api.push_subscriptions.capture_internal")
     def test_register_without_integration_returns_200_and_discards(self, mock_capture: MagicMock):
@@ -613,16 +613,6 @@ class TestPushSubscriptionsAPI(BaseTest):
 
     @parameterized.expand(
         [
-            (
-                "invalid_platform",
-                status.HTTP_400_BAD_REQUEST,
-                {
-                    "distinct_id": "user-1",
-                    "device_token": "fcm-device-token-abc",
-                    "platform": "windows_phone",
-                    "app_id": "my-firebase-project",
-                },
-            ),
             (
                 "missing_fields",
                 status.HTTP_400_BAD_REQUEST,
