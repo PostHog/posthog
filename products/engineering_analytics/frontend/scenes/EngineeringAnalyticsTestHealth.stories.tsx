@@ -23,8 +23,6 @@ const SOURCES: GitHubSourceApi[] = [{ id: 'src-1', repo: 'PostHog/posthog', pref
 const TRUNK_QUARANTINE: TrunkQuarantineDebtApi = {
     available: true,
     owners_resolved: true,
-    truncated: false,
-    limit: 5000,
     ttl_days: 15,
     truncated: false,
     limit: 5000,
