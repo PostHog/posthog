@@ -25,11 +25,7 @@ impl ClientContext for FencedProducerContext {
     fn stats(&self, stats: Statistics) {
         let mut last = self.last.lock().unwrap_or_else(|e| e.into_inner());
         for broker in stats.brokers.values() {
-            // Bootstrap and logical brokers carry no node id.
-            if broker.nodeid < 0 {
-                continue;
-            }
-            let node = broker.nodeid.to_string();
+            let node = broker_label(broker);
             record_window(&node, "rtt", broker.rtt.as_ref(), 1000.0);
             record_window(&node, "throttle", broker.throttle.as_ref(), 1.0);
             record_window(&node, "int_latency", broker.int_latency.as_ref(), 1000.0);
@@ -48,6 +44,19 @@ impl ClientContext for FencedProducerContext {
                     .increment(delta);
             }
         }
+    }
+}
+
+/// The node id of a real broker, the logical name of a coordinator
+/// connection, which is where the transaction requests are counted, or
+/// one bucket for the bootstrap addresses.
+fn broker_label(broker: &Broker) -> String {
+    if broker.nodeid >= 0 {
+        broker.nodeid.to_string()
+    } else if broker.name.contains("Coordinator") {
+        broker.name.clone()
+    } else {
+        "bootstrap".to_string()
     }
 }
 
@@ -72,7 +81,7 @@ fn request_deltas(last: &mut HashMap<String, i64>, broker: &Broker) -> Vec<(Stri
         .req
         .iter()
         .filter_map(|(request, &count)| {
-            let delta = advance(last, format!("{}/req/{request}", broker.nodeid), count);
+            let delta = advance(last, format!("{}/req/{request}", broker.name), count);
             (delta > 0).then(|| (request.clone(), delta))
         })
         .collect();
@@ -91,7 +100,7 @@ fn event_deltas(last: &mut HashMap<String, i64>, broker: &Broker) -> Vec<(&'stat
     ]
     .into_iter()
     .filter_map(|(event, count)| {
-        let delta = advance(last, format!("{}/event/{event}", broker.nodeid), count);
+        let delta = advance(last, format!("{}/event/{event}", broker.name), count);
         (delta > 0).then_some((event, delta))
     })
     .collect()
@@ -109,6 +118,7 @@ mod tests {
 
     fn broker(nodeid: i32, produce: i64, retries: u64) -> Broker {
         Broker {
+            name: format!("broker-{nodeid}"),
             nodeid,
             req: HashMap::from([("Produce".to_string(), produce)]),
             txretries: retries,
@@ -132,6 +142,23 @@ mod tests {
             vec![("Produce".to_string(), 3)]
         );
         assert!(event_deltas(&mut last, &broker(1, 13, 2)).is_empty());
+    }
+
+    #[test]
+    fn coordinator_connections_are_labeled_by_name() {
+        assert_eq!(broker_label(&broker(2, 0, 0)), "2");
+        let coordinator = Broker {
+            name: "TxnCoordinator".to_string(),
+            nodeid: -1,
+            ..Broker::default()
+        };
+        assert_eq!(broker_label(&coordinator), "TxnCoordinator");
+        let bootstrap = Broker {
+            name: "ssl://broker.example:9096/bootstrap".to_string(),
+            nodeid: -1,
+            ..Broker::default()
+        };
+        assert_eq!(broker_label(&bootstrap), "bootstrap");
     }
 
     #[test]
