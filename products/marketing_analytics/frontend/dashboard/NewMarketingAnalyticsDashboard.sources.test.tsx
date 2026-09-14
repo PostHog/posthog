@@ -71,6 +71,8 @@ it('reuses source suggestions, remembers collapse and opens their review in Setu
         await waitFor(() => expect(screen.queryByText('Suggested ad sources (1)')).toBeNull())
     } finally {
         cleanup()
+        setupPlanLogic.actions.restoreAllDismissed()
+        localStorage.removeItem('marketing-source-suggestions-expanded')
         unmountSetup()
         unmountMarketing()
     }

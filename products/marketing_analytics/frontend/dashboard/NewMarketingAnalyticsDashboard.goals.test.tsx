@@ -79,6 +79,8 @@ describe('Dashboard goal suggestions', () => {
             await waitFor(() => expect(screen.queryByText('Suggested conversion goals (1)')).toBeNull())
         } finally {
             cleanup()
+            setupPlanLogic.actions.restoreAllDismissed()
+            localStorage.removeItem('marketing-goal-suggestions-expanded')
             unmountSetup()
             unmountMarketing()
         }
