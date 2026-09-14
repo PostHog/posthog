@@ -849,7 +849,9 @@ export const getFeatureFlagsRollOutToEveryoneCreateUrl = (projectId: string, id:
  *
  * This changes targeting only. A disabled flag still serves nobody, and a holdout is
  * evaluated before release conditions, so users in one keep getting the holdout variant
- * instead of the rollout.
+ * instead of the rollout. Early access enrollment is evaluated before release conditions
+ * too, so on a flag with `feature_enrollment` a user who carries the enrollment property
+ * keeps the answer that property gives, whether or not they opted in.
  *
  * A multivariate flag needs `variant_key`, and every other flag rejects it. A release
  * condition decides who the flag serves, not which variant they get, so rolling a
