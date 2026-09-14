@@ -163,8 +163,6 @@ describe('organizationLogic', () => {
             expect(removeProjectIdIfPresent(router.values.location.pathname)).toBe(expected)
         })
         it("keeps a link into another organization's project", async () => {
-            // The current organization's block does not reach a project it does not own. The
-            // middleware resolves the same path server-side on a full page load.
             mountWith({ is_active: false, teams: [{ id: 1 }] } as unknown as Partial<OrganizationType>)
             await expectLogic(logic).toDispatchActions(['loadCurrentOrganizationSuccess'])
 

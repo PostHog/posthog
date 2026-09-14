@@ -2299,8 +2299,7 @@ class TestInviteSignupAPI(APIBaseTest):
         self.assertEqual(OrganizationMembership.objects.count(), membership_count)
 
     def test_cant_claim_an_invite_blocked_after_validation(self):
-        # `validate()` runs before `use()` opens its transaction, so a deactivation landing in
-        # between used to reach `user.join()`. `prevalidated=True` is that window.
+        # `prevalidated=True` is the window between `validate()` and the accept transaction.
         blocked_org = Organization.objects.create(name="Blocked Org", is_active=False)
         invite: OrganizationInvite = OrganizationInvite.objects.create(
             target_email="test+blockedrace@posthog.com", organization=blocked_org

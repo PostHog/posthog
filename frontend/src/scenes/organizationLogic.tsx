@@ -46,11 +46,7 @@ function organizationBlock(organization: OrganizationType | null): OrganizationB
     return null
 }
 
-/**
- * Whether the path names a project outside the current organization. Such a path carries its own
- * organization, so the current one's block does not reach it. Returns false while the team list is
- * unknown, which keeps the block on rather than opening the app on missing data.
- */
+/** False while the team list is unknown, which keeps the block on rather than opening the app. */
 function pathLeavesCurrentOrganization(organization: OrganizationType | null, pathname: string): boolean {
     const teams = organization?.teams
     if (!teams) {

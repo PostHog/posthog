@@ -176,11 +176,9 @@ class OrganizationInvite(ModelActivityMixin, UUIDTModel):
             except OrganizationInvite.DoesNotExist:
                 raise InviteExpiredException("This invite has already been used.")
 
-            # Re-read the organization inside the transaction. `validate()` ran before this block
-            # opened, so a block applied in between would otherwise reach `user.join()` and create
-            # the membership anyway. Read without `select_for_update`: a lock on an `Organization`
-            # row blocks unrelated child writes through Postgres foreign-key `KEY SHARE` locks
-            # (see AGENTS.md, "Do not use Team or Organization rows as mutexes").
+            # `validate()` ran before this transaction opened, so a block applied in between would
+            # otherwise reach `user.join()`. No `select_for_update`, because locking an
+            # `Organization` row blocks unrelated child writes through foreign-key `KEY SHARE`.
             block = organization_block(Organization.objects.get(pk=self.organization_id))
             if block is not None:
                 raise exceptions.ValidationError(block_invite_detail(block), code=block.value)
