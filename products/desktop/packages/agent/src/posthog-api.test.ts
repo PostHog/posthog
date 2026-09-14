@@ -43,7 +43,7 @@ describe("PostHogAPIClient", () => {
     expect(run.state).toEqual(expected);
   });
 
-  it("appends gateway request IDs through the existing task-run PATCH", async () => {
+  it("appends unprocessed gateway request IDs through the existing task-run PATCH", async () => {
     const client = new PostHogAPIClient({
       apiUrl: "https://app.posthog.com",
       getApiKey: vi.fn().mockResolvedValue("token"),
@@ -55,7 +55,7 @@ describe("PostHogAPIClient", () => {
     });
 
     await client.updateTaskRun("task-1", "run-1", {
-      state_append: { gateway_request_ids: "request-1" },
+      state_append: { unprocessed_request_ids: "request-1" },
     });
 
     const [url, init] = mockFetch.mock.calls[0] as [string, RequestInit];
@@ -64,7 +64,7 @@ describe("PostHogAPIClient", () => {
     );
     expect(init.method).toBe("PATCH");
     expect(JSON.parse(init.body as string)).toEqual({
-      state_append: { gateway_request_ids: "request-1" },
+      state_append: { unprocessed_request_ids: "request-1" },
     });
   });
 

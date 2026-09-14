@@ -1,41 +1,62 @@
 # Task-run spend
 
-## Request flow
+## Stored state
 
-The agent server reports gateway request IDs through the existing task-run PATCH API.
-It uses `state_append: {"gateway_request_ids": "<request-id>"}`, alongside the existing token-usage reporting mechanism.
-The backend validates and deduplicates IDs under the run's row lock.
-This request performs no gateway lookup and accepts no monetary amount.
+The spend feature adds three fields to `TaskRun.state`:
 
-The task workflow's existing event-relay activity processes pending IDs on its 30-second heartbeat.
-The lookup runs in a worker thread, outside the stream handler and outside database transactions.
-It calls the unchanged Go gateway endpoint `GET /v1/usage/{request_id}` with `SANDBOX_AI_GATEWAY_MINT_KEY`.
-The worker reads the existing decimal `cost_usd` response and stores the canonical result in protected run state.
+```json
+{
+  "unprocessed_request_ids": ["req-b"],
+  "token_spend": {
+    "model-a": {
+      "provider-a": {
+        "spend_microusd": 15200,
+        "request_ids": ["req-a"]
+      }
+    }
+  },
+  "compute_spend": 2
+}
+```
 
-The existing cleanup activity stops the agent, processes its final reported IDs, closes the sandbox ledger, and persists the spend projection.
-There is no new reporting endpoint, database table, migration, workflow signal, or workflow timer.
-No gateway change or additional sandbox permission is required.
+`unprocessed_request_ids` is the queue of reported IDs awaiting gateway pricing.
+Successful processing removes an ID from this queue.
+Missing or failed responses leave the ID queued for a later pass.
+An empty queue means no reported IDs are awaiting processing; it does not prove that a run has ended or that every request was reported.
 
-## Scope and rollout
+`token_spend` groups recorded gateway spend by model, then provider.
+Each bucket stores an integer micro-USD sum and its processed request IDs.
+The IDs prevent a retried agent report or overlapping worker pass from adding spend twice.
+There is no copied token-count or settlement metadata.
+One cent is 10,000 micro-USD.
 
-`TASKS_GATEWAY_ACCOUNTING_ENABLED` defaults to false.
-The worker enables accounting only for an already Go-routed cloud run and injects `TASK_RUN_GATEWAY_ACCOUNTING=1` into its agent environment.
-The existing Go-product routing settings still select the population.
-Deploy the backend and compatible agent image before enabling the setting.
+`compute_spend` is an integer-cent amount derived from the existing sandbox ledger and rates.
+It is `null` when the run has no applicable ledger data.
+There is no additional accounting wrapper, completion flag, per-session spend snapshot, or finality field.
+Existing run metadata and adapter token-count telemetry remain separate.
 
-Python-routed runs, Pi's existing Python route, local runs, and historical token usage remain unavailable.
-This change does not migrate callers or alter customer charges, quotas, or Signals behavior.
-The existing adapter token-count telemetry stays separate from authoritative money.
+## Data flow
 
-The loopback HTTP observer exists because SDK subprocesses do not expose every response header to the agent server.
-It routes Claude and Codex requests, including their subprocess and subagent calls, to a fixed gateway target.
-It preserves streamed bytes and reports `X-Request-ID` as soon as headers arrive.
-Model-list and token-count helper calls do not create spend entries.
-The observer never queries usage or calculates prices.
+1. A small agent-server HTTP observer captures `X-Request-ID` from each Go gateway response.
+2. The agent appends it through the existing task-run PATCH API with `state_append.unprocessed_request_ids`.
+3. Django validates the ID and appends it under the run lock, unless it is already pending or processed.
+4. The existing Temporal relay activity reads a bounded batch on its 30-second heartbeat.
+5. The worker queries `GET /v1/usage/{request_id}` through the unchanged gateway API.
+6. Under one run lock, it increments the model/provider bucket, records the processed ID, and removes the pending ID.
+
+Gateway calls happen outside database locks and outside the event stream handler.
+Unavailable responses rotate to the end of the queue so they cannot block later IDs.
+The existing cleanup activity flushes the agent's reports, processes pending IDs, closes the sandbox ledger, and refreshes compute spend.
+There is no new endpoint, database model, migration, workflow signal, or workflow timer.
+
+The observer covers Claude and Codex SDK subprocesses and subagent requests.
+It forwards streamed bytes unchanged and retries only request-ID delivery.
+It does not query usage or calculate money.
+Model-list and token-count helper calls do not enter the spend queue.
 
 ## Consumer interface
 
-Cross-product consumers use the Tasks facade:
+State contains the token breakdown. The Tasks facade returns totals in integer cents:
 
 ```python
 from products.tasks.backend.facade.billing import (
@@ -46,79 +67,56 @@ from products.tasks.backend.facade.billing import (
 
 run_spend = get_task_run_spend(team_id=team_id, run_id=run_id)
 task_spend = get_task_spend(team_id=team_id, task_id=task_id)
+
+# Both values are integer cents, or None when the source is unavailable.
+run_spend.token_spend
+run_spend.compute_spend
 ```
 
-Within Tasks, `TaskRun.get_current_spend()` returns the same contract.
-The getter reads persisted receipts and sandbox records, then refreshes `TaskRun.state["spend"]`.
-It never queries the gateway or retrospective analytics events.
+Within Tasks, `TaskRun.get_current_spend()` returns the same two-field contract.
+It reads recorded token spend and the existing sandbox ledger; it never queries the gateway or analytics events.
+It refreshes the persisted `compute_spend` value.
 
-| Field            | Meaning                                         |
-| ---------------- | ----------------------------------------------- |
-| `token_cost`     | Integer USD cents, or `None` when unavailable   |
-| `compute_cost`   | Integer USD cents, or `None` when unavailable   |
-| `token_status`   | `unavailable`, `partial`, `current`, or `final` |
-| `compute_status` | `unavailable`, `current`, or `final`            |
-| `is_final`       | Both components are final                       |
+The token total includes only requests already processed.
+Pending IDs can therefore mean that more spend remains to be recorded.
+An initialized run with no processed spend returns zero; an untracked or local run returns `None` for token spend.
+Consumers can inspect the pending queue, but the contract makes no completeness or finality claim.
 
-A partial token cost is a known lower bound.
-If no requested receipt is available, its cost is `None`, not zero.
-Consumers must check the status as well as the amount.
+Task-level aggregation includes all runs, including failed and cancelled attempts.
+It sums exact source amounts across model/provider buckets and runs before half-even rounding to cents.
+These figures describe recorded spend, not customer charges.
+Signals consumers must retain their own charging policy rather than charge every internal attempt.
 
-The task total includes all runs, including failed and cancelled attempts.
-It sums exact source amounts before rounding, not rounded run cents.
-Unknown and partial states propagate to the task total.
-These amounts describe factual spend, not customer charges.
-Signals consumers must retain their existing charging policy rather than charge every internal attempt.
+## Pricing and trust
 
-## Precision and compute
+The gateway's existing wire field is named `cost_usd`.
+Tasks interprets it as spend, parses its decimal string exactly, and retains micro-USD precision until totals are rounded.
+The model and provider keys come from that response.
+Tasks does not derive spend from SDK token counts or duplicate gateway prices.
 
-Tasks parses the gateway's decimal USD string without floating-point arithmetic.
-It stores the six-decimal source amount as integer micro-USD and sums each unique request ID once.
-It converts the total to cents with `ROUND_HALF_EVEN`.
-The gateway amount includes its own model, cache, routing, and fee pricing; Tasks does not reconstruct those prices from token counts.
-
-Compute uses `SandboxSession` and the existing versioned rate calculator.
-It uses attribution time, resource shape, burstable resource floors, recorded end time, and existing TTL rules.
+Compute uses `SandboxSession`, attribution timestamps, resource shape, burstable resource floors, and versioned rate cards.
 Unclaimed prewarm time contributes zero attributed compute.
-Missing sandbox records produce unavailable compute.
-Open sessions keep compute current.
-Closed-session snapshots retain decimal source precision, so a later rate change does not reprice completed sessions.
+There is no separate stored snapshot of each sandbox session's spend.
+The existing calculator's Hogland TTL behavior remains unchanged, including its difference from raw usage aggregation.
 
-The existing calculator clamps Hogland sessions to `ttl_expires_at`, although Hogland treats this as an idle timeout.
-Raw usage aggregation handles that distinction differently.
-This slice preserves the calculator and customer billing policy.
+Only the server initializes the pending queue and token-spend map for a tracked run.
+Only its task-bound agent can append IDs to the initialized queue.
+Ordinary clients cannot change the queue; neither ordinary clients nor the agent can forge token or compute spend.
+Request-to-run attribution trusts the task-bound agent, because the unchanged gateway API checks the funding team rather than an exact task run.
+Gateway usage reads use the worker-held standard credential; sandbox permissions do not expand.
 
-## Trust and completion
+## Rollout and limits
 
-Only the task-bound agent may append request IDs or set the reporting-complete marker.
-Ordinary clients cannot modify these fields, `spend`, or `_spend_accounting` through merge, append, or removal.
-Only worker code writes priced receipts and enables accounting.
+`TASKS_GATEWAY_ACCOUNTING_ENABLED` defaults to false.
+The worker injects `TASK_RUN_GATEWAY_ACCOUNTING=1` only for already Go-routed cloud runs after initializing their state.
+Deploy the backend and compatible agent image before enabling it for a small population.
+Python-routed runs, Pi's existing Python route, local runs, and historical token usage do not participate.
 
-Request-to-run attribution trusts the task-bound agent.
-The existing gateway API checks the funding team but does not prove that a request belongs to one particular run.
-No new credential-identity contract is assumed.
-The server-held standard credential performs usage reads; the sandbox's scoped token does not need that permission.
-
-The agent sets `gateway_usage_complete` to false at startup.
-It sets the marker to true only after streams stop and all captured IDs reach the backend.
-Any new ID resets the marker to false.
-A missing request ID or failed report prevents complete accounting.
-Token spend becomes final only when the run is terminal, reporting is complete, and all reported IDs have priced responses.
-
-The worker retries missing or failed lookups on later heartbeats and during cleanup.
-Each pass has a bounded batch and time budget.
-Pending reads rotate so a missing receipt cannot block later IDs.
-A missing response never means zero: the current gateway does not retain a debit for genuine zero cost, so such requests can remain incomplete.
-A crash before an ID reaches Django, or an outage beyond final cleanup, can also leave incomplete spend.
+The existing gateway may return no usage row for genuine zero spend.
+Such IDs remain queued rather than being assumed free.
+A crash before an ID reaches Django or an outage beyond the last cleanup attempt can also leave spend unrecorded.
 There is no separate reconciliation service or historical backfill.
 
-## Verification before wider rollout
-
-Start with a small existing Go-routed population.
-Compare the protected receipt map with the gateway's usage responses and confirm that duplicate reports do not add cost.
-Check that live runs update during execution and clean runs become final after cleanup.
-Inspect `task_gateway_usage.*` and relay accounting logs for pending lookups and processing failures.
-Confirm that unavailable receipts and interrupted reporters remain partial.
-
-Local tests cover the HTTP observer, existing PATCH API, worker processing, precision, and compute attribution.
-A live provider-to-sandbox test and production rollout checks remain required before broader enablement.
+Before wider rollout, compare model/provider buckets with gateway usage responses and check pending queues and `task_gateway_usage.*` logs.
+Local tests cover reporting, processing, rounding, duplicate handling, resume, and compute attribution.
+A live provider-to-sandbox test remains required.

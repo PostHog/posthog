@@ -13,6 +13,7 @@ from posthog.models import Team
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV
 
+from products.tasks.backend.logic.services.gateway_usage import enable_gateway_usage
 from products.tasks.backend.models import Task, TaskRun
 
 
@@ -55,26 +56,37 @@ class TestTaskRunGatewayUsageAPI(APIBaseTest):
     def _url(self, task: Task, run: TaskRun, *, team_id: int | None = None) -> str:
         return f"/api/projects/{team_id or self.team.id}/tasks/{task.id}/runs/{run.id}/"
 
-    def _patch_gateway_request(self, client: APIClient, task: Task, run: TaskRun, request_id: str) -> Response:
+    def _enable_gateway_usage(self, run: TaskRun) -> None:
+        enable_gateway_usage(run_id=run.id, team_id=run.team_id)
+        run.refresh_from_db()
+
+    def _patch_gateway_request(self, client: APIClient, task: Task, run: TaskRun, request_id: object) -> Response:
         return client.patch(
             self._url(task, run),
-            {"state_append": {"gateway_request_ids": request_id}},
+            {"state_append": {"unprocessed_request_ids": request_id}},
             format="json",
         )
 
-    def test_agent_patch_appends_a_gateway_request_id_and_resets_completion(self) -> None:
-        task, run = self._task_and_run()
-        client = self._sandbox_client(task.id)
+    def test_enable_initializes_the_gateway_usage_queue_and_spend_map(self) -> None:
+        _task, run = self._task_and_run()
 
-        response = self._patch_gateway_request(client, task, run, "request_1")
+        self._enable_gateway_usage(run)
+
+        assert run.state == {"unprocessed_request_ids": [], "token_spend": {}}
+
+    def test_agent_patch_appends_a_gateway_request_to_an_initialized_queue(self) -> None:
+        task, run = self._task_and_run()
+        self._enable_gateway_usage(run)
+
+        response = self._patch_gateway_request(self._sandbox_client(task.id), task, run, "request_1")
 
         assert response.status_code == status.HTTP_200_OK
         run.refresh_from_db()
-        assert run.state["gateway_request_ids"] == ["request_1"]
-        assert run.state["gateway_usage_complete"] is False
+        assert run.state == {"unprocessed_request_ids": ["request_1"], "token_spend": {}}
 
-    def test_agent_patch_keeps_gateway_request_ids_unique_in_report_order(self) -> None:
+    def test_agent_patch_keeps_pending_gateway_request_ids_unique(self) -> None:
         task, run = self._task_and_run()
+        self._enable_gateway_usage(run)
         client = self._sandbox_client(task.id)
 
         for request_id in ("request_2", "request_1", "request_2"):
@@ -82,85 +94,91 @@ class TestTaskRunGatewayUsageAPI(APIBaseTest):
             assert response.status_code == status.HTTP_200_OK
 
         run.refresh_from_db()
-        assert run.state["gateway_request_ids"] == ["request_2", "request_1"]
-        assert run.state["gateway_usage_complete"] is False
+        assert run.state["unprocessed_request_ids"] == ["request_2", "request_1"]
 
-    def test_agent_patch_rejects_an_invalid_gateway_request_id(self) -> None:
+    def test_agent_patch_does_not_requeue_a_processed_gateway_request_id(self) -> None:
         task, run = self._task_and_run()
-
-        response = self._patch_gateway_request(self._sandbox_client(task.id), task, run, "not a request ID")
-
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        run.refresh_from_db()
-        assert run.state == {}
-
-    def test_agent_patch_can_mark_gateway_usage_complete_only_with_a_boolean(self) -> None:
-        task, run = self._task_and_run()
-        client = self._sandbox_client(task.id)
-
-        invalid_response = client.patch(
-            self._url(task, run), {"state": {"gateway_usage_complete": "true"}}, format="json"
-        )
-        response = client.patch(self._url(task, run), {"state": {"gateway_usage_complete": True}}, format="json")
-
-        assert invalid_response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.status_code == status.HTTP_200_OK
-        run.refresh_from_db()
-        assert run.state["gateway_usage_complete"] is True
-
-    def test_new_agent_request_resets_completed_gateway_usage(self) -> None:
-        task, run = self._task_and_run()
-        run.state = {"gateway_usage_complete": True}
+        self._enable_gateway_usage(run)
+        run.state["token_spend"] = {
+            "model-a": {
+                "provider-a": {"spend_microusd": 100, "request_ids": ["request_1"]},
+            }
+        }
         run.save(update_fields=["state"])
 
         response = self._patch_gateway_request(self._sandbox_client(task.id), task, run, "request_1")
 
         assert response.status_code == status.HTTP_200_OK
         run.refresh_from_db()
-        assert run.state["gateway_usage_complete"] is False
+        assert run.state["unprocessed_request_ids"] == []
 
-    def test_ordinary_client_cannot_change_gateway_usage_state_or_spend(self) -> None:
+    def test_stale_agent_report_does_not_initialize_gateway_usage(self) -> None:
         task, run = self._task_and_run()
-        run.state = {
-            "gateway_request_ids": ["request_1"],
-            "gateway_usage_complete": True,
-            "spend": {"token_cost": 1},
-            "_spend_accounting": {"enabled": True},
-        }
-        run.save(update_fields=["state"])
 
-        response = self.client.patch(
-            self._url(task, run),
-            {
-                "state": {
-                    "gateway_request_ids": ["forged"],
-                    "gateway_usage_complete": False,
-                    "spend": {"token_cost": 999},
-                    "_spend_accounting": {},
-                },
-                "state_append": {"gateway_request_ids": "forged"},
-                "state_remove_keys": [
-                    "gateway_request_ids",
-                    "gateway_usage_complete",
-                    "spend",
-                    "_spend_accounting",
-                ],
-            },
-            format="json",
-        )
+        response = self._patch_gateway_request(self._sandbox_client(task.id), task, run, "request_1")
 
         assert response.status_code == status.HTTP_200_OK
         run.refresh_from_db()
+        assert run.state == {}
+
+    def test_agent_patch_rejects_invalid_gateway_request_ids(self) -> None:
+        task, run = self._task_and_run()
+        self._enable_gateway_usage(run)
+        client = self._sandbox_client(task.id)
+
+        invalid_ids: tuple[object, ...] = ("not a request ID", [], None)
+        for request_id in invalid_ids:
+            response = self._patch_gateway_request(client, task, run, request_id)
+            assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+        run.refresh_from_db()
+        assert run.state["unprocessed_request_ids"] == []
+
+    def test_client_and_agent_cannot_forge_or_remove_spend_state(self) -> None:
+        task, run = self._task_and_run()
+        self._enable_gateway_usage(run)
+        run.state["compute_spend"] = 2
+        run.save(update_fields=["state"])
+        payload = {
+            "state": {
+                "token_spend": {"forged": {}},
+                "compute_spend": 999,
+                "unprocessed_request_ids": ["forged"],
+            },
+            "state_append": {"unprocessed_request_ids": "forged"},
+            "state_remove_keys": ["token_spend", "compute_spend", "unprocessed_request_ids"],
+        }
+
+        for client in (self.client, self._sandbox_client(task.id)):
+            response = client.patch(self._url(task, run), payload, format="json")
+            assert response.status_code == status.HTTP_200_OK
+
+        run.refresh_from_db()
         assert run.state == {
-            "gateway_request_ids": ["request_1"],
-            "gateway_usage_complete": True,
-            "spend": {"token_cost": 1},
-            "_spend_accounting": {"enabled": True},
+            "unprocessed_request_ids": ["forged"],
+            "token_spend": {},
+            "compute_spend": 2,
+        }
+
+    def test_public_state_includes_gateway_usage_keys(self) -> None:
+        task, run = self._task_and_run()
+        self._enable_gateway_usage(run)
+        run.state["compute_spend"] = 2
+        run.save(update_fields=["state"])
+
+        response = self.client.get(self._url(task, run))
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.data["state"] == {
+            "unprocessed_request_ids": [],
+            "token_spend": {},
+            "compute_spend": 2,
         }
 
     def test_sandbox_token_cannot_append_usage_for_another_task(self) -> None:
         authorized_task, _ = self._task_and_run()
         other_task, other_run = self._task_and_run()
+        self._enable_gateway_usage(other_run)
 
         response = self._patch_gateway_request(
             self._sandbox_client(authorized_task.id), other_task, other_run, "request_1"
@@ -168,7 +186,7 @@ class TestTaskRunGatewayUsageAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK
         other_run.refresh_from_db()
-        assert other_run.state == {}
+        assert other_run.state["unprocessed_request_ids"] == []
 
     def test_task_url_run_must_belong_to_the_task(self) -> None:
         task, _ = self._task_and_run()
@@ -183,13 +201,14 @@ class TestTaskRunGatewayUsageAPI(APIBaseTest):
     def test_sandbox_token_cannot_patch_a_different_team_run(self) -> None:
         other_team = Team.objects.create(organization=self.organization, name="Other team")
         task, run = self._task_and_run(team=other_team)
+        self._enable_gateway_usage(run)
 
         response = self._sandbox_client(task.id).patch(
             self._url(task, run, team_id=other_team.id),
-            {"state_append": {"gateway_request_ids": "request_1"}},
+            {"state_append": {"unprocessed_request_ids": "request_1"}},
             format="json",
         )
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
         run.refresh_from_db()
-        assert run.state == {}
+        assert run.state["unprocessed_request_ids"] == []

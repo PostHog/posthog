@@ -83,7 +83,11 @@ from products.tasks.backend.feature_flags import get_model_access_error, is_work
 from products.tasks.backend.github_repository_access import (
     inaccessible_repositories_via_integration as _inaccessible_repositories_via_integration,
 )
-from products.tasks.backend.logic.services.gateway_usage import gateway_usage_enabled, refresh_task_run_spend
+from products.tasks.backend.logic.services.gateway_usage import (
+    gateway_usage_enabled,
+    processed_gateway_request_ids,
+    refresh_task_run_spend,
+)
 from products.tasks.backend.logic.services.image_builder import (
     ensure_image_builder_task,
     is_custom_images_enabled,
@@ -463,7 +467,9 @@ _TASK_RUN_PUBLIC_STATE_KEYS = frozenset(
         "slack_artifact_delivery",
         "slack_chart_delivery",
         "slack_thread_url",
-        "spend",
+        "token_spend",
+        "compute_spend",
+        "unprocessed_request_ids",
     }
 )
 
@@ -2231,10 +2237,9 @@ def delete_sandbox_custom_image(image_id: str | UUID, team_id: int, user_id: int
 _PROTECTED_RUN_STATE_KEYS = frozenset(
     {
         "github_credential_source",
-        "spend",
-        "_spend_accounting",
-        "gateway_request_ids",
-        "gateway_usage_complete",
+        "token_spend",
+        "compute_spend",
+        "unprocessed_request_ids",
         TASK_OWNERSHIP_VERSION_STATE_KEY,
         "pr_authorship_mode",
         "repositories",
@@ -2789,8 +2794,6 @@ def update_task_run(
     if has_state_merge:
         state = validated_data["state"]
         validated_data["state"] = {k: v for k, v in state.items() if k not in _PROTECTED_RUN_STATE_KEYS}
-        if caller_is_agent and isinstance(state.get("gateway_usage_complete"), bool):
-            validated_data["state"]["gateway_usage_complete"] = state["gateway_usage_complete"]
     state_remove_keys = [
         k for k in (validated_data.get("state_remove_keys") or []) if k not in _PROTECTED_RUN_STATE_KEYS
     ]
@@ -2800,13 +2803,13 @@ def update_task_run(
         if isinstance(raw_state_append, dict)
         else {}
     )
-    gateway_request_id = raw_state_append.get("gateway_request_ids") if isinstance(raw_state_append, dict) else None
+    gateway_request_id = raw_state_append.get("unprocessed_request_ids") if isinstance(raw_state_append, dict) else None
     if (
         caller_is_agent
         and isinstance(gateway_request_id, str)
         and re.fullmatch(r"[A-Za-z0-9_-]{1,255}", gateway_request_id)
     ):
-        state_append["gateway_request_ids"] = gateway_request_id
+        state_append["unprocessed_request_ids"] = gateway_request_id
     has_state_mutation = has_state_merge or bool(state_remove_keys) or bool(state_append)
     update_fields: set[str] = set()
 
@@ -2856,11 +2859,13 @@ def update_task_run(
             next_state = dict(run.state) if isinstance(run.state, dict) else {}
             for append_key, item in state_append.items():
                 current = next_state.get(append_key)
-                if append_key == "gateway_request_ids":
+                if append_key == "unprocessed_request_ids":
                     current_ids = current if isinstance(current, list) else []
-                    if item not in current_ids:
-                        next_state[append_key] = [*current_ids, item]
-                        next_state["gateway_usage_complete"] = False
+                    token_spend = next_state.get("token_spend")
+                    if isinstance(token_spend, dict) and isinstance(current, list):
+                        processed_ids = processed_gateway_request_ids(next_state)
+                        if item not in current_ids and item not in processed_ids:
+                            next_state[append_key] = [*current_ids, item]
                 elif isinstance(current, list):
                     next_state[append_key] = [*current, item]
                 elif current is None:

@@ -304,23 +304,14 @@ class TaskRunUpdateSerializer(serializers.Serializer):
         required=False, allow_null=True, allow_blank=True, help_text="Error message if execution failed"
     )
 
-    def validate_state(self, value: Any) -> Any:
-        if (
-            isinstance(value, dict)
-            and "gateway_usage_complete" in value
-            and not isinstance(value["gateway_usage_complete"], bool)
-        ):
-            raise serializers.ValidationError({"gateway_usage_complete": "Must be a boolean."})
-        return value
-
     def validate_state_append(self, value: dict[str, Any]) -> dict[str, Any]:
-        request_id = value.get("gateway_request_ids")
-        if "gateway_request_ids" in value and (
+        request_id = value.get("unprocessed_request_ids")
+        if "unprocessed_request_ids" in value and (
             not isinstance(request_id, str) or re.fullmatch(r"[A-Za-z0-9_-]{1,255}", request_id) is None
         ):
             raise serializers.ValidationError(
                 {
-                    "gateway_request_ids": "Must contain one gateway request ID with letters, numbers, underscores, or hyphens."
+                    "unprocessed_request_ids": "Must contain one gateway request ID with letters, numbers, underscores, or hyphens."
                 }
             )
         return value

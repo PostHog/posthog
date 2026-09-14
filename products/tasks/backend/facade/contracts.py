@@ -84,30 +84,12 @@ class WizardCloudRunDTO:
 
 @dataclass(frozen=True)
 class TaskRunSpend:
-    token_cost: int | None
-    compute_cost: int | None
-    token_status: Literal["unavailable", "partial", "current", "final"]
-    compute_status: Literal["unavailable", "current", "final"]
-    is_final: bool
+    token_spend: int | None
+    compute_spend: int | None
 
     @classmethod
     def unavailable(cls) -> "TaskRunSpend":
-        return cls(
-            token_cost=None,
-            compute_cost=None,
-            token_status="unavailable",
-            compute_status="unavailable",
-            is_final=False,
-        )
-
-    def to_state(self) -> dict[str, int | str | bool | None]:
-        return {
-            "token_cost": self.token_cost,
-            "compute_cost": self.compute_cost,
-            "token_status": self.token_status,
-            "compute_status": self.compute_status,
-            "is_final": self.is_final,
-        }
+        return cls(token_spend=None, compute_spend=None)
 
 
 @dataclass(frozen=True)

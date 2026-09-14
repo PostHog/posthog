@@ -38,7 +38,9 @@ function createProxy(
 ): {
   proxy: GatewayAccountingProxy;
   updateTaskRun: ReturnType<typeof vi.fn>;
+  warn: ReturnType<typeof vi.fn>;
 } {
+  const warn = vi.fn();
   return {
     proxy: new GatewayAccountingProxy({
       api: { updateTaskRun } as unknown as PostHogAPIClient,
@@ -46,9 +48,10 @@ function createProxy(
       runId: "run-example",
       upstreamUrl,
       upstreamBearer: "private-bearer",
-      logger: { warn: vi.fn() } as never,
+      logger: { warn } as never,
     }),
     updateTaskRun,
+    warn,
   };
 }
 
@@ -109,34 +112,12 @@ describe("GatewayAccountingProxy", () => {
       nominated: undefined,
       url: "/v1/messages",
     });
-    expect(updateTaskRun).toHaveBeenNthCalledWith(
-      1,
+    expect(updateTaskRun).toHaveBeenCalledExactlyOnceWith(
       "task-example",
       "run-example",
-      {
-        state: { gateway_usage_complete: false },
-      },
+      { state_append: { unprocessed_request_ids: "gateway-request" } },
       expect.any(AbortSignal),
     );
-    expect(updateTaskRun).toHaveBeenNthCalledWith(
-      2,
-      "task-example",
-      "run-example",
-      {
-        state_append: { gateway_request_ids: "gateway-request" },
-      },
-      expect.any(AbortSignal),
-    );
-    expect(updateTaskRun).toHaveBeenNthCalledWith(
-      3,
-      "task-example",
-      "run-example",
-      {
-        state: { gateway_usage_complete: true },
-      },
-      expect.any(AbortSignal),
-    );
-    expect(updateTaskRun).toHaveBeenCalledTimes(3);
   });
 
   it("retries only the task-run request-ID PATCH, allowing backend deduplication", async () => {
@@ -148,7 +129,6 @@ describe("GatewayAccountingProxy", () => {
     );
     const updateTaskRun = vi
       .fn()
-      .mockResolvedValueOnce({})
       .mockRejectedValueOnce(new Error("temporary failure"))
       .mockResolvedValue({});
     const { proxy } = createProxy(upstream, updateTaskRun);
@@ -161,59 +141,14 @@ describe("GatewayAccountingProxy", () => {
     );
     await proxy.stop();
 
-    expect(
-      updateTaskRun.mock.calls.filter((call) => call[2]?.state_append),
-    ).toEqual([
-      [
-        "task-example",
-        "run-example",
-        { state_append: { gateway_request_ids: "gateway-request" } },
-        expect.any(AbortSignal),
-      ],
-      [
-        "task-example",
-        "run-example",
-        { state_append: { gateway_request_ids: "gateway-request" } },
-        expect.any(AbortSignal),
-      ],
+    expect(updateTaskRun).toHaveBeenCalledTimes(2);
+    expect(updateTaskRun.mock.calls.map((call) => call[2])).toEqual([
+      { state_append: { unprocessed_request_ids: "gateway-request" } },
+      { state_append: { unprocessed_request_ids: "gateway-request" } },
     ]);
-    expect(updateTaskRun).toHaveBeenLastCalledWith(
-      "task-example",
-      "run-example",
-      {
-        state: { gateway_usage_complete: true },
-      },
-      expect.any(AbortSignal),
-    );
   });
 
-  it("keeps usage incomplete when the request-ID PATCH cannot be delivered", async () => {
-    const upstream = await listen(
-      http.createServer((_request, response) => {
-        response.writeHead(200, { "x-request-id": "gateway-request" });
-        response.end("ok");
-      }),
-    );
-    const updateTaskRun = vi
-      .fn()
-      .mockResolvedValueOnce({})
-      .mockRejectedValue(new Error("offline"));
-    const { proxy } = createProxy(upstream, updateTaskRun);
-
-    await proxy.start();
-    await request(
-      `${proxy.baseUrl}/v1/messages`,
-      { authorization: `Bearer ${proxy.bearer}` },
-      "POST",
-    );
-    await proxy.stop();
-
-    expect(updateTaskRun.mock.calls.map((call) => call[2])).not.toContainEqual({
-      state: { gateway_usage_complete: true },
-    });
-  });
-
-  it("captures the request ID before a streaming response is cancelled and completes after it flushes", async () => {
+  it("captures the request ID before a streaming response is cancelled", async () => {
     let resolveUpstreamClose: (() => void) | null = null;
     const upstreamClosed = new Promise<void>((resolve) => {
       resolveUpstreamClose = resolve;
@@ -243,21 +178,19 @@ describe("GatewayAccountingProxy", () => {
       },
     );
     response.resume();
-    await vi.waitFor(() => expect(updateTaskRun).toHaveBeenCalledTimes(2));
+    await vi.waitFor(() => expect(updateTaskRun).toHaveBeenCalledOnce());
     await proxy.stop();
     await upstreamClosed;
 
-    expect(updateTaskRun).toHaveBeenLastCalledWith(
+    expect(updateTaskRun).toHaveBeenCalledWith(
       "task-example",
       "run-example",
-      {
-        state: { gateway_usage_complete: true },
-      },
+      { state_append: { unprocessed_request_ids: "gateway-request" } },
       expect.any(AbortSignal),
     );
   });
 
-  it("cancels upstream before response headers and leaves usage incomplete", async () => {
+  it("cancels upstream before response headers without reporting a request ID", async () => {
     const received = Promise.withResolvers<void>();
     const closed = Promise.withResolvers<void>();
     const upstream = await listen(
@@ -266,7 +199,7 @@ describe("GatewayAccountingProxy", () => {
         received.resolve();
       }),
     );
-    const { proxy, updateTaskRun } = createProxy(upstream);
+    const { proxy, updateTaskRun, warn } = createProxy(upstream);
     await proxy.start();
     const client = http.request(`${proxy.baseUrl}/v1/messages`, {
       method: "POST",
@@ -278,16 +211,16 @@ describe("GatewayAccountingProxy", () => {
     client.destroy();
     await closed.promise;
     await proxy.stop();
-    expect(updateTaskRun.mock.calls.map((call) => call[2])).not.toContainEqual({
-      state: { gateway_usage_complete: true },
-    });
+
+    expect(updateTaskRun).not.toHaveBeenCalled();
+    expect(warn).toHaveBeenCalledWith("Gateway response missing request ID");
   });
 
-  it("keeps usage incomplete when a model response has no request ID", async () => {
+  it("logs a missing request ID without writing task-run state", async () => {
     const upstream = await listen(
       http.createServer((_request, response) => response.end("ok")),
     );
-    const { proxy, updateTaskRun } = createProxy(upstream);
+    const { proxy, updateTaskRun, warn } = createProxy(upstream);
 
     await proxy.start();
     await request(
@@ -297,14 +230,20 @@ describe("GatewayAccountingProxy", () => {
     );
     await proxy.stop();
 
-    expect(updateTaskRun).toHaveBeenCalledExactlyOnceWith(
-      "task-example",
-      "run-example",
-      {
-        state: { gateway_usage_complete: false },
-      },
-      expect.any(AbortSignal),
+    expect(updateTaskRun).not.toHaveBeenCalled();
+    expect(warn).toHaveBeenCalledWith("Gateway response missing request ID");
+  });
+
+  it("does not call the task-run API when no model request is proxied", async () => {
+    const upstream = await listen(
+      http.createServer((_request, response) => response.end("{}")),
     );
+    const { proxy, updateTaskRun } = createProxy(upstream);
+
+    await proxy.start();
+    await proxy.stop();
+
+    expect(updateTaskRun).not.toHaveBeenCalled();
   });
 
   it("proxies helpers without reporting usage", async () => {
@@ -321,9 +260,6 @@ describe("GatewayAccountingProxy", () => {
     );
     await proxy.stop();
 
-    expect(updateTaskRun.mock.calls.map((call) => call[2])).toEqual([
-      { state: { gateway_usage_complete: false } },
-      { state: { gateway_usage_complete: true } },
-    ]);
+    expect(updateTaskRun).not.toHaveBeenCalled();
   });
 });

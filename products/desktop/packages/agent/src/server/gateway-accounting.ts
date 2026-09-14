@@ -130,7 +130,6 @@ export class GatewayAccountingProxy {
   }
 
   async start(): Promise<void> {
-    await this.usageReporter.start();
     this.server = http.createServer((request, response) =>
       this.handle(request, response),
     );
@@ -256,7 +255,7 @@ export class GatewayAccountingProxy {
         if (requestId) {
           requestIdCaptured = true;
           this.usageReporter.reportRequestId(requestId);
-        } else this.usageReporter.markRequestIdMissing();
+        } else this.options.logger.warn("Gateway response missing request ID");
       }
       response.writeHead(
         upstreamResponse.statusCode ?? 502,
@@ -268,7 +267,7 @@ export class GatewayAccountingProxy {
       this.activeRequests.delete(upstreamRequest);
     } catch (error) {
       if (isModelRequest && !requestIdCaptured)
-        this.usageReporter.markRequestIdMissing();
+        this.options.logger.warn("Gateway response missing request ID");
       if (!response.headersSent) response.writeHead(502);
       response.end();
       if (!controller.signal.aborted)

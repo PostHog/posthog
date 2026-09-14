@@ -103,7 +103,6 @@ function gatewayReportDelay(
 }
 
 export class GatewayUsageReporter {
-  private missingRequestId = false;
   private readonly pendingRequestIds = new Set<string>();
   private reportChain: Promise<void> = Promise.resolve();
 
@@ -114,17 +113,9 @@ export class GatewayUsageReporter {
     private readonly logger: Logger,
   ) {}
 
-  async start(): Promise<void> {
-    await this.updateRun({ state: { gateway_usage_complete: false } });
-  }
-
   reportRequestId(requestId: string): void {
     this.pendingRequestIds.add(requestId);
     this.reportChain = this.reportChain.then(() => this.flushRequestIds());
-  }
-
-  markRequestIdMissing(): void {
-    this.missingRequestId = true;
   }
 
   async stop(): Promise<void> {
@@ -142,13 +133,6 @@ export class GatewayUsageReporter {
         await this.flushRequestIds(controller.signal);
     } finally {
       clearTimeout(timer);
-    }
-    if (!this.missingRequestId && this.pendingRequestIds.size === 0) {
-      try {
-        await this.updateRun({ state: { gateway_usage_complete: true } });
-      } catch (error) {
-        this.logger.warn("Failed to complete gateway usage reporting", error);
-      }
     }
   }
 
@@ -172,7 +156,7 @@ export class GatewayUsageReporter {
         if (signal?.aborted) return;
         try {
           await this.updateRun(
-            { state_append: { gateway_request_ids: requestId } },
+            { state_append: { unprocessed_request_ids: requestId } },
             signal
               ? AbortSignal.any([
                   signal,
