@@ -989,7 +989,9 @@ export const FeatureFlagsEnableCreateParams = () => zod.object({
  *
  * This changes targeting only. A disabled flag still serves nobody, and a holdout is
  * evaluated before release conditions, so users in one keep getting the holdout variant
- * instead of the rollout.
+ * instead of the rollout. Early access enrollment is evaluated before release conditions
+ * too, so on a flag with `feature_enrollment` a user who carries the enrollment property
+ * keeps the answer that property gives, whether or not they opted in.
  *
  * A multivariate flag needs `variant_key`, and every other flag rejects it. A release
  * condition decides who the flag serves, not which variant they get, so rolling a
@@ -1069,7 +1071,7 @@ export const FeatureFlagsSetReleaseConditionRolloutCreateBody = () => zod.object
         .min(featureFlagsSetReleaseConditionRolloutCreateBodyRolloutPercentageMin)
         .max(featureFlagsSetReleaseConditionRolloutCreateBodyRolloutPercentageMax)
         .describe(
-            'Percentage of the users matching that condition who are served the flag, 0 through 100. On a multivariate flag this is how many matching users get a variant at all, not how the variants are split between them.'
+            'Percentage of the users matching that condition who are served the flag, 0 through 100. On a multivariate flag this is how many matching users get a variant at all, not how the variants are split between them. Fractional percentages such as 0.5 are accepted, the same as a write that sends `filters`.'
         ),
     version: zod
         .number()
