@@ -1,0 +1,43 @@
+---
+source: cymbal/tests/fingerprint_golden.rs
+expression: version.compute(&exceptions.into())
+---
+{
+  "value": "e3e4521843a40bb349971d5db9ebc18233ca21a1dcf3219b28acc55e5f4ed7987b02f51f96a094fdd37c41984548473a431c5810f661a4952eb7bc04c0be37ac",
+  "record": [
+    {
+      "type": "exception",
+      "id": "00000000-0000-0000-0000-000000000000",
+      "pieces": [
+        "Exception Type"
+      ]
+    },
+    {
+      "type": "frame",
+      "raw_id": "/0",
+      "pieces": [
+        "Source file name",
+        "Mangled function name",
+        "Language"
+      ]
+    },
+    {
+      "type": "frame",
+      "raw_id": "/0",
+      "pieces": [
+        "Source file name",
+        "Mangled function name",
+        "Language"
+      ]
+    },
+    {
+      "type": "frame",
+      "raw_id": "/0",
+      "pieces": [
+        "Source file name",
+        "Mangled function name",
+        "Language"
+      ]
+    }
+  ]
+}
