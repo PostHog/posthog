@@ -241,6 +241,8 @@ describe('translation validation', () => {
         ['a network share link', 'smb://attacker.example/share', true],
         ['an app scheme the project did not register', 'unregistered://home', true],
         ['a registered app scheme with no destination', 'example-mobile://', true],
+        ['a registered app scheme with only a query marker', 'example-mobile://?', true],
+        ['a registered app scheme with only a fragment marker', 'example-mobile://#', true],
         ['a registered app scheme deep link', 'example-mobile://home', false],
         ['a registered app scheme with only a fragment', 'example-mobile://#promo', false],
         ['an https link', 'https://posthog.com/docs', false],

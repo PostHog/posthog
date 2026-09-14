@@ -294,7 +294,7 @@ const isLinkSurveyQuestion = (question: SurveyQuestion): question is LinkSurveyQ
 // so these two checks have to agree: a scheme the project never registered fails the save, and one
 // this list drops is one the API drops too.
 const NEVER_VALID_LINK_SCHEME_RE = /^(https?|javascript|vbscript|data|file|blob|smb|cifs|nfs):/i
-const APP_LINK_SCHEME_PREFIX_RE = /^([a-z][a-z0-9+.-]*):\/*/i
+const APP_LINK_SCHEME_PREFIX_RE = /^([a-z][a-z0-9+.-]*):(\/\/)?/i
 
 // The setting is free-form JSON, so a stored non-list or non-string entry has to be inert here,
 // the way resolve_allowed_link_schemes drops it on the API side.
@@ -310,8 +310,9 @@ const isAppSchemeLink = (link: string): boolean => {
     if (!scheme || NEVER_VALID_LINK_SCHEME_RE.test(link)) {
         return false
     }
-    // An app scheme addresses a screen, so "myapp://" and "myapp:   " open the app at nothing.
-    if (link.slice(scheme[0].length).trim() === '') {
+    // An app scheme addresses a screen, so "myapp://", "myapp:   " and "myapp://?" all open the
+    // app at nothing. The query and fragment markers are delimiters, not a destination.
+    if (link.slice(scheme[0].length).replace(/[?#]/g, '').trim() === '') {
         return false
     }
     return registeredLinkSchemes().includes(scheme[1].toLowerCase())

@@ -1099,7 +1099,15 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
 
     @cached_property
     def _allowed_link_schemes(self) -> list[str]:
-        """Cached because a survey validates one link per question and per translation."""
+        """
+        Cached because a survey validates one link per question and per translation.
+
+        A caller holding the team can pass the resolved list instead of the team id. Max tools
+        validates inside async context, where reading the team here would raise.
+        """
+        resolved = self.context.get("allowed_link_schemes")
+        if resolved is not None:
+            return list(resolved)
         return TeamLinkSchemes().for_team(self.context.get("team_id"))
 
     def _validate_and_sanitize_link(self, link: str) -> str:
