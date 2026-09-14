@@ -11,11 +11,12 @@ from requests import Request, Response
 from products.warehouse_sources.backend.temporal.data_imports.sources.braze.settings import (
     BRAZE_DATA_SERIES_ENDPOINTS,
     BRAZE_ENDPOINTS,
+    DATA_SERIES_HISTORY_DAYS,
     DEFAULT_PROBE_TARGET,
-    DEFAULT_SERIES_HISTORY_DAYS,
     BrazeDataSeriesConfig,
     BrazeEndpointConfig,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.datetime_utils import parse_datetime_value
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import _is_host_safe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
@@ -214,16 +215,8 @@ def _list_resource(
 
 
 def _to_date(value: Any) -> Optional[date]:
-    if isinstance(value, datetime):
-        return value.date()
-    if isinstance(value, date):
-        return value
-    if isinstance(value, str):
-        try:
-            return datetime.fromisoformat(value.replace("Z", "+00:00")).date()
-        except ValueError:
-            return None
-    return None
+    parsed = parse_datetime_value(value)
+    return parsed.date() if parsed is not None else None
 
 
 def _series_span_days(
@@ -232,9 +225,9 @@ def _series_span_days(
     """Days of history a run asks for, measured back from today."""
     watermark = _to_date(db_incremental_field_last_value) if should_use_incremental_field else None
     if watermark is None:
-        return DEFAULT_SERIES_HISTORY_DAYS
+        return DATA_SERIES_HISTORY_DAYS
     # The watermark day is re-read rather than skipped: Braze can still be restating it.
-    return max(1, min((today - watermark).days + 1, DEFAULT_SERIES_HISTORY_DAYS))
+    return max(1, min((today - watermark).days + 1, DATA_SERIES_HISTORY_DAYS))
 
 
 def _series_windows(max_length_days: int, span_days: int, now: datetime) -> list[tuple[datetime, int]]:

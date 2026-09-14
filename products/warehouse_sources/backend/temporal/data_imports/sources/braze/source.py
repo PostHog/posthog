@@ -18,10 +18,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.braze.braz
 from products.warehouse_sources.backend.temporal.data_imports.sources.braze.settings import (
     BRAZE_DATA_SERIES_ENDPOINTS,
     BRAZE_PROBE_TARGETS,
+    DATA_SERIES_LOOKBACK_SECONDS,
     DEFAULT_PROBE_TARGET,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
-    SERIES_LOOKBACK_SECONDS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
@@ -130,7 +130,7 @@ Your REST endpoint must match your Braze dashboard's region — see [Braze's API
         )
         for schema in schemas:
             if schema.name in BRAZE_DATA_SERIES_ENDPOINTS:
-                schema.default_incremental_lookback_seconds = SERIES_LOOKBACK_SECONDS
+                schema.default_incremental_lookback_seconds = DATA_SERIES_LOOKBACK_SECONDS
         return schemas
 
     def validate_credentials(

@@ -3,8 +3,8 @@ from unittest import mock
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.braze.settings import (
     BRAZE_DATA_SERIES_ENDPOINTS,
+    DATA_SERIES_LOOKBACK_SECONDS,
     ENDPOINTS,
-    SERIES_LOOKBACK_SECONDS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.braze.source import BrazeSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.braze import BrazeSourceConfig
@@ -59,7 +59,7 @@ class TestBrazeSource:
         for name in BRAZE_DATA_SERIES_ENDPOINTS:
             # Braze restates recent days, so appending them would duplicate rather than correct.
             assert schemas[name].supports_append is False
-            assert schemas[name].default_incremental_lookback_seconds == SERIES_LOOKBACK_SECONDS
+            assert schemas[name].default_incremental_lookback_seconds == DATA_SERIES_LOOKBACK_SECONDS
         assert schemas["email_templates"].supports_append is True
         assert schemas["email_templates"].default_incremental_lookback_seconds is None
 

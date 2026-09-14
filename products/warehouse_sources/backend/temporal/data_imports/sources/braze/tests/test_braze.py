@@ -25,7 +25,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.braze.braz
 from products.warehouse_sources.backend.temporal.data_imports.sources.braze.settings import (
     BRAZE_DATA_SERIES_ENDPOINTS,
     BRAZE_ENDPOINTS,
-    DEFAULT_SERIES_HISTORY_DAYS,
+    DATA_SERIES_HISTORY_DAYS,
 )
 
 BASE_URL = "https://rest.iad-01.braze.com"
@@ -420,10 +420,10 @@ def _series_response(data: Any) -> Response:
 
 class TestSeriesSpanDays:
     def test_full_refresh_asks_for_the_default_history(self):
-        assert _series_span_days(False, date(2026, 3, 1), date(2026, 3, 10)) == DEFAULT_SERIES_HISTORY_DAYS
+        assert _series_span_days(False, date(2026, 3, 1), date(2026, 3, 10)) == DATA_SERIES_HISTORY_DAYS
 
     def test_no_watermark_asks_for_the_default_history(self):
-        assert _series_span_days(True, None, date(2026, 3, 10)) == DEFAULT_SERIES_HISTORY_DAYS
+        assert _series_span_days(True, None, date(2026, 3, 10)) == DATA_SERIES_HISTORY_DAYS
 
     @pytest.mark.parametrize(
         "watermark, expected",
@@ -434,7 +434,7 @@ class TestSeriesSpanDays:
             (datetime(2026, 3, 5, 13, 30, tzinfo=UTC), 6),
             ("2026-03-05", 6),
             # A watermark older than the history cap is clamped to it.
-            (date(2020, 1, 1), DEFAULT_SERIES_HISTORY_DAYS),
+            (date(2020, 1, 1), DATA_SERIES_HISTORY_DAYS),
             # A watermark in the future can only mean a clock skew; never ask for zero days.
             (date(2026, 3, 20), 1),
         ],
@@ -443,7 +443,7 @@ class TestSeriesSpanDays:
         assert _series_span_days(True, watermark, date(2026, 3, 10)) == expected
 
     def test_unparseable_watermark_falls_back_to_the_default_history(self):
-        assert _series_span_days(True, "not-a-date", date(2026, 3, 10)) == DEFAULT_SERIES_HISTORY_DAYS
+        assert _series_span_days(True, "not-a-date", date(2026, 3, 10)) == DATA_SERIES_HISTORY_DAYS
 
 
 class TestSeriesWindows:
@@ -456,9 +456,9 @@ class TestSeriesWindows:
         # Canvas caps `length` at 14 days, so 100 days of history needs 8 requests per Canvas.
         now = datetime(2026, 3, 10, 12, tzinfo=UTC)
 
-        windows = _series_windows(14, DEFAULT_SERIES_HISTORY_DAYS, now)
+        windows = _series_windows(14, DATA_SERIES_HISTORY_DAYS, now)
 
-        assert sum(length for _, length in windows) == DEFAULT_SERIES_HISTORY_DAYS
+        assert sum(length for _, length in windows) == DATA_SERIES_HISTORY_DAYS
         assert all(length <= 14 for _, length in windows)
         # Oldest window first, and each window ends where the next one begins.
         endings = [ending for ending, _ in windows]
@@ -562,7 +562,7 @@ class TestDataSeriesRequests:
         assert rows == [{"time": "2026-03-09", "dau": 42}]
         url, kwargs = session.get.call_args.args[0], session.get.call_args.kwargs
         assert url == f"{BASE_URL}/kpi/dau/data_series"
-        assert kwargs["params"]["length"] == DEFAULT_SERIES_HISTORY_DAYS
+        assert kwargs["params"]["length"] == DATA_SERIES_HISTORY_DAYS
         # `ending_at` is the moment of the request, never a future date Braze would reject.
         assert datetime.fromisoformat(kwargs["params"]["ending_at"]) <= datetime.now(tz=UTC)
 
@@ -588,7 +588,7 @@ class TestDataSeriesRequests:
 
         _rows(_source("kpi_dau", db_incremental_field_last_value=datetime.now(tz=UTC) - timedelta(days=4)))
 
-        assert session.get.call_args.kwargs["params"]["length"] == DEFAULT_SERIES_HISTORY_DAYS
+        assert session.get.call_args.kwargs["params"]["length"] == DATA_SERIES_HISTORY_DAYS
 
     @mock.patch(SESSION_PATCH)
     def test_campaign_series_fans_out_over_the_campaign_list(self, MockSession):
@@ -622,7 +622,7 @@ class TestDataSeriesRequests:
         _wire(session, [_response({"canvases": [{"id": "cv1"}]}), _response({"canvases": []})])
         windows = _series_windows(
             BRAZE_DATA_SERIES_ENDPOINTS["canvas_analytics"].max_length_days,
-            DEFAULT_SERIES_HISTORY_DAYS,
+            DATA_SERIES_HISTORY_DAYS,
             datetime.now(tz=UTC),
         )
         session.get.side_effect = [_series_response({"name": "Welcome", "stats": []}) for _ in windows]

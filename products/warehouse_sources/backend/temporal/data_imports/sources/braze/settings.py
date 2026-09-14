@@ -1,6 +1,8 @@
 from dataclasses import dataclass, field
 from typing import Literal, Optional
 
+from posthog.dataclasses import frozen
+
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
 # Braze list endpoints paginate either with a 0-indexed ``page`` param
@@ -110,11 +112,11 @@ DataSeriesShape = Literal["list", "canvas"]
 
 # How far back a first sync (or a full refresh) of a data series reaches. Braze caps `length` at
 # 100 days, so a longer span would only mean more requests per parent for older history.
-DEFAULT_SERIES_HISTORY_DAYS = 100
+DATA_SERIES_HISTORY_DAYS = 100
 
 # Braze restates recent days as conversions attribute back to the send date, so incremental runs
 # re-read a trailing window rather than resuming at the last day already stored.
-SERIES_LOOKBACK_SECONDS = 14 * 24 * 60 * 60
+DATA_SERIES_LOOKBACK_SECONDS = 14 * 24 * 60 * 60
 
 
 def _date_field(name: str) -> IncrementalField:
@@ -126,10 +128,10 @@ def _date_field(name: str) -> IncrementalField:
     }
 
 
-SERIES_INCREMENTAL_FIELDS: list[IncrementalField] = [_date_field("time")]
+DATA_SERIES_INCREMENTAL_FIELDS: list[IncrementalField] = [_date_field("time")]
 
 
-@dataclass
+@frozen
 class BrazeDataSeriesConfig:
     name: str
     path: str
@@ -239,5 +241,5 @@ ENDPOINTS = tuple(BRAZE_ENDPOINTS.keys()) + tuple(BRAZE_DATA_SERIES_ENDPOINTS.ke
 
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
     **{name: config.incremental_fields for name, config in BRAZE_ENDPOINTS.items()},
-    **dict.fromkeys(BRAZE_DATA_SERIES_ENDPOINTS, SERIES_INCREMENTAL_FIELDS),
+    **dict.fromkeys(BRAZE_DATA_SERIES_ENDPOINTS, DATA_SERIES_INCREMENTAL_FIELDS),
 }
