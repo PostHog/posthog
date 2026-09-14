@@ -15,7 +15,7 @@ from collections import Counter
 from collections.abc import Iterable
 from dataclasses import dataclass, replace
 from datetime import timedelta
-from typing import Any, TypeVar
+from typing import TYPE_CHECKING, Any, Protocol, TypeVar
 from uuid import UUID, uuid4
 
 from django.utils import timezone
@@ -79,6 +79,9 @@ from products.replay_vision.backend.temporal.types import (
     VerificationRecord,
 )
 
+if TYPE_CHECKING:
+    from collections.abc import Awaitable
+
 logger = structlog.get_logger(__name__)
 
 _MAX_LLM_ATTEMPTS = 2  # one initial call + one re-prompt with the validation error appended per step
@@ -93,6 +96,10 @@ _VERIFY_BUDGET_RESERVE_SECONDS = 60.0
 _VIDEO_CACHE_TTL = "900s"
 
 _OutputT = TypeVar("_OutputT", bound=BaseModel)
+
+
+class _SignalVerificationRunner(Protocol):
+    def __call__(self, *, steps: list[MissionStep], cache_name: str) -> "Awaitable[dict[str, BaseModel]]": ...
 
 
 @dataclass(frozen=True)
@@ -481,15 +488,15 @@ async def _verify_signal_findings(
     signals: list[SignalFinding],
     mode: str,
     verification: VerificationRecord | None,
-    run: Any,
-    cache: Any | None,
+    run: _SignalVerificationRunner,
+    cache: types.CachedContent | None,
     model: str,
 ) -> list[SignalFinding]:
     retained: list[SignalFinding] = []
     outcome = "assessed"
     if verification is not None and (verification.skipped_reason is not None or verification.resolved_verdict != "yes"):
         outcome = "monitor_unverified"
-    elif cache is None:
+    elif cache is None or not cache.name:
         outcome = "no_cache"
     else:
         budget = _remaining_verify_budget_seconds()

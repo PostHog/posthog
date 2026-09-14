@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from django.utils import timezone
 
 import httpx
+from google.genai import types
 from google.genai.errors import APIError
 from pydantic import BaseModel
 from temporalio.testing import ActivityEnvironment
@@ -799,10 +800,12 @@ class TestVerifyPositives:
         ("enforce", "provider_error", True, None, 0),
         ("enforce", "timeout", True, None, 0),
         ("enforce", "supported", False, None, 0),
+        ("enforce", "missing_cache_name", True, None, 0),
         ("enforce", "supported", True, 0.0, 0),
         ("shadow", "unsupported", True, None, 1),
         ("shadow", "provider_error", True, None, 1),
         ("shadow", "supported", False, None, 1),
+        ("shadow", "missing_cache_name", True, None, 1),
     ],
 )
 async def test_signal_verification_controls_only_recommendations(
@@ -879,7 +882,11 @@ async def test_signal_verification_controls_only_recommendations(
         patch(f"{_MODULE}.build_events_index", return_value={}),
         patch(
             f"{_MODULE}._maybe_create_video_cache",
-            new=AsyncMock(return_value=TestVerifyPositives._Cache() if cached else None),
+            new=AsyncMock(
+                return_value=types.CachedContent(name=None if assessment_kind == "missing_cache_name" else "caches/abc")
+                if cached
+                else None
+            ),
         ),
         patch(f"{_MODULE}._delete_video_cache", new=delete),
         patch(f"{_MODULE}._remaining_verify_budget_seconds", return_value=budget),
