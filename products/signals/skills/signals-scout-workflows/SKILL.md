@@ -94,18 +94,19 @@ The panel reads your evidence back by name, and the API refuses anything it cann
 {
   "metric": "email_opened",
   "current_value": 0.0865,
+  "unit": "rate",
   "target_value": 0.2,
   "n": 208,
   "window": "-7d",
   "click_through": 0.0192,
   "guardrails": [
-    { "metric": "email_bounced", "value": 0.0, "n": 208 },
-    { "metric": "email_blocked", "value": 0.0, "n": 208 }
+    { "metric": "email_bounced", "value": 0.0, "n": 208, "unit": "rate" },
+    { "metric": "email_blocked", "value": 0.0, "n": 208, "unit": "rate" }
   ]
 }
 ```
 
-`metric`, `current_value`, `n` and `guardrails` are required. Rates are fractions, never strings: `0.0865`, not `"8.65%"`. A number under a key of your own naming (`current_open_rate`) is refused, because a person would otherwise read a well-evidenced suggestion as having no evidence at all.
+`metric`, `current_value`, `unit`, `n` and `guardrails` are required, and every guardrail needs its own `unit`. Rates are fractions, never strings: `0.0865`, not `"8.65%"`. `unit` is `rate` or `count`, and it is not decoration: a value of 1.0 is either every message or one of them, and the panel shows a count of 1 as `1` only because you said so. A number under a key of your own naming (`current_open_rate`) is refused, because a person would otherwise read a well-evidenced suggestion as having no evidence at all.
 
 Your suggestion is the output. It appears on the workflow itself, which is where the person who owns that workflow decides. Never edit the workflow, and never approve: there is no tool for either, by design.
 
