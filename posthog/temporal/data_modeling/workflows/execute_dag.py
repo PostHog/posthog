@@ -42,9 +42,6 @@ from products.data_quality.backend.facade.enums import SuiteRunTrigger
 MAX_CONCURRENT_CHILDREN = 10
 
 NODE_AUDIT_PATCH = "data-quality-node-audit-2026-08"
-# Deprecated. The marker is still written so histories that recorded it keep replaying; the branch it
-# used to guard is gone. Delete once no execution started before 2026-09-12 is open.
-MANAGED_WAREHOUSE_NAMING_PATCH = "managed-warehouse-data-modeling-names-2026-09"
 
 
 class EmptyDAGOrCycleError(Exception):
@@ -286,7 +283,6 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
         ephemeral_node_set = set(dag_structure.ephemeral_nodes)
         failed_node_set: set[str] = set()
         quality_failed_node_set: set[str] = set()
-        temporalio.workflow.deprecate_patch(MANAGED_WAREHOUSE_NAMING_PATCH)
         managed_warehouse_only = inputs.managed_warehouse_only
         serving_engine = (
             DataModelingJobEngine.MANAGED_WAREHOUSE if managed_warehouse_only else DataModelingJobEngine.CLICKHOUSE
