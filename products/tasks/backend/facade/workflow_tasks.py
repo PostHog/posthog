@@ -16,6 +16,10 @@ from products.tasks.backend.logic.services.workflow_task_skills import (
     validate_skill_names,
 )
 from products.tasks.backend.logic.services.workflow_tasks import (
+    MAX_SELF_SERVE_WORKFLOW_TASK_RATE_CAP_PER_DAY,
+    MAX_SELF_SERVE_WORKFLOW_TASK_TEAM_RATE_CAP_PER_DAY,
+    WORKFLOW_TASK_RATE_CAP_PER_DAY,
+    WORKFLOW_TASK_TEAM_RATE_CAP_PER_DAY,
     WorkflowTaskConnectorsInvalid,
     WorkflowTaskLimitExceeded,
     WorkflowTaskOriginKeyConflict,
@@ -29,7 +33,11 @@ from products.tasks.backend.logic.services.workflow_tasks import (
 
 __all__ = [
     "MAX_ATTACHED_SKILLS",
+    "MAX_SELF_SERVE_WORKFLOW_TASK_RATE_CAP_PER_DAY",
+    "MAX_SELF_SERVE_WORKFLOW_TASK_TEAM_RATE_CAP_PER_DAY",
     "OUTPUT_FIELD_TYPES",
+    "WORKFLOW_TASK_RATE_CAP_PER_DAY",
+    "WORKFLOW_TASK_TEAM_RATE_CAP_PER_DAY",
     "WorkflowTaskConnectorsInvalid",
     "WorkflowTaskLimitExceeded",
     "WorkflowTaskOriginKeyConflict",
