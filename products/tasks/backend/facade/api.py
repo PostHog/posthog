@@ -222,6 +222,7 @@ __all__ = [
     "get_latest_pr_url_by_task",
     "get_merged_pr_task_ids",
     "get_latest_run_by_task",
+    "task_runs_are_terminal",
     "get_resume_snapshot_carry_state",
     "get_sandbox_custom_image",
     "get_sandbox_environment",
@@ -1100,6 +1101,14 @@ def get_latest_run_by_task(task_ids: Iterable[str | UUID]) -> dict[str, contract
         .distinct("task_id")
     )
     return {str(run.task_id): _task_run_to_dto(run) for run in runs}
+
+
+def task_runs_are_terminal(task_id: str | UUID, team_id: int) -> bool:
+    """Whether a team-scoped task has at least one run and every run is terminal."""
+    statuses = list(TaskRun.objects.filter(task_id=task_id, team_id=team_id).values_list("status", flat=True))
+    return bool(statuses) and all(
+        status in {TaskRun.Status.COMPLETED, TaskRun.Status.FAILED, TaskRun.Status.CANCELLED} for status in statuses
+    )
 
 
 def get_active_wizard_cloud_run(team_id: int) -> contracts.WizardCloudRunDTO | None:

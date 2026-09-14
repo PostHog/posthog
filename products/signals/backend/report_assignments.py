@@ -190,14 +190,11 @@ def claim_report_for_task(*, team_id: int, report_id: str, task_id: str) -> Repo
 def release_terminal_task_report_claims(*, team_id: int, task_id: str) -> int:
     from products.signals.backend.implementation_pr import fetch_implementation_pr_state_for_reports
 
-    latest_run = tasks_facade.get_latest_run_by_task([task_id]).get(task_id)
-    if latest_run is not None and not latest_run.is_terminal:
-        return 0
     report_ids = set(
         active_claims(team_id=team_id).filter(actor_kind="task", task_id=task_id).values_list("report_id", flat=True)
     )
     report_ids.update(
-        SignalReportAssignment.all_teams.filter(
+        SignalReportAssignment.objects.for_team(team_id).filter(
             team_id=team_id,
             actor_kind="task",
             actor_task_id=task_id,
@@ -210,6 +207,8 @@ def release_terminal_task_report_claims(*, team_id: int, task_id: str) -> int:
         with transaction.atomic():
             report = SignalReport.objects.select_for_update().filter(id=report_id, team_id=team_id).first()
             if report is None:
+                continue
+            if not tasks_facade.task_runs_are_terminal(task_id, team_id):
                 continue
             active_claim = get_active_claim(team_id=team_id, report_id=report.id)
             if active_claim is None or not actor_owns_claim(active_claim, ArtefactAttribution.from_task(task_id)):
