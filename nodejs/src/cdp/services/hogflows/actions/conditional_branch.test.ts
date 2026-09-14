@@ -528,6 +528,28 @@ describe('action.conditional_branch', () => {
             expect(await pollOnlyAdvanceCount()).toBe(0)
         })
 
+        // A matcher wake reaches here without eventMatched, so before this both read as poll advances.
+        it.each(['rekeyWake', 'anchorWake'] as const)('does not count a %s matcher wake as poll-only', async (flag) => {
+            waitAction.config.condition = {
+                filters: {
+                    bytecode: ['_H', 1, 32, 'test', 32, 'event', 1, 1, 11],
+                    events: [{ id: 'test', name: 'test', type: 'events', order: 0 }],
+                },
+            }
+            waitInvocation.state.currentAction!.pollReparked = true
+            waitInvocation.state.currentAction![flag] = true
+
+            const result = await handler.execute({
+                invocation: waitInvocation,
+                action: waitAction,
+                result: createInvocationResult(waitInvocation),
+            })
+
+            expect(result.nextAction).toEqual(findActionById(waitInvocation.hogFlow, 'matched_target'))
+            expect(await pollOnlyAdvanceCount()).toBe(0)
+            expect(waitInvocation.state.currentAction![flag]).toBe(false)
+        })
+
         it('records a rekey wake as advanced and consumes the one-shot flag when the merge makes the condition match', async () => {
             // A merge re-keyed this parked wait onto the survivor and woke it (rekeyWake). The re-check
             // now finds the condition true. Consuming the flag is what keeps the next re-check from
