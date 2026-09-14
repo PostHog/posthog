@@ -24,7 +24,7 @@ STALE_RUNNING_MULTIPLIER = 2
 # circular import between sync_status.py and posthog.hogql.database.database.
 _NOT_DELETED = Q(deleted=False) | Q(deleted__isnull=True)
 
-_BILLING_LIMIT_REASONS = {
+_BILLING_LIMIT_REASONS: dict[str, str] = {
     ExternalDataSchemaStatus.BILLING_LIMIT_REACHED: "the data warehouse billing limit has been reached",
     ExternalDataSchemaStatus.BILLING_LIMIT_TOO_LOW: "the configured billing limit is too low",
 }
@@ -128,7 +128,7 @@ def _build_warning_for_schema(
             message=_failed_sync_message(table_name, source_type, schema.last_synced_at, now),
         )
 
-    if billing_limit_reason := _BILLING_LIMIT_REASONS.get(schema_status):
+    if schema_status is not None and (billing_limit_reason := _BILLING_LIMIT_REASONS.get(schema_status)):
         return build(
             status=schema_status,
             message=f"Sync of `{table_name}` (from {source_type}) is paused because {billing_limit_reason}. Results may be out of date.",
