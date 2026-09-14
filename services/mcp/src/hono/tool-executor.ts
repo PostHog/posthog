@@ -39,6 +39,7 @@ import { formatSkillLookupMiss } from '@/tools/skills/notFound'
 import type { Context, Tool, ZodObjectAny } from '@/tools/types'
 
 import {
+    getModelMissingReason,
     trackExecuteSqlGeneration,
     trackToolCall,
     trackToolSpan,
@@ -251,11 +252,12 @@ export class ToolExecutor {
                     intentSource: prepared.intentSource,
                     llmModel: prepared.llmModel,
                     llmModelSource: prepared.llmModelSource,
+                    llmModelMissingReason: prepared.llmModel ? undefined : getModelMissingReason(rawArgs.llm_model),
                 },
                 args: prepared.args ?? rawArgs,
             }
         } catch {
-            return { analyticsMeta: {}, args: rawArgs }
+            return { analyticsMeta: { llmModelMissingReason: 'capture_error' }, args: rawArgs }
         }
     }
 

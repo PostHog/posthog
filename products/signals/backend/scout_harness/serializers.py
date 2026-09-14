@@ -35,6 +35,7 @@ from posthog.temporal.oauth import SCOUT_GRANTABLE_WRITE_SCOPES
 from products.signals.backend.artefact_schemas import ActionabilityChoice, Priority
 from products.signals.backend.models import SignalScoutConfig, SignalScoutEmission
 from products.signals.backend.report_charts import MAX_REPORT_CHARTS
+from products.signals.backend.report_metrics import MAX_REPORT_METRICS
 from products.signals.backend.report_prompts import MAX_SUGGESTED_PROMPT_LENGTH, MAX_SUGGESTED_PROMPTS
 from products.signals.backend.scout_harness.config_registry import CRON_SCHEDULE_MAX_LENGTH, cron_schedule_error
 from products.signals.backend.scout_harness.derived_metadata import DERIVED_FLAG_KEYS, DERIVED_METADATA_KEY
@@ -76,7 +77,7 @@ from products.signals.backend.scout_harness.tools.structured_output import (
     StructuredOutputSchemaError,
     validate_structured_output_schema,
 )
-from products.signals.backend.serializers import ReportChartSerializer
+from products.signals.backend.serializers import ReportChartSerializer, ReportMetricWriteSerializer
 from products.skills.backend.api.skill_serializers import (
     MAX_SKILL_FILE_COUNT,
     SPEC_DESCRIPTION_MAX_LENGTH,
@@ -1339,6 +1340,20 @@ class EmitReportRequestSerializer(serializers.Serializer):
             "the finding rests on a trend, a spike, or a comparison you already queried."
         ),
     )
+    metrics = serializers.ListField(
+        required=False,
+        child=ReportMetricWriteSerializer(),
+        max_length=MAX_REPORT_METRICS,
+        help_text=(
+            "Optional typed impact measurements. Use one primary metric for the key observation and "
+            "supporting metrics for users, sessions, occurrences, conversion, latency, or revenue. Every "
+            "metric requires a bounded live InsightVizNode/TrendsQuery built only from EventsNode or "
+            "ActionsNode sources and capped at 1,000 estimated longitudinal points. Consumers derive "
+            "BoldNumber and ActionsBar shapes. A value/value_at snapshot is an optional cached fallback. "
+            "Affected users must use one series with `math: dau`. Snapshot-only/queryless payloads are "
+            "invalid; legacy rows of that shape are always redacted."
+        ),
+    )
     suggested_prompts = serializers.ListField(
         required=False,
         child=serializers.CharField(max_length=MAX_SUGGESTED_PROMPT_LENGTH),
@@ -1457,6 +1472,18 @@ class EditReportRequestSerializer(serializers.Serializer):
             "empty list is a no-op (existing reviewers are left untouched, never cleared)."
         ),
     )
+    repository = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Optional repository to point the report at, as `owner/repo` — the fix for a report that "
+            "surfaced against the wrong codebase, so you correct it in place instead of filing a "
+            "duplicate. It replaces the report's current target and re-runs autostart, so a report "
+            "that had no repository to open a PR against can now open a draft PR. Omit the field to "
+            "leave the target as it is, and pass the `NO_REPO` sentinel for a report where nothing "
+            "under version control could change."
+        ),
+    )
     charts = serializers.ListField(
         required=False,
         allow_null=True,
@@ -1467,6 +1494,19 @@ class EditReportRequestSerializer(serializers.Serializer):
             "adding to them, the way `summary` replaces the summary — so send every chart you want "
             "kept. Omit the field (or send null) to leave the report's existing charts untouched, and "
             "send an empty list to take them all down."
+        ),
+    )
+    metrics = serializers.ListField(
+        required=False,
+        allow_null=True,
+        child=ReportMetricWriteSerializer(),
+        max_length=MAX_REPORT_METRICS,
+        help_text=(
+            "The report's full impact-metric set. Omit or send null to preserve it; send an empty "
+            "list to clear it. Every metric requires a bounded live InsightVizNode/TrendsQuery built only "
+            "from EventsNode or ActionsNode sources and capped at 1,000 estimated longitudinal points. "
+            "Consumers derive BoldNumber and ActionsBar shapes; a snapshot is only an optional cached fallback. "
+            "Snapshot-only/queryless payloads are invalid, and legacy rows of that shape are always redacted."
         ),
     )
     suggested_prompts = serializers.ListField(
@@ -1483,6 +1523,19 @@ class EditReportRequestSerializer(serializers.Serializer):
         ),
     )
 
+    def validate(self, attrs: dict) -> dict:
+        """Reject a body field this serializer does not declare.
+
+        The tool definition the scout reads and this endpoint deploy separately, so a scout can send a
+        field a running backend does not know yet. DRF drops an undeclared key without a word, which
+        turns a correction the caller asked for into a call that reports success and changes nothing.
+        Failing the whole edit says so, and costs the caller a retry rather than a wrong report.
+        """
+        unknown = sorted(set(self.initial_data) - set(self.fields))
+        if unknown:
+            raise serializers.ValidationError(f"unknown fields: {', '.join(unknown)}")
+        return attrs
+
 
 class EditReportResponseSerializer(serializers.Serializer):
     report_id = serializers.CharField(help_text="Id of the edited report.")
@@ -1495,12 +1548,30 @@ class EditReportResponseSerializer(serializers.Serializer):
         help_text="How many observations this edit added to the report's evidence rail; 0 if none."
     )
     reviewers_set = serializers.BooleanField(help_text="Whether the report's suggested reviewers were replaced.")
+    repository_set = serializers.BooleanField(
+        help_text="Whether the report's repository was replaced (true for a cleared target too)."
+    )
+    repository = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "The repository the report points at now, read back from the report rather than echoed "
+            "from the request; null when the report has no target. Compare it with the `repository` "
+            "you sent to confirm the correction landed."
+        ),
+    )
     charts_set = serializers.IntegerField(
         allow_null=True,
         help_text=(
             "How many charts the report now shows, or null if the edit left its charts as they were "
             "(the field omitted, or a re-send of what was already stored). 0 means the edit took the "
             "report's charts down."
+        ),
+    )
+    metrics_set = serializers.IntegerField(
+        allow_null=True,
+        help_text=(
+            "How many impact metrics the report now shows, or null when untouched/unchanged. "
+            "0 means the edit removed every metric."
         ),
     )
     suggested_prompts_set = serializers.IntegerField(

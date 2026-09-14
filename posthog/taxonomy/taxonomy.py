@@ -2927,6 +2927,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "How the model identifier was obtained. client_metadata means the MCP client supplied recognized metadata. self_reported means the agent filled the injected llm_model argument. Both sources are unverified.",
             "examples": ["client_metadata", "self_reported"],
         },
+        "$mcp_llm_model_missing_reason": {
+            "label": "MCP model missing reason",
+            "description": "Why PostHog's MCP server captured no model identifier. missing means llm_model was omitted; unknown means the agent explicitly reported unknown; invalid means the argument was blank or not a string; not_captured means a nonempty report was not captured by the analytics SDK; capture_error means analytics preparation failed. Only set when no model was captured. Older events and other MCP servers may omit this property.",
+            "examples": ["missing", "unknown", "invalid", "not_captured", "capture_error"],
+        },
         "$mcp_intent": {
             "label": "MCP intent",
             "description": "Free-text description of why the agent is calling this tool, written by the agent itself. Comes from a context argument the client supplied at call time, or — if none was supplied — from an intentFallback the MCP server provides.",

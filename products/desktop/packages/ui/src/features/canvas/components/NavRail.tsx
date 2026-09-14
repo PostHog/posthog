@@ -317,7 +317,14 @@ function NavRailImpl() {
             label="Search"
             shortcut={formatHotkey(SHORTCUTS.COMMAND_MENU)}
             isActive={false}
-            onClick={toggleCommandMenu}
+            onClick={() => {
+              track(ANALYTICS_EVENTS.SIDEBAR_NAV_ITEM_CLICKED, {
+                item: "search",
+                in_more: false,
+                layout: "channels",
+              });
+              toggleCommandMenu();
+            }}
           />
           <NavIcon
             icon={<GearSix size={16} />}

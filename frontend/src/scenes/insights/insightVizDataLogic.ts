@@ -26,7 +26,6 @@ import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { AggregationType } from 'scenes/insights/views/InsightsTable/insightsTableDataLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { filterTestAccountsDefaultsLogic } from 'scenes/settings/environment/filterTestAccountDefaultsLogic'
-import { BASE_MATH_DEFINITIONS } from 'scenes/trends/mathsLogic'
 
 import { actionsModel } from '~/models/actionsModel'
 import {
@@ -117,6 +116,7 @@ import {
 } from '~/types'
 
 import { getClampedFunnelStepRange } from 'products/product_analytics/frontend/insights/funnels/funnelUtils'
+import { BASE_MATH_DEFINITIONS } from 'products/product_analytics/frontend/insights/trends/mathsLogic'
 
 import type { DataColorTheme } from '../../lib/colors'
 import type { FeatureFlagsSet } from '../../lib/logic/featureFlagLogic'

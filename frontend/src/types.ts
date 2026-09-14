@@ -84,6 +84,7 @@ import { QueryContext } from '~/queries/types'
 import { AlertType } from 'products/alerts/frontend/types'
 import type { NodeApiSuspended } from 'products/data_modeling/frontend/generated/api.schemas'
 import type {
+    DataWarehouseSavedQueryApi,
     DataWarehouseSavedQueryApiSuspended,
     SyncFrequencyBoundsApi,
 } from 'products/data_warehouse/frontend/generated/api.schemas'
@@ -6145,6 +6146,7 @@ export type PromptFlag = {
 
 // Should be kept in sync with "posthog/models/activity_logging/activity_log.py"
 export enum ActivityScope {
+    DATA_QUALITY_CHECK_SCHEDULE = 'DataQualityCheckSchedule',
     ACTION = 'Action',
     ALERT_CONFIGURATION = 'AlertConfiguration',
     ANNOTATION = 'Annotation',
@@ -6186,6 +6188,7 @@ export enum ActivityScope {
     ERROR_TRACKING_ISSUE = 'ErrorTrackingIssue',
     DATA_WAREHOUSE_EXPRESSION = 'DataWarehouseExpression',
     DATA_WAREHOUSE_SAVED_QUERY = 'DataWarehouseSavedQuery',
+    DATA_QUALITY_CHECK = 'DataQualityCheck',
     USER_INTERVIEW = 'UserInterview',
     TAG = 'Tag',
     TAGGED_ITEM = 'TaggedItem',
@@ -6343,6 +6346,7 @@ export interface DataWarehouseSavedQuery {
     suspended?: DataWarehouseSavedQueryApiSuspended
     created_by?: UserBasicType | null
     created_at?: string
+    updated_at?: DataWarehouseSavedQueryApi['updated_at']
     run_history?: DataWarehouseSavedQueryRunHistory[]
     origin?: DataWarehouseSavedQueryOrigin
     is_test?: boolean

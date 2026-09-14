@@ -8,7 +8,6 @@ import { TZLabel } from 'lib/components/TZLabel'
 import ViewRecordingButton, { ViewRecordingButtonVariant } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { IconLink } from 'lib/lemon-ui/icons'
 import { countryCodeToFlag } from 'lib/utils/country'
-import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { NewSurvey } from 'scenes/surveys/constants'
 import { getThumbIcon } from 'scenes/surveys/hooks/useSurveyResponseColumns'
 import { surveyLogic } from 'scenes/surveys/surveyLogic'
@@ -16,6 +15,8 @@ import { getSurveyResponseStatus, getSurveyResponseValue, isScaleTwoRating } fro
 import { urls } from 'scenes/urls'
 
 import { Survey, SurveyEventProperties as SurveyEventPropertyNames, SurveyQuestion } from '~/types'
+
+import { PersonDisplay } from 'products/persons/frontend/components/PersonDisplay'
 
 interface SurveyResponseDisplayProps {
     eventProperties: Record<string, any>
