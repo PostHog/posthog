@@ -27,14 +27,7 @@ from typing import Any
 
 import httpx
 
-from products.data_catalog.evals.scorers import (
-    CanonicalMetricRun,
-    ClarificationAsked,
-    MetricDescribeBeforeAdaptedSql,
-    MetricsCatalogBeforeDataDiscovery,
-    ProposedMetricNotRun,
-)
-from products.posthog_ai.eval_harness.scorers.contract import Scorer
+from products.data_catalog.evals.scorers import CANARY_ROUTING_SCORERS
 
 DEFAULT_HOST = "https://us.posthog.com"
 DEFAULT_PROJECT_ID = 2
@@ -56,14 +49,6 @@ HARD_CHECKS = frozenset(
         "proposed_metric_not_run",
     }
 )
-
-SCORERS: list[Scorer] = [
-    MetricsCatalogBeforeDataDiscovery(),
-    CanonicalMetricRun(),
-    ClarificationAsked(),
-    ProposedMetricNotRun(),
-    MetricDescribeBeforeAdaptedSql(),
-]
 
 
 class UnknownRouting(ValueError):
@@ -149,7 +134,7 @@ def score_case(case: dict[str, Any], raw_log: str) -> dict[str, Any]:
         return row | {"verdict": "unscored", "reason": f"unrecognized expected_routing: {error}"}
 
     output = {"raw_log": raw_log, "prompt": case.get("question", "") or ""}
-    scores = [scorer.eval(output, expectations) for scorer in SCORERS]
+    scores = [scorer.eval(output, expectations) for scorer in CANARY_ROUTING_SCORERS]
     checks = {score.name: score.score for score in scores if score.score is not None}
     failed_hard = sorted(name for name, value in checks.items() if name in HARD_CHECKS and value < 1.0)
     failed_soft = sorted(name for name, value in checks.items() if name not in HARD_CHECKS and value < 1.0)

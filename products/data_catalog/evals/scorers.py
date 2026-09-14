@@ -865,3 +865,12 @@ class SemanticTrustDecisionCorrectness(JudgedScorer):
             },
             "expected": {"expected_behavior": spec["expected_behavior"]},
         }
+
+
+CANARY_ROUTING_SCORERS: list[Scorer] = [
+    MetricsCatalogBeforeDataDiscovery(),
+    CanonicalMetricRun(),
+    ClarificationAsked(),
+    ProposedMetricNotRun(),
+    MetricDescribeBeforeAdaptedSql(),
+]
