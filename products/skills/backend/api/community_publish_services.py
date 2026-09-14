@@ -196,7 +196,7 @@ def render_skill_md(
         raise CommunitySkillPublishValidationError("Skill description is required to publish.")
     # The LLMSkill.description column holds 4096, and the Agent Skills spec stops at 1024. New writes
     # cap at 1024, but a legacy row can still exceed it. A longer one publishes, syncs and installs,
-    # and then validate_for_export refuses the installed skill, so the publisher hands someone a skill
+    # and then compute_spec_problems refuses the installed skill, so the publisher hands someone a skill
     # they can never export.
     if len(description.strip()) > SPEC_DESCRIPTION_MAX_LENGTH:
         raise CommunitySkillPublishValidationError(

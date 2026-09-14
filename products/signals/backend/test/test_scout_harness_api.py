@@ -2584,6 +2584,105 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         # The JSON column must hold canonical strings, or the row save crashes on UUID instances.
         assert config.mcp_gateway_server_ids == [server_id]
 
+    @parameterized.expand(
+        [
+            (
+                "normalized",
+                ["PostHog/PostHog", " posthog/posthog-js "],
+                status.HTTP_200_OK,
+                ["posthog/posthog", "posthog/posthog-js"],
+            ),
+            ("malformed", ["posthog"], status.HTTP_400_BAD_REQUEST, None),
+            ("duplicated", ["posthog/posthog", "PostHog/PostHog"], status.HTTP_400_BAD_REQUEST, None),
+            ("unreachable", ["posthog/secret"], status.HTTP_400_BAD_REQUEST, None),
+        ]
+    )
+    def test_partial_update_pins_repositories_the_scout_can_reach(
+        self, _name: str, repositories: list[str], expected_status: int, expected_stored: list[str] | None
+    ) -> None:
+        # A pin the sandbox cannot clone must be refused on save. Discovered mid-run instead, it
+        # costs the scout a whole run and trips the failure breaker on a fixable typo.
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
+        integration = Integration.objects.create(team=self.team, kind="github", config={"account": {"type": "org"}})
+
+        with (
+            patch(
+                "products.tasks.backend.facade.api.readonly_github_integration_id",
+                return_value=integration.id,
+            ),
+            patch(
+                "products.tasks.backend.github_repository_access.GitHubIntegration.list_all_cached_repositories",
+                return_value=[{"full_name": "PostHog/posthog"}, {"full_name": "posthog/posthog-js"}],
+            ),
+        ):
+            response = self.client.patch(
+                self._detail_url(str(config.id)),
+                data={"repositories": repositories},
+                format="json",
+            )
+
+        assert response.status_code == expected_status
+        config.refresh_from_db()
+        assert config.repositories == (expected_stored or [])
+
+    def test_partial_update_refuses_repositories_without_a_github_connection(self) -> None:
+        # Nothing to clone with means the scout would run repo-less no matter what it holds, so the
+        # pin is refused rather than silently ignored on every run.
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
+
+        response = self.client.patch(
+            self._detail_url(str(config.id)),
+            data={"repositories": ["posthog/posthog"]},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        config.refresh_from_db()
+        assert config.repositories == []
+
+    def test_partial_update_resending_stored_repositories_skips_the_github_check(self) -> None:
+        # The settings form and an MCP update resend the whole config on every save. Re-checking
+        # an unchanged pin against GitHub on each of them is a network call for nothing, and it
+        # turns a GitHub outage into a save that fails for a scout whose pins did not change.
+        config = SignalScoutConfig.objects.create(
+            team=self.team, skill_name="signals-scout-foo", repositories=["posthog/posthog"]
+        )
+
+        with patch("products.tasks.backend.facade.api.readonly_github_integration_id") as resolve_integration:
+            response = self.client.patch(
+                self._detail_url(str(config.id)),
+                data={"repositories": ["PostHog/posthog"], "emit": False},
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        resolve_integration.assert_not_called()
+        config.refresh_from_db()
+        assert config.repositories == ["posthog/posthog"]
+        assert config.emit is False
+
+    def test_partial_update_checks_repositories_against_the_canonical_team(self) -> None:
+        # Scout configs live on the parent team and a run mints from the parent's installation, so
+        # a PATCH that arrives on a child-environment URL has to check the pin there too, or a
+        # connected project refuses every pin made from one of its environments.
+        env = Team.objects.create(organization=self.organization, parent_team=self.team, name="env")
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
+        Integration.objects.create(team=self.team, kind="github", config={"account": {"type": "org"}})
+
+        with patch(
+            "products.tasks.backend.github_repository_access.GitHubIntegration.list_all_cached_repositories",
+            return_value=[{"full_name": "PostHog/posthog"}],
+        ):
+            response = self.client.patch(
+                f"/api/projects/{env.id}/signals/scout/configs/{config.id}/",
+                data={"repositories": ["posthog/posthog"]},
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        config.refresh_from_db()
+        assert config.repositories == ["posthog/posthog"]
+
     def test_partial_update_disable_records_a_user_pause(self) -> None:
         config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
 

@@ -156,7 +156,12 @@ function TaskRunChatContent({
                 disabled={readOnly}
                 className="@container/thread flex flex-col h-full -mx-4"
             >
-                <RunSurface.Thread className="flex-1 min-h-0" listClassName="py-4" rowClassName="px-4" />
+                <RunSurface.Thread
+                    restoreReadPosition
+                    className="flex-1 min-h-0"
+                    listClassName="py-4"
+                    rowClassName="px-4"
+                />
                 {/* Stay live (stream keeps flowing) but omit the composer entirely for a read-only viewer. */}
                 {!readOnly && (
                     <RunSurface.Composer isStopping={!!cancellationState}>
