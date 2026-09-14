@@ -221,6 +221,43 @@ describe("track", () => {
   });
 });
 
+describe("networkMetricPath", () => {
+  const apiHost = "https://internal-c.posthog.com";
+
+  it("leaves the path undefined for the app's own API host", async () => {
+    const { networkMetricPath } = await loadAnalytics();
+
+    const path = networkMetricPath(
+      { url: "https://internal-c.posthog.com/api/projects/1/tasks/", method: "GET" },
+      apiHost,
+    );
+
+    expect(path).toBeUndefined();
+  });
+
+  it("collapses the path for a presigned artifact URL on another host", async () => {
+    const { networkMetricPath } = await loadAnalytics();
+
+    const path = networkMetricPath(
+      {
+        url: "https://s3.example.com/bucket/artifacts/ab12cd34_customer-roadmap.pdf?X-Amz-Signature=abc",
+        method: "GET",
+      },
+      apiHost,
+    );
+
+    expect(path).toBe("external");
+  });
+
+  it("collapses the path for an unparseable URL", async () => {
+    const { networkMetricPath } = await loadAnalytics();
+
+    const path = networkMetricPath({ url: "not a url", method: "GET" }, apiHost);
+
+    expect(path).toBe("external");
+  });
+});
+
 describe("initializePostHog", () => {
   it("is idempotent across repeat calls", async () => {
     const { initializePostHog } = await loadAnalytics();
@@ -267,7 +304,7 @@ describe("initializePostHog", () => {
         metrics: {
           serviceName: "posthog-desktop",
           environment: "development",
-          network: true,
+          network: { attributes: expect.any(Function) },
         },
       }),
     );
