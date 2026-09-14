@@ -39,7 +39,7 @@ INCREMENTAL_INTERVIEW_UPDATED_AT = _incremental_datetime_field(INTERVIEW_UPDATED
 INCREMENTAL_EXTRACTION_CREATED_AT = _incremental_datetime_field(EXTRACTION_CREATED_AT)
 
 
-@dataclass
+@dataclass(frozen=True)
 class BuildBetterNestedConfig:
     """A table built from a nested relation of a parent query, one row per nested item.
 
@@ -55,7 +55,7 @@ class BuildBetterNestedConfig:
     index_column: str | None = None
 
 
-@dataclass
+@dataclass(frozen=True)
 class BuildBetterEndpointConfig:
     incremental_fields: list[IncrementalField]
     graphql_query_name: str | None = None

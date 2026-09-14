@@ -117,7 +117,10 @@ def _flatten_nested_rows(nested: BuildBetterNestedConfig, parent_rows: list[dict
         for index, child in enumerate(parent.get(nested.nested_field) or []):
             row = dict(child)
             if nested.unwrap_field:
-                inner = row.pop(nested.unwrap_field, None) or {}
+                inner = row.pop(nested.unwrap_field, None)
+                if not inner:
+                    # Without the wrapped record the row has no key columns to merge on
+                    continue
                 row = {f"{nested.unwrap_prefix}{key}": value for key, value in inner.items()} | row
             if nested.index_column:
                 row[nested.index_column] = index

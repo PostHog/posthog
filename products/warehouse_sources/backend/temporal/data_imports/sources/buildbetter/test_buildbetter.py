@@ -318,6 +318,8 @@ class TestNestedEndpoints:
                             "topics": [{"topic": {"id": 7, "text": "Pricing"}}],
                         },
                         {"id": 4, "created_at": "2026-01-04", "topics": []},
+                        # A topic reference the API resolves to nothing has no key columns
+                        {"id": 5, "created_at": "2026-01-05", "topics": [{"topic": None}]},
                     ]
                 },
                 [
