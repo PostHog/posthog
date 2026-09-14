@@ -48,6 +48,9 @@ VercelItemType = Literal["flag", "experiment"]
 # original contract for already-installed users.
 CLIENT_ENV_PREFIXES = ("NEXT_PUBLIC_", "VITE_", "NUXT_PUBLIC_", "PUBLIC_")
 
+# Vercel takes many experimentation items in one request, so a link sends batches instead of one request per flag.
+BULK_FLAG_SYNC_BATCH_SIZE = 100
+
 
 class VercelSSOError(Exception):
     pass
@@ -584,6 +587,29 @@ class VercelIntegration:
         ]
 
     @staticmethod
+    def build_connectable_secrets(
+        production_team: Team, preview_team: Team, development_team: Team
+    ) -> list[dict[str, Any]]:
+        """Build the resource secrets for a connectable link, where each Vercel environment can map to its own project."""
+        all_same = production_team.pk == preview_team.pk == development_team.pk
+        host = absolute_uri()
+
+        secrets: list[dict[str, Any]] = []
+        for prefix in CLIENT_ENV_PREFIXES:
+            token_secret: dict[str, Any] = {
+                "name": f"{prefix}POSTHOG_PROJECT_TOKEN",
+                "value": production_team.api_token,
+            }
+            if not all_same:
+                token_secret["environmentOverrides"] = {
+                    "preview": preview_team.api_token,
+                    "development": development_team.api_token,
+                }
+            secrets.append(token_secret)
+            secrets.append({"name": f"{prefix}POSTHOG_HOST", "value": host})
+        return secrets
+
+    @staticmethod
     def _get_vercel_resource_for_team(team: Team) -> Integration | None:
         try:
             return Integration.objects.get(team=team, kind=Integration.IntegrationKind.VERCEL)
@@ -759,15 +785,28 @@ class VercelIntegration:
 
     @staticmethod
     def bulk_sync_feature_flags_to_vercel(team: Team) -> None:
-        flags = FeatureFlag.objects.filter(team=team, deleted=False)
-        for flag in flags:
-            try:
-                VercelIntegration.sync_feature_flag_to_vercel(flag, created=True)
-            except Exception:
-                logger.exception(
-                    "Failed to bulk sync feature flag to Vercel",
-                    flag_id=flag.pk,
+        setup_result = VercelIntegration._setup_vercel_client_for_team(team)
+        if not setup_result:
+            return
+
+        items = [
+            VercelIntegration._convert_feature_flag_to_vercel_item(flag, created=True)
+            for flag in FeatureFlag.objects.filter(team=team, deleted=False).select_related("team")
+        ]
+
+        for start in range(0, len(items), BULK_FLAG_SYNC_BATCH_SIZE):
+            batch = items[start : start + BULK_FLAG_SYNC_BATCH_SIZE]
+            result = setup_result.client.create_experimentation_items(
+                integration_config_id=setup_result.integration_config_id,
+                resource_id=setup_result.resource_id,
+                items=batch,
+            )
+            if not result.success:
+                logger.error(
+                    "Failed to bulk sync feature flags to Vercel",
                     team_id=team.pk,
+                    item_count=len(batch),
+                    error=result.error,
                     integration="vercel",
                 )
 

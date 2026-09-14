@@ -20,6 +20,7 @@ from posthog.models.team import Team
 from posthog.models.user import User
 
 from ee.api.vercel.crypto import decrypt_payload, encrypt_payload, mark_token_used
+from ee.api.vercel.tasks import sync_vercel_connect_link
 from ee.vercel.client import APIError, VercelAPIClient
 
 logger = structlog.get_logger(__name__)
@@ -31,6 +32,8 @@ ALLOWED_REDIRECT_DOMAINS = {
 
 CONNECT_SESSION_TIMEOUT = 600  # 10 minutes
 CONNECT_SALT = "vercel_connect"
+# This probe blocks a page load and a link, so it waits much less than the client default.
+ORPHAN_CHECK_TIMEOUT = 5
 
 
 def _sign_connect_session(data: dict) -> str:
@@ -78,7 +81,7 @@ def _is_installation_orphaned(integration: OrganizationIntegration) -> bool:
     if not installation_id:
         return False
 
-    client = VercelAPIClient(bearer_token=access_token)
+    client = VercelAPIClient(bearer_token=access_token, timeout=ORPHAN_CHECK_TIMEOUT)
     try:
         return not client.check_installation_active(installation_id)
     except APIError:
@@ -238,10 +241,8 @@ class VercelConnectLinkViewSet(viewsets.GenericViewSet):
             if Integration.objects.filter(team_id=tid, kind=Integration.IntegrationKind.VERCEL).exists():
                 raise exceptions.ValidationError(f"Project '{teams_by_id[tid].name}' already has a Vercel integration.")
 
-        production_team = teams_by_id[production_team_id]
-
         with transaction.atomic():
-            OrganizationIntegration.objects.create(
+            org_integration = OrganizationIntegration.objects.create(
                 organization=organization,
                 kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL,
                 integration_id=installation_id,
@@ -268,9 +269,8 @@ class VercelConnectLinkViewSet(viewsets.GenericViewSet):
                 created_by=user,
             )
 
-            resources: dict[int, Integration] = {}
-            for tid, team in teams_by_id.items():
-                resources[tid] = Integration.objects.create(
+            for team in teams_by_id.values():
+                Integration.objects.create(
                     team=team,
                     kind=Integration.IntegrationKind.VERCEL,
                     integration_id=str(team.pk),
@@ -278,29 +278,8 @@ class VercelConnectLinkViewSet(viewsets.GenericViewSet):
                     created_by=user,
                 )
 
-        from ee.vercel.integration import VercelIntegration
-
-        production_resource = resources[production_team_id]
-        secrets = self._build_env_secrets(teams_by_id, production_team_id, preview_team_id, development_team_id)
-
-        client = VercelAPIClient(bearer_token=cached_data["access_token"])
-        import_result = client.import_resource(
-            integration_config_id=installation_id,
-            resource_id=str(production_resource.pk),
-            product_id="posthog",
-            name=production_team.name,
-            secrets=secrets,
-        )
-        if not import_result.success:
-            logger.error(
-                "Failed to import resource to Vercel",
-                error=import_result.error,
-                installation_id=installation_id,
-                resource_id=str(production_resource.pk),
-                integration="vercel",
-            )
-
-        VercelIntegration.bulk_sync_feature_flags_to_vercel(production_team)
+            # Vercel calls scale with the project's flag count, so they run after the response instead of inside it.
+            transaction.on_commit(lambda: sync_vercel_connect_link.delay(str(org_integration.pk)))
 
         logger.info(
             "Vercel connectable account linked",
@@ -320,45 +299,6 @@ class VercelConnectLinkViewSet(viewsets.GenericViewSet):
             },
             status=201,
         )
-
-    @staticmethod
-    def _build_env_secrets(
-        teams_by_id: dict[int, Team],
-        production_id: int,
-        preview_id: int,
-        development_id: int,
-    ) -> list[dict]:
-        from posthog.utils import absolute_uri
-
-        from ee.vercel.integration import CLIENT_ENV_PREFIXES
-
-        prod_team = teams_by_id[production_id]
-        preview_team = teams_by_id[preview_id]
-        dev_team = teams_by_id[development_id]
-
-        all_same = production_id == preview_id == development_id
-        host = absolute_uri()
-
-        secrets: list[dict] = []
-        for prefix in CLIENT_ENV_PREFIXES:
-            secrets.append(
-                {
-                    "name": f"{prefix}POSTHOG_PROJECT_TOKEN",
-                    "value": prod_team.api_token,
-                    **(
-                        {}
-                        if all_same
-                        else {
-                            "environmentOverrides": {
-                                "preview": preview_team.api_token,
-                                "development": dev_team.api_token,
-                            }
-                        }
-                    ),
-                }
-            )
-            secrets.append({"name": f"{prefix}POSTHOG_HOST", "value": host})
-        return secrets
 
     @decorators.action(detail=False, methods=["get"], url_path="session")
     def session_info(self, request: Request) -> Response:
