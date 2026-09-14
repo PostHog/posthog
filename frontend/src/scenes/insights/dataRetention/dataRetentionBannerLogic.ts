@@ -1,6 +1,7 @@
 import { MakeLogicType, actions, connect, kea, path, reducers, selectors } from 'kea'
 
 import { dayjs } from 'lib/dayjs'
+import { getAppContext } from 'lib/utils/getAppContext'
 import { organizationLogic } from 'scenes/organizationLogic'
 
 import type { OrganizationType } from '../../../types'
@@ -70,9 +71,10 @@ export const dataRetentionBannerLogic = kea<dataRetentionBannerLogicType>([
     actions({
         snooze: true,
     }),
-    reducers({
-        // No source until events retention enforcement ships, see https://github.com/PostHog/posthog/issues/17031
-        retentionMonths: [null as number | null, {}],
+    reducers(() => ({
+        // Read on build, not on import, so a test or story that sets the app context first is honored. The server
+        // sets the key only when retention is enforced for this team.
+        retentionMonths: [getAppContext()?.events_retention_months ?? null, {}],
         snoozedUntil: [
             null as string | null,
             { persist: true },
@@ -80,7 +82,7 @@ export const dataRetentionBannerLogic = kea<dataRetentionBannerLogicType>([
                 snooze: () => dayjs().add(SNOOZE_DAYS, 'day').toISOString(),
             },
         ],
-    }),
+    })),
     selectors({
         retentionEnforced: [
             (s) => [s.retentionMonths],

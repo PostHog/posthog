@@ -5223,6 +5223,8 @@ export interface AppContext {
     oauth_mcp_consent?: OAuthMcpConsentContext
     /** The user's configured homepage for the current team, bootstrapped so navigation can honor it on first paint. */
     homepage?: SceneTab | null
+    /** Plan-derived events retention window in months. Absent when retention is not enforced for this team. */
+    events_retention_months?: number
 }
 
 export type StoredMetricMathOperations = 'max' | 'min' | 'sum'
