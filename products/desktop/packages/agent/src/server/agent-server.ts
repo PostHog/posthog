@@ -23,6 +23,7 @@ import {
   type Adapter,
   buildPrOutput,
   getErrorMessage,
+  IDLE_RESUME_STOP_REASON,
   isIgnoredSkillPath,
   isSkillBundleArtifactMetadata,
   type McpServerConnection,
@@ -3013,7 +3014,7 @@ export class AgentServer {
       warm: this.nativeResume?.warm,
     });
 
-    this.broadcastTurnComplete("end_turn");
+    this.broadcastTurnComplete(IDLE_RESUME_STOP_REASON);
     await this.session.logWriter.flushAll();
   }
 
