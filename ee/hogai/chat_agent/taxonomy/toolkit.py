@@ -621,21 +621,24 @@ class TaxonomyAgentToolkit:
 
         if entity_to_group_index.values():
             excluded = await self._excluded_property_names(PropertyDefinition.Type.GROUP)
-            # Single query for all group types
-            group_qs = PropertyDefinition.objects.filter(
+            # Single query for all group types. The row limit is shared by every group type asked
+            # about, so excluded names are dropped in the query rather than after the slice, where
+            # they would take a slot from a visible definition.
+            definitions_qs = PropertyDefinition.objects.filter(
                 team=self._team,
                 type=PropertyDefinition.Type.GROUP,
                 group_type_index__in=entity_to_group_index.values(),
-            ).values_list("name", "property_type", "group_type_index")[: self.MAX_PROPERTIES]
+            )
+            if excluded:
+                definitions_qs = definitions_qs.exclude(name__in=excluded)
+            group_qs = definitions_qs.values_list("name", "property_type", "group_type_index")[: self.MAX_PROPERTIES]
             group_qs_definitions = [prop async for prop in group_qs]
             # Group results by entity
             for entity in group_entities:
                 if entity in entity_to_group_index.keys():
                     group_index = entity_to_group_index[entity]
                     properties = [
-                        (name, prop_type)
-                        for name, prop_type, gti in group_qs_definitions
-                        if gti == group_index and name not in excluded
+                        (name, prop_type) for name, prop_type, gti in group_qs_definitions if gti == group_index
                     ]
                     properties += list_virtual_properties("groups", exclude={name for name, _ in properties} | excluded)
                     stored_descriptions = await self._get_stored_property_descriptions(
