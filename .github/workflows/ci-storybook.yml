@@ -669,11 +669,21 @@ jobs:
               env:
                   VR_TOKEN: ${{ secrets.VR_API_TOKEN }}
               run: |
-                  node vr-cli/products/visual_review/cli/dist/cli/src/index.js run upload \
+                  VR_CLI=vr-cli/products/visual_review/cli/dist/cli/src/index.js
+                  # This container step runs under sh, so the optional flags go through `set --`
+                  # rather than a bash array.
+                  set -- \
                     --run-id "${{ needs.vr-setup.outputs.run_id }}" \
                     --dir frontend/__snapshots__/ \
                     --baseline frontend/snapshots.yml \
                     --token "$VR_TOKEN"
+                  # The story index lets Visual Review name each snapshot's owning team. The CLI is
+                  # built from the base ref, so a merge-queue run can pair this workflow with a CLI
+                  # that predates the flag. Pass it only when the CLI knows it.
+                  if node "$VR_CLI" run upload --help | grep -q -- '--storybook-index'; then
+                      set -- "$@" --storybook-index common/storybook/dist/index.json --storybook-root common/storybook
+                  fi
+                  node "$VR_CLI" run upload "$@"
 
             # Saves the container version of the entry from one shard, master only. Runs
             # after the upload so packing never delays a snapshot. !cancelled() because the
