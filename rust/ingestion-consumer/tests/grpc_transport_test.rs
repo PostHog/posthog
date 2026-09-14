@@ -7,12 +7,21 @@
 
 use std::collections::HashMap;
 use std::net::SocketAddr;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
+
+use common_kafka_consumer::Partition;
+use lifecycle::{ComponentOptions, Manager};
+use ingestion_consumer::batcher::Batcher;
+use ingestion_consumer::dispatcher::Dispatcher;
 use ingestion_consumer::grpc_transport::{GrpcPort, GrpcTransport};
+use ingestion_consumer::routing::RoutingStrategy;
+use ingestion_consumer::scheduler::SchedulerKind;
 use ingestion_consumer::transport::TransportError;
-use ingestion_consumer::types::SerializedKafkaMessage;
+use ingestion_consumer::types::{Accumulator, SerializedKafkaMessage};
+use ingestion_consumer::worker_registry::{WorkerRegistry, WorkerRegistryConfig};
 use ingestion_worker_proto::ingestion::worker::v1::worker_ingest_server::{
     WorkerIngest, WorkerIngestServer,
 };
@@ -20,7 +29,7 @@ use ingestion_worker_proto::ingestion::worker::v1::{
     ingest_stream_request, ingest_stream_response, IngestStreamRequest, IngestStreamResponse,
     StreamReady, SubBatch, SubBatchAck, SubBatchStatus,
 };
-use tokio::sync::{mpsc, Mutex};
+use tokio::sync::{mpsc, oneshot, Mutex};
 use tokio_stream::wrappers::UnboundedReceiverStream;
 use tokio_stream::StreamExt;
 use tonic::{Request, Response, Status, Streaming};
@@ -739,4 +748,177 @@ async fn a_busy_status_fences_as_retriable_with_messages() {
     assert_eq!(err.messages.len(), 1, "messages come back for deferral");
     assert!(err.error.is_retriable(), "busy is retriable backpressure");
     assert!(matches!(err.error, TransportError::WorkerStreamBusy(_)));
+}
+
+struct BusyAttempt {
+    worker: usize,
+    reply: oneshot::Sender<()>,
+}
+
+struct ControlledBusyWorker {
+    worker: usize,
+    attempts: mpsc::UnboundedSender<BusyAttempt>,
+}
+
+#[tonic::async_trait]
+impl WorkerIngest for ControlledBusyWorker {
+    type IngestStreamStream = UnboundedReceiverStream<Result<IngestStreamResponse, Status>>;
+
+    async fn ingest_stream(
+        &self,
+        request: Request<Streaming<IngestStreamRequest>>,
+    ) -> Result<Response<Self::IngestStreamStream>, Status> {
+        let mut inbound = request.into_inner();
+        let attempts = self.attempts.clone();
+        let worker = self.worker;
+        let (tx, rx) = mpsc::unbounded_channel();
+        tokio::spawn(async move {
+            let _ = tx.send(Ok(IngestStreamResponse {
+                msg: Some(ingest_stream_response::Msg::Ready(StreamReady {})),
+            }));
+            while let Some(Ok(frame)) = inbound.next().await {
+                let Some(ingest_stream_request::Msg::SubBatch(sub_batch)) = frame.msg else {
+                    continue;
+                };
+                let (reply, wait_for_reply) = oneshot::channel();
+                if attempts.send(BusyAttempt { worker, reply }).is_err()
+                    || wait_for_reply.await.is_err()
+                {
+                    return;
+                }
+                let _ = tx.send(Ok(IngestStreamResponse {
+                    msg: Some(ingest_stream_response::Msg::Ack(SubBatchAck {
+                        seq: sub_batch.seq,
+                        status: SubBatchStatus::Busy as i32,
+                        accepted: 0,
+                        error: "at capacity".to_string(),
+                    })),
+                }));
+            }
+        });
+        Ok(Response::new(UnboundedReceiverStream::new(rx)))
+    }
+}
+
+async fn start_controlled_busy_worker(
+    worker: usize,
+    attempts: mpsc::UnboundedSender<BusyAttempt>,
+) -> SocketAddr {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        tonic::transport::Server::builder()
+            .add_service(
+                WorkerIngestServer::new(ControlledBusyWorker { worker, attempts })
+                    .accept_compressed(tonic::codec::CompressionEncoding::Gzip)
+                    .send_compressed(tonic::codec::CompressionEncoding::Gzip),
+            )
+            .serve_with_incoming(tokio_stream::wrappers::TcpListenerStream::new(listener))
+            .await
+            .unwrap();
+    });
+    addr
+}
+
+fn registry_config() -> WorkerRegistryConfig {
+    WorkerRegistryConfig {
+        probe_interval: Duration::from_secs(60),
+        dead_declaration: Duration::from_secs(60),
+        passive_window: Duration::from_secs(60),
+        passive_error_threshold: 1.0,
+        passive_min_samples: usize::MAX,
+        degraded_hold: Duration::ZERO,
+        min_state_duration: Duration::ZERO,
+        probe_failure_threshold: u32::MAX,
+        drain_timeout: Duration::from_secs(60),
+    }
+}
+
+#[tokio::test]
+async fn key_table_watchdog_bounds_overlapping_busy_retries() {
+    let (attempts_tx, mut attempts_rx) = mpsc::unbounded_channel();
+    let first_addr = start_controlled_busy_worker(0, attempts_tx.clone()).await;
+    let second_addr = start_controlled_busy_worker(1, attempts_tx).await;
+    let worker_urls = vec![format!("http://{first_addr}"), format!("http://{second_addr}")];
+    let registry = Arc::new(WorkerRegistry::new(&worker_urls, registry_config()));
+    let dispatcher = Arc::new(Dispatcher::with_scheduler(
+        registry,
+        RoutingStrategy::BinPack,
+        SchedulerKind::KeyTable,
+    ));
+    let transport = Arc::new(GrpcTransport::new(
+        GrpcPort::OffsetFromHttp(0),
+        1,
+        Duration::from_secs(30),
+    ));
+    let mut manager = Manager::builder("key-table-watchdog-test")
+        .with_trap_signals(false)
+        .build();
+    let handle = manager.register("batcher", ComponentOptions::new());
+    let _monitor = manager.monitor_background();
+    let (batcher, mut outputs) = Batcher::new(
+        dispatcher,
+        transport,
+        handle,
+        Duration::from_millis(100),
+        Duration::from_millis(20),
+    );
+
+    let mut accumulator = Accumulator::default();
+    accumulator.push(Partition(0), msg("a", 1).into());
+    accumulator.push(Partition(0), msg("b", 2).into());
+    batcher.submit(accumulator);
+
+    let first = tokio::time::timeout(Duration::from_secs(1), attempts_rx.recv())
+        .await
+        .expect("first key reaches a worker")
+        .expect("attempt channel stays open");
+    let second = tokio::time::timeout(Duration::from_secs(1), attempts_rx.recv())
+        .await
+        .expect("second key reaches a worker")
+        .expect("attempt channel stays open");
+    assert_ne!(
+        first.worker, second.worker,
+        "the two keys must occupy different workers"
+    );
+
+    // Always leave one request outstanding while rejecting the other. If a
+    // retry does not arrive, release the held request after a bounded delay:
+    // the watchdog may wait for a slow in-flight attempt to settle, but must
+    // then diagnose the scheduler-wide lack of acceptance.
+    let busy_replies = Arc::new(AtomicUsize::new(0));
+    let replies = Arc::clone(&busy_replies);
+    let controller = tokio::spawn(async move {
+        let mut reject = first;
+        let mut held = second;
+        loop {
+            let _ = reject.reply.send(());
+            replies.fetch_add(1, Ordering::Relaxed);
+            match tokio::time::timeout(Duration::from_millis(750), attempts_rx.recv()).await {
+                Ok(Some(next)) => {
+                    reject = held;
+                    held = next;
+                }
+                _ => {
+                    let _ = held.reply.send(());
+                    replies.fetch_add(1, Ordering::Relaxed);
+                    return;
+                }
+            }
+        }
+    });
+
+    let error = tokio::time::timeout(Duration::from_secs(3), outputs.errors.recv())
+        .await
+        .expect("watchdog must bound retries that make no acceptance progress")
+        .expect("batcher error channel stays open");
+    assert_eq!(
+        error,
+        "key-table work made no progress within the stall timeout"
+    );
+    assert!(
+        busy_replies.load(Ordering::Relaxed) >= 2,
+        "the reproduction must overlap busy retry rounds"
+    );
+    controller.await.unwrap();
 }
