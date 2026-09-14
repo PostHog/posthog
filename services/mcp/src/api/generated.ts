@@ -92914,6 +92914,32 @@ export namespace Schemas {
       agrees: boolean | null;
     }
 
+    export interface _MetricCatalogValuesParams {
+      /**
+         * Substring filter (case-insensitive) applied to metric names.
+         * @maxLength 255
+         */
+      value?: string;
+      /**
+         * Max number of names to return. Defaults to 100; maximum 1000.
+         * @minimum 1
+         * @maximum 1000
+         */
+      limit?: number;
+      /**
+         * Comma-separated services to narrow the list to, e.g. `service=web,worker`. Omit for every service. Send it empty to select only series whose sender did not set `service.name`. A service name containing a comma cannot be selected.
+         * @maxLength 1024
+         */
+      service?: string;
+      /**
+         * Exact metric names to load as a batch. Overrides value and limit.
+         * @minItems 1
+         * @maxItems 20
+         * @items.maxLength 255
+         */
+      names: string[];
+    }
+
     export interface _MetricGroupBy {
       /**
          * Attribute name to split series by (e.g. 'k8s.pod.name', 'env').
