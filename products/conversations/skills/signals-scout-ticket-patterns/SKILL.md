@@ -74,6 +74,8 @@ Three clauses, each load-bearing:
 Keep it cheap and never skip it.
 
 **Deep pass, about every 12 hours**, gated by the scratchpad key `pattern:ticket-patterns:last-deep-pass`.
+Read that gate by exact `key`, never through a text search: every key you write carries `ticket-patterns`, so a search returns your newest entries and pushes the gate out of the window.
+Run the pass when the gate is missing or older than 12 hours, and rewrite it when you finish.
 Theme drift: each candidate theme's weekly share of non-spam inflow against its own trailing baseline of about 6 weeks.
 Slow themes never trip the 6-hour rule, so both speeds are needed.
 
@@ -154,6 +156,7 @@ Support's own coping behaviour is a leading indicator: a new canned reply reused
 ### Save memory as you go
 
 - `pattern:ticket-patterns:baseline` - normal shape: non-spam inflow, junk share, permanent categories.
+- `pattern:ticket-patterns:last-deep-pass` - when the deep pass last ran, the themes it covered, and when the next one is due.
 - `dedupe:ticket-patterns:{theme-slug}` - date, share vs baseline, what would make it re-report. Keep the slug stable.
 - `noise:ticket-patterns:{sender-domain}` - autoresponder domains and spam tags already surfaced.
 - `report:ticket-patterns:{theme-slug}` - the report id, the timestamp of the last post, and the numbers it carried.
