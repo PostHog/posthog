@@ -266,6 +266,42 @@ describe("mcp proxy tool", () => {
     await mock.close();
   });
 
+  it("keeps the generic usage line when several tools match the stray arguments (regression)", async () => {
+    const mock = createMockMcpServer([
+      {
+        name: "exec",
+        description: "Run a PostHog tool",
+        inputSchema: {
+          type: "object",
+          properties: { command: { type: "string" } },
+          required: ["command"],
+        },
+        handler: () => ({ content: [{ type: "text", text: "ok" }] }),
+      },
+      {
+        name: "shell",
+        description: "Run a shell command",
+        inputSchema: {
+          type: "object",
+          properties: { command: { type: "string" } },
+          required: ["command"],
+        },
+        handler: () => ({ content: [{ type: "text", text: "ok" }] }),
+      },
+    ]);
+    const { manager, tool } = await setup({
+      servers: { demo: { command: "unused", directTools: false } },
+      mock,
+      cacheDir,
+    });
+    await manager.startServer("demo", "/workspace");
+
+    const result = await text(tool, { command: "call query-trends" });
+    expect(result).not.toContain('the "tool" name is missing');
+    expect(result).toContain('pass { "search": "..." }');
+    await mock.close();
+  });
+
   it("keeps the generic usage line when no tool matches the stray arguments", async () => {
     const { tool } = await setup({
       servers: { demo: { command: "unused", lifecycle: "lazy" } },
