@@ -53,21 +53,18 @@ export function getAlertScheduleStartMinute(scheduleStartTime: string | null | u
     return Number(scheduleStartTime.split(':')[1])
 }
 
-export function getAlertScheduleStartMinuteOptions(scheduleStartTime: string | null | undefined): Array<{
+export function getAlertScheduleStartMinuteOptions(): Array<{
     label: string
     value: number
 }> {
-    const currentMinute = getAlertScheduleStartMinute(scheduleStartTime)
-    const minutes = Array.from({ length: 12 }, (_, index) => index * 5)
-    if (currentMinute !== undefined && !minutes.includes(currentMinute)) {
-        minutes.push(currentMinute)
-        minutes.sort((a, b) => a - b)
-    }
-    return minutes.map((minute) => ({ label: String(minute).padStart(2, '0'), value: minute }))
+    return Array.from({ length: 60 }, (_, minute) => ({
+        label: String(minute).padStart(2, '0'),
+        value: minute,
+    }))
 }
 
 export function scheduleStartTimeForMinute(minute: number | null | undefined): string | null {
-    if (minute === null || minute === undefined || minute < 0 || minute > 59 || minute % 5 !== 0) {
+    if (minute === null || minute === undefined || minute < 0 || minute > 59) {
         return null
     }
     return `00:${String(minute).padStart(2, '0')}`

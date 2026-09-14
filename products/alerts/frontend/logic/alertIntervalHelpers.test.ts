@@ -183,15 +183,23 @@ describe('alertIntervalHelpers', () => {
             [undefined, null],
             [-1, null],
             [60, null],
-            [12, null],
             [0, '00:00'],
+            [12, '00:12'],
             [55, '00:55'],
+            [57, '00:57'],
         ])('writes %s as %s', (minute, expected) => {
             expect(scheduleStartTimeForMinute(minute)).toBe(expected)
         })
-        it('offers five-minute intervals and preserves an existing minute', () => {
-            expect(getAlertScheduleStartMinuteOptions('08:57')).toContainEqual({ label: '57', value: 57 })
-            expect(getAlertScheduleStartMinuteOptions('08:55')).toHaveLength(12)
+        it('offers every minute', () => {
+            expect(getAlertScheduleStartMinuteOptions()).toHaveLength(60)
+            expect(getAlertScheduleStartMinuteOptions()).toEqual(
+                expect.arrayContaining([
+                    { label: '00', value: 0 },
+                    { label: '12', value: 12 },
+                    { label: '57', value: 57 },
+                    { label: '59', value: 59 },
+                ])
+            )
         })
     })
 })

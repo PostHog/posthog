@@ -181,7 +181,7 @@ export function AlertIntervalRow({
                         <LemonSelect
                             className="w-20 shrink-0"
                             value={getAlertScheduleStartMinute(alertForm.schedule_start_time) ?? 0}
-                            options={getAlertScheduleStartMinuteOptions(alertForm.schedule_start_time)}
+                            options={getAlertScheduleStartMinuteOptions()}
                             onChange={(minute) =>
                                 onSetAlertFormValue('schedule_start_time', scheduleStartTimeForMinute(minute))
                             }
