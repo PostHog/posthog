@@ -161,12 +161,12 @@ export interface tasksLogicActions {
 export interface tasksLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         isStaffUser: (user: UserType | null) => boolean
+        tasksSearchPending: (pendingSearchQuery: string | null) => boolean
         taskListParams: (
             searchQuery: string,
             assigneeFilter: TaskAssigneeFilter,
             user: UserType | null
         ) => TaskListParams
-        tasksSearchPending: (pendingSearchQuery: string | null) => boolean
     }
 }
 
