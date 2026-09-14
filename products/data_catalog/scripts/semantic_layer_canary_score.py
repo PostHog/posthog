@@ -22,7 +22,7 @@ import os
 import sys
 import json
 import argparse
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
 from typing import Any
 
@@ -196,7 +196,7 @@ class CanaryApiClient:
     def __exit__(self, *_exc: object) -> None:
         self._client.close()
 
-    def _get(self, url: str, params: dict[str, str | int] | None = None) -> httpx.Response:
+    def _get(self, url: str, params: Mapping[str, str | int] | None = None) -> httpx.Response:
         for attempt in range(MAX_READ_TIMEOUT_RETRIES + 1):
             try:
                 response = self._client.get(url, params=params)
