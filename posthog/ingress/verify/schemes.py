@@ -39,6 +39,25 @@ def header_value(headers: Mapping[str, str], name: str) -> str | None:
     return None
 
 
+def hmac_sha256_signature(
+    secret: str,
+    signed: bytes,
+    *,
+    encoding: SignatureEncoding = "hex",
+    prefix: str = "",
+) -> str:
+    digest = hmac.digest(secret.encode("utf-8"), signed, "sha256")
+    encoded = base64.b64encode(digest).decode("ascii") if encoding == "base64" else digest.hex()
+    return prefix + encoded
+
+
+def signatures_match(expected: str, provided: str) -> bool:
+    # Compared as bytes, because compare_digest raises TypeError on a str that holds a
+    # non-ASCII code point, and a header arrives here decoded as latin-1. An unauthenticated
+    # caller could otherwise turn a junk header into a 500.
+    return hmac.compare_digest(expected.encode("utf-8"), provided.encode("utf-8"))
+
+
 class SignatureScheme(Protocol):
     def verify(self, *, body: bytes, headers: Mapping[str, str]) -> VerificationOutcome: ...
 
@@ -77,9 +96,7 @@ class HmacSha256:
         return body
 
     def _expected_signature(self, secret: str, signed: bytes) -> str:
-        digest = hmac.digest(secret.encode("utf-8"), signed, "sha256")
-        encoded = base64.b64encode(digest).decode("ascii") if self.encoding == "base64" else digest.hex()
-        return self.prefix + encoded
+        return hmac_sha256_signature(secret, signed, encoding=self.encoding, prefix=self.prefix)
 
     def verify(self, *, body: bytes, headers: Mapping[str, str]) -> VerificationOutcome:
         secret = self.secret_getter()
@@ -99,10 +116,7 @@ class HmacSha256:
                 return VerificationOutcome.INVALID
 
         expected = self._expected_signature(secret, self._signed_bytes(body, timestamp))
-        # Compared as bytes, because compare_digest raises TypeError on a str that holds a
-        # non-ASCII code point, and a header arrives here decoded as latin-1. An unauthenticated
-        # caller could otherwise turn a junk header into a 500.
-        if hmac.compare_digest(expected.encode("utf-8"), provided.encode("utf-8")):
+        if signatures_match(expected, provided):
             return VerificationOutcome.VERIFIED
         return VerificationOutcome.INVALID
 
