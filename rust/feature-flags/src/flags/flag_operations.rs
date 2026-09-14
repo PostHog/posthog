@@ -104,14 +104,29 @@ impl FeatureFlag {
             .any(|group| group.rollout_percentage_unwrapped() < 100.0)
     }
 
+    /// Returns the variant this condition pins, if it names one of the flag's variants.
+    ///
+    /// An override that names no real variant is ignored, and the variant is computed from
+    /// the hash instead.
+    pub fn pinned_variant<'c>(&self, condition: &'c FlagPropertyGroup) -> Option<&'c str> {
+        let variant = condition.variant.as_deref()?;
+        self.get_variants()
+            .iter()
+            .any(|v| v.key == variant)
+            .then_some(variant)
+    }
+
     /// Returns true if the bucketing hash decides the outcome of this condition.
     ///
     /// The hash matters for a partial rollout, which needs a stable bucket per identifier,
-    /// and for hash-dependent variants, which need a stable variant per identifier. A
-    /// condition at 100% rollout on a flag without such variants gives every person that
-    /// matches its property filters the same result, so the identifier changes nothing.
+    /// and for a variant that depends on the hash. A condition at 100% rollout gives every
+    /// person that matches its property filters the same result, and a pinned variant needs
+    /// no hash either, so in both cases the identifier changes nothing.
     pub fn condition_needs_bucketing_hash(&self, condition: &FlagPropertyGroup) -> bool {
-        condition.rollout_percentage_unwrapped() < 100.0 || self.has_hash_dependent_variants()
+        if condition.rollout_percentage_unwrapped() < 100.0 {
+            return true;
+        }
+        self.has_hash_dependent_variants() && self.pinned_variant(condition).is_none()
     }
 
     /// Returns true if this flag requires a hash key override lookup for experience continuity.

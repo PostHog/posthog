@@ -1616,32 +1616,15 @@ impl FeatureFlagMatcher {
             highest_index = new_highest_index;
 
             if is_match {
-                // Check for variant override in the condition
-                let variant = if let Some(variant_override) = &condition.variant {
-                    // Check if the override is a valid variant
-                    if flag
-                        .get_variants()
-                        .iter()
-                        .any(|v| &v.key == variant_override)
-                    {
-                        Some(variant_override.clone())
-                    } else {
-                        // If override isn't valid, fall back to computed variant
-                        self.get_matching_variant(
-                            flag,
-                            aggregation,
-                            hash_key_overrides,
-                            request_hash_key_override,
-                        )?
-                    }
-                } else {
-                    // No override, use computed variant
-                    self.get_matching_variant(
+                // A pinned variant wins; anything else is computed from the hash.
+                let variant = match flag.pinned_variant(condition) {
+                    Some(pinned) => Some(pinned.to_string()),
+                    None => self.get_matching_variant(
                         flag,
                         aggregation,
                         hash_key_overrides,
                         request_hash_key_override,
-                    )?
+                    )?,
                 };
                 let payload = self.get_matching_payload(variant.as_deref(), flag);
 
