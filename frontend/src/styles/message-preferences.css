@@ -13,9 +13,9 @@
  * either template. The output is committed so the dev server and collectstatic both have it,
  * the same way frontend/public/posthog-ai-onboarding holds committed build output.
  *
- * That script pins the CLI version through npx rather than adding a dependency, which keeps the
- * lockfile out of a change that only touches these templates. Keep the version matched to the
- * other @tailwindcss/* entries in frontend/package.json.
+ * The script runs this file through the same PostCSS plugins as the app's own CSS build, so the
+ * pages get the app's production browser targets. Tailwind 4 writes colors as oklch(), which older
+ * browsers in those targets cannot read, and postcss-preset-env lowers them to rgb() for them.
  */
 
 /* `source(none)` turns off automatic source detection. Without it Tailwind also scans up from

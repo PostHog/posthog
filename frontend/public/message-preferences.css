@@ -1,42 +1,6 @@
 /*! tailwindcss v4.3.0 | MIT License | https://tailwindcss.com */
-@layer properties {
-    @supports (((-webkit-hyphens: none)) and (not (margin-trim: inline))) or
-        ((-moz-orient: inline) and (not (color: rgb(from red r g b)))) {
-        *,
-        :before,
-        :after,
-        ::backdrop {
-            --tw-rotate-x: initial;
-            --tw-rotate-y: initial;
-            --tw-rotate-z: initial;
-            --tw-skew-x: initial;
-            --tw-skew-y: initial;
-            --tw-space-y-reverse: 0;
-            --tw-space-x-reverse: 0;
-            --tw-border-style: solid;
-            --tw-font-weight: initial;
-            --tw-shadow: 0 0 #0000;
-            --tw-shadow-color: initial;
-            --tw-shadow-alpha: 100%;
-            --tw-inset-shadow: 0 0 #0000;
-            --tw-inset-shadow-color: initial;
-            --tw-inset-shadow-alpha: 100%;
-            --tw-ring-color: initial;
-            --tw-ring-shadow: 0 0 #0000;
-            --tw-inset-ring-color: initial;
-            --tw-inset-ring-shadow: 0 0 #0000;
-            --tw-ring-inset: initial;
-            --tw-ring-offset-width: 0px;
-            --tw-ring-offset-color: #fff;
-            --tw-ring-offset-shadow: 0 0 #0000;
-            --tw-duration: initial;
-            --tw-ease: initial;
-            --tw-translate-x: 0;
-            --tw-translate-y: 0;
-            --tw-translate-z: 0;
-        }
-    }
-}
+@layer properties;
+@layer theme, base, components, utilities;
 @layer theme {
     :root,
     :host {
@@ -44,18 +8,18 @@
             ui-sans-serif, system-ui, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol',
             'Noto Color Emoji';
         --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
-        --color-red-500: oklch(63.7% 0.237 25.331);
-        --color-amber-600: oklch(66.6% 0.179 58.318);
-        --color-green-500: oklch(72.3% 0.219 149.579);
-        --color-green-700: oklch(52.7% 0.154 150.069);
-        --color-blue-500: oklch(62.3% 0.214 259.815);
-        --color-blue-600: oklch(54.6% 0.245 262.881);
-        --color-gray-50: oklch(98.5% 0.002 247.839);
-        --color-gray-200: oklch(92.8% 0.006 264.531);
-        --color-gray-300: oklch(87.2% 0.01 258.338);
-        --color-gray-500: oklch(55.1% 0.027 264.364);
-        --color-gray-600: oklch(44.6% 0.03 256.802);
-        --color-gray-900: oklch(21% 0.034 264.665);
+        --color-red-500: rgb(251, 44, 54);
+        --color-amber-600: rgb(218, 119, 0);
+        --color-green-500: rgb(0, 198, 90);
+        --color-green-700: rgb(0, 129, 58);
+        --color-blue-500: rgb(50, 128, 255);
+        --color-blue-600: rgb(21, 93, 252);
+        --color-gray-50: rgb(249, 250, 251);
+        --color-gray-200: rgb(229, 231, 235);
+        --color-gray-300: rgb(209, 213, 220);
+        --color-gray-500: rgb(106, 114, 130);
+        --color-gray-600: rgb(74, 85, 101);
+        --color-gray-900: rgb(16, 24, 40);
         --color-white: #fff;
         --spacing: 0.25rem;
         --container-md: 28rem;
@@ -80,33 +44,49 @@
         --radius-xl: 0.75rem;
         --ease-out: cubic-bezier(0, 0, 0.2, 1);
         --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
-        --default-transition-duration: 0.15s;
+        --default-transition-duration: 150ms;
         --default-transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
         --default-font-family: var(--font-sans);
         --default-mono-font-family: var(--font-mono);
     }
+
+    @supports (color: color(display-p3 0 0 0%)) {
+        :root,
+        :host {
+            --color-amber-600: rgb(218, 119, 0);
+            --color-green-500: rgb(0, 198, 90);
+            --color-green-700: rgb(0, 129, 58);
+            --color-blue-500: rgb(50, 128, 255);
+        }
+
+        @media (color-gamut: p3) {
+            :root,
+            :host {
+                --color-amber-600: color(display-p3 0.82714 0.46717 0.0336);
+                --color-green-500: color(display-p3 0.30873 0.77475 0.37431);
+                --color-green-700: color(display-p3 0.19836 0.5018 0.24533);
+                --color-blue-500: color(display-p3 0.26642 0.49122 0.98862);
+            }
+        }
+    }
 }
 @layer base {
     *,
-    :after,
-    :before,
-    ::backdrop {
-        box-sizing: border-box;
-        border: 0 solid;
-        margin: 0;
-        padding: 0;
-    }
+    ::after,
+    ::before,
+    ::backdrop,
     ::file-selector-button {
         box-sizing: border-box;
-        border: 0 solid;
         margin: 0;
         padding: 0;
+        border: 0 solid;
     }
     html,
     :host {
-        -webkit-text-size-adjust: 100%;
-        tab-size: 4;
         line-height: 1.5;
+        -webkit-text-size-adjust: 100%;
+        -moz-tab-size: 4;
+        tab-size: 4;
         font-family: var(
             --default-font-family,
             ui-sans-serif,
@@ -128,6 +108,7 @@
     }
     abbr:where([title]) {
         -webkit-text-decoration: underline dotted;
+        text-decoration: underline;
         text-decoration: underline dotted;
     }
     h1,
@@ -141,8 +122,6 @@
     }
     a {
         color: inherit;
-        -webkit-text-decoration: inherit;
-        -webkit-text-decoration: inherit;
         -webkit-text-decoration: inherit;
         text-decoration: inherit;
     }
@@ -174,10 +153,10 @@
     }
     sub,
     sup {
-        vertical-align: baseline;
         font-size: 75%;
         line-height: 0;
         position: relative;
+        vertical-align: baseline;
     }
     sub {
         bottom: -0.25em;
@@ -212,8 +191,8 @@
     iframe,
     embed,
     object {
-        vertical-align: middle;
         display: block;
+        vertical-align: middle;
     }
     img,
     video {
@@ -224,25 +203,16 @@
     input,
     select,
     optgroup,
-    textarea {
-        font: inherit;
-        font-feature-settings: inherit;
-        font-variation-settings: inherit;
-        letter-spacing: inherit;
-        color: inherit;
-        opacity: 1;
-        background-color: #0000;
-        border-radius: 0;
-    }
+    textarea,
     ::file-selector-button {
         font: inherit;
         font-feature-settings: inherit;
         font-variation-settings: inherit;
         letter-spacing: inherit;
         color: inherit;
-        opacity: 1;
-        background-color: #0000;
         border-radius: 0;
+        background-color: transparent;
+        opacity: 1;
     }
     :where(select:is([multiple], [size])) optgroup {
         font-weight: bolder;
@@ -253,14 +223,23 @@
     ::file-selector-button {
         margin-inline-end: 4px;
     }
+    ::-moz-placeholder {
+        opacity: 1;
+    }
     ::placeholder {
         opacity: 1;
     }
-    @supports (not ((-webkit-appearance: -apple-pay-button))) or (contain-intrinsic-size: 1px) {
+    @supports (not (-webkit-appearance: -apple-pay-button)) or (contain-intrinsic-size: 1px) {
+        ::-moz-placeholder {
+            color: currentcolor;
+        }
         ::placeholder {
-            color: currentColor;
+            color: currentcolor;
         }
         @supports (color: color-mix(in lab, red, red)) {
+            ::-moz-placeholder {
+                color: color-mix(in oklab, currentcolor 50%, transparent);
+            }
             ::placeholder {
                 color: color-mix(in oklab, currentcolor 50%, transparent);
             }
@@ -282,30 +261,14 @@
     ::-webkit-datetime-edit-fields-wrapper {
         padding: 0;
     }
-    ::-webkit-datetime-edit {
-        padding-block: 0;
-    }
-    ::-webkit-datetime-edit-year-field {
-        padding-block: 0;
-    }
-    ::-webkit-datetime-edit-month-field {
-        padding-block: 0;
-    }
-    ::-webkit-datetime-edit-day-field {
-        padding-block: 0;
-    }
-    ::-webkit-datetime-edit-hour-field {
-        padding-block: 0;
-    }
-    ::-webkit-datetime-edit-minute-field {
-        padding-block: 0;
-    }
-    ::-webkit-datetime-edit-second-field {
-        padding-block: 0;
-    }
-    ::-webkit-datetime-edit-millisecond-field {
-        padding-block: 0;
-    }
+    ::-webkit-datetime-edit,
+    ::-webkit-datetime-edit-year-field,
+    ::-webkit-datetime-edit-month-field,
+    ::-webkit-datetime-edit-day-field,
+    ::-webkit-datetime-edit-hour-field,
+    ::-webkit-datetime-edit-minute-field,
+    ::-webkit-datetime-edit-second-field,
+    ::-webkit-datetime-edit-millisecond-field,
     ::-webkit-datetime-edit-meridiem-field {
         padding-block: 0;
     }
@@ -316,32 +279,20 @@
         box-shadow: none;
     }
     button,
-    input:where([type='button'], [type='reset'], [type='submit']) {
-        appearance: button;
-    }
+    input:where([type='button'], [type='reset'], [type='submit']),
     ::file-selector-button {
+        -webkit-appearance: button;
+        -moz-appearance: button;
         appearance: button;
     }
-    ::-webkit-inner-spin-button {
-        height: auto;
-    }
+    ::-webkit-inner-spin-button,
     ::-webkit-outer-spin-button {
         height: auto;
     }
     [hidden]:where(:not([hidden='until-found'])) {
         display: none !important;
     }
-    *,
-    :after,
-    :before,
-    ::backdrop {
-        border-color: var(--color-gray-200, currentcolor);
-    }
-    ::file-selector-button {
-        border-color: var(--color-gray-200, currentcolor);
-    }
 }
-@layer components;
 @layer utilities {
     .invisible {
         visibility: hidden;
@@ -443,6 +394,8 @@
         cursor: pointer;
     }
     .appearance-none {
+        -webkit-appearance: none;
+        -moz-appearance: none;
         appearance: none;
     }
     .flex-col {
@@ -485,7 +438,7 @@
         overflow: hidden;
     }
     .rounded-full {
-        border-radius: 3.40282e38px;
+        border-radius: calc(infinity * 1px);
     }
     .rounded-lg {
         border-radius: var(--radius-lg);
@@ -602,7 +555,8 @@
     }
     .shadow-xl {
         --tw-shadow:
-            0 20px 25px -5px var(--tw-shadow-color, #0000001a), 0 8px 10px -6px var(--tw-shadow-color, #0000001a);
+            0 20px 25px -5px var(--tw-shadow-color, rgb(0 0 0 / 0.1)),
+            0 8px 10px -6px var(--tw-shadow-color, rgb(0 0 0 / 0.1));
         box-shadow:
             var(--tw-inset-shadow), var(--tw-inset-ring-shadow), var(--tw-ring-offset-shadow), var(--tw-ring-shadow),
             var(--tw-shadow);
@@ -618,12 +572,12 @@
         transition-duration: var(--tw-duration, var(--default-transition-duration));
     }
     .duration-200 {
-        --tw-duration: 0.2s;
-        transition-duration: 0.2s;
+        --tw-duration: 200ms;
+        transition-duration: 200ms;
     }
     .duration-500 {
-        --tw-duration: 0.5s;
-        transition-duration: 0.5s;
+        --tw-duration: 500ms;
+        transition-duration: 500ms;
     }
     .ease-in-out {
         --tw-ease: var(--ease-in-out);
@@ -635,6 +589,7 @@
     }
     .select-none {
         -webkit-user-select: none;
+        -moz-user-select: none;
         user-select: none;
     }
     .checked\:translate-x-full:checked {
@@ -648,26 +603,40 @@
         .hover\:text-blue-500:hover {
             color: var(--color-blue-500);
         }
+    }
+    @media (hover: hover) {
         .hover\:underline:hover {
             text-decoration-line: underline;
         }
+    }
+    @media (hover: hover) {
         .hover\:shadow-md:hover {
             --tw-shadow:
-                0 4px 6px -1px var(--tw-shadow-color, #0000001a), 0 2px 4px -2px var(--tw-shadow-color, #0000001a);
+                0 4px 6px -1px var(--tw-shadow-color, rgb(0 0 0 / 0.1)),
+                0 2px 4px -2px var(--tw-shadow-color, rgb(0 0 0 / 0.1));
             box-shadow:
                 var(--tw-inset-shadow), var(--tw-inset-ring-shadow), var(--tw-ring-offset-shadow),
                 var(--tw-ring-shadow), var(--tw-shadow);
         }
     }
-    @media (min-width: 40rem) {
+    @media (width >= 40rem) {
         .sm\:px-6 {
             padding-inline: calc(var(--spacing) * 6);
         }
     }
-    @media (min-width: 64rem) {
+    @media (width >= 64rem) {
         .lg\:px-8 {
             padding-inline: calc(var(--spacing) * 8);
         }
+    }
+}
+@layer base {
+    *,
+    ::after,
+    ::before,
+    ::backdrop,
+    ::file-selector-button {
+        border-color: var(--color-gray-200, currentcolor);
     }
 }
 @property --tw-rotate-x {
@@ -762,7 +731,7 @@
 @property --tw-ring-offset-width {
     syntax: '<length>';
     inherits: false;
-    initial-value: 0;
+    initial-value: 0px;
 }
 @property --tw-ring-offset-color {
     syntax: '*';
@@ -796,4 +765,42 @@
     syntax: '*';
     inherits: false;
     initial-value: 0;
+}
+@layer properties {
+    @supports ((-webkit-hyphens: none) and (not (margin-trim: inline))) or
+        ((-moz-orient: inline) and (not (color: rgb(from red r g b)))) {
+        *,
+        ::before,
+        ::after,
+        ::backdrop {
+            --tw-rotate-x: initial;
+            --tw-rotate-y: initial;
+            --tw-rotate-z: initial;
+            --tw-skew-x: initial;
+            --tw-skew-y: initial;
+            --tw-space-y-reverse: 0;
+            --tw-space-x-reverse: 0;
+            --tw-border-style: solid;
+            --tw-font-weight: initial;
+            --tw-shadow: 0 0 #0000;
+            --tw-shadow-color: initial;
+            --tw-shadow-alpha: 100%;
+            --tw-inset-shadow: 0 0 #0000;
+            --tw-inset-shadow-color: initial;
+            --tw-inset-shadow-alpha: 100%;
+            --tw-ring-color: initial;
+            --tw-ring-shadow: 0 0 #0000;
+            --tw-inset-ring-color: initial;
+            --tw-inset-ring-shadow: 0 0 #0000;
+            --tw-ring-inset: initial;
+            --tw-ring-offset-width: 0px;
+            --tw-ring-offset-color: #fff;
+            --tw-ring-offset-shadow: 0 0 #0000;
+            --tw-duration: initial;
+            --tw-ease: initial;
+            --tw-translate-x: 0;
+            --tw-translate-y: 0;
+            --tw-translate-z: 0;
+        }
+    }
 }
