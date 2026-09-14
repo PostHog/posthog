@@ -1448,6 +1448,11 @@ def _prefetch_review_blobs(
     Gitlinks are dropped because a submodule's commit belongs to another repository and origin
     rejects the whole batch for it; added files are dropped because they have no old side.
 
+    Each of those ids is tested with ``cat-file -e``, whose contract is only its exit status, so the
+    result does not depend on how a given git version reports a missing promisor object — some print
+    it, some fail the command. The blame set uses ``rev-list --missing=print`` instead, which is the
+    documented way to ask that question of a traversal.
+
     Best effort by design. Everything here is also reachable by a lazy fetch, so a failure costs the
     review speed rather than its verdict wherever that fetch can authenticate. Anything raised is
     swallowed; the reviewer's own share of the budget shrinks accordingly and the shared deadline
@@ -1476,9 +1481,10 @@ def _prefetch_review_blobs(
         else "true"
     )
     diff_oids = (
+        "for oid in $("
         'GIT_NO_LAZY_FETCH=1 git diff --raw --no-renames --abbrev=40 "$merge_base" HEAD '
-        "| grep -v '^:160000' | cut -d' ' -f3 | grep -v '^0*$' "
-        "| GIT_NO_LAZY_FETCH=1 git cat-file --batch-check | grep ' missing$' | cut -d' ' -f1"
+        "| grep -v '^:160000' | cut -d' ' -f3 | grep -v '^0*$'"
+        '); do GIT_NO_LAZY_FETCH=1 git cat-file -e "$oid" 2>/dev/null || echo "$oid"; done'
     )
     command = (
         f"cd {shlex.quote(STAMPHOG_SANDBOX_REPO_DIR)} && "
