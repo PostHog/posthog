@@ -776,7 +776,6 @@ export function FeatureFlags(): JSX.Element {
     const { featureFlags: enabledFeatureFlags } = useValues(enabledFeaturesLogic)
     const newFeatureFlagUrl = urls.featureFlagTemplates()
     const showNotificationsTab = !!enabledFeatureFlags[FEATURE_FLAGS.FEATURE_FLAG_NOTIFICATIONS]
-    const showRequestUsageTab = !!enabledFeatureFlags[FEATURE_FLAGS.FEATURE_FLAG_REQUEST_USAGE]
 
     return (
         <SceneContent className="feature_flags">
@@ -829,9 +828,7 @@ export function FeatureFlags(): JSX.Element {
                 }
             />
             <LemonTabs
-                activeKey={
-                    activeTab === FeatureFlagsTab.USAGE && !showRequestUsageTab ? FeatureFlagsTab.OVERVIEW : activeTab
-                }
+                activeKey={activeTab}
                 onChange={(newKey) => setActiveTab(newKey)}
                 sceneInset
                 tabs={[
@@ -840,15 +837,11 @@ export function FeatureFlags(): JSX.Element {
                         label: 'Overview',
                         content: <OverviewTab />,
                     },
-                    ...(showRequestUsageTab
-                        ? [
-                              {
-                                  key: FeatureFlagsTab.USAGE,
-                                  label: 'Request usage',
-                                  content: <FeatureFlagRequestUsage />,
-                              },
-                          ]
-                        : []),
+                    {
+                        key: FeatureFlagsTab.USAGE,
+                        label: 'Request usage',
+                        content: <FeatureFlagRequestUsage />,
+                    },
                     {
                         key: FeatureFlagsTab.PROJECTS,
                         label: 'Projects',
