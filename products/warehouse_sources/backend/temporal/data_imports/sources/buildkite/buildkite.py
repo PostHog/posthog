@@ -1,6 +1,7 @@
-import dataclasses
 from datetime import UTC, date, datetime
-from typing import Any, Optional
+from typing import Any, Optional, cast
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.buildkite.settings import (
     BUILDKITE_ENDPOINTS,
@@ -8,9 +9,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.buildkite.
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    ClientConfig,
     RESTAPIConfig,
-    rest_api_resource,
     rest_api_resources,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
@@ -21,7 +20,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     JSONResponsePaginator,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+    ClientConfig,
+    EndpointResource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
@@ -34,7 +36,7 @@ PAGE_SIZE = 100
 SUITE_CHILD_ENDPOINTS = ("test_suite_runs", "test_suite_tests")
 
 
-@dataclasses.dataclass
+@frozen
 class BuildkiteResumeConfig:
     # Next-page link for a flat list endpoint. None means "start at the first page".
     next_url: str | None = None
@@ -198,102 +200,56 @@ def _jobs_child_resource(organization: str) -> EndpointResource:
     }
 
 
-def _top_level_source(
+def _build_resource(
     api_access_token: str,
     endpoint: str,
-    organization: str,
+    resources: list[EndpointResource],
     team_id: int,
     job_id: str,
-    resumable_source_manager: ResumableSourceManager[BuildkiteResumeConfig],
-    params: dict[str, Any],
     db_incremental_field_last_value: Optional[Any],
+    resumable_source_manager: Optional[ResumableSourceManager[BuildkiteResumeConfig]],
 ) -> Resource:
+    """Build the resource chain for one endpoint, checkpointing unless resume is off.
+
+    A parent/child pair checkpoints the framework's fan-out snapshot, which skips parents already
+    synced on a restart and resumes the one in progress. A flat listing checkpoints its next-page
+    link. Either way the hook fires AFTER a page is yielded, so a crash re-yields the last page
+    (merge dedupes on the primary key) rather than skipping it.
+    """
+    fans_out = len(resources) > 1
+
     rest_config: RESTAPIConfig = {
         "client": _client_config(api_access_token),
-        "resources": [_list_endpoint_resource(endpoint, organization, params)],
+        "resources": cast("list[str | EndpointResource]", resources),
     }
 
     initial_paginator_state: Optional[dict[str, Any]] = None
-    if resumable_source_manager.can_resume():
-        resume = resumable_source_manager.load_state()
-        if resume is not None and resume.next_url:
-            initial_paginator_state = {"next_url": resume.next_url}
+    if resumable_source_manager is not None and resumable_source_manager.can_resume():
+        saved = resumable_source_manager.load_state()
+        if saved is not None:
+            initial_paginator_state = saved.fanout_state if fans_out else _next_url_state(saved.next_url)
 
     def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
-        # Persist only when a next page remains; the hook fires AFTER a page is yielded so a crash
-        # re-yields the last page (merge dedupes on the primary key) rather than skipping it.
-        if state and state.get("next_url"):
+        if not state or resumable_source_manager is None:
+            return
+        if fans_out:
+            resumable_source_manager.save_state(BuildkiteResumeConfig(fanout_state=state))
+        elif state.get("next_url"):
             resumable_source_manager.save_state(BuildkiteResumeConfig(next_url=state["next_url"]))
 
-    return rest_api_resource(
+    built = rest_api_resources(
         rest_config,
         team_id,
         job_id,
         db_incremental_field_last_value,
-        resume_hook=save_checkpoint,
+        resume_hook=save_checkpoint if resumable_source_manager is not None else None,
         initial_paginator_state=initial_paginator_state,
     )
+    return next(resource for resource in built if getattr(resource, "name", None) == endpoint)
 
 
-def _suite_fanout_source(
-    api_access_token: str,
-    endpoint: str,
-    organization: str,
-    team_id: int,
-    job_id: str,
-    resumable_source_manager: ResumableSourceManager[BuildkiteResumeConfig],
-) -> Resource:
-    """Drive a suites -> child single-hop fan-out with framework resume.
-
-    The suite list is re-fetched each run; suites already fully synced are skipped by path and the
-    one in progress resumes from its saved page anchor. A suite deleted between runs simply isn't
-    in the re-fetched list.
-    """
-    rest_config: RESTAPIConfig = {
-        "client": _client_config(api_access_token),
-        "resources": [_test_suites_resource(organization), _suite_child_resource(endpoint, organization)],
-    }
-
-    initial_paginator_state: Optional[dict[str, Any]] = None
-    if resumable_source_manager.can_resume():
-        resume = resumable_source_manager.load_state()
-        if resume is not None and resume.fanout_state:
-            initial_paginator_state = resume.fanout_state
-
-    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
-        if state is not None:
-            resumable_source_manager.save_state(BuildkiteResumeConfig(fanout_state=state))
-
-    resources = rest_api_resources(
-        rest_config,
-        team_id,
-        job_id,
-        None,
-        resume_hook=save_checkpoint,
-        initial_paginator_state=initial_paginator_state,
-    )
-    return next(resource for resource in resources if getattr(resource, "name", None) == endpoint)
-
-
-def _jobs_source(
-    api_access_token: str,
-    organization: str,
-    team_id: int,
-    job_id: str,
-    created_from: str | None,
-) -> Resource:
-    """Fan out builds -> the jobs of each build.
-
-    Resume is deliberately off here: the framework checkpoints a fan-out by writing the full set of
-    completed child paths on every parent, which an organization's build list makes quadratic. A
-    retry re-walks the window and merge dedupes on the job id.
-    """
-    rest_config: RESTAPIConfig = {
-        "client": _client_config(api_access_token),
-        "resources": [_builds_parent_resource(organization, created_from), _jobs_child_resource(organization)],
-    }
-    resources = rest_api_resources(rest_config, team_id, job_id, None)
-    return next(resource for resource in resources if getattr(resource, "name", None) == "jobs")
+def _next_url_state(next_url: str | None) -> Optional[dict[str, Any]]:
+    return {"next_url": next_url} if next_url else None
 
 
 def validate_credentials(
@@ -346,34 +302,34 @@ def buildkite_source(
     incremental_field: str | None = None,
 ) -> SourceResponse:
     config = BUILDKITE_ENDPOINTS[endpoint]
+    manager: Optional[ResumableSourceManager[BuildkiteResumeConfig]] = resumable_source_manager
 
     if endpoint in SUITE_CHILD_ENDPOINTS:
-        resource = _suite_fanout_source(
-            api_access_token, endpoint, organization, team_id, job_id, resumable_source_manager
-        )
+        resources = [_test_suites_resource(organization), _suite_child_resource(endpoint, organization)]
     elif endpoint == "jobs":
-        resource = _jobs_source(
-            api_access_token,
-            organization,
-            team_id,
-            job_id,
-            _build_created_from(should_use_incremental_field, db_incremental_field_last_value),
-        )
+        created_from = _build_created_from(should_use_incremental_field, db_incremental_field_last_value)
+        resources = [_builds_parent_resource(organization, created_from), _jobs_child_resource(organization)]
+        # Resume is deliberately off here: the framework rewrites the full set of completed child
+        # paths on every parent, which an organization's build list makes quadratic. A retry
+        # re-walks the window and merge dedupes on the job id.
+        manager = None
     else:
         params = _build_initial_params(
             config, should_use_incremental_field, db_incremental_field_last_value, incremental_field
         )
-        resource = _top_level_source(
-            api_access_token,
-            endpoint,
-            organization,
-            team_id,
-            job_id,
-            resumable_source_manager,
-            params,
-            db_incremental_field_last_value,
-        )
+        resources = [_list_endpoint_resource(endpoint, organization, params)]
 
+    resource = _build_resource(
+        api_access_token,
+        endpoint,
+        resources,
+        team_id,
+        job_id,
+        db_incremental_field_last_value,
+        manager,
+    )
+
+    partition_key = config.partition_key
     return SourceResponse(
         name=endpoint,
         items=lambda: resource,
@@ -381,7 +337,7 @@ def buildkite_source(
         sort_mode=config.sort_mode,
         partition_count=1,
         partition_size=1,
-        partition_mode="datetime" if config.partition_key else None,
-        partition_format="week" if config.partition_key else None,
-        partition_keys=[config.partition_key] if config.partition_key else None,
+        partition_mode="datetime" if partition_key else None,
+        partition_format="week" if partition_key else None,
+        partition_keys=[partition_key] if partition_key else None,
     )

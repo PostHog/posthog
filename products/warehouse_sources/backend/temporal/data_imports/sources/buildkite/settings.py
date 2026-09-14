@@ -1,10 +1,12 @@
-from dataclasses import dataclass, field
+from dataclasses import field
 from typing import Literal, Optional
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
 
-@dataclass
+@frozen
 class BuildkiteEndpointConfig:
     name: str
     # Path template. ``{organization}`` is filled with the org slug from the source config.
