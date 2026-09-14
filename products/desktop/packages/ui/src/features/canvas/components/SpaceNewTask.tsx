@@ -41,14 +41,14 @@ export function SpaceNewTask({ channelId }: { channelId: string }) {
   const wiki = useChannelWikiContext(channelId, contextLayerEnabled);
 
   // Surface the channel breadcrumb in the shared header, same as the other
-  // channel scenes ("# channel / New task").
+  // channel scenes ("# channel / New session").
   useSetHeaderContent(
     useMemo(
       () => (
         <ChannelBreadcrumb
           channelName={channelName ?? (spacesLayout ? "Space" : "Channel")}
           channelId={channelId}
-          leafLabel="New task"
+          leafLabel="New session"
         />
       ),
       [channelName, channelId, spacesLayout],

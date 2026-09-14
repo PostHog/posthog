@@ -67851,6 +67851,18 @@ export namespace Schemas {
        * * `opt_out` - Opt Out
        * * `opt_in` - Opt In */
       email_tracking_consent_mode?: EmailTrackingConsentModeEnum;
+      /**
+         * How many AI tasks one workflow can create in a rolling 24 hours. Null uses the default of 100; zero pauses task creation for every workflow in the project. Support raises the limit above 500.
+         * @minimum 0
+         * @nullable
+         */
+      workflow_task_rate_limit_per_day?: number | null;
+      /**
+         * How many AI tasks all workflows in the project can create together in a rolling 24 hours. Null uses the default of 500; zero pauses task creation for the project. Support raises the limit above 2500.
+         * @minimum 0
+         * @nullable
+         */
+      workflow_task_team_rate_limit_per_day?: number | null;
     }
 
     export interface TeamFeatureFlagPolicyConfig {
@@ -93195,6 +93207,18 @@ export namespace Schemas {
       results: _MetricName[];
     }
 
+    export interface _MetricPickerName {
+      /** Metric name as it appears in the team's data. */
+      name: string;
+      /** OTel metric type (gauge, sum, histogram, summary, exponential_histogram). */
+      metric_type: string;
+    }
+
+    export interface _MetricPickerNamesResponse {
+      /** Distinct metric names ordered by recent activity. */
+      results: _MetricPickerName[];
+    }
+
     export interface _MetricQueryBody {
       /**
          * Exact metric name to query (e.g. 'http.server.duration'). Single-clause shorthand — mutually exclusive with 'clauses'.
@@ -102302,6 +102326,25 @@ export namespace Schemas {
      * Upper bound (exclusive) for the spike window. Defaults to now if omitted.
      */
     dateTo?: string;
+    };
+
+    export type MetricsNamesRetrieveParams = {
+    /**
+     * Max number of names to return. Defaults to 100; maximum 1000.
+     * @minimum 1
+     * @maximum 1000
+     */
+    limit?: number;
+    /**
+     * Comma-separated services to narrow the list to, e.g. `service=web,worker`. Omit for every service. Send it empty to select only series whose sender did not set `service.name`. A service name containing a comma cannot be selected.
+     * @maxLength 1024
+     */
+    service?: string;
+    /**
+     * Substring filter (case-insensitive) applied to metric names.
+     * @maxLength 255
+     */
+    value?: string;
     };
 
     export type MetricsValuesRetrieveParams = {
