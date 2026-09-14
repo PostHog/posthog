@@ -28,9 +28,16 @@ export function TicketsList({ selectedTicketId = null }: TicketsListProps): JSX.
     const hasIdentityMode = !!window.JS_POSTHOG_IDENTITY_DISTINCT_ID
 
     // Unread / Active / All always show so the user can widen the view; a status only earns an
-    // entry once there's at least one ticket in it, which keeps the dropdown short.
+    // entry once there's at least one ticket in it, which keeps the dropdown short. The selected
+    // filter also stays, because its count can fall to zero while it is selected (the last pending
+    // ticket resolves on a poll) and dropping it would leave the select with no matching option.
     const filterOptions = sidePanelTicketFilterOrder
-        .filter((filter) => ['unread', 'active', 'all'].includes(filter) || ticketFilterCounts[filter] > 0)
+        .filter(
+            (filter) =>
+                ['unread', 'active', 'all'].includes(filter) ||
+                ticketFilterCounts[filter] > 0 ||
+                filter === effectiveStatusFilter
+        )
         .map((filter) => ({
             value: filter,
             label: `${sidePanelTicketFilterLabels[filter]} (${ticketFilterCounts[filter]})`,
