@@ -5,12 +5,13 @@ use anyhow::{Context, Result};
 use axum::response::IntoResponse;
 use axum::routing::get;
 use axum::Router;
-use common_kafka_consumer::AssignmentEpoch;
+use common_kafka_consumer::{AssignmentEpoch, TopicOffsetLedger};
 use envconfig::Envconfig;
 use futures::future::ready;
 use futures::StreamExt;
 use lifecycle::{ComponentOptions, Manager};
 use metrics_exporter_prometheus::{Matcher, PrometheusBuilder};
+use rdkafka::consumer::{Consumer, StreamConsumer};
 use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info, warn};
@@ -21,13 +22,14 @@ use tracing_subscriber::{EnvFilter, Layer};
 
 use ingestion_consumer::batcher::Batcher;
 use ingestion_consumer::config::Config;
-use ingestion_consumer::consumer::IngestionConsumer;
+use ingestion_consumer::consumer::{IngestionConsumer, IngestionConsumerOptions};
 use ingestion_consumer::debug_recorder::{DebugLoad, DebugRecorder, DebugState, WorkerStatus};
 use ingestion_consumer::discovery::{
     DiscoveryMode, EndpointSliceDiscovery, StaticDiscovery, WorkerDiscovery,
 };
 use ingestion_consumer::dispatcher::Dispatcher;
 use ingestion_consumer::grpc_transport::{GrpcPort, GrpcTransport};
+use ingestion_consumer::order_sentinel::{CommitSentinel, SentinelContext};
 use ingestion_consumer::routing::RoutingStrategy;
 use ingestion_consumer::worker_registry::{WorkerId, WorkerRegistry, WorkerRegistryConfig};
 
@@ -510,18 +512,71 @@ async fn async_main(config: Config) -> Result<()> {
         Duration::from_millis(config.parked_retry_interval_ms),
     );
 
+    // Assemble external clients here; the runtime accepts ready dependencies
+    // and owns only collection, completion, revocation, and commit policy.
+    let worker_urls = match config.worker_discovery_mode {
+        DiscoveryMode::Static => config.worker_urls(),
+        DiscoveryMode::EndpointSlice => Vec::new(),
+    };
+    if config.worker_discovery_mode == DiscoveryMode::Static && worker_urls.is_empty() {
+        anyhow::bail!("No worker addresses configured");
+    }
+    let client_config = config.build_consumer_config();
+    ingestion_consumer::kafka_stats::export_limits(
+        &client_config,
+        config.consumer_batch_size,
+        config.consumer_batch_size_kb,
+    );
+    let commit_sentinel = Arc::new(CommitSentinel::new());
+    commit_sentinel.set_enabled(config.consumer_order_sentinel_enabled);
+    let key_sentinel = batcher.key_order_sentinel();
+    key_sentinel.set_enabled(config.consumer_order_sentinel_enabled);
+    let mut context = SentinelContext::new(
+        commit_sentinel,
+        key_sentinel,
+        Arc::new(TopicOffsetLedger::new()),
+    );
+    context.set_assignment_epoch(transport.assignment_epoch());
+    let kafka: StreamConsumer<SentinelContext> = client_config
+        .create_with_context(context)
+        .context("Failed to create Kafka consumer")?;
+    kafka.subscribe(&[&config.ingestion_consumer_consume_topic])?;
+    info!(
+        topic = %config.ingestion_consumer_consume_topic,
+        group = %config.ingestion_consumer_group_id,
+        workers = worker_urls.len(),
+        batch_size = config.consumer_batch_size,
+        batch_size_kb = config.consumer_batch_size_kb,
+        "Kafka consumer subscribed"
+    );
     let consumer = IngestionConsumer::new(
-        &config,
+        kafka,
         batcher,
         batcher_outputs,
-        transport,
-        consumer_handle,
-        debug_recorder,
-    )
-    .context("Failed to create Kafka consumer")?;
+        IngestionConsumerOptions {
+            batch_size: config.consumer_batch_size,
+            batch_size_bytes: config.consumer_batch_size_kb.saturating_mul(1024),
+            batch_timeout: Duration::from_millis(config.consumer_batch_timeout_ms),
+            max_in_flight_batches: config.consumer_max_background_tasks,
+            group_id: config.ingestion_consumer_group_id.clone(),
+            worker_urls: worker_urls.clone(),
+            debug_recorder,
+        },
+        consumer_handle.clone(),
+    );
 
     tokio::spawn(async move {
-        consumer.process().await;
+        info!("Waiting for workers to be ready");
+        match transport
+            .wait_for_workers_ready(&worker_urls, &consumer_handle)
+            .await
+        {
+            Ok(()) => consumer.process().await,
+            Err(err) => {
+                error!(error = %err, "Failed waiting for workers");
+                consumer_handle.signal_failure("Workers not ready before shutdown".to_string());
+            }
+        }
         // Cancel background tasks once the consumer loop exits.
         probe_token.cancel();
         discovery_token.cancel();

@@ -639,6 +639,50 @@ impl SentinelContext {
         Arc::clone(&self.topic_offset_ledger)
     }
 
+    /// Reset revoked partitions before Kafka hands them to another owner.
+    /// Scripted inputs use this same handler as the native rebalance callback.
+    pub fn on_revoke(&self, tpl: &TopicPartitionList) {
+        counter!("ingestion_consumer_rebalances_total", "event" => "revoke").increment(1);
+        info!(
+            partitions = tpl.count(),
+            topic_partitions = ?partition_names(tpl),
+            "Rebalance: partitions revoked"
+        );
+        self.commit_sentinel
+            .forget_partitions(tpl.elements().iter().map(|e| (e.topic(), e.partition())));
+        self.forget_ledger_partitions(tpl);
+        // Revoked partitions may be replayed by another consumer (or by
+        // us after re-assignment) from the last commit — every per-key
+        // baseline is stale.
+        self.key_sentinel.clear();
+        if let Some(hook) = self.revoke_hook.get() {
+            let partitions: Vec<(String, i32)> = tpl
+                .elements()
+                .iter()
+                .map(|e| (e.topic().to_string(), e.partition()))
+                .collect();
+            hook(&partitions);
+        }
+    }
+
+    /// Establish the ledger generations and stream epoch for a new assignment.
+    pub fn on_assign(&self, tpl: &TopicPartitionList) {
+        counter!("ingestion_consumer_rebalances_total", "event" => "assign").increment(1);
+        info!(
+            partitions = tpl.count(),
+            topic_partitions = ?partition_names(tpl),
+            "Rebalance: partitions assigned"
+        );
+        // An assign list names partitions that start a new assignment, so
+        // any surviving ledger for them is stale. The revoke callback
+        // normally dropped it already; this covers losses with no revoke
+        // callback (an error rebalance, a fenced member).
+        self.forget_ledger_partitions(tpl);
+        if let Some(epoch) = &self.assignment_epoch {
+            epoch.bump();
+        }
+    }
+
     /// Start a new ledger generation for every partition in `tpl`, dropping
     /// its window.
     fn forget_ledger_partitions(&self, tpl: &TopicPartitionList) {
@@ -671,29 +715,7 @@ impl ClientContext for SentinelContext {
 impl ConsumerContext for SentinelContext {
     fn pre_rebalance(&self, _consumer: &BaseConsumer<Self>, rebalance: &Rebalance) {
         match rebalance {
-            Rebalance::Revoke(tpl) => {
-                counter!("ingestion_consumer_rebalances_total", "event" => "revoke").increment(1);
-                info!(
-                    partitions = tpl.count(),
-                    topic_partitions = ?partition_names(tpl),
-                    "Rebalance: partitions revoked"
-                );
-                self.commit_sentinel
-                    .forget_partitions(tpl.elements().iter().map(|e| (e.topic(), e.partition())));
-                self.forget_ledger_partitions(tpl);
-                // Revoked partitions may be replayed by another consumer (or by
-                // us after re-assignment) from the last commit — every per-key
-                // baseline is stale.
-                self.key_sentinel.clear();
-                if let Some(hook) = self.revoke_hook.get() {
-                    let partitions: Vec<(String, i32)> = tpl
-                        .elements()
-                        .iter()
-                        .map(|e| (e.topic().to_string(), e.partition()))
-                        .collect();
-                    hook(&partitions);
-                }
-            }
+            Rebalance::Revoke(tpl) => self.on_revoke(tpl),
             Rebalance::Assign(_) => {}
             Rebalance::Error(err) => {
                 counter!("ingestion_consumer_rebalances_total", "event" => "error").increment(1);
@@ -704,20 +726,7 @@ impl ConsumerContext for SentinelContext {
 
     fn post_rebalance(&self, _consumer: &BaseConsumer<Self>, rebalance: &Rebalance) {
         if let Rebalance::Assign(tpl) = rebalance {
-            counter!("ingestion_consumer_rebalances_total", "event" => "assign").increment(1);
-            info!(
-                partitions = tpl.count(),
-                topic_partitions = ?partition_names(tpl),
-                "Rebalance: partitions assigned"
-            );
-            // An assign list names partitions that start a new assignment, so
-            // any surviving ledger for them is stale. The revoke callback
-            // normally dropped it already; this covers losses with no revoke
-            // callback (an error rebalance, a fenced member).
-            self.forget_ledger_partitions(tpl);
-            if let Some(epoch) = &self.assignment_epoch {
-                epoch.bump();
-            }
+            self.on_assign(tpl);
         }
     }
 

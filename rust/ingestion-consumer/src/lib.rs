@@ -2,6 +2,7 @@ pub mod aperture;
 pub mod batcher;
 pub mod config;
 pub mod consumer;
+pub mod consumer_io;
 pub mod debug_recorder;
 pub mod discovery;
 pub mod dispatcher;

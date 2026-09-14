@@ -11,7 +11,7 @@ use std::time::Duration;
 use axum::routing::get;
 use axum::Router;
 use futures::StreamExt;
-use lifecycle::{ComponentOptions, Manager};
+use lifecycle::{ComponentOptions, Handle, Manager};
 use rdkafka::admin::{AdminClient, AdminOptions, NewTopic, TopicReplication};
 use rdkafka::client::DefaultClientContext;
 use rdkafka::config::ClientConfig;
@@ -26,6 +26,7 @@ use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
 use common_kafka_consumer::{TopicOffsetLedger, TopicPartition};
+use ingestion_consumer::batcher::Batcher;
 use ingestion_consumer::consumer::{IngestionConsumer, IngestionConsumerOptions};
 use ingestion_consumer::discovery::reconcile_membership;
 use ingestion_consumer::dispatcher::Dispatcher;
@@ -488,6 +489,35 @@ fn test_transport() -> GrpcTransport {
     GrpcTransport::new(GrpcPort::OffsetFromHttp(1), 1, Duration::from_secs(10))
 }
 
+/// Assemble real dependencies and gate startup outside the consumer runtime.
+async fn run_consumer(
+    kafka: StreamConsumer<SentinelContext>,
+    dispatcher: Arc<Dispatcher>,
+    transport: Arc<GrpcTransport>,
+    options: IngestionConsumerOptions,
+    handle: Handle,
+    deferred_flush_timeout: Duration,
+) {
+    let (batcher, outputs) = Batcher::new(
+        dispatcher,
+        Arc::clone(&transport),
+        handle.clone(),
+        deferred_flush_timeout,
+        Duration::from_millis(200),
+    );
+    if transport
+        .wait_for_workers_ready(&options.worker_urls, &handle)
+        .await
+        .is_err()
+    {
+        handle.signal_failure("Workers not ready before shutdown".to_string());
+        return;
+    }
+    IngestionConsumer::new(kafka, batcher, outputs, options, handle)
+        .process()
+        .await;
+}
+
 /// Reap drained workers exactly as `main.rs` does in production: complete the
 /// drain of an idle drainer, then remove reaped workers from the registry and
 /// transport. Runs until `token` is cancelled. (A faster tick than production's
@@ -636,25 +666,24 @@ impl Harness {
         let ledger = context.topic_offset_ledger();
         let kafka_consumer = make_kafka_consumer_with_context(topic, &group_id, None, context);
 
-        let consumer = IngestionConsumer::from_parts(
+        let consumer = run_consumer(
             kafka_consumer,
             dispatcher,
             transport,
-            worker_urls,
             IngestionConsumerOptions {
                 batch_size: 50,
                 batch_size_bytes,
                 batch_timeout: Duration::from_millis(100),
                 max_in_flight_batches: max_in_flight,
                 group_id: "e2e-test".to_string(),
-                deferred_flush_timeout,
-                parked_retry_interval: Duration::from_millis(200),
+                worker_urls,
                 debug_recorder: None,
             },
             handle,
+            deferred_flush_timeout,
         );
 
-        let task = tokio::spawn(async move { consumer.process().await });
+        let task = tokio::spawn(consumer);
 
         // Give the consumer time to connect and enter the poll loop.
         tokio::time::sleep(Duration::from_millis(300)).await;
@@ -716,27 +745,26 @@ impl Harness {
         self.ledger = context.topic_offset_ledger();
         let kafka_consumer =
             make_kafka_consumer_with_context(&self.topic, &self.group_id, None, context);
-        let consumer = IngestionConsumer::from_parts(
+        let consumer = run_consumer(
             kafka_consumer,
             Arc::clone(&dispatcher),
             transport,
-            worker_urls,
             IngestionConsumerOptions {
                 batch_size: 50,
                 batch_size_bytes: 0,
                 batch_timeout: Duration::from_millis(100),
                 max_in_flight_batches: self.max_in_flight,
                 group_id: "e2e-test".to_string(),
-                deferred_flush_timeout: self.deferred_flush_timeout,
-                parked_retry_interval: Duration::from_millis(200),
+                worker_urls,
                 debug_recorder: None,
             },
             handle,
+            self.deferred_flush_timeout,
         );
 
         self.registry = registry;
         self.dispatcher = dispatcher;
-        self.task = Some(tokio::spawn(async move { consumer.process().await }));
+        self.task = Some(tokio::spawn(consumer));
 
         // Give the restarted consumer time to rejoin the group and start polling.
         tokio::time::sleep(Duration::from_millis(300)).await;
@@ -2687,24 +2715,23 @@ async fn second_consumer_joining_the_group_preserves_all_messages(#[case] kind: 
     let mut manager2 = Manager::builder("e2e-c2").with_trap_signals(false).build();
     let handle2 = manager2.register("consumer", ComponentOptions::new());
     let shutdown2 = handle2.shutdown_token();
-    let consumer2 = IngestionConsumer::from_parts(
+    let consumer2 = run_consumer(
         make_kafka_consumer(&topic, &harness.group_id, None),
         dispatcher2,
         transport2,
-        worker_urls,
         IngestionConsumerOptions {
             batch_size: 50,
             batch_size_bytes: 0,
             batch_timeout: Duration::from_millis(100),
             max_in_flight_batches: 1,
             group_id: "e2e-test".to_string(),
-            deferred_flush_timeout: Duration::from_secs(60),
-            parked_retry_interval: Duration::from_millis(200),
+            worker_urls,
             debug_recorder: None,
         },
         handle2,
+        Duration::from_secs(60),
     );
-    let task2 = tokio::spawn(async move { consumer2.process().await });
+    let task2 = tokio::spawn(consumer2);
 
     // Release the held batch so the first consumer resumes polling and the
     // rebalance can complete, then keep traffic flowing on both partitions.
@@ -2803,24 +2830,23 @@ async fn partition_lost_and_regained_keeps_the_consumer_alive(#[case] kind: Sche
         .build();
     let handle2 = manager2.register("consumer", ComponentOptions::new());
     let shutdown2 = handle2.shutdown_token();
-    let consumer2 = IngestionConsumer::from_parts(
+    let consumer2 = run_consumer(
         make_kafka_consumer(&topic, &harness.group_id, None),
         dispatcher2,
         transport2,
-        worker_urls,
         IngestionConsumerOptions {
             batch_size: 50,
             batch_size_bytes: 0,
             batch_timeout: Duration::from_millis(100),
             max_in_flight_batches: 1,
             group_id: "e2e-test".to_string(),
-            deferred_flush_timeout: Duration::from_secs(60),
-            parked_retry_interval: Duration::from_millis(200),
+            worker_urls,
             debug_recorder: None,
         },
         handle2,
+        Duration::from_secs(60),
     );
-    let task2 = tokio::spawn(async move { consumer2.process().await });
+    let task2 = tokio::spawn(consumer2);
 
     // The first consumer polls only while its polls return messages, and
     // only a polling consumer takes part in a rebalance: a trickle holds it
@@ -2924,24 +2950,23 @@ async fn fenced_static_member_exits_on_fatal_error(#[case] kind: SchedulerKind) 
         .build();
     let handle = manager.register("consumer", ComponentOptions::new());
     let group = format!("e2e-{}", Uuid::new_v4());
-    let consumer = IngestionConsumer::from_parts(
+    let consumer = run_consumer(
         make_kafka_consumer(&topic, &group, Some("pod-1")),
         dispatcher,
         transport,
-        urls,
         IngestionConsumerOptions {
             batch_size: 50,
             batch_size_bytes: 0,
             batch_timeout: Duration::from_millis(100),
             max_in_flight_batches: 1,
             group_id: "e2e-test".to_string(),
-            deferred_flush_timeout: Duration::from_secs(60),
-            parked_retry_interval: Duration::from_millis(200),
+            worker_urls: urls,
             debug_recorder: None,
         },
         handle,
+        Duration::from_secs(60),
     );
-    let task = tokio::spawn(async move { consumer.process().await });
+    let task = tokio::spawn(consumer);
 
     // Prove the first instance is consuming before it gets fenced.
     let producer = make_producer();

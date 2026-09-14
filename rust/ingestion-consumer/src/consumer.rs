@@ -8,21 +8,17 @@ use common_kafka_consumer::{
 use futures::StreamExt;
 use lifecycle::Handle;
 use metrics::{counter, gauge, histogram};
-use rdkafka::consumer::{CommitMode, Consumer, StreamConsumer};
 use rdkafka::message::{Headers, Message};
 use rdkafka::TopicPartitionList;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use tracing::{error, info, warn};
 
-use crate::batcher::{make_batch_id, Batcher, BatcherOutputs};
-use crate::config::Config;
+use crate::batcher::{make_batch_id, BatcherOutputs};
+use crate::consumer_io::{BatchSubmitter, KafkaInput};
 use crate::debug_recorder::{record_if, DebugEventKind, DebugRecorder, PartitionOffset};
-use crate::discovery::DiscoveryMode;
-use crate::dispatcher::Dispatcher;
-use crate::grpc_transport::GrpcTransport;
 use crate::ledger_rejection::{warn_rejection, RejectedSlice};
-use crate::order_sentinel::{CommitSentinel, OffsetSpan, SentinelContext};
+use crate::order_sentinel::{CommitSentinel, OffsetSpan};
 use crate::scheduler::SchedulerKind;
 use crate::types::{Accumulator, SerializedKafkaMessage};
 
@@ -241,38 +237,29 @@ fn apply_completion(in_flight: &mut VecDeque<InFlightPoll>, completion: GroupCom
     }
 }
 
-/// Options for constructing an [`IngestionConsumer`] from pre-built parts.
-/// Used in integration tests where the Kafka consumer is created externally.
+/// Runtime options for an [`IngestionConsumer`] with injected dependencies.
 pub struct IngestionConsumerOptions {
     pub batch_size: usize,
     /// Payload-byte bound on a batch; `0` disables it (count-only collection).
-    /// See `Config::consumer_batch_size_kb`.
+    /// See `crate::config::Config::consumer_batch_size_kb`.
     pub batch_size_bytes: usize,
     pub batch_timeout: Duration,
     pub max_in_flight_batches: usize,
     pub group_id: String,
-    /// No-progress bound on flushing a batch's deferred groups, enforced by
-    /// the batcher's flush driver: the deadline resets whenever any of the
-    /// batch's messages land, and the batch fails only after a full window
-    /// with zero progress. Production takes it from
-    /// `CONSUMER_DEFERRED_FLUSH_TIMEOUT_MS` (default 60s).
-    pub deferred_flush_timeout: Duration,
-    /// The key-table scheduler's parked-retry cadence. Production takes it
-    /// from `INGESTION_PARKED_RETRY_INTERVAL_MS` (default 200ms).
-    pub parked_retry_interval: Duration,
+    /// Worker addresses included in debug events; readiness is handled by assembly.
+    pub worker_urls: Vec<String>,
     /// Debug event recorder; `None` unless `DEBUG_API_ENABLED`.
     pub debug_recorder: Option<Arc<DebugRecorder>>,
 }
 
 /// The main consumer loop: reads from Kafka, demuxes each poll into groups,
-/// submits them to the [`Batcher`] (which routes, dispatches, and flushes),
+/// submits them to the [`BatchSubmitter`] (which routes, dispatches, and flushes),
 /// and commits offsets once the batcher's completions cover a poll.
-pub struct IngestionConsumer {
-    consumer: Arc<StreamConsumer<SentinelContext>>,
-    batcher: Batcher,
+pub struct IngestionConsumer<K: KafkaInput, B: BatchSubmitter> {
+    consumer: Arc<K>,
+    batcher: Arc<B>,
     /// Taken once by `process`.
     outputs: Option<BatcherOutputs>,
-    transport: Arc<GrpcTransport>,
     worker_urls: Vec<String>,
     batch_size: usize,
     batch_size_bytes: usize,
@@ -281,12 +268,14 @@ pub struct IngestionConsumer {
     handle: Handle,
     group_id: String,
     /// Validates commit contiguity/monotonicity per partition. Shared with the
-    /// consumer's [`SentinelContext`], which resets baselines on rebalance.
+    /// consumer's [`SentinelContext`](crate::order_sentinel::SentinelContext),
+    /// which resets baselines on rebalance.
     commit_sentinel: Arc<CommitSentinel>,
     /// Debug event recorder; `None` unless `DEBUG_API_ENABLED`.
     debug_recorder: Option<Arc<DebugRecorder>>,
     /// The per-partition offset ledger the commit path reads its frontiers
-    /// from. Shared with the consumer's [`SentinelContext`], which forgets
+    /// from. Shared with the consumer's
+    /// [`SentinelContext`](crate::order_sentinel::SentinelContext), which forgets
     /// partitions on rebalance.
     topic_offset_ledger: Arc<TopicOffsetLedger>,
     /// Partitions revoked since the loop last looked, fed by the rebalance
@@ -294,56 +283,48 @@ pub struct IngestionConsumer {
     revoked_partitions: Arc<Mutex<Vec<TopicPartition>>>,
 }
 
-impl IngestionConsumer {
-    /// Constructs a consumer from pre-built parts. Useful in integration tests
-    /// where the Kafka consumer is created and subscribed externally. Builds
-    /// the batcher from the dispatcher and transport; `new` instead takes one
-    /// built in `main`.
-    pub fn from_parts(
-        consumer: StreamConsumer<SentinelContext>,
-        dispatcher: Arc<Dispatcher>,
-        transport: Arc<GrpcTransport>,
-        worker_urls: Vec<String>,
+impl<K: KafkaInput, B: BatchSubmitter> IngestionConsumer<K, B> {
+    /// Construct the runtime from a subscribed Kafka input and a running batcher.
+    /// Readiness and concrete dependency setup belong to application assembly.
+    pub fn new(
+        kafka: K,
+        batcher: B,
+        outputs: BatcherOutputs,
         options: IngestionConsumerOptions,
         handle: Handle,
     ) -> Self {
         // Share the context's commit sentinel and ledger so rebalance
         // callbacks reset the same baselines the commit path checks against.
-        let commit_sentinel = consumer.context().commit_sentinel();
-        let topic_offset_ledger = consumer.context().topic_offset_ledger();
+        let commit_sentinel = kafka.context().commit_sentinel();
+        let topic_offset_ledger = kafka.context().topic_offset_ledger();
         let revoked_partitions: Arc<Mutex<Vec<TopicPartition>>> = Arc::new(Mutex::new(Vec::new()));
-        let purge_dispatcher = Arc::clone(&dispatcher);
-        let hook_revoked = (dispatcher.scheduler_kind() == SchedulerKind::KeyTable)
+        let hook_revoked = (batcher.scheduler_kind() == SchedulerKind::KeyTable)
             .then(|| Arc::clone(&revoked_partitions));
-        consumer
-            .context()
-            .set_revoke_hook(Box::new(move |partitions| {
-                purge_dispatcher.purge_revoked(partitions);
-                if let Some(list) = &hook_revoked {
-                    list.lock().unwrap().extend(
-                        partitions
-                            .iter()
-                            .map(|(topic, partition)| TopicPartition::new(topic, *partition)),
-                    );
-                }
-            }));
-        let (batcher, outputs) = Batcher::new(
-            dispatcher,
-            Arc::clone(&transport),
-            handle.clone(),
-            options.deferred_flush_timeout,
-            options.parked_retry_interval,
-        );
+        let batcher = Arc::new(batcher);
+        let purge_batcher = Arc::downgrade(&batcher);
+        kafka.context().set_revoke_hook(Box::new(move |partitions| {
+            // A retained Kafka client must not keep the batcher's retry pump
+            // alive after the runtime is dropped.
+            if let Some(batcher) = purge_batcher.upgrade() {
+                batcher.purge_revoked(partitions);
+            }
+            if let Some(list) = &hook_revoked {
+                list.lock().unwrap().extend(
+                    partitions
+                        .iter()
+                        .map(|(topic, partition)| TopicPartition::new(topic, *partition)),
+                );
+            }
+        }));
         Self {
+            consumer: Arc::new(kafka),
+            batcher,
+            outputs: Some(outputs),
             commit_sentinel,
             debug_recorder: options.debug_recorder,
             topic_offset_ledger,
             revoked_partitions,
-            consumer: Arc::new(consumer),
-            batcher,
-            outputs: Some(outputs),
-            transport,
-            worker_urls,
+            worker_urls: options.worker_urls,
             batch_size: options.batch_size,
             batch_size_bytes: options.batch_size_bytes,
             batch_timeout: options.batch_timeout,
@@ -353,110 +334,13 @@ impl IngestionConsumer {
         }
     }
 
-    pub fn new(
-        config: &Config,
-        batcher: Batcher,
-        outputs: BatcherOutputs,
-        transport: Arc<GrpcTransport>,
-        handle: Handle,
-        debug_recorder: Option<Arc<DebugRecorder>>,
-    ) -> anyhow::Result<Self> {
-        // In endpointslice mode the worker set comes from discovery, so there is
-        // no static readiness list — main gates startup on the first discovered
-        // worker. In static mode we keep the configured list for readiness.
-        let worker_urls = match config.worker_discovery_mode {
-            DiscoveryMode::Static => config.worker_urls(),
-            DiscoveryMode::EndpointSlice => Vec::new(),
-        };
-        if config.worker_discovery_mode == DiscoveryMode::Static && worker_urls.is_empty() {
-            anyhow::bail!("No worker addresses configured");
-        }
-
-        let client_config = config.build_consumer_config();
-        // After the build, so the caps reported are the ones the client runs
-        // with rather than the settings that seeded them.
-        crate::kafka_stats::export_limits(
-            &client_config,
-            config.consumer_batch_size,
-            config.consumer_batch_size_kb,
-        );
-        let commit_sentinel = Arc::new(CommitSentinel::new());
-        commit_sentinel.set_enabled(config.consumer_order_sentinel_enabled);
-        let key_sentinel = batcher.key_order_sentinel();
-        key_sentinel.set_enabled(config.consumer_order_sentinel_enabled);
-        let topic_offset_ledger = Arc::new(TopicOffsetLedger::new());
-        let mut context = SentinelContext::new(
-            Arc::clone(&commit_sentinel),
-            key_sentinel,
-            Arc::clone(&topic_offset_ledger),
-        );
-        context.set_assignment_epoch(transport.assignment_epoch());
-        let revoked_partitions: Arc<Mutex<Vec<TopicPartition>>> = Arc::new(Mutex::new(Vec::new()));
-        let purge_dispatcher = batcher.dispatcher();
-        let hook_revoked = (purge_dispatcher.scheduler_kind() == SchedulerKind::KeyTable)
-            .then(|| Arc::clone(&revoked_partitions));
-        context.set_revoke_hook(Box::new(move |partitions| {
-            purge_dispatcher.purge_revoked(partitions);
-            if let Some(list) = &hook_revoked {
-                list.lock().unwrap().extend(
-                    partitions
-                        .iter()
-                        .map(|(topic, partition)| TopicPartition::new(topic, *partition)),
-                );
-            }
-        }));
-        let consumer: StreamConsumer<SentinelContext> =
-            client_config.create_with_context(context)?;
-        consumer.subscribe(&[&config.ingestion_consumer_consume_topic])?;
-
-        info!(
-            topic = %config.ingestion_consumer_consume_topic,
-            group = %config.ingestion_consumer_group_id,
-            workers = worker_urls.len(),
-            batch_size = config.consumer_batch_size,
-            batch_size_kb = config.consumer_batch_size_kb,
-            "Kafka consumer subscribed"
-        );
-
-        Ok(Self {
-            consumer: Arc::new(consumer),
-            commit_sentinel,
-            debug_recorder,
-            topic_offset_ledger,
-            revoked_partitions,
-            batcher,
-            outputs: Some(outputs),
-            transport,
-            worker_urls,
-            batch_size: config.consumer_batch_size,
-            batch_size_bytes: config.consumer_batch_size_kb.saturating_mul(1024),
-            batch_timeout: Duration::from_millis(config.consumer_batch_timeout_ms),
-            max_in_flight_batches: config.consumer_max_background_tasks.max(1),
-            handle,
-            group_id: config.ingestion_consumer_group_id.clone(),
-        })
-    }
-
     /// Run the consumer loop until shutdown is signalled via the lifecycle handle.
-    /// Waits for all workers to be ready before starting to consume from Kafka.
     pub async fn process(mut self) {
         let _guard = self.handle.process_scope();
         let BatcherOutputs {
             mut completions,
             mut errors,
         } = self.outputs.take().expect("process is called once");
-
-        info!("Waiting for workers to be ready");
-        if let Err(err) = self
-            .transport
-            .wait_for_workers_ready(&self.worker_urls, &self.handle)
-            .await
-        {
-            error!(error = %err, "Failed waiting for workers");
-            self.handle
-                .signal_failure("Workers not ready before shutdown".to_string());
-            return;
-        }
 
         info!("Consumer loop starting");
         record_if(&self.debug_recorder, || DebugEventKind::ConsumerStarted {
@@ -780,7 +664,7 @@ impl IngestionConsumer {
                     // consumer. Propagate it so the process exits and Kubernetes
                     // restarts the pod, instead of re-polling a dead client forever
                     // while still reporting healthy.
-                    if let Some((code, reason)) = self.consumer.client().fatal_error() {
+                    if let Some((code, reason)) = self.consumer.fatal_error() {
                         anyhow::bail!("fatal Kafka client error ({code:?}): {reason}");
                     }
                     break;
@@ -928,7 +812,7 @@ impl IngestionConsumer {
             )?;
         }
 
-        self.consumer.commit(&tpl, CommitMode::Async)?;
+        self.consumer.commit(&tpl)?;
         counter!("ingestion_consumer_offset_commits_total").increment(1);
 
         Ok(())
@@ -1039,8 +923,8 @@ const COMMIT_MONITOR_INTERVAL: Duration = Duration::from_secs(30);
 /// assignment (an OffsetFetch round trip) and feed them to the commit
 /// sentinel, which compares them against attempted commits and stamps the
 /// last-successful-commit gauge on progress.
-async fn run_commit_monitor(
-    consumer: Arc<StreamConsumer<SentinelContext>>,
+async fn run_commit_monitor<K: KafkaInput>(
+    consumer: Arc<K>,
     sentinel: Arc<CommitSentinel>,
     handle: Handle,
 ) {
@@ -1051,32 +935,13 @@ async fn run_commit_monitor(
         }
 
         let fetch_consumer = Arc::clone(&consumer);
-        // assignment() and committed_offsets() block on librdkafka.
-        let fetched = tokio::task::spawn_blocking(move || {
-            let assignment = fetch_consumer.assignment()?;
-            if assignment.count() == 0 {
-                return Ok(None);
-            }
-            fetch_consumer
-                .committed_offsets(assignment, Duration::from_secs(5))
-                .map(Some)
-        })
-        .await;
+        // The native input's assignment and committed-offset fetch block on librdkafka.
+        let fetched =
+            tokio::task::spawn_blocking(move || fetch_consumer.fetch_committed_offsets()).await;
 
         match fetched {
             Ok(Ok(Some(committed))) => {
-                let observed: Vec<(String, i32, i64)> = committed
-                    .elements()
-                    .iter()
-                    .filter_map(|e| match e.offset() {
-                        rdkafka::Offset::Offset(offset) => {
-                            Some((e.topic().to_string(), e.partition(), offset))
-                        }
-                        // Invalid = no offset stored for the partition yet.
-                        _ => None,
-                    })
-                    .collect();
-                sentinel.observe_broker_committed(observed);
+                sentinel.observe_broker_committed(committed);
             }
             Ok(Ok(None)) => {} // no assignment yet (e.g. before first rebalance)
             Ok(Err(err)) => {
@@ -1144,201 +1009,5 @@ fn emit_latest_processed_timestamp_metrics(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use common_kafka_consumer::Offset as MessageOffset;
-
-    fn poll(epoch: u64, partition: i32, first: i64, last: i64, count: u32) -> InFlightPoll {
-        let mut partitions = HashMap::new();
-        partitions.insert(
-            TopicPartition::new("test", partition),
-            PartitionDeliveries {
-                span: OffsetSpan { first, last },
-                generation: 0,
-                generations_version_seen: 0,
-                charges: Vec::new(),
-                latest_kafka_ts: 0,
-                max_lag_ms: None,
-                delivered: count,
-                covered: 0,
-                accepted: 0,
-            },
-        );
-        InFlightPoll {
-            poll_id: format!("poll-{epoch}-{partition}-{first}"),
-            assignment_epoch: epoch,
-            partitions,
-            message_count: count,
-            covered: 0,
-            accepted: 0,
-            dispatched_at: Instant::now(),
-        }
-    }
-
-    fn completion(epoch: u64, partition: i32, offsets: &[i64], accepted: u32) -> GroupCompletion {
-        GroupCompletion {
-            partition: Partition(partition),
-            assignment_epoch: epoch,
-            offsets: offsets.iter().map(|o| MessageOffset(*o)).collect(),
-            accepted,
-        }
-    }
-
-    #[test]
-    fn apply_completion_credits_the_poll_holding_the_offsets() {
-        let mut in_flight = VecDeque::from([poll(1, 0, 0, 3, 4), poll(1, 0, 4, 7, 4)]);
-
-        apply_completion(&mut in_flight, completion(1, 0, &[4, 6], 2));
-
-        assert_eq!(in_flight[0].covered, 0);
-        assert_eq!(in_flight[1].covered, 2);
-        assert_eq!(in_flight[1].accepted, 2);
-        assert!(!in_flight[1].is_complete());
-
-        apply_completion(&mut in_flight, completion(1, 0, &[5, 7], 2));
-        assert!(in_flight[1].is_complete());
-    }
-
-    #[test]
-    fn apply_completion_spanning_two_polls_credits_each() {
-        // A key-table run merges messages from consecutive polls into one
-        // send, so its completion spans both spans.
-        let mut in_flight = VecDeque::from([poll(1, 0, 0, 3, 4), poll(1, 0, 4, 7, 4)]);
-
-        apply_completion(&mut in_flight, completion(1, 0, &[2, 3, 4, 5], 4));
-
-        assert_eq!(in_flight[0].covered, 2);
-        assert_eq!(in_flight[0].accepted, 2);
-        assert_eq!(in_flight[1].covered, 2);
-        assert_eq!(in_flight[1].accepted, 2);
-    }
-
-    #[test]
-    fn apply_completion_under_report_shorts_the_tail_poll() {
-        let mut in_flight = VecDeque::from([poll(1, 0, 0, 3, 4), poll(1, 0, 4, 7, 4)]);
-
-        apply_completion(&mut in_flight, completion(1, 0, &[2, 3, 4, 5], 3));
-
-        assert_eq!(in_flight[0].accepted, 2, "leading offsets are accepted");
-        assert_eq!(
-            in_flight[1].accepted, 1,
-            "the tail poll fails its accepted check"
-        );
-        assert_eq!(in_flight[1].covered, 2);
-    }
-
-    #[test]
-    fn strip_revoked_partitions_keeps_the_other_partitions_slices() {
-        // A cooperative rebalance revokes one partition of a two-partition
-        // poll. The kept partition's slice must stay accounted, or its
-        // ledger charges never settle and its commits freeze at the hole.
-        let mut two = poll(1, 0, 0, 1, 4);
-        two.partitions.insert(
-            TopicPartition::new("test", 1),
-            PartitionDeliveries {
-                span: OffsetSpan {
-                    first: 10,
-                    last: 11,
-                },
-                generation: 0,
-                generations_version_seen: 0,
-                charges: Vec::new(),
-                latest_kafka_ts: 0,
-                max_lag_ms: None,
-                delivered: 2,
-                covered: 0,
-                accepted: 0,
-            },
-        );
-        two.partitions
-            .get_mut(&TopicPartition::new("test", 0))
-            .unwrap()
-            .delivered = 2;
-        let mut in_flight = VecDeque::from([two]);
-        // Partition 1 already had one message covered before the revoke.
-        apply_completion(&mut in_flight, completion(1, 1, &[10], 1));
-
-        let stripped = strip_revoked_partitions(&mut in_flight, &[TopicPartition::new("test", 1)]);
-
-        assert_eq!(stripped, 2);
-        assert_eq!(in_flight[0].message_count, 2);
-        assert_eq!(in_flight[0].covered, 0, "the revoked slice's credit goes");
-        assert!(!in_flight[0].is_complete());
-
-        // The kept partition completes the poll; a late completion for the
-        // revoked partition is discarded, not credited.
-        apply_completion(&mut in_flight, completion(1, 1, &[11], 1));
-        assert_eq!(in_flight[0].covered, 0);
-        apply_completion(&mut in_flight, completion(1, 0, &[0, 1], 2));
-        assert!(in_flight[0].is_complete());
-        assert_eq!(in_flight[0].accepted, 2);
-    }
-
-    #[test]
-    fn strip_revoked_partitions_removes_an_emptied_poll() {
-        let mut in_flight = VecDeque::from([poll(1, 0, 0, 3, 4), poll(1, 2, 0, 3, 4)]);
-
-        let stripped = strip_revoked_partitions(&mut in_flight, &[TopicPartition::new("test", 0)]);
-
-        assert_eq!(stripped, 4);
-        assert_eq!(in_flight.len(), 1);
-        assert_eq!(in_flight[0].message_count, 4);
-    }
-
-    #[test]
-    fn apply_completion_requires_a_matching_epoch() {
-        // The same offsets exist in two polls when a partition was revoked,
-        // reassigned, and replayed. The epoch keeps each incarnation's
-        // completions in its own poll.
-        let mut in_flight = VecDeque::from([poll(1, 0, 0, 3, 4), poll(2, 0, 0, 3, 4)]);
-
-        apply_completion(&mut in_flight, completion(2, 0, &[0, 1, 2, 3], 4));
-
-        assert_eq!(in_flight[0].covered, 0);
-        assert_eq!(in_flight[1].covered, 4);
-    }
-
-    #[test]
-    fn apply_completion_discards_a_completion_matching_no_poll() {
-        let mut in_flight = VecDeque::from([poll(1, 0, 0, 3, 4)]);
-
-        // Wrong partition, then wrong epoch: neither may be credited.
-        apply_completion(&mut in_flight, completion(1, 2, &[1], 1));
-        apply_completion(&mut in_flight, completion(9, 0, &[1], 1));
-
-        assert_eq!(in_flight[0].covered, 0);
-        assert_eq!(in_flight[0].accepted, 0);
-    }
-
-    #[test]
-    fn frontier_span_submits_the_frontier_verbatim() {
-        let span = OffsetSpan {
-            first: 10,
-            last: 11,
-        };
-        assert_eq!(
-            frontier_span(&span, Some(Offset(12))),
-            Some(OffsetSpan {
-                first: 10,
-                last: 11
-            })
-        );
-        assert_eq!(
-            frontier_span(&span, Some(Offset(11))),
-            Some(OffsetSpan {
-                first: 10,
-                last: 10
-            }),
-            "a frontier trailing the span wins"
-        );
-    }
-
-    #[test]
-    fn a_partition_without_a_frontier_is_not_committed() {
-        let span = OffsetSpan {
-            first: 20,
-            last: 21,
-        };
-        assert_eq!(frontier_span(&span, None), None);
-    }
-}
+#[path = "consumer_tests.rs"]
+mod tests;
