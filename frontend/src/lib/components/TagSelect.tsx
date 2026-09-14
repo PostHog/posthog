@@ -12,6 +12,8 @@ export type TagSelectProps = {
     children?: (selectedTags: string[]) => LemonDropdownProps['children']
     /** Distinguishes the logic instance so multiple selects on one page keep independent open/search state. */
     logicKey?: string
+    /** Tags to offer. Defaults to the project's tags; pass this for a resource with its own vocabulary. */
+    availableTags?: string[]
 }
 
 export function TagSelect({
@@ -20,10 +22,11 @@ export function TagSelect({
     onChange,
     children,
     logicKey,
+    availableTags,
     ...buttonProps
 }: TagSelectProps & Pick<LemonButtonProps, 'type' | 'size'>): JSX.Element {
     const fallbackKey = useId()
-    const logic = tagSelectLogic({ logicKey: logicKey ?? fallbackKey })
+    const logic = tagSelectLogic({ logicKey: logicKey ?? fallbackKey, availableTags })
     const { filteredTags, search, showPopover } = useValues(logic)
     const { setSearch, setShowPopover } = useActions(logic)
 

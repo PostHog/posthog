@@ -12,7 +12,7 @@ from posthog.api.shared import UserBasicSerializer
 from products.ai_observability.backend.markdown_outline import get_markdown_outline
 
 from ..marketplace.packaging import DEFAULT_BUNDLE_SKILLS, MAX_BUNDLE_SKILLS, SPEC_DESCRIPTION_MAX_LENGTH
-from ..models.skills import LLMSkill, LLMSkillFile, category_for_skill_name
+from ..models.skills import MAX_SKILL_TAG_LENGTH, LLMSkill, LLMSkillFile, category_for_skill_name
 from .community_publish_services import (
     DISPLAY_NAME_PATTERN,
     MAX_DISPLAY_NAME_LENGTH,
@@ -26,11 +26,14 @@ from .skill_services import (
     SKILL_NAME_PATTERN,
     LLMSkillOwnerNotFoundError,
     check_allowed_tool_name,
+    check_skill_tag_name,
     normalize_skill_file_path,
     resolve_owner_users,
     resolve_skill_owners,
+    resolve_skill_tags,
     seed_skill_owner,
     set_skill_owners,
+    set_skill_tags,
 )
 
 DEFAULT_VERSION_PAGE_SIZE = 50
@@ -42,6 +45,9 @@ MAX_SKILL_FILE_COUNT = 200
 # Ownership is a short routing list, not an ACL — cap it so a create/update can't resolve membership,
 # clear the owner set, and insert an owner row per entry for an oversized input before being rejected.
 MAX_SKILL_OWNERS = 25
+# Tags group a skill; past a handful of them per skill they stop narrowing anything and the row of
+# chips is what a person has to read instead.
+MAX_SKILL_TAGS = 20
 # skill-get returns the whole body when the caller doesn't page, but a large body is
 # truncated by the MCP transport before it reaches an agent — and an un-paged response
 # reported body_next_offset as null, so the agent had no valid offset to continue from and
@@ -109,6 +115,14 @@ def validate_skill_body_size(body: str) -> str:
             code="max_size",
         )
     return body
+
+
+def validate_skill_tag(value: str) -> None:
+    # Returns None (raise-only) so it fits a DRF `validators=[...]` list.
+    try:
+        check_skill_tag_name(value)
+    except ValueError as err:
+        raise serializers.ValidationError(str(err)) from err
 
 
 def validate_allowed_tool(value: str) -> None:
@@ -189,6 +203,12 @@ class LLMSkillListQuerySerializer(serializers.Serializer):
         allow_blank=True,
         help_text='Filter skills to this exact category. Pass "scout" for Signals scouts, or an empty string to '
         "return only uncategorized skills. Omit the parameter entirely to return skills of every category.",
+    )
+    tags = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Comma-separated tag names. Returns skills carrying at least one of them, so adding a "
+        "tag widens the result. Tags are keyed on the logical skill, so this is stable across versions.",
     )
 
 
@@ -427,6 +447,20 @@ class LLMSkillPublishSerializer(serializers.Serializer):
         "logical skill, so setting them is independent of the version being published — a body edit "
         "alone never changes ownership.",
     )
+    tags = serializers.ListField(
+        child=serializers.CharField(
+            max_length=MAX_SKILL_TAG_LENGTH,
+            # A picker can submit a stray empty entry; `set_skill_tags` drops blanks rather than
+            # failing the whole write over one.
+            allow_blank=True,
+            validators=[validate_skill_tag],
+        ),
+        required=False,
+        max_length=MAX_SKILL_TAGS,
+        help_text="Replace the skill's tags with these names. Omit to leave tags unchanged; pass an "
+        "empty list to clear them. Names are lowercased and trimmed. Tags are keyed on the logical "
+        "skill, so setting them is independent of the version being published.",
+    )
     base_version = serializers.IntegerField(
         min_value=1,
         required=False,
@@ -469,13 +503,14 @@ class LLMSkillPublishSerializer(serializers.Serializer):
         if "files" in attrs and "file_edits" in attrs:
             raise serializers.ValidationError("Provide either 'files' or 'file_edits', not both.")
         # `base_version` is a plain optional field so the generated PATCH schema (which marks every
-        # body field optional) stays truthful for owner-only updates — but any payload that publishes
-        # a version still needs the optimistic-concurrency anchor, so require it here where the
-        # field-level schema can't.
-        is_owner_only = attrs.get("owners") is not None and all(attrs.get(f) is None for f in PUBLISH_CONTENT_FIELDS)
-        if not is_owner_only and attrs.get("base_version") is None:
+        # body field optional) stays truthful for updates that only set owners or tags — but any
+        # payload that publishes a version still needs the optimistic-concurrency anchor, so require
+        # it here where the field-level schema can't.
+        sets_logical_metadata = attrs.get("owners") is not None or attrs.get("tags") is not None
+        publishes_content = any(attrs.get(f) is not None for f in PUBLISH_CONTENT_FIELDS)
+        if (publishes_content or not sets_logical_metadata) and attrs.get("base_version") is None:
             raise serializers.ValidationError(
-                {"base_version": "base_version is required unless the update only sets owners."}
+                {"base_version": "base_version is required unless the update only sets owners or tags."}
             )
         return attrs
 
@@ -502,6 +537,11 @@ class LLMSkillSerializer(serializers.ModelSerializer):
         help_text='Server-owned classification — set by the producing system (the Signals harness stamps "scout"), '
         "not writable via the API. Empty for an ordinary skill. Groups skills into their own surface "
         "(e.g. the Scouts tab) independently of the skill name.",
+    )
+    tags = serializers.SerializerMethodField(
+        help_text="Tags the team applied to this skill, alphabetical. Unlike category, these are the "
+        "team's own grouping — set them via the tags field on create/update. Keyed on the logical "
+        "skill, so publishing a version keeps them.",
     )
     owners = serializers.SerializerMethodField(
         help_text="Users who own this skill, seed-creator first. Ownership is keyed on the logical skill "
@@ -540,6 +580,7 @@ class LLMSkillSerializer(serializers.ModelSerializer):
             "allowed_tools",
             "metadata",
             "category",
+            "tags",
             "owners",
             "files",
             "outline",
@@ -556,6 +597,7 @@ class LLMSkillSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = [
             "id",
+            "tags",
             "owners",
             "files",
             "outline",
@@ -610,6 +652,15 @@ class LLMSkillSerializer(serializers.ModelSerializer):
         if isinstance(value, str):
             return value
         return value.isoformat().replace("+00:00", "Z")
+
+    @extend_schema_field(serializers.ListField(child=serializers.CharField()))
+    def get_tags(self, instance: LLMSkill) -> list[str]:
+        # The list endpoint pre-resolves tags for the whole page (one query) and passes them via
+        # context to avoid N+1; a single-skill fetch resolves on demand.
+        tags_by_name = self.context.get("tags_by_skill_name")
+        if tags_by_name is not None:
+            return list(tags_by_name.get(instance.name, []))
+        return resolve_skill_tags(self.context["get_team"](), instance.name)
 
     @extend_schema_field(UserBasicSerializer(many=True))
     def get_owners(self, instance: LLMSkill) -> list[dict[str, Any]]:
@@ -720,9 +771,23 @@ class LLMSkillCreateSerializer(LLMSkillSerializer):
         help_text="User UUIDs to set as the skill's owners. Each must be a member of this project. "
         "Defaults to the creating user when omitted; pass an empty list to create with no owners.",
     )
+    tags = serializers.ListField(  # type: ignore[assignment]
+        child=serializers.CharField(
+            max_length=MAX_SKILL_TAG_LENGTH,
+            # A picker can submit a stray empty entry; `set_skill_tags` drops blanks rather than
+            # failing the whole write over one.
+            allow_blank=True,
+            validators=[validate_skill_tag],
+        ),
+        required=False,
+        write_only=True,
+        max_length=MAX_SKILL_TAGS,
+        help_text="Tag names to group the skill under. Names are lowercased and trimmed, and a tag "
+        "the team hasn't used before is created by using it.",
+    )
 
     class Meta(LLMSkillSerializer.Meta):
-        read_only_fields = [f for f in LLMSkillSerializer.Meta.read_only_fields if f not in ("files", "owners")]
+        read_only_fields = [f for f in LLMSkillSerializer.Meta.read_only_fields if f not in ("files", "owners", "tags")]
 
     def validate_files(self, value: list[dict[str, Any]]) -> list[dict[str, Any]]:
         return _validate_files(value)
@@ -732,6 +797,7 @@ class LLMSkillCreateSerializer(LLMSkillSerializer):
         team = self.context["get_team"]()
         files = validated_data.pop("files", None)
         owner_uuids = validated_data.pop("owners", None)
+        tag_names = validated_data.pop("tags", None)
 
         with transaction.atomic():
             # `category` is read-only on the serializer, so it can never arrive in validated_data —
@@ -769,6 +835,8 @@ class LLMSkillCreateSerializer(LLMSkillSerializer):
             else:
                 # Creator owns by default — durable, not reconstructed from version history.
                 seed_skill_owner(team, skill.name, request.user)
+            if tag_names:
+                set_skill_tags(team, skill.name, tag_names)
         return skill
 
 
@@ -821,6 +889,13 @@ class LLMSkillRenameSerializer(serializers.Serializer):
 
     def validate_new_name(self, value: str) -> str:
         return validate_skill_name_value(value)
+
+
+class LLMSkillTagOptionsSerializer(serializers.Serializer):
+    tags = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Every tag the team has applied to a skill, alphabetical.",
+    )
 
 
 class LLMSkillResolveResponseSerializer(serializers.Serializer):

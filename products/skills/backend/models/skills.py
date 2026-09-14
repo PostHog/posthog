@@ -17,6 +17,11 @@ CATEGORY_BY_NAME_PREFIX: tuple[tuple[str, str], ...] = (
 )
 
 
+# Tags are chips in a filter row, so they stay short — long enough for a team-name or topic label,
+# well below the 255 that `posthog.Tag` allows.
+MAX_SKILL_TAG_LENGTH = 64
+
+
 def category_for_skill_name(name: str) -> str:
     return next((category for prefix, category in CATEGORY_BY_NAME_PREFIX if name.startswith(prefix)), "")
 
@@ -135,6 +140,54 @@ class LLMSkillOwner(UUIDModel):
                 fields=["team", "skill_name", "user"],
                 name="unique_llm_skill_owner",
             ),
+        ]
+
+
+class LLMSkillTag(UUIDModel):
+    """A team-authored label on a skill, keyed on the *logical* skill `(team, skill_name)`.
+
+    Tags are the grouping a team owns. `LLMSkill.category` is server-owned — stamped from
+    `CATEGORY_BY_NAME_PREFIX` — so it groups the skills PostHog produces and nothing a team invents.
+
+    Keyed like `LLMSkillOwner`, and for the same reason: each skill version is its own `LLMSkill` row,
+    so a tag hung off a version row would drift every time somebody edits the body. Keying on
+    `(team, skill_name)` means publishing a version can never change how a skill is grouped. See the
+    `LLMSkillOwner` docstring for why the team FK is the exact environment team and why every read and
+    write goes through `TeamScopedManager.for_team(..., canonical=True)`.
+
+    Not to be confused with `metadata["tags"]`, which describes a skill in the public community
+    catalog and belongs to whoever published it there.
+
+    The tag name lives on this row instead of pointing at `posthog.Tag`, so the skills product owns
+    its own tag vocabulary. Sharing `Tag` would hand skill tags to `cleanup_orphan_tags`, which
+    deletes any `Tag` with no `TaggedItem` back-reference — it cannot see this table, so tagging a
+    dashboard would garbage-collect the tags on skills. Names are normalized by `tagify` on write, so
+    they read the same as tags everywhere else in the app.
+    """
+
+    objects = TeamScopedManager()
+
+    # db_constraint=False on the FK to posthog_team — see the note on `LLMSkillOwner`.
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    # Logical skill identity, not a version FK — see the class docstring.
+    skill_name = models.CharField(max_length=64)
+    name = models.CharField(max_length=MAX_SKILL_TAG_LENGTH)
+    created_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        db_table = "llm_analytics_llmskilltag"
+        constraints = [
+            # Its leading (team, skill_name) columns also serve the read of every tag on one logical
+            # skill, so that read needs no separate index.
+            models.UniqueConstraint(
+                fields=["team", "skill_name", "name"],
+                name="unique_llm_skill_tag",
+            ),
+        ]
+        indexes = [
+            # The list endpoint's tag filter and the tag picker both start from a tag name, which the
+            # unique constraint above cannot serve — its leading column is the skill name.
+            models.Index(fields=["team", "name"], name="llm_skill_tag_team_name_idx"),
         ]
 
 

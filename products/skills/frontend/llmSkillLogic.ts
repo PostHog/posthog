@@ -48,6 +48,7 @@ import {
     validateSkillName,
 } from './skillConstants'
 import type { SkillFileUpload } from './skillFileUpload'
+import { skillTagsModel } from './skillTagsModel'
 
 export enum SkillMode {
     View = 'view',
@@ -231,6 +232,7 @@ export interface llmSkillLogicValues {
     publishConflict: PublishConflict | null
     renamingSkill: boolean
     savingOwners: boolean
+    savingTags: boolean
     selectedVersion: number | null
     shouldDisplaySkeleton: boolean
     showSkillFormErrors: boolean
@@ -250,6 +252,7 @@ export interface llmSkillLogicValues {
     skillLoading: boolean
     skillName: string
     skillOwners: readonly UserBasicApi[]
+    skillTags: readonly string[]
     versionDescription: string
     versions: LLMSkillVersionSummaryApi[]
     versionsLoading: boolean
@@ -329,6 +332,9 @@ export interface llmSkillLogicActions {
     saveOwners: (ownerUuids: string[]) => {
         ownerUuids: string[]
     }
+    saveTags: (tags: string[]) => {
+        tags: string[]
+    }
     setCompareVersion: (compareVersion: number | null) => {
         compareVersion: number | null
     }
@@ -351,6 +357,9 @@ export interface llmSkillLogicActions {
         renaming: boolean
     }
     setSavingOwners: (saving: boolean) => {
+        saving: boolean
+    }
+    setSavingTags: (saving: boolean) => {
         saving: boolean
     }
     setSkill: (skill: ResolvedLLMSkill | SkillFormValues) => {
@@ -449,6 +458,7 @@ export interface llmSkillLogicMeta {
             value: number
         }>
         skillOwners: (skill: ResolvedLLMSkill | SkillFormValues | null) => readonly UserBasicApi[]
+        skillTags: (skill: ResolvedLLMSkill | SkillFormValues | null) => readonly string[]
         ownerDraftChanged: (ownerDraft: string[], skillOwners: readonly UserBasicApi[]) => boolean
     }
 }
@@ -490,6 +500,8 @@ export const llmSkillLogic = kea<llmSkillLogicType>([
         closeOwnersEditor: true,
         setOwnerDraft: (ownerUuids: string[]) => ({ ownerUuids }),
         saveOwners: (ownerUuids: string[]) => ({ ownerUuids }),
+        saveTags: (tags: string[]) => ({ tags }),
+        setSavingTags: (saving: boolean) => ({ saving }),
         setSavingOwners: (saving: boolean) => ({ saving }),
     }),
 
@@ -616,6 +628,13 @@ export const llmSkillLogic = kea<llmSkillLogicType>([
             [] as string[],
             {
                 setOwnerDraft: (_, { ownerUuids }) => ownerUuids,
+            },
+        ],
+        savingTags: [
+            false,
+            {
+                saveTags: () => true,
+                setSavingTags: (_, { saving }) => saving,
             },
         ],
         savingOwners: [
@@ -954,6 +973,11 @@ export const llmSkillLogic = kea<llmSkillLogicType>([
                 isSkill(skill) ? skill.owners : [],
         ],
 
+        skillTags: [
+            (s) => [s.skill],
+            (skill: ResolvedLLMSkill | SkillFormValues | null): readonly string[] => (isSkill(skill) ? skill.tags : []),
+        ],
+
         ownerDraftChanged: [
             (s) => [s.ownerDraft, s.skillOwners],
             (ownerDraft: string[], skillOwners: readonly UserBasicApi[]): boolean =>
@@ -1189,6 +1213,35 @@ export const llmSkillLogic = kea<llmSkillLogicType>([
 
         openOwnersEditor: () => {
             actions.setOwnerDraft(values.skillOwners.map((owner) => owner.uuid))
+        },
+
+        saveTags: async ({ tags }) => {
+            const currentSkill = values.skill
+            if (props.skillName === 'new' || !isSkill(currentSkill)) {
+                actions.setSavingTags(false)
+                return
+            }
+            try {
+                // Tags-only PATCH: the backend replaces them without publishing a version.
+                const updated = await llmSkillsNamePartialUpdate(
+                    String(ApiConfig.getCurrentTeamId()),
+                    props.skillName,
+                    {
+                        tags,
+                    }
+                )
+                // Only `tags` off the response, like the owners path: the rest describes the latest
+                // version, which is not necessarily the one on screen. Tags are version-independent.
+                actions.setSkill({ ...currentSkill, tags: updated.tags })
+                // A tag the team just invented has to reach the filter and the picker.
+                skillTagsModel.findMounted()?.actions.loadAvailableTags()
+                llmSkillsLogic.findMounted()?.actions.loadSkills(false)
+            } catch (error) {
+                console.error('Failed to update skill tags', error)
+                lemonToast.error(getApiErrorDetail(error) || "Couldn't update tags. Try again.")
+            } finally {
+                actions.setSavingTags(false)
+            }
         },
 
         saveOwners: async ({ ownerUuids }) => {

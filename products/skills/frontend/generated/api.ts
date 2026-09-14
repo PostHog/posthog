@@ -27,6 +27,7 @@ import type {
     LLMSkillRenameApi,
     LLMSkillResolveResponseApi,
     LLMSkillSearchResponseApi,
+    LLMSkillTagOptionsApi,
     LlmSkillsBundleRetrieveParams,
     LlmSkillsListParams,
     LlmSkillsNameExportRetrieveParams,
@@ -576,6 +577,26 @@ export const llmSkillsSearchRetrieve = async (
     options?: RequestInit
 ): Promise<LLMSkillSearchResponseApi> => {
     return apiMutator<LLMSkillSearchResponseApi>(getLlmSkillsSearchRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getLlmSkillsTagsRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/llm_skills/tags/`
+}
+
+/**
+ * Every tag this team has applied to a skill.
+ *
+ * Backs the tag filter on the Skills page, which needs the team's whole vocabulary rather than
+ * the tags of the skills on the current page.
+ */
+export const llmSkillsTagsRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<LLMSkillTagOptionsApi> => {
+    return apiMutator<LLMSkillTagOptionsApi>(getLlmSkillsTagsRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
     })

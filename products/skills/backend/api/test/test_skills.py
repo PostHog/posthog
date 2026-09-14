@@ -27,6 +27,7 @@ from ...api.community_publish_services import (
 )
 from ...api.skill_serializers import (
     DEFAULT_BODY_PAGE_LENGTH,
+    MAX_SKILL_TAGS,
     LLMSkillCreateSerializer,
     LLMSkillListSerializer,
     LLMSkillSerializer,
@@ -35,12 +36,15 @@ from ...api.skill_services import (
     MAX_SKILL_FILE_COUNT,
     archive_skill,
     create_skill,
+    duplicate_skill,
     publish_skill_version,
     resolve_skill_owners,
+    resolve_skill_tags,
     set_skill_owners,
+    set_skill_tags,
 )
 from ...marketplace.packaging import SPEC_DESCRIPTION_MAX_LENGTH
-from ...models.skills import LLMSkill, LLMSkillFile
+from ...models.skills import MAX_SKILL_TAG_LENGTH, LLMSkill, LLMSkillFile
 
 COMMUNITY_FLAG = "products.skills.backend.api.community_skills.posthoganalytics.feature_enabled"
 
@@ -2314,6 +2318,214 @@ class TestLLMSkillOwners(APIBaseTest):
 
         assert [o.email for o in resolve_skill_owners(env_a, "shared-name")] == [alice.email]
         assert [o.email for o in resolve_skill_owners(env_b, "shared-name")] == [bob.email]
+
+
+class TestLLMSkillTags(APIBaseTest):
+    """The tags primitive: the grouping a team owns, keyed on the logical skill rather than a version.
+
+    `category` is stamped from the skill name, so a team can't group by anything it chose. Tags can,
+    and like owners they must not drift when somebody edits the body — the load-bearing test is
+    `test_tags_survive_version_publish_by_another_user`.
+    """
+
+    def _url(self, path: str = "") -> str:
+        return f"/api/environments/{self.team.id}/llm_skills/{path}"
+
+    def test_create_stores_tags_normalized_and_deduped(self) -> None:
+        # Names go through tagify, so " Growth " and "growth" are one tag. Storing them raw would
+        # leave a chip the filter can never select, since the filter matches the normalized name.
+        response = self.client.post(
+            self._url(),
+            data={
+                "name": "tagged",
+                "description": "d",
+                "body": "# b",
+                "tags": [" Growth ", "growth", "Platform", ""],
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert response.json()["tags"] == ["growth", "platform"]
+
+    def test_tags_survive_version_publish_by_another_user(self) -> None:
+        # Tags are keyed on the logical `(team, name)`, so a new version — by anyone — keeps the
+        # grouping. Hung off a version row they would vanish on the next body edit.
+        editor = User.objects.create_and_join(self.organization, "editor@example.com", None)
+        create_skill(self.team, user=self.user, name="grouped", description="d", body="# v1")
+        set_skill_tags(self.team, "grouped", ["growth"])
+
+        publish_skill_version(self.team, user=editor, skill_name="grouped", body="# v2", base_version=1)
+
+        response = self.client.get(self._url("name/grouped"))
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["version"] == 2
+        assert response.json()["tags"] == ["growth"]
+
+    @parameterized.expand(
+        [
+            ("with base_version", {"tags": ["growth"], "base_version": 1}),
+            # The generated PATCH contract marks every body field optional, so an MCP client can send
+            # `{tags: [...]}` alone — that shape must land, not 400 on a runtime-only requirement.
+            ("without base_version", {"tags": ["growth"]}),
+        ]
+    )
+    def test_tag_only_update_sets_tags_without_publishing_a_version(self, _label, payload) -> None:
+        create_skill(self.team, user=self.user, name="tagsonly", description="d", body="# b")
+
+        response = self.client.patch(self._url("name/tagsonly"), data=payload, format="json")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["tags"] == ["growth"]
+        assert response.json()["version"] == 1
+        assert LLMSkill.objects.filter(team=self.team, name="tagsonly").count() == 1
+
+    def test_tag_only_update_with_stale_base_version_conflicts(self) -> None:
+        # Same optimistic-concurrency contract as an owner-only update: a stale anchor 409s and
+        # leaves the grouping untouched.
+        create_skill(self.team, user=self.user, name="staletags", description="d", body="# b")
+        set_skill_tags(self.team, "staletags", ["growth"])
+
+        response = self.client.patch(
+            self._url("name/staletags"),
+            data={"tags": ["platform"], "base_version": 2},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_409_CONFLICT, response.json()
+        assert resolve_skill_tags(self.team, "staletags") == ["growth"]
+
+    @parameterized.expand(
+        [
+            ("replaced", ["platform"], ["platform"]),
+            ("cleared", [], []),
+        ]
+    )
+    def test_update_replaces_or_clears_tags(self, _label, tags, expected) -> None:
+        create_skill(self.team, user=self.user, name="replaceable", description="d", body="# b")
+        set_skill_tags(self.team, "replaceable", ["growth"])
+
+        response = self.client.patch(
+            self._url("name/replaceable"),
+            data={"tags": tags, "base_version": 1},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["tags"] == expected
+
+    def test_body_edit_without_tags_leaves_them_untouched(self) -> None:
+        # Omitting `tags` must mean "leave the grouping alone", not "clear it" — otherwise every
+        # body edit from a client that doesn't send tags silently ungroups the skill.
+        create_skill(self.team, user=self.user, name="untouched", description="d", body="# v1")
+        set_skill_tags(self.team, "untouched", ["growth"])
+
+        response = self.client.patch(
+            self._url("name/untouched"),
+            data={"body": "# v2", "base_version": 1},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["tags"] == ["growth"]
+
+    def test_list_returns_skills_carrying_any_requested_tag(self) -> None:
+        # The filter row narrows a long list to the groups somebody cares about, so a second tag
+        # widens the result. Requesting a tag nobody used returns nothing rather than everything.
+        for name in ("growth-skill", "platform-skill", "untagged-skill"):
+            create_skill(self.team, user=self.user, name=name, description="d", body="# b")
+        set_skill_tags(self.team, "growth-skill", ["growth"])
+        set_skill_tags(self.team, "platform-skill", ["platform"])
+
+        one_tag = self.client.get(self._url() + "?tags=growth")
+        two_tags = self.client.get(self._url() + "?tags=growth,platform")
+        unused_tag = self.client.get(self._url() + "?tags=nobody-uses-this")
+
+        assert [r["name"] for r in one_tag.json()["results"]] == ["growth-skill"]
+        assert sorted(r["name"] for r in two_tags.json()["results"]) == ["growth-skill", "platform-skill"]
+        assert unused_tag.json()["results"] == []
+
+    def test_list_serializes_the_tags_of_each_skill(self) -> None:
+        # The list is where the chips render, and it serializes tags from a batched context map
+        # rather than per row — a stale map would attach one skill's tags to another.
+        create_skill(self.team, user=self.user, name="alpha", description="d", body="# b")
+        create_skill(self.team, user=self.user, name="beta", description="d", body="# b")
+        set_skill_tags(self.team, "alpha", ["growth", "platform"])
+
+        response = self.client.get(self._url() + "?order_by=name")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert {r["name"]: r["tags"] for r in response.json()["results"]} == {
+            "alpha": ["growth", "platform"],
+            "beta": [],
+        }
+
+    def test_tag_options_endpoint_returns_only_this_teams_tags(self) -> None:
+        # The picker offers the team's whole vocabulary, not the tags of the current page — and never
+        # another team's, which would leak how a different project organizes its work.
+        other_team = Team.objects.create(organization=self.organization, name="other")
+        create_skill(self.team, user=self.user, name="ours", description="d", body="# b")
+        set_skill_tags(self.team, "ours", ["platform", "growth"])
+        set_skill_tags(other_team, "theirs", ["secret-project"])
+
+        response = self.client.get(self._url("tags"))
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["tags"] == ["growth", "platform"]
+
+    def test_duplicate_inherits_the_source_tags(self) -> None:
+        # A fork is the same kind of skill, so it stays in the groups its team filters by — unlike
+        # ownership, which the duplicating user takes over.
+        create_skill(self.team, user=self.user, name="original", description="d", body="# b")
+        set_skill_tags(self.team, "original", ["growth"])
+
+        duplicate_skill(self.team, user=self.user, source_name="original", new_name="fork")
+
+        assert resolve_skill_tags(self.team, "fork") == ["growth"]
+
+    def test_recreated_skill_does_not_inherit_archived_tags(self) -> None:
+        # Tags are keyed on the logical `(team, name)`. Archiving must retire them, or a later skill
+        # reusing the name turns up under groups nobody put it in.
+        create_skill(self.team, user=self.user, name="reused-tags", description="d", body="# v1")
+        set_skill_tags(self.team, "reused-tags", ["growth"])
+
+        archive_skill(self.team, "reused-tags")
+        create_skill(self.team, user=self.user, name="reused-tags", description="d", body="# fresh")
+
+        assert resolve_skill_tags(self.team, "reused-tags") == []
+
+    def test_tags_are_scoped_to_the_exact_environment(self) -> None:
+        # Skills are environment-scoped (LLMSkill filters team=<env>); tags must match. If tags
+        # canonicalized to the parent project, two sibling environments' same-named skills would
+        # share one set of chips.
+        parent = Team.objects.create(organization=self.organization, name="proj")
+        env_a = Team.objects.create(organization=self.organization, parent_team=parent, name="env-a")
+        env_b = Team.objects.create(organization=self.organization, parent_team=parent, name="env-b")
+
+        set_skill_tags(env_a, "shared-name", ["growth"])
+        set_skill_tags(env_b, "shared-name", ["platform"])
+
+        assert resolve_skill_tags(env_a, "shared-name") == ["growth"]
+        assert resolve_skill_tags(env_b, "shared-name") == ["platform"]
+
+
+class TestLLMSkillTagLimits(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("too many tags", [f"tag-{i}" for i in range(MAX_SKILL_TAGS + 1)]),
+            ("tag too long", ["t" * (MAX_SKILL_TAG_LENGTH + 1)]),
+            # The list filter takes tags as one comma-separated param, so a comma would split one
+            # tag into two the filter can never match.
+            ("tag with a comma", ["growth,platform"]),
+        ]
+    )
+    def test_create_serializer_rejects_unbounded_tags(self, _label, tags) -> None:
+        # Both caps exist so one request can't insert an unbounded number of rows, or a tag too long
+        # for any chip to render. Without them the write path is the only thing bounding either.
+        serializer = LLMSkillCreateSerializer(data={"name": "capped", "description": "d", "body": "# b", "tags": tags})
+
+        assert not serializer.is_valid()
+        assert "tags" in serializer.errors
 
 
 class TestLLMSkillDescriptionCapSplit(SimpleTestCase):

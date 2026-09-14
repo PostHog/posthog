@@ -128,6 +128,15 @@
             "pattern": "^[^/]+$",
             "type": "string"
         },
+        "tags": {
+            "description": "Replace the skill's tags with these names. Omit to leave tags unchanged; pass an empty list to clear them. Names are lowercased and trimmed. Tags are keyed on the logical skill, so setting them is independent of the version being published.",
+            "items": {
+                "maxLength": 64,
+                "type": "string"
+            },
+            "maxItems": 20,
+            "type": "array"
+        },
         "version_description": {
             "description": "Optional note describing what changed in this version. Shown in the version history.",
             "maxLength": 400,
