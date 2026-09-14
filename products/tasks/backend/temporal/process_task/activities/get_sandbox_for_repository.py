@@ -23,6 +23,7 @@ from products.tasks.backend.logic.services.sandbox import (
     Sandbox,
     SandboxConfig,
     SandboxTemplate,
+    needs_full_history,
     parse_sandbox_repo_mount_map,
     workload_for_origin_product,
 )
@@ -217,9 +218,9 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
         except Task.DoesNotExist as e:
             raise TaskNotFoundError(f"Task {ctx.task_id} not found", {"task_id": ctx.task_id}, cause=e)
 
-        # Signal report research sandboxes need full history for git blame.
+        # Signal report research and pinned Signals scouts need full history for git log and git blame.
         # All other sandboxes use shallow clone (--depth 1) for faster boot.
-        shallow = task.origin_product != Task.OriginProduct.SIGNAL_REPORT
+        shallow = not needs_full_history(task.origin_product)
 
         actor_user = get_task_run_credential_user(task, ctx.state)
         github_token = ""

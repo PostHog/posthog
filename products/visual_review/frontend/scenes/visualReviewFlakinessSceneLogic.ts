@@ -31,6 +31,7 @@ export type Filters = {
     preset: FlakinessPreset
     typeKeys: string[]
     areas: string[]
+    teams: string[]
     search: string
     sort: FlakinessSort
 }
@@ -43,6 +44,7 @@ const EMPTY_FILTERS: Filters = {
     preset: 'needs_decision',
     typeKeys: [],
     areas: [],
+    teams: [],
     search: '',
     sort: 'failures',
 }
@@ -66,6 +68,14 @@ function typeLabelOf(key: string): string {
         return runTypeLabel('playwright', key.slice('playwright::'.length))
     }
     return key
+}
+
+// Pinned to UNOWNED_TEAM in the engineering analytics facade, which the backend sends for a story
+// file that no ownership entry covers.
+const UNOWNED_TEAM = 'unowned'
+
+function teamLabelOf(team: string): string {
+    return team === UNOWNED_TEAM ? 'No owner' : team
 }
 
 function matchesPreset(entry: DecoratedEntry, preset: FlakinessPreset): boolean {
@@ -120,6 +130,13 @@ function applyFilters(
             return false
         }
         if (exclude !== 'areas' && filters.areas.length && !filters.areas.includes(entry._area)) {
+            return false
+        }
+        if (
+            exclude !== 'teams' &&
+            filters.teams.length &&
+            !(entry.owner_team && filters.teams.includes(entry.owner_team))
+        ) {
             return false
         }
         if (exclude !== 'search' && search && !entry.identifier.toLowerCase().includes(search)) {
@@ -250,6 +267,9 @@ export interface visualReviewFlakinessSceneLogicActions {
     toggleArea: (value: string) => {
         value: string
     }
+    toggleTeam: (value: string) => {
+        value: string
+    }
     toggleType: (value: string) => {
         value: string
     }
@@ -297,6 +317,7 @@ export const visualReviewFlakinessSceneLogic = kea<visualReviewFlakinessSceneLog
         landOnPreset: (preset: FlakinessPreset) => ({ preset }),
         toggleType: (value: string) => ({ value }),
         toggleArea: (value: string) => ({ value }),
+        toggleTeam: (value: string) => ({ value }),
         setSearch: (search: string) => ({ search }),
         setSort: (sort: FlakinessSort) => ({ sort }),
         clearAllFilters: true,
@@ -367,6 +388,12 @@ export const visualReviewFlakinessSceneLogic = kea<visualReviewFlakinessSceneLog
                         ? state.areas.filter((area) => area !== value)
                         : [...state.areas, value],
                 }),
+                toggleTeam: (state, { value }) => ({
+                    ...state,
+                    teams: state.teams.includes(value)
+                        ? state.teams.filter((team) => team !== value)
+                        : [...state.teams, value],
+                }),
                 setSearch: (state, { search }) => ({ ...state, search }),
                 setSort: (state, { sort }) => ({ ...state, sort }),
                 clearAllFilters: (state) => ({ ...EMPTY_FILTERS, preset: state.preset }),
@@ -424,6 +451,12 @@ export const visualReviewFlakinessSceneLogic = kea<visualReviewFlakinessSceneLog
                 ),
                 area: bucketize(applyFilters(entries, filters, 'areas').map((entry) => entry._area)),
                 stability: [],
+                team: bucketize(
+                    applyFilters(entries, filters, 'teams').flatMap((entry) =>
+                        entry.owner_team ? [entry.owner_team] : []
+                    ),
+                    teamLabelOf
+                ),
             }),
         ],
         facetSelection: [
@@ -432,6 +465,7 @@ export const visualReviewFlakinessSceneLogic = kea<visualReviewFlakinessSceneLog
                 type: new Set(filters.typeKeys),
                 area: new Set(filters.areas),
                 stability: new Set<string>(),
+                team: new Set(filters.teams),
             }),
         ],
         thumbnailBasePath: [
@@ -465,7 +499,9 @@ export const visualReviewFlakinessSceneLogic = kea<visualReviewFlakinessSceneLog
             // the whole population while the entry list stops at the cap, so a
             // tile can read 12 with none of those twelve actually listed, and
             // landing on it would show a filled tile above an empty table.
-            const rows = values.decoratedEntries
+            // Every other filter applies, so a link that names a team lands on
+            // a preset that team has rows in.
+            const rows = applyFilters(values.decoratedEntries, values.filters, 'preset')
             const has = (preset: FlakinessPreset): boolean => rows.some((entry) => matchesPreset(entry, preset))
             if (has(values.filters.preset)) {
                 return
@@ -525,6 +561,9 @@ export const visualReviewFlakinessSceneLogic = kea<visualReviewFlakinessSceneLog
             if (filters.areas.length) {
                 hash.areas = filters.areas.join(',')
             }
+            if (filters.teams.length) {
+                hash.teams = filters.teams.join(',')
+            }
             if (filters.search) {
                 hash.q = filters.search
             }
@@ -539,6 +578,7 @@ export const visualReviewFlakinessSceneLogic = kea<visualReviewFlakinessSceneLog
             setPreset: toUrl,
             toggleType: toUrl,
             toggleArea: toUrl,
+            toggleTeam: toUrl,
             setSearch: toUrl,
             setSort: toUrl,
             // Not an empty hash: the preset survives a clear, and dropping it from
@@ -557,6 +597,7 @@ export const visualReviewFlakinessSceneLogic = kea<visualReviewFlakinessSceneLog
                 preset: presetFromHash(hash.preset),
                 typeKeys: hash.types ? hash.types.split(',') : [],
                 areas: hash.areas ? hash.areas.split(',') : [],
+                teams: hash.teams ? hash.teams.split(',') : [],
                 search: hash.q ?? '',
                 sort: hash.sort === 'recent' ? 'recent' : 'failures',
             }
@@ -575,6 +616,7 @@ export const visualReviewFlakinessSceneLogic = kea<visualReviewFlakinessSceneLog
             }
             syncToggles(next.typeKeys, current.typeKeys, actions.toggleType)
             syncToggles(next.areas, current.areas, actions.toggleArea)
+            syncToggles(next.teams, current.teams, actions.toggleTeam)
         },
     })),
     afterMount(({ actions }) => {

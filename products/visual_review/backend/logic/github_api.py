@@ -18,7 +18,7 @@ from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.models.github_integration_base import GitHubIntegrationError
 
 from ..models import Repo
-from . import errors
+from . import content_cache, errors
 
 logger = structlog.get_logger(__name__)
 
@@ -159,7 +159,6 @@ def _github_api_request(
     repo: Repo,
     path: str,
     *,
-    params: dict[str, str | int] | None = None,
     json: Mapping[str, object] | None = None,
     timeout: int = 10,
 ) -> requests.Response:
@@ -175,9 +174,7 @@ def _github_api_request(
 
     github = get_github_integration_for_repo(repo)
 
-    response = github.api_request(
-        method, f"/repos/{repo.repo_full_name}/{safe_path}", params=params, json_body=json, timeout=timeout
-    )
+    response = github.api_request(method, f"/repos/{repo.repo_full_name}/{safe_path}", json_body=json, timeout=timeout)
 
     if response.status_code == 404 and repo.repo_external_id:
         new_full_name = _resolve_repo_by_id(github, repo.repo_external_id)
@@ -192,7 +189,7 @@ def _github_api_request(
             repo.save(update_fields=["repo_full_name"])
 
             response = github.api_request(
-                method, f"/repos/{new_full_name}/{safe_path}", params=params, json_body=json, timeout=timeout
+                method, f"/repos/{new_full_name}/{safe_path}", json_body=json, timeout=timeout
             )
 
     return response
@@ -216,6 +213,28 @@ def _get_pr_info(github, repo_full_name: str, pr_number: int) -> dict:
     }
 
 
+# A larger baseline file is parsed without caching, so one repository cannot fill the shared cache
+# with large parsed files.
+_MAX_CACHED_BASELINE_BYTES = 2 * 1024 * 1024
+
+
+def _parse_baseline_file(text: str) -> dict[str, dict]:
+    """Identifier to its signed entry, for a version 1 baseline file. Empty for anything else."""
+    import yaml
+
+    parsed = yaml.safe_load(text)
+    if not parsed or parsed.get("version") != 1:
+        return {}
+
+    raw_snapshots = parsed.get("snapshots", {})
+
+    normalized: dict[str, dict] = {}
+    for identifier, value in raw_snapshots.items():
+        if isinstance(value, dict) and "hash" in value:
+            normalized[identifier] = value
+    return normalized
+
+
 def _fetch_baseline_file(
     github, repo_full_name: str, file_path: str, branch: str
 ) -> tuple[dict[str, dict], str | None]:
@@ -225,29 +244,29 @@ def _fetch_baseline_file(
     Returns ``(snapshots_dict, file_sha)``. Snapshots dict maps
     identifier to ``{hash: "v1.kid.hash.tag"}`` (the signed format).
     If the file doesn't exist, returns ``({}, None)``.
-    """
-    import yaml
 
+    The file is parsed once per blob SHA. Every run reads it at least once, and most reads name a
+    blob that an earlier run already downloaded, because the file only changes when a baseline
+    commit lands. The small contents call still runs every time, since a branch ref can move.
+    """
     try:
-        result = github.get_file_contents(repo_full_name, file_path, ref=branch)
+        entry = github.get_file_entry(repo_full_name, file_path, ref=branch)
+        if entry is None:
+            return {}, None
+
+        def read_and_parse() -> dict[str, dict]:
+            text = entry["content"]
+            if text is None:
+                text = github.get_blob_text(repo_full_name, entry["sha"], entry["size"])
+            return _parse_baseline_file(text)
+
+        if entry["size"] > _MAX_CACHED_BASELINE_BYTES:
+            baselines: dict[str, dict] | None = read_and_parse()
+        else:
+            baselines = content_cache.load_by_hash("baseline_file", entry["sha"], read_and_parse)
     except GitHubRateLimitError:
         raise
     except GitHubIntegrationError as e:
         raise errors.GitHubCommitError(f"Failed to fetch baseline file: {e}") from e
 
-    if result is None:
-        return {}, None
-
-    file_sha = result["sha"]
-
-    parsed = yaml.safe_load(result["content"])
-    if not parsed or parsed.get("version") != 1:
-        return {}, file_sha
-
-    raw_snapshots = parsed.get("snapshots", {})
-
-    normalized: dict[str, dict] = {}
-    for identifier, value in raw_snapshots.items():
-        if isinstance(value, dict) and "hash" in value:
-            normalized[identifier] = value
-    return normalized, file_sha
+    return baselines or {}, entry["sha"]

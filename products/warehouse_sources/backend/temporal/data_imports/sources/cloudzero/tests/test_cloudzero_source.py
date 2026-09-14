@@ -7,6 +7,7 @@ from parameterized import parameterized
 from products.warehouse_sources.backend.temporal.data_imports.sources.cloudzero.canonical_descriptions import (
     CANONICAL_DESCRIPTIONS,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.cloudzero.cloudzero import KEY_REJECTED_MESSAGE
 from products.warehouse_sources.backend.temporal.data_imports.sources.cloudzero.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.cloudzero.source import (
     CloudzeroSource,
@@ -59,18 +60,16 @@ class TestGetSchemas:
 class TestValidateCredentials:
     @parameterized.expand(
         [
-            ("valid", True, (True, None)),
-            ("invalid", False, (False, "Invalid credentials")),
+            ("valid", (True, None)),
+            ("invalid", (False, KEY_REJECTED_MESSAGE)),
         ]
     )
-    def test_plumbs_transport_result(
-        self, _name: str, transport_result: bool, expected: tuple[bool, str | None]
-    ) -> None:
+    def test_plumbs_transport_result(self, _name: str, transport_result: tuple[bool, str | None]) -> None:
         with patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.cloudzero.source.validate_cloudzero_credentials",
             return_value=transport_result,
         ) as mocked:
-            assert CloudzeroSource().validate_credentials(_config(), team_id=1) == expected
+            assert CloudzeroSource().validate_credentials(_config(), team_id=1) == transport_result
         mocked.assert_called_once_with("key")
 
 

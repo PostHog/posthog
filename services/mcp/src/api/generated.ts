@@ -9475,6 +9475,8 @@ export namespace Schemas {
     export interface AddSnapshotsInput {
       snapshots: SnapshotManifestItem[];
       baseline_hashes?: AddSnapshotsInputBaselineHashes;
+      /** SHA-256 of the story-to-file map the CLI built from the Storybook index.json of this run's build. Every shard of a run sends the same value. Empty when the run sends no map. */
+      story_index_hash?: string;
     }
 
     export type UploadTargetFields = {[key: string]: string};
@@ -9486,6 +9488,8 @@ export namespace Schemas {
     }
 
     export interface AddSnapshotsResult {
+      /** Where to upload the story-to-file map, as a presigned POST with a JSON body. Null when the request sent no map, or the store already holds a map with that hash. */
+      story_index_upload?: UploadTarget | null;
       added: number;
       uploads: UploadTarget[];
     }
@@ -10266,7 +10270,7 @@ export namespace Schemas {
       /** @nullable */
       readonly last_checked_at: string | null;
       /**
-         * Local time that starts alert checks in HH:MM format. Updating this value changes checks after the already scheduled next_check_at. Set null to remove the custom start time. The current next_check_at stays unchanged. Future checks use the alert interval's existing scheduling behavior.
+         * Local time that starts alert checks in HH:MM format. Updating this value recalculates the next check. Set null to remove the custom start time.
          * @nullable
          */
       schedule_start_time?: string | null;
@@ -19039,7 +19043,7 @@ export namespace Schemas {
       readonly license: string;
       /** Environment requirements declared by the skill. */
       readonly compatibility: string;
-      /** Tools the skill declares it may use. Surface these to the user before install. */
+      /** Tools the skill asks to use. Surface these to the user before install. The list is a request, not a grant: a harness that loads the installed skill over MCP ignores it until the user approves that grant. */
       allowed_tools?: string[];
       /** Arbitrary key-value metadata carried from the skill's frontmatter. */
       metadata?: CommunitySkillMetadata;
@@ -19109,7 +19113,7 @@ export namespace Schemas {
       readonly license: string;
       /** Environment requirements declared by the skill. */
       readonly compatibility: string;
-      /** Tools the skill declares it may use. Surface these to the user before install. */
+      /** Tools the skill asks to use. Surface these to the user before install. The list is a request, not a grant: a harness that loads the installed skill over MCP ignores it until the user approves that grant. */
       allowed_tools?: string[];
       /** Arbitrary key-value metadata carried from the skill's frontmatter. */
       metadata?: CommunitySkillListMetadata;
@@ -19288,7 +19292,7 @@ export namespace Schemas {
       name: string;
       /** Server-assigned version identity, e.g. v3. */
       version: string;
-      /** System prompt; {email} is replaced with the signup email domain at runtime. At most 20000 characters. */
+      /** System prompt; {email} is replaced with the signup email domain at runtime. When the prompt asks for it, the model may call web_search and fetch_page (run through Firecrawl) to look things up; each call costs Firecrawl credits. At most 20000 characters. */
       prompt_text: string;
       /** Gateway model id this version was authored against. */
       model: string;
@@ -22473,6 +22477,13 @@ export namespace Schemas {
       compiled_query: string | null;
       /** Async query status, when the run is not blocking. */
       query_status: unknown;
+      /** True when the query hit its row limit and more rows exist. Narrow the window or the interval and run the metric again. A HogQLQuery metric fixes its window in SQL and rejects those overrides, so report the window the definition itself covers, or ask for a parameterized metric. Either way, do not re-derive the series by hand. False whenever row_limit is null, because no row cap was reported for that run. */
+      has_more: boolean;
+      /**
+         * Row limit applied to this run. Null when no row cap was reported: a markdown metric, an insight or trends query, or a HogQL metric that sets its own LIMIT or uses a UNION. This field cannot verify the completeness of those runs.
+         * @nullable
+         */
+      row_limit: number | null;
       /**
          * Deep link to open the query in the app (SQL editor or insight).
          * @nullable
@@ -22975,6 +22986,30 @@ export namespace Schemas {
     export interface DataQualityGateConfig {
       /** When true, a materialization whose error-severity checks fail is not published; the previous version keeps serving and downstream models are skipped. */
       gate_materialization_on_checks: boolean;
+    }
+
+    export interface DataQualityMetricSubject {
+      /** Metric identifier used by the nested check endpoints. */
+      id: string;
+      /** Queryable metric name. */
+      name: string;
+      /** Metric label shown in the data catalog. */
+      display_name: string;
+    }
+
+    export interface DataQualityOutputColumn {
+      /** Output column name available through the {metric} relation. */
+      name: string;
+      /**
+         * ClickHouse type, or null when it could not be inferred.
+         * @nullable
+         */
+      type: string | null;
+    }
+
+    export interface DataQualityOutputSchema {
+      /** Columns returned by the saved metric query. */
+      columns: DataQualityOutputColumn[];
     }
 
     /**
@@ -31648,7 +31683,7 @@ export namespace Schemas {
       evidence: ReportEvidence[];
       /** 2-3 sentence evidence-grounded justification for the actionability call below. */
       actionability_explanation: string;
-      /** The scout's actionability call: `immediately_actionable` -> the report surfaces READY; `requires_human_input` -> PENDING_INPUT; `not_actionable` -> suppressed. A safety-judge failure suppresses the report regardless.
+      /** The scout's actionability call: `immediately_actionable` -> the report surfaces READY; `requires_human_input` -> PENDING_INPUT; `not_actionable` -> suppressed. A safety-judge failure suppresses the report regardless. A root cause you have not found is not human input: a report that names the evidence, the code surface, or a reproducible failure path is `immediately_actionable`, because investigating it is the action. Reserve `requires_human_input` for a report blocked on a decision only a person can make.
        *
        * * `immediately_actionable` - immediately_actionable
        * * `requires_human_input` - requires_human_input
@@ -37838,6 +37873,11 @@ export namespace Schemas {
       apply_sync_defaults?: boolean;
     }
 
+    export interface ExternalDataSourceBulkUpdateSchemas {
+      /** Schema updates to apply in a single batch. */
+      schemas: ExternalDataSourceBulkUpdateSchema[];
+    }
+
     export interface ExternalDataSourceConnectionOption {
       readonly id: string;
       /** @nullable */
@@ -42189,6 +42229,11 @@ export namespace Schemas {
       needs_decision: boolean;
       /** Active quarantine details when `is_quarantined` is true. Null otherwise. */
       quarantine?: BaselineQuarantineSummary | null;
+      /**
+         * Slug of the team that owns the file this snapshot's story lives in, from the repository's ownership files. `unowned` when no entry covers the file. Null when ownership is unknown: the snapshot is not a Storybook snapshot, the newest default-branch run sent no story index, the story is not in it, or the ownership files could not be read.
+         * @nullable
+         */
+      owner_team?: string | null;
       identifier: string;
       run_type: string;
       /** @nullable */
@@ -49330,6 +49375,18 @@ export namespace Schemas {
       text: string;
     }
 
+    export interface LLMSkillSpecProblem {
+      /** Stable machine-readable code for the problem, e.g. description_too_long or file_path_collides. */
+      code: string;
+      /** What is wrong and what to change, written for the skill's author. */
+      message: string;
+      /**
+         * The bundled file the problem is about. Null when it is about the skill itself.
+         * @nullable
+         */
+      file_path: string | null;
+    }
+
     export interface LLMSkill {
       readonly id: string;
       /**
@@ -49361,7 +49418,7 @@ export namespace Schemas {
          * @maxLength 500
          */
       compatibility?: string;
-      /** List of pre-approved tools the skill may use. Tool names cannot contain whitespace. */
+      /** Tools the skill asks to use. Tool names cannot contain whitespace. A harness that reads the skill from a file (zip export, git marketplace, a content=full bundle) treats the list as pre-approved. A harness that loads the skill over MCP, including the default content=stub bundle, ignores the list until the user approves that grant. */
       allowed_tools?: string[];
       /** Arbitrary key-value metadata. */
       metadata?: LLMSkillMetadata;
@@ -49373,6 +49430,8 @@ export namespace Schemas {
       readonly files: readonly LLMSkillFileManifest[];
       /** Flat list of markdown headings parsed from the skill body. Useful as a lightweight table of contents. */
       readonly outline: readonly LLMSkillOutlineEntry[];
+      /** Why this skill is left out of the skills bundle and the plugin marketplace, as stable codes with author-facing messages. Empty when the skill packages cleanly. */
+      readonly spec_problems: readonly LLMSkillSpecProblem[];
       readonly version: number;
       /**
          * Optional note describing what changed in this version. Set when the version is published.
@@ -49443,7 +49502,7 @@ export namespace Schemas {
          * @maxLength 500
          */
       compatibility?: string;
-      /** List of pre-approved tools the skill may use. Tool names cannot contain whitespace. */
+      /** Tools the skill asks to use. Tool names cannot contain whitespace. A harness that reads the skill from a file (zip export, git marketplace, a content=full bundle) treats the list as pre-approved. A harness that loads the skill over MCP, including the default content=stub bundle, ignores the list until the user approves that grant. */
       allowed_tools?: string[];
       /** Arbitrary key-value metadata. */
       metadata?: LLMSkillCreateMetadata;
@@ -49458,6 +49517,8 @@ export namespace Schemas {
       files?: LLMSkillFileInput[];
       /** Flat list of markdown headings parsed from the skill body. Useful as a lightweight table of contents. */
       readonly outline: readonly LLMSkillOutlineEntry[];
+      /** Why this skill is left out of the skills bundle and the plugin marketplace, as stable codes with author-facing messages. Empty when the skill packages cleanly. */
+      readonly spec_problems: readonly LLMSkillSpecProblem[];
       readonly version: number;
       /**
          * Optional note describing what changed in this version. Set when the version is published.
@@ -49580,7 +49641,7 @@ export namespace Schemas {
          * @maxLength 500
          */
       compatibility?: string;
-      /** List of pre-approved tools the skill may use. Tool names cannot contain whitespace. */
+      /** Tools the skill asks to use. Tool names cannot contain whitespace. A harness that reads the skill from a file (zip export, git marketplace, a content=full bundle) treats the list as pre-approved. A harness that loads the skill over MCP, including the default content=stub bundle, ignores the list until the user approves that grant. */
       allowed_tools?: string[];
       /** Arbitrary key-value metadata. */
       metadata?: LLMSkillListMetadata;
@@ -49590,6 +49651,8 @@ export namespace Schemas {
       readonly owners: readonly UserBasic[];
       /** Flat list of markdown headings parsed from the skill body. Useful as a lightweight table of contents. */
       readonly outline: readonly LLMSkillOutlineEntry[];
+      /** Why this skill is left out of the skills bundle and the plugin marketplace, as stable codes with author-facing messages. Empty when the skill packages cleanly. */
+      readonly spec_problems: readonly LLMSkillSpecProblem[];
       readonly version: number;
       /**
          * Optional note describing what changed in this version. Set when the version is published.
@@ -63189,7 +63252,7 @@ export namespace Schemas {
       /** @nullable */
       readonly last_checked_at?: string | null;
       /**
-         * Local time that starts alert checks in HH:MM format. Updating this value changes checks after the already scheduled next_check_at. Set null to remove the custom start time. The current next_check_at stays unchanged. Future checks use the alert interval's existing scheduling behavior.
+         * Local time that starts alert checks in HH:MM format. Updating this value recalculates the next check. Set null to remove the custom start time.
          * @nullable
          */
       schedule_start_time?: string | null;
@@ -65746,11 +65809,6 @@ export namespace Schemas {
       readonly user_access_level?: string | null;
     }
 
-    export interface PatchedExternalDataSourceBulkUpdateSchemas {
-      /** Schema updates to apply in a single batch. */
-      schemas?: ExternalDataSourceBulkUpdateSchema[];
-    }
-
     export type PatchedExternalDataSourceSerializersSchemasItem = { [key: string]: unknown };
 
     /**
@@ -66842,7 +66900,7 @@ export namespace Schemas {
          * @maxLength 500
          */
       compatibility?: string;
-      /** List of pre-approved tools the skill may use. Tool names cannot contain whitespace. */
+      /** Tools the skill asks to use. Tool names cannot contain whitespace. A harness that reads the skill from a file (zip export, git marketplace, a content=full bundle) treats the list as pre-approved. A harness that loads the skill over MCP, including the default content=stub bundle, ignores the list until the user approves that grant. */
       allowed_tools?: string[];
       /** Arbitrary key-value metadata. */
       metadata?: PatchedLLMSkillPublishMetadata;
@@ -68754,10 +68812,6 @@ export namespace Schemas {
       onboarding_tasks?: unknown;
       /** @nullable */
       web_analytics_pre_aggregated_tables_enabled?: boolean | null;
-      /** The team's events data retention window in months (plan-derived, synced from billing). When retention enforcement is active for the team, queries do not return events older than this many months. Read-only: this value follows your plan's data retention entitlement, so neither you nor PostHog support can change it unless your organization is on the enterprise plan. Background and discussion: https://github.com/PostHog/posthog/issues/17031 */
-      readonly event_retention_months?: number;
-      /** Whether events data retention is currently enforced for this team (cohort/flag gated). Read-only: neither you nor PostHog support can turn enforcement off, and the retention window itself only changes with your plan. Background and discussion: https://github.com/PostHog/posthog/issues/17031 */
-      readonly events_retention_enforced?: boolean;
     }
 
     export interface PatchedProjectSecretAPIKey {
@@ -73105,10 +73159,6 @@ export namespace Schemas {
       onboarding_tasks?: unknown;
       /** @nullable */
       web_analytics_pre_aggregated_tables_enabled?: boolean | null;
-      /** The team's events data retention window in months (plan-derived, synced from billing). When retention enforcement is active for the team, queries do not return events older than this many months. Read-only: this value follows your plan's data retention entitlement, so neither you nor PostHog support can change it unless your organization is on the enterprise plan. Background and discussion: https://github.com/PostHog/posthog/issues/17031 */
-      readonly event_retention_months: number;
-      /** Whether events data retention is currently enforced for this team (cohort/flag gated). Read-only: neither you nor PostHog support can turn enforcement off, and the retention window itself only changes with your plan. Background and discussion: https://github.com/PostHog/posthog/issues/17031 */
-      readonly events_retention_enforced: boolean;
     }
 
     /**
@@ -79063,7 +79113,7 @@ export namespace Schemas {
          */
       label: string;
       /**
-         * System prompt; {email} is replaced with the signup email domain at runtime. At most 20000 characters.
+         * System prompt; {email} is replaced with the signup email domain at runtime. When the prompt asks for it, the model may call web_search and fetch_page (run through Firecrawl) to look things up; each call costs Firecrawl credits. At most 20000 characters.
          * @maxLength 20000
          */
       prompt_text: string;
@@ -79408,7 +79458,7 @@ export namespace Schemas {
          */
       version?: string;
       /**
-         * System prompt; {email} is replaced with the signup email domain at runtime. At most 20000 characters.
+         * System prompt; {email} is replaced with the signup email domain at runtime. When the prompt asks for it, the model may call web_search and fetch_page (run through Firecrawl) to look things up; each call costs Firecrawl credits. At most 20000 characters.
          * @maxLength 20000
          */
       prompt_text: string;
@@ -86298,9 +86348,9 @@ export namespace Schemas {
     export interface StamphogInstallInfo {
       /** URL-friendly slug of the dedicated Stamphog GitHub App, or blank if unconfigured. */
       readonly app_slug: string;
-      /** GitHub install URL (github.com/apps/<slug>/installations/new) the user opens to install the App, or blank if the App slug is unconfigured. Used for the genuinely-not-installed case; the primary 'Connect' button uses authorize_url instead. */
+      /** GitHub install URL (github.com/apps/<slug>/installations/new) the 'Connect' button opens. The user picks a GitHub account there and chooses which repositories the App can reach, including an account where the App is already installed. Blank if the App slug is unconfigured. */
       readonly install_url: string;
-      /** GitHub authorize URL (github.com/login/oauth/authorize) the 'Connect' button opens. Authorize-first: an already-installed user is redirected straight back with an OAuth code (no installation_id), and sync_installation then discovers their installations server-side. Blank if the App client id is unconfigured. */
+      /** GitHub authorize URL (github.com/login/oauth/authorize). GitHub's redirect after configuring an existing installation carries no OAuth code, so the client passes through this URL once: an installed App redirects straight back with a code, which sync_installation uses to prove ownership. Blank if the App client id is unconfigured. */
       readonly authorize_url: string;
     }
 
@@ -90742,6 +90792,103 @@ export namespace Schemas {
       run_id: string;
     }
 
+    /**
+     * * `signal_emitted` - Signal Emitted
+     * * `unusual_verdict` - Unusual Verdict
+     * * `verdict_yes` - Verdict Yes
+     * * `outlier_score` - Outlier Score
+     * * `rare_tag` - Rare Tag
+     * * `novel_summary` - Novel Summary
+     * * `friction` - Friction
+     * * `unviewed_recent` - Unviewed Recent
+     * * `recent` - Recent
+     */
+    export type WatchFeedReasonEnum = typeof WatchFeedReasonEnum[keyof typeof WatchFeedReasonEnum];
+
+
+    export const WatchFeedReasonEnum = {
+      SignalEmitted: 'signal_emitted',
+      UnusualVerdict: 'unusual_verdict',
+      VerdictYes: 'verdict_yes',
+      OutlierScore: 'outlier_score',
+      RareTag: 'rare_tag',
+      NovelSummary: 'novel_summary',
+      Friction: 'friction',
+      UnviewedRecent: 'unviewed_recent',
+      Recent: 'recent',
+    } as const;
+
+    /**
+     * Machine-readable reason an observation made the feed; the frontend renders the copy.
+     */
+    export interface WatchFeedReason {
+      /** Highest-priority rule the observation satisfied: `signal_emitted` (it pushed a signal), `unusual_verdict` (a monitor answer that is the minority for that scanner this window), `verdict_yes` (a monitor hit, when the window is too thin to know which answer is unusual), `outlier_score` (far from the scanner's window average), `rare_tag` (a tag uncommon for the scanner this window), `novel_summary` (a summary that reads unlike the scanner's other sessions this window), `friction` (the scan describes errors, retries, or dead ends), `unviewed_recent` (new to you), `recent` (nothing special, newest available).
+       *
+       * * `signal_emitted` - Signal Emitted
+       * * `unusual_verdict` - Unusual Verdict
+       * * `verdict_yes` - Verdict Yes
+       * * `outlier_score` - Outlier Score
+       * * `rare_tag` - Rare Tag
+       * * `novel_summary` - Novel Summary
+       * * `friction` - Friction
+       * * `unviewed_recent` - Unviewed Recent
+       * * `recent` - Recent */
+      kind: WatchFeedReasonEnum;
+      /**
+         * Signals this observation emitted, for `signal_emitted`.
+         * @nullable
+         */
+      signals_count?: number | null;
+      /**
+         * The monitor's answer, for `unusual_verdict`.
+         * @nullable
+         */
+      verdict?: string | null;
+      /**
+         * Share (0-1) of the scanner's window observations with this answer, for `unusual_verdict`.
+         * @nullable
+         */
+      verdict_share?: number | null;
+      /**
+         * The observation's score, for `outlier_score`.
+         * @nullable
+         */
+      score?: number | null;
+      /**
+         * The scanner's mean score in the window, for `outlier_score`.
+         * @nullable
+         */
+      window_mean?: number | null;
+      /**
+         * The rare tag that ranked the observation, for `rare_tag`.
+         * @nullable
+         */
+      tag?: string | null;
+      /**
+         * Share (0-1) of the scanner's window observations carrying `tag`, for `rare_tag`.
+         * @nullable
+         */
+      tag_share?: number | null;
+    }
+
+    /**
+     * One feed entry: the observation plus why it ranked.
+     */
+    export interface WatchFeedItem {
+      /** The observation, in the standard shape. */
+      observation: ReplayObservation;
+      /** Why this observation made the feed. */
+      reason: WatchFeedReason;
+    }
+
+    /**
+     * Response of GET /vision/scanners/watch_feed/.
+     */
+    export interface WatchFeedResponse {
+      /** Succeeded observations in the window worth watching, most interesting first: signal emitters, then type-specific hits, then unviewed before viewed, then newest. */
+      results: WatchFeedItem[];
+    }
+
     export interface WebAnalyticsBotCondition {
       /**
          * Stable id for the condition. Generated when omitted.
@@ -92936,6 +93083,32 @@ export namespace Schemas {
          * @nullable
          */
       agrees: boolean | null;
+    }
+
+    export interface _MetricCatalogValuesParams {
+      /**
+         * Substring filter (case-insensitive) applied to metric names.
+         * @maxLength 255
+         */
+      value?: string;
+      /**
+         * Max number of names to return. Defaults to 100; maximum 1000.
+         * @minimum 1
+         * @maximum 1000
+         */
+      limit?: number;
+      /**
+         * Comma-separated services to narrow the list to, e.g. `service=web,worker`. Omit for every service. Send it empty to select only series whose sender did not set `service.name`. A service name containing a comma cannot be selected.
+         * @maxLength 1024
+         */
+      service?: string;
+      /**
+         * Exact metric names to load as a batch. Overrides value and limit.
+         * @minItems 1
+         * @maxItems 20
+         * @items.maxLength 255
+         */
+      names: string[];
     }
 
     export interface _MetricGroupBy {
@@ -98729,21 +98902,6 @@ export namespace Schemas {
     search?: string;
     };
 
-    export type ExternalDataSourcesBulkUpdateSchemasPartialUpdateParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    /**
-     * A search term.
-     */
-    search?: string;
-    };
-
     export type ExternalDataSourcesRepairCdcCreate200 = {
       success?: boolean;
       schemas_reset?: number;
@@ -99587,7 +99745,7 @@ export namespace Schemas {
      */
     trigger?: string;
     /**
-     * Filter by workflow type. `messaging` returns workflows with an email, SMS, or push action; `automation` returns the rest.
+     * Filter by workflow type. `loop` returns workflows owned by a Desktop loop; `messaging` returns the remaining workflows with an email, SMS, or push action; `automation` returns the rest.
      */
     type?: HogFlowsListType;
     updated_at?: string;
@@ -99614,6 +99772,7 @@ export namespace Schemas {
 
     export const HogFlowsListType = {
       Automation: 'automation',
+      Loop: 'loop',
       Messaging: 'messaging',
     } as const;
 
@@ -105067,6 +105226,50 @@ export namespace Schemas {
      */
     offset?: number;
     };
+
+    export type VisionScannersWatchFeedRetrieveParams = {
+    /**
+     * Only observations created at or after this time. Accepts ISO 8601, a relative date like `-7d`, or `now`; values without an explicit offset are interpreted in the project's timezone. The window between `date_from` and `date_to` may span at most 90 days.
+     * @minLength 1
+     */
+    date_from?: string;
+    /**
+     * Only observations created at or before this time. Same formats as `date_from`; omit it to query through the current time.
+     * @minLength 1
+     */
+    date_to?: string;
+    /**
+     * Feed items to return, at most 50. The feed is bounded, not paginated.
+     * @minimum 1
+     * @maximum 50
+     */
+    limit?: number;
+    /**
+     * Comma-separated scanner UUIDs to restrict the feed to. Defaults to every scanner you can read.
+     * @minLength 1
+     */
+    scanner_ids?: string;
+    /**
+     * Restrict the feed to observations from scanners of this type.
+     *
+     * * `monitor` - Monitor
+     * * `classifier` - Classifier
+     * * `scorer` - Scorer
+     * * `summarizer` - Summarizer
+     * @minLength 1
+     */
+    scanner_type?: VisionScannersWatchFeedRetrieveScannerType;
+    };
+
+    export type VisionScannersWatchFeedRetrieveScannerType = typeof VisionScannersWatchFeedRetrieveScannerType[keyof typeof VisionScannersWatchFeedRetrieveScannerType];
+
+
+    export const VisionScannersWatchFeedRetrieveScannerType = {
+      Monitor: 'monitor',
+      Classifier: 'classifier',
+      Scorer: 'scorer',
+      Summarizer: 'summarizer',
+    } as const;
 
     export type VisualReviewReposListParams = {
     /**

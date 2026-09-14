@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            DELETE FROM lifecycle_op_tmp\n            WHERE op_id = $1\n              AND completed_at IS NOT NULL\n              AND (outcome->>'claim_abort')::boolean IS TRUE\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "861000d503a7b397d7dd8c8ea9013180941367370f7b229ddf3c6c5509d64264"
+}
