@@ -1254,3 +1254,7 @@ environment:
         bin_script: profile_migrations
         description: 'Profile Django migrations on fresh DBs and render a per-op timing report'
         hidden: true
+    docker:worker:ai:training:privacy:
+        bin_script: docker-worker-ai-training-privacy
+        description: 'Start the dedicated AI training privacy worker'
+        hidden: true
