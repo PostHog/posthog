@@ -1,5 +1,7 @@
 import { useActions } from 'kea'
-import { ReactNode } from 'react'
+import { ComponentType, ReactNode } from 'react'
+
+import type { AssetSvgProps } from '@posthog/brand'
 
 import { Link } from 'lib/lemon-ui/Link'
 import { cn } from 'lib/utils/css-classes'
@@ -14,22 +16,27 @@ export interface AccessDeniedProps {
     /** Custom explanation of *why* access is denied. Rendered in place of the default first sentence; the support-link tail stays. */
     reason?: ReactNode
     inline?: boolean
+    /** Hoggie to show above the heading, in place of the default one. */
+    illustration?: ComponentType<AssetSvgProps>
 }
 
-export function AccessDenied({ object, reason, inline = false }: AccessDeniedProps): JSX.Element {
+export function AccessDenied({ object, reason, inline = false, illustration }: AccessDeniedProps): JSX.Element {
     const { openSupportForm } = useActions(supportLogic)
 
     const handleClickSupport = (): void => {
         openSupportForm({ kind: 'support' })
     }
 
+    const Illustration = illustration
+    const illustrationClassName = cn('bg-no-repeat bg-center', inline ? 'w-32 h-32' : 'w-64 h-64')
+
     return (
         <div className={cn('flex flex-col items-center max-w-2xl p-4 mx-auto text-center', !inline && 'my-24')}>
-            <img
-                src={noAccessNopehog}
-                alt="Access denied illustration"
-                className={cn('bg-no-repeat bg-center', inline ? 'w-32 h-32' : 'w-64 h-64')}
-            />
+            {Illustration ? (
+                <Illustration className={illustrationClassName} />
+            ) : (
+                <img src={noAccessNopehog} alt="Access denied illustration" className={illustrationClassName} />
+            )}
             <h1 className="text-3xl font-bold mt-4 mb-0">Access denied</h1>
             {reason ? (
                 <>
