@@ -24,7 +24,13 @@ import { useCallback, useMemo, useState } from "react";
 // created task into the space (/spaces/$channelId/tasks/$id) instead of the
 // unscoped detail route, and files the task to the space (the task's `channel`
 // field on the tasks API).
-export function SpaceNewTask({ channelId }: { channelId: string }) {
+export function SpaceNewTask({
+  channelId,
+  initialAutoresearch,
+}: {
+  channelId: string;
+  initialAutoresearch?: boolean;
+}) {
   const spacesLayout = useChannelsLayout();
   const navigate = useNavigate();
   const view = useAppView();
@@ -168,6 +174,7 @@ export function SpaceNewTask({ channelId }: { channelId: string }) {
           initialCloudRepository={view.initialCloudRepository}
           initialModel={view.initialModel}
           initialMode={view.initialMode}
+          initialAutoresearch={initialAutoresearch}
           reportAssociation={view.reportAssociation}
           suggestions={CHANNEL_TASK_SUGGESTIONS}
           onSuggestionSelect={(label) =>

@@ -296,6 +296,7 @@ export type SidebarNavItem =
   | "canvases"
   | "configure"
   | "loops"
+  | "onboarding"
   | "more";
 
 /** Which sidebar shell the click came from, so the two can be compared. */
@@ -661,11 +662,11 @@ export interface OnboardingAbandonedProperties {
 }
 
 export type OnboardingLandingDestination =
-  | "spaces"
+  | "tasks"
+  | "slack"
   | "self-driving"
-  | "canvases"
-  | "agents"
-  | "tasks";
+  | "autoresearch"
+  | "loops";
 
 export interface OnboardingLandingDestinationSelectedProperties {
   destination: OnboardingLandingDestination;

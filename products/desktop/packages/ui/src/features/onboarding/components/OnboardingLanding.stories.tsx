@@ -6,6 +6,10 @@ const meta = {
   component: OnboardingLanding,
   args: {
     selfDrivingAvailable: true,
+    taskSpaceHrefs: {
+      general: "/spaces/general/new",
+      personal: "/spaces/personal/new",
+    },
     onOpenDestination: () => {},
   },
   parameters: {

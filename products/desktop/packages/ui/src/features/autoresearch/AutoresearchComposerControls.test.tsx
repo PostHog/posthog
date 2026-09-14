@@ -67,10 +67,16 @@ describe("AutoresearchComposerControls", () => {
     const user = userEvent.setup();
     const onChange = renderControls();
 
-    expect(screen.getByRole("radio", { name: "Increase" })).toBeVisible();
-    expect(screen.getByRole("radio", { name: "Decrease" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Increase" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(screen.getByRole("button", { name: "Decrease" })).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    );
 
-    await user.click(screen.getByRole("radio", { name: "Decrease" }));
+    await user.click(screen.getByRole("button", { name: "Decrease" }));
 
     expect(onChange).toHaveBeenCalledWith({ direction: "minimize" });
   });
@@ -114,10 +120,10 @@ describe("AutoresearchComposerControls", () => {
     ).toBeVisible();
     expect(screen.getByText("55 ms")).toBeVisible();
     expect(screen.getByText("Example prompt")).toBeVisible();
-    expect(screen.getByRole("radio", { name: "Performance" })).toBeVisible();
-    expect(screen.getByRole("radio", { name: "Bundle size" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Performance" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Bundle size" })).toBeVisible();
     expect(
-      screen.getByRole("radio", { name: "Test reliability" }),
+      screen.getByRole("button", { name: "Test reliability" }),
     ).toBeVisible();
     expect(screen.getByText(/pnpm bench:search/)).toBeVisible();
     expect(

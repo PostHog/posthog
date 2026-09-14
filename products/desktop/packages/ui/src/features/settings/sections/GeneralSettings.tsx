@@ -10,11 +10,11 @@ import {
 } from "@posthog/shared/domain-types";
 import { useAuthStateValue } from "@posthog/ui/features/auth/store";
 import { useTabsSnapshot } from "@posthog/ui/features/browser-tabs/useBrowserTabs";
-import { useOpenBrowserTab } from "@posthog/ui/features/browser-tabs/useOpenBrowserTab";
 import {
   MISSION_CONTROL_CLIENT,
   type MissionControlClient,
 } from "@posthog/ui/features/mission-control/identifiers";
+import { useOpenOnboardingTab } from "@posthog/ui/features/onboarding/hooks/useOpenOnboardingTab";
 import {
   ReasoningLevelDropdown,
   type ReasoningLevelOption,
@@ -39,11 +39,7 @@ import {
   useSettingsStore,
 } from "@posthog/ui/features/settings/settingsStore";
 import { track } from "@posthog/ui/shell/analytics";
-import {
-  isOnboardingTab,
-  ONBOARDING_TAB_HREF,
-  restoreOnboardingTab,
-} from "@posthog/ui/shell/onboardingTab";
+import { isOnboardingTab } from "@posthog/ui/shell/onboardingTab";
 import type { ThemePreference } from "@posthog/ui/shell/themeStore";
 import { useThemeStore } from "@posthog/ui/shell/themeStore";
 import { useHostCapabilities } from "@posthog/ui/shell/useHostCapabilities";
@@ -68,7 +64,7 @@ export function GeneralSettings() {
   const hostTRPC = useHostTRPC();
   const authIdentity = useAuthStateValue(getAuthIdentity);
   const tabsSnapshot = useTabsSnapshot();
-  const openBrowserTab = useOpenBrowserTab();
+  const openOnboardingTab = useOpenOnboardingTab();
   const onboardingTabIsOpen = tabsSnapshot.tabs.some(isOnboardingTab);
 
   const theme = useThemeStore((state) => state.theme);
@@ -257,12 +253,6 @@ export function GeneralSettings() {
     [sendMessagesWith, setSendMessagesWith],
   );
 
-  const handleAddOnboardingTab = useCallback(() => {
-    if (!authIdentity || onboardingTabIsOpen) return;
-    void restoreOnboardingTab(authIdentity);
-    openBrowserTab(ONBOARDING_TAB_HREF);
-  }, [authIdentity, onboardingTabIsOpen, openBrowserTab]);
-
   return (
     <div className="flex flex-col gap-7">
       <AccountSection />
@@ -303,7 +293,7 @@ export function GeneralSettings() {
               size="sm"
               data-attr="settings-add-onboarding-tab"
               disabled={!authIdentity || onboardingTabIsOpen}
-              onClick={handleAddOnboardingTab}
+              onClick={openOnboardingTab}
             >
               {onboardingTabIsOpen ? "Added" : "Add tab"}
             </Button>

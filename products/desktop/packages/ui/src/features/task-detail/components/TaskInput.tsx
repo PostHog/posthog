@@ -74,6 +74,7 @@ import {
   useAutoresearchDraftStore,
 } from "../../autoresearch/autoresearchDraftStore";
 import { toStageSelectOptions } from "../../autoresearch/stageModels";
+import { useArmAutoresearchOnce } from "../../autoresearch/useArmAutoresearchOnce";
 import { useAutoresearchEnabled } from "../../autoresearch/useAutoresearchEnabled";
 import { useFileSearchStore } from "../../command/fileSearchStore";
 import { NewTaskFilePreview } from "../../command/NewTaskFilePreview";
@@ -153,6 +154,8 @@ interface TaskInputProps {
   initialCloudRepository?: string | null;
   initialModel?: string;
   initialMode?: string;
+  /** Arms autoresearch once when the composer opens, as if the user turned it on. */
+  initialAutoresearch?: boolean;
   reportAssociation?: TaskInputReportAssociation;
   /** Optional channel CONTEXT.md, appended to the initial prompt as background. */
   channelContext?: string;
@@ -224,6 +227,7 @@ export function TaskInput({
   initialCloudRepository,
   initialModel,
   initialMode,
+  initialAutoresearch = false,
   reportAssociation,
   channelContext,
   channelContextPath,
@@ -1000,6 +1004,18 @@ export function TaskInput({
     workspaceMode,
   ]);
 
+  useArmAutoresearchOnce({
+    requested: initialAutoresearch,
+    // Arming also switches the mode option to accept edits, so it waits for that option.
+    ready:
+      autoresearchEnabled &&
+      Boolean(autoresearchService) &&
+      runtime !== "pi" &&
+      Boolean(modeOption),
+    armed: armedAutoresearchDraft !== null,
+    arm: handleAutoresearchToggle,
+  });
+
   // The preview config can still be loading when the user arms the mode;
   // backfill the stage fields once the composer's model/effort resolve so
   // the popover shows concrete values instead of "task model".
@@ -1549,7 +1565,7 @@ export function TaskInput({
 
               <Flex direction="column" gap="0">
                 {autoresearchDraft && (
-                  <div className="mb-3 rounded-md border border-gray-6 bg-gray-2 px-3.5 py-3">
+                  <div className="mb-3 rounded-(--radius-2) border border-border bg-card p-3.5">
                     <AutoresearchComposerControls
                       draft={autoresearchDraft}
                       modelOptions={autoresearchModelOptions}

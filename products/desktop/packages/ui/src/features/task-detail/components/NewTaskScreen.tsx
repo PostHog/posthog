@@ -10,7 +10,11 @@ import { useRouterState } from "@tanstack/react-router";
  * it: `/new`, and `/` for anyone without the spaces layout, whose landing
  * screen this has always been.
  */
-export function NewTaskScreen() {
+export function NewTaskScreen({
+  initialAutoresearch,
+}: {
+  initialAutoresearch?: boolean;
+} = {}) {
   const view = useAppView();
   const channelsWorld = useChannelsWorld();
   const tabId = useRouterState({
@@ -31,6 +35,7 @@ export function NewTaskScreen() {
       initialCloudRepository={view.initialCloudRepository}
       initialModel={view.initialModel}
       initialMode={view.initialMode}
+      initialAutoresearch={initialAutoresearch}
       reportAssociation={view.reportAssociation}
       suggestions={channelsWorld ? CHANNEL_TASK_SUGGESTIONS : undefined}
     />

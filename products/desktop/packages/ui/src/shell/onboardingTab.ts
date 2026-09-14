@@ -1,5 +1,6 @@
 import type { TabsSnapshot } from "@posthog/shared";
 import type { BrowserTabsClient } from "@posthog/ui/features/browser-tabs/browserTabsClient";
+import { focusOrOpenBrowserTab } from "@posthog/ui/features/browser-tabs/imperativeTabNavigation";
 import { stateStorage } from "@posthog/ui/shell/rendererStorage";
 
 export const ONBOARDING_TAB_HREF = "/onboarding-landing";
@@ -86,4 +87,18 @@ export async function markOnboardingTabClosed(
 
 export async function restoreOnboardingTab(identity: string): Promise<void> {
   await stateStorage.removeItem(storageKey(identity));
+}
+
+/** Focuses the onboarding tab, or opens it when none is open. */
+export async function openOnboardingTab(
+  identity: string | null,
+  client: BrowserTabsClient,
+): Promise<void> {
+  // Opening it on purpose undoes an earlier close, so startup keeps it too.
+  if (identity) await restoreOnboardingTab(identity);
+  await focusOrOpenBrowserTab(client, {
+    href: ONBOARDING_TAB_HREF,
+    title: "Onboarding",
+    appView: "onboarding",
+  });
 }

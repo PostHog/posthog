@@ -156,12 +156,9 @@ describe("railPaneHasSidebar", () => {
     "command-center",
     "loops",
     "onboarding",
-  ] as const)(
-    "gives %s the whole screen",
-    (pane) => {
-      expect(railPaneHasSidebar(pane)).toBe(false);
-    },
-  );
+  ] as const)("gives %s the whole screen", (pane) => {
+    expect(railPaneHasSidebar(pane)).toBe(false);
+  });
 
   it.each(["spaces", "activity", "feeds", "inbox"] as const)(
     "gives %s a column",
