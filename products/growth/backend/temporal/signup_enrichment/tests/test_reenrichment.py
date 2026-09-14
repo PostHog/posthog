@@ -18,15 +18,15 @@ from products.growth.backend.models import OrganizationEnrichment, OrganizationE
 from products.growth.backend.temporal.signup_enrichment.reenrichment import (
     ICP_REENRICHMENT_ATTEMPT_COUNT_KEY,
     ICP_REENRICHMENT_LAST_ATTEMPTED_AT_KEY,
-    IcpReenrichmentSweepInputs,
     ReenrichOrgInputs,
-    SweepRunSummary,
-    reenrich_organization_activity,
-    report_sweep_run_activity,
-    select_reenrichment_candidates_activity,
+    reenrich_organization,
+    select_reenrichment_candidates,
 )
+from products.growth.backend.temporal.signup_enrichment.sweep import sweep_report_run_activity, sweep_select_activity
+from products.growth.backend.temporal.signup_enrichment.sweep_types import SweepInputs, SweepKind, SweepRunReport
 
 _MODULE = "products.growth.backend.temporal.signup_enrichment.reenrichment"
+_SWEEP_MODULE = "products.growth.backend.temporal.signup_enrichment.sweep"
 
 
 def _now() -> dt.datetime:
@@ -72,7 +72,10 @@ class TestReenrichmentSelection(BaseTest):
 
     def _select(self, cap: int | None = None):
         with patch(f"{_MODULE}.LOGGER"):
-            return async_to_sync(select_reenrichment_candidates_activity)(IcpReenrichmentSweepInputs(cap=cap))
+            selection = async_to_sync(select_reenrichment_candidates)(cap)
+        assert all(len(batch) == 1 for batch in selection.batches)
+        assert selection.selected == len(selection.batches)
+        return [candidate for batch in selection.batches for candidate in batch]
 
     def test_selects_due_orgs_with_identity_and_role(self):
         organization = self._org_with_member("founder@due.example")
@@ -135,7 +138,11 @@ class TestReenrichmentSelection(BaseTest):
         self._prime(organization)
 
         with override_instance_config("GROWTH_SIGNUP_ENRICHMENT_ENABLED", False):
-            assert self._select() == []
+            selection = async_to_sync(sweep_select_activity)(SweepInputs(kind=SweepKind.ICP_REENRICHMENT))
+
+        assert selection.batches == []
+        assert selection.selected == 0
+        assert selection.extra == {}
 
     def test_selection_backfills_the_cap_when_the_oldest_rows_fail_identity_filtering(self):
         for i in range(3):
@@ -183,7 +190,7 @@ class TestReenrichmentSelection(BaseTest):
             patch("products.growth.backend.enrichment.core.enrich_organization", enrich),
         ):
             with self.assertRaises(RuntimeError):
-                async_to_sync(reenrich_organization_activity)(
+                async_to_sync(reenrich_organization)(
                     ReenrichOrgInputs(
                         organization_id=str(organization.id), distinct_id="signer", domain="retry.example"
                     )
@@ -204,7 +211,7 @@ class TestReenrichOrganizationActivity(BaseTest):
             patch(f"{_MODULE}.get_regional_ph_client", return_value=pha_client),
             patch("products.growth.backend.enrichment.core.enrich_organization", enrich),
         ):
-            result = async_to_sync(reenrich_organization_activity)(
+            result = async_to_sync(reenrich_organization)(
                 ReenrichOrgInputs(
                     organization_id=str(self.organization.id),
                     distinct_id="signer",
@@ -277,24 +284,31 @@ class TestReenrichOrganizationActivity(BaseTest):
         scoped_capture = MagicMock()
         scoped_capture.__enter__.return_value = capture
         with (
-            patch(f"{_MODULE}.get_instance_region", return_value="EU"),
-            patch(f"{_MODULE}.ph_scoped_capture", return_value=scoped_capture) as scoped_capture_factory,
+            patch(f"{_SWEEP_MODULE}.get_instance_region", return_value="EU"),
+            patch(f"{_SWEEP_MODULE}.ph_scoped_capture", return_value=scoped_capture) as scoped_capture_factory,
         ):
-            report_sweep_run_activity(SweepRunSummary(selected=3, attempted=3, matched=1, failed=1))
+            properties = sweep_report_run_activity(
+                SweepRunReport(kind=SweepKind.ICP_REENRICHMENT, selected=3, counters={"matched": 1}, failed=1, extra={})
+            )
 
+        assert properties == {"selected": 3, "attempted": 3, "matched": 1, "failed": 1}
         scoped_capture_factory.assert_called_once_with(region="EU")
         event = capture.call_args.kwargs
+        assert event["distinct_id"] == "icp-reenrichment-sweep"
         assert event["event"] == "icp_reenrichment_sweep_completed"
         assert event["properties"] == {"selected": 3, "attempted": 3, "matched": 1, "failed": 1}
         scoped_capture.__exit__.assert_called_once()
 
     def test_run_summary_skips_outside_a_cloud_region(self):
         with (
-            patch(f"{_MODULE}.get_instance_region", return_value=None),
-            patch(f"{_MODULE}.ph_scoped_capture") as scoped_capture_factory,
+            patch(f"{_SWEEP_MODULE}.get_instance_region", return_value=None),
+            patch(f"{_SWEEP_MODULE}.ph_scoped_capture") as scoped_capture_factory,
         ):
-            report_sweep_run_activity(SweepRunSummary(selected=0, attempted=0, matched=0, failed=0))
+            properties = sweep_report_run_activity(
+                SweepRunReport(kind=SweepKind.ICP_REENRICHMENT, selected=0, counters={}, failed=0, extra={})
+            )
 
+        assert properties == {"selected": 0, "attempted": 0, "matched": 0, "failed": 0}
         scoped_capture_factory.assert_not_called()
 
     def test_skips_an_org_deleted_after_selection_without_writing_anything(self):
@@ -308,7 +322,7 @@ class TestReenrichOrganizationActivity(BaseTest):
             patch(f"{_MODULE}.get_regional_ph_client", return_value=pha_client),
             patch("products.growth.backend.enrichment.core.enrich_organization", enrich),
         ):
-            result = async_to_sync(reenrich_organization_activity)(
+            result = async_to_sync(reenrich_organization)(
                 ReenrichOrgInputs(organization_id=organization_id, distinct_id="signer", domain="stripe.com")
             )
 
@@ -325,7 +339,7 @@ class TestReenrichOrganizationActivity(BaseTest):
             patch(f"{_MODULE}.get_regional_ph_client", return_value=pha_client),
             patch("products.growth.backend.enrichment.core.enrich_organization", enrich),
         ):
-            result = async_to_sync(reenrich_organization_activity)(
+            result = async_to_sync(reenrich_organization)(
                 ReenrichOrgInputs(organization_id=str(self.organization.id), distinct_id="signer", domain="stripe.com")
             )
 

@@ -15,14 +15,19 @@ from products.growth.backend.enrichment.writer import HARMONIC_STATUS_AT_KEY, HA
 from products.growth.backend.models import OrganizationEnrichment, OrganizationEnrichmentFetch
 from products.growth.backend.temporal.signup_enrichment.harmonic_status_poll import (
     STALL_AGE_HOURS,
-    HarmonicStatusPollInputs,
-    HarmonicStatusPollRunSummary,
-    poll_status_batch_activity,
-    report_status_poll_run_activity,
-    select_status_poll_candidates_activity,
+    poll_status_batch,
+    select_status_poll_candidates,
+)
+from products.growth.backend.temporal.signup_enrichment.sweep import sweep_report_run_activity, sweep_select_activity
+from products.growth.backend.temporal.signup_enrichment.sweep_types import (
+    SweepInputs,
+    SweepKind,
+    SweepRunReport,
+    SweepSelection,
 )
 
 _MODULE = "products.growth.backend.temporal.signup_enrichment.harmonic_status_poll"
+_SWEEP_MODULE = "products.growth.backend.temporal.signup_enrichment.sweep"
 
 
 def _now() -> dt.datetime:
@@ -46,12 +51,12 @@ class TestSelectStatusPollCandidates(BaseTest):
         super().setUp()
         self.enterContext(override_instance_config("GROWTH_SIGNUP_ENRICHMENT_ENABLED", True))
 
-    def _select_result(self):
+    def _selection(self) -> SweepSelection:
         with patch(f"{_MODULE}.LOGGER"):
-            return async_to_sync(select_status_poll_candidates_activity)(HarmonicStatusPollInputs())
+            return async_to_sync(select_status_poll_candidates)(None)
 
     def _select(self):
-        return self._select_result()["candidates"]
+        return [candidate for batch in self._selection().batches for candidate in batch]
 
     def test_selects_an_org_with_a_fresh_open_urn_and_no_stored_status(self):
         organization = Organization.objects.create(name="open.example")
@@ -147,24 +152,50 @@ class TestSelectStatusPollCandidates(BaseTest):
         )
 
         with patch(f"{_MODULE}.MAX_CANDIDATES_PER_RUN", 2):
-            result = self._select_result()
+            selection = self._selection()
 
-        assert result["eligible"] == 3
-        assert [c["organization_id"] for c in result["candidates"]] == [str(fresh.id), str(old_check.id)]
+        assert selection.extra == {"eligible": 3}
+        assert selection.selected == 2
+        assert [c["organization_id"] for batch in selection.batches for c in batch] == [
+            str(fresh.id),
+            str(old_check.id),
+        ]
+
+    def _select_through_gates(self) -> SweepSelection:
+        return async_to_sync(sweep_select_activity)(SweepInputs(kind=SweepKind.HARMONIC_STATUS_POLL))
 
     def test_kill_switch_stops_selection(self):
         organization = Organization.objects.create(name="off.example")
         _fetch(organization, urn="urn:harmonic:enrichment:off", days_ago=1)
 
         with override_instance_config("GROWTH_SIGNUP_ENRICHMENT_ENABLED", False):
-            assert self._select() == []
+            selection = self._select_through_gates()
+
+        assert selection.batches == []
+        assert selection.selected == 0
+        assert selection.extra == {"eligible": 0}
 
     def test_region_gate_stops_selection(self):
         organization = Organization.objects.create(name="region.example")
         _fetch(organization, urn="urn:harmonic:enrichment:region", days_ago=1)
 
         with override_settings(CLOUD_DEPLOYMENT="DEV"):
-            assert self._select() == []
+            selection = self._select_through_gates()
+
+        assert selection.batches == []
+        assert selection.extra == {"eligible": 0}
+
+    def test_the_gates_pass_a_fresh_open_urn_through_in_one_batch(self):
+        organization = Organization.objects.create(name="gated.example")
+        _fetch(organization, urn="urn:harmonic:enrichment:gated", days_ago=1)
+
+        selection = self._select_through_gates()
+
+        assert [c["organization_id"] for batch in selection.batches for c in batch] == [str(organization.id)]
+        assert selection.selected == 1
+        assert selection.extra == {"eligible": 1}
+        assert selection.item_timeout_seconds == 60
+        assert selection.item_max_attempts == 3
 
 
 @override_settings(CLOUD_DEPLOYMENT="US")
@@ -193,7 +224,7 @@ class TestPollStatusBatchActivity(BaseTest):
             patch(f"{_MODULE}.get_regional_ph_client", return_value=pha_client),
             patch("products.growth.backend.enrichment.providers.HarmonicEnrichmentProvider", return_value=provider),
         ):
-            result = async_to_sync(poll_status_batch_activity)(candidates)
+            result = async_to_sync(poll_status_batch)(candidates)
         return result, pha_client
 
     def test_stamps_the_record_and_projects_the_group_properties(self):
@@ -326,7 +357,7 @@ class TestPollStatusBatchActivity(BaseTest):
             patch(f"{_MODULE}.capture_exception") as mock_capture,
         ):
             with self.assertRaises(RuntimeError):
-                async_to_sync(poll_status_batch_activity)([candidate])
+                async_to_sync(poll_status_batch)([candidate])
 
         mock_capture.assert_called_once()
         assert not OrganizationEnrichment.objects.filter(organization=organization).exists()
@@ -338,7 +369,7 @@ class TestPollStatusBatchActivity(BaseTest):
 
         with override_instance_config("GROWTH_SIGNUP_ENRICHMENT_ENABLED", False):
             with patch("products.growth.backend.enrichment.providers.HarmonicEnrichmentProvider") as provider_cls:
-                result = async_to_sync(poll_status_batch_activity)([candidate])
+                result = async_to_sync(poll_status_batch)([candidate])
 
         assert result == {"polled": 0, "unobserved": 0, "changed": 0, "stalled": 0}
         provider_cls.assert_not_called()
@@ -351,19 +382,20 @@ class TestReportStatusPollRunActivity(BaseTest):
         scoped_capture = MagicMock()
         scoped_capture.__enter__.return_value = capture
         with (
-            patch(f"{_MODULE}.get_instance_region", return_value="EU"),
-            patch(f"{_MODULE}.ph_scoped_capture", return_value=scoped_capture) as scoped_capture_factory,
+            patch(f"{_SWEEP_MODULE}.get_instance_region", return_value="EU"),
+            patch(f"{_SWEEP_MODULE}.ph_scoped_capture", return_value=scoped_capture) as scoped_capture_factory,
         ):
-            report_status_poll_run_activity(
-                HarmonicStatusPollRunSummary(
-                    eligible=8, selected=5, polled=5, unobserved=0, changed=2, stalled=1, errors=0
+            properties = sweep_report_run_activity(
+                SweepRunReport(
+                    kind=SweepKind.HARMONIC_STATUS_POLL,
+                    selected=5,
+                    counters={"polled": 5, "unobserved": 0, "changed": 2, "stalled": 1},
+                    failed=0,
+                    extra={"eligible": 8},
                 )
             )
 
-        scoped_capture_factory.assert_called_once_with(region="EU")
-        event = capture.call_args.kwargs
-        assert event["event"] == "harmonic_enrichment_status_poll_completed"
-        assert event["properties"] == {
+        expected = {
             "eligible": 8,
             "selected": 5,
             "polled": 5,
@@ -372,17 +404,32 @@ class TestReportStatusPollRunActivity(BaseTest):
             "stalled": 1,
             "errors": 0,
         }
+        assert properties == expected
+        scoped_capture_factory.assert_called_once_with(region="EU")
+        event = capture.call_args.kwargs
+        assert event["distinct_id"] == "harmonic-status-poller"
+        assert event["event"] == "harmonic_enrichment_status_poll_completed"
+        assert event["properties"] == expected
         scoped_capture.__exit__.assert_called_once()
 
     def test_skips_outside_a_cloud_region(self):
         with (
-            patch(f"{_MODULE}.get_instance_region", return_value=None),
-            patch(f"{_MODULE}.ph_scoped_capture") as scoped_capture_factory,
+            patch(f"{_SWEEP_MODULE}.get_instance_region", return_value=None),
+            patch(f"{_SWEEP_MODULE}.ph_scoped_capture") as scoped_capture_factory,
         ):
-            report_status_poll_run_activity(
-                HarmonicStatusPollRunSummary(
-                    eligible=0, selected=0, polled=0, unobserved=0, changed=0, stalled=0, errors=0
+            properties = sweep_report_run_activity(
+                SweepRunReport(
+                    kind=SweepKind.HARMONIC_STATUS_POLL, selected=0, counters={}, failed=0, extra={"eligible": 0}
                 )
             )
 
+        assert properties == {
+            "eligible": 0,
+            "selected": 0,
+            "polled": 0,
+            "unobserved": 0,
+            "changed": 0,
+            "stalled": 0,
+            "errors": 0,
+        }
         scoped_capture_factory.assert_not_called()

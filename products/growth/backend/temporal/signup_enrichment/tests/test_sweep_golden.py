@@ -1,6 +1,10 @@
+import os
+import json
 import uuid
 import datetime as dt
+import dataclasses
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -12,7 +16,7 @@ from django.test import override_settings
 from asgiref.sync import sync_to_async
 from temporalio.client import WorkflowHistory
 from temporalio.testing import WorkflowEnvironment
-from temporalio.worker import UnsandboxedWorkflowRunner, Worker
+from temporalio.worker import Replayer, UnsandboxedWorkflowRunner, Worker
 
 from posthog.models.instance_setting import get_instance_setting, set_instance_setting
 from posthog.models.organization import Organization, OrganizationMembership
@@ -24,6 +28,7 @@ from products.growth.backend.enrichment.icp_lists import clear_lists_cache
 from products.growth.backend.enrichment.providers import EnrichmentProvider, ProviderLookup
 from products.growth.backend.enrichment.writer import HARMONIC_STATUS_AT_KEY, HARMONIC_STATUS_KEY, HARMONIC_URN_KEY
 from products.growth.backend.models import IcpScoringConfig, OrganizationEnrichment, OrganizationEnrichmentFetch
+from products.growth.backend.temporal.signup_enrichment import ACTIVITIES, WORKFLOWS, harmonic_status_poll, sweep
 from products.growth.backend.temporal.signup_enrichment.harmonic_status_poll import (
     HarmonicEnrichmentStatusPollWorkflow,
     HarmonicStatusPollInputs,
@@ -40,10 +45,26 @@ from products.growth.backend.temporal.signup_enrichment.reenrichment import (
     report_sweep_run_activity,
     select_reenrichment_candidates_activity,
 )
+from products.growth.backend.temporal.signup_enrichment.sweep import (
+    EnrichmentSweepWorkflow,
+    sweep_process_batch_activity,
+    sweep_report_run_activity,
+    sweep_select_activity,
+)
+from products.growth.backend.temporal.signup_enrichment.sweep_types import SweepInputs, SweepKind
 
 _REENRICHMENT_MODULE = "products.growth.backend.temporal.signup_enrichment.reenrichment"
 _POLL_MODULE = "products.growth.backend.temporal.signup_enrichment.harmonic_status_poll"
+_SWEEP_MODULE = "products.growth.backend.temporal.signup_enrichment.sweep"
 _PROVIDER_CLASS = "products.growth.backend.enrichment.providers.HarmonicEnrichmentProvider"
+
+SWEEP_ACTIVITIES = [sweep_select_activity, sweep_process_batch_activity, sweep_report_run_activity]
+FIXTURES = Path(__file__).parent / "fixtures"
+REENRICHMENT_HISTORY = "growth_enrichment_sweep_icp_reenrichment_history.json"
+STATUS_POLL_HISTORY = "growth_enrichment_sweep_harmonic_status_poll_history.json"
+# Set to regenerate the committed histories the Replayer test runs against:
+#   GROWTH_SWEEP_WRITE_HISTORY_FIXTURES=1 hogli test .../test_sweep_golden.py
+WRITE_HISTORY_FIXTURES = "GROWTH_SWEEP_WRITE_HISTORY_FIXTURES"
 
 # The clock is frozen (tick=False) for seeding and for the whole workflow run, so every stamp
 # below is an exact literal. time_machine leaves time.monotonic alone, which is what asyncio and
@@ -488,7 +509,7 @@ def assert_poll_outcome(pha_client: MagicMock, run_capture: MagicMock) -> None:
     assert OrganizationEnrichmentFetch.objects.count() == 6
 
 
-async def run_workflow(workflow_cls: type, activities: list, inputs: Any) -> tuple[dict[str, Any], WorkflowHistory]:
+async def run_workflow(workflow_cls: Any, activities: list, inputs: Any) -> tuple[dict[str, Any], WorkflowHistory]:
     task_queue = f"growth-sweep-golden-{uuid.uuid4()}"
     async with await WorkflowEnvironment.start_time_skipping() as env:
         async with Worker(
@@ -528,6 +549,47 @@ def _configure_enrichment(*, enabled: bool) -> None:
     set_instance_setting("GROWTH_ICP_REENRICH_DAILY_CAP", 500)
 
 
+_MACHINE_SPECIFIC_KEYS = {"identity": "growth-sweep-golden", "stackTrace": ""}
+
+
+def _portable(node: Any) -> Any:
+    if isinstance(node, dict):
+        return {
+            key: _MACHINE_SPECIFIC_KEYS[key] if key in _MACHINE_SPECIFIC_KEYS else _portable(value)
+            for key, value in node.items()
+        }
+    if isinstance(node, list):
+        return [_portable(value) for value in node]
+    return node
+
+
+def _record_history(name: str, history: WorkflowHistory) -> None:
+    if os.environ.get(WRITE_HISTORY_FIXTURES):
+        # Identities carry the recording machine's hostname and stack traces its file paths.
+        (FIXTURES / name).write_text(json.dumps(_portable(history.to_json_dict()), indent=2) + "\n")
+
+
+def _reenrichment_patches(pha_client: MagicMock) -> list[Any]:
+    return [
+        patch(_PROVIDER_CLASS, return_value=reenrichment_provider()),
+        patch(f"{_REENRICHMENT_MODULE}.get_regional_ph_client", return_value=pha_client),
+        patch(f"{_REENRICHMENT_MODULE}.capture_exception"),
+        patch(
+            "products.growth.backend.enrichment.core.read_organization_bridge_inputs",
+            return_value=OrganizationBridgeInputs(),
+        ),
+        patch("products.growth.backend.enrichment.core.get_person_by_distinct_id", return_value=None),
+    ]
+
+
+def _poll_patches(pha_client: MagicMock) -> list[Any]:
+    return [
+        patch(_PROVIDER_CLASS, return_value=poll_provider()),
+        patch(f"{_POLL_MODULE}.get_regional_ph_client", return_value=pha_client),
+        patch(f"{_POLL_MODULE}.capture_exception"),
+    ]
+
+
 @pytest.mark.django_db(transaction=True)
 class TestSweepGolden:
     @pytest.fixture(autouse=True)
@@ -536,51 +598,101 @@ class TestSweepGolden:
         with override_settings(CLOUD_DEPLOYMENT="US"):
             yield
         clear_lists_cache()
-        get_instance_setting.cache_clear()
+        get_instance_setting.cache_clear()  # type: ignore[attr-defined]
+
+    async def _run(
+        self, *, patches: list[Any], seed: Any, enabled: bool, workflow_cls: Any, activities: list, inputs: Any
+    ) -> tuple[dict[str, Any], WorkflowHistory]:
+        with time_machine.travel(FROZEN_AT, tick=False):
+            for p in patches:
+                p.start()
+            try:
+                await sync_to_async(_configure_enrichment)(enabled=enabled)
+                await sync_to_async(seed)()
+                return await run_workflow(workflow_cls, activities, inputs)
+            finally:
+                for p in reversed(patches):
+                    p.stop()
 
     async def _run_old_reenrichment(self, *, enabled: bool) -> tuple[dict[str, Any], MagicMock, MagicMock]:
         pha_client = MagicMock()
         run_capture = MagicMock()
-        with (
-            time_machine.travel(FROZEN_AT, tick=False),
-            patch(_PROVIDER_CLASS, return_value=reenrichment_provider()),
-            patch(f"{_REENRICHMENT_MODULE}.get_regional_ph_client", return_value=pha_client),
-            patch(f"{_REENRICHMENT_MODULE}.ph_scoped_capture", return_value=_scoped_capture(run_capture)),
-            patch(f"{_REENRICHMENT_MODULE}.capture_exception"),
-            patch(
-                "products.growth.backend.enrichment.core.read_organization_bridge_inputs",
-                return_value=OrganizationBridgeInputs(),
-            ),
-            patch("products.growth.backend.enrichment.core.get_person_by_distinct_id", return_value=None),
-        ):
-            await sync_to_async(_configure_enrichment)(enabled=enabled)
-            await sync_to_async(seed_reenrichment)()
-            result, _ = await run_workflow(
-                IcpReenrichmentSweepWorkflow,
-                [select_reenrichment_candidates_activity, reenrich_organization_activity, report_sweep_run_activity],
-                IcpReenrichmentSweepInputs(),
-            )
+        result, _ = await self._run(
+            patches=[
+                *_reenrichment_patches(pha_client),
+                patch(f"{_REENRICHMENT_MODULE}.ph_scoped_capture", return_value=_scoped_capture(run_capture)),
+            ],
+            seed=seed_reenrichment,
+            enabled=enabled,
+            workflow_cls=IcpReenrichmentSweepWorkflow,
+            activities=[
+                select_reenrichment_candidates_activity,
+                reenrich_organization_activity,
+                report_sweep_run_activity,
+            ],
+            inputs=IcpReenrichmentSweepInputs(),
+        )
         return result, pha_client, run_capture
 
     async def _run_old_poll(self, *, enabled: bool) -> tuple[dict[str, Any], MagicMock, MagicMock]:
         pha_client = MagicMock()
         run_capture = MagicMock()
-        with (
-            time_machine.travel(FROZEN_AT, tick=False),
-            patch(_PROVIDER_CLASS, return_value=poll_provider()),
-            patch(f"{_POLL_MODULE}.POLL_BATCH_SIZE", 2),
-            patch(f"{_POLL_MODULE}.get_regional_ph_client", return_value=pha_client),
-            patch(f"{_POLL_MODULE}.ph_scoped_capture", return_value=_scoped_capture(run_capture)),
-            patch(f"{_POLL_MODULE}.capture_exception"),
-        ):
-            await sync_to_async(_configure_enrichment)(enabled=enabled)
-            await sync_to_async(seed_poll)()
-            result, _ = await run_workflow(
-                HarmonicEnrichmentStatusPollWorkflow,
-                [select_status_poll_candidates_activity, poll_status_batch_activity, report_status_poll_run_activity],
-                HarmonicStatusPollInputs(),
-            )
+        result, _ = await self._run(
+            patches=[
+                *_poll_patches(pha_client),
+                patch(f"{_POLL_MODULE}.POLL_BATCH_SIZE", 2),
+                patch(f"{_POLL_MODULE}.ph_scoped_capture", return_value=_scoped_capture(run_capture)),
+            ],
+            seed=seed_poll,
+            enabled=enabled,
+            workflow_cls=HarmonicEnrichmentStatusPollWorkflow,
+            activities=[
+                select_status_poll_candidates_activity,
+                poll_status_batch_activity,
+                report_status_poll_run_activity,
+            ],
+            inputs=HarmonicStatusPollInputs(),
+        )
         return result, pha_client, run_capture
+
+    async def _run_new_reenrichment(
+        self, *, enabled: bool
+    ) -> tuple[dict[str, Any], MagicMock, MagicMock, WorkflowHistory]:
+        pha_client = MagicMock()
+        run_capture = MagicMock()
+        result, history = await self._run(
+            patches=[
+                *_reenrichment_patches(pha_client),
+                patch(f"{_SWEEP_MODULE}.ph_scoped_capture", return_value=_scoped_capture(run_capture)),
+            ],
+            seed=seed_reenrichment,
+            enabled=enabled,
+            workflow_cls=EnrichmentSweepWorkflow,
+            activities=SWEEP_ACTIVITIES,
+            inputs=SweepInputs(kind=SweepKind.ICP_REENRICHMENT, cap=None),
+        )
+        return result, pha_client, run_capture, history
+
+    async def _run_new_poll(self, *, enabled: bool) -> tuple[dict[str, Any], MagicMock, MagicMock, WorkflowHistory]:
+        pha_client = MagicMock()
+        run_capture = MagicMock()
+        # The old body batches from POLL_BATCH_SIZE at run time; the generic one batches from the
+        # spec inside the select activity, so the same two-per-batch seed patches the spec instead.
+        spec = dataclasses.replace(harmonic_status_poll.SPEC, batch_size=2)
+        result, history = await self._run(
+            patches=[
+                *_poll_patches(pha_client),
+                patch(f"{_POLL_MODULE}.SPEC", spec),
+                patch.dict(sweep.SWEEPS, {SweepKind.HARMONIC_STATUS_POLL: spec}),
+                patch(f"{_SWEEP_MODULE}.ph_scoped_capture", return_value=_scoped_capture(run_capture)),
+            ],
+            seed=seed_poll,
+            enabled=enabled,
+            workflow_cls=EnrichmentSweepWorkflow,
+            activities=SWEEP_ACTIVITIES,
+            inputs=SweepInputs(kind=SweepKind.HARMONIC_STATUS_POLL, cap=None),
+        )
+        return result, pha_client, run_capture, history
 
     async def test_reenrichment_sweep_pins_events_records_and_fetches(self):
         result, pha_client, run_capture = await self._run_old_reenrichment(enabled=True)
@@ -607,3 +719,62 @@ class TestSweepGolden:
         assert result == POLL_EMPTY_RUN_EVENT.kwargs["properties"]
         pha_client.capture.assert_not_called()
         assert run_capture.call_args_list == [POLL_EMPTY_RUN_EVENT]
+
+    async def test_generic_sweep_reproduces_the_pinned_reenrichment_run(self):
+        result, pha_client, run_capture, history = await self._run_new_reenrichment(enabled=True)
+
+        assert result == REENRICHMENT_RUN_EVENT.kwargs["properties"]
+        await sync_to_async(assert_reenrichment_outcome)(pha_client, run_capture)
+        _record_history(REENRICHMENT_HISTORY, history)
+
+    async def test_generic_sweep_reenrichment_with_the_kill_switch_off_reports_zero_counts(self):
+        result, pha_client, run_capture, _ = await self._run_new_reenrichment(enabled=False)
+
+        assert result == REENRICHMENT_EMPTY_RUN_EVENT.kwargs["properties"]
+        pha_client.capture.assert_not_called()
+        assert run_capture.call_args_list == [REENRICHMENT_EMPTY_RUN_EVENT]
+
+    async def test_generic_sweep_reproduces_the_pinned_status_poll_run(self):
+        result, pha_client, run_capture, history = await self._run_new_poll(enabled=True)
+
+        assert result == POLL_RUN_EVENT.kwargs["properties"]
+        await sync_to_async(assert_poll_outcome)(pha_client, run_capture)
+        _record_history(STATUS_POLL_HISTORY, history)
+
+    async def test_generic_sweep_status_poll_with_the_kill_switch_off_reports_zero_counts(self):
+        result, pha_client, run_capture, _ = await self._run_new_poll(enabled=False)
+
+        assert result == POLL_EMPTY_RUN_EVENT.kwargs["properties"]
+        pha_client.capture.assert_not_called()
+        assert run_capture.call_args_list == [POLL_EMPTY_RUN_EVENT]
+
+
+@pytest.mark.parametrize("fixture", [REENRICHMENT_HISTORY, STATUS_POLL_HISTORY])
+async def test_committed_history_replays_against_the_generic_sweep(fixture: str):
+    history = WorkflowHistory.from_json("growth-sweep-golden", (FIXTURES / fixture).read_text())
+    started = history.events[0].workflow_execution_started_event_attributes
+    assert started.workflow_type.name == "growth-enrichment-sweep"
+
+    await Replayer(workflows=[EnrichmentSweepWorkflow], workflow_runner=UnsandboxedWorkflowRunner()).replay_workflow(
+        history
+    )
+
+
+async def test_worker_accepts_every_growth_workflow_and_activity():
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        async with Worker(
+            env.client,
+            task_queue=f"growth-registration-{uuid.uuid4()}",
+            workflows=WORKFLOWS,
+            activities=ACTIVITIES,
+            activity_executor=ThreadPoolExecutor(max_workers=1),
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ) as worker:
+            registered_activities = worker.config()["activities"]
+
+    assert len(registered_activities) == 10
+    assert {workflow.get_name() for workflow in WORKFLOWS} >= {
+        "growth-enrichment-sweep",
+        "icp-reenrichment-sweep",
+        "harmonic-enrichment-status-poll",
+    }

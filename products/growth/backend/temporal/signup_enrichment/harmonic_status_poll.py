@@ -3,10 +3,6 @@
 Batches every org's most recently archived open URN into `GET /enrichment_status` calls, since
 Harmonic has no webhook, and stamps the result onto `OrganizationEnrichment.data` for the
 re-enrichment sweep and RevOps to read.
-
-The poll runs as `SPEC` under the generic `growth-enrichment-sweep` workflow (sweep.py). The
-`harmonic-enrichment-status-poll` workflow type and its activities below stay registered as
-thin adapters until no execution of that type remains in any region.
 """
 
 import typing

@@ -1,10 +1,5 @@
-"""One workflow type for every daily enrichment sweep: select candidates, run one activity per
-batch, report one summary event.
-
-The body reads only its inputs and recorded activity output. Which sweep runs, how it selects,
-what one batch does and how the run is summarised all live on a `SweepSpec` (sweep_types.py)
-looked up inside the activities, so adding a sweep never edits the workflow body and replay
-stays deterministic.
+"""The spec registry is read only inside activities, so adding a sweep never changes the
+command sequence an existing execution replays against.
 """
 
 import typing

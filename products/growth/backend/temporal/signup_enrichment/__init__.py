@@ -1,3 +1,8 @@
+import typing
+from collections.abc import Callable
+
+from posthog.temporal.common.base import PostHogWorkflow
+
 from products.growth.backend.temporal.signup_enrichment.harmonic_status_poll import (
     HarmonicEnrichmentStatusPollWorkflow,
     poll_status_batch_activity,
@@ -21,14 +26,14 @@ from products.growth.backend.temporal.signup_enrichment.workflow import (
     enrich_signup_organization_activity,
 )
 
-WORKFLOWS = [
+WORKFLOWS: list[type[PostHogWorkflow]] = [
     SignupEnrichmentWorkflow,
     IcpReenrichmentSweepWorkflow,
     HarmonicEnrichmentStatusPollWorkflow,
     EnrichmentSweepWorkflow,
 ]
 
-ACTIVITIES = [
+ACTIVITIES: list[Callable[..., typing.Any]] = [
     enrich_signup_organization_activity,
     select_reenrichment_candidates_activity,
     reenrich_organization_activity,

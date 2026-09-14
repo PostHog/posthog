@@ -25,10 +25,6 @@ goes through `enrich_organization` as `EnrichmentPhase.SWEEP` — same archive, 
 person-mirror policy; the write-once at-signup snapshot and the launch signal are untouched
 by construction (both live only in the signup activity). Emits `icp_reenrichment_completed`
 per org so the sweep has its own health signal.
-
-The sweep runs as `SPEC` under the generic `growth-enrichment-sweep` workflow (sweep.py). The
-`icp-reenrichment-sweep` workflow type and its activities below stay registered as thin
-adapters until no execution of that type remains in any region.
 """
 
 import json

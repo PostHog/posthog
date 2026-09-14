@@ -1,6 +1,4 @@
-"""The shapes one enrichment sweep exposes to the generic sweep workflow.
-
-A leaf module: it imports nothing from the sweeps, so a sweep module can import it while
+"""A leaf module: it imports nothing from the sweeps, so a sweep module can import it while
 sweep.py imports every sweep module to build its registry.
 """
 
