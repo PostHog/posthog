@@ -86,7 +86,7 @@ describe('MetricsViewer', () => {
         const envOption = screen.getByText('env')
         expect(serviceOption.compareDocumentPosition(envOption) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
         await userEvent.hover(screen.getByText('20'))
-        expect(await screen.findByText('number of series')).toBeInTheDocument()
+        expect(await screen.findByText('Number of series with this attribute')).toBeInTheDocument()
         fireEvent.change(screen.getByPlaceholderText('Group by attribute…'), { target: { value: 'e' } })
         expect(serviceOption.compareDocumentPosition(envOption) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
         fireEvent.click(envOption)
