@@ -14,7 +14,7 @@ from products.warehouse_sources.backend.models.external_data_source import Exter
 pytestmark = [pytest.mark.django_db]
 
 COMMAND = "backfill_mongodb_server_versions"
-PROBE = "products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.source.get_mongo_connection_metadata"
+PROBE = "products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.source.get_mongo_server_metadata"
 
 
 @pytest.fixture

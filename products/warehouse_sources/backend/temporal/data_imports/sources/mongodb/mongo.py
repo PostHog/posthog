@@ -293,7 +293,7 @@ def mongo_client(connection_string: str, team_id: int) -> Iterator[MongoClient]:
         client.close()
 
 
-def get_connection_metadata(connection_string: str, team_id: int) -> dict[str, Any]:
+def get_server_metadata(connection_string: str, team_id: int) -> dict[str, Any]:
     """Probe the cluster for the MongoDB version it reports, and for its wire version.
 
     The driver refuses any server below its own wire-version floor, and that floor rises across

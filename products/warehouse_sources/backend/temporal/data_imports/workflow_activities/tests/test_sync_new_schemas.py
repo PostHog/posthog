@@ -14,10 +14,14 @@ from products.warehouse_sources.backend.temporal.data_imports.workflow_activitie
 )
 
 
-def _patch_common(source_mock, schemas_created=None, source_api_version=None):
+def _patch_common(source_mock, schemas_created=None, source_api_version=None, source_connection_metadata=None):
     """Patch DB + registry so the activity runs without a database or real source."""
     existing_source = mock.MagicMock(
-        source_type="GoogleAds", job_inputs={"k": "v"}, deleted=False, api_version=source_api_version
+        source_type="GoogleAds",
+        job_inputs={"k": "v"},
+        deleted=False,
+        api_version=source_api_version,
+        connection_metadata={} if source_connection_metadata is None else source_connection_metadata,
     )
     objects = mock.MagicMock()
     objects.filter.return_value.exclude.return_value.exists.return_value = True
@@ -38,8 +42,13 @@ def _patch_common(source_mock, schemas_created=None, source_api_version=None):
     }
 
 
-def _run_activity(source_mock, schemas_created=None, source_api_version=None):
-    patches = _patch_common(source_mock, schemas_created, source_api_version=source_api_version)
+def _run_activity(source_mock, schemas_created=None, source_api_version=None, source_connection_metadata=None):
+    patches = _patch_common(
+        source_mock,
+        schemas_created,
+        source_api_version=source_api_version,
+        source_connection_metadata=source_connection_metadata,
+    )
     with contextlib.ExitStack() as stack:
         entered = {name: stack.enter_context(patcher) for name, patcher in patches.items()}
         sync_new_schemas_activity(SyncNewSchemasActivityInputs(source_id="src", team_id=1))
@@ -152,3 +161,33 @@ def test_auto_enable_not_called_when_nothing_created():
     mocks = _run_activity(source_mock)
 
     mocks["auto_enable_new_schemas"].assert_not_called()
+
+
+def test_server_metadata_is_merged_onto_the_source():
+    # Assigning instead of merging would drop the other keys this field carries, such as the
+    # direct-query connection config. A freshly probed key still has to win on overlap.
+    source_mock = mock.MagicMock()
+    source_mock.parse_config.return_value = {}
+    source_mock.get_schemas.return_value = []
+    source_mock.get_server_metadata.return_value = {"engine": "mongodb", "wire_version": 7}
+
+    mocks = _run_activity(source_mock, source_connection_metadata={"database": "analytics", "wire_version": 21})
+
+    source = mocks["objects"].get.return_value
+    assert source.connection_metadata == {"database": "analytics", "engine": "mongodb", "wire_version": 7}
+    # `updated_at` stays out so a probe does not read as a customer edit.
+    source.save.assert_called_once_with(update_fields=["connection_metadata"])
+
+
+def test_failed_server_metadata_probe_leaves_discovery_successful():
+    # The probe opens its own connection. Without the guard, one unreachable server would fail every
+    # discovery pass and the schemas discovered just above would never be reconciled.
+    source_mock = mock.MagicMock()
+    source_mock.parse_config.return_value = {}
+    source_mock.get_schemas.return_value = []
+    source_mock.get_server_metadata.side_effect = Exception("connection refused")
+
+    mocks = _run_activity(source_mock)
+
+    mocks["sync_old_schemas_with_new_schemas"].assert_called_once()
+    mocks["objects"].get.return_value.save.assert_not_called()

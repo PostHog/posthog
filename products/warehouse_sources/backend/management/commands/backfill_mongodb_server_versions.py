@@ -1,9 +1,10 @@
 """Record the MongoDB version and wire version each MongoDB source's cluster reports.
 
-`MongoDBSource.get_connection_metadata` fills this in when a source is created, so this command
-covers the sources that already existed. The wire version decides whether a source survives a
-pymongo wire-version floor change, and no other column holds it, so an upgrade that raises the
-floor is otherwise unmeasurable until customer syncs start failing.
+The schema-discovery pass records this for every source on its own schedule, so this command is
+for answering the question now instead of waiting for that pass to come round. The wire version
+decides whether a source survives a pymongo wire-version floor change, and no other column holds
+it, so an upgrade that raises the floor is otherwise unmeasurable until customer syncs start
+failing.
 """
 
 from typing import Any
@@ -117,7 +118,7 @@ class Command(BaseCommand):
         # sources, so a failure is logged and the survey continues.
         try:
             config = source_impl.parse_config(source.job_inputs)
-            metadata = source_impl.get_connection_metadata(config, source.team_id)
+            metadata = source_impl.get_server_metadata(config, source.team_id)
         except Exception as error:
             logger.warning(
                 "Could not probe MongoDB source",

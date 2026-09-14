@@ -111,6 +111,20 @@ def sync_new_schemas_activity(inputs: SyncNewSchemasActivityInputs) -> None:
             raise
 
         schemas_to_sync = {s.name: s.label for s in schemas}
+
+        try:
+            server_metadata = new_source.get_server_metadata(config, inputs.team_id)
+        except Exception:
+            # The probe opens its own connection, and a failure here adds nothing the per-schema
+            # sync path does not already surface and report. A discovery pass that otherwise
+            # succeeded has to stay successful.
+            logger.warning("Could not read source server metadata", exc_info=True)
+        else:
+            if isinstance(server_metadata, dict) and server_metadata:
+                # Merge rather than replace, so the direct-query connection config that shares this
+                # field survives. `updated_at` stays out so a probe does not read as a customer edit.
+                source.connection_metadata = {**(source.connection_metadata or {}), **server_metadata}
+                source.save(update_fields=["connection_metadata"])
     else:
         raise ValueError(f"Source type missing from SourceRegistry: {source.source_type}")
 

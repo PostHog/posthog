@@ -29,8 +29,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.mo
     _make_safe_server_selector,
     _process_doc_with_field_logging,
     _process_nested_value,
-    get_connection_metadata,
     get_leading_index_keys,
+    get_server_metadata,
     mongo_source,
 )
 from products.warehouse_sources.backend.types import IncrementalFieldType
@@ -880,7 +880,7 @@ class TestMongoSourceCursorLifecycle(SimpleTestCase):
         assert len(collection.find_calls) == 2
 
 
-class TestGetConnectionMetadata(SimpleTestCase):
+class TestGetServerMetadata(SimpleTestCase):
     @staticmethod
     def _server(host: str, max_wire_version: int | None) -> ServerDescription:
         # A ServerDescription built without a hello response is the state pymongo holds for a node
@@ -923,7 +923,7 @@ class TestGetConnectionMetadata(SimpleTestCase):
         servers = [self._server(host, max_wire_version) for host, max_wire_version in nodes]
 
         with self._patched_client(server_version, servers):
-            metadata = get_connection_metadata("mongodb://user:pass@a.example.com/db", team_id=1)
+            metadata = get_server_metadata("mongodb://user:pass@a.example.com/db", team_id=1)
 
         assert metadata["engine"] == "mongodb"
         assert metadata["server_version"] == server_version
