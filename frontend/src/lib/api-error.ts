@@ -95,6 +95,21 @@ export function isScopeNotFoundError(error: unknown): boolean {
     return typeof detail === 'string' && SCOPE_NOT_FOUND_DETAILS.has(detail)
 }
 
+/**
+ * A 400 that names the request field it rejected (DRF `type: 'validation_error'` with an `attr`),
+ * which is the shape every serializer field error arrives in. The value came from the user, the
+ * form that sent it puts the `detail` next to the offending input, and no code of ours has to
+ * change for the next attempt to succeed.
+ *
+ * The commonest one is a mistyped address on the login form, which the server answers with
+ * `attr: 'email'`. A whole-request 400 (`attr: null`) stays reportable, since that is the shape a
+ * payload the frontend built wrong arrives in.
+ */
+export function isFieldValidationError(error: unknown): boolean {
+    const failure = error as { status?: unknown; data?: { type?: unknown; attr?: unknown } } | null
+    return failure?.status === 400 && failure.data?.type === 'validation_error' && Boolean(failure.data.attr)
+}
+
 /** The 403 gates `apiStatusLogic` recovers from, keyed by the DRF `code` the backend sends. */
 const HANDLED_AUTH_GATE_CODES: ReadonlySet<string> = new Set([
     'two_factor_setup_required',
@@ -167,6 +182,9 @@ export function isBrowserNetworkFailure(error: unknown): boolean {
  *   request under it fails the same way. The scene routing takes the user off that URL, and until
  *   it does, a poll on the dead scope would otherwise file one exception per tick.
  * - 502/503/504 — the gateway couldn't reach the backend, so application code is not at fault.
+ * - 400 naming a rejected field — the form shows the `detail` under that input and the user
+ *   retypes it. This is the one the user causes, so it scales with traffic rather than with
+ *   defects: a mistyped login address alone filed hundreds of issues a month.
  *
  * Left unreported for a second reason, that there is nothing to fix:
  * - a `fetch` the browser never completed. No request reached us, so no code of ours failed, and
@@ -197,6 +215,9 @@ export function shouldReportApiFailure(error: unknown): boolean {
         return true
     }
     if (status === 401 || isTransientGatewayStatus(status)) {
+        return false
+    }
+    if (isFieldValidationError(failure)) {
         return false
     }
     if (isScopeNotFoundError(failure)) {

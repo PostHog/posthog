@@ -60,6 +60,38 @@ describe('signupLogic — email error surfacing', () => {
     })
 })
 
+describe('signupLogic — email format validation', () => {
+    let logic: ReturnType<typeof signupLogic.build>
+
+    beforeEach(() => {
+        useMocks({
+            post: { '/api/signup/precheck': () => [200, { email_exists: false, pending_invite: null }] },
+        })
+        initKeaTests()
+        router.actions.push('/signup')
+        logic = signupLogic()
+        logic.mount()
+    })
+
+    afterEach(() => {
+        logic.unmount()
+    })
+
+    // `alwaysShowErrors` puts this validator's output under the input as the user types, so a
+    // capitalized address used to be called invalid while it was still being typed.
+    it('does not call a capitalized address invalid', () => {
+        logic.actions.setSignupPanelEmailValue('email', 'User@Example.com')
+
+        expect(logic.values.signupPanelEmailValidationErrors.email).toBeUndefined()
+    })
+
+    it('calls a malformed address invalid', () => {
+        logic.actions.setSignupPanelEmailValue('email', 'user@')
+
+        expect(logic.values.signupPanelEmailValidationErrors.email).toBeTruthy()
+    })
+})
+
 describe('signupLogic — pending invite banner', () => {
     let logic: ReturnType<typeof signupLogic.build>
 

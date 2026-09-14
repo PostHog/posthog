@@ -211,6 +211,50 @@ describe('loginLogic', () => {
         })
     })
 
+    describe('email format validation', () => {
+        let logic: ReturnType<typeof loginLogic.build>
+        const originalVendor = window.navigator.vendor
+        const loginHandler = jest.fn(() => [200, { success: true }])
+
+        beforeEach(() => {
+            setVendor(WEBKIT_VENDOR) // skip passkey auto-trigger
+            useMocks({
+                get: { '/api/users/@me/': () => [200, {}] },
+                post: {
+                    '/api/login/precheck': () => [200, { saml_available: false }],
+                    '/api/login': loginHandler,
+                },
+            })
+            initKeaTests()
+            router.actions.push('/login')
+            logic = loginLogic()
+            logic.mount()
+        })
+
+        afterEach(() => {
+            logic.unmount()
+            setVendor(originalVendor)
+            jest.clearAllMocks()
+        })
+
+        it('keeps a malformed address out of the request', async () => {
+            logic.actions.setLoginValues({ email: 'user@', password: 'a-password' })
+            logic.actions.submitLogin()
+            await expectLogic(logic).toDispatchActions(['submitLoginFailure'])
+
+            expect(logic.values.loginValidationErrors.email).toBeTruthy()
+            expect(loginHandler).not.toHaveBeenCalled()
+        })
+
+        it('accepts a capitalized address', async () => {
+            logic.actions.setLoginValues({ email: 'User@Example.com', password: 'a-password' })
+            logic.actions.submitLogin()
+            await expectLogic(logic).toDispatchActions(['submitLoginSuccess'])
+
+            expect(loginHandler).toHaveBeenCalled()
+        })
+    })
+
     describe('opaque login failure', () => {
         let logic: ReturnType<typeof loginLogic.build>
         const originalVendor = window.navigator.vendor

@@ -104,7 +104,15 @@ describe('api-error', () => {
             ['a 403 with no code', { status: 403 }, true],
             ['a 409 that is not an approvals gate', { status: 409, data: {} }, true],
             ['a 500 backend exception', { status: 500 }, true],
-            ['a 400 validation error', { status: 400 }, true],
+            // A 400 that names the rejected field is the user's typo, shown under that input.
+            [
+                'a mistyped login address',
+                { status: 400, data: { type: 'validation_error', code: 'invalid', attr: 'email' } },
+                false,
+            ],
+            // A whole-request 400 is the shape a payload the frontend built wrong arrives in.
+            ['a 400 naming no field', { status: 400, data: { type: 'validation_error', attr: null } }, true],
+            ['a 400 with no body', { status: 400 }, true],
             // A route the backend does not serve stays reportable here. Only a caller that already
             // degrades excuses one, through `isUnavailableEndpointError`.
             ['a 404', { status: 404 }, true],
@@ -139,6 +147,18 @@ describe('api-error', () => {
             ['null', null, true],
         ])('decides whether to report %s', (_, error, expected) => {
             expect(shouldReportApiFailure(error)).toBe(expected)
+        })
+
+        it('reads the rejected field off a constructed ApiError', async () => {
+            const body = {
+                type: 'validation_error',
+                code: 'invalid',
+                detail: 'Enter a valid email address.',
+                attr: 'email',
+            }
+            const error = await ApiError.fromResponse(new Response(JSON.stringify(body), { status: 400 }))
+
+            expect(shouldReportApiFailure(error)).toBe(false)
         })
 
         // The hand-written cases above use literals; this proves the shape `fromResponse` actually

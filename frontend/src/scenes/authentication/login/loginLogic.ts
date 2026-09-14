@@ -13,6 +13,7 @@ import { getSocialLoginUrl } from 'lib/components/SocialLoginButton/socialLoginU
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isWebKitBrowser } from 'lib/utils/dom'
+import { INVALID_EMAIL_MESSAGE, isValidEmail } from 'lib/utils/email'
 import { getCurrentTeamIdOrNone } from 'lib/utils/getAppContext'
 import { getRelativeNextPath } from 'lib/utils/url'
 import { devLoginLogic } from 'scenes/authentication/shared/devLoginLogic'
@@ -582,7 +583,11 @@ export const loginLogic = kea<loginLogicType>([
         login: {
             defaults: { email: '', password: '' } as LoginForm,
             errors: ({ email, password }) => ({
-                email: !email ? 'Please enter your email to continue' : undefined,
+                email: !email
+                    ? 'Please enter your email to continue'
+                    : !isValidEmail(email)
+                      ? INVALID_EMAIL_MESSAGE
+                      : undefined,
                 password: !password ? 'Please enter your password to continue' : undefined,
             }),
             submit: async ({ email, password }, breakpoint) => {
