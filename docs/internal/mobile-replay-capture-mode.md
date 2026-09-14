@@ -3,7 +3,7 @@
 Replay ingestion sends `snapshot_mode` in its Kafka metadata payload.
 The materialized view casts that value to `Nullable(String)` and stores its aggregate state in `snapshot_mode_v2`, so recordings can be counted by rendering mode without downloading replay blobs.
 This field only applies to events with `$snapshot_source = 'mobile'`.
-The stored `snapshot_mode` column is deprecated for reads; use `snapshot_mode_v2` instead.
+The aggregate table stores capture mode only in `snapshot_mode_v2`.
 
 ## Classification
 
@@ -72,9 +72,7 @@ The replacement-column migration adds `snapshot_mode_v2` to the sharded, read, a
 The producer's `snapshot_mode` payload and the Kafka table remain unchanged, so the ingestion classifier does not need a coordinated deployment.
 Old producers can omit the nullable field during rollout.
 
-The migration does not drop, convert, or backfill the deprecated stored `snapshot_mode` column.
-Both materialized views continue to populate it until the ClickHouse team coordinates its removal: omitting it can trigger a failing implicit default on ClickHouse 26.6.
-Its cleanup must also remove the legacy projection and schema declarations.
+The migration does not backfill `snapshot_mode_v2`.
 Do not remove the Kafka payload field; it supplies `snapshot_mode_v2`.
 
 Only blocks ingested through the updated materialized view populate `snapshot_mode_v2`.

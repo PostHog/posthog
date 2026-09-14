@@ -16,7 +16,7 @@ from posthog.session_recordings.sql.session_replay_event_sql import (
 
 
 @pytest.mark.parametrize("mv_sql", [SESSION_REPLAY_EVENTS_TABLE_MV_SQL, SESSION_REPLAY_EVENTS_WS_MV_SQL])
-def test_snapshot_mode_v2_reads_old_parts_and_classified_blocks(mv_sql: Callable[..., str]) -> None:
+def test_replay_metadata_reads_old_parts_and_classified_blocks(mv_sql: Callable[..., str]) -> None:
     suffix = uuid4().hex
     source = f"replay_mode_source_{suffix}"
     target = f"replay_mode_target_{suffix}"
@@ -36,8 +36,8 @@ def test_snapshot_mode_v2_reads_old_parts_and_classified_blocks(mv_sql: Callable
         sync_execute(
             f"""
             INSERT INTO {database}.{source}
-                (session_id, team_id, distinct_id, first_timestamp, last_timestamp, snapshot_mode)
-            VALUES (%(session_id)s, 1, 'test-user', %(timestamp)s, %(timestamp)s, %(mode)s)
+                (session_id, team_id, distinct_id, first_timestamp, last_timestamp, snapshot_source, snapshot_mode)
+            VALUES (%(session_id)s, 1, 'test-user', %(timestamp)s, %(timestamp)s, 'mobile', %(mode)s)
             """,
             {"session_id": session_id, "timestamp": timestamp, "mode": mode},
         )
@@ -71,11 +71,16 @@ def test_snapshot_mode_v2_reads_old_parts_and_classified_blocks(mv_sql: Callable
         insert_block("unknown", None, "2026-01-02 00:00:00")
 
         query = f"""
-            SELECT session_id, argMinMerge(snapshot_mode_v2)
+            SELECT session_id, argMinMerge(snapshot_source), argMinMerge(snapshot_mode_v2)
             FROM {database}.{target}
             GROUP BY session_id ORDER BY session_id
         """
-        expected = [("historical", None), ("screenshots", "screenshot"), ("unknown", None), ("wireframes", "wireframe")]
+        expected = [
+            ("historical", "mobile", None),
+            ("screenshots", "mobile", "screenshot"),
+            ("unknown", "mobile", None),
+            ("wireframes", "mobile", "wireframe"),
+        ]
         assert sync_execute(query) == expected
         sync_execute(f"OPTIMIZE TABLE {database}.{target} FINAL")
         assert sync_execute(query) == expected

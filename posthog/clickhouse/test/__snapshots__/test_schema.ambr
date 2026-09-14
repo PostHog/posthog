@@ -6416,11 +6416,9 @@
       -- because we batch events we expect message_count to be lower than event_count
       event_count SimpleAggregateFunction(sum, Int64),
       -- which source the snapshots came from Mobile or Web. Web if absent
-      snapshot_source AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
+      snapshot_source AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
       -- knowing something is mobile isn't enough, we need to know if e.g. RN or flutter
       snapshot_library AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
-      -- Deprecated for reads: use snapshot_mode_v2 to avoid LowCardinality aggregate-state errors.
-      snapshot_mode AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
       snapshot_mode_v2 AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
       _timestamp SimpleAggregateFunction(max, DateTime),
       -- retention period for this session, in days. Useful to show TTL for the recording
@@ -6457,7 +6455,7 @@
   `console_log_count` Int64, `console_warn_count` Int64,
   `console_error_count` Int64, `size` Int64, `message_count` Int64,
   `event_count` Int64,
-  `snapshot_source` AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
+  `snapshot_source` AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
   `snapshot_library` AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
   `_timestamp` Nullable(DateTime)
   ,`retention_period_days` SimpleAggregateFunction(max, Nullable(Int64))
@@ -6466,7 +6464,6 @@
   ,`ai_tags_freeform` SimpleAggregateFunction(groupUniqArrayArray, Array(String))
   ,`ai_highlighted` SimpleAggregateFunction(max, UInt8)
   ,`surfacing_score` SimpleAggregateFunction(max, Nullable(Float32))
-  ,`snapshot_mode` AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC'))
   ,`snapshot_mode_v2` AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))
   )
   AS SELECT
@@ -6500,7 +6497,7 @@
   -- we can count the number of kafka messages instead of sending it explicitly
   sum(message_count) as message_count,
   sum(event_count) as event_count,
-  argMinState(snapshot_source, first_timestamp) as snapshot_source,
+  argMinState(replay.snapshot_source, first_timestamp) as snapshot_source,
   argMinState(snapshot_library, first_timestamp) as snapshot_library,
   max(_timestamp) as _timestamp
   ,max(retention_period_days) as retention_period_days
@@ -6509,8 +6506,7 @@
   ,groupUniqArrayArray(ai_tags_freeform) as ai_tags_freeform
   ,max(ai_highlighted) as ai_highlighted
   ,max(surfacing_score) as surfacing_score
-  ,argMinState(snapshot_mode, first_timestamp) as snapshot_mode
-  ,argMinState(CAST(replay.snapshot_mode AS Nullable(String)), first_timestamp) as snapshot_mode_v2
+  ,argMinState(replay.snapshot_mode, first_timestamp) as snapshot_mode_v2
   FROM posthog_test.kafka_session_replay_events AS replay
   group by session_id, team_id
   
@@ -8265,11 +8261,9 @@
       -- because we batch events we expect message_count to be lower than event_count
       event_count SimpleAggregateFunction(sum, Int64),
       -- which source the snapshots came from Mobile or Web. Web if absent
-      snapshot_source AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
+      snapshot_source AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
       -- knowing something is mobile isn't enough, we need to know if e.g. RN or flutter
       snapshot_library AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
-      -- Deprecated for reads: use snapshot_mode_v2 to avoid LowCardinality aggregate-state errors.
-      snapshot_mode AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
       snapshot_mode_v2 AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
       _timestamp SimpleAggregateFunction(max, DateTime),
       -- retention period for this session, in days. Useful to show TTL for the recording
@@ -10370,11 +10364,9 @@
       -- because we batch events we expect message_count to be lower than event_count
       event_count SimpleAggregateFunction(sum, Int64),
       -- which source the snapshots came from Mobile or Web. Web if absent
-      snapshot_source AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
+      snapshot_source AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
       -- knowing something is mobile isn't enough, we need to know if e.g. RN or flutter
       snapshot_library AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
-      -- Deprecated for reads: use snapshot_mode_v2 to avoid LowCardinality aggregate-state errors.
-      snapshot_mode AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
       snapshot_mode_v2 AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
       _timestamp SimpleAggregateFunction(max, DateTime),
       -- retention period for this session, in days. Useful to show TTL for the recording
@@ -13501,11 +13493,9 @@
       -- because we batch events we expect message_count to be lower than event_count
       event_count SimpleAggregateFunction(sum, Int64),
       -- which source the snapshots came from Mobile or Web. Web if absent
-      snapshot_source AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
+      snapshot_source AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
       -- knowing something is mobile isn't enough, we need to know if e.g. RN or flutter
       snapshot_library AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
-      -- Deprecated for reads: use snapshot_mode_v2 to avoid LowCardinality aggregate-state errors.
-      snapshot_mode AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
       snapshot_mode_v2 AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
       _timestamp SimpleAggregateFunction(max, DateTime),
       -- retention period for this session, in days. Useful to show TTL for the recording
@@ -14401,11 +14391,9 @@
       -- because we batch events we expect message_count to be lower than event_count
       event_count SimpleAggregateFunction(sum, Int64),
       -- which source the snapshots came from Mobile or Web. Web if absent
-      snapshot_source AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
+      snapshot_source AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
       -- knowing something is mobile isn't enough, we need to know if e.g. RN or flutter
       snapshot_library AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
-      -- Deprecated for reads: use snapshot_mode_v2 to avoid LowCardinality aggregate-state errors.
-      snapshot_mode AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
       snapshot_mode_v2 AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
       _timestamp SimpleAggregateFunction(max, DateTime),
       -- retention period for this session, in days. Useful to show TTL for the recording
