@@ -5,7 +5,12 @@ import { FeatureFlagFormLoadError } from './FeatureFlagFormLoadError'
 const meta: Meta<typeof FeatureFlagFormLoadError> = {
     title: 'Scenes-App/Feature Flags/Feature Flag Form Load Error',
     component: FeatureFlagFormLoadError,
-    args: { onRetry: () => {}, hasUnsavedChanges: true },
+    args: {
+        error: new TypeError('Failed to fetch dynamically imported module: /static/chunk.js'),
+        teamId: 1,
+        onRetry: () => {},
+        hasUnsavedChanges: true,
+    },
 }
 export default meta
 

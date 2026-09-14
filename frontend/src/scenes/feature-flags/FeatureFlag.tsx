@@ -243,8 +243,13 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
         return (
             <ChunkLoadErrorBoundary
                 holdsUnsavedWork={isFormDirty}
-                fallback={(_error, retry) => (
-                    <FeatureFlagFormLoadError onRetry={retry} hasUnsavedChanges={isFormDirty} />
+                fallback={(error, retry) => (
+                    <FeatureFlagFormLoadError
+                        error={error}
+                        teamId={currentTeamId}
+                        onRetry={retry}
+                        hasUnsavedChanges={isFormDirty}
+                    />
                 )}
             >
                 <Suspense fallback={<FeatureFlagFormSkeleton />}>
