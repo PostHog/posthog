@@ -2599,9 +2599,7 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         assert response.json()["repository"] == "posthog/posthog"
         config.refresh_from_db()
         assert config.repository == "posthog/posthog"
-        repository_access.assert_called_once_with(
-            self.team.id, "posthog/posthog", source="signals_scout_config"
-        )
+        repository_access.assert_called_once_with(self.team.id, "posthog/posthog", source="signals_scout_config")
 
     def test_partial_update_disable_records_a_user_pause(self) -> None:
         config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
