@@ -536,6 +536,16 @@ class FlakinessEntrySerializer(DataclassSerializer):
         required=False,
         help_text="Active quarantine details when `is_quarantined` is true. Null otherwise.",
     )
+    owner_team = serializers.CharField(
+        allow_null=True,
+        required=False,
+        help_text=(
+            "Slug of the team that owns the file this snapshot's story lives in, from the repository's "
+            "ownership files. `unowned` when no entry covers the file. Null when ownership is unknown: "
+            "the snapshot is not a Storybook snapshot, the newest default-branch run sent no story index, "
+            "the story is not in it, or the ownership files could not be read."
+        ),
+    )
 
     class Meta:
         dataclass = FlakinessEntry

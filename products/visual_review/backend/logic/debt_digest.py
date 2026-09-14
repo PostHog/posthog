@@ -605,7 +605,11 @@ def lead_message(repo: Repo, digest: TeamDigest, now: datetime) -> SlackMessage:
             section_block(_LEAD_BODY),
             actions_block(
                 [
-                    SlackButton(text="Open flakiness overview", url=_repo_flakiness_url(repo), primary=True),
+                    SlackButton(
+                        text="Open flakiness overview",
+                        url=f"{_repo_flakiness_url(repo)}#teams={quote(digest.team_slug, safe='')}",
+                        primary=True,
+                    ),
                     SlackButton(text="Open snapshots", url=_repo_snapshots_url(repo)),
                 ]
             ),

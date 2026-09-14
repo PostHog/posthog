@@ -714,6 +714,9 @@ class FlakinessEntry:
     # between extending it and lifting it.
     needs_decision: bool
     quarantine: BaselineQuarantineSummary | None = None
+    # Team that owns the story file, `UNOWNED_TEAM` when no entry covers it, and None when
+    # ownership is unknown.
+    owner_team: str | None = None
 
 
 @dataclass(frozen=True)

@@ -123,7 +123,11 @@ class TestLead:
         message = debt_digest.lead_message(_repo(), _team_digest(pileups=1), _MONDAY)
 
         assert [(button["text"]["text"], button["url"]) for button in _buttons(message)] == [
-            ("Open flakiness overview", f"{settings.SITE_URL}/project/7/visual_review/repos/abc/flakiness"),
+            # The page opens on the team's own rows, so a shared repo does not bury them.
+            (
+                "Open flakiness overview",
+                f"{settings.SITE_URL}/project/7/visual_review/repos/abc/flakiness#teams=team-devex",
+            ),
             ("Open snapshots", f"{settings.SITE_URL}/project/7/visual_review/repos/abc/snapshots"),
         ]
 

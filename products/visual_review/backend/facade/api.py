@@ -38,6 +38,7 @@ from ..logic import (
     flakiness,
     gating,
     history,
+    owners,
     quarantine,
     repos,
     run_queries,
@@ -373,6 +374,10 @@ def get_flakiness_overview(repo_id: UUID) -> contracts.FlakinessOverview:
     scoping rule and query shape.
     """
     raw = flakiness.get_flakiness_overview(repo_id)
+    repo = repos.find_repo(repo_id)
+    owner_team_by_key = (
+        owners.owner_teams(repo, [flakiness.snapshot_key(row) for row in raw.rows]) if repo is not None else {}
+    )
 
     quarantine_user_ids = {
         row.quarantine.created_by_id for row in raw.rows if row.quarantine and row.quarantine.created_by_id
@@ -415,6 +420,7 @@ def get_flakiness_overview(repo_id: UUID) -> contracts.FlakinessOverview:
                     if row.quarantine is not None
                     else None
                 ),
+                owner_team=owner_team_by_key.get(flakiness.snapshot_key(row)),
             )
         )
 

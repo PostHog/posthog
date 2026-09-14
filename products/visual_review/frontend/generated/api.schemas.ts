@@ -200,6 +200,11 @@ export interface FlakinessEntryApi {
     needs_decision: boolean
     /** Active quarantine details when `is_quarantined` is true. Null otherwise. */
     quarantine?: BaselineQuarantineSummaryApi | null
+    /**
+     * Slug of the team that owns the file this snapshot's story lives in, from the repository's ownership files. `unowned` when no entry covers the file. Null when ownership is unknown: the snapshot is not a Storybook snapshot, the newest default-branch run sent no story index, the story is not in it, or the ownership files could not be read.
+     * @nullable
+     */
+    owner_team?: string | null
     identifier: string
     run_type: string
     /** @nullable */

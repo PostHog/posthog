@@ -236,6 +236,11 @@ The share is split in two, because the two cost different things: a `hard` run f
 Rows are read over 30 days but rated over 7.
 The rate has to lapse before the history does, so a quarantine over a snapshot that stopped failing last week becomes liftable while the activity strip still shows what it used to do.
 
+The Team facet narrows the list to the snapshots one team owns.
+Each Storybook entry carries `owner_team`, resolved the same way as the debt digest: the newest default-branch run's story index names the story file, and `owners.yaml` names the team that owns it.
+`unowned` means no entry covers the file, and a null owner means the file or its owner is unknown, so the row only appears when no team is selected.
+The digest's "Open flakiness overview" button links here with `#teams=<team slug>`.
+
 The states are an urgency ladder, and each rung asks for a different fix:
 
 | State      | Meaning                                                        | Fix                                         |
