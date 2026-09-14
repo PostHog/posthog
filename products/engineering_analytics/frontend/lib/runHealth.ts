@@ -1,3 +1,4 @@
+import type { WorkflowHealthItemApi } from '../generated/api.schemas'
 import { isDecisiveFailure, isPassingConclusion } from './lifecycle'
 
 /** Minimal run shape; WorkflowRunRow and PrRunRow both satisfy it. */
@@ -42,8 +43,6 @@ export interface HealthSummary {
     passRate: number | null
     medianSeconds: number | null
     p95Seconds: number | null
-    lastFailureAt: string | null
-    latestConclusion: string | null
 }
 
 // At or above this decisive-failure rate a workflow whose latest run still passed reads as "degraded".
@@ -117,43 +116,23 @@ export function percentileSorted(sortedAsc: number[], q: number): number | null 
 }
 
 /** Shared by both summaries so a page of runs and the server's figures never disagree on the verdict. */
-function workflowState(counts: {
-    hasCompleted: boolean
-    latestConclusion: string | null
-    conclusiveRuns: number
-    failures: number
-}): WorkflowState {
-    if (!counts.hasCompleted) {
+function workflowState(latestRunFailed: boolean | null, conclusiveRuns: number, failures: number): WorkflowState {
+    if (latestRunFailed == null) {
         return 'unknown'
     }
-    if (isDecisiveFailure(counts.latestConclusion)) {
+    if (latestRunFailed) {
         return 'failing'
     }
-    if (counts.conclusiveRuns > 0 && counts.failures / counts.conclusiveRuns >= DEGRADED_FAILURE_RATE) {
+    if (conclusiveRuns > 0 && failures / conclusiveRuns >= DEGRADED_FAILURE_RATE) {
         return 'degraded'
     }
     return 'healthy'
 }
 
-export function workflowHealthSummary(item: {
-    run_count: number
-    successful_run_count: number
-    conclusive_run_count: number
-    success_rate: number | null
-    p50_seconds: number | null
-    p95_seconds: number | null
-    last_failure_at: string | null
-    latest_run_conclusion?: string | null
-    rerun_cycles?: number
-}): HealthSummary {
+export function workflowHealthSummary(item: WorkflowHealthItemApi): HealthSummary {
     const failures = item.conclusive_run_count - item.successful_run_count
     return {
-        state: workflowState({
-            hasCompleted: item.latest_run_conclusion != null,
-            latestConclusion: item.latest_run_conclusion ?? null,
-            conclusiveRuns: item.conclusive_run_count,
-            failures,
-        }),
+        state: workflowState(item.latest_run_failed, item.conclusive_run_count, failures),
         totalRuns: item.run_count,
         conclusiveRuns: item.conclusive_run_count,
         passedRuns: item.successful_run_count,
@@ -162,8 +141,6 @@ export function workflowHealthSummary(item: {
         passRate: item.success_rate,
         medianSeconds: item.p50_seconds,
         p95Seconds: item.p95_seconds,
-        lastFailureAt: item.last_failure_at,
-        latestConclusion: item.latest_run_conclusion ?? null,
     }
 }
 
@@ -190,25 +167,11 @@ export function computeHealthSummary(runs: HealthRun[]): HealthSummary {
         .filter((d): d is number => d != null)
     const durations = (realDurations.length > 0 ? realDurations : allDurations).sort((a, b) => a - b)
 
-    const byStartDesc = [...completed].sort((a, b) => (b.startedAt ?? '').localeCompare(a.startedAt ?? ''))
-    const latestConclusion = byStartDesc[0]?.conclusion ?? null
-    const lastFailureAt =
-        completed
-            .filter((run) => isDecisiveFailure(run.conclusion))
-            .map((run) => run.startedAt)
-            .filter((at): at is string => !!at)
-            .sort()
-            .at(-1) ?? null
-
-    const state = workflowState({
-        hasCompleted: completed.length > 0,
-        latestConclusion,
-        conclusiveRuns,
-        failures,
-    })
+    const latest = [...completed].sort((a, b) => (b.startedAt ?? '').localeCompare(a.startedAt ?? ''))[0]
+    const latestRunFailed = latest ? isDecisiveFailure(latest.conclusion) : null
 
     return {
-        state,
+        state: workflowState(latestRunFailed, conclusiveRuns, failures),
         totalRuns: runs.length,
         conclusiveRuns,
         passedRuns: passed,
@@ -217,8 +180,6 @@ export function computeHealthSummary(runs: HealthRun[]): HealthSummary {
         passRate,
         medianSeconds: percentileSorted(durations, 0.5),
         p95Seconds: percentileSorted(durations, 0.95),
-        lastFailureAt,
-        latestConclusion,
     }
 }
 

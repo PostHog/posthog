@@ -163,7 +163,7 @@ def workflow_name_filter_clause(
     workflow_name: str | None, placeholders: dict[str, ast.Expr], *, column: str = "r.workflow_name"
 ) -> str:
     """The name binds unmodified so it matches the other workflow endpoints."""
-    if not workflow_name or not workflow_name.strip():
+    if not (workflow_name or "").strip():
         return ""
     placeholders["workflow_name"] = ast.Constant(value=workflow_name)
     return f"AND {column} = {{workflow_name}}"
