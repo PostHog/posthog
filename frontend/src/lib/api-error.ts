@@ -1,3 +1,5 @@
+import type { BeforeSendFn } from 'posthog-js'
+
 import { dayjs } from 'lib/dayjs'
 import { humanFriendlyDuration } from 'lib/utils/durations'
 
@@ -305,6 +307,29 @@ export const UNACTIONABLE_NETWORK_ERROR_MESSAGES: ReadonlySet<string> = new Set(
     NETWORK_ERROR_MESSAGES.offline,
     NETWORK_ERROR_MESSAGES.navigating,
 ])
+
+/**
+ * Drop the offline and page-closing network exceptions before they leave the browser. Both describe
+ * the state of the client, not a fault the app can fix, so filing them as error tracking issues
+ * only buries real crashes. posthog-js autocaptures the unhandled `NetworkError` rejection with no
+ * custom properties, so the reason travels only in `type` and `value` (see `NETWORK_ERROR_MESSAGES`).
+ *
+ * This is a posthog-js `before_send` filter: return `null` to drop the event, or the event itself
+ * to keep it.
+ */
+export const dropUnactionableNetworkExceptions: BeforeSendFn = (event) => {
+    if (!event || event.event !== '$exception') {
+        return event
+    }
+    const exceptions = event.properties?.$exception_list
+    if (!Array.isArray(exceptions)) {
+        return event
+    }
+    const isUnactionable = exceptions.some(
+        (exception) => exception?.type === 'NetworkError' && UNACTIONABLE_NETWORK_ERROR_MESSAGES.has(exception.value)
+    )
+    return isUnactionable ? null : event
+}
 
 /**
  * A request the browser never completed, so there is no HTTP status to react to. `status` is left
