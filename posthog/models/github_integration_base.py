@@ -1160,27 +1160,31 @@ class GitHubIntegrationBase:
             return {"success": False, "error": f"Invalid GitHub pull request URL: {pr_url}"}
         return self.close_pull_request(parsed.repository, parsed.number)
 
+    def comment_on_issue(self, repository: str, issue_number: int, body: str) -> dict[str, Any]:
+        """Post a comment on an issue. ``repository`` is ``owner/repo`` or a bare repo."""
+        repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
+
+        response = self._installation_authenticated_post(
+            f"https://api.github.com/repos/{repo_path}/issues/{issue_number}/comments",
+            endpoint="/repos/{owner}/{repo}/issues/{issue_number}/comments",
+            json_body={"body": body},
+        )
+        if response is None:
+            return {"success": False, "error": "Network error commenting on issue"}
+        if response.status_code != 201:
+            return {
+                "success": False,
+                "error": f"Failed to comment on issue: {response.text}",
+                "status_code": response.status_code,
+            }
+        return {"success": True}
+
     def comment_on_pull_request(self, repository: str, pr_number: int, body: str) -> dict[str, Any]:
         """Post a comment on a pull request. ``repository`` is ``owner/repo`` or a bare repo.
 
         PR comments use the issues endpoint (a PR is an issue for commenting purposes).
         """
-        repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
-
-        response = self._installation_authenticated_post(
-            f"https://api.github.com/repos/{repo_path}/issues/{pr_number}/comments",
-            endpoint="/repos/{owner}/{repo}/issues/{issue_number}/comments",
-            json_body={"body": body},
-        )
-        if response is None:
-            return {"success": False, "error": "Network error commenting on pull request"}
-        if response.status_code != 201:
-            return {
-                "success": False,
-                "error": f"Failed to comment on pull request: {response.text}",
-                "status_code": response.status_code,
-            }
-        return {"success": True}
+        return self.comment_on_issue(repository, pr_number, body)
 
     def comment_on_pull_request_from_url(self, pr_url: str, body: str) -> dict[str, Any]:
         """Post a comment on a pull request by its HTML URL."""
