@@ -73,6 +73,24 @@ class TestGetContextForTemplate(APIBaseTest):
         app_context = json.loads(actual["posthog_app_context"])
         assert app_context["homepage"] == (stored_homepage or None)
 
+    @parameterized.expand(
+        [
+            ("enforced_carries_the_window", True, 84),
+            ("not_enforced_omits_the_key", False, None),
+        ]
+    )
+    def test_bootstraps_events_retention_window_into_app_context(self, _name, enforced, expected):
+        request = RequestFactory().get("/")
+        SessionMiddleware(lambda _request: HttpResponse()).process_request(request)
+        request.user = self.user
+
+        with self.settings(EVENTS_DATA_RETENTION_ENFORCED=enforced):
+            actual = get_context_for_template("layout", request)
+
+        app_context = json.loads(actual["posthog_app_context"])
+        assert app_context.get("events_retention_months") == expected
+        assert ("events_retention_months" in app_context) is enforced
+
     def test_bootstraps_project_tags_into_app_context(self):
         # projectLogic reads currentProject from the app context and only calls the API when it is
         # absent, so tags missing here render an empty Tags field until something refetches.
