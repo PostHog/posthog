@@ -4065,6 +4065,14 @@ class TestSurveyQuestionValidation(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
+    def test_create_rejects_an_app_scheme_whose_authority_is_bracketed(self):
+        self._register_link_schemes("example-mobile")
+
+        response = self._post_link_survey("example-mobile://[::1]")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["detail"] == "Remove the square brackets from the address after example-mobile://"
+
     def test_create_validate_link_mailto(self):
         response = self.client.post(
             f"/api/projects/{self.team.id}/surveys/",

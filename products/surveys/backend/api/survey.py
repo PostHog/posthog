@@ -1162,6 +1162,12 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
         elif parsed_url.scheme == "https":
             if not parsed_url.netloc:
                 raise serializers.ValidationError("Invalid HTTPS URL. Please enter a valid HTTPS link.")
+        elif "[" in parsed_url.netloc or "]" in parsed_url.netloc:
+            # An IPv6 literal parses here but the editor refuses it, so accepting one would store
+            # a link the author is then blocked from saving any later edit to.
+            raise serializers.ValidationError(
+                f"Remove the square brackets from the address after {parsed_url.scheme}://"
+            )
         elif not _link_has_destination(parsed_url):
             raise serializers.ValidationError(f"Add a destination after {parsed_url.scheme}://")
 
