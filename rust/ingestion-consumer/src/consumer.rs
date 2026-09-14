@@ -1323,101 +1323,244 @@ mod tests {
         assert_eq!(in_flight[0].message_count, 4);
     }
 
-    #[test]
-    fn historical_revoke_keeps_a_reassigned_poll_and_its_ledger_slice() {
-        let topic_partition = TopicPartition::new("test", 0);
-        let ledger = TopicOffsetLedger::new();
-        let delivery = Delivery {
-            offset: 10,
-            charge: Charge {
-                events: 1,
-                bytes: 1,
+    #[tokio::test]
+    async fn historical_revoke_keeps_a_reassigned_poll_and_its_ledger_slice() {
+        use axum::{routing::get, Router};
+        use ingestion_worker_proto::ingestion::worker::v1::{
+            ingest_stream_request, ingest_stream_response,
+            worker_ingest_server::{WorkerIngest, WorkerIngestServer},
+            IngestStreamRequest, IngestStreamResponse, StreamReady, SubBatchAck, SubBatchStatus,
+        };
+        use lifecycle::{ComponentOptions, Manager};
+        use rdkafka::{
+            config::ClientConfig,
+            mocking::MockCluster,
+            producer::{FutureProducer, FutureRecord},
+        };
+        use tokio_stream::wrappers::{TcpListenerStream, UnboundedReceiverStream};
+        use tonic::{Request, Response, Status, Streaming};
+
+        use crate::{
+            grpc_transport::GrpcPort,
+            routing::RoutingStrategy,
+            worker_registry::{WorkerRegistry, WorkerRegistryConfig},
+        };
+
+        // Keep the worker ACK under the test's control, but drive the real
+        // consumer, batcher, transport, rebalance callbacks, and Kafka commits.
+        struct WorkerConnection {
+            requests: Streaming<IngestStreamRequest>,
+            responses: mpsc::UnboundedSender<Result<IngestStreamResponse, Status>>,
+        }
+        struct Worker(mpsc::UnboundedSender<WorkerConnection>);
+
+        #[tonic::async_trait]
+        impl WorkerIngest for Worker {
+            type IngestStreamStream = UnboundedReceiverStream<Result<IngestStreamResponse, Status>>;
+
+            async fn ingest_stream(
+                &self,
+                request: Request<Streaming<IngestStreamRequest>>,
+            ) -> Result<Response<Self::IngestStreamStream>, Status> {
+                let (responses, rx) = mpsc::unbounded_channel();
+                responses
+                    .send(Ok(IngestStreamResponse {
+                        msg: Some(ingest_stream_response::Msg::Ready(StreamReady {})),
+                    }))
+                    .unwrap();
+                self.0
+                    .send(WorkerConnection {
+                        requests: request.into_inner(),
+                        responses,
+                    })
+                    .unwrap();
+                Ok(Response::new(UnboundedReceiverStream::new(rx)))
+            }
+        }
+
+        async fn wait_for(description: &str, mut ready: impl FnMut() -> bool) {
+            tokio::time::timeout(Duration::from_secs(15), async {
+                while !ready() {
+                    tokio::time::sleep(Duration::from_millis(20)).await;
+                }
+            })
+            .await
+            .unwrap_or_else(|_| panic!("timed out waiting for {description}"));
+        }
+
+        let cluster = MockCluster::new(1).unwrap();
+        let topic = "reassigned-poll";
+        cluster.create_topic(topic, 1, 1).unwrap();
+        let mut config = ClientConfig::new();
+        config
+            .set("bootstrap.servers", cluster.bootstrap_servers())
+            .set("group.id", "reassigned-poll-test")
+            .set("auto.offset.reset", "earliest")
+            .set("enable.auto.commit", "false")
+            .set("enable.auto.offset.store", "false")
+            .set("session.timeout.ms", "6000")
+            .set("heartbeat.interval.ms", "1000");
+        let transport_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let transport = Arc::new(GrpcTransport::new(
+            GrpcPort::Fixed(transport_listener.local_addr().unwrap().port()),
+            1,
+            Duration::from_secs(30),
+        ));
+        let mut context = SentinelContext::detached();
+        context.set_assignment_epoch(transport.assignment_epoch());
+        let kafka: StreamConsumer<SentinelContext> = config.create_with_context(context).unwrap();
+        kafka.subscribe(&[topic]).unwrap();
+
+        let ready_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let worker_urls = vec![format!("http://{}", ready_listener.local_addr().unwrap())];
+        let _ready_server = AbortOnDrop(tokio::spawn(async move {
+            axum::serve(
+                ready_listener,
+                Router::new().route("/_ready", get(|| async { axum::http::StatusCode::OK })),
+            )
+            .await
+            .unwrap();
+        }));
+        let (connections_tx, mut connections) = mpsc::unbounded_channel();
+        let _worker_server = AbortOnDrop(tokio::spawn(async move {
+            tonic::transport::Server::builder()
+                .add_service(
+                    WorkerIngestServer::new(Worker(connections_tx))
+                        .accept_compressed(tonic::codec::CompressionEncoding::Gzip)
+                        .send_compressed(tonic::codec::CompressionEncoding::Gzip),
+                )
+                .serve_with_incoming(TcpListenerStream::new(transport_listener))
+                .await
+                .unwrap();
+        }));
+        let dispatcher = Arc::new(Dispatcher::with_scheduler(
+            Arc::new(WorkerRegistry::new(
+                &worker_urls,
+                WorkerRegistryConfig {
+                    probe_interval: Duration::from_millis(50),
+                    dead_declaration: Duration::from_millis(200),
+                    passive_window: Duration::from_secs(30),
+                    passive_error_threshold: 0.5,
+                    passive_min_samples: 1,
+                    degraded_hold: Duration::from_millis(100),
+                    min_state_duration: Duration::ZERO,
+                    probe_failure_threshold: 2,
+                    drain_timeout: Duration::from_secs(5),
+                },
+            )),
+            RoutingStrategy::default(),
+            SchedulerKind::KeyTable,
+        ));
+        let mut manager = Manager::builder("reassigned-poll-test")
+            .with_trap_signals(false)
+            .build();
+        let handle = manager.register("consumer", ComponentOptions::new());
+        let shutdown = handle.shutdown_token();
+        let _monitor = manager.monitor_background();
+        let consumer = IngestionConsumer::from_parts(
+            kafka,
+            dispatcher,
+            transport,
+            worker_urls,
+            IngestionConsumerOptions {
+                batch_size: 2,
+                batch_size_bytes: 0,
+                batch_timeout: Duration::from_secs(60),
+                max_in_flight_batches: 1,
+                group_id: "reassigned-poll-test".to_string(),
+                deferred_flush_timeout: Duration::from_secs(30),
+                parked_retry_interval: Duration::from_millis(20),
+                debug_recorder: None,
             },
-            kafka_ts: 0,
-            lag_ms: None,
-        };
-
-        // This collection saw offset 10 immediately before a revoke, then
-        // saw its replay after the partition was assigned again. Only the
-        // current generation is charged, while the poll still covers both
-        // deliveries that the batcher will complete.
-        let mut reassigned_deliveries = PartitionDeliveries::new(
-            ledger.generation(&topic_partition),
-            ledger.generations_version(),
-            &delivery,
+            handle,
         );
-        ledger.forget_partitions([("test", 0)]);
-        ledger.forget_partitions([("test", 0)]);
-        reassigned_deliveries.record(
-            ledger.generations_version(),
-            || ledger.generation(&topic_partition),
-            &delivery,
+        let kafka = Arc::clone(&consumer.consumer);
+        let mut process = AbortOnDrop(tokio::spawn(consumer.process()));
+        let producer: FutureProducer = ClientConfig::new()
+            .set("bootstrap.servers", cluster.bootstrap_servers())
+            .create()
+            .unwrap();
+        producer
+            .send(
+                FutureRecord::to(topic)
+                    .partition(0)
+                    .key("key")
+                    .payload("payload"),
+                Duration::from_secs(5),
+            )
+            .await
+            .unwrap();
+
+        // Hold collection open after the first delivery. Unsubscribe and
+        // resubscribe through librdkafka, not by invoking callbacks ourselves.
+        // The uncommitted record replays into that SAME two-message poll.
+        wait_for("the first delivery to enter batch collection", || {
+            kafka
+                .position()
+                .unwrap()
+                .find_partition(topic, 0)
+                .is_some_and(|p| p.offset() == rdkafka::Offset::Offset(1))
+        })
+        .await;
+        kafka.unsubscribe();
+        wait_for("the Kafka assignment to be revoked", || {
+            kafka.assignment().unwrap().count() == 0
+        })
+        .await;
+        kafka.subscribe(&[topic]).unwrap();
+
+        let mut worker = tokio::time::timeout(Duration::from_secs(15), connections.recv())
+            .await
+            .expect("reassigned poll reaches the worker")
+            .unwrap();
+        let batch = tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                let request = worker.requests.message().await.unwrap().unwrap();
+                if let Some(ingest_stream_request::Msg::SubBatch(batch)) = request.msg {
+                    break batch;
+                }
+            }
+        })
+        .await
+        .unwrap();
+        assert_eq!(
+            batch
+                .messages
+                .iter()
+                .map(|message| message.offset)
+                .collect::<Vec<_>>(),
+            [0, 0],
+            "the original delivery and its replay must share the poll"
         );
-        assert_eq!(reassigned_deliveries.generation, 2);
-        assert_eq!(reassigned_deliveries.delivered, 2);
-        assert_eq!(reassigned_deliveries.charges.len(), 1);
-        ledger
-            .charge(
-                &topic_partition,
-                reassigned_deliveries.generation,
-                reassigned_deliveries.charges.iter().copied(),
-            )
+        worker
+            .responses
+            .send(Ok(IngestStreamResponse {
+                msg: Some(ingest_stream_response::Msg::Ack(SubBatchAck {
+                    seq: batch.seq,
+                    status: SubBatchStatus::Ok as i32,
+                    accepted: 2,
+                    error: String::new(),
+                })),
+            }))
             .unwrap();
 
-        // The queued revoke notification belongs to generation 0. It must
-        // remove genuine old in-flight work, but not this poll collected and
-        // charged under the later reassignment.
-        let old_poll = poll(0, 0, 1, 1, 1);
-        let reassigned_poll = InFlightPoll {
-            poll_id: "reassigned".to_string(),
-            assignment_epoch: 1,
-            partitions: HashMap::from([(topic_partition.clone(), reassigned_deliveries)]),
-            message_count: 2,
-            covered: 0,
-            accepted: 0,
-            dispatched_at: Instant::now(),
-        };
-        let mut in_flight = VecDeque::from([old_poll, reassigned_poll]);
-
-        let stripped = strip_revoked_partitions(
-            &mut in_flight,
-            &[RevokedPartition {
-                topic_partition: topic_partition.clone(),
-                generation: 1,
-            }],
-        );
-
-        assert_eq!(stripped, 1, "only the old assignment is stripped");
-        assert_eq!(in_flight.len(), 1);
-        assert_eq!(in_flight[0].poll_id, "reassigned");
-
-        apply_completion(&mut in_flight, completion(1, 0, &[10, 10], 2));
-        assert!(in_flight[0].is_complete());
-        let reassigned = in_flight.pop_front().unwrap();
-        let retained = reassigned.partitions.get(&topic_partition).unwrap();
-        ledger
-            .settle(
-                &topic_partition,
-                retained.generation,
-                retained.charges.iter().map(|(offset, _)| *offset),
-            )
+        wait_for("the accepted replay to be committed to Kafka", || {
+            let mut partitions = TopicPartitionList::new();
+            partitions.add_partition(topic, 0);
+            kafka
+                .committed_offsets(partitions, Duration::from_secs(2))
+                .unwrap()
+                .find_partition(topic, 0)
+                .unwrap()
+                .offset()
+                == rdkafka::Offset::Offset(1)
+        })
+        .await;
+        shutdown.cancel();
+        tokio::time::timeout(Duration::from_secs(5), &mut process.0)
+            .await
+            .expect("consumer drains and stops")
             .unwrap();
-        assert_eq!(ledger.take_frontier(&topic_partition), Some(Offset(11)));
-
-        // With the retained replay slice settled, the next accepted offset
-        // advances normally instead of remaining stuck behind offset 10.
-        ledger
-            .charge(
-                &topic_partition,
-                retained.generation,
-                [(Offset(11), delivery.charge)],
-            )
-            .unwrap();
-        ledger
-            .settle(&topic_partition, retained.generation, [Offset(11)])
-            .unwrap();
-        assert_eq!(ledger.take_frontier(&topic_partition), Some(Offset(12)));
-        assert_eq!(ledger.held(&topic_partition).offsets, 0);
     }
 
     #[test]
