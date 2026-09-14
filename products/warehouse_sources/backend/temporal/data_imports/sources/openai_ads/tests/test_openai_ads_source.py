@@ -22,9 +22,9 @@ class TestOpenAIAdsSourceConfig:
     def test_config_is_released_with_single_secret_api_key_field(self) -> None:
         config = OpenAIAdsSource().get_source_config
         assert config.name == SchemaExternalDataSourceType.OPEN_AI_ADS
-        # A finished source must be visible: alpha-labelled, never hidden via unreleasedSource.
+        # A finished source must be visible: stage-labelled, never hidden via unreleasedSource.
         assert not config.unreleasedSource
-        assert config.releaseStatus == ReleaseStatus.ALPHA
+        assert config.releaseStatus == ReleaseStatus.BETA
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/openai-ads"
         fields = [f for f in config.fields if isinstance(f, SourceFieldInputConfig)]
         assert [f.name for f in fields] == ["api_key"]

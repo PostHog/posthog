@@ -28,7 +28,6 @@ export interface sharedMetricModalLogicValues {
     hasAnyCompatibleSharedMetrics: boolean
     isCreateMode: boolean
     isEditMode: boolean
-    isLoadingAllSharedMetrics: boolean
     isModalOpen: boolean
     loadedSharedMetrics: SharedMetric[]
     searchTerm: string
@@ -56,31 +55,6 @@ export interface sharedMetricModalLogicActions {
     closeSharedMetricModal: () => {
         value: true
     }
-    loadAllSharedMetrics: (_: any) => any
-    loadAllSharedMetricsFailure: (
-        error: string,
-        errorObject?: any
-    ) => {
-        error: string
-        errorObject?: any
-    }
-    loadAllSharedMetricsSuccess: (
-        sharedMetricsResponse: {
-            count: number
-            next: null
-            previous?: string | null | undefined
-            results: SharedMetric[]
-        },
-        payload?: any
-    ) => {
-        sharedMetricsResponse: {
-            count: number
-            next: null
-            previous?: string | null | undefined
-            results: SharedMetric[]
-        }
-        payload?: any
-    }
     loadSharedMetrics: (_: void) => void
     loadSharedMetricsFailure: (
         error: string,
@@ -90,10 +64,20 @@ export interface sharedMetricModalLogicActions {
         errorObject?: any
     }
     loadSharedMetricsSuccess: (
-        sharedMetricsResponse: CountedPaginatedResponse<SharedMetric>,
+        sharedMetricsResponse: {
+            count: number
+            next: null
+            previous?: string | null | undefined
+            results: SharedMetric[]
+        },
         payload?: void
     ) => {
-        sharedMetricsResponse: CountedPaginatedResponse<SharedMetric>
+        sharedMetricsResponse: {
+            count: number
+            next: null
+            previous?: string | null | undefined
+            results: SharedMetric[]
+        }
         payload?: void
     }
     openSharedMetricModal: (
@@ -122,6 +106,9 @@ export interface sharedMetricModalLogicActions {
     setSharedMetric: (sharedMetric: SharedMetric) => {
         sharedMetric: SharedMetric
     }
+    setSharedMetricsResponse: (response: CountedPaginatedResponse<SharedMetric>) => {
+        response: CountedPaginatedResponse<SharedMetric>
+    }
     toggleSelectedMetricId: (id: SharedMetric['id']) => {
         id: number
     }
@@ -134,10 +121,6 @@ export interface sharedMetricModalLogicMeta {
         compatibleSharedMetrics: (loadedSharedMetrics: SharedMetric[]) => SharedMetric[]
         availableTags: (compatibleSharedMetrics: SharedMetric[]) => string[]
         displayedMetrics: (compatibleSharedMetrics: SharedMetric[], filterTags: string[]) => SharedMetric[]
-        isLoadingAllSharedMetrics: (
-            sharedMetricsResponseLoading: boolean,
-            sharedMetricsResponse: CountedPaginatedResponse<SharedMetric> | null
-        ) => boolean
         isCreateMode: (isEditMode: boolean) => boolean
     }
 }
@@ -164,6 +147,7 @@ export const sharedMetricModalLogic = kea<sharedMetricModalLogicType>([
         }),
         closeSharedMetricModal: true,
         setSharedMetric: (sharedMetric: SharedMetric) => ({ sharedMetric }),
+        setSharedMetricsResponse: (response: CountedPaginatedResponse<SharedMetric>) => ({ response }),
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
         setHasAnyCompatibleSharedMetrics: (hasAny: boolean) => ({ hasAny }),
         setSelectedMetricIds: (ids: SharedMetric['id'][]) => ({ ids }),
@@ -213,13 +197,18 @@ export const sharedMetricModalLogic = kea<sharedMetricModalLogicType>([
         ],
         // Whether the experiment has any compatible shared metrics at all, captured from the
         // unfiltered (empty-search) load — so a search returning zero does not flip it to false.
+        // Assumed true until that load says otherwise: typing before it lands supersedes it, and the
+        // search box must not vanish behind the empty state in that case.
         hasAnyCompatibleSharedMetrics: [
-            false,
+            true,
             {
                 setHasAnyCompatibleSharedMetrics: (_, { hasAny }) => hasAny,
-                openSharedMetricModal: () => false,
+                openSharedMetricModal: () => true,
             },
         ],
+        sharedMetricsResponse: {
+            setSharedMetricsResponse: (_, { response }) => response,
+        },
         selectedMetricIds: [
             [] as SharedMetric['id'][],
             {
@@ -246,10 +235,13 @@ export const sharedMetricModalLogic = kea<sharedMetricModalLogicType>([
         ],
     }),
 
-    loaders(({ values }) => ({
+    loaders(({ actions, values }) => ({
         sharedMetricsResponse: [
             null as CountedPaginatedResponse<SharedMetric> | null,
             {
+                // The first page and the remaining pages share one loader on purpose: kea only aborts a
+                // listener at its breakpoints when the same action fires again, so a separate background
+                // pager would keep running through a newer search and overwrite its results.
                 loadSharedMetrics: async (_: void, breakpoint) => {
                     const params = toParams({
                         limit: MODAL_PAGE_SIZE,
@@ -257,41 +249,20 @@ export const sharedMetricModalLogic = kea<sharedMetricModalLogicType>([
                         search: values.searchTerm || undefined,
                     })
                     // nosemgrep: prefer-codegen-api
-                    const response = (await api.get(
+                    let page = (await api.get(
                         `api/projects/${values.currentProjectId}/experiment_saved_metrics?${params}`
                     )) as CountedPaginatedResponse<SharedMetric>
-                    // Discard stale responses that resolve after a newer search has fired
                     breakpoint()
-                    return response
-                },
-                // Page through every remaining result so the tag filter and tag chip list cover the
-                // whole set of shared metrics, not just the first page rendered in the table.
-                loadAllSharedMetrics: async (_, breakpoint) => {
-                    let response = values.sharedMetricsResponse
-                    if (!response) {
-                        const params = toParams({
-                            limit: MODAL_PAGE_SIZE,
-                            offset: 0,
-                            search: values.searchTerm || undefined,
-                        })
+                    actions.setSharedMetricsResponse(page)
+                    // Keep paging so the tag filter and tag chips cover every shared metric, not only page 1.
+                    const results = [...(page.results ?? [])]
+                    while (page.next) {
                         // nosemgrep: prefer-codegen-api
-                        response = (await api.get(
-                            `api/projects/${values.currentProjectId}/experiment_saved_metrics?${params}`
-                        )) as CountedPaginatedResponse<SharedMetric>
-                        breakpoint()
-                    }
-                    const results = [...(response.results ?? [])]
-                    let next = response.next
-                    while (next) {
-                        // nosemgrep: prefer-codegen-api
-                        const page: CountedPaginatedResponse<SharedMetric> = await api.get(next)
-                        // Abort if a concurrent loadSharedMetrics (e.g. a new search) superseded this load.
+                        page = await api.get(page.next)
                         breakpoint()
                         results.push(...page.results)
-                        next = page.next
-                        response = page
                     }
-                    return { ...response, results, next: null }
+                    return { ...page, results, next: null }
                 },
             },
         ],
@@ -323,12 +294,6 @@ export const sharedMetricModalLogic = kea<sharedMetricModalLogicType>([
                     ? compatibleSharedMetrics
                     : compatibleSharedMetrics.filter((metric) => metric.tags?.some((tag) => filterTags.includes(tag))),
         ],
-        // True while the remaining pages are still being fetched in the background.
-        isLoadingAllSharedMetrics: [
-            (s) => [s.sharedMetricsResponseLoading, s.sharedMetricsResponse],
-            (sharedMetricsResponseLoading: boolean, response: CountedPaginatedResponse<SharedMetric> | null): boolean =>
-                sharedMetricsResponseLoading || !!response?.next,
-        ],
         isCreateMode: [(s) => [s.isEditMode], (isEditMode: boolean) => !isEditMode],
     }),
 
@@ -344,10 +309,6 @@ export const sharedMetricModalLogic = kea<sharedMetricModalLogicType>([
             // Only the unfiltered load establishes the baseline "are there any compatible metrics" answer.
             if (!values.searchTerm) {
                 actions.setHasAnyCompatibleSharedMetrics(values.compatibleSharedMetrics.length > 0)
-            }
-            // Eagerly pull in the rest of the pages so the tag list and tag selection cover every metric.
-            if (values.sharedMetricsResponse?.next) {
-                actions.loadAllSharedMetrics(null)
             }
         },
         // Additive toggle: clicking a tag selects its metrics, clicking it again deselects them.
