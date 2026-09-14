@@ -112,7 +112,7 @@ def resolve_user_mentions_text(
     resolved = re.sub(r"<@([A-Z0-9]+)>", replace_mention, text)
     # Tidy gaps left where bot mentions were removed.
     resolved = re.sub(r"[ \t]{2,}", " ", resolved).strip()
-    return resolved
+    return resolved.replace("&lt;", "<").replace("&gt;", ">").replace("&amp;", "&")
 
 
 def decode_slack_event_text(slack: SlackIntegration, integration: Integration, text: str) -> str:
@@ -125,8 +125,7 @@ def decode_slack_event_text(slack: SlackIntegration, integration: Integration, t
     handler can't drift back into the original mention-eating bug.
     """
     bot_user_id = get_cached_bot_user_id(slack, integration)
-    decoded_text = resolve_user_mentions_text(slack, integration, text, strip_bot_user_id=bot_user_id).strip()
-    return decoded_text.replace("&lt;", "<").replace("&gt;", ">").replace("&amp;", "&")
+    return resolve_user_mentions_text(slack, integration, text, strip_bot_user_id=bot_user_id).strip()
 
 
 def labeled_mentions_to_display_names(text: str) -> str:
