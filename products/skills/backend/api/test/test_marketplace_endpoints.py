@@ -719,6 +719,28 @@ class TestMarketplaceResilience(APIBaseTest):
             "plugins/posthog-skill-store/skills/good/SKILL.md"
         ]
 
+    def test_skip_warning_samples_names_instead_of_listing_every_one(self):
+        # A team can hold very many unpackageable skills, so the warning carries a fixed-size sample
+        # and the true count, never one name per skipped skill.
+        for index in range(3):
+            LLMSkill.objects.create(
+                team=self.team,
+                name=f"bad-{index}",
+                description="x" * 1025,
+                body="b",
+                version=1,
+                is_latest=True,
+                created_by=self.user,
+            )
+
+        with patch.object(adapters, "_SKIPPED_LOG_SAMPLE_SIZE", 1), patch.object(adapters, "logger") as logger:
+            build_team_marketplace_tree(self.team)
+
+        args, kwargs = logger.warning.call_args
+        assert args == ("skills_marketplace_skipped_unsafe_skills",)
+        assert kwargs["skipped_count"] == 3
+        assert kwargs["skills_sample"] == ["bad-0"]
+
 
 class TestMarketplaceVersion(APIBaseTest):
     def _plugin_version_epoch(self) -> int:

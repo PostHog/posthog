@@ -126,13 +126,14 @@ def build_team_marketplace_tree(team: Team, version: str | None = None) -> FileT
     # its author why. We also cap the cumulative content size: past the ceiling, remaining skills are
     # skipped so a pathological team can't OOM the clone.
     exports: list[SkillExport] = []
-    skipped_unsafe: list[str] = []
+    skipped_unsafe_count = 0
+    skipped_unsafe_sample: list[str] = []
     skipped_oversize: list[str] = []
     total_bytes = 0
     for skill in skills:
         files = files_by_skill.get(skill.id, [])
         if compute_spec_problems(skill.name, skill.description, [f.path for f in files]):
-            skipped_unsafe.append(skill.name)
+            skipped_unsafe_count = _record_skip(skipped_unsafe_count, skipped_unsafe_sample, skill.name)
             continue
         skill_bytes = len((skill.body or "").encode("utf-8")) + sum(
             len((f.content or "").encode("utf-8")) for f in files
@@ -144,8 +145,13 @@ def build_team_marketplace_tree(team: Team, version: str | None = None) -> FileT
             continue
         total_bytes += skill_bytes
         exports.append(skill.to_export(files))
-    if skipped_unsafe:
-        logger.warning("skills_marketplace_skipped_unsafe_skills", team_id=team.id, skills=skipped_unsafe)
+    if skipped_unsafe_count:
+        logger.warning(
+            "skills_marketplace_skipped_unsafe_skills",
+            team_id=team.id,
+            skipped_count=skipped_unsafe_count,
+            skills_sample=skipped_unsafe_sample,
+        )
     if skipped_oversize:
         logger.warning(
             "skills_marketplace_skipped_oversize",
