@@ -521,7 +521,7 @@ class TestPromoteDagViewNodesToMatview(BaseTest):
 
     def test_a_managed_view_is_promoted_on_its_table_not_its_flag(self) -> None:
         # Revenue Analytics sets is_materialized when it provisions a view, before anything runs,
-        # so the flag there is not a request to materialize and thousands carry it untruthfully.
+        # so the flag there is not a request to materialize and many carry it untruthfully.
         dag = DAG.get_or_create_default(self.team)
         never_ran = self._backed(
             dag,

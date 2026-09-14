@@ -47,7 +47,7 @@ def materializes(saved_query: "DataWarehouseSavedQuery") -> bool:
 
     Managed views are excluded because their flag is not a statement of intent: the Revenue
     Analytics viewsets set `is_materialized` at provisioning, before anything runs, so reading it
-    would schedule thousands of views that have never materialized a row.
+    would enroll a large population of views that have never materialized a row.
     """
     from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 
