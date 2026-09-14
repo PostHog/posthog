@@ -7,18 +7,71 @@ see `exploring-llm-traces/references/events-and-properties.md` for the full sche
 
 ## Discover the trace taxonomy
 
-When the user isn't sure how their traffic splits, find the use cases before scoping to one:
+When the user isn't sure how their traffic splits, find the use cases before scoping to one.
+Apps label their traffic differently, and many label almost none of it.
+So measure what this project sets before you group by it.
+
+### 1. Trace names
+
+`$ai_span_name` on `$ai_trace` events names the whole trace, which is the closest thing to a use case.
+(`$ai_trace_name` is the older name for the same thing, kept for older data.)
 
 ```sql
--- By trace-id prefix convention (many apps namespace trace ids like "support:", "summarize:")
-SELECT splitByChar(':', coalesce(properties.$ai_trace_id, ''))[1] AS kind, count() AS n
+SELECT coalesce(nullIf(toString(properties.$ai_span_name), ''), '(not set)') AS kind, count() AS n
+FROM events
+WHERE event = '$ai_trace' AND timestamp >= now() - INTERVAL 7 DAY
+GROUP BY kind ORDER BY n DESC
+```
+
+### 2. App-set tags on generations
+
+Many apps tag the generation instead, with `$ai_product`, `feature`, `agent_mode`, `$ai_agent_name`, or a
+team-specific property. Run `read-data-schema` on `$ai_generation` to see what this project has, then
+measure coverage of the candidates together:
+
+```sql
+SELECT count() AS generations,
+       round(100 * countIf(isNotNull(properties.$ai_product)) / count(), 1) AS pct_ai_product,
+       round(100 * countIf(isNotNull(properties.$ai_span_name)) / count(), 1) AS pct_span_name,
+       round(100 * countIf(isNotNull(properties.$ai_agent_name)) / count(), 1) AS pct_agent_name
+FROM events
+WHERE event = '$ai_generation' AND timestamp >= now() - INTERVAL 7 DAY
+```
+
+Group by the best-covered one, and keep the unset rows visible so you see how much traffic it misses:
+
+```sql
+SELECT coalesce(nullIf(toString(properties.$ai_product), ''), '(not set)') AS kind, count() AS n
 FROM events
 WHERE event = '$ai_generation' AND timestamp >= now() - INTERVAL 7 DAY
 GROUP BY kind ORDER BY n DESC
 ```
 
-Or group by whatever feature property the app sets (`ai_product`, `agent_mode`, a custom tag). Then scope
-every query below to one slice.
+### 3. Trace-id prefix
+
+A few apps namespace trace ids like `support:` or `summarize:`. Most SDKs generate an opaque UUID per
+trace instead, so count the prefixes before you split on them:
+
+```sql
+SELECT count() AS generations,
+       countIf(position(toString(properties.$ai_trace_id), ':') > 0) AS with_prefix
+FROM events
+WHERE event = '$ai_generation' AND timestamp >= now() - INTERVAL 7 DAY
+```
+
+Split on `splitByChar(':', toString(properties.$ai_trace_id))[1]` only when `with_prefix` covers most of
+the traffic.
+
+### 4. Read and name
+
+When nothing above discriminates, pull a stratified batch (below), read it, and name the use cases from
+what the traces do. This is slower, and it always works.
+
+> **Reject a result that names nothing.** Three shapes all mean "this label does not split the traffic":
+> one huge `(not set)` bucket, because the app never sets the property; one bucket per trace, because the
+> value is an opaque id; and one generic bucket, because the value is a framework default such as
+> `LangGraph` or `RunnableSequence`. None of them is a taxonomy. Move down the ladder rather than scope
+> on one, because a category that mixes use cases blurs the failure modes you are trying to separate.
 
 ## Code errors
 

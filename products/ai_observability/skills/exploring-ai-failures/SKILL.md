@@ -58,9 +58,16 @@ below and explain the reasoning as you go; keep the teaching opt-in.
 
 Apps have a _taxonomy_ of trace types, and each fails differently — a support chat hallucinates policy, a
 summarizer drops key points, an agent loops or misuses a tool. Evaluating or analyzing them together
-averages the signal away. **Pick one**, then find its filter (a `$ai_trace_id` prefix, a feature
-property, a model). If the user isn't sure how their traffic splits, discover the taxonomy first (query
-in [references/finding-traces.md](references/finding-traces.md)).
+averages the signal away. **Pick one**, then find its filter (a trace name, a feature property, a model).
+If the user isn't sure how their traffic splits, discover the taxonomy first — the ladder in
+[references/finding-traces.md](references/finding-traces.md) works down from trace names to app-set tags
+to reading a batch and naming the use cases yourself.
+
+**Check the discovery result before you scope on it.** The categories must be readable names, and most of
+the traffic must sit in them. One huge unset bucket, one bucket per trace, or one generic framework name
+all mean the same thing: that label does not split this traffic. Move down the ladder instead of scoping
+on it. When nothing discriminates, name the use cases from a batch you read, or tell the user the traffic
+is untagged and analyze it mixed, knowing that it blurs the modes.
 
 ## Step 2 — Pick which traces to read
 
