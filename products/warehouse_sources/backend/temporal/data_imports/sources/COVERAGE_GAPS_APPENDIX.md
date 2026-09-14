@@ -524,16 +524,16 @@ Note: Diffed against Asana's official OpenAPI spec (3 MB, ~120 GET paths). Also 
 
 ## Ashby — gaps
 
-Today (18): `applications`, `archive_reasons`, `candidate_tags`, `candidates`, `custom_fields`, `departments`, `interview_schedules`, `interviews`, `job_postings`, `jobs`, `locations`, `offers`, `openings`, `projects`, `referrals`, `sequences`, `sources`, `users`
+Today (22): `application_feedback`, `application_history`, `applications`, `archive_reasons`, `candidate_tags`, `candidates`, `custom_fields`, `departments`, `interview_events`, `interview_schedules`, `interview_stages`, `interviews`, `job_postings`, `jobs`, `locations`, `offers`, `openings`, `projects`, `referrals`, `sequences`, `sources`, `users`
 
 Diffed against: <https://developers.ashbyhq.com/reference/introduction>
 
 - [x] `referral.list` — candidate referrals tying a referrer to an application/job, a sourcing-attribution table (medium)
 - [x] `sequence.list` — candidate enrollments in outreach sequences, with per-stage scheduling (medium)
-- [ ] `applicationFeedback.list` — interview scorecards and ratings, the core quality signal for hiring analytics (high)
-- [ ] `application.listHistory` — stage-transition history; without it you cannot compute time-in-stage or funnel conversion (high)
-- [ ] `interviewStage.list` — lookup resolving the currentInterviewStage ID carried on every synced application (high)
-- [ ] `interviewEvent.list` — actual scheduled interview occurrences with interviewers and times, distinct from the interview definitions we sync (high)
+- [x] `applicationFeedback.list` — interview scorecards and ratings, the core quality signal for hiring analytics (high)
+- [x] `application.listHistory` — stage-transition history; without it you cannot compute time-in-stage or funnel conversion (high)
+- [x] `interviewStage.list` — lookup resolving the currentInterviewStage ID carried on every synced application (high)
+- [x] `interviewEvent.list` — actual scheduled interview occurrences with interviewers and times, distinct from the interview definitions we sync (high)
 - [ ] `interviewStageGroup.list` — lookup grouping stages into funnel phases for stage-level reporting (medium)
 - [ ] `applicationHiringTeamRole.list` — membership table linking users to applications by role (recruiter, hiring manager) (medium)
 - [ ] `surveySubmission.list` — candidate survey responses (including DEI surveys) tied to applications (medium)
@@ -542,6 +542,8 @@ Diffed against: <https://developers.ashbyhq.com/reference/introduction>
 - [ ] `application.listCriteriaEvaluations` — structured per-criterion scores behind feedback, for calibrated scoring analysis (medium)
 - [ ] `takeHomeAssignment.list` — assignment issue/completion records, a stage most funnels drop out at (medium)
 - [ ] `sourceTrackingLink.list` — resolves attribution links behind the sources table already synced (low)
+
+Note: `interview_events` is served from the nested `interviewEvents` array that `interviewSchedule.list` already returns in full, rather than fanning `interviewEvent.list` out once per schedule — both carry the same `InterviewEvent` objects.
 
 Note: Ashby's readme.io OpenAPI JSON is not publicly downloadable (404), so the resource list was read from the full reference navigation on the introduction page, filtering on \*.list endpoints. Other list endpoints deliberately excluded as config: communicationTemplate, emailSender, sequenceTemplate, jobBoard, jobTemplate, brand, apiKey, webhook.
 
