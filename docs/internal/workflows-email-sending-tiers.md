@@ -12,7 +12,7 @@ Only workflows that send email are subject to the tiers; SMS, push, and webhook 
 - Batch audience cap: `get_hogflow_batch_trigger_limit` in `products/workflows/backend/utils/batch_trigger_limit.py`, applied at batch dispatch and shown in the blast radius preview.
 - Send-time caps: two Valkey token buckets per team in the CDP email worker (`claimTeamSendingBudget` in `nodejs/src/cdp/services/messaging/email.service.ts`).
 - Staff controls: the team's Django admin page (view state, set/pin a tier, recompute now).
-- Customer surface: the Reputation tab's sending allowance card, shown only while the team is enforced.
+- Customer surface: the Reputation tab's sending allowance card, shown in every rollout mode to callers with project-wide workflow access. Outside `enforce` it carries a "Not applied yet" tag and reports the flat pre-tier batch ceiling instead of the tier cap. A pinned team is told its allowance is fixed rather than earned.
 
 ## Configuration
 
@@ -46,10 +46,10 @@ Decay, suspension drops, admin recomputes, and the backfill stay silent.
 
 ## Rollout order
 
-1. Merge and deploy with both modes `off`. The daily sweep starts computing and storing tiers immediately.
+1. Merge and deploy with both modes `off`. The daily sweep starts computing and storing tiers immediately. Projects can read their tier and caps on the Reputation tab from this point, tagged "Not applied yet".
 2. Run `python manage.py backfill_workflows_email_sending_tiers` per region, read the printed distribution, then re-run with `--apply`. This lands established senders on their earned tier in one step.
 3. Set both modes to `shadow` via charts. Nothing is delayed; would-be delays log and count in `cdp_team_email_cap_delayed_total{mode="shadow"}`. Watch that against real traffic.
-4. Set both modes to `enforce`. Enforcement applies to every team at once; the Reputation tab's allowance card appears at this point.
+4. Set both modes to `enforce`. Enforcement applies to every team at once; the allowance card drops its "Not applied yet" tag and starts reporting the tier's batch cap in place of the flat ceiling.
    Never set the Django mode to `enforce` on a deployment whose email worker does not carry the send-time caps: the batch audience cap alone can be sidestepped by editing a workflow while a batch is queued, and the send-time buckets are what bound that.
 5. To back out, set the modes back to `off`; the tiers keep computing and nothing else changes.
 
