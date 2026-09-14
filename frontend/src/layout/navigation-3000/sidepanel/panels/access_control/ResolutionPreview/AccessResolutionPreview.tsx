@@ -111,7 +111,7 @@ const sharedColumns: LemonTableColumns<ResolutionChange> = [
 ]
 
 export function AccessResolutionPreview(): JSX.Element {
-    const { preview, previewLoading, previewForbidden, acceptingResolution } = useValues(resolutionPreviewLogic)
+    const { preview, previewLoading, previewForbidden, acceptedLoading } = useValues(resolutionPreviewLogic)
     const { loadPreview, acceptResolution } = useActions(resolutionPreviewLogic)
     const { openSupportForm } = useActions(supportLogic)
     const { currentOrganization, isAdminOrOwner } = useValues(organizationLogic)
@@ -120,10 +120,10 @@ export function AccessResolutionPreview(): JSX.Element {
     const confirmAccept = (): void => {
         LemonDialog.open({
             title: 'Switch to the most specific rule now?',
-            description:
-                'Access in every project of your organization will resolve with the most specific rule from now on. The changes listed here take effect right away.',
+            description: 'The changes listed here take effect right away.',
+            maxWidth: '30rem',
             primaryButton: {
-                children: 'Switch now',
+                children: 'Confirm',
                 onClick: acceptResolution,
                 'data-attr': 'access-resolution-accept-confirm',
             },
@@ -295,15 +295,13 @@ export function AccessResolutionPreview(): JSX.Element {
             })}
 
             {alreadyEnabled ? (
-                <LemonBanner type="success">
-                    The most specific rule already decides access for your organization.
-                </LemonBanner>
+                <LemonBanner type="success">Migration completed.</LemonBanner>
             ) : (
                 <div className="flex items-center gap-2">
                     <LemonButton
                         type="primary"
                         onClick={confirmAccept}
-                        loading={acceptingResolution}
+                        loading={acceptedLoading}
                         disabledReason={
                             isAdminOrOwner ? undefined : 'Only organization admins can switch the resolution'
                         }
