@@ -290,6 +290,18 @@ const isChoiceSurveyQuestion = (question: SurveyQuestion): question is MultipleS
 const isLinkSurveyQuestion = (question: SurveyQuestion): question is LinkSurveyQuestion =>
     question.type === SurveyQuestionType.Link
 
+// Which app schemes a project may deep link into is the API's decision, from its
+// survey_config.allowed_link_schemes setting, so the editor cannot know. It checks only what is
+// wrong for every project, and an app scheme the project has not enabled surfaces on save.
+const NEVER_VALID_LINK_SCHEME_RE = /^(https?|javascript|vbscript|data|file|blob|smb|cifs|nfs):/i
+const APP_LINK_SCHEME_RE = /^[a-z][a-z0-9+.-]*:\/*[^\s]/i
+
+const isAppSchemeLink = (link: string): boolean =>
+    APP_LINK_SCHEME_RE.test(link) && !NEVER_VALID_LINK_SCHEME_RE.test(link)
+
+const isSupportedSurveyLink = (link: string): boolean =>
+    link.startsWith('https://') || link.startsWith('mailto:') || isAppSchemeLink(link)
+
 const isRatingSurveyQuestion = (question: SurveyQuestion): question is RatingSurveyQuestion =>
     question.type === SurveyQuestionType.Rating
 
@@ -3506,12 +3518,12 @@ export const surveyLogic = kea<surveyLogicType>([
                                         field: 'link',
                                         error: 'Cannot be empty',
                                     })
-                                } else if (trimmedLink !== '' && !trimmedLink.match(/^(https:\/\/|mailto:)/)) {
+                                } else if (trimmedLink !== '' && !isSupportedSurveyLink(trimmedLink)) {
                                     errors.push({
                                         language: lang,
                                         questionIndex: qIndex,
                                         field: 'link',
-                                        error: 'Must start with https:// or mailto:',
+                                        error: "Must start with https://, mailto:, or your app's URL scheme",
                                     })
                                 }
                             }
@@ -3544,12 +3556,12 @@ export const surveyLogic = kea<surveyLogicType>([
                 // Also validate default question links
                 survey.questions.forEach((question, qIndex) => {
                     const link = isLinkSurveyQuestion(question) && question.link ? question.link.trim() : ''
-                    if (link && !link.match(/^(https:\/\/|mailto:)/)) {
+                    if (link && !isSupportedSurveyLink(link)) {
                         errors.push({
                             language: 'default',
                             questionIndex: qIndex,
                             field: 'link',
-                            error: 'Must start with https:// or mailto:',
+                            error: "Must start with https://, mailto:, or your app's URL scheme",
                         })
                     }
                 })
@@ -3849,13 +3861,13 @@ export const surveyLogic = kea<surveyLogicType>([
                                             link: 'Please enter a valid mailto link (e.g., mailto:example@domain.com).',
                                         }
                                     }
-                                } else {
+                                } else if (!isAppSchemeLink(question.link)) {
                                     try {
                                         const url = new URL(question.link)
                                         if (url.protocol !== 'https:') {
                                             return {
                                                 ...questionErrors,
-                                                link: 'Only HTTPS links are supported for security reasons.',
+                                                link: "Use an https:// link, or your app's URL scheme for a mobile deep link.",
                                             }
                                         }
                                     } catch {

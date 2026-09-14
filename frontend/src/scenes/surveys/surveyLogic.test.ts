@@ -210,7 +210,7 @@ describe('translation validation', () => {
                     language: 'fr',
                     questionIndex: 0,
                     field: 'link',
-                    error: 'Must start with https:// or mailto:',
+                    error: "Must start with https://, mailto:, or your app's URL scheme",
                 },
                 {
                     language: 'es',
@@ -232,20 +232,30 @@ describe('translation validation', () => {
         ).toBe(false)
     })
 
-    it('validates default link URLs without requiring translations', async () => {
-        const survey = createSurveyWithLinkQuestion({ link: 'https:not-valid' })
+    // An app scheme the project registered is only known to the API, so the editor lets any
+    // scheme through except the ones that are wrong for every project.
+    it.each([
+        ['a scheme-only https link', 'https:not-valid', true],
+        ['a script link', 'javascript:alert(1)', true],
+        ['a network share link', 'smb://attacker.example/share', true],
+        ['an app scheme deep link', 'example-mobile://home', false],
+        ['an https link', 'https://posthog.com/docs', false],
+    ])('validates default link URLs without requiring translations: %s', async (_name, link, expectsError) => {
+        const survey = createSurveyWithLinkQuestion({ link })
 
         await expectLogic(logic, () => {
             logic.actions.loadSurveySuccess(survey)
         }).toMatchValues({
-            translationValidationErrors: [
-                {
-                    language: 'default',
-                    questionIndex: 0,
-                    field: 'link',
-                    error: 'Must start with https:// or mailto:',
-                },
-            ],
+            translationValidationErrors: expectsError
+                ? [
+                      {
+                          language: 'default',
+                          questionIndex: 0,
+                          field: 'link',
+                          error: "Must start with https://, mailto:, or your app's URL scheme",
+                      },
+                  ]
+                : [],
         })
     })
 
