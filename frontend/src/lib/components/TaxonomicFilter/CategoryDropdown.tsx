@@ -1,8 +1,8 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
-import { flushSync } from 'react-dom'
 import { useState } from 'react'
+import { flushSync } from 'react-dom'
 
 import { IconChevronDown, IconSidebarClose, IconSidebarOpen } from '@posthog/icons'
 
