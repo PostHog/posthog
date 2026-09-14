@@ -66,7 +66,8 @@ unit-testable against the real `git` binary without booting the app
 
 - `allowed_tools` (stored list) → `allowed-tools` (spec's hyphenated, space-separated string)
 - platform `version` → `metadata.version` (the spec defines no top-level version field)
-- `description` is validated against the spec's 1024 limit on export (`validate_for_export`)
+- `description` is validated against the spec's 1024 limit on export (`compute_spec_problems`, which also
+  decides whether a skill is packageable at all; the API reports its output as `spec_problems`)
 
 ## Cross-agent portability
 
