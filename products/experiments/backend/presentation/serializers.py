@@ -2079,9 +2079,12 @@ class ExperimentSessionEventDeltaResponseSerializer(serializers.Serializer):
     )
     date_to = serializers.DateTimeField(
         help_text=(
-            "End of what was compared: the experiment's end date, or now while it runs, unless the newest "
-            f"compared person was first exposed more than {FIRST_SESSION_HORIZON_HOURS} hours before that, in "
-            "which case it is where their first session can last reach."
+            "One minute past the newest compared person's first exposure. Every exposed person between "
+            "date_from and date_to was compared, so the pair is safe to describe as the enrollment the "
+            "comparison covered. While an experiment runs this sits about an hour before now, because the "
+            "newest hour of enrollment is held back until those people's first sessions have finished rather "
+            f"than read half-way through. Sessions reach past it, up to {FIRST_SESSION_HORIZON_HOURS} hours "
+            "after each person's own exposure, so this is not the end of the events that were read."
         )
     )
     filter_test_accounts = serializers.BooleanField(

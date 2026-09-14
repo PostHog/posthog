@@ -848,12 +848,12 @@ class TestExperimentSessionEventDeltas(ClickhouseTestMixin, APILicensedTest):
             # Still true: the variants are below the floor. The reason, not this flag, decides the copy.
             assert data["too_early"] is True
             # Nobody was read, so the response dates the claim to the exposures it chose, which is
-            # what the frontend's dated copy renders: from the earliest first exposure to where the
-            # newest one's first session could last reach.
+            # what the frontend's dated copy renders. The pair is the stretch of enrollment covered,
+            # not the day past it the first sessions could have reached into: the copy says nobody
+            # exposed between these dates had a session, and a date past the last exposure would
+            # put people in that sentence who were never compared.
             assert datetime.fromisoformat(data["date_from"]) == exposed_at
-            assert datetime.fromisoformat(data["date_to"]) == exposed_at + timedelta(
-                hours=session_event_deltas.FIRST_SESSION_HORIZON_HOURS, minutes=1
-            )
+            assert datetime.fromisoformat(data["date_to"]) == exposed_at + timedelta(minutes=1)
 
     def test_too_early_is_reported_rather_than_an_empty_shelf(self) -> None:
         experiment = self._create_experiment(metrics=[PURCHASE_METRIC])
@@ -1025,10 +1025,10 @@ class TestExperimentSessionEventDeltas(ClickhouseTestMixin, APILicensedTest):
         assert "late_event" not in {event for event, _variant in carded}
         assert [(variant["key"], variant["persons"]) for variant in data["variants"]] == [("control", 2), ("test", 2)]
         assert data["sessions_truncated"] is False
+        # Dated to the enrollment three weeks ago rather than to the sessions read from it, so the
+        # caption names the people compared.
         assert datetime.fromisoformat(data["date_from"]) == exposed_at
-        assert datetime.fromisoformat(data["date_to"]) == exposed_at + timedelta(
-            hours=session_event_deltas.FIRST_SESSION_HORIZON_HOURS, minutes=1
-        )
+        assert datetime.fromisoformat(data["date_to"]) == exposed_at + timedelta(minutes=1)
 
     @rank_anything
     def test_a_server_side_default_exposure_event_is_compared_over_the_full_window(self) -> None:
@@ -1491,4 +1491,3 @@ class TestComparedEnrollmentWalk(SimpleTestCase):
             self._at(buckets[0][0]) + timedelta(minutes=1) if ranges else self.WINDOW_END
         )
         assert enrollment.ranges == tuple(_TimeRange(start=self._at(start), end=self._at(end)) for start, end in ranges)
-        assert enrollment.end == (enrollment.ranges[0].end if ranges else self.WINDOW_END)

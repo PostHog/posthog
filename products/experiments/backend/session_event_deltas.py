@@ -675,7 +675,7 @@ def get_experiment_session_event_deltas(team: Team, user: User, experiment: Expe
         # either way.
         metric_events=sorted(metric_event_names - UNCOMPARABLE_EVENTS),
         date_from=scan.enrollment.cutoff,
-        date_to=scan.enrollment.end,
+        date_to=scan.enrollment.enrolled_before,
         filter_test_accounts=linkage.population_filters_test_accounts,
         used_exposure_fallback=False,
         sessions_truncated=scan.enrollment.truncated,
@@ -722,11 +722,13 @@ class _EnrollmentMinute:
 class _ComparedEnrollment:
     """The people one comparison covers, and the stretches of time their first sessions can fall in.
 
-    Everyone first exposed at or after `cutoff` and before `enrolled_before` is compared; `end` is
-    where the newest stretch stops, the window end while enrollment continues. When nobody has
-    been exposed all three sit on the window end, so the compared span is empty rather than a
-    claim about a stretch nobody was read in. The ranges are newest first, the order the walk
-    admits them in, and disjoint.
+    Everyone first exposed at or after `cutoff` and before `enrolled_before` is compared, with no
+    gaps between them: the walk admits a run of minutes, so the pair is a stretch of enrollment
+    rather than a hull around scattered people. When nobody has been exposed both sit on the
+    window end, so the compared span is empty rather than a claim about a stretch nobody was read
+    in. The ranges are newest first, the order the walk admits them in, and disjoint; they reach up
+    to the horizon past `enrolled_before`, because each compared person is read from the session
+    they met the change in.
     """
 
     cutoff: datetime
@@ -734,7 +736,6 @@ class _ComparedEnrollment:
     # exactly the ones counted below: the newest minutes are held back while an experiment runs,
     # and an exposure can land between the nomination query and the queries that follow it.
     enrolled_before: datetime
-    end: datetime
     persons: int
     # How many people each variant enrolled inside the compared stretch, whether or not they
     # turned out to have a session. What "one variant enrolled almost everyone" is decided from.
@@ -1189,7 +1190,6 @@ def _plan_compared_enrollment(
         # Whole minutes at both ends. The newest minute the walk was given is always admitted, so
         # one minute past its start is where the people it counted stop.
         enrolled_before=min(buckets[0].minute, window_end) + timedelta(minutes=1) if ranges else window_end,
-        end=ranges[0].end if ranges else window_end,
         persons=persons,
         persons_by_variant=persons_by_variant,
         run_persons_by_variant=run_persons_by_variant,
