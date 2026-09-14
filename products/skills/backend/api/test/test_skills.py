@@ -320,7 +320,7 @@ class TestLLMSkillAPI(APIBaseTest):
 
     def test_list_skills_reports_spec_problems_in_one_file_query(self):
         # The list serializer drops the file manifest but still reports spec_problems, so the file
-        # paths must come from one prefetch — not one query per skill.
+        # paths must come from one query for the page, not one query per skill.
         for index in range(3):
             skill = self.create_skill(name=f"skill-{index}", description="Does things.")
             LLMSkillFile.objects.create(skill=skill, path="references/guide.md", content="x")
@@ -2448,6 +2448,8 @@ class TestSpecProblems(SimpleTestCase):
     @parameterized.expand(
         [
             ("clean", "my-skill", "Does things.", ["references/guide.md"], []),
+            # The exact sidecar path replaces the generated entry rather than colliding with it.
+            ("sidecar_exact_path", "my-skill", "Does things.", ["agents/openai.yaml"], []),
             ("malformed_name", "Bad/Name", "Does things.", [], ["name_malformed"]),
             ("empty_description", "my-skill", "   ", [], ["description_empty"]),
             ("overlong_description", "my-skill", "x" * 1025, [], ["description_too_long"]),
@@ -2471,6 +2473,3 @@ class TestSpecProblems(SimpleTestCase):
         problems = compute_spec_problems(name, description, paths)
 
         assert [problem.code for problem in problems] == expected_codes
-
-    def test_the_codex_sidecar_path_replaces_the_generated_one_rather_than_colliding(self) -> None:
-        assert compute_spec_problems("my-skill", "Does things.", ["agents/openai.yaml"]) == []

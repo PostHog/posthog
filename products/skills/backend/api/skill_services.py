@@ -143,7 +143,7 @@ def _description_problems(description: str) -> list[SkillSpecProblem]:
 
 
 def _shadowing_entry(path: str, claimed: dict[str, str]) -> str | None:
-    """The claimed entry that is a parent directory of ``path`` — `assets` under `assets/logo.png`."""
+    """The claimed entry that is a parent directory of ``path``, such as `assets` under `assets/logo.png`."""
     parts = path.lower().split("/")
     for depth in range(1, len(parts)):
         parent = claimed.get("/".join(parts[:depth]))

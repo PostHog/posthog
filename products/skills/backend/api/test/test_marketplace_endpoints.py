@@ -649,7 +649,7 @@ class TestMarketplaceResilience(APIBaseTest):
     )
     def test_unpackageable_skill_is_skipped_not_fatal(self, _label: str, name: str, description: str, paths: list[str]):
         # The marketplace applies the same rules as the skills bundle. A skill that breaks one of
-        # them is skipped on its own — it must not break the whole team's clone. Rows here bypass
+        # them is skipped on its own, so it cannot break the whole team's clone. Rows here bypass
         # the serializer validation, so they look like ones that predate it.
         good = LLMSkill.objects.create(
             team=self.team, name="good", description="d", body="b", version=1, is_latest=True, created_by=self.user
