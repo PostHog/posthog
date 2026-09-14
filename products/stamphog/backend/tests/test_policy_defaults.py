@@ -164,9 +164,10 @@ def test_clone_is_blobless_and_blame_blobs_are_prefetched_in_one_fetch() -> None
 
 def test_blame_paths_uses_the_base_side_path_and_skips_binaries() -> None:
     files = [
-        {"filename": "src/new_name.py", "previous_filename": "src/old_name.py", "patch": "@@ -1 +1 @@"},
-        {"filename": "src/plain.py", "patch": "@@ -1 +1 @@"},
-        {"filename": "static/logo.png"},
+        {"filename": "src/new_name.py", "previous_filename": "src/old_name.py", "patch": "@@", "changes": 4},
+        {"filename": "src/plain.py", "patch": "@@", "changes": 2},
+        # GitHub reports a binary as zero added and zero deleted, and renders no patch for it.
+        {"filename": "static/logo.png", "additions": 0, "deletions": 0, "changes": 0},
     ]
     assert _blame_paths(files) == ["src/old_name.py", "src/plain.py"]
 
@@ -179,3 +180,7 @@ def test_blame_paths_uses_the_base_side_path_and_skips_binaries() -> None:
         ]
     )
     assert ordered == ["src/large.py", "src/small.py"]
+
+    # GitHub omits the patch of a large text file too, but reports its real line counts. The engine
+    # parses the local diff and blames it, so it has to be prefetched.
+    assert _blame_paths([{"filename": "src/huge.py", "changes": 1800}]) == ["src/huge.py"]

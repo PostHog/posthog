@@ -1392,8 +1392,10 @@ def _blame_paths(files: list[dict]) -> list[str]:
     """Base-side paths of the changed text files, for the blame prefetch.
 
     The engine blames the OLD path of each changed file, so a rename resolves through
-    ``previous_filename``. Files GitHub renders no patch for are binary or too large; blame skips
-    them, and their historical blobs are exactly the big ones not worth fetching.
+    ``previous_filename``. A binary is excluded, because its historical blobs are exactly the big
+    ones not worth fetching, and blame skips it anyway. The test is the changed-line count rather
+    than the presence of a patch: GitHub reports a binary as zero added and zero deleted, while it
+    omits the patch of a large text file the engine will still blame.
 
     Deliberately wider than the engine's own blame selection (largest 30 files): duplicating that
     heuristic here would let the two drift apart, and naming a path the engine skips costs one more
@@ -1404,9 +1406,7 @@ def _blame_paths(files: list[dict]) -> list[str]:
     order instead would bound a different set: the engine blames the largest files, so a large one
     late in the API list would be blamed with nothing prefetched for it.
     """
-    candidates = [
-        entry for entry in files if entry.get("patch") and entry.get("changes", 0) <= _MAX_PREFETCH_CHANGED_LINES
-    ]
+    candidates = [entry for entry in files if 0 < entry.get("changes", 0) <= _MAX_PREFETCH_CHANGED_LINES]
     candidates.sort(key=lambda entry: entry.get("changes", 0), reverse=True)
     paths: list[str] = []
     for entry in candidates:
