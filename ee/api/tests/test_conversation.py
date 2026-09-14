@@ -1202,6 +1202,21 @@ class TestConversationSoftDelete(APIBaseTest):
         self.assertGreaterEqual(refreshed.deleted_at, before)
         self.assertLessEqual(refreshed.deleted_at, after)
 
+    def test_delete_also_soft_deletes_the_linked_task(self):
+        task = Task.objects.create(
+            team=self.team,
+            title="copy",
+            description="",
+            origin_product=Task.OriginProduct.POSTHOG_AI,
+            created_by=self.user,
+        )
+        conversation = self._make_conversation(task=task)
+
+        response = self.client.delete(f"/api/environments/{self.team.id}/conversations/{conversation.id}/")
+
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertTrue(Task.objects.get(pk=task.pk).deleted)
+
     def test_delete_other_users_conversation_returns_404(self):
         other_user = User.objects.create_and_join(
             organization=self.organization,

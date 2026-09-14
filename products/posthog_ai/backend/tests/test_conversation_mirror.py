@@ -360,6 +360,24 @@ class TestMirrorConversation(APIBaseTest):
         assert duplicate.id == first.run_id
         assert TaskRun.objects.filter(task_id=first.task_id, state__has_key="imported_from").count() == 1
 
+    def test_deleting_the_task_deletes_the_chat_and_stops_the_copy(self) -> None:
+        self.state_messages = [HumanMessage(content="hello", id="h1"), AssistantMessage(content="hi", id="a1")]
+        first = self._mirror()
+        assert first.task_id is not None
+
+        assert tasks_facade.soft_delete_task(first.task_id, self.team.id, self.user.id)
+
+        self.conversation.refresh_from_db()
+        assert self.conversation.deleted
+        Conversation.objects.filter(id=self.conversation.id).update(deleted=False)
+        self.state_messages = [
+            *self.state_messages,
+            HumanMessage(content="more", id="h2"),
+            AssistantMessage(content="ok", id="a2"),
+        ]
+        assert self._mirror().skipped_reason == "task_deleted"
+        assert len(self._log_methods()) == 4
+
     def test_moved_conversation_renders_no_checkpoint_history(self):
         # Once the history is in the task's import run, the checkpoint must not render as well.
         self.state_messages = [HumanMessage(content="hello", id="h1"), AssistantMessage(content="hi", id="a1")]

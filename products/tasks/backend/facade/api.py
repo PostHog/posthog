@@ -52,7 +52,10 @@ from posthog.models.oauth import OAuthAccessToken, OAuthRefreshToken
 from posthog.utils import absolute_uri
 
 from products.canvas.backend.models import Canvas
-from products.posthog_ai.backend.task_ownership import detach_conversations_for_task_handoff
+from products.posthog_ai.backend.task_ownership import (
+    detach_conversations_for_task_handoff,
+    soft_delete_conversations_for_task,
+)
 from products.tasks.backend.constants import (
     AGENT_OTEL_TELEMETRY_STATE_KEY,
     AGENT_PEER_MESSAGING_FEATURE_FLAG,
@@ -6453,6 +6456,7 @@ def soft_delete_task(task_id: str | UUID, team_id: int, user_id: int | None) -> 
             return False
         logger.info("Soft deleting task %s", task.id)
         task.soft_delete()
+        soft_delete_conversations_for_task(task.id)
     return True
 
 

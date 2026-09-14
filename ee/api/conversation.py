@@ -875,6 +875,9 @@ class ConversationViewSet(
     def destroy(self, request: Request, *args, **kwargs) -> Response:
         instance: Conversation = self.get_object()
         Conversation.objects.filter(pk=instance.pk).update(deleted=True, deleted_at=timezone.now())
+        if instance.task_id is not None:
+            # The task is the chat's other representation; a deleted chat must not stay readable there.
+            tasks_facade.soft_delete_task(instance.task_id, self.team_id, cast(User, request.user).id)
         return Response(status=status.HTTP_204_NO_CONTENT)
 
     @action(detail=True, methods=["POST"], url_path="append_message")

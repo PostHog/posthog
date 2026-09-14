@@ -281,13 +281,16 @@ def _uncopied_messages(progress: CopyProgress, messages: list[dict[str, Any]]) -
 
 def _ensure_import_target(
     conversation: Conversation, team: Team, user: User, *, created_at: datetime, updated_at: datetime
-) -> tuple[UUID, tasks_contracts.TaskRunDetailDTO]:
-    """Find the conversation's task and import run, creating both on first touch."""
+) -> tuple[UUID, tasks_contracts.TaskRunDetailDTO] | None:
+    """Find the conversation's task and import run, creating both on first touch.
+
+    Returns None when the conversation's task was deleted: the chat has no task-world copy anymore.
+    """
     origin_key = origin_key_for_conversation(conversation.id)
-    task_id: UUID | None = conversation.task_id
-    if task_id is None:
-        existing = tasks_facade.get_task_by_origin_key(team.id, origin_key)
-        task_id = existing.id if existing is not None else None
+    existing = tasks_facade.get_task_by_origin_key(team.id, origin_key)
+    if conversation.task_id is not None and existing is None:
+        return None
+    task_id: UUID | None = existing.id if existing is not None else None
     if task_id is None:
         created = tasks_facade.create_imported_task(
             team.id,
@@ -339,9 +342,12 @@ async def amirror_conversation(conversation_id: UUID | str, team_id: int, user_i
     # The model declares these nullable; a persisted conversation always has both.
     updated_at = conversation.updated_at or timezone.now()
     created_at = conversation.created_at or updated_at
-    task_id, run = await sync_to_async(_ensure_import_target)(
+    target = await sync_to_async(_ensure_import_target)(
         conversation, team, user, created_at=created_at, updated_at=updated_at
     )
+    if target is None:
+        return MirrorResult(skipped_reason="task_deleted", task_id=None, run_id=None, appended_frames=0)
+    task_id, run = target
     progress = _read_copy_progress(run.state)
     new_messages = _uncopied_messages(progress, messages)
     if not new_messages:
