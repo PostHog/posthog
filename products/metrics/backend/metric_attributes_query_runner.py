@@ -1,6 +1,6 @@
 """Attribute key/value autocomplete for the metrics filter bar.
 
-Keys count distinct series from recent metadata, without reading raw samples.
+Keys count distinct attribute values from recent metadata, without reading raw samples.
 Values use the `metric_attributes` aggregate table.
 Both queries merge metric attributes and resource attributes.
 """
@@ -56,7 +56,7 @@ def _validate_limit(limit: int) -> int:
 
 
 class MetricAttributeKeysQueryRunner:
-    """Attribute keys ordered by distinct recent series count."""
+    """Attribute keys ordered by distinct value count from recent series."""
 
     def __init__(
         self,
@@ -82,14 +82,17 @@ class MetricAttributeKeysQueryRunner:
                     arrayJoin(arrayDistinct(arrayConcat(
                         mapKeys(attributes), mapKeys(resource_attributes), ['service_name']
                     ))) AS attribute_key,
-                    uniqExact(series_fingerprint) AS series_count
+                    uniqExact(if(attribute_key IN ('service_name', 'service.name'), service_name,
+                        if(arrayElement(resource_attributes, attribute_key) != '',
+                            arrayElement(resource_attributes, attribute_key),
+                            arrayElement(attributes, attribute_key)))) AS value_count
                 FROM posthog.metric_series
                 WHERE last_seen >= {date_from}
                   AND {metric_name_filter}
                   AND (attribute_key ILIKE {search_pattern}
                        OR (attribute_key = 'service_name' AND 'service.name' ILIKE {search_pattern}))
                 GROUP BY attribute_key
-                ORDER BY series_count DESC, attribute_key ASC
+                ORDER BY value_count DESC, attribute_key ASC
                 LIMIT {limit}
             """,
             placeholders={
@@ -117,10 +120,10 @@ class MetricAttributeKeysQueryRunner:
             settings=_QUERY_SETTINGS,
         )
 
-        results = [{"name": row[0], "series_count": int(row[1])} for row in response.results]
+        results = [{"name": row[0], "value_count": int(row[1])} for row in response.results]
         search_lower = self.search.lower()
         if not results and (search_lower in "service_name" or search_lower in "service.name"):
-            results.append({"name": "service_name", "series_count": 0})
+            results.append({"name": "service_name", "value_count": 0})
         return results
 
 

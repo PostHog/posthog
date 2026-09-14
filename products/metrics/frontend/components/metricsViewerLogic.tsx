@@ -351,7 +351,7 @@ export interface metricsViewerLogicValues {
     attributeKeyOptions: {
         key: string
         label: string
-        seriesCount: number
+        valueCount: number
     }[]
     attributeKeyOptionsLoading: boolean
     chartSeries: MetricsChartSeries[]
@@ -501,14 +501,14 @@ export interface metricsViewerLogicActions {
         attributeKeyOptions: {
             key: string
             label: string
-            seriesCount: number
+            valueCount: number
         }[],
         payload?: any
     ) => {
         attributeKeyOptions: {
             key: string
             label: string
-            seriesCount: number
+            valueCount: number
         }[]
         payload?: any
     }
@@ -1097,7 +1097,7 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
         // viewer window so choices match the data the clause can actually group; debounce to
         // match the chart fetch cadence.
         attributeKeyOptions: [
-            [] as { key: string; label: string; seriesCount: number }[],
+            [] as { key: string; label: string; valueCount: number }[],
             {
                 loadAttributeKeyOptions: async (_, breakpoint) => {
                     if (!canViewMetrics()) {
@@ -1117,7 +1117,7 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
                     return response.results.map((result) => ({
                         key: result.name,
                         label: result.name,
-                        seriesCount: result.series_count,
+                        valueCount: result.value_count,
                     }))
                 },
             },
