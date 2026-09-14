@@ -338,15 +338,17 @@ class TestAiGatewayEnvVars:
         assert env["AI_GATEWAY_TOKEN"] == "phe_abc"
         mint.assert_called_once_with(ai_product="signals_scout", team_id=123, user=None)
 
-    def test_mint_failure_omits_token(self, mint_settings):
+    # Dropping the label with the token also moved the run's generations into the legacy
+    # `signals` bucket, so a routing failure read as an attribution change.
+    def test_mint_failure_omits_token_but_keeps_the_product_label(self, mint_settings):
         with patch(
             "products.tasks.backend.temporal.process_task.utils.mint_scoped_token",
             return_value=None,
         ):
             env = ai_gateway_env_vars(team_id=123, origin_product="signals_scout", ai_stage="scout")
         assert "AI_GATEWAY_TOKEN" not in env
-        # No token, no pinned product: the agent must not route on a product it cannot authenticate.
-        assert "AI_GATEWAY_PRODUCT" not in env
+        assert env["AI_GATEWAY_PRODUCT"] == "signals_scout"
+        assert env["AI_GATEWAY_AI_STAGE"] == "scout"
         assert env["AI_GATEWAY_URL"] == "https://ai-gateway.dev.posthog.dev"
 
     def test_no_run_context_still_sets_routing_pair(self, mint_settings):

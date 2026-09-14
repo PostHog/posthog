@@ -179,14 +179,21 @@ restores the built-in map.
 ### Which gateway a sandbox run uses
 
 A run reaches the Go gateway only when its `ai_product` is listed in
-`SANDBOX_AI_GATEWAY_PRODUCTS` and the worker minted a scoped token for it. When the
-worker mints, it also injects `AI_GATEWAY_PRODUCT` and `AI_GATEWAY_AI_STAGE`, naming
-the product the token is pinned to, and the agent routes on those in preference to
-what it derives itself. Both are reserved keys: a sandbox environment cannot set them.
+`SANDBOX_AI_GATEWAY_PRODUCTS` and the worker minted a scoped token for it. For every
+listed product the worker injects `AI_GATEWAY_PRODUCT` and `AI_GATEWAY_AI_STAGE`,
+naming the product and stage the run belongs to, and the agent prefers those over what
+it derives itself. Both are reserved keys: a sandbox environment cannot set them.
 
-When a run lands on the Python gateway unexpectedly, check those two variables first.
-Their absence means no token was minted, so the agent falls back to deriving the
-product from the task run it fetches at boot, which is the path that fails quietly.
+The mint decides routing alone. A failed mint leaves `AI_GATEWAY_TOKEN` unset, so the
+run drops to the Python gateway, but it keeps its label. Because the Python gateway
+derives `ai_product` from its own URL slug, the run's generations land in that coarse
+bucket; the agent sends `ai_product_resolved` and `ai_gateway_fallback` on every
+request so the finer product and the fallback itself stay visible in analytics.
+
+When a run lands on the Python gateway unexpectedly, query `$ai_generation` for
+`ai_gateway_fallback = true`. The share of a product's generations that carry it is the
+fallback rate, which is what to alert on — raw volume in the legacy bucket reads as a
+traffic spike instead.
 
 ### Agent run telemetry (optional)
 

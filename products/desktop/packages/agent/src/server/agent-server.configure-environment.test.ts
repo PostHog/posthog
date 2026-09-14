@@ -24,11 +24,15 @@ interface TestableServer {
   }): GatewayEnv;
 }
 
+// The last two are set on every sandboxed run, so a suite that leaves them in place
+// derives its product and stage from the host run rather than from its own arguments.
 const ENV_KEYS_UNDER_TEST = [
   "LLM_GATEWAY_URL",
   "POSTHOG_PROJECT_ID",
   "AI_GATEWAY_URL",
   "AI_GATEWAY_PRODUCTS",
+  "AI_GATEWAY_PRODUCT",
+  "AI_GATEWAY_AI_STAGE",
 ] as const;
 
 describe("AgentServer.configureEnvironment", () => {
@@ -246,6 +250,8 @@ describe("AgentServer.configureEnvironment", () => {
       "x-posthog-property-task_execution_environment": "cloud",
       "x-posthog-property-team_id": "1",
       "x-posthog-property-$ai_session_id": "task-abc",
+      "x-posthog-property-ai_product_resolved": "signals_research",
+      "x-posthog-property-ai_gateway_fallback": "false",
       "X-PostHog-Project-Id": "1",
     });
   });
@@ -287,6 +293,8 @@ describe("AgentServer.configureEnvironment", () => {
         "x-posthog-property-task_snapshot_kind: filesystem",
         "x-posthog-property-task_prewarmed: false",
         "x-posthog-property-task_execution_environment: cloud",
+        "x-posthog-property-ai_product_resolved: signals_research",
+        "x-posthog-property-ai_gateway_fallback: false",
         "X-PostHog-Project-Id: 1",
       ].join("\n"),
     );
@@ -333,6 +341,8 @@ describe("AgentServer.configureEnvironment", () => {
     expect(env.anthropicCustomHeaders).toBe(
       "x-posthog-property-task_internal: false\n" +
         "x-posthog-property-task_execution_environment: cloud\n" +
+        "x-posthog-property-ai_product_resolved: posthog_code\n" +
+        "x-posthog-property-ai_gateway_fallback: false\n" +
         "X-PostHog-Project-Id: 1",
     );
   });
@@ -479,6 +489,17 @@ describe("AgentServer.configureEnvironment on the Go ai-gateway", () => {
       ...overrides,
     }) as unknown as TestableServer;
 
+  const parseProperties = (headerLines: string): Record<string, string> =>
+    Object.fromEntries(
+      headerLines
+        .split("\n")
+        .filter((line) => line.startsWith("x-posthog-property-"))
+        .map((line) => {
+          const [key, ...rest] = line.split(": ");
+          return [key.replace("x-posthog-property-", ""), rest.join(": ")];
+        }),
+    );
+
   const parseBlob = (headerLines: string): Record<string, unknown> => {
     const prefix = "X-PostHog-Properties: ";
     expect(headerLines.startsWith(prefix)).toBe(true);
@@ -549,6 +570,9 @@ describe("AgentServer.configureEnvironment on the Go ai-gateway", () => {
       task_id: "task-1",
       task_run_id: "run-1",
       ai_product: "signals_scout",
+      // Sent on the Go path too, so reporting groups by one always-correct column.
+      ai_product_resolved: "signals_scout",
+      ai_gateway_fallback: false,
       team_id: 42,
     };
     expect(parseBlob(env.anthropicCustomHeaders ?? "")).toMatchObject(expected);
@@ -647,6 +671,37 @@ describe("AgentServer.configureEnvironment on the Go ai-gateway", () => {
     expect(env.anthropicBaseUrl).toBe("https://gateway.us.posthog.com/signals");
     expect(env.anthropicAuthToken).toBe("test-api-key");
     expect(env.openaiApiKey).toBe("test-api-key");
+  });
+
+  // The Python gateway re-asserts ai_product from its URL slug, so a mint failure used to
+  // move scout generations into the legacy `signals` bucket with no first-party trace of
+  // why. These two keep the run attributable and make the fallback rate a ratio.
+  it("keeps the resolved product and marks the fallback on the Python path", () => {
+    delete process.env.AI_GATEWAY_TOKEN;
+    const env = buildServer().configureEnvironment({
+      originProduct: "signals_scout",
+      aiStage: "scout:web-analytics",
+    });
+
+    expect(parseProperties(env.anthropicCustomHeaders ?? "")).toMatchObject({
+      ai_product_resolved: "signals_scout",
+      ai_gateway_fallback: "true",
+      ai_stage: "scout:web-analytics",
+    });
+    expect(env.openaiCustomHeaders).toMatchObject({
+      "x-posthog-property-ai_product_resolved": "signals_scout",
+      "x-posthog-property-ai_gateway_fallback": "true",
+    });
+  });
+
+  it("does not mark a run the allowlist never routed as a fallback", () => {
+    delete process.env.AI_GATEWAY_TOKEN;
+    const env = buildServer().configureEnvironment({ isInternal: false });
+
+    expect(parseProperties(env.anthropicCustomHeaders ?? "")).toMatchObject({
+      ai_product_resolved: "posthog_code",
+      ai_gateway_fallback: "false",
+    });
   });
 
   it("feeds the codex session the gateway bearer, not the raw run credential", () => {
