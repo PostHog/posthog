@@ -126,9 +126,9 @@ export function networkMetricPath(
   apiHost: string,
 ): string | undefined {
   try {
-    return new URL(request.url).host === new URL(apiHost).host
-      ? undefined
-      : "external";
+    const requestHost = new URL(request.url).host;
+    const appHost = new URL(apiHost).host;
+    return requestHost === appHost ? undefined : "external";
   } catch {
     return "external";
   }
