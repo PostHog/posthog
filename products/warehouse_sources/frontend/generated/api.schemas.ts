@@ -4915,9 +4915,9 @@ export interface ExternalDataSourceBulkUpdateSchemaApi {
     apply_sync_defaults?: boolean
 }
 
-export interface PatchedExternalDataSourceBulkUpdateSchemasApi {
+export interface ExternalDataSourceBulkUpdateSchemasApi {
     /** Schema updates to apply in a single batch. */
-    schemas?: ExternalDataSourceBulkUpdateSchemaApi[]
+    schemas: ExternalDataSourceBulkUpdateSchemaApi[]
 }
 
 /**
@@ -13361,21 +13361,6 @@ export type ExternalDataSchemasResyncCreate400 = {
 }
 
 export type ExternalDataSourcesListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-    /**
-     * A search term.
-     */
-    search?: string
-}
-
-export type ExternalDataSourcesBulkUpdateSchemasPartialUpdateParams = {
     /**
      * Number of results to return per page.
      */
