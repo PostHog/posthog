@@ -1047,7 +1047,7 @@ def _make_backend(tmp_path: Path, files: list[str]) -> CheckContext:
 
 
 class TestImportSurfaceCheck:
-    """The AST twin of the two import-linter contracts. Its reason to exist is the namespace
+    """The AST twin of the three import-linter contracts. Its reason to exist is the namespace
     package: grimp cannot see a module under a directory without __init__.py, so a routed
     view there passes the contract vacuously. None of the fixtures below carry a marker."""
 
@@ -1097,6 +1097,19 @@ class TestImportSurfaceCheck:
                 {"presentation/views.py": "from products.other.backend.models import M\n"},
                 0,
                 id="cross_product_is_tachs_job",
+            ),
+            pytest.param(
+                {"webhook_consumers.py": "from products.p.backend.facade.api import f\n", "facade/api.py": ""},
+                0,
+                id="webhook_consumers_from_facade",
+            ),
+            pytest.param(
+                {
+                    "webhook_consumers.py": "from products.p.backend.services.handlers import h\n",
+                    "services/handlers.py": "",
+                },
+                1,
+                id="webhook_consumers_from_unmarked_package",
             ),
         ],
     )
@@ -1915,6 +1928,20 @@ class TestNarrowedTurboWiringSurface:
     )
     def test_garage_inputs_count_as_narrowing(self, tmp_path: Path, inputs: list[str], expected: bool) -> None:
         product_dir, _ = _write_facade_product(tmp_path, turbo_inputs=inputs)
+        assert has_narrowed_turbo_inputs(product_dir) is expected
+
+    @pytest.mark.parametrize(
+        "inputs, expected",
+        [
+            (["backend/facade/**", "backend/webhook_consumers.py"], True),
+            # present but unlisted: a consumer change would run no Django suite, so it isn't narrowed
+            (["backend/facade/**"], False),
+        ],
+    )
+    def test_present_webhook_consumers_must_stay_watched(
+        self, tmp_path: Path, inputs: list[str], expected: bool
+    ) -> None:
+        product_dir, _ = _write_facade_product(tmp_path, sources={"webhook_consumers.py": ""}, turbo_inputs=inputs)
         assert has_narrowed_turbo_inputs(product_dir) is expected
 
     def test_carveout_module_is_accepted_surface_only_when_declared(self, tmp_path: Path) -> None:

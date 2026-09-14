@@ -358,6 +358,30 @@ def location_input_glob(location: str) -> str:
     return f"{location.rstrip('/')}/**" if location.endswith("/") else location
 
 
+def _input_covers(input_glob: str, accepted: str) -> bool:
+    """A directory location (trailing slash) is covered by any input inside it; a single-file
+    location by an exact input, or by a wildcard-free `dir/**` input whose directory contains it —
+    backend/models/** watches backend/models/tcac.py, but backend/tasks.py.bak must not count as
+    watching backend/tasks.py (and backend/tasks/** does not watch backend/tasks.py)."""
+    if accepted.endswith("/"):
+        return input_glob.startswith(accepted)
+    if input_glob == accepted:
+        return True
+    directory = input_glob.removesuffix("/**")
+    return directory != input_glob and "*" not in directory and accepted.startswith(directory + "/")
+
+
+def _webhook_consumers_unwatched(product_dir: Path, inputs: list[str]) -> bool:
+    """True when the product declares webhook consumers and no narrowed input watches the module.
+
+    Presence-based like the routes rule, because core imports the module by name on the first
+    delivery: a product that adds it without listing it would keep the skip while a consumer
+    change — a new handler, a new event type — runs no Django suite."""
+    if not (product_dir / "backend" / "webhook_consumers.py").exists():
+        return False
+    return not any(_input_covers(i.removeprefix("./"), p) for i in inputs for p in _WEBHOOK_CONSUMERS_PREFIXES)
+
+
 def has_narrowed_turbo_inputs(
     product_dir: Path,
     permanent_modules: frozenset[str] = frozenset(),
@@ -373,9 +397,14 @@ def has_narrowed_turbo_inputs(
     all count as extended surface: a product may list them without forfeiting the narrowing, since
     core depends on each outside the plain facade->contracts channel and they must re-run the suite
     on change (see uncovered_permanent_modules, unwatched_garages, and the carve-out/model coverage
-    checks)."""
+    checks).
+
+    A webhook_consumers.py module is the one extended surface that is also required once it exists:
+    listing it is optional for a product that has none, mandatory for a product that has one."""
     inputs = [i for i in contract_check_inputs(product_dir) if not i.startswith("!")]
     if not inputs:
+        return False
+    if _webhook_consumers_unwatched(product_dir, inputs):
         return False
     permanent_prefixes = tuple(p for m in permanent_modules for p in _module_input_prefixes(m))
     accepted = (
@@ -390,19 +419,6 @@ def has_narrowed_turbo_inputs(
     return all(_glob_targets(i, accepted) for i in inputs) and any(
         _glob_targets(i, _FACADE_PRESENTATION_PREFIXES) for i in inputs
     )
-
-
-def _input_covers(input_glob: str, accepted: str) -> bool:
-    """A directory location (trailing slash) is covered by any input inside it; a single-file
-    location by an exact input, or by a wildcard-free `dir/**` input whose directory contains it —
-    backend/models/** watches backend/models/tcac.py, but backend/tasks.py.bak must not count as
-    watching backend/tasks.py (and backend/tasks/** does not watch backend/tasks.py)."""
-    if accepted.endswith("/"):
-        return input_glob.startswith(accepted)
-    if input_glob == accepted:
-        return True
-    directory = input_glob.removesuffix("/**")
-    return directory != input_glob and "*" not in directory and accepted.startswith(directory + "/")
 
 
 def _uncovered_locations(product_dir: Path, targets_to_prefixes: dict[str, tuple[str, ...]]) -> set[str]:

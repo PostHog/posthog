@@ -63,8 +63,9 @@ Then:
 
 1. Add the module path to `_INCARNATION_MODULES` in `posthog/ingress/providers.py`, or the registry never sees its specs or core consumers.
 2. Wire the URL with `build_webhook_view()`, for example `opt_slash_path("webhooks/<provider>", build_webhook_view(build_<provider>_provider()))`. GitHub and SES sit in `posthog/urls.py`; the others are declared by the owning product.
-3. Delete the migrated endpoint's line from `paths.exclude` in `.semgrep/rules/devex/inbound-webhooks-go-through-ingress.yaml`. That list is a ratchet of verifiers that predate ingress, and the migrating PR removes its own entry.
-4. Preserve the endpoint's externally observable behavior. Existing tests are the contract: move or extend them, do not drop assertions.
+3. Add the provider's signature header name to the `$HEADER` regex in `.semgrep/rules/devex/inbound-webhooks-go-through-ingress.yaml`, plus a fixture case in the `.py` beside it. The header names are spelled out rather than matched generically because a generic header pattern makes semgrep time out on a large module, which drops that file from the scan without failing it.
+4. Delete the migrated endpoint's line from `paths.exclude` in the same rule. That list is a ratchet of verifiers that predate ingress, and the migrating PR removes its own entry.
+5. Preserve the endpoint's externally observable behavior. Existing tests are the contract: move or extend them, do not drop assertions.
 
 ### The DRF adapter path
 

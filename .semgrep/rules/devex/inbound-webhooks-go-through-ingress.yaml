@@ -68,14 +68,19 @@ rules:
                 # `build_test_signature`) carries no validity word and stays out.
                 # `hmac.digest` is the stdlib one-shot form of `hmac.new(...).digest()`; a
                 # verifier that reaches for it skips `hmac.new` entirely.
+                # Both def forms, because `def` does not match an `async def` verifier.
                 - patterns:
                       - pattern-either:
                             - pattern: hmac.compare_digest(...)
                             - pattern: hmac.new(...)
                             - pattern: hmac.digest(...)
-                      - pattern-inside: |
-                            def $VERIFY(...):
-                                ...
+                      - pattern-either:
+                            - pattern-inside: |
+                                  def $VERIFY(...):
+                                      ...
+                            - pattern-inside: |
+                                  async def $VERIFY(...):
+                                      ...
                       - metavariable-regex:
                             metavariable: $VERIFY
                             regex: ^_?((is_|has_)?(verify|valid|check|match)[a-z0-9_]*(signature|webhook|digest)[a-z0-9_]*|(is_|has_)?[a-z0-9_]*(signature|webhook|digest)[a-z0-9_]*_(ok|valid|verified|match)[a-z0-9_]*)$

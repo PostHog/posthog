@@ -42,6 +42,13 @@ def signature_ok(body: bytes, signature: str, secret: str) -> bool:
     return hmac.compare_digest(expected, signature)
 
 
+async def verify_slack_signature(body: bytes, signature: str, secret: str) -> bool:
+    # ruleid: inbound-webhooks-go-through-ingress
+    expected = hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
+    # ruleid: inbound-webhooks-go-through-ingress
+    return hmac.compare_digest(expected, signature)
+
+
 def _is_valid_signature(body: bytes, signature: str, secret: str) -> bool:
     # ruleid: inbound-webhooks-go-through-ingress
     expected = hmac.new(secret.encode(), body, hashlib.sha1).hexdigest()

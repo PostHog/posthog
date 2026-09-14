@@ -439,12 +439,13 @@ def _contract_check_withheld_note(status: IsolationStatus) -> str | None:
 
 
 class ImportSurfaceCheck(ProductCheck):
-    """Hold the two import-linter contracts by AST, so a namespace package cannot dodge them.
+    """Hold the three import-linter contracts by AST, so a namespace package cannot dodge them.
 
-    The contracts say routes.py imports only presentation/, and presentation/ imports only
-    facade/ and itself. import-linter enforces both through grimp, and grimp does not descend
-    into a directory without an __init__.py — so `from ...backend.services.views import X`
-    with no `services/__init__.py` is invisible to it and the contract passes vacuously.
+    The contracts say routes.py imports only presentation/, presentation/ imports only facade/
+    and itself, and webhook_consumers.py imports only facade/. import-linter enforces them all
+    through grimp, and grimp does not descend into a directory without an __init__.py — so
+    `from ...backend.services.views import X` with no `services/__init__.py` is invisible to it
+    and the contract passes vacuously.
     That is a live view outside presentation/ that the narrowed contract-check inputs do not
     watch. This check reads the same imports straight from the AST, honors the same
     ignore_imports deferrals, and fails on what grimp cannot see.
@@ -457,6 +458,7 @@ class ImportSurfaceCheck(ProductCheck):
     SURFACES = (
         ("routes", ("presentation",)),
         ("presentation", ("presentation", "facade")),
+        ("webhook_consumers", ("facade",)),
     )
 
     def should_run(self, ctx: CheckContext) -> bool:
@@ -852,8 +854,9 @@ class IsolationChainCheck(ProductCheck):
                 "facade/presentation — the skip is inert (every change still re-runs the full Django "
                 'suite). Add a turbo.json narrowing inputs to ["backend/facade/**", '
                 '"backend/presentation/**"] plus the model surface (backend/models.py or '
-                "backend/models/**, and backend/migrations/**) and any wiring locations the "
-                "product has (backend/tasks/**, backend/temporal/**, …) to turn the skip on"
+                "backend/models/**, and backend/migrations/**), backend/webhook_consumers.py if the "
+                "product declares webhook consumers, and any wiring locations the product has "
+                "(backend/tasks/**, backend/temporal/**, …) to turn the skip on"
             )
         # When needs_turn_on is suppressed purely because of a facade violation (the other four
         # conjuncts hold), the facade_violations warning above already explains what blocks narrowing,
