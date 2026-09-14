@@ -4,7 +4,7 @@ import type {
   SessionConfigSelectGroup,
 } from "@agentclientprotocol/sdk";
 import { ApiRequestError } from "@posthog/api-client/fetcher";
-import type { AcpMessage } from "@posthog/shared";
+import type { AcpMessage, StoredLogEntry } from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
 import type { AgentSession } from "@posthog/ui/features/sessions/sessionStore";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -9272,6 +9272,183 @@ describe("SessionService", () => {
     session.pendingPermissions = surfaced;
     return { session, onData, requestUpdate };
   };
+
+  describe("cloud permission resolutions", () => {
+    const resolution = (
+      params: Record<string, unknown> = {
+        requestId: "request-1",
+        toolCallId: "tool-1",
+        optionId: "option_0",
+      },
+    ): StoredLogEntry => ({
+      type: "notification",
+      notification: {
+        method: "_posthog/permission_resolved",
+        params,
+      },
+    });
+
+    it.each(["logs", "snapshot"])(
+      "clears another client's resolved approval from %s and ignores its replay",
+      (kind) => {
+        const service = getSessionService();
+        const { session, onData, requestUpdate } =
+          surfaceCloudQuestion(service);
+        const otherPermission = {
+          taskRunId: "run-123",
+          toolCall: { toolCallId: "tool-2" },
+          options: [],
+          receivedAt: Date.now(),
+        };
+        session.pendingPermissions.set("tool-2", otherPermission);
+        mockSessionStoreSetters.setPendingPermissions.mockClear();
+
+        onData({
+          kind,
+          taskId: "task-123",
+          runId: "run-123",
+          status: "in_progress",
+          newEntries: [resolution()],
+          totalEntryCount: 4,
+        });
+
+        const remaining = new Map([["tool-2", otherPermission]]);
+        expect(
+          mockSessionStoreSetters.setPendingPermissions,
+        ).toHaveBeenCalledExactlyOnceWith("run-123", remaining);
+        expect(mockTrpcCloudTask.sendCommand.mutate).not.toHaveBeenCalled();
+        expect(mockTrpcAgent.respondToPermission.mutate).not.toHaveBeenCalled();
+
+        session.pendingPermissions = remaining;
+        mockSessionStoreSetters.setPendingPermissions.mockClear();
+        mockNotificationService.notifyPermissionRequest.mockClear();
+        onData(requestUpdate);
+        expect(
+          mockSessionStoreSetters.setPendingPermissions,
+        ).not.toHaveBeenCalled();
+        expect(
+          mockNotificationService.notifyPermissionRequest,
+        ).not.toHaveBeenCalled();
+
+        onData({ ...requestUpdate, requestId: "request-2" });
+        expect(
+          mockSessionStoreSetters.setPendingPermissions,
+        ).toHaveBeenCalledWith(
+          "run-123",
+          new Map([
+            ["tool-2", otherPermission],
+            [
+              "tool-1",
+              expect.objectContaining({ toolCall: requestUpdate.toolCall }),
+            ],
+          ]),
+        );
+      },
+    );
+
+    it("preserves a newer approval and suppresses a resolved request that arrives late", () => {
+      const service = getSessionService();
+      const { onData, requestUpdate } = surfaceCloudQuestion(service);
+      mockSessionStoreSetters.setPendingPermissions.mockClear();
+
+      onData({
+        kind: "logs",
+        taskId: "task-123",
+        runId: "run-123",
+        newEntries: [
+          resolution({ requestId: "old-request", toolCallId: "tool-1" }),
+        ],
+        totalEntryCount: 4,
+      });
+      onData({ ...requestUpdate, requestId: "old-request" });
+
+      expect(
+        mockSessionStoreSetters.setPendingPermissions,
+      ).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      [
+        "another run",
+        [
+          {
+            type: "notification",
+            notification: {
+              method: "_posthog/run_started",
+              params: { runId: "old-run" },
+            },
+          },
+          resolution(),
+        ],
+      ],
+      [
+        "another tool",
+        [resolution({ requestId: "request-1", toolCallId: "other-tool" })],
+      ],
+      ["missing request ID", [resolution({ toolCallId: "tool-1" })]],
+      ["missing tool call ID", [resolution({ requestId: "request-1" })]],
+    ])("ignores a resolution for %s", (_name, newEntries) => {
+      const service = getSessionService();
+      const { onData } = surfaceCloudQuestion(service);
+      mockSessionStoreSetters.setPendingPermissions.mockClear();
+
+      onData({
+        kind: "snapshot",
+        taskId: "task-123",
+        runId: "run-123",
+        status: "in_progress",
+        newEntries,
+        totalEntryCount: 3 + newEntries.length,
+      });
+
+      expect(
+        mockSessionStoreSetters.setPendingPermissions,
+      ).not.toHaveBeenCalled();
+    });
+
+    it("keeps resolution replay suppression scoped to its run", () => {
+      const service = getSessionService();
+      const { session, onData, requestUpdate } = surfaceCloudQuestion(service);
+      onData({
+        kind: "logs",
+        taskId: "task-123",
+        runId: "run-123",
+        newEntries: [resolution()],
+        totalEntryCount: 4,
+      });
+
+      const otherSession = createMockSession({
+        ...session,
+        taskId: "task-456",
+        taskRunId: "run-456",
+        pendingPermissions: new Map(),
+      });
+      mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(otherSession);
+      mockSessionStoreSetters.getSessions.mockReturnValue({
+        "run-123": session,
+        "run-456": otherSession,
+      });
+      service.watchCloudTask(
+        "task-456",
+        "run-456",
+        "https://api.example.com",
+        123,
+      );
+      const otherOnData =
+        mockTrpcCloudTask.onUpdate.subscribe.mock.calls.at(-1)?.[1]?.onData;
+      mockSessionStoreSetters.setPendingPermissions.mockClear();
+      otherOnData({ ...requestUpdate, taskId: "task-456", runId: "run-456" });
+
+      expect(
+        mockSessionStoreSetters.setPendingPermissions,
+      ).toHaveBeenCalledWith(
+        "run-456",
+        new Map([
+          ["tool-1", expect.objectContaining({ taskRunId: "run-456" })],
+        ]),
+      );
+    });
+  });
 
   describe("respondToPermission", () => {
     it("does nothing if no session exists", async () => {
