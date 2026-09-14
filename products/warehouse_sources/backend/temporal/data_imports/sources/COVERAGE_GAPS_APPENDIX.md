@@ -889,14 +889,14 @@ Note: Coverage is otherwise complete — every list-\* endpoint in the reference
 
 ## BoldSign — gaps
 
-Today (7): `brands`, `contacts`, `documents`, `sender_identities`, `teams`, `templates`, `users`
+Today (11): `behalf_documents`, `brands`, `contact_groups`, `contacts`, `custom_fields`, `documents`, `sender_identities`, `team_documents`, `teams`, `templates`, `users`
 
 Diffed against: <https://api.boldsign.com/swagger/v1/swagger.json>
 
-- [ ] `GET /v1/contactGroups/list` — lookup resolving the contact group IDs carried on the contacts we already sync (high)
-- [ ] `GET /v1/customField/list` — brand-scoped custom field definitions that resolve field IDs appearing on documents and templates (medium)
-- [ ] `GET /v1/document/teamlist` — documents across the whole team, broader than the API user's own document list (medium)
-- [ ] `GET /v1/document/behalfList` — documents sent on behalf of others, otherwise invisible in the documents table (low)
+- [x] `GET /v1/contactGroups/list` — lookup resolving the contact group IDs carried on the contacts we already sync (high)
+- [x] `GET /v1/customField/list` — brand-scoped custom field definitions that resolve field IDs appearing on documents and templates (medium)
+- [x] `GET /v1/document/teamlist` — documents across the whole team, broader than the API user's own document list (medium)
+- [x] `GET /v1/document/behalfList` — documents sent on behalf of others, otherwise invisible in the documents table (low)
 
 Note: Remaining GETs are file downloads (document/template/audit-log PDFs), single-object detail lookups, or billing credit counts — none are queryable collections. /v1/plan/apiCreditsCount was excluded as billing config.
 
