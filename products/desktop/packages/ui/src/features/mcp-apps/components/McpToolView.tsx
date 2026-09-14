@@ -37,8 +37,8 @@ export function McpToolView({
     turnCancelled,
     turnComplete,
   );
-  // New thread restyles the MCP header/output; the legacy thread keeps its original colours + the
-  // input/output divider so ConversationView is unchanged when the chat thread is toggled off.
+  // Chat-thread chrome restyles the MCP header and output. The standalone fallback retains its
+  // original colors and input/output divider when chat-thread chrome is unavailable.
   const chatChrome = useChatThreadChrome();
 
   const { serverName: defaultServerName, toolName: defaultToolName } =

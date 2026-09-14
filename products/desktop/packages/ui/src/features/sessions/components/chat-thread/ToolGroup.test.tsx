@@ -46,6 +46,30 @@ function subagentItem(
   } as SessionUpdateItem;
 }
 
+function toolItem(
+  id: string,
+  kind: "read" | "other",
+  title = id,
+): SessionUpdateItem {
+  return {
+    type: "session_update",
+    id,
+    update: {
+      sessionUpdate: "tool_call",
+      toolCallId: id,
+      title,
+      kind,
+      status: "completed",
+    },
+    turnContext: {
+      toolCalls: new Map(),
+      childItems: new Map(),
+      turnCancelled: false,
+      turnComplete: true,
+    },
+  } as SessionUpdateItem;
+}
+
 function thoughtItem(
   id: string,
   options: { thoughtComplete: boolean; turnComplete?: boolean },
@@ -87,6 +111,14 @@ describe("ToolGroup", () => {
       name: "tallies the run once it settles",
       items: [subagentItem("spawn-1"), subagentItem("spawn-2")],
       expected: "Ran 2 subagents",
+    },
+    {
+      name: "summarizes workflows separately from other tool calls",
+      items: [
+        toolItem("read-1", "read"),
+        toolItem("workflow-1", "other", "workflow"),
+      ],
+      expected: "Read a file, ran a workflow",
     },
     {
       name: "names the current tool while the run is active",

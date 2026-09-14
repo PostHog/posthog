@@ -68,8 +68,8 @@ export function StatusNotificationView({
   maxAttempts,
   delayMs,
 }: StatusNotificationViewProps) {
-  // New thread renders status notes as centered separator markers; the legacy thread keeps its
-  // bordered rows so ConversationView is unchanged when the chat thread is off.
+  // Chat-thread chrome renders status notes as centered separator markers. The standalone fallback
+  // uses bordered rows when chat-thread chrome is unavailable.
   const chatChrome = useChatThreadChrome();
 
   // Terminal refusal: the safety classifier declined the request and no

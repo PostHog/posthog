@@ -2,9 +2,8 @@ import { Eraser } from "@phosphor-icons/react";
 import { ChatMarker, ChatMarkerContent, Text } from "@posthog/quill";
 import { useChatThreadChrome } from "../chat-thread/chatThreadChrome";
 
-// New thread renders the boundary as a centered separator marker; the legacy
-// thread keeps a bordered row so ConversationView is unchanged when the chat
-// thread is off (mirrors CompactBoundaryView).
+// Chat-thread chrome renders the boundary as a centered separator marker. The
+// standalone fallback uses a bordered row when chat-thread chrome is unavailable.
 export function ConversationClearedView() {
   const chatChrome = useChatThreadChrome();
 
