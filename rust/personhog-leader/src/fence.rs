@@ -490,7 +490,7 @@ impl MarkVerifier {
         loop {
             let cell = self.cell(op_id);
             let loaded_now = AtomicBool::new(false);
-            let snapshot = cell
+            let loaded = cell
                 .get_or_try_init(|| async {
                     loaded_now.store(true, Ordering::Relaxed);
                     counter!(MARK_SNAPSHOTS_TOTAL, "outcome" => "load").increment(1);
@@ -503,7 +503,17 @@ impl MarkVerifier {
                             .collect(),
                     })
                 })
-                .await?;
+                .await;
+            let snapshot = match loaded {
+                Ok(snapshot) => snapshot,
+                Err(e) => {
+                    // Pruning keeps cells that are still loading, so a cell
+                    // left empty by a failed load would outlive the op.
+                    self.snapshots
+                        .remove_if(&op_id, |_, current| Arc::ptr_eq(current, &cell));
+                    return Err(e);
+                }
+            };
             if loaded_now.load(Ordering::Relaxed) {
                 return Ok(snapshot.rows.get(&(team_id, person_id)).cloned());
             }
@@ -629,6 +639,10 @@ mod mark_verifier_tests {
             .status(op, 1, 1)
             .await
             .expect_err("the failed load surfaces to the release");
+        assert!(
+            verifier.snapshots.is_empty(),
+            "a failed load leaves no entry behind for the op"
+        );
         let status = verifier.status(op, 1, 1).await.expect("second lookup");
         assert_eq!(status.as_deref(), Some("sealed"));
         assert_eq!(source.loads(), 2, "nothing from the failed load is trusted");
