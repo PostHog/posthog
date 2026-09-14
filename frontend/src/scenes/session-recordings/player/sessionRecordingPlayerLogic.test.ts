@@ -1048,10 +1048,21 @@ describe('sessionRecordingPlayerLogic', () => {
             }
         )
 
-        it('reports at most the recording length when the start is skewed before the recording', async () => {
+        it.each([
+            {
+                description: 'reports at most the recording length when the start is skewed before the recording',
+                recordingDurationSeconds: 60,
+            },
+            {
+                // the clamped span fills the whole timeline here, so gating the warning on it would
+                // hide the warning exactly where every second of the recording is unplayable
+                description: 'still warns when the recording is no longer than the warning threshold',
+                recordingDurationSeconds: 15,
+            },
+        ])('$description', async ({ recordingDurationSeconds }) => {
             // A skewed start drags `start` back but not the metadata duration the timeline is capped to,
             // so the raw offset to the first full snapshot claims more time than the recording holds.
-            await mountWithRecordingDuration(60)
+            await mountWithRecordingDuration(recordingDurationSeconds)
             seedRecording([inc(START), inc(START + 1000)], [fs(LATE_FS_TS)])
 
             expect(logic.values.leadingUnplayableMs).toBe(logic.values.sessionPlayerData.durationMs)

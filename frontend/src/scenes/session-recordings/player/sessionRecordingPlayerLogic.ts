@@ -1120,7 +1120,7 @@ export interface sessionRecordingPlayerLogicMeta {
             seekRenderability: (timestamp: number) => SeekRenderability
         ) => number | null
         leadingUnplayableMs: (sessionPlayerData: SessionPlayerData, leadingRecoveryTimestamp: number | null) => number
-        hasLateFullSnapshot: (leadingUnplayableMs: number) => boolean
+        hasLateFullSnapshot: (sessionPlayerData: SessionPlayerData, leadingRecoveryTimestamp: number | null) => boolean
         unrenderableWindowSpans: (
             sessionPlayerData: SessionPlayerData,
             seekRenderability: (timestamp: number) => SeekRenderability,
@@ -1959,9 +1959,18 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             },
         ],
 
+        // The threshold reads the unclamped offset, not `leadingUnplayableMs`. The clamped span can
+        // never exceed the recording length, so a recording no longer than the threshold would always
+        // fall under it and silence its own warning, which is the worst case rather than a mild one.
         hasLateFullSnapshot: [
-            (s) => [s.leadingUnplayableMs],
-            (leadingUnplayableMs: number): boolean => leadingUnplayableMs > LATE_FULL_SNAPSHOT_THRESHOLD_MS,
+            (s) => [s.sessionPlayerData, s.leadingRecoveryTimestamp],
+            (sessionPlayerData: SessionPlayerData, leadingRecoveryTimestamp: number | null): boolean => {
+                const start = sessionPlayerData.start?.valueOf()
+                if (start == null || leadingRecoveryTimestamp == null) {
+                    return false
+                }
+                return leadingRecoveryTimestamp - start > LATE_FULL_SNAPSHOT_THRESHOLD_MS
+            },
         ],
 
         // Spans of a window that opened without ever sending its initial DOM. rrweb draws its own
