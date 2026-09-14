@@ -726,9 +726,7 @@ def _bit_test(name: str, mode: str) -> Callable[[list[str]], str]:
     def handler(args: list[str]) -> str:
         if len(args) < 2:
             raise _invalid_arguments(name, f"{name} expects a value and bit positions.")
-        tests = [
-            f"bitwise_and({args[0]}, bitwise_left_shift(BIGINT '1', {position})) <> 0" for position in args[1:]
-        ]
+        tests = [f"bitwise_and({args[0]}, bitwise_left_shift(BIGINT '1', {position})) <> 0" for position in args[1:]]
         operator = " AND " if mode == "all" else " OR "
         return f"({operator.join(tests)})"
 
@@ -792,8 +790,7 @@ def _l1_distance(args: list[str]) -> str:
 def _linf_distance(args: list[str]) -> str:
     _require_args("LinfDistance", args, 2)
     return (
-        f"IF(cardinality({args[0]}) = 0, DOUBLE '0', "
-        f"array_max(zip_with({args[0]}, {args[1]}, (x, y) -> abs(x - y))))"
+        f"IF(cardinality({args[0]}) = 0, DOUBLE '0', array_max(zip_with({args[0]}, {args[1]}, (x, y) -> abs(x - y))))"
     )
 
 
