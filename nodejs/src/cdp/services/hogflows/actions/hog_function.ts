@@ -108,7 +108,7 @@ export class HogFunctionHandler implements ActionHandler {
             observeMissingVariableReferences(invocation, action, result)
         }
 
-        const functionResult = await this.executeHogFunction(invocation, action, hogExecutorOptions)
+        const functionResult = await this.executeHogFunction(invocation, action, result, hogExecutorOptions)
 
         // Add all logs
         functionResult.logs.forEach((log: MinimalLogEntry) => {
@@ -306,6 +306,7 @@ export class HogFunctionHandler implements ActionHandler {
     private async executeHogFunction(
         invocation: CyclotronJobInvocationHogFlow,
         action: Action,
+        result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>,
         hogExecutorOptions?: HogExecutorExecuteAsyncOptions
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction> & { skipped?: boolean }> {
         const hogFunction = await instrumentFn(
@@ -322,6 +323,10 @@ export class HogFunctionHandler implements ActionHandler {
             if (refreshed?.person) {
                 invocation.person = refreshed.person
                 invocation.filterGlobals = refreshed.filterGlobals
+                // The result carries a shallow clone, so rebinding only `invocation` would leave the
+                // next action in this dequeue reading the pre-refresh person.
+                result.invocation.person = refreshed.person
+                result.invocation.filterGlobals = refreshed.filterGlobals
             }
         }
 
