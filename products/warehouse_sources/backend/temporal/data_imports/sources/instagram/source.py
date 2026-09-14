@@ -36,7 +36,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.instagram.instagram import (
     AUTH_ERROR_PREFIX,
+    BAD_REQUEST_ERROR_PREFIX,
     PERMISSION_ERROR_PREFIX,
+    REQUEST_BUDGET_ERROR_PREFIX,
+    RETRYABLE_ERROR_PREFIX,
     InstagramAPIError,
     InstagramAuthError,
     InstagramPermissionError,
@@ -136,6 +139,38 @@ Connect your Instagram account, then pick the professional account you want to s
             # Retrying can't bring the row back; only reconnecting can.
             "Integration not found": (
                 "The Instagram connection for this source no longer exists. Reconnect your Instagram account."
+            ),
+            # Every 400 Meta does not attribute to auth, permissions or throttling. The usual cause is
+            # an account node this token cannot read, which the account field lets you type by hand.
+            # Retrying cannot change the answer, so stop and name the thing to fix.
+            BAD_REQUEST_ERROR_PREFIX: (
+                "Instagram rejected the request for this account. Check the Instagram account ID is a "
+                "professional account linked to your Facebook page, then reconnect this source."
+            ),
+        }
+
+    def get_retryable_errors(self) -> set[str]:
+        # Meta throttling, a 5xx, and the transient Graph codes. `InstagramClient.get` already
+        # retries these with backoff, so one that reaches the activity means that budget ran out
+        # and a fresh attempt recovers. Matching here keeps a self-recovering failure logged as a
+        # warning instead of entering error tracking as a defect.
+        return {RETRYABLE_ERROR_PREFIX}
+
+    def get_retry_exhausted_errors(self) -> dict[str, str]:
+        return {
+            # The transient class above, once Temporal's own retries run out too. The schema stays
+            # enabled; this only replaces the raw Graph API text the job would otherwise store.
+            RETRYABLE_ERROR_PREFIX: (
+                "Instagram's API kept rate limiting or returning errors, so this sync couldn't "
+                "finish. Nothing needs changing on your source, and the next sync runs on schedule."
+            ),
+            # The client's per-sync call cap. This raises only as a backstop, because every
+            # streaming loop checks the budget and returns cleanly, so a capped sync finishes
+            # instead of failing. The schema stays enabled, and the checkpoint is keyed by job id,
+            # so a later scheduled sync starts over rather than continuing where this one stopped.
+            REQUEST_BUDGET_ERROR_PREFIX: (
+                "This sync stopped after it spent its Instagram API request budget. Nothing needs "
+                "changing on your source, and the next scheduled sync starts with a fresh budget."
             ),
         }
 

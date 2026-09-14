@@ -17,7 +17,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.instagram.instagram import (
     AUTH_ERROR_PREFIX,
+    BAD_REQUEST_ERROR_PREFIX,
     PERMISSION_ERROR_PREFIX,
+    REQUEST_BUDGET_ERROR_PREFIX,
+    RETRYABLE_ERROR_PREFIX,
     InstagramAuthError,
     InstagramResumeConfig,
     InstagramRetryableError,
@@ -89,15 +92,31 @@ class TestInstagramSource:
             f"{PERMISSION_ERROR_PREFIX}: status=400, code=10, message=Application does not have permission",
             "Failed to refresh the Instagram connection",
             "Integration not found: 7",
+            # Meta's answer when the token cannot read the account node, which is what a wrong
+            # hand-entered account ID produces. Left unmapped, the job keeps the raw Graph API
+            # text and the schema retries a source only reconfiguration can fix.
+            f"{BAD_REQUEST_ERROR_PREFIX}: status=400, code=100, message=Unsupported get request",
         ],
     )
-    def test_auth_and_scope_failures_stop_the_source_instead_of_retrying(self, observed_error: str) -> None:
-        assert any(key in observed_error for key in self.source.get_non_retryable_errors())
+    def test_permanent_failures_stop_the_source_with_a_readable_message(self, observed_error: str) -> None:
+        friendly = [message for key, message in self.source.get_non_retryable_errors().items() if key in observed_error]
 
-    def test_a_throttling_error_is_left_retryable(self) -> None:
-        observed_error = "Instagram API error (retryable): status=429, code=4, message=rate limited"
+        assert friendly and friendly[0]
+
+    def test_a_throttling_error_stays_retryable_and_reports_a_message(self) -> None:
+        observed_error = f"{RETRYABLE_ERROR_PREFIX}: status=429, code=4, message=rate limited"
 
         assert not any(key in observed_error for key in self.source.get_non_retryable_errors())
+        # Unmatched here, the activity logs a self-recovering rate limit as an unexpected
+        # exception and the job keeps the raw Graph API text.
+        assert any(key in observed_error for key in self.source.get_retryable_errors())
+        assert any(key in observed_error for key in self.source.get_retry_exhausted_errors())
+
+    def test_spending_the_request_budget_reports_a_message_without_disabling_the_schema(self) -> None:
+        observed_error = f"{REQUEST_BUDGET_ERROR_PREFIX} of 25000 requests spent"
+
+        assert not any(key in observed_error for key in self.source.get_non_retryable_errors())
+        assert any(key in observed_error for key in self.source.get_retry_exhausted_errors())
 
     def test_validate_credentials_uses_the_connection_token_and_the_chosen_account(self) -> None:
         with (

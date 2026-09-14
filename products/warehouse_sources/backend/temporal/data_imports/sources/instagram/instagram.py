@@ -60,11 +60,15 @@ MAX_PAGES_PER_PARENT = 50
 # runaway fan-out; whatever it cuts short is picked up by the next sync.
 MAX_REQUESTS_PER_SYNC = 25_000
 
-# Substrings the source's `get_non_retryable_errors` matches on. Meta reports an expired
-# token as an HTTP 400 with `error.code` 190 as often as it does a 401, so the source
-# can't key its permanent failures off the status line alone.
+# Substrings the source's error maps match on. Meta reports an expired token as an HTTP 400
+# with `error.code` 190 as often as it does a 401, so the source can't key its permanent
+# failures off the status line alone. Every error class the client raises needs a prefix here:
+# a message no map matches leaves the job showing raw Graph API text.
 AUTH_ERROR_PREFIX = "Instagram API authentication failed"
 PERMISSION_ERROR_PREFIX = "Instagram API permission denied"
+BAD_REQUEST_ERROR_PREFIX = "Instagram API rejected the request"
+REQUEST_BUDGET_ERROR_PREFIX = "Instagram API request budget"
+RETRYABLE_ERROR_PREFIX = "Instagram API error (retryable)"
 
 # https://developers.facebook.com/docs/graph-api/guides/error-handling
 META_AUTH_ERROR_CODES = frozenset({102, 190, 458, 459, 460, 463, 464, 467})
@@ -251,7 +255,7 @@ class InstagramClient:
             # Backstop only: every loop that can fan out checks `has_request_budget` and
             # stops cleanly before it gets here, so reaching this is a caller bug and the
             # sync should fail loudly rather than keep drawing on the account's quota.
-            raise InstagramRequestBudgetError(f"Instagram API request budget of {self._max_requests} requests spent")
+            raise InstagramRequestBudgetError(f"{REQUEST_BUDGET_ERROR_PREFIX} of {self._max_requests} requests spent")
         # Counted per attempt, retries included: a retry costs the account's quota too.
         self._requests_made += 1
 
@@ -286,7 +290,7 @@ class InstagramClient:
             or code in META_THROTTLE_ERROR_CODES
             or code in META_TRANSIENT_ERROR_CODES
         ):
-            raise InstagramRetryableError(f"Instagram API error (retryable): {detail}")
+            raise InstagramRetryableError(f"{RETRYABLE_ERROR_PREFIX}: {detail}")
 
         if response.status_code == 401 or code in META_AUTH_ERROR_CODES:
             raise InstagramAuthError(f"{AUTH_ERROR_PREFIX}: {detail}")
@@ -294,8 +298,8 @@ class InstagramClient:
         if response.status_code == 403 or _is_permission_code(code):
             raise InstagramPermissionError(f"{PERMISSION_ERROR_PREFIX}: {detail}")
 
-        self._logger.error(f"Instagram API error: {detail}")
-        raise InstagramBadRequestError(f"Instagram API error: {detail}")
+        self._logger.error(f"{BAD_REQUEST_ERROR_PREFIX}: {detail}")
+        raise InstagramBadRequestError(f"{BAD_REQUEST_ERROR_PREFIX}: {detail}")
 
 
 def _iter_pages(
