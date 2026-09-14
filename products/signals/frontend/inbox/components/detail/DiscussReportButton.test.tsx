@@ -140,6 +140,27 @@ describe('DiscussReportButton', () => {
         expect(discussReport).not.toHaveBeenCalled()
     })
 
+    it('sends a slash command as plain text instead of starting a hidden conversation', async () => {
+        // The autocomplete activates a command straight against the Max thread logic, never through
+        // the composer's send — in this panel that would start a conversation with nowhere to render.
+        const user = await openPanel(makeReport())
+
+        await user.type(screen.getByTestId('max-chat-input'), '/usage')
+        await user.keyboard('{Enter}')
+
+        expect(discussReport).toHaveBeenCalledWith(
+            expect.objectContaining({ id: 'report-1' }),
+            'https://app/report-1',
+            '/usage'
+        )
+    })
+
+    it('does not offer slash commands it cannot run', async () => {
+        await openPanel(makeReport())
+
+        expect(screen.queryByText(/for commands/)).not.toBeInTheDocument()
+    })
+
     it('blocks a question longer than the task API accepts', async () => {
         // The question field is capped server-side, so sending an over-long one only ever comes back
         // as a bare 400 with no task started.

@@ -287,6 +287,10 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
     const showFillInHint = !!fillInHint
     const isQueueingSubmission = queueingEnabled && threadLoading && hasQuestion
     const showStopButton = threadLoading && !isQueueingSubmission && !cancelLoading
+    // A submission-driven composer sends to its own endpoint rather than to this thread. The
+    // autocomplete activates a command straight against `maxThreadLogic`, never through `submit`,
+    // so it would start a Max conversation the surface has nowhere to render.
+    const slashCommandsEnabled = !submission
 
     // Mirrors maxThreadLogic's `submissionDisabledReason` selector, but using the local input
     // value so the submit guard stays correct while the debounced sync to kea is still pending.
@@ -310,12 +314,12 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
         if (!isSlashCommand && autocompleteDismissed) {
             setAutocompleteDismissed(false)
         }
-        const shouldShow = isSlashCommand && !autocompleteDismissed
+        const shouldShow = isSlashCommand && !autocompleteDismissed && slashCommandsEnabled
         if (shouldShow && !showAutocomplete) {
             posthog.capture('Max slash command autocomplete shown')
         }
         setShowAutocomplete(shouldShow)
-    }, [inputValue, showAutocomplete, autocompleteDismissed])
+    }, [inputValue, showAutocomplete, autocompleteDismissed, slashCommandsEnabled])
 
     let disabledReason = submissionDisabledReason
     if (threadLoading && !isQueueingSubmission) {
@@ -414,21 +418,26 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                                             ) : threadLoading ? (
                                                 'Thinking…'
                                             ) : isThreadVisible ? (
-                                                placeholder || (
+                                                placeholder ||
+                                                (slashCommandsEnabled ? (
                                                     <>
                                                         Ask follow-up{' '}
                                                         <span className="text-tertiary opacity-80 contrast-more:opacity-100">
                                                             or / for commands
                                                         </span>
                                                     </>
-                                                )
-                                            ) : (
+                                                ) : (
+                                                    'Ask follow-up'
+                                                ))
+                                            ) : slashCommandsEnabled ? (
                                                 <>
                                                     Ask a question{' '}
                                                     <span className="text-tertiary opacity-80 contrast-more:opacity-100">
                                                         or / for commands
                                                     </span>
                                                 </>
+                                            ) : (
+                                                'Ask a question'
                                             )}
                                         </div>
                                     )}
@@ -624,8 +633,10 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                                         showStopButton ? (
                                             <IconStopFilled />
                                         ) : (
-                                            MAX_SLASH_COMMANDS.find((cmd) => cmd.name === inputValue.split(' ', 1)[0])
-                                                ?.icon || <IconArrowRight />
+                                            (slashCommandsEnabled &&
+                                                MAX_SLASH_COMMANDS.find(
+                                                    (cmd) => cmd.name === inputValue.split(' ', 1)[0]
+                                                )?.icon) || <IconArrowRight />
                                         )
                                     }
                                 />
