@@ -9,6 +9,7 @@ from unittest.mock import patch
 
 from django.conf import settings as django_settings
 
+import dagster
 from clickhouse_driver import Client
 from dagster import build_op_context
 
@@ -16,6 +17,8 @@ from posthog.clickhouse.cluster import ClickhouseCluster, LightweightDeleteMutat
 from posthog.dags.common.staged_dictionary import create_on_every_cluster
 from posthog.dags.deletes import (
     _DELETE_PREDICATE,
+    _SURVIVOR_COUNT_ATTEMPTS,
+    DELETES_RUN_CONFIG,
     AdhocEventDeletesDictionary,
     AdhocEventDeletesTable,
     DeleteConfig,
@@ -23,13 +26,19 @@ from posthog.dags.deletes import (
     PendingDeletesDictionary,
     PendingDeletesTable,
     StagedDictionary,
+    _count_through,
     _count_unswept_rows,
     _delete_predicate_params,
     cleanup_old_events_by_partition,
     deletes_job,
+    ensure_no_concurrent_deletes_run,
     find_partitions_to_cleanup,
+    manual_deletes_job,
+    mark_deletions_verified,
     monthly_old_events_cleanup_job,
+    run_deletes_after_manual_trigger,
 )
+from posthog.dags.person_overrides import squash_person_overrides
 from posthog.dags.tests.conftest import insert_flag_evaluations
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.deletion_targets import EVENTS, TargetPlacement
@@ -989,3 +998,102 @@ def test_a_target_on_another_cluster_is_also_counted_on_its_storage_table(cluste
         cluster.any_host(dictionary.drop).result()
         cluster.any_host(adhoc.drop).result()
         cluster.any_host(table.drop).result()
+
+
+@pytest.mark.parametrize(
+    "unswept",
+    [
+        {"events": 3},
+        # None is a count that completed no attempt. Marking on it is the mistake this gate
+        # exists to stop: unknown is not zero.
+        {"events": None},
+    ],
+)
+def test_marking_is_refused_when_a_count_survives_or_cannot_complete(unswept: dict):
+    with patch("posthog.dags.deletes._count_unswept_rows", return_value=unswept):
+        with pytest.raises(dagster.Failure) as excinfo:
+            mark_deletions_verified(
+                build_op_context(),
+                DeleteConfig(),
+                cast(ClickhouseCluster, None),
+                PendingDeletesDictionary(source=PendingDeletesTable(timestamp=datetime(2026, 9, 1))),
+                AdhocEventDeletesDictionary(source=AdhocEventDeletesTable()),
+            )
+    assert "events" in str(excinfo.value)
+
+
+@pytest.mark.parametrize(
+    "failing_attempts,expected",
+    [
+        (1, 5),
+        (_SURVIVOR_COUNT_ATTEMPTS, None),
+    ],
+)
+def test_the_survivor_count_retries_before_reporting_unknown(failing_attempts: int, expected: int | None):
+    calls = {"count": 0}
+
+    def runner(query) -> list:
+        calls["count"] += 1
+        if calls["count"] <= failing_attempts:
+            raise TimeoutError("count exceeded max_execution_time")
+        return [[[5]]]
+
+    assert _count_through(build_op_context(), runner, "events", {}, 300) == expected
+
+
+def test_a_second_deletes_run_refuses_to_start_while_one_is_executing():
+    assert "ensure_no_concurrent_deletes_run" in deletes_job.graph.node_names()
+
+    @dagster.job(name=deletes_job.name)
+    def guard_only_job():
+        ensure_no_concurrent_deletes_run()
+
+    instance = dagster.DagsterInstance.ephemeral()
+    assert guard_only_job.execute_in_process(instance=instance).success, "a lone run must pass its own guard"
+
+    instance.create_run_for_job(job_def=deletes_job, status=dagster.DagsterRunStatus.STARTED)
+    result = guard_only_job.execute_in_process(instance=instance, raise_on_error=False)
+    assert not result.success
+
+
+@pytest.mark.parametrize(
+    "blocking_job,status",
+    [
+        (deletes_job, dagster.DagsterRunStatus.STARTED),
+        # A run that has not started yet blocks here even though the in-job guard ignores it: it
+        # is a collision about to happen, and the manual trigger has launched nothing yet.
+        (squash_person_overrides, dagster.DagsterRunStatus.NOT_STARTED),
+    ],
+)
+def test_the_manual_trigger_refuses_while_the_weekly_chain_is_active(
+    blocking_job: dagster.JobDefinition, status: dagster.DagsterRunStatus
+):
+    instance = dagster.DagsterInstance.ephemeral()
+    assert manual_deletes_job.execute_in_process(instance=instance).success
+
+    instance.create_run_for_job(job_def=blocking_job, status=status)
+    result = manual_deletes_job.execute_in_process(instance=instance, raise_on_error=False)
+    assert not result.success
+
+
+def test_the_manual_trigger_sensor_launches_a_real_deletes_run():
+    # A stopped sensor would let manual_deletes_job succeed while launching nothing, and a lost
+    # run config would hand manual runs the default retry budget the weekly runs outgrew.
+    sensor = run_deletes_after_manual_trigger
+    assert sensor.default_status == dagster.DefaultSensorStatus.RUNNING
+
+    manual_run = dagster.DagsterRun(job_name="manual_deletes_job", run_id="22222222-2222-2222-2222-222222222222")
+    request = sensor(
+        dagster.build_run_status_sensor_context(
+            sensor_name="run_deletes_after_manual_trigger",
+            dagster_event=dagster.DagsterEvent(
+                event_type_value=dagster.DagsterEventType.RUN_SUCCESS.value, job_name="manual_deletes_job"
+            ),
+            dagster_instance=dagster.DagsterInstance.ephemeral(),
+            dagster_run=manual_run,
+        )
+    )
+    assert isinstance(request, dagster.RunRequest)
+    assert request.run_config == DELETES_RUN_CONFIG
+    # One deletes_job per manual success: re-evaluating the same event must not launch another.
+    assert request.run_key == "22222222-2222-2222-2222-222222222222"

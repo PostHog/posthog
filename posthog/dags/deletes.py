@@ -80,10 +80,10 @@ class DeleteConfig(dagster.Config):
         "raising any failure alert.",
     )
     verification_max_execution_time: int = pydantic.Field(
-        default=300,
-        description="Seconds to spend counting rows the sweep should have removed but did not. Proving none "
-        "survive is a full scan, so the count is bounded and a count that runs out of time is reported as "
-        "unknown rather than as zero.",
+        default=1800,
+        description="Seconds each attempt may spend counting rows the sweep should have removed but did not. "
+        "Proving none survive is a full scan, so each count is bounded; a count that completes no attempt "
+        "blocks the marking instead of passing as clean.",
     )
 
     @property
@@ -325,7 +325,39 @@ class AdhocEventDeletesDictionary(Dictionary):
         )
 
 
-@dagster.op
+# Statuses under which a run's mutations may still land on the cluster: STARTING and STARTED are
+# executing, and a CANCELING run's last mutation keeps applying server-side. QUEUED and
+# NOT_STARTED are left out on purpose. A queued run has done nothing yet, and its own guard will
+# see this run once it starts, so the run that started first is the one that survives.
+_EXECUTING_RUN_STATUSES = [
+    dagster.DagsterRunStatus.STARTING,
+    dagster.DagsterRunStatus.STARTED,
+    dagster.DagsterRunStatus.CANCELING,
+]
+
+
+@dagster.op(out=dagster.Out(dagster.Nothing))
+def ensure_no_concurrent_deletes_run(context: dagster.OpExecutionContext) -> None:
+    """Fail this run when another run of the same job is already executing.
+
+    Concurrent runs share their dictionary names, so each run's delete mutations read whichever
+    contents the other run loaded last, and mark_deletions_verified then claims deletions the
+    sweep may not have performed. Failing the later starter before it touches anything is the
+    safe direction: the earlier run finishes undisturbed, and the failed run's requests stay
+    pending for the next one.
+    """
+    records = context.instance.get_run_records(
+        dagster.RunsFilter(job_name=context.job_name, statuses=_EXECUTING_RUN_STATUSES)
+    )
+    others = [record.dagster_run.run_id for record in records if record.dagster_run.run_id != context.run_id]
+    if others:
+        raise dagster.Failure(
+            description=f"Another {context.job_name} run is already executing: {', '.join(others)}. "
+            "Wait for it to finish or cancel it, then start a new run through manual_deletes_job."
+        )
+
+
+@dagster.op(ins={"start_after": dagster.In(dagster.Nothing)})
 def get_oldest_person_override_timestamp(
     cluster: dagster.ResourceParam[ClickhouseCluster],
 ) -> datetime:
@@ -730,6 +762,9 @@ def _rows_per_shard(cluster: ClickhouseCluster, query: Query) -> list:
     return list(cluster.map_one_host_per_shard(query).result().values())
 
 
+_SURVIVOR_COUNT_ATTEMPTS = 3
+
+
 def _count_through(
     context: dagster.OpExecutionContext,
     runner: Callable[[Query], list],
@@ -737,21 +772,27 @@ def _count_through(
     params: dict[str, str | int],
     max_execution_time: int,
 ) -> int | None:
-    """Survivors on ``table``, or None when the count could not be taken.
+    """Survivors on ``table``, or None when no attempt could complete.
 
     None is deliberately not zero: a count that errored or ran out of time says nothing about
-    whether rows remain, and reporting it as clean is the mistake worth avoiding here.
+    whether rows remain, and mark_deletions_verified refuses to mark on it. Each attempt gets the
+    full time budget, and the runner picks a host per call, so a retry also routes around a single
+    slow or sick host.
     """
     query = Query(
         surviving_rows_sql(table, _DELETE_PREDICATE),
         params,
         settings={"max_execution_time": str(max_execution_time)},
     )
-    try:
-        return sum(int(rows[0][0]) if rows else 0 for rows in runner(query))
-    except Exception as e:
-        context.log.warning(f"Could not count what survived the sweep in {table}: {e}")
-        return None
+    for attempt in range(1, _SURVIVOR_COUNT_ATTEMPTS + 1):
+        try:
+            return sum(int(rows[0][0]) if rows else 0 for rows in runner(query))
+        except Exception as e:
+            context.log.warning(
+                f"Could not count what survived the sweep in {table} "
+                f"(attempt {attempt}/{_SURVIVOR_COUNT_ATTEMPTS}): {e}"
+            )
+    return None
 
 
 def _count_unswept_rows(
@@ -818,13 +859,23 @@ def mark_deletions_verified(
 
     # A request marked verified is a claim the rows are gone, and nothing revisits it: the adhoc
     # tombstone this op writes also keeps those uuids out of every later run. So a count that came
-    # back non-zero has to stop the marking rather than annotate it. Leaving the requests pending
-    # costs a repeated sweep next run, which is the recoverable direction.
-    remaining = {table: count for table, count in unswept.items() if count}
-    if remaining:
+    # back non-zero has to stop the marking rather than annotate it, and a count that could not be
+    # taken has to stop it too, because unknown is not zero. Leaving the requests pending costs a
+    # repeated sweep next run, which is the recoverable direction.
+    survivors = {table: count for table, count in unswept.items() if count}
+    uncounted = sorted(table for table, count in unswept.items() if count is None)
+    if survivors or uncounted:
+        problems = []
+        if survivors:
+            problems.append(
+                "rows the sweep should have removed are still readable: "
+                + ", ".join(f"{table}={count}" for table, count in survivors.items())
+            )
+        if uncounted:
+            problems.append("no survivor count attempt completed on: " + ", ".join(uncounted))
         raise dagster.Failure(
-            description="The sweep finished and rows it should have removed are still readable: "
-            + ", ".join(f"{table}={count}" for table, count in remaining.items())
+            description="The sweep finished but "
+            + "; ".join(problems)
             + f". Leaving these requests pending for the next run. See {COVERAGE_DOC}."
         )
 
@@ -881,7 +932,7 @@ def cleanup_delete_assets(
 def deletes_job():
     """Job that handles deletion of events."""
     # Prepare requested deletions data
-    oldest_override_timestamp = get_oldest_person_override_timestamp()
+    oldest_override_timestamp = get_oldest_person_override_timestamp(start_after=ensure_no_concurrent_deletes_run())
     deletions_table = load_pending_deletions(create_pending_deletions_table(oldest_override_timestamp))
     pending_deletes_dictionary = load_and_verify_deletes_dictionary(create_deletes_dict(deletions_table))
     adhoc_event_deletes_dictionary = load_and_verify_adhoc_event_deletes_dictionary(create_adhoc_event_deletes_dict())
@@ -910,18 +961,84 @@ def deletes_job():
     cleanup_delete_assets(verified_deletion_resources)
 
 
+# What every sensor-launched deletes_job run carries. retry_max_attempts is raised because
+# mutation waits can span hours, so a run sees more transient per-host failures than the default
+# allows. manual_deletes_job exists so hand-started runs go through this config too.
+DELETES_RUN_CONFIG = {"resources": {"cluster": {"config": {"retry_max_attempts": 20}}}}
+
+
 @dagster.run_status_sensor(
     run_status=dagster.DagsterRunStatus.SUCCESS,
     monitored_jobs=[squash_person_overrides],
     request_job=deletes_job,
 )
 def run_deletes_after_squash(context):
-    # mutation waits can span hours, so allow more transient failures per host before failing the
-    # weekly deletes run
     return dagster.RunRequest(
         run_key=None,
-        run_config={"resources": {"cluster": {"config": {"retry_max_attempts": 20}}}},
+        run_config=DELETES_RUN_CONFIG,
     )
+
+
+# Everything that means a deletes_job or squash run is active or imminent. Unlike the in-job
+# guard, QUEUED and NOT_STARTED count too: the question here is whether launching another run
+# would collide, not which of two started runs came first.
+_ACTIVE_RUN_STATUSES = [
+    dagster.DagsterRunStatus.QUEUED,
+    dagster.DagsterRunStatus.NOT_STARTED,
+    *_EXECUTING_RUN_STATUSES,
+]
+
+
+@dagster.op
+def ensure_deletes_job_can_start(context: dagster.OpExecutionContext) -> None:
+    """Fail when launching deletes_job now would collide with an active or imminent run.
+
+    A concurrent deletes_job run is the collision the in-job guard exists for; failing here
+    reports it before a run is even launched. A squash run means the weekly chain is already in
+    motion and will launch deletes_job itself on success, so starting one by hand now would race
+    it. Another manual trigger means someone else already asked for a run.
+    """
+    blockers: list[str] = []
+    for job_name in (deletes_job.name, squash_person_overrides.name, context.job_name):
+        records = context.instance.get_run_records(dagster.RunsFilter(job_name=job_name, statuses=_ACTIVE_RUN_STATUSES))
+        blockers.extend(
+            f"{job_name} run {record.dagster_run.run_id}"
+            for record in records
+            if record.dagster_run.run_id != context.run_id
+        )
+    if blockers:
+        raise dagster.Failure(
+            description="deletes_job cannot start while these runs are active: "
+            + "; ".join(blockers)
+            + ". Wait for them to finish, then run manual_deletes_job again."
+        )
+
+
+@dagster.job(tags={"owner": JobOwners.TEAM_CLICKHOUSE.value})
+def manual_deletes_job():
+    """Start a deletes_job run the way the weekly chain does.
+
+    Launch this instead of deletes_job itself. It checks that no deletes_job or squash run is in
+    flight, and its success makes run_deletes_after_manual_trigger request a real deletes_job run
+    with DELETES_RUN_CONFIG. Launching deletes_job directly skips both: the launchpad defaults
+    carry none of that config, and nothing checks the weekly chain before the in-job guard fails
+    the run mid-flight.
+    """
+    ensure_deletes_job_can_start()
+
+
+@dagster.run_status_sensor(
+    run_status=dagster.DagsterRunStatus.SUCCESS,
+    monitored_jobs=[manual_deletes_job],
+    request_job=deletes_job,
+    # Enabled on registration: a stopped sensor would let manual_deletes_job succeed while
+    # launching nothing, which reads as a started run that never appears.
+    default_status=dagster.DefaultSensorStatus.RUNNING,
+    minimum_interval_seconds=60,
+)
+def run_deletes_after_manual_trigger(context: dagster.RunStatusSensorContext) -> dagster.RunRequest:
+    # The run_key makes each manual_deletes_job success launch at most one deletes_job run.
+    return dagster.RunRequest(run_key=context.dagster_run.run_id, run_config=DELETES_RUN_CONFIG)
 
 
 @dagster.op
