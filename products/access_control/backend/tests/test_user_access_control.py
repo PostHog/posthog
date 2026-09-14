@@ -89,6 +89,14 @@ class TestUserAccessControl(BaseUserAccessControlTest):
         assert user_access_control._organization is None
         assert user_access_control._user_role_ids == []
 
+    def test_pending_deletion_does_not_change_access_control(self):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        self.organization.is_pending_deletion = True
+        self.organization.save()
+
+        assert self.user_access_control.check_access_level_for_object(self.team, "admin") is True
+
     def test_organization_with_no_project_or_team(self):
         organization = Organization.objects.create(name="No project or team")
         user = User.objects.create_and_join(organization, "no-project-or-team@posthog.com", "testtest")

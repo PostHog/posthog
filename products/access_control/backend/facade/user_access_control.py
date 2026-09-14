@@ -587,7 +587,7 @@ class UserAccessControl:
             self._organization
             and (
                 (self._allow_deactivated_organization and self._organization.is_active is False)
-                or (self._organization.is_active is not False and not self._organization.is_pending_deletion)
+                or self._organization.is_active is not False
             )
         )
 
