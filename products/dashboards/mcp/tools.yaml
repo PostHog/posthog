@@ -290,8 +290,10 @@ tools:
         description: >
             Run all insights on a dashboard and return their results. Uses cached results by default (may be stale); set
             refresh to 'blocking' for fresh results. Set format to 'optimized' (default) for LLM-friendly text tables or
-            'json' for raw query results. Supports variables_override and filters_override query params to run insights
-            with one-off overrides without persisting; see the parameter descriptions for the exact JSON shape required.
+            'json' for raw query results. Read each tile's `result_status` before you report a finding: a null `result`
+            is not the same as no data, and a `cache_miss` means you should re-run with refresh 'blocking' rather than
+            report no data. Supports variables_override and filters_override query params to run insights with one-off
+            overrides without persisting; see the parameter descriptions for the exact JSON shape required.
         param_overrides:
             id:
                 cast: string-int

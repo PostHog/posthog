@@ -72,7 +72,7 @@ class TestDashboardRunInsights(APIBaseTest):
             insight = tile["insight"]
             self.assertEqual(
                 set(insight.keys()),
-                {"id", "short_id", "name", "derived_name", "result"},
+                {"id", "short_id", "name", "derived_name", "result", "result_status", "last_refresh", "is_cached"},
             )
 
     def test_json_format_returns_raw_query_results(self) -> None:
@@ -81,11 +81,24 @@ class TestDashboardRunInsights(APIBaseTest):
 
         body = self._run(dashboard_id, output_format="json", refresh="blocking")
 
-        result = body["results"][0]["insight"]["result"]
+        tile = body["results"][0]
+        result = tile["insight"]["result"]
         self.assertIsInstance(result, list)
         self.assertGreaterEqual(len(result), 1)
         self.assertIn("data", result[0])
         self.assertIn("labels", result[0])
+        self.assertEqual(tile["insight"]["result_status"], "ok")
+        self.assertIsNotNone(tile["last_refresh"])
+
+    def test_uncached_tile_reports_a_cache_miss(self) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dash"})
+        self.dashboard_api.create_insight({"name": "A", "query": _trends_query_dict(), "dashboards": [dashboard_id]})
+
+        tile = self._run(dashboard_id, output_format="json", refresh="force_cache")["results"][0]
+
+        self.assertIsNone(tile["insight"]["result"])
+        self.assertEqual(tile["insight"]["result_status"], "cache_miss")
+        self.assertIsNone(tile["last_refresh"])
 
     def test_optimized_format_returns_formatted_string(self) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dash"})

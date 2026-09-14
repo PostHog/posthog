@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from datetime import datetime
+from enum import StrEnum
 from typing import Any, Optional
 
 from posthog.schema import QueryTiming
@@ -33,3 +34,27 @@ class NothingInCacheResult(InsightResult):
     timezone: Optional[str] = None
     next_allowed_client_refresh: Optional[datetime] = None
     columns: Optional[list] = None
+
+
+class InsightResultStatus(StrEnum):
+    """Why an insight result holds what it holds. `result` alone cannot say this: a null result
+    reads the same whether the query returned no rows, nothing was cached, or the query failed."""
+
+    OK = "ok"
+    CACHE_MISS = "cache_miss"
+    QUERY_PENDING = "query_pending"
+    ERROR = "error"
+
+
+def insight_result_status(result: InsightResult) -> InsightResultStatus:
+    query_status = result.query_status or {}
+    if query_status.get("error"):
+        return InsightResultStatus.ERROR
+    if result.result is None and query_status and not query_status.get("complete"):
+        # `refresh=force_async` skips the cache and returns no result, so it is not a cache miss
+        # and the pending status has to be read first. A result that is present stays `ok`,
+        # because a stale cached answer is still an answer while a recalculation runs behind it.
+        return InsightResultStatus.QUERY_PENDING
+    if not isinstance(result, NothingInCacheResult):
+        return InsightResultStatus.OK
+    return InsightResultStatus.CACHE_MISS
