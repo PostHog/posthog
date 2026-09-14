@@ -62,6 +62,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.github.git
     validate_credentials as validate_github_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.github.naming import (
+    normalize_repository,
     qualified_schema_name,
     resolve_schema_repo_endpoint,
     schema_metadata_for,
@@ -428,7 +429,7 @@ If automatic creation failed with a permissions error, the fix depends on how yo
         storage_owners: dict[str, str] = {}
         repositories: list[str] = []
         for repo in raw:
-            normalized = repo.strip().lower()
+            normalized = normalize_repository(repo).lower()
             if not normalized or normalized in seen:
                 continue
             storage_key = NamingConvention.normalize_identifier(normalized)
@@ -453,7 +454,7 @@ If automatic creation failed with a permissions error, the fix depends on how yo
     def is_legacy_bare_repo(config: GithubSourceConfig, repository: str) -> bool:
         """True when `repository` is the pre-multi-repo repo whose schemas keep bare, unqualified
         names (`issues`, not `owner/repo.issues`)."""
-        return bool(config.repository) and repository == (config.repository or "").strip().lower()
+        return bool(config.repository) and repository == normalize_repository(config.repository or "").lower()
 
     def _get_access_token(self, config: GithubSourceConfig, team_id: int) -> str:
         if config.auth_method.selection == "pat":
@@ -599,7 +600,7 @@ If automatic creation failed with a permissions error, the fix depends on how yo
                 continue
             if endpoint not in ORG_SCOPED_ENDPOINTS:
                 continue
-            org_endpoints[name] = (repository or config.repository or "").strip().lower()
+            org_endpoints[name] = normalize_repository(repository or config.repository or "").lower()
         if not org_endpoints:
             return result
         try:
@@ -692,7 +693,7 @@ If automatic creation failed with a permissions error, the fix depends on how yo
         # Pin the legacy repository (the one whose rows keep bare event keys) so the template's
         # bare-key fallback only fires for its events. Empty when there's no legacy repo (pure
         # multi-repo sources have no bare keys, so nothing to bind).
-        return {"legacy_repository": (config.repository or "").strip().lower()}
+        return {"legacy_repository": normalize_repository(config.repository or "").lower()}
 
     def get_desired_webhook_events(
         self, config: GithubSourceConfig, eligible_schema_names: list[str]
