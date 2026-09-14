@@ -105,6 +105,15 @@ pub struct Config {
     #[envconfig(from = "EVENTDEF_LAST_SEEN_FLOOR_SECS", default = "3600")]
     pub eventdef_last_seen_floor_secs: i64,
 
+    // How far an event definition's stored last_seen_at must lag before a repeat sighting is
+    // allowed to rewrite the row. Flooring bounds re-issues per pod, so every other pod that
+    // sees the same event in the same period still writes a new row version that carries no
+    // new information. This margin drops those writes, at the cost of a last_seen_at that
+    // lags by up to floor + margin. Must be in 0..=EVENTDEF_LAST_SEEN_FLOOR_SECS, which keeps
+    // that lag under two floor periods; see the floor comment above for who reads the value.
+    #[envconfig(from = "EVENTDEF_LAST_SEEN_WRITE_MARGIN_SECS", default = "900")]
+    pub eventdef_last_seen_write_margin_secs: i64,
+
     // Skip group-type resolution, which is the only read this service performs. Writes are
     // unaffected: process_batch runs regardless of this setting.
     #[envconfig(default = "true")]

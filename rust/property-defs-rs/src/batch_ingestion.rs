@@ -415,6 +415,7 @@ pub async fn process_batch(
     handle: &lifecycle::Handle,
 ) {
     let read_budget = std::time::Duration::from_millis(config.read_before_write_timeout_ms);
+    let write_margin_secs = config.eventdef_last_seen_write_margin_secs;
     // prep reshaped, isolated data batch bufffers and async join handles
     let mut event_defs = EventDefinitionsBatch::new(config.write_batch_size);
     let mut event_props = EventPropertiesBatch::new(config.write_batch_size);
@@ -433,7 +434,8 @@ pub async fn process_batch(
                     let outbound = event_defs;
                     event_defs = EventDefinitionsBatch::new(config.write_batch_size);
                     handles.push(tokio::spawn(async move {
-                        write_event_definitions_batch(cache, outbound, &pool).await
+                        write_event_definitions_batch(cache, outbound, &pool, write_margin_secs)
+                            .await
                     }));
                 }
             }
@@ -494,7 +496,7 @@ pub async fn process_batch(
         let pool = pool.clone();
         let cache = cache.clone();
         handles.push(tokio::spawn(async move {
-            write_event_definitions_batch(cache, event_defs, &pool).await
+            write_event_definitions_batch(cache, event_defs, &pool, write_margin_secs).await
         }));
     }
     if !prop_defs.is_empty() {
@@ -843,6 +845,7 @@ async fn write_event_definitions_batch(
     cache: Arc<Cache>,
     mut batch: EventDefinitionsBatch,
     pool: &PgPool,
+    write_margin_secs: i64,
 ) -> Result<(), sqlx::Error> {
     let total_time = common_metrics::timing_guard(V2_EVENT_DEFS_BATCH_WRITE_TIME, &[]);
     let mut tries: u64 = 1;
@@ -858,6 +861,12 @@ async fn write_event_definitions_batch(
         for _ in 0..batch.len() {
             per_attempt_last_seen_ats.push(per_attempt_ts);
         }
+        // Flooring bounds re-issues per pod, so a known event still reaches this statement once
+        // per period from every pod that sees it. Each of those attempts is newer than the
+        // stored last_seen_at, and refreshing on it writes a new row version, plus its index
+        // maintenance, for no new information. Only rows that lag this threshold are refreshed.
+        let refresh_rows_last_seen_before =
+            per_attempt_ts - chrono::Duration::seconds(write_margin_secs);
 
         // TODO: see if we can eliminate last_seen_at from being exposed in the UI,
         // then convert this stmt to ON CONFLICT DO NOTHING
@@ -884,13 +893,14 @@ async fn write_event_definitions_batch(
                 ON CONFLICT (coalesce(project_id, team_id::bigint), name) DO UPDATE
                     SET last_seen_at=EXCLUDED.last_seen_at,
                         created_at=COALESCE(posthog_eventdefinition.created_at, EXCLUDED.created_at)
-                    WHERE posthog_eventdefinition.last_seen_at IS NULL OR posthog_eventdefinition.last_seen_at < EXCLUDED.last_seen_at"#,
+                    WHERE posthog_eventdefinition.last_seen_at IS NULL OR posthog_eventdefinition.last_seen_at < $6"#,
         )
         .bind(&batch.ids)
         .bind(&batch.names)
         .bind(&batch.team_ids)
         .bind(&batch.project_ids)
         .bind(per_attempt_last_seen_ats)
+        .bind(refresh_rows_last_seen_before)
         .execute(pool)
         .await;
 
