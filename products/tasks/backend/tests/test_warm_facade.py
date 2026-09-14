@@ -19,6 +19,7 @@ from posthog.models import Integration, User
 from products.tasks.backend.facade import (
     access as tasks_access,
     api as facade,
+    cancellation as cancellation_facade,
     contracts,
 )
 from products.tasks.backend.logic.services.staged_artifacts import (
@@ -634,6 +635,14 @@ class TestCreateTaskWarmReuse(APIBaseTest):
 
         assert Task.objects.filter(team=self.team, deleted=False).count() == 2
 
+    def test_creates_a_cold_task_when_warm_release_is_still_pending(self) -> None:
+        warm_task, _ = self._warm_run(extra_state={"cancel_requested_at": "2026-01-01T00:00:00Z"})
+        with patch(f"{FACADE}.signal_task_run_user_message") as signal:
+            created = self._create()
+
+        assert str(created.id) != str(warm_task.id)
+        signal.assert_not_called()
+
     def test_reuses_matching_warm_task_and_activates_it_in_place(self) -> None:
         warm_task, run = self._warm_run()
         handle = MagicMock(signal=AsyncMock())
@@ -816,6 +825,12 @@ class TestCreateTaskWarmReuse(APIBaseTest):
         run.refresh_from_db()
         assert run.state["await_user_message"] is True
         assert not run.state.get("warm_activated")
+        with patch("products.tasks.backend.facade.cancellation._interrupt_agent_turn") as interrupt:
+            cancel_outcome, _ = cancellation_facade.cancel_task_run(
+                run.id, run.task_id, self.team.id, only_if_awaiting_first_message=True
+            )
+        assert cancel_outcome == "already_activated"
+        interrupt.assert_not_called()
 
     def test_reuses_warm_task_with_new_reasoning_effort_and_attachments(self):
         warm_task, run = self._warm_run(
@@ -1188,6 +1203,65 @@ class TestWarmRunRelease(APIBaseTest):
 
         assert response.status_code == expected_status, response.content
         assert m_signal.called is expect_signal
+
+    def test_release_during_first_message_delivery_does_not_cancel_the_run(self) -> None:
+        run = self._run(awaiting=True)
+
+        def release_during_delivery(*args: object, **kwargs: object) -> bool:
+            outcome, _ = cancellation_facade.cancel_task_run(
+                run.id, self.task.id, self.team.id, only_if_awaiting_first_message=True
+            )
+            assert outcome == "already_activated"
+            return True
+
+        with (
+            patch(f"{FACADE}.signal_task_run_user_message", side_effect=release_during_delivery),
+            patch("products.tasks.backend.facade.cancellation._interrupt_agent_turn") as interrupt,
+            patch("products.tasks.backend.facade.cancellation._signal_complete_task") as cancel_signal,
+        ):
+            facade._deliver_warm_run_message(run, message="Continue the example task", artifact_ids=[])
+
+        interrupt.assert_not_called()
+        cancel_signal.assert_not_called()
+        run.refresh_from_db()
+        assert run.state["warm_activated"] is True
+        assert "cancel_requested_at" not in run.state
+
+    def test_release_claim_prevents_activation_before_cancellation_finishes(self) -> None:
+        run = self._run(awaiting=True)
+
+        def activate_during_cancellation(*args: object, **kwargs: object) -> None:
+            with self.assertRaises(facade.WarmRunActivationUnavailable) as caught:
+                facade._deliver_warm_run_message(run, message="Continue the example task", artifact_ids=[])
+            assert caught.exception.reason == "target_unavailable"
+
+        with (
+            patch(
+                "products.tasks.backend.facade.cancellation._interrupt_agent_turn",
+                side_effect=activate_during_cancellation,
+            ),
+            patch("products.tasks.backend.facade.cancellation._signal_complete_task", return_value="signaled"),
+            patch(f"{FACADE}.signal_task_run_user_message") as deliver,
+        ):
+            response = self._release(run)
+
+        assert response.status_code == status.HTTP_202_ACCEPTED, response.content
+        deliver.assert_not_called()
+
+    def test_release_does_not_cancel_if_its_claim_cannot_be_saved(self) -> None:
+        run = self._run(awaiting=True)
+        with (
+            patch.object(TaskRun, "save", side_effect=RuntimeError("Cannot persist the claim")),
+            patch("products.tasks.backend.facade.cancellation._interrupt_agent_turn") as interrupt,
+            patch("products.tasks.backend.facade.cancellation._signal_complete_task") as cancel_signal,
+        ):
+            outcome, _ = cancellation_facade.cancel_task_run(
+                run.id, self.task.id, self.team.id, only_if_awaiting_first_message=True
+            )
+
+        assert outcome == "unavailable"
+        interrupt.assert_not_called()
+        cancel_signal.assert_not_called()
 
 
 class TestWarmTaskResumeSandbox(APIBaseTest):

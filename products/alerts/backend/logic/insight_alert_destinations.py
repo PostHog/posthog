@@ -12,29 +12,12 @@ from typing import Any, Final
 
 from posthog.cdp.internal_events import LEGACY_INSIGHT_ALERT_EVENT
 
-from products.alerts.backend.destination_configs import (
+from products.alerts.backend.facade.contracts import AlertDestinationConfig, AlertDestinationData, DestinationType
+from products.alerts.backend.logic.destination_configs import (
     DESTINATION_SPECS,
-    AlertDestinationConfig,
-    AlertDestinationData,
-    DestinationType,
     clip_hog_function_name,
     destination_filter,
 )
-
-# The event an insight alert check emits, named legacy where it is defined because it predates the
-# managed-alert event boundary. Do not take it from `posthog.tasks.alerts.utils` instead, because
-# that module imports this product's facade, which imports this one.
-INSIGHT_ALERT_EVENT_IDS: Final[tuple[str, ...]] = (LEGACY_INSIGHT_ALERT_EVENT,)
-
-# Slack only, because `alert:write` is grantable to a sandboxed agent. A connected workspace is a
-# destination an admin chose, while every other transport takes a URL the caller supplies.
-INSIGHT_ALERT_DESTINATION_TYPES: Final[tuple[DestinationType, ...]] = (DestinationType.SLACK,)
-
-# Each destination is another message every time the alert fires, so a caller in a loop is capped.
-MAX_DESTINATIONS_PER_ALERT: Final = 5
-
-# One destination is one HogFunction, so this only stops a malformed request becoming a huge query.
-MAX_DESTINATION_IDS_PER_DELETE_REQUEST: Final = 100
 
 SLACK_TEMPLATE_ID: Final = DESTINATION_SPECS[DestinationType.SLACK].template_id
 
@@ -119,11 +102,10 @@ def _slack_blocks() -> list[Any]:
 
 
 def build_insight_alert_slack_config(
-    *, team: Any, alert_id: str, alert_name: str | None, data: AlertDestinationData
+    *, alert_id: str, alert_name: str | None, data: AlertDestinationData
 ) -> AlertDestinationConfig:
     channel_name = data.get("slack_channel_name") or "channel"
     return AlertDestinationConfig(
-        team=team,
         payload={
             "type": "internal_destination",
             "enabled": True,
