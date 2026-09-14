@@ -1,5 +1,3 @@
-import { parseJSON } from '~/common/utils/json-parse'
-
 /**
  * Attribute values arrive JSON-encoded from capture (`any_value_to_json`): a string
  * attribute is stored as `"error"` (with quotes), a number as `123`. The ClickHouse
@@ -7,11 +5,16 @@ import { parseJSON } from '~/common/utils/json-parse'
  * the Logs UI. Every ingestion-time consumer of the attribute maps (transformations,
  * drop-rule matching, metric-rule tallying) must see the same decoded values —
  * otherwise `record.attributes['level'] == 'error'` silently never matches.
+ *
+ * Uses JSON.parse directly, not the instrumented parseJSON wrapper: this runs per
+ * attribute per record at 100k+ records/s, and the wrapper's two performance.now()
+ * calls plus a Prometheus Summary.observe per parse cost more than the parse itself.
  */
 export function decodeLogAttributeValue(value: string): string {
     if (value.length >= 2 && value.startsWith('"') && value.endsWith('"')) {
         try {
-            const parsed = parseJSON(value)
+            // oxlint-disable-next-line eslint-js/no-restricted-syntax
+            const parsed = JSON.parse(value)
             if (typeof parsed === 'string') {
                 return parsed
             }
@@ -30,7 +33,8 @@ export function decodeLogAttributeValue(value: string): string {
  */
 export function encodeLogAttributeValue(value: string): string {
     try {
-        parseJSON(value)
+        // oxlint-disable-next-line eslint-js/no-restricted-syntax
+        JSON.parse(value)
         return value
     } catch {
         return JSON.stringify(value)
