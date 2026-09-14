@@ -47,11 +47,12 @@ log() { printf '[tasks-bake] %s\n' "$*" >&2; }
 
 GIT_GUARD="$IMAGES_DIR/git-guard.sh"
 GH_GUARD="$IMAGES_DIR/gh-guard.sh"
+HOGLI_SHIM="$IMAGES_DIR/hogli-shim.sh"
 CPU_SAMPLER="$IMAGES_DIR/cpu_billing_sampler.py"
 SETUP_SCRIPT="$IMAGES_DIR/hogland/setup-golden.sh"
 INSTALL_SKILLS="$IMAGES_DIR/install-skills.sh"
 
-for f in "$GIT_GUARD" "$GH_GUARD" "$CPU_SAMPLER" "$SETUP_SCRIPT" "$INSTALL_SKILLS" "$SKILLS_TARBALL" "${SSH_KEY}.pub"; do
+for f in "$GIT_GUARD" "$GH_GUARD" "$HOGLI_SHIM" "$CPU_SAMPLER" "$SETUP_SCRIPT" "$INSTALL_SKILLS" "$SKILLS_TARBALL" "${SSH_KEY}.pub"; do
     test -f "$f" || { log "FAIL: required file missing: $f"; exit 1; }
 done
 
@@ -192,6 +193,7 @@ deliver() {
 # under /tmp for setup-golden.sh to consume.
 deliver "$GIT_GUARD"      /opt/posthog/bin/git                        0755
 deliver "$GH_GUARD"       /opt/posthog/bin/gh                         0755
+deliver "$HOGLI_SHIM"     /opt/posthog/bin/hogli                      0755
 deliver "$CPU_SAMPLER"    /usr/local/bin/posthog-cpu-billing-sampler  0755
 deliver "$SKILLS_TARBALL" /tmp/golden-skills.tar.gz                   0644
 deliver "$INSTALL_SKILLS" /tmp/install-skills.sh                      0755
