@@ -90,11 +90,12 @@ class TestEnrichmentCorePhases(BaseTest):
         domain,
         bridge_inputs,
         person,
+        phase: Optional[EnrichmentPhase] = None,
     ):
         ctx = EnrichmentContext(
             organization_id=str(self.organization.id),
             domain=domain,
-            phase=EnrichmentPhase.RECHECK if is_recheck else EnrichmentPhase.AT_SIGNUP,
+            phase=phase or (EnrichmentPhase.RECHECK if is_recheck else EnrichmentPhase.AT_SIGNUP),
             distinct_id=distinct_id,
             role_at_organization=role_at_organization,
             geoip_country_code=geoip_country_code,
@@ -424,3 +425,88 @@ class TestEnrichmentCorePhases(BaseTest):
         self.assertEqual(outcome.fit.status, "scored")
         self.assertEqual(outcome.fit.score, 100)
         self.assertEqual(outcome.enrichment_status, None)
+
+    def test_sweep_miss_archives_and_scores_like_a_recheck(self):
+        OrganizationEnrichment.objects.create(
+            organization=self.organization,
+            data={"work_email": True, "signup_role": "engineering", "icp_fit_status": "insufficient_data"},
+        )
+        OrganizationEnrichmentFetch.objects.create(
+            organization=self.organization,
+            provider="harmonic",
+            is_recheck=False,
+            payload={**_company(), "enrichmentUrn": "urn:harmonic:1"},
+        )
+        pha_client = MagicMock()
+        provider = _FakeProvider(ProviderLookup(fields=None, raw_payload=None, enrichment_urn=None), status="COMPLETE")
+
+        outcome = self._run(
+            provider=provider,
+            pha_client=pha_client,
+            is_recheck=True,
+            phase=EnrichmentPhase.SWEEP,
+            role_at_organization="engineering",
+            geoip_country_code=None,
+            distinct_id="d3",
+            domain="acme.com",
+            bridge_inputs=OrganizationBridgeInputs(),
+            person=None,
+        )
+
+        record = OrganizationEnrichment.objects.get(organization=self.organization)
+        self.assertEqual(
+            record.data,
+            {
+                "work_email": True,
+                "signup_role": "engineering",
+                "icp_fit_status": "scored",
+                "icp_fit_version": "v0.6",
+                "icp_fit_lists_version": "test-lists-1",
+                "icp_fit_score": 100,
+                "icp_fit_components": {
+                    "traction": 35,
+                    "capital": 30,
+                    "ai_pilled": 15,
+                    "headcount_growth": 10,
+                    "software_relevance": 10,
+                },
+                "icp_fit_flags": {
+                    "quality_investor": True,
+                    "data_coverage": 4,
+                    "low_confidence": False,
+                    "agency_flag": False,
+                    "nonprofit_flag": False,
+                    "wizard_ai_sdk": False,
+                    "ai_pilled_source": "harmonic",
+                },
+            },
+        )
+        self.assertEqual(
+            self._rows(),
+            [
+                ("harmonic", False, {**_company(), "enrichmentUrn": "urn:harmonic:1"}),
+                ("harmonic", True, {"companyFound": False, "enrichmentUrn": None, "enrichmentStatus": "COMPLETE"}),
+            ],
+        )
+        self.assertEqual(
+            pha_client.group_identify.call_args_list,
+            [
+                call(
+                    "organization",
+                    str(self.organization.id),
+                    properties={"icp_fit_score": 100, "icp_fit_version": "v0.6", "icp_fit_status": "scored"},
+                )
+            ],
+        )
+        self.assertEqual(
+            pha_client.set.call_args_list,
+            [
+                call(
+                    distinct_id="d3",
+                    properties={"icp_fit_score": 100, "icp_fit_version": "v0.6", "icp_fit_status": "scored"},
+                )
+            ],
+        )
+        self.assertEqual(outcome.provider_fields, None)
+        self.assertEqual(outcome.fit.status, "scored")
+        self.assertEqual(outcome.enrichment_status, "COMPLETE")
