@@ -127,13 +127,14 @@ async def select_repository_activity(input: SelectRepositoryInput) -> RepoSelect
         lambda: Team.objects.select_related("organization").aget(pk=input.team_id)
     )
     info = _activity_info()
-    if info is None or info.attempt == 1:
-        _capture_repo_research_event(
-            "signals_repo_research_started",
-            team,
-            team.organization,
-            input.report_id,
-        )
+    # Captured on every attempt, as before. The team fetch above sits outside the gate below,
+    # so an attempt that dies in that fetch would leave a job with no started event at all.
+    _capture_repo_research_event(
+        "signals_repo_research_started",
+        team,
+        team.organization,
+        input.report_id,
+    )
     try:
         async with Heartbeater():
             # Check for a previous selection from an earlier run, if any

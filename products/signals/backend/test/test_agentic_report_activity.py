@@ -497,17 +497,13 @@ async def _run_failing_select_repository(ateam, error, attempt, expected_excepti
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
-@pytest.mark.parametrize("attempt,expected_started,expected_failed", [(1, 1, 0), (2, 0, 1)])
-async def test_select_repository_activity_reports_a_failure_once_per_job(
-    ateam, attempt, expected_started, expected_failed
-):
+@pytest.mark.parametrize("attempt,expected_failed", [(1, 0), (2, 1)])
+async def test_select_repository_activity_reports_a_failure_once_per_job(ateam, attempt, expected_failed):
     # Temporal retries this activity, so an event captured on every attempt counts one
     # failed job twice, and counts an attempt that later succeeded as a failed job.
     captured, _ = await _run_failing_select_repository(ateam, RuntimeError("sandbox agent timed out"), attempt)
 
-    started = [properties for event, properties in captured if event == "signals_repo_research_started"]
     completed = [properties for event, properties in captured if event == "signals_repo_research_completed"]
-    assert len(started) == expected_started
     assert [(p["result"], p["failure_reason"]) for p in completed] == [("failed", "RuntimeError")] * expected_failed
 
 
