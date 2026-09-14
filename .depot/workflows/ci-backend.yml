@@ -21,7 +21,10 @@
 #   capture-test-selection job — turbo-discover still emits its telemetry outputs to
 #   stay apples-to-apples, they just have no consumer here; canonical mints the
 #   telemetry token from the GH_APP_TELEMETRY_APP_ID org variable rather than the
-#   secret, which the shadow has no token step to mirror),
+#   secret, which the shadow has no token step to mirror. Canonical also makes that
+#   mint fail open, falls its consumers back to github.token, and narrows
+#   calculate-running-time to contents/actions read. The shadow has neither the step
+#   nor the job, so all three are depot-exempt),
 #   --store-durations write, test-selection verdict (so the guard skipping it when both
 #   test matrices were skipped has nothing to mirror), Trunk flaky-test quarantine
 #   gate (canonical runs per-shard analytics-uploader steps that post to the
