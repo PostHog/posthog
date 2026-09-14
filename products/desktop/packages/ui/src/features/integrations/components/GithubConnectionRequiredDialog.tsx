@@ -93,7 +93,9 @@ export function GithubConnectionRequiredDialog({
                 type="button"
                 variant="outline"
                 size="icon-sm"
-                aria-label="Copy access request"
+                aria-label={
+                  copied ? "Access request copied" : "Copy access request"
+                }
                 data-attr="copy-github-access-request"
                 onClick={() => void handleCopy()}
               >

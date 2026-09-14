@@ -48,6 +48,7 @@ describe("GithubConnectionRequiredDialog", () => {
 
     await user.click(screen.getByLabelText("Copy access request"));
     expect(writeText).toHaveBeenCalledWith(request);
+    expect(screen.getByLabelText("Access request copied")).toBeInTheDocument();
   });
 
   it("shows the copyable request when GitHub is waiting for approval", () => {

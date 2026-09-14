@@ -678,6 +678,7 @@ export function SessionView({
                     errorTitle={errorTitle}
                     errorMessage={errorMessage}
                     onRetry={onRetry}
+                    retryLabel={retryLabel}
                   />
                 )}
                 <ThreadView
