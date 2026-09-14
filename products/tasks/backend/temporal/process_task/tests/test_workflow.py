@@ -1724,19 +1724,26 @@ class TestProcessTaskWorkflowUnit:
         assert inactivity_mock.await_args is not None
         assert inactivity_mock.await_args.args[0] == timedelta(seconds=expected_seconds)
 
-    async def test_turn_end_wakes_the_wait_so_the_short_idle_window_re_arms(self, monkeypatch):
+    @pytest.mark.parametrize("patched", [True, False])
+    async def test_turn_end_wakes_the_wait_only_once_the_patch_is_recorded(self, monkeypatch, patched):
         workflow = ProcessTaskWorkflow()
         workflow._context = _build_context(github_integration_id=123)
-
-        async def fake_wait_condition(condition):
-            assert condition()
-
-        monkeypatch.setattr(process_task_workflow_module.workflow, "wait_condition", fake_wait_condition)
+        monkeypatch.setattr(process_task_workflow_module.workflow, "in_workflow", Mock(return_value=True))
+        monkeypatch.setattr(process_task_workflow_module.workflow, "patched", Mock(return_value=patched))
 
         await workflow.agent_state_changed(False)
 
-        assert await workflow._wait_for_task_external_event() == process_task_workflow_module.TaskEvent.SIGNAL_RECEIVED
         assert workflow._end_of_turn_received is True
+        assert workflow._turn_ended_received is patched
+        if patched:
+
+            async def fake_wait_condition(condition):
+                assert condition()
+
+            monkeypatch.setattr(process_task_workflow_module.workflow, "wait_condition", fake_wait_condition)
+            assert (
+                await workflow._wait_for_task_external_event() == process_task_workflow_module.TaskEvent.SIGNAL_RECEIVED
+            )
 
     @pytest.mark.parametrize(
         "outcome, expected",
