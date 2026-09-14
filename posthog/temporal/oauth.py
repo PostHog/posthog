@@ -177,10 +177,6 @@ CONTEXT_LAYER_INTERNAL_SCOPE = "context_layer_internal:write"
 # practice; tool-level (create-only) restriction isn't cheap in the current sandbox wiring.
 SCOUT_USER_WRITE_SCOPES: list[str] = [
     "notebook:write",
-    # Suggesting a workflow change, which a person then approves or rejects. Deliberately not
-    # `hog_flow:write`: that also publishes, updates and test-sends a workflow, so an autonomous run
-    # holding it could put mail in front of real people. This scope can only queue a suggestion.
-    "hog_flow_proposal:write",
 ]
 
 
@@ -239,6 +235,13 @@ SCOUT_USER_WRITE_SCOPES: list[str] = [
 #                          others meet. One scope object covers the whole surface, so the two
 #                          exclusions live in `products/replay_vision/backend/scout_writes.py`
 #                          instead: a scout cannot delete, and must cap what it creates or enables.
+#   hog_flow_proposal:write
+#                          Queue a suggested change on a workflow whose owner opted in, for a
+#                          person to approve or reject. Deliberately not `hog_flow:write`, which
+#                          also publishes, updates and test-sends a workflow: this scope can put
+#                          nothing in front of anyone. Creates only; a suggestion is resolved by
+#                          a person. The workflows scout declares it in its SKILL.md
+#                          (`scout-write-scopes`), so no other scout holds it unless granted.
 #
 # `annotation:write` and `alert:write` exceed the "recoverable, project-scoped" bar the other
 # scopes meet. They stay in the v1 set that #94263 puts to the team, because narrowing the set is
@@ -256,6 +259,7 @@ SCOUT_GRANTABLE_WRITE_SCOPES: frozenset[str] = frozenset(
         "warehouse_view:write",
         "warehouse_table:write",
         "replay_scanner:write",
+        "hog_flow_proposal:write",
     }
 )
 

@@ -5907,6 +5907,7 @@ export const API_SCOPE_OBJECTS = [
     'health_issue',
     'heatmap',
     'hog_flow',
+    'hog_flow_proposal',
     'hog_function',
     'ingestion_warning',
     'insight',

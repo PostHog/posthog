@@ -829,6 +829,7 @@ _WRITE_ACCESS_OBJECTS: dict[str, str] = {
     "warehouse_view:write": "data warehouse views",
     "warehouse_table:write": "data warehouse tables",
     "replay_scanner:write": "replay vision scanners",
+    "hog_flow_proposal:write": "suggested changes to workflows, which a person approves or rejects",
 }
 
 
