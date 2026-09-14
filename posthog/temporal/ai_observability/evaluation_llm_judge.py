@@ -1,7 +1,9 @@
 import json
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import timedelta
-from typing import Any
+from functools import wraps
+from typing import Any, ParamSpec, TypeVar
 
 import structlog
 import temporalio
@@ -48,6 +50,9 @@ from products.ai_observability.backend.text_repr.formatters import add_line_numb
 
 logger = structlog.get_logger(__name__)
 
+P = ParamSpec("P")
+T = TypeVar("T")
+
 DEFAULT_JUDGE_MODEL = DEFAULT_MODEL_BY_PROVIDER["openai"]
 
 # Same cap as the trace-level judge (JUDGE_TRACE_MAX_CHARS).
@@ -59,6 +64,33 @@ LLM_JUDGE_RETRY_POLICY = RetryPolicy(
     maximum_interval=timedelta(seconds=60),
     backoff_coefficient=2.0,
 )
+
+
+# Transport resets and worker drains interrupt the judge at whatever line it reached, so each
+# occurrence fingerprints differently and error tracking files a new issue for it. The Temporal
+# retry policy already covers both, so `call_llm_judge` counts them and re-raises them quietly.
+QUIET_JUDGE_ERRORS: tuple[type[Exception], ...] = (ProviderConnectionError, temporalio.exceptions.CancelledError)
+
+
+def capture_judge_exceptions(activity: Callable[P, T]) -> Callable[P, T]:
+    """Report every judge failure except the quiet ones to error tracking.
+
+    Pair it with `@posthoganalytics.scoped(capture_exceptions=False)`. A scoped context captures
+    every exception that leaves it, which reports the quiet errors however `call_llm_judge` handles
+    them, so the activity has to decide what to capture itself.
+    """
+
+    @wraps(activity)
+    def wrapper(*args: P.args, **kwargs: P.kwargs) -> T:
+        try:
+            return activity(*args, **kwargs)
+        except QUIET_JUDGE_ERRORS:
+            raise
+        except Exception as error:
+            posthoganalytics.capture_exception(error)
+            raise
+
+    return wrapper
 
 
 class BooleanEvalResult(BaseModel):
@@ -205,7 +237,8 @@ def _build_context_window_skip_result(
 
 @temporalio.activity.defn
 @close_db_connections
-@posthoganalytics.scoped()
+@posthoganalytics.scoped(capture_exceptions=False)
+@capture_judge_exceptions
 def execute_llm_judge_activity(inputs: ExecuteLLMJudgeInputs) -> EvaluationActivityResult:
     """Execute LLM judge to evaluate the target event.
 
@@ -415,15 +448,15 @@ def call_llm_judge(
 
     except ProviderConnectionError:
         # Transient transport failure (connection reset, read timeout). Retrying usually succeeds,
-        # so track it as a metric and re-raise for the retry policy — without the logger.exception
-        # that would clutter error tracking with a non-actionable issue.
+        # so track it as a metric and re-raise for the retry policy. It stays out of error tracking
+        # because it is in QUIET_JUDGE_ERRORS.
         increment_errors("connection_error", provider=provider)
         raise
 
     except temporalio.exceptions.CancelledError:
-        # A worker drain or a workflow cancel interrupts the judge at whatever line it reached, so
-        # the fingerprint differs per cancellation. Logging it would file a new error tracking issue
-        # every time, so track it as a metric and re-raise for the retry policy instead.
+        # A worker drain or a workflow cancel is not a judge failure, so track it as a metric and
+        # re-raise for the retry policy. It stays out of error tracking because it is in
+        # QUIET_JUDGE_ERRORS.
         increment_errors("cancelled", provider=provider)
         raise
 

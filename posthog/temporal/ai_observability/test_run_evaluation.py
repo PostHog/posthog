@@ -6,6 +6,7 @@ from typing import Any
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import posthoganalytics
 from asgiref.sync import sync_to_async
 from parameterized import parameterized
 from temporalio import activity
@@ -24,6 +25,7 @@ from products.ai_observability.backend.llm.errors import (
     ContextWindowExceededError,
     ModelNotFoundError,
     ModelPermissionError,
+    ProviderConnectionError,
     QuotaExceededError,
     RateLimitError,
     StructuredOutputParseError,
@@ -1747,6 +1749,47 @@ class TestRunEvaluationWorkflow:
 
             mock_increment_errors.assert_called_once_with("cancelled", provider="openai")
             mock_logger.exception.assert_not_called()
+
+    @pytest.mark.parametrize(
+        "raised_exception, expect_captured",
+        [
+            pytest.param(ProviderConnectionError("connection reset"), False, id="connection_error"),
+            pytest.param(CancelledError("Cancelled"), False, id="cancellation"),
+            pytest.param(RuntimeError("boom"), True, id="unhandled_error"),
+        ],
+    )
+    @pytest.mark.django_db(transaction=True)
+    def test_execute_llm_judge_activity_reports_only_actionable_errors(
+        self, raised_exception: Exception, expect_captured: bool, setup_data, active_key_config
+    ):
+        evaluation_obj = setup_data["evaluation"]
+        team = setup_data["team"]
+
+        evaluation = {
+            "id": str(evaluation_obj.id),
+            "name": "Test Evaluation",
+            "evaluation_type": "llm_judge",
+            "evaluation_config": {"prompt": "Is this accurate?"},
+            "output_type": "boolean",
+            "output_config": {},
+            "team_id": team.id,
+        }
+        event_data = create_mock_event_data(team.id)
+
+        with (
+            patch("posthog.temporal.ai_observability.evaluation_llm_judge.Client") as mock_client_class,
+            patch.object(posthoganalytics, "capture_exception") as mock_capture_exception,
+            patch.object(posthoganalytics, "default_client", None),
+            patch.object(posthoganalytics, "enable_exception_autocapture", True),
+        ):
+            mock_client = MagicMock()
+            mock_client_class.return_value = mock_client
+            mock_client.complete.side_effect = raised_exception
+
+            with pytest.raises(type(raised_exception)):
+                execute_llm_judge_activity(ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=event_data))
+
+            assert mock_capture_exception.called is expect_captured
 
     @pytest.mark.django_db(transaction=True)
     def test_execute_llm_judge_activity_terminal_team_requires_provider_key(self, setup_data):
