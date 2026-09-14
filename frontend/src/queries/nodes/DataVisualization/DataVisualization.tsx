@@ -239,7 +239,9 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                     titleStatus={responseErrorObject?.status}
                     // A cancel is the user's own action: no apology or bug-report guidance
                     excludeDetail={queryCancelled}
-                    onRetry={() => loadData(shouldQueryBeAsync(props.query.source) ? 'force_async' : 'force_blocking')}
+                    // A retry has no running query to poll, so dataNodeLogic downgrades force_async
+                    // to force_blocking anyway. Ask for what actually happens.
+                    onRetry={() => loadData('force_blocking')}
                     title={
                         queryCancelled
                             ? 'The query was cancelled'

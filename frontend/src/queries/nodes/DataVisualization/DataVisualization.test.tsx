@@ -1,4 +1,5 @@
 import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 
 import { useMocks } from '~/mocks/jest'
 import { DataVisualizationNode, HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
@@ -103,5 +104,30 @@ describe('DataTableVisualization', () => {
         })
         expect(screen.getByText(MEMORY_LIMIT_DETAIL)).toBeTruthy()
         expect(screen.getByText('Try again')).toBeTruthy()
+    })
+
+    it('re-runs the query when the retry button is clicked', async () => {
+        let shouldFail = true
+        useMocks({
+            post: {
+                '/api/environments/:team_id/query/:query_kind/': () =>
+                    shouldFail ? [513, { detail: MEMORY_LIMIT_DETAIL }] : [200, cachedResults],
+            },
+        })
+
+        render(
+            <DataTableVisualization uniqueKey="data-visualization-retry" query={query} setQuery={jest.fn()} readOnly />
+        )
+
+        await waitFor(() => {
+            expect(screen.getByText("This query couldn't finish")).toBeTruthy()
+        })
+
+        shouldFail = false
+        await userEvent.click(screen.getByText('Try again'))
+
+        await waitFor(() => {
+            expect(screen.queryByText("This query couldn't finish")).toBeNull()
+        })
     })
 })
