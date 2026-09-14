@@ -2,8 +2,8 @@ from django.db import OperationalError
 
 from prometheus_client import Counter
 
+from posthog.api.statement_timeout import is_query_canceled
 from posthog.sync import database_sync_to_async
-from posthog.taxonomy.property_definition_api import is_query_canceled
 
 from ee.hogai.chat_agent.query_planner.toolkit import TaxonomyAgentToolkit
 from ee.hogai.mcp_tool import MCPTool, mcp_tool_registry

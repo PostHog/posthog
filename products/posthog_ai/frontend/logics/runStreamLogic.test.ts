@@ -1221,9 +1221,20 @@ describe('runStreamLogic', () => {
             expect(logic.values.threadItems[0]).toMatchObject({ type: 'human_message', text: 'first second' })
         })
 
-        it('strips the posthog_context wrapper so a replayed prompt matches the live one', async () => {
-            const wrapped =
-                '<posthog_context>\nThe user attached the following PostHog entities.\n- Insight #1\n</posthog_context>\n\nWhy did signups drop?'
+        it.each([
+            [
+                'legacy posthog_context',
+                '<posthog_context>\nThe user attached the following PostHog entities.\n- Insight #1\n</posthog_context>\n\nWhy did signups drop?',
+            ],
+            [
+                'slack thread context on a task started from Slack',
+                '<slack_thread_context>\nSlack thread leading up to the request.\n<@U1|Someone>:\n  it is broken\n</slack_thread_context>\n\nWhy did signups drop?',
+            ],
+            [
+                'slack thread update on a follow-up from Slack',
+                '<slack_thread_context_update>\nMessages posted since you last spoke.\n</slack_thread_context_update>\n\nWhy did signups drop?',
+            ],
+        ])('strips a leading %s wrapper from a replayed human message', async (_name, wrapped) => {
             const frames: StoredLogEntry[] = [notification('_posthog/user_message', { content: wrapped })]
             jest.spyOn(api.tasks.runs, 'getLogEntries').mockResolvedValue(frames as any)
             jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({ status: 'completed' } as any)

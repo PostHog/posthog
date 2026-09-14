@@ -55,10 +55,12 @@ from products.signals.backend.artefact_schemas import (
     TitleChange,
 )
 from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact, SignalScoutRun
+from products.signals.backend.repo_corrections import SCOUT_REPOSITORY_REASON
 from products.signals.backend.report_charts import ReportChart, chart_batch_error
 from products.signals.backend.report_generation.resolve_reviewers import ReviewerPayloadIndex
 from products.signals.backend.report_generation.reviewer_telemetry import capture_suggested_reviewers_resolved
-from products.signals.backend.report_generation.select_repo import RepoSelectionResult
+from products.signals.backend.report_generation.select_repo import RepoSelectionResult, persisted_repo_selection
+from products.signals.backend.report_metrics import ReportMetric, metric_batch_error
 from products.signals.backend.report_prompts import normalize_suggested_prompts, suggested_prompts_batch_error
 from products.signals.backend.scout_harness.tools.emit import SCOUT_SIGNAL_WEIGHT, SOURCE_PRODUCT, SOURCE_TYPE
 
@@ -148,6 +150,7 @@ def create_scout_report(
     priority: PriorityAssessment | None = None,
     suggested_reviewers: SuggestedReviewers | None = None,
     charts: Sequence[ReportChart] = (),
+    metrics: Sequence[ReportMetric] = (),
     suggested_prompts: Sequence[str] = (),
     emit_signals: bool = True,
     run: SignalScoutRun | None = None,
@@ -198,6 +201,8 @@ def create_scout_report(
     _validate_create_inputs(title, summary, signals)
     if batch_error := chart_batch_error(charts):
         raise InvalidScoutReportError(batch_error)
+    if batch_error := metric_batch_error(metrics):
+        raise InvalidScoutReportError(batch_error)
     prompts = normalize_suggested_prompts(suggested_prompts)
     if batch_error := suggested_prompts_batch_error(prompts):
         raise InvalidScoutReportError(batch_error)
@@ -221,6 +226,7 @@ def create_scout_report(
                 signal_count=len(signals),
                 total_weight=total_weight,
                 charts=[chart.model_dump(mode="json") for chart in charts],
+                metrics=[metric.model_dump(mode="json") for metric in metrics],
                 suggested_prompts=prompts,
                 # Born directly in a user-visible status without passing through transition_to (which
                 # stamps this for pipeline reports), so the daily report limit counts it from creation.
@@ -652,6 +658,75 @@ def set_report_charts(
     return True
 
 
+def _report_metrics_unchanged(stored: object, payload: list[dict[str, object]]) -> bool:
+    """Whether the stored metrics already equal `payload`, tolerant of datetime serialization.
+
+    The refresh worker overwrites `value_at` with `measured_at.isoformat()` (a `+00:00` offset),
+    while this module writes the pydantic `Z` form, so a raw dict comparison would treat an unchanged
+    re-send of a refreshed metric as an edit and break `edit_report` idempotency. Re-serialize the
+    stored rows through ReportMetric to canonicalize both sides before comparing. A row that no
+    longer parses — legacy or malformed — can't be proven equal, so the set counts as changed and is
+    rewritten cleanly.
+    """
+    if stored == payload:
+        return True
+    if not isinstance(stored, list) or len(stored) != len(payload):
+        return False
+    try:
+        canonical = [ReportMetric.model_validate(row).model_dump(mode="json") for row in stored]
+    except ValidationError:
+        return False
+    return canonical == payload
+
+
+def set_report_metrics(
+    *,
+    team_id: int,
+    report_id: str,
+    metrics: Sequence[ReportMetric],
+    attribution: ArtefactAttribution | None = None,
+    author: str | None = None,
+) -> bool:
+    """Replace a report's typed impact metrics, preserving edit idempotency and attribution."""
+    _validate_report_id(report_id)
+    if batch_error := metric_batch_error(metrics):
+        raise InvalidScoutReportError(batch_error)
+    payload = [metric.model_dump(mode="json") for metric in metrics]
+
+    with transaction.atomic():
+        stored = (
+            SignalReport.objects.select_for_update()
+            .filter(team_id=team_id, id=report_id)
+            .values_list("metrics", flat=True)
+            .first()
+        )
+        if stored is None:
+            raise InvalidScoutReportError(f"report {report_id} not found for team {team_id}")
+        if _report_metrics_unchanged(stored, payload):
+            logger.info(
+                "signals_scout.edit_report: metrics unchanged",
+                extra={"team_id": team_id, "report_id": report_id, "count": len(metrics)},
+            )
+            return False
+        SignalReport.objects.filter(team_id=team_id, id=report_id).update(
+            metrics=payload,
+            updated_at=timezone.now(),
+        )
+        if attribution is not None:
+            SignalReportArtefact.add_log(
+                team_id=team_id,
+                report_id=report_id,
+                content=NoteArtefact(note=_metric_edit_note(len(metrics)), author=author),
+                attribution=attribution,
+            )
+
+    logger.info(
+        "signals_scout.edit_report: metrics set",
+        extra={"team_id": team_id, "report_id": report_id, "count": len(metrics)},
+    )
+    return True
+
+
 def set_report_suggested_prompts(
     *,
     team_id: int,
@@ -837,6 +912,73 @@ def set_scout_report_reviewers(
     logger.info(
         "signals_scout.edit_report: reviewers set",
         extra={"team_id": team_id, "report_id": report_id, "reviewer_count": len(reviewer_labels)},
+    )
+    return True
+
+
+def set_scout_report_repository(
+    *,
+    team_id: int,
+    report_id: str,
+    repository: str | None,
+    attribution: ArtefactAttribution,
+    author: str | None = None,
+) -> bool:
+    """Replace an existing report's `repo_selection` artefact (latest-wins) — the `edit_report`
+    repository path. `repository` is a validated `owner/repo`, or None to land the report without a
+    draft PR. Returns whether the stored selection actually changed.
+
+    This is the correction path for a misrouted report: a report that surfaced against the wrong
+    codebase can be repointed in place, instead of the scout filing a duplicate. A scout naming the
+    repository is a decision like the one `create_scout_report` records at emit, so the selection is
+    `autostart_eligible` the same way, and a later content rewrite does not overturn it.
+
+    Team-scoped fail-closed: a `report_id` the team doesn't own raises. `edit_report` can target ANY
+    inbox report, so the change is attributed (to the scout's task) and an audit note is logged,
+    keeping it auditable and distinguishable from pipeline output.
+
+    The append opts out of the model's autostart re-eval hook (`reevaluate_autostart=False`); the
+    caller (`_do_edit_report`) fires `maybe_autostart_from_report_artefacts` after this returns —
+    never in-txn, since it spawns a Task — mirroring the reviewer path above.
+    """
+    _validate_report_id(report_id)
+    selection = RepoSelectionResult(repository=repository, reason=SCOUT_REPOSITORY_REASON)
+    with transaction.atomic():
+        # The lock is the team-scoped gate AND serializes this against a concurrent selection write,
+        # so an interleaved correction isn't lost.
+        if not SignalReport.objects.select_for_update().filter(team_id=team_id, id=report_id).exists():
+            raise InvalidScoutReportError(f"report {report_id} not found for team {team_id}")
+        # Compared under the lock like the chart / metric / prompt setters above. `edit_report` is
+        # non-idempotent, so the same correction can arrive twice, and a re-send would leave a second
+        # "Set repository" note on the work log and re-run autostart for a target that never moved.
+        # The whole selection is compared rather than the repository alone: a selection inferred from
+        # the report's own text names the same repository with `autostart_eligible=False`, and a scout
+        # naming it is the decision that lifts it, so that correction must still land.
+        if persisted_repo_selection(report_id) == selection:
+            logger.info(
+                "signals_scout.edit_report: repository unchanged",
+                extra={"team_id": team_id, "report_id": report_id, "repository": repository},
+            )
+            return False
+        SignalReportArtefact.append_status(
+            team_id=team_id,
+            report_id=report_id,
+            content=selection,
+            attribution=attribution,
+            reevaluate_autostart=False,
+        )
+        SignalReportArtefact.add_log(
+            team_id=team_id,
+            report_id=report_id,
+            content=NoteArtefact(
+                note=f"Set repository: {repository}" if repository else "Cleared the repository",
+                author=author,
+            ),
+            attribution=attribution,
+        )
+    logger.info(
+        "signals_scout.edit_report: repository set",
+        extra={"team_id": team_id, "report_id": report_id, "repository": repository},
     )
     return True
 
@@ -1101,6 +1243,12 @@ def _chart_edit_note(count: int) -> str:
     if count == 0:
         return "Removed the report's charts via edit_report."
     return f"Replaced report charts ({count}) via edit_report."
+
+
+def _metric_edit_note(count: int) -> str:
+    if count == 0:
+        return "Removed the report's impact metrics via edit_report."
+    return f"Replaced report impact metrics ({count}) via edit_report."
 
 
 def _evidence_edit_note(count: int) -> str:
