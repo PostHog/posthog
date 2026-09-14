@@ -1,0 +1,47 @@
+-- no-transaction
+--
+-- Adds a covering variant of the mark index, so the leader's fence takeover
+-- scan reads the live-mark set without touching the heap.
+--
+-- The scan (rebuild_partition_fences in rust/personhog-leader/src/fence.rs)
+-- gates a partition's return to service. It cannot target a partition,
+-- because the partition is a murmur2 hash Postgres cannot compute, so it
+-- reads every live mark and filters in process:
+--     WHERE lop.status IN ('marked', 'sealed') AND lop.role <> 'target'
+-- lifecycle_op_person_mark has the right predicate but carries neither op_id
+-- nor role, so the plan is a bitmap heap scan: each live mark costs a heap
+-- fetch for two narrow columns. INCLUDE puts both columns in the index, which
+-- makes the plan an index-only scan. The role filter still runs per row, but
+-- against the index tuple. An index-only scan still reads the heap for a mark
+-- on a page not yet marked all-visible, so the newest marks keep their
+-- fetches until autovacuum reaches their pages.
+--
+-- (team_id, person_id) and the predicate are unchanged, so this index is the
+-- same mark constraint: at most one live op may claim a person. INCLUDE
+-- columns are non-key, so they do not widen uniqueness, and arbiter inference
+-- matches on key columns and predicate only — the mark insert's
+-- `ON CONFLICT (team_id, person_id) WHERE status IN ('marked', 'sealed')`
+-- infers this index exactly as it inferred the old one. The old index is
+-- dropped in the next migration, so one index or the other enforces the mark
+-- at every point of the deploy, never neither.
+--
+-- CONCURRENTLY, alone in its own no-transaction file: a plain CREATE UNIQUE
+-- INDEX takes SHARE on lifecycle_op_person, which conflicts with the ROW
+-- EXCLUSIVE every mark insert needs, and sqlx would hold it until the whole
+-- file commits. Marking gates every merge and delete, so a blocking build
+-- stalls the lifecycle plane for the duration.
+--
+-- Recovery note: an interrupted CONCURRENTLY build leaves the index INVALID,
+-- and a rerun's IF NOT EXISTS will NOT rebuild it. Nothing reports that
+-- state: the run that left it INVALID already failed, and every later run
+-- skips the file and reports success. An INVALID unique index still enforces
+-- uniqueness for new inserts, but the planner will not use it, so the next
+-- migration would drop the only index the scan can use. Check before assuming
+-- this landed:
+--   SELECT indisvalid FROM pg_index
+--   WHERE indexrelid = to_regclass('lifecycle_op_person_mark_covering');
+-- On `f`, recover manually, then re-run migrations:
+--   DROP INDEX CONCURRENTLY lifecycle_op_person_mark_covering;
+CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS lifecycle_op_person_mark_covering
+    ON lifecycle_op_person (team_id, person_id) INCLUDE (op_id, role)
+    WHERE status IN ('marked', 'sealed');
