@@ -135,8 +135,25 @@ const POSTGRES_BATCH_EXPORT = fixture('fixture-postgres', 'Postgres Export', {
     },
 })
 
-const SNOWFLAKE_PASSWORD_BATCH_EXPORT = fixture('fixture-snowflake-password', 'Snowflake Password Export', {
+const SNOWFLAKE_BATCH_EXPORT = fixture('fixture-snowflake', 'Snowflake Export', {
     type: 'Snowflake',
+    integration: 51,
+    config: {
+        database: 'sf-db',
+        warehouse: 'sf-wh',
+        schema: 'public',
+        table_name: 'events',
+        role: 'sf-role',
+        exclude_events: [],
+        include_events: [],
+    },
+})
+
+// A migrated export: credentials moved to the integration, but the account and authentication
+// values they came with are still in the stored config. The stale keys are deliberate.
+const SNOWFLAKE_STALE_BATCH_EXPORT = fixture('fixture-snowflake-stale', 'Snowflake Stale Export', {
+    type: 'Snowflake',
+    integration: 51,
     config: {
         account: 'sf-account',
         database: 'sf-db',
@@ -151,26 +168,7 @@ const SNOWFLAKE_PASSWORD_BATCH_EXPORT = fixture('fixture-snowflake-password', 'S
         role: null,
         exclude_events: [],
         include_events: [],
-    },
-})
-
-const SNOWFLAKE_KEYPAIR_BATCH_EXPORT = fixture('fixture-snowflake-keypair', 'Snowflake Keypair Export', {
-    type: 'Snowflake',
-    config: {
-        account: 'sf-account',
-        database: 'sf-db',
-        warehouse: 'sf-wh',
-        user: 'sf-user',
-        authentication_type: 'keypair',
-        password: null,
-        private_key: 'priv-key',
-        private_key_passphrase: 'priv-pass',
-        schema: 'public',
-        table_name: 'events',
-        role: null,
-        exclude_events: [],
-        include_events: [],
-    },
+    } as any,
 })
 
 // Note: `authorization_mode` is intentionally absent from these Redshift fixtures' config —
@@ -380,8 +378,8 @@ const ALL_BATCH_EXPORTS: BatchExportConfiguration[] = [
     BIGQUERY_BATCH_EXPORT,
     BIGQUERY_STALE_BATCH_EXPORT,
     POSTGRES_BATCH_EXPORT,
-    SNOWFLAKE_PASSWORD_BATCH_EXPORT,
-    SNOWFLAKE_KEYPAIR_BATCH_EXPORT,
+    SNOWFLAKE_BATCH_EXPORT,
+    SNOWFLAKE_STALE_BATCH_EXPORT,
     REDSHIFT_INSERT_BATCH_EXPORT,
     REDSHIFT_NO_MODE_BATCH_EXPORT,
     REDSHIFT_COPY_IAM_BATCH_EXPORT,
@@ -1294,8 +1292,7 @@ describe('batchExportConfigFormLogic', () => {
             { name: 'S3Compatible', fixture: S3_COMPATIBLE_BATCH_EXPORT },
             { name: 'BigQuery', fixture: BIGQUERY_BATCH_EXPORT },
             { name: 'Postgres', fixture: POSTGRES_BATCH_EXPORT },
-            { name: 'Snowflake (password)', fixture: SNOWFLAKE_PASSWORD_BATCH_EXPORT },
-            { name: 'Snowflake (keypair)', fixture: SNOWFLAKE_KEYPAIR_BATCH_EXPORT },
+            { name: 'Snowflake', fixture: SNOWFLAKE_BATCH_EXPORT },
             { name: 'Redshift (INSERT)', fixture: REDSHIFT_INSERT_BATCH_EXPORT },
             { name: 'Redshift (COPY + IAM)', fixture: REDSHIFT_COPY_IAM_BATCH_EXPORT },
             { name: 'Redshift (COPY + Credentials)', fixture: REDSHIFT_COPY_CREDENTIALS_BATCH_EXPORT },
@@ -1320,11 +1317,44 @@ describe('batchExportConfigFormLogic', () => {
     })
 
     describe('strips stale/legacy config fields not in the destination allowlist', () => {
-        // Pre-Integration BigQuery configs can still hold json_config_file + credential fields.
+        // Pre-Integration configs can still hold credential fields that now live on the integration.
         // Editing such an export must not re-send them, or the backend rejects the PATCH with
         // "Configuration has unknown field/s".
-        it('drops pre-Integration BigQuery fields from the PATCH payload', async () => {
-            await initLogic({ service: null, id: BIGQUERY_STALE_BATCH_EXPORT.id })
+        it.each([
+            {
+                name: 'BigQuery drops json_config_file and inline credentials',
+                fixture: BIGQUERY_STALE_BATCH_EXPORT,
+                expectedDestination: {
+                    type: 'BigQuery',
+                    integration: 7,
+                    config: {
+                        dataset_id: 'test_dataset',
+                        table_id: 'events',
+                        use_json_type: false,
+                        exclude_events: [],
+                        include_events: [],
+                    },
+                },
+            },
+            {
+                name: 'Snowflake drops the account and credentials left behind by the migration',
+                fixture: SNOWFLAKE_STALE_BATCH_EXPORT,
+                expectedDestination: {
+                    type: 'Snowflake',
+                    integration: 51,
+                    config: {
+                        database: 'sf-db',
+                        warehouse: 'sf-wh',
+                        schema: 'public',
+                        table_name: 'events',
+                        role: null,
+                        exclude_events: [],
+                        include_events: [],
+                    },
+                },
+            },
+        ])('$name', async ({ fixture, expectedDestination }) => {
+            await initLogic({ service: null, id: fixture.id })
 
             await expectLogic(logic, () => {
                 logic.actions.submitConfiguration()
@@ -1332,15 +1362,9 @@ describe('batchExportConfigFormLogic', () => {
                 .toDispatchActions(['submitConfiguration', 'updateBatchExportConfigSuccess'])
                 .toFinishAllListeners()
 
-            const body = patchBodiesById[BIGQUERY_STALE_BATCH_EXPORT.id]
+            const body = patchBodiesById[fixture.id]
             expect(body).not.toBeUndefined()
-            expect(body.destination.config).toEqual({
-                dataset_id: 'test_dataset',
-                table_id: 'events',
-                use_json_type: false,
-                exclude_events: [],
-                include_events: [],
-            })
+            expect(body.destination).toEqual(expectedDestination)
         })
     })
 })
