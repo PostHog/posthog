@@ -176,16 +176,17 @@ When `LLM_GATEWAY_OPENAI_ORGANIZATION` is unset, the gateway preserves an
 ambient `OPENAI_ORGANIZATION` or `OPENAI_ORG_ID`, in that order. When neither
 variable is set, OpenAI infers the organization from the API key.
 
-Provider credential fields and header containers are in `FORBIDDEN_REQUEST_PARAMS`,
-so callers cannot override the server-selected key or organization through the
-request body.
+Provider credential fields are removed throughout the request body. Top-level
+header containers are also removed, while nested headers remain available to
+request payloads such as Responses MCP tools.
 
 ### Startup credential check
 
 Because the key and the organization are configured separately, a pair that does
 not match passes every local check and then fails live requests with a `401`.
-The gateway verifies the pairing once at startup so that case becomes a failed
-rollout instead of silent 401s. It is on by default
+The gateway verifies the pairing once at startup and marks OpenAI unavailable
+when OpenAI rejects the credentials. OpenAI requests then return a `503`, while
+requests to other providers continue normally. The check is on by default
 (`LLM_GATEWAY_OPENAI_CREDENTIAL_CHECK_ENABLED=true`) and runs once per pod, not on
 every readiness probe like the database grant check, because each run costs a
 request to OpenAI.
@@ -194,10 +195,9 @@ The check uses the OpenAI SDK with the same effective key, organization, and
 base URL as live requests. This includes ambient `OPENAI_API_KEY`,
 `OPENAI_ORGANIZATION`, `OPENAI_ORG_ID`, `OPENAI_BASE_URL`, and `OPENAI_API_BASE`
 values when the matching `LLM_GATEWAY_*` setting is not set. It sends one
-`GET /v1/models` request. Only a `401` stops the pod from booting. A `403` from
-an edge or proxy in front of OpenAI, any other error status, an unreachable
-provider, and a reply the gateway cannot read are all treated as inconclusive
-and let the pod start.
+`GET /v1/models` request. Only a `401` marks OpenAI unavailable. A `403` from an
+edge or proxy in front of OpenAI, any other error status, an unreachable provider,
+and a reply the gateway cannot read are all treated as inconclusive.
 
 Set `LLM_GATEWAY_OPENAI_CREDENTIAL_CHECK_ENABLED=false` to skip the check, for
 example when an operator must start a pod that OpenAI rejects. The gateway also

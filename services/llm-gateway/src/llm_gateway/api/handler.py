@@ -203,8 +203,8 @@ def _raise_if_unsupported_model(model: str) -> None:
         _raise_unsupported_model(model)
 
 
-# LLM routing/auth params — never accept from user input (request redirection, key exfiltration).
-FORBIDDEN_REQUEST_PARAMS = frozenset(
+# LLM routing/auth params never accept user input because they can redirect requests or exfiltrate keys.
+RECURSIVELY_FORBIDDEN_REQUEST_PARAMS = frozenset(
     {
         "api_key",
         "api_base",
@@ -214,24 +214,25 @@ FORBIDDEN_REQUEST_PARAMS = frozenset(
         "model_list",
         "fallbacks",
         "custom_llm_provider",
-        "headers",
-        "extra_headers",
     }
 )
+TOP_LEVEL_FORBIDDEN_REQUEST_PARAMS = RECURSIVELY_FORBIDDEN_REQUEST_PARAMS | {"headers", "extra_headers"}
 
 
 def _sanitize_request_value(value: Any) -> Any:
     # Strip recursively: litellm forwards nested params (e.g. model_list[*].litellm_params.api_key)
     # to the provider, so a shallow filter is insufficient.
     if isinstance(value, dict):
-        return {k: _sanitize_request_value(v) for k, v in value.items() if k not in FORBIDDEN_REQUEST_PARAMS}
+        return {
+            k: _sanitize_request_value(v) for k, v in value.items() if k not in RECURSIVELY_FORBIDDEN_REQUEST_PARAMS
+        }
     if isinstance(value, list):
         return [_sanitize_request_value(item) for item in value]
     return value
 
 
 def _sanitize_request_data(data: dict[str, Any]) -> dict[str, Any]:
-    return {k: _sanitize_request_value(v) for k, v in data.items() if k not in FORBIDDEN_REQUEST_PARAMS}
+    return {k: _sanitize_request_value(v) for k, v in data.items() if k not in TOP_LEVEL_FORBIDDEN_REQUEST_PARAMS}
 
 
 async def handle_llm_request(

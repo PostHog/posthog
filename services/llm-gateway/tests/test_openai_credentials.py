@@ -7,9 +7,8 @@ import pytest
 from litellm.llms.custom_httpx.http_handler import AsyncHTTPHandler
 
 from llm_gateway.openai_credentials import (
-    OpenAICredentialError,
+    check_openai_availability,
     make_openai_responses_call,
-    verify_openai_credentials,
 )
 
 
@@ -73,11 +72,13 @@ def _isolate_openai_env(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 class TestVerifyOpenAICredentials:
-    async def test_rejects_a_key_the_organization_does_not_own(self) -> None:
+    async def test_marks_openai_unavailable_when_organization_rejects_key(self) -> None:
         client_patch, _ = _patch_client(_openai_status_error(401, "invalid_organization"))
 
-        with client_patch, pytest.raises(OpenAICredentialError, match="invalid_organization"):
-            await verify_openai_credentials(_make_settings())
+        with client_patch:
+            openai_available = await check_openai_availability(_make_settings())
+
+        assert openai_available is False
 
     async def test_uses_the_effective_sdk_configuration(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("OPENAI_ORGANIZATION", "org-ambient")
@@ -86,8 +87,9 @@ class TestVerifyOpenAICredentials:
         settings = _make_settings(openai_api_base_url="https://eu.api.openai.com/v1")
 
         with client_patch as client_class:
-            await verify_openai_credentials(settings)
+            openai_available = await check_openai_availability(settings)
 
+        assert openai_available is True
         assert client_class.call_args.kwargs["api_key"] == "sk-test"
         assert client_class.call_args.kwargs["organization"] == "org-test"
         assert client_class.call_args.kwargs["base_url"] == "https://eu.api.openai.com/v1"
@@ -101,7 +103,7 @@ class TestVerifyOpenAICredentials:
         client_patch, _ = _patch_client()
 
         with client_patch as client_class:
-            await verify_openai_credentials(
+            await check_openai_availability(
                 _make_settings(openai_api_key=None, openai_organization=None, openai_api_base_url=None)
             )
 
@@ -118,7 +120,7 @@ class TestVerifyOpenAICredentials:
         client_patch, _ = _patch_client()
 
         with client_patch as client_class:
-            await verify_openai_credentials(
+            await check_openai_availability(
                 _make_settings(openai_api_key=None, openai_organization=None, openai_api_base_url=None)
             )
 
@@ -143,7 +145,9 @@ class TestVerifyOpenAICredentials:
         client_patch, _ = _patch_client(answer)
 
         with client_patch:
-            await verify_openai_credentials(_make_settings())
+            openai_available = await check_openai_availability(_make_settings())
+
+        assert openai_available is True
 
     @pytest.mark.parametrize(
         "content,content_type",
@@ -154,12 +158,15 @@ class TestVerifyOpenAICredentials:
     )
     async def test_starts_when_the_response_body_cannot_be_read(self, content: bytes, content_type: str) -> None:
         with _patch_real_client(content, content_type):
-            await verify_openai_credentials(_make_settings())
+            openai_available = await check_openai_availability(_make_settings())
 
-    async def test_rejects_a_401_whose_body_cannot_be_read(self) -> None:
+        assert openai_available is True
+
+    async def test_marks_openai_unavailable_when_401_body_cannot_be_read(self) -> None:
         with _patch_real_client(b"<html>denied</html>", "application/json", status=401):
-            with pytest.raises(OpenAICredentialError):
-                await verify_openai_credentials(_make_settings())
+            openai_available = await check_openai_availability(_make_settings())
+
+        assert openai_available is False
 
     @pytest.mark.parametrize(
         "settings",
@@ -172,12 +179,36 @@ class TestVerifyOpenAICredentials:
         client_patch, _ = _patch_client(_openai_status_error(401))
 
         with client_patch as client_class:
-            await verify_openai_credentials(settings)
+            openai_available = await check_openai_availability(settings)
 
+        assert openai_available is True
         client_class.assert_not_called()
 
 
 class TestOpenAIResponsesCall:
+    @pytest.mark.parametrize(
+        "model",
+        [
+            pytest.param("openrouter/openai/gpt-4.1", id="openrouter"),
+            pytest.param("anthropic/claude-sonnet-4-6", id="anthropic"),
+        ],
+    )
+    @patch("llm_gateway.openai_credentials.litellm.aresponses", new_callable=AsyncMock)
+    async def test_does_not_pin_openai_credentials_for_other_providers(
+        self,
+        mock_aresponses: AsyncMock,
+        model: str,
+    ) -> None:
+        llm_call = make_openai_responses_call(_make_settings(openai_api_base_url="https://proxy.example.com/v1"))
+
+        await llm_call(model=model, input="Hello")
+
+        call_args = mock_aresponses.await_args
+        assert call_args is not None
+        assert "api_key" not in call_args.kwargs
+        assert "api_base" not in call_args.kwargs
+        assert "extra_headers" not in call_args.kwargs
+
     async def test_uses_server_credentials_on_the_outbound_request(self) -> None:
         requests: list[httpx.Request] = []
         response_body = {

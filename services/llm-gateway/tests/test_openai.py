@@ -94,6 +94,49 @@ class TestChatCompletionsEndpoint:
         assert data["usage"]["total_tokens"] == 15
 
     @patch("llm_gateway.api.openai.litellm.acompletion")
+    def test_openai_model_returns_503_when_openai_credentials_are_invalid(
+        self,
+        mock_completion: MagicMock,
+        authenticated_client: TestClient,
+        valid_request_body: dict,
+    ) -> None:
+        authenticated_client.app.state.openai_available = False
+
+        response = authenticated_client.post(
+            "/v1/chat/completions",
+            json=valid_request_body,
+            headers={"Authorization": "Bearer phx_test_key"},
+        )
+
+        assert response.status_code == 503
+        assert response.json()["error"]["code"] == "openai_unavailable"
+        mock_completion.assert_not_called()
+
+    @patch("llm_gateway.api.openai.litellm.acompletion")
+    def test_other_provider_remains_available_when_openai_credentials_are_invalid(
+        self,
+        mock_completion: MagicMock,
+        authenticated_client: TestClient,
+        mock_openai_response: dict,
+    ) -> None:
+        authenticated_client.app.state.openai_available = False
+        mock_response = MagicMock()
+        mock_response.model_dump.return_value = mock_openai_response
+        mock_completion.return_value = mock_response
+
+        response = authenticated_client.post(
+            "/v1/chat/completions",
+            json={
+                "model": "openrouter/openai/gpt-4.1",
+                "messages": [{"role": "user", "content": "Hello"}],
+            },
+            headers={"Authorization": "Bearer phx_test_key"},
+        )
+
+        assert response.status_code == 200
+        mock_completion.assert_called_once()
+
+    @patch("llm_gateway.api.openai.litellm.acompletion")
     def test_posthog_property_headers_reach_request_context(
         self,
         mock_completion: MagicMock,
@@ -410,6 +453,39 @@ class TestResponsesEndpoint:
         call_args = llm_call.await_args
         assert call_args is not None
         assert param_name not in call_args.kwargs
+
+    @patch("llm_gateway.api.openai.make_openai_responses_call")
+    def test_nested_mcp_headers_are_forwarded_to_llm(
+        self,
+        mock_make_call: MagicMock,
+        authenticated_client: TestClient,
+    ) -> None:
+        mock_response = MagicMock()
+        mock_response.model_dump.return_value = {"id": "resp_1", "output": []}
+        llm_call = AsyncMock(return_value=mock_response)
+        mock_make_call.return_value = llm_call
+
+        response = authenticated_client.post(
+            "/v1/responses",
+            json={
+                "model": "gpt-4.1",
+                "input": "Hello",
+                "tools": [
+                    {
+                        "type": "mcp",
+                        "server_label": "example",
+                        "server_url": "https://mcp.example.com",
+                        "headers": {"Authorization": "Bearer test-token"},
+                    }
+                ],
+            },
+            headers={"Authorization": "Bearer phx_test_key"},
+        )
+
+        assert response.status_code == 200
+        call_args = llm_call.await_args
+        assert call_args is not None
+        assert call_args.kwargs["tools"][0]["headers"] == {"Authorization": "Bearer test-token"}
 
 
 # CF-served models (@cf/...) must use the CF adapter; litellm's native Responses path
