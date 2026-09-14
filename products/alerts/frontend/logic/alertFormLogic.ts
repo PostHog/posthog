@@ -10,7 +10,6 @@ import api, { ApiError } from 'lib/api'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
-import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -31,6 +30,7 @@ import {
     isSubDailyAlertInterval,
 } from 'products/alerts/frontend/logic/alertIntervalHelpers'
 import { resolveSnoozeUntil } from 'products/alerts/frontend/utils'
+import { trendsDataLogic } from 'products/product_analytics/frontend/insights/trends/trendsDataLogic'
 
 import {
     AlertConfig,

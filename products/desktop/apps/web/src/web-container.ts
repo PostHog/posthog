@@ -469,9 +469,10 @@ container.bind(POWER_MANAGER_SERVICE).toConstantValue(webPowerManager);
 // The web host is cloud-only: no local filesystem, so the UI must use remote
 // (connected-GitHub-org) repositories and cloud workspaces everywhere it would
 // otherwise reach for local folders/worktrees/terminal.
-container
-  .bind(HOST_CAPABILITIES)
-  .toConstantValue({ localWorkspaces: false } satisfies HostCapabilities);
+container.bind(HOST_CAPABILITIES).toConstantValue({
+  localWorkspaces: false,
+  customCloud: false,
+} satisfies HostCapabilities);
 
 container.load(authUiModule);
 
@@ -494,7 +495,6 @@ container.bind(CLOUD_TASK_AUTH).toDynamicValue((ctx) => ({
     return teamId === null ? null : { apiHost, teamId };
   },
 }));
-
 // ── Canvas / Channels: host-agnostic dashboard + freeform canvas services ──
 // They only need AuthService + fetch (they reach the PostHog canvases and
 // task_channels APIs), so the web host binds them by loading the same core

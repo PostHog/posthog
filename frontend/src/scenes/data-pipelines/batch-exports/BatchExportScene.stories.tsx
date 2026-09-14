@@ -32,7 +32,6 @@ const meta: Meta = {
                 [`/api/environments/:team_id/batch_exports/${EXISTING_EXPORT.id}/runs/`]: { results: [] },
                 [`/api/environments/:team_id/batch_exports/${EXISTING_EXPORT.id}/backfills/`]: { results: [] },
                 // Integration-backed destinations (Databricks, AzureBlob, BigQuery) render IntegrationChoice.
-                '/api/environments/:team_id/integrations': { results: [] },
                 '/api/projects/:team_id/integrations': { results: [] },
             },
         }),

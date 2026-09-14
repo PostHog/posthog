@@ -18,12 +18,14 @@ const {
   useContextLayerFlag,
   useChannelWikiContext,
   taskInputProps,
+  routeState,
 } = vi.hoisted(() => ({
   track: vi.fn(),
   useFolderInstructions: vi.fn(),
   useContextLayerFlag: vi.fn(),
   useChannelWikiContext: vi.fn(),
   taskInputProps: vi.fn(),
+  routeState: { tabId: "tab-1" as string | undefined },
 }));
 
 // What the hook returns when the space has no wiki page, so the legacy
@@ -114,15 +116,15 @@ vi.mock("@tanstack/react-router", () => ({
     select,
   }: {
     select: (s: {
-      matches: { routeId: string; params: Record<string, string> }[];
-      location: { state: { tabId: string } };
+      matches: { fullPath: string; params: Record<string, string> }[];
+      location: { state: { tabId: string | undefined } };
     }) => unknown;
   }) =>
     select({
       matches: [
-        { routeId: "/spaces/$channelId/new", params: { channelId: "chan-1" } },
+        { fullPath: "/spaces/$channelId/new", params: { channelId: "chan-1" } },
       ],
-      location: { state: { tabId: "tab-1" } },
+      location: { state: routeState },
     }),
 }));
 
@@ -144,7 +146,31 @@ describe("SpaceNewTask context panel", () => {
     useContextLayerFlag.mockReturnValue(false);
     useChannelWikiContext.mockReturnValue(NO_WIKI_PAGE);
     taskInputProps.mockReset();
+    routeState.tabId = "tab-1";
     useTaskInputPrefillStore.setState({ prefill: {} });
+  });
+
+  it("waits for the tab before passing the prompt to the composer", () => {
+    useFolderInstructions.mockReturnValue({ data: undefined });
+    routeState.tabId = undefined;
+    useTaskInputPrefillStore.setState({
+      prefill: { initialPrompt: "Check the build", requestId: "req-1" },
+    });
+
+    const { rerender } = render(<SpaceNewTask channelId="chan-1" />);
+
+    expect(taskInputProps).not.toHaveBeenCalled();
+
+    routeState.tabId = "tab-1";
+    rerender(<SpaceNewTask channelId="chan-1" />);
+
+    expect(taskInputProps).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        sessionId: "task-input:tab-1",
+        initialPrompt: "Check the build",
+        initialPromptKey: "req-1",
+      }),
+    );
   });
 
   it("blocks submission while the enabled wiki page is unresolved", () => {

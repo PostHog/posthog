@@ -2,7 +2,7 @@ import json
 from datetime import datetime
 from typing import cast
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import (
     _create_event,
     _create_person,
@@ -49,7 +49,7 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
             ("precomputed", True),
         ]
     )
-    @freeze_time("2020-01-01T12:00:00Z")
+    @time_machine.travel("2020-01-01T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
     def test_query_runner_funnel_metric(self, name, use_precomputation):
         self._setup_precomputation_test(use_precomputation)
@@ -167,7 +167,7 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
             # Skip precomputed - not yet supported (breakdowns/groups)
         ]
     )
-    @freeze_time("2020-01-01T12:00:00Z")
+    @time_machine.travel("2020-01-01T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
     def test_query_runner_group_aggregation_funnel_metric(self, name, use_precomputation):
         self._setup_precomputation_test(use_precomputation)
@@ -471,7 +471,7 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         ]
     )
     @snapshot_clickhouse_queries
-    @freeze_time("2020-01-01T12:00:00Z")
+    @time_machine.travel("2020-01-01T12:00:00Z", tick=False)
     def test_query_runner_with_persons_on_events_mode(self, name, persons_on_events_mode, filters, expected_results):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(
@@ -731,7 +731,7 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         # Test that UNION ALL query executes without error
         # The snapshot will verify the correct query structure
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
-        with freeze_time("2023-01-07"):
+        with time_machine.travel("2023-01-07", tick=False):
             result = query_runner.calculate()
 
         # Verify query completed successfully
@@ -833,7 +833,7 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
 
         # Execute query - should NOT fail with CHQueryErrorCannotInsertNullInOrdinaryColumn
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
-        with freeze_time("2023-01-07"):
+        with time_machine.travel("2023-01-07", tick=False):
             result = query_runner.calculate()
 
         # Verify query completed successfully without NULL errors
@@ -924,7 +924,7 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
 
         # Execute query - should NOT fail even with all NULLs
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
-        with freeze_time("2023-01-07"):
+        with time_machine.travel("2023-01-07", tick=False):
             result = query_runner.calculate()
 
         # Verify query completed successfully
@@ -1076,7 +1076,7 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
 
         # Execute query
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
-        with freeze_time("2023-01-07"):
+        with time_machine.travel("2023-01-07", tick=False):
             result = query_runner.calculate()
 
         # Verify NO fan-out occurred
@@ -1095,7 +1095,7 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
             ("precomputed", True),
         ]
     )
-    @freeze_time("2024-01-01T12:00:00Z")
+    @time_machine.travel("2024-01-01T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
     def test_funnel_metric_with_conversion_window(self, name, use_precomputation):
         self._setup_precomputation_test(use_precomputation)
@@ -1214,7 +1214,7 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
             ("precomputed", True),
         ]
     )
-    @freeze_time("2024-01-01T12:00:00Z")
+    @time_machine.travel("2024-01-01T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
     def test_funnel_metric_with_custom_conversion_window(self, name, use_precomputation):
         self._setup_precomputation_test(use_precomputation)
@@ -1346,7 +1346,7 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
             ("precomputed", True),
         ]
     )
-    @freeze_time("2024-01-01T12:00:00Z")
+    @time_machine.travel("2024-01-01T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
     def test_funnel_metric_with_action(self, name, use_precomputation):
         self._setup_precomputation_test(use_precomputation)
@@ -1461,7 +1461,7 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
             ("precomputed", True),
         ]
     )
-    @freeze_time("2024-01-01T12:00:00Z")
+    @time_machine.travel("2024-01-01T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
     def test_funnel_metric_with_many_steps(self, name, use_precomputation):
         self._setup_precomputation_test(use_precomputation)
@@ -1573,7 +1573,7 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
             ("precomputed", True),
         ]
     )
-    @freeze_time("2024-01-01T12:00:00Z")
+    @time_machine.travel("2024-01-01T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
     def test_funnel_metric_with_step_property_filter(self, name, use_precomputation):
         self._setup_precomputation_test(use_precomputation)
@@ -1706,7 +1706,7 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
             ("precomputed", True),
         ]
     )
-    @freeze_time("2024-01-01T12:00:00Z")
+    @time_machine.travel("2024-01-01T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
     def test_funnel_metric_with_multiple_similar_steps(self, name, use_precomputation):
         self._setup_precomputation_test(use_precomputation)
@@ -1860,7 +1860,7 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
             ("precomputed", True),
         ]
     )
-    @freeze_time("2024-01-01T12:00:00Z")
+    @time_machine.travel("2024-01-01T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
     def test_funnel_metric_with_unordered_steps(self, name, use_precomputation):
         self._setup_precomputation_test(use_precomputation)
@@ -1976,7 +1976,7 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
             # Skip precomputed - not yet supported (breakdowns/groups)
         ]
     )
-    @freeze_time("2024-01-01T12:00:00Z")
+    @time_machine.travel("2024-01-01T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
     def test_funnel_metric_ordered_vs_unordered_comparison(self, name, use_precomputation):
         """Test that ordered and unordered funnels behave differently when events are out of order"""
@@ -2173,7 +2173,7 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
             # Skip precomputed - not yet supported (breakdowns/groups)
         ]
     )
-    @freeze_time("2024-01-01T12:00:00Z")
+    @time_machine.travel("2024-01-01T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
     def test_funnel_metric_excludes_different_feature_flags(self, name, use_precomputation):
         """Test that users with $feature_flag_called events for different flags are excluded"""
@@ -2368,7 +2368,7 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
             # Skip precomputed - experiment end_date filtering not working correctly (TODO: fix)
         ]
     )
-    @freeze_time("2024-01-01T12:00:00Z")
+    @time_machine.travel("2024-01-01T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
     def test_funnel_metric_excludes_events_after_experiment_end_date(self, name, use_precomputation):
         """Test that funnel metric events after experiment end_date are excluded from results"""
@@ -2487,7 +2487,7 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
             ("unordered", StepOrderValue.UNORDERED),
         ]
     )
-    @freeze_time("2024-01-01T12:00:00Z")
+    @time_machine.travel("2024-01-01T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
     def test_funnel_metric_events_after_exposure(self, name, funnel_order_type):
         """Test that funnel metric events are only counted if they occur AFTER experiment exposure"""
@@ -2703,7 +2703,7 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
             ("precomputed", True),
         ]
     )
-    @freeze_time("2020-01-15T12:00:00Z")
+    @time_machine.travel("2020-01-15T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
     def test_only_count_matured_users(self, name, use_precomputation):
         self._setup_precomputation_test(use_precomputation)
@@ -2841,7 +2841,7 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
             ("precomputed", True),
         ]
     )
-    @freeze_time("2020-01-15T12:00:00Z")
+    @time_machine.travel("2020-01-15T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
     def test_maturity_anchored_on_first_exposure(self, name, use_precomputation):
         self._setup_precomputation_test(use_precomputation)

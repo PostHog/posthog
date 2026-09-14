@@ -3038,4 +3038,34 @@ describe('sqlEditorLogic', () => {
             await expectLogic(logic).toDispatchActions([logic.actionCreators.loadDatabase({ force: true })])
         })
     })
+
+    describe('upstream lineage', () => {
+        it('tags the graph with the view it was loaded for and drops it while the next load runs', async () => {
+            logic = sqlEditorLogic({ tabId: TAB_ID, monaco: createMockMonaco(), editor: createMockEditor() })
+            logic.mount()
+
+            await expectLogic(logic, () => logic.actions.loadUpstream('view-a')).toDispatchActions([
+                'loadUpstreamSuccess',
+            ])
+            expect(logic.values.upstream?.modelId).toBe('view-a')
+
+            logic.actions.loadUpstream('view-b')
+            expect(logic.values.upstream).toBeNull()
+            await expectLogic(logic).toDispatchActions(['loadUpstreamSuccess'])
+            expect(logic.values.upstream?.modelId).toBe('view-b')
+            expect(logic.values.upstreamLoadFailed).toBe(false)
+        })
+
+        it('clears the graph and flags the failure when the lineage request fails', async () => {
+            useMocks({ get: { '/api/environments/:team_id/data_modeling_nodes/lineage/': () => [500, {}] } })
+            logic = sqlEditorLogic({ tabId: TAB_ID, monaco: createMockMonaco(), editor: createMockEditor() })
+            logic.mount()
+
+            await expectLogic(logic, () => logic.actions.loadUpstream('view-a')).toDispatchActions([
+                'loadUpstreamFailure',
+            ])
+            expect(logic.values.upstream).toBeNull()
+            expect(logic.values.upstreamLoadFailed).toBe(true)
+        })
+    })
 })

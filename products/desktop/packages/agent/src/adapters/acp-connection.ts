@@ -161,6 +161,7 @@ function createClaudeConnection(config: AcpConnectionConfig): AcpConnection {
   const agentConnection = new AgentSideConnection((client) => {
     agent = new ClaudeAcpAgent(client, {
       ...config.processCallbacks,
+      startupLogger: logger.child("ClaudeInitialization"),
       onStructuredOutput: config.onStructuredOutput,
       posthogApiConfig: resolveEnricherApiConfig(config),
       gatewayEnv: config.claudeGatewayEnv,
@@ -250,6 +251,7 @@ function createCodexConnection(config: AcpConnectionConfig): AcpConnection {
       },
       model: codexOptions.model,
       reasoningEffort: codexOptions.reasoningEffort,
+      serviceTier: codexOptions.serviceTier,
       gatewayModels: config.codexModels,
       processCallbacks: config.processCallbacks,
       onStructuredOutput: config.onStructuredOutput,

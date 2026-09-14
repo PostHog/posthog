@@ -1,5 +1,4 @@
 import re
-import json
 import uuid
 import builtins
 import dataclasses
@@ -39,7 +38,7 @@ from posthog.api.fields import CoercedStringListField
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.property_value_metrics import PROPERTY_VALUES_DURATION
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.api.utils import action
+from posthog.api.utils import action, parse_actor_property_filters
 from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.constants import LIMIT, OFFSET
@@ -649,14 +648,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner  # noqa: PLC0415
 
-        person_properties: list[dict] = []
-        raw_properties = request.GET.get("properties")
-        if raw_properties:
-            for prop in json.loads(raw_properties):
-                # Legacy person filters default to the "exact" operator; ActorsQuery requires it explicitly.
-                if prop.get("type") != "cohort":
-                    prop.setdefault("operator", "exact")
-                person_properties.append(prop)
+        person_properties: list[dict] = parse_actor_property_filters(request.GET.get("properties"))
         if filter.email:
             person_properties.append({"type": "person", "key": "email", "value": filter.email, "operator": "exact"})
 

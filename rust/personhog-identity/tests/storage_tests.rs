@@ -564,6 +564,86 @@ async fn deleted_person_is_revived_above_the_tombstone_on_recreate() {
     ctx.cleanup().await.ok();
 }
 
+/// A tombstone under a live lifecycle mark refuses revival (LostRace);
+/// once the mark finishes, the recreate revives normally.
+#[tokio::test]
+async fn a_tombstone_under_a_live_lifecycle_mark_does_not_revive() {
+    let ctx = TestContext::new().await;
+
+    let first = ctx
+        .storage
+        .create_person_stubs(&[stub(&ctx, "marked-dead", &[])])
+        .await
+        .expect("first create should succeed");
+    let [StubOutcome::Committed { person, .. }] = &first[..] else {
+        panic!("expected committed outcome");
+    };
+    let person_id = person.id;
+
+    ctx.tombstone_person(person_id, 7).await;
+    ctx.tombstone_distinct_id("marked-dead", 3).await;
+    let op = uuid::Uuid::now_v7();
+    sqlx::query(
+        "INSERT INTO lifecycle_op (op_id, op_type, team_id, step, request) \
+         VALUES ($1, 'delete', $2, 'sealed', '{}'::jsonb)",
+    )
+    .bind(op)
+    .bind(ctx.team_id as i32)
+    .execute(&ctx.pool)
+    .await
+    .expect("insert op");
+    sqlx::query(
+        "INSERT INTO lifecycle_op_person (op_id, team_id, person_id, person_uuid, role, status) \
+         VALUES ($1, $2, $3, gen_random_uuid(), 'victim', 'sealed')",
+    )
+    .bind(op)
+    .bind(ctx.team_id as i32)
+    .bind(person_id)
+    .execute(&ctx.pool)
+    .await
+    .expect("insert mark");
+
+    let refused = ctx
+        .storage
+        .create_person_stubs(&[stub(&ctx, "marked-dead", &[])])
+        .await
+        .expect("create should succeed");
+    assert!(
+        matches!(refused[..], [StubOutcome::LostRace]),
+        "a live mark refuses revival, got {refused:?}"
+    );
+    let resolved = ctx
+        .storage
+        .resolve_distinct_ids(&[(ctx.team_id, "marked-dead".to_string())])
+        .await
+        .expect("resolve should succeed");
+    assert!(resolved.is_empty(), "the tombstone stays tombstoned");
+
+    // The saga finished; the mark is no longer live.
+    sqlx::query("UPDATE lifecycle_op_person SET status = 'deleted' WHERE op_id = $1")
+        .bind(op)
+        .execute(&ctx.pool)
+        .await
+        .expect("finish mark");
+    let second = ctx
+        .storage
+        .create_person_stubs(&[stub(&ctx, "marked-dead", &[])])
+        .await
+        .expect("recreate should succeed");
+    let [StubOutcome::Committed { person, created }] = &second[..] else {
+        panic!("expected committed outcome, got {second:?}");
+    };
+    assert!(created);
+    assert_eq!(person.id, person_id, "revival keeps the row");
+
+    sqlx::query("DELETE FROM lifecycle_op WHERE op_id = $1")
+        .bind(op)
+        .execute(&ctx.pool)
+        .await
+        .ok();
+    ctx.cleanup().await.ok();
+}
+
 /// A revived stub that loses the mapping race must be re-tombstoned, not
 /// hard-deleted: the tombstones predate this transaction and deleting them
 /// would reopen the version-0-resurrection hole for the next recreate.

@@ -5,6 +5,7 @@ import requests
 
 from posthog.schema import SourceFieldSelectConfig
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.googlesearchconsole import (
     GoogleSearchConsoleSourceConfig,
 )
@@ -191,6 +192,22 @@ def test_missing_integration_is_non_retryable():
 
 
 @pytest.mark.parametrize(
+    "error_message",
+    [
+        # The three `GoogleSearchConsoleQuotaExceededError` messages raised by `_query_search_analytics`
+        # once its in-line quota retries run out. Each carries the `(retryable)` marker so the resumable
+        # source resumes on the next Temporal retry instead of tracking the quota exhaustion as a bug.
+        "Search Analytics daily quota for 'sc-domain:example.com' exhausted; retrying at the activity level (retryable)",
+        "Search Analytics quota for 'sc-domain:example.com' still exhausted after 3 retries (retryable)",
+        "Search Analytics quota for 'sc-domain:example.com' exhausted (retryable)",
+    ],
+)
+def test_exhausted_quota_is_retryable(error_message):
+    retryable_errors = GoogleSearchConsoleSource().get_retryable_errors()
+    assert error_message_matches(error_message, retryable_errors)
+
+
+@pytest.mark.parametrize(
     "status_code,body,expected_substring",
     [
         (401, {}, "Reconnect your Google account"),
@@ -320,6 +337,23 @@ def test_validate_credentials_rejects_unknown_site():
 
     assert ok is False
     assert "is not visible to the connected Google account" in (message or "")
+
+
+def test_validate_credentials_says_to_reconnect_when_account_owns_no_property():
+    with (
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.google_search_console.source.google_search_console_session"
+        ),
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.google_search_console.source.list_sites",
+            return_value=[],
+        ),
+    ):
+        ok, message = GoogleSearchConsoleSource().validate_credentials(_config(), team_id=1)
+
+    assert ok is False
+    assert "can't read any Search Console property" in (message or "")
+    assert "is not visible to the connected Google account" not in (message or "")
 
 
 def test_validate_credentials_suggests_registered_property_for_bare_hostname():

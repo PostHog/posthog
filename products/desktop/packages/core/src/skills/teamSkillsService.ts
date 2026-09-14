@@ -159,6 +159,16 @@ export class TeamSkillsService {
     name: string,
   ): Promise<ExportedSkill> {
     const detail = await client.getLlmSkillByName(name);
+    // A short body would silently replace an installed skill with truncated
+    // instructions, so refuse the install instead of writing it.
+    if (
+      detail.body_total_length != null &&
+      detail.body.length !== detail.body_total_length
+    ) {
+      throw new Error(
+        `Only part of "${name}" arrived from PostHog, so it was not installed. Try again.`,
+      );
+    }
     // Ignored entries in legacy-published skills are dropped downstream
     // anyway; skipping the fetch avoids one request per junk file.
     const files = await Promise.all(

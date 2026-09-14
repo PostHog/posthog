@@ -16,7 +16,7 @@ from products.conversations.backend.support_teams import (
     refresh_graph_token,
     store_teams_service_url,
 )
-from products.conversations.backend.tasks import (
+from products.conversations.backend.tasks.teams import (
     _sync_shared_channel_thread_replies,
     poll_team_shared_channels,
     poll_teams_shared_channels,
@@ -119,10 +119,10 @@ class TestGraphReplyToActivity(BaseTest):
         self.assertEqual(activity["conversation"]["id"], f"{CHANNEL_ID};messageid=root-1")
 
 
-@patch("products.conversations.backend.tasks._sync_shared_channel_thread_replies")
+@patch("products.conversations.backend.tasks.teams._sync_shared_channel_thread_replies")
 @patch("products.conversations.backend.teams.requests.post", return_value=_resp(status_code=201))
 @patch("products.conversations.backend.teams.resolve_teams_user", return_value={"name": "Alice", "email": None})
-@patch("products.conversations.backend.tasks.get_graph_token", return_value="graph-token")
+@patch("products.conversations.backend.tasks.teams.get_graph_token", return_value="graph-token")
 class TestPollSharedChannel(BaseTest):
     def setUp(self) -> None:
         super().setUp()
@@ -151,7 +151,7 @@ class TestPollSharedChannel(BaseTest):
     def _sync(self) -> TeamConversationsTeamsChannelSync:
         return TeamConversationsTeamsChannelSync.objects.for_team(self.team.id).get(channel_id=CHANNEL_ID)
 
-    @patch("products.conversations.backend.tasks.requests.get")
+    @patch("products.conversations.backend.tasks.teams.requests.get")
     def test_first_run_primes_without_creating_tickets(self, mock_get: MagicMock, *_: Any) -> None:
         mock_get.side_effect = [
             _channel_verify_resp(),
@@ -165,7 +165,7 @@ class TestPollSharedChannel(BaseTest):
         self.assertTrue(sync.primed)
         self.assertEqual(sync.delta_link, "DELTA1")
 
-    @patch("products.conversations.backend.tasks.requests.get")
+    @patch("products.conversations.backend.tasks.teams.requests.get")
     def test_second_run_creates_one_ticket_and_is_idempotent(self, mock_get: MagicMock, *_: Any) -> None:
         # Prime (first call = verify, second = delta).
         mock_get.side_effect = [
@@ -187,7 +187,7 @@ class TestPollSharedChannel(BaseTest):
         poll_team_shared_channels(self.team.id)
         self.assertEqual(Ticket.objects.filter(team=self.team).count(), 1)
 
-    @patch("products.conversations.backend.tasks.requests.get")
+    @patch("products.conversations.backend.tasks.teams.requests.get")
     def test_polled_ticket_uses_service_url_from_config(self, mock_get: MagicMock, *_: Any) -> None:
         TeamConversationsTeamsConfig.objects.filter(team=self.team).update(teams_service_url=TRUSTED_SERVICE_URL)
         mock_get.side_effect = [
@@ -203,7 +203,7 @@ class TestPollSharedChannel(BaseTest):
         ticket = Ticket.objects.filter(team=self.team).get()
         self.assertEqual(ticket.teams_service_url, TRUSTED_SERVICE_URL)
 
-    @patch("products.conversations.backend.tasks.requests.get")
+    @patch("products.conversations.backend.tasks.teams.requests.get")
     def test_pagination_follows_next_link(self, mock_get: MagicMock, *_: Any) -> None:
         # Prime first (verify + delta).
         mock_get.side_effect = [
@@ -221,7 +221,7 @@ class TestPollSharedChannel(BaseTest):
         self.assertEqual(Ticket.objects.filter(team=self.team).count(), 2)
         self.assertEqual(self._sync().delta_link, "DELTA_FINAL")
 
-    @patch("products.conversations.backend.tasks.requests.get")
+    @patch("products.conversations.backend.tasks.teams.requests.get")
     def test_410_resets_state_for_reprime(self, mock_get: MagicMock, *_: Any) -> None:
         mock_get.side_effect = [
             _channel_verify_resp(),
@@ -239,7 +239,7 @@ class TestPollSharedChannel(BaseTest):
         self.assertIsNone(sync.delta_link)
 
     @parameterized.expand([("payment", 402), ("forbidden", 403), ("throttled", 429)])
-    @patch("products.conversations.backend.tasks.requests.get")
+    @patch("products.conversations.backend.tasks.teams.requests.get")
     def test_error_statuses_skip_without_crashing(
         self, _name: str, status_code: int, mock_get: MagicMock, *_: Any
     ) -> None:
@@ -255,7 +255,7 @@ class TestPollSharedChannel(BaseTest):
         poll_team_shared_channels(self.team.id)
         self.assertEqual(Ticket.objects.filter(team=self.team).count(), 0)
 
-    @patch("products.conversations.backend.tasks.requests.get")
+    @patch("products.conversations.backend.tasks.teams.requests.get")
     def test_unknown_future_value_passes_verification(self, mock_get: MagicMock, *_: Any) -> None:
         # Graph reports shared channels as "unknownFutureValue" in some tenants — must still poll.
         mock_get.side_effect = [
@@ -266,7 +266,7 @@ class TestPollSharedChannel(BaseTest):
         self.assertTrue(self._sync().primed)
 
     @parameterized.expand([("standard", "standard"), ("private", "private")])
-    @patch("products.conversations.backend.tasks.requests.get")
+    @patch("products.conversations.backend.tasks.teams.requests.get")
     def test_non_shared_channel_is_rejected_and_sync_deleted(
         self, _name: str, membership_type: str, mock_get: MagicMock, *_: Any
     ) -> None:
@@ -277,7 +277,7 @@ class TestPollSharedChannel(BaseTest):
             TeamConversationsTeamsChannelSync.objects.for_team(self.team.id).filter(channel_id=CHANNEL_ID).exists()
         )
 
-    @patch("products.conversations.backend.tasks.requests.get")
+    @patch("products.conversations.backend.tasks.teams.requests.get")
     def test_confirmation_card_posted_via_graph_for_polled_ticket(
         self, mock_get: MagicMock, _token: MagicMock, _resolve: MagicMock, mock_post: MagicMock, *_: Any
     ) -> None:
@@ -300,7 +300,7 @@ class TestPollSharedChannel(BaseTest):
 
 @patch("products.conversations.backend.teams.requests.post", return_value=_resp(status_code=201))
 @patch("products.conversations.backend.teams.resolve_teams_user", return_value={"name": "Alice", "email": None})
-@patch("products.conversations.backend.tasks.get_graph_token", return_value="graph-token")
+@patch("products.conversations.backend.tasks.teams.get_graph_token", return_value="graph-token")
 class TestPollSharedChannelThreadReplies(BaseTest):
     def setUp(self) -> None:
         super().setUp()
@@ -326,7 +326,7 @@ class TestPollSharedChannelThreadReplies(BaseTest):
             },
         )
 
-    @patch("products.conversations.backend.tasks.requests.get")
+    @patch("products.conversations.backend.tasks.teams.requests.get")
     def test_thread_reply_ingested_from_graph_replies(self, mock_get: MagicMock, *_: Any) -> None:
         from datetime import UTC, datetime
 
@@ -395,7 +395,7 @@ class TestPollSharedChannelThreadReplies(BaseTest):
         ticket.save(update_fields=["teams_thread_replies_synced_at"])
         return ticket
 
-    @patch("products.conversations.backend.tasks.requests.get")
+    @patch("products.conversations.backend.tasks.teams.requests.get")
     def test_reply_with_mismatched_reply_to_id_is_ingested(self, mock_get: MagicMock, *_: Any) -> None:
         from posthog.models.comment import Comment
 
@@ -420,7 +420,7 @@ class TestPollSharedChannelThreadReplies(BaseTest):
 
         self.assertEqual(Comment.objects.filter(team=self.team, item_id=str(ticket.id)).count(), 2)
 
-    @patch("products.conversations.backend.tasks.requests.get")
+    @patch("products.conversations.backend.tasks.teams.requests.get")
     def test_reply_within_watermark_lookback_is_ingested(self, mock_get: MagicMock, *_: Any) -> None:
         from datetime import UTC, datetime
 
@@ -451,7 +451,7 @@ class TestPollSharedChannelThreadReplies(BaseTest):
 
         self.assertEqual(Comment.objects.filter(team=self.team, item_id=str(ticket.id)).count(), 2)
 
-    @patch("products.conversations.backend.tasks.requests.get")
+    @patch("products.conversations.backend.tasks.teams.requests.get")
     def test_reply_dedupe_holds_across_runs(self, mock_get: MagicMock, *_: Any) -> None:
         from posthog.models.comment import Comment
 
@@ -476,8 +476,8 @@ class TestPollSharedChannelThreadReplies(BaseTest):
 
         self.assertEqual(Comment.objects.filter(team=self.team, item_id=str(ticket.id)).count(), 2)
 
-    @patch("products.conversations.backend.tasks.TEAMS_REPLIES_MAX_TICKETS_PER_CHANNEL", 0)
-    @patch("products.conversations.backend.tasks.requests.get")
+    @patch("products.conversations.backend.tasks.teams.TEAMS_REPLIES_MAX_TICKETS_PER_CHANNEL", 0)
+    @patch("products.conversations.backend.tasks.teams.requests.get")
     def test_delta_surfaced_ticket_synced_outside_round_robin(self, mock_get: MagicMock, *_: Any) -> None:
         from posthog.models.comment import Comment
 
@@ -671,7 +671,7 @@ class TestPollFanout(BaseTest):
             ("private", "private", False),
         ]
     )
-    @patch("products.conversations.backend.tasks.poll_team_shared_channels.delay")
+    @patch("products.conversations.backend.tasks.teams.poll_team_shared_channels.delay")
     def test_fanout_by_membership_type(
         self, _name: str, membership_type: str, should_fan_out: bool, mock_delay: MagicMock
     ) -> None:

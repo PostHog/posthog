@@ -113,7 +113,7 @@ posthog-code://inbox
 posthog-code://inbox/report_abc123
 ```
 
-### `posthog-code://scout/<skillSlug>`
+### `posthog-code://scout/<skillName>`
 
 Open a scout's detail page, optionally focused on a specific finding (expanded
 and scrolled into view). This is the link copied by the "Share" CTA on a scout
@@ -121,12 +121,12 @@ emission card.
 
 | Segment / Parameter | Required | Description |
 |---|---|---|
-| `<skillSlug>` | Yes | Scout route slug, i.e. the skill name with the `signals-scout-` prefix stripped (e.g. `error-tracking`) |
+| `<skillName>` | Yes | Full scout skill name (e.g. `signals-scout-error-tracking`, or a bare name such as `my-churn-watch`). Older links carrying the name with the `signals-scout-` prefix stripped still resolve. |
 | `finding` | No | Emission id to expand and scroll to. Best effort – only resolves while the finding is still inside the scout's runs window. |
 
 ```
-posthog-code://scout/error-tracking
-posthog-code://scout/error-tracking?finding=abc123
+posthog-code://scout/signals-scout-error-tracking
+posthog-code://scout/my-churn-watch?finding=abc123
 ```
 
 ### `posthog-code://loop/<loopId>`

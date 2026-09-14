@@ -62,6 +62,8 @@ class HogFunctionType(models.TextChoices):
     SITE_APP = "site_app"
     TRANSFORMATION = "transformation"
     TRANSFORMATION_LOG = "transformation_log"
+    # Run inline by CdpLegacyEventsConsumer, never by a cyclotron worker
+    LEGACY_DESTINATION = "legacy_destination"
 
 
 TYPES_THAT_RELOAD_PLUGIN_SERVER = (
@@ -71,6 +73,7 @@ TYPES_THAT_RELOAD_PLUGIN_SERVER = (
     HogFunctionType.INTERNAL_DESTINATION,
     HogFunctionType.SOURCE_WEBHOOK,
     HogFunctionType.WAREHOUSE_SOURCE_WEBHOOK,
+    HogFunctionType.LEGACY_DESTINATION,
 )
 TYPES_WITH_TRANSPILED_FILTERS = (HogFunctionType.SITE_DESTINATION, HogFunctionType.SITE_APP)
 TYPES_WITH_JAVASCRIPT_SOURCE = (HogFunctionType.SITE_DESTINATION, HogFunctionType.SITE_APP)

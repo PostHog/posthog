@@ -3,7 +3,7 @@ from datetime import UTC, date, datetime, timedelta, timezone
 from typing import Any
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from unittest import mock
 
 import requests
@@ -96,24 +96,24 @@ class TestFormatSinceValue:
 
 
 class TestClampFutureValueToNow:
-    @freeze_time("2026-06-15T12:00:00Z")
+    @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
     def test_future_datetime_is_clamped(self) -> None:
         assert _clamp_future_value_to_now(datetime(2027, 2, 5, 21, 46, 42, tzinfo=UTC)) == datetime(
             2026, 6, 15, 12, 0, 0, tzinfo=UTC
         )
 
-    @freeze_time("2026-06-15T12:00:00Z")
+    @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
     def test_naive_future_datetime_is_clamped(self) -> None:
         assert _clamp_future_value_to_now(datetime(2027, 2, 5, 21, 46, 42)) == datetime(
             2026, 6, 15, 12, 0, 0, tzinfo=UTC
         )
 
-    @freeze_time("2026-06-15T12:00:00Z")
+    @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
     def test_past_datetime_is_unchanged(self) -> None:
         value = datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC)
         assert _clamp_future_value_to_now(value) == value
 
-    @freeze_time("2026-06-15T12:00:00Z")
+    @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
     def test_future_date_is_clamped(self) -> None:
         assert _clamp_future_value_to_now(date(2027, 2, 5)) == date(2026, 6, 15)
 
@@ -177,7 +177,7 @@ class TestRequestParams:
         assert snapshots[0]["params"]["since"] == "2026-03-04T02:58:14Z"
 
     @mock.patch(SESSION_PATCH)
-    @freeze_time("2026-06-15T12:00:00Z")
+    @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
     def test_future_watermark_is_clamped_to_now(self, MockSession) -> None:
         session = MockSession.return_value
         snapshots = _wire(session, [_response({"parties": []})])

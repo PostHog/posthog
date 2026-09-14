@@ -93,9 +93,11 @@ class DeletionTarget:
     node_role: NodeRole = NodeRole.DATA
     # Guarded on system.tables: the table sits behind a migration that may not have run everywhere.
     optional: bool = False
-    # The schema a HogQL predicate compiles against here, None where no HogQL table definition
-    # exists. A compiled fragment names physical columns (mat_*, the property-group maps, or JSON
-    # subcolumns), so it only runs against the schema it was compiled for.
+    # Which events-schema variant compile_hogql_predicate emits for this table, None where no
+    # variant is known to run against its physical columns. Every predicate resolves against the
+    # events HogQL table, and the only choice is legacy versus native-JSON. A fragment names
+    # physical columns (mat_*, the property-group maps, or JSON subcolumns), so it only runs
+    # against the schema it was compiled for.
     hogql_schema: HogQLSchema | None = None
     # properties/person_properties can be rewritten in place. True needs both halves: the property
     # columns are DEFAULT-kind (assignable by ALTER UPDATE, as materialize() mints them), and the
@@ -103,12 +105,29 @@ class DeletionTarget:
     # table, which today is hardcoded to the events tables. flag_evaluations satisfies only the
     # schema half, so flipping this without extending the sweep silently under-deletes.
     accepts_property_rewrite: bool = False
+    # Whether the property-removal gate may build a person_properties predicate here. False where
+    # the column has been dropped out of band on PostHog Cloud, which makes the predicate an
+    # unknown-identifier error rather than a count. The flag narrows the gate on every deployment
+    # regardless of whether the column is actually present there. The cost is a blind spot: rows
+    # this table stored before its producer stopped sending person_properties hold real values
+    # wherever the column survives, and this gate no longer sees them. Bounded by the table's TTL;
+    # see COVERAGE_DOC.
+    # accepts_property_rewrite=True implies this must stay True too, since the rewrite assumes the
+    # column holds real data; __post_init__ below enforces that pairing.
+    stores_person_properties: bool = True
     # Read uuids from this table when queueing a deferred deletion. False where the rows duplicate
     # another target's uuids, which would queue each one twice.
     queue_uuid_candidates: bool = True
     # The event names this table can hold, None meaning unconstrained. Lets a request naming other
     # events skip this table without querying it.
     stored_events: frozenset[str] | None = None
+
+    def __post_init__(self) -> None:
+        if self.accepts_property_rewrite and not self.stores_person_properties:
+            raise ValueError(
+                f"{self.data_table}: accepts_property_rewrite needs stores_person_properties, "
+                f"because the rewrite writes the person_properties column back. See {COVERAGE_DOC}."
+            )
 
     @property
     def cluster_name(self) -> str:
@@ -166,15 +185,17 @@ EVENTS_JSON = DeletionTarget(
     queue_uuid_candidates=False,
 )
 
-# Flag-evaluation telemetry carries the same person and group payload as events, so person, team
-# and queued-uuid sweeps must reach it. It takes neither of the richer sweeps; both exclusions are
-# explained in docs/internal/clickhouse-deletion-coverage.md. Its producer populates person_id
-# exactly as the events pipeline does, so a person sweep matches on person_id like every other
-# events-shaped table.
+# Flag-evaluation telemetry carries the same person_id and group payload as events, so team and
+# queued-uuid sweeps must reach it, and a person sweep matches on person_id like every other
+# events-shaped table. Its producer stopped sending person_properties on 2026-09-05 (#95693); a row
+# the table stored before then is out of the property-removal gate's reach until its TTL passes. It
+# takes neither of the richer sweeps; both exclusions are explained in
+# docs/internal/clickhouse-deletion-coverage.md.
 FLAG_EVALUATIONS = DeletionTarget(
     data_table=FLAG_EVALUATIONS_DATA_TABLE,
     read_table=FLAG_EVALUATIONS_TABLE,
     optional=True,
+    stores_person_properties=False,
     stored_events=frozenset({FLAG_EVALUATIONS_SOURCE_EVENT}),
 )
 
@@ -187,7 +208,7 @@ PERSONAL_DATA_TARGETS: tuple[DeletionTarget, ...] = (*EVENTS_TARGETS, FLAG_EVALU
 # sharded_events_recent is a transient mirror of the last few days of events, on a 7-day TTL keyed
 # on inserted_at. Seven days is a short enough window to accept as the erasure bound, and a sweep
 # would race the TTL for little benefit.
-TTL_ONLY_TABLES: frozenset[str] = frozenset({SHARDED_EVENTS_RECENT_DATA_TABLE()})
+TTL_ONLY_TABLES: frozenset[str] = frozenset({SHARDED_EVENTS_RECENT_DATA_TABLE(), "person_property_mutation_log_data"})
 
 
 _TABLE_EXISTS_SQL = "SELECT count() FROM system.tables WHERE database = %(database)s AND name = %(name)s"
@@ -387,8 +408,7 @@ def count_surviving_rows(cluster: ClickhouseCluster, target: DeletionTarget, pre
 def assert_no_unsweepable_rows(
     cluster: ClickhouseCluster,
     targets: Sequence[DeletionTarget],
-    predicate: str,
-    params: dict,
+    predicate_for: Callable[[DeletionTarget], tuple[str, dict] | None],
     *,
     events: Sequence[str],
     reason: str,
@@ -397,8 +417,10 @@ def assert_no_unsweepable_rows(
 
     Pass targets already narrowed by ``resolve_targets``; this does not re-check presence.
 
-    ``predicate`` must be the portable part of the criteria — no HogQL fragment, no
-    materialized-column arms — so the count is a superset of what the deletion would have removed.
+    ``predicate_for`` returns the criteria to count on a target, or ``None`` to skip it.
+    The criteria carry no HogQL fragment and no materialized-column arms, so each count is a
+    superset of what the deletion would have removed. A caller may drop a criterion the target
+    cannot hold, and the count is then a superset of the remainder.
     ``events`` is the request's event filter, empty meaning every event.
 
     Deliberately gated on rows existing rather than on the request's shape: an unconditional
@@ -408,6 +430,11 @@ def assert_no_unsweepable_rows(
     for target in targets:
         if not target.may_hold_any_of(events):
             continue
+
+        criteria = predicate_for(target)
+        if criteria is None:
+            continue
+        predicate, params = criteria
 
         count = count_surviving_rows(cluster, target, predicate, params)
         if count:

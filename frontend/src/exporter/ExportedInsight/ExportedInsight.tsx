@@ -20,7 +20,7 @@ import { InsightsTable } from 'scenes/insights/views/InsightsTable/InsightsTable
 import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
 import { Query } from '~/queries/Query/Query'
 import { SharingConfigurationSettings } from '~/queries/schema/schema-general'
-import { getDisplay, isDataTableNode, isInsightVizNode, isTrendsQuery } from '~/queries/utils'
+import { getDisplay, isDataTableNode, isInsightVizNode, isMetricInsightQuery, isTrendsQuery } from '~/queries/utils'
 import { ChartDisplayType, DataColorThemeModel, InsightLogicProps, InsightModel } from '~/types'
 
 export function ExportedInsight({
@@ -34,7 +34,7 @@ export function ExportedInsight({
 }): JSX.Element {
     useMountedLogic(dataThemeLogic({ themes }))
 
-    const insight = getQueryBasedInsightModel(legacyInsight)
+    const insight = getQueryBasedInsightModel(legacyInsight, 'exported_insight')
     // getQueryBasedInsightModel returns the caller's query object by reference — clone it so the
     // export-only tweaks below (legend settings, table editing controls) can't leak into a shared model.
     insight.query = insight.query ? structuredClone(insight.query) : insight.query
@@ -59,7 +59,7 @@ export function ExportedInsight({
     // legend layout here as the chart they get normalized to.
     const trendsDisplay = isInsightVizNode(query) && isTrendsQuery(query.source) ? getDisplay(query.source) : undefined
     const isBoxPlot = trendsDisplay === ChartDisplayType.BoxPlot
-    const isMetric = trendsDisplay === ChartDisplayType.Metric
+    const isMetric = isMetricInsightQuery(query)
     const showLegend =
         legend &&
         isInsightVizNode(query) &&

@@ -22,10 +22,10 @@ use personhog_proto::personhog::types::v1::{Person as ProtoPerson, UpdatePersonP
 use crate::leader::PropertyWriter;
 use crate::lifecycle::engine::OpRow;
 use crate::lifecycle::merge::{
-    record_outcome_count, MergeOpExecutor, MergeOutcome, MergeRequest, MergeSourceEntry,
-    MergeSourceRecord, OP_TYPE_MERGE, OUTCOME_ERROR, OUTCOME_MERGED, OUTCOME_NOOP_SAME_PERSON,
-    OUTCOME_SKIPPED_ALREADY_IDENTIFIED, OUTCOME_SKIPPED_CONFLICT, OUTCOME_SKIPPED_MOVE_LIMIT,
-    OUTCOME_SKIPPED_REFUSED,
+    record_conflict, record_outcome_count, MergeOpExecutor, MergeOutcome, MergeRequest,
+    MergeSourceEntry, MergeSourceRecord, OP_TYPE_MERGE, OUTCOME_ERROR, OUTCOME_MERGED,
+    OUTCOME_NOOP_SAME_PERSON, OUTCOME_SKIPPED_ALREADY_IDENTIFIED, OUTCOME_SKIPPED_CONFLICT,
+    OUTCOME_SKIPPED_MOVE_LIMIT, OUTCOME_SKIPPED_REFUSED,
 };
 use crate::lifecycle::validation::{
     is_distinct_id_illegal, is_distinct_id_oversized, validate_merge_persons,
@@ -193,7 +193,10 @@ impl MergeEntrance {
                     {
                         OUTCOME_ATTACHED
                     }
-                    Some(AttachOutcome::AlreadyMapped { .. }) | None => OUTCOME_SKIPPED_CONFLICT,
+                    Some(AttachOutcome::AlreadyMapped { .. }) | None => {
+                        record_conflict("attach_race", 1);
+                        OUTCOME_SKIPPED_CONFLICT
+                    }
                 };
                 inline_results.insert(did, outcome.to_string());
             }

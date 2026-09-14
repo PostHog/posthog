@@ -58,7 +58,7 @@ else
     [ -d "$DUMPS/$env" ] || { echo "== $env: no dumps in $DUMPS, skipping =="; continue; }
 
     json="$("$HCLEXP" plan -manifest "$MANIFEST" -env "$env" -layer-root "$HCL" \
-              -dump "$DUMPS/$env" -exclude "$HCL/exclude.hcl" -format json 2>/dev/null)" || {
+              -dump "$DUMPS/$env" -exclude "$HCL/exclude.hcl" -ignore-column-order -format json 2>/dev/null)" || {
       echo "FAIL: plan $env against $DUMPS/$env"; rc=1; continue
     }
 

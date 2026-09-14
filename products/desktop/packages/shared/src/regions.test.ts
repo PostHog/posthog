@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { configureCustomCloud } from "./custom-cloud";
 import {
   getOauthClientIdFromRegion,
   POSTHOG_DEV_CLIENT_ID,
@@ -6,8 +7,22 @@ import {
   POSTHOG_EU_CLIENT_ID,
   POSTHOG_US_CLIENT_ID,
 } from "./oauth";
-import { CLOUD_REGIONS, formatRegionBadge, REGION_LABELS } from "./regions";
+import {
+  CLOUD_REGIONS,
+  describeRegion,
+  formatRegionBadge,
+  REGION_LABELS,
+} from "./regions";
 import { getCloudUrlFromRegion } from "./urls";
+
+beforeEach(() => {
+  vi.stubEnv("POSTHOG_CUSTOM_CLOUD_URL", "");
+});
+
+afterEach(() => {
+  configureCustomCloud(null);
+  vi.unstubAllEnvs();
+});
 
 describe("getCloudUrlFromRegion", () => {
   it("maps each region to its cloud URL", () => {
@@ -30,14 +45,48 @@ describe("getOauthClientIdFromRegion", () => {
     );
   });
 
-  it("uses a different client id per region", () => {
+  it("uses a different client id per built-in region", () => {
     const ids = new Set([
       getOauthClientIdFromRegion("us"),
       getOauthClientIdFromRegion("eu"),
       getOauthClientIdFromRegion("dev"),
       getOauthClientIdFromRegion("dev-cloud"),
     ]);
-    expect(ids.size).toBe(CLOUD_REGIONS.length);
+    expect(ids.size).toBe(4);
+  });
+
+  it("has no built-in client id for the custom region", () => {
+    expect(getOauthClientIdFromRegion("custom")).toBe("");
+  });
+});
+
+describe("a configured custom cloud", () => {
+  beforeEach(() => {
+    configureCustomCloud({
+      url: "https://posthog.example.com",
+      oauthClientId: "custom-client-id",
+    });
+  });
+
+  it("serves the custom region only", () => {
+    expect(getCloudUrlFromRegion("custom")).toBe("https://posthog.example.com");
+    expect(getOauthClientIdFromRegion("custom")).toBe("custom-client-id");
+    expect(getCloudUrlFromRegion("dev")).toBe("http://localhost:8010");
+    expect(getOauthClientIdFromRegion("dev")).toBe(POSTHOG_DEV_CLIENT_ID);
+    expect(getCloudUrlFromRegion("us")).toBe("https://us.posthog.com");
+    expect(getCloudUrlFromRegion("eu")).toBe("https://eu.posthog.com");
+    expect(getCloudUrlFromRegion("dev-cloud")).toBe(
+      "https://app.dev.posthog.dev",
+    );
+    expect(getOauthClientIdFromRegion("us")).toBe(POSTHOG_US_CLIENT_ID);
+  });
+
+  it("labels the custom region with its host", () => {
+    expect(describeRegion("custom")).toMatchObject({
+      label: "Custom",
+      hint: "posthog.example.com",
+    });
+    expect(describeRegion("dev")).toEqual(REGION_LABELS.dev);
   });
 });
 

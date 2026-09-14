@@ -106,6 +106,9 @@ These cross the boundary as classes — allowed only under all three rules:
    A test whose kind the scan cannot read statically counts as `drives(unresolved-kind)` against every query location it could reach, so an unreadable spelling holds the inputs instead of releasing them in silence.
    `hogli product:lint` keeps the location in the inputs while a line for it stands, and lets it go when none does.
    Nothing is declared. Move the driving tests into the product, regenerate the baseline, and the input may leave.
+   A location with several subtrees may be watched one subtree at a time.
+   `product_analytics` watches `backend/hogql_queries/trends/` alone, because trends is the only subtree an outside test still drives, so its funnels, retention, lifecycle, paths and stickiness runners change without re-running the suite.
+   The lint reads coverage per location rather than per subtree, so it cannot hold that scope; the repo invariant `test_product_analytics_drives_only_the_watched_subtree` does, and it fails when a line names code outside the watched subtree.
    The other locations stay in the inputs by presence until their channel (Celery task names, Temporal workflow names, Max tool names) is read the same way.
 3. **Validated registration.**
    Registration points check `issubclass(cls, Base)` and reject anything else.
@@ -176,6 +179,11 @@ A count must not go up.
 A use that goes away must leave the file in the same change.
 Run `hogli product:crossings <product>` to see the uses of one product's classes.
 Run `hogli product:crossings --all --write-baseline` to record a decrease.
+
+**The baseline only shrinks.**
+`--write-baseline` refuses to write when the scan holds a line the file does not, prints those lines, and changes nothing, so a new coupling cannot enter by regenerating.
+A coupling that must stand is a hand-edited line in the baseline plus a note here that says why it stands.
+Both are in the diff, which is what a reviewer reads; a regenerated line is not.
 
 **What the check cannot see.**
 The check reads uses of the class name, plus `get_model` string references.
@@ -533,7 +541,7 @@ Django auto-generates a reverse accessor (`project.visualreview_set`), a reverse
 
 **Rule:** declare every relation field (FK, O2O, M2M) that crosses a product boundary with `related_name="+"`, and do not set an explicit `related_query_name` on it. `related_name="+"` alone removes the reverse accessor and the reverse query name; an explicit `related_query_name` keeps `filter()` traversal alive, and the ratchet records it as a `query:<name>` row. A product may point relations _at_ core models; other products must not reference models _inside_ this product. When a caller needs reverse access, add a facade read function — do not traverse the ORM.
 
-A repo invariant enforces this: every cross-boundary reverse accessor is frozen as a `reverse-accessor(...)` line in `products/model_crossing_uses_baseline.txt`, next to the other crossing kinds. The set may only shrink. A new relation without `related_name="+"` fails CI until you seal it or a review adds a baseline line. Regenerate with `bin/hogli product:crossings --all --write-baseline`.
+A repo invariant enforces this: every cross-boundary reverse accessor is frozen as a `reverse-accessor(...)` line in `products/model_crossing_uses_baseline.txt`, next to the other crossing kinds. The set may only shrink. A new relation without `related_name="+"` fails CI until you seal it or a review adds a hand-edited baseline line. Regenerate after a removal with `bin/hogli product:crossings --all --write-baseline`.
 
 `db_constraint` is a separate concern: it is migration safety (see the hot-table FK rules in [products/README.md](README.md)) and multi-database planning, not Python isolation. Both `db_constraint=False` and a two-phase validated constraint are sanctioned.
 

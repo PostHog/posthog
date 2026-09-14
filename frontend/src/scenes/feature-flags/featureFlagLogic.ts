@@ -3252,7 +3252,9 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                         const response = await api.get<PaginatedResponse<InsightModel>>(
                             `api/environments/${values.currentProjectId}/insights/?feature_flag=${values.featureFlag.key}&order=-created_at`
                         )
-                        return response.results.map((legacyInsight) => getQueryBasedInsightModel(legacyInsight))
+                        return response.results.map((legacyInsight) =>
+                            getQueryBasedInsightModel(legacyInsight, 'feature_flag_related_insights')
+                        )
                     }
                     return []
                 },

@@ -84,6 +84,12 @@ class TestAccountAudience(ClickhouseTestMixin, NonAtomicBaseTest):
             team_id=self.team.id, account=assigned, definition=definition, user=holder, created_by=holder
         )
 
+        assert self._list(AccountAudienceFilters(assignment_status="all")) == ["assigned", "unassigned"]
+        assert self._list(AccountAudienceFilters(assignment_status="assigned")) == ["assigned"]
+        assert self._list(AccountAudienceFilters(assignment_status="unassigned")) == ["unassigned"]
+        assert self._list(AccountAudienceFilters(assignment_status="assigned", assigned_to_user_ids=(holder.id,))) == [
+            "assigned"
+        ]
         assert self._list(AccountAudienceFilters(assigned_to_user_ids=(holder.id,))) == ["assigned"]
         assert self._list(AccountAudienceFilters(all_roles_unassigned=True)) == ["unassigned"]
 

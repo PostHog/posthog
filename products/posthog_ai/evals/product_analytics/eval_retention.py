@@ -17,7 +17,7 @@ from posthog.schema import AssistantRetentionEventsNode, AssistantRetentionFilte
 from products.posthog_ai.eval_harness.base import SandboxedPublicEval
 from products.posthog_ai.eval_harness.config import SandboxedEvalCase
 from products.posthog_ai.eval_harness.harness.context import EvalContext
-from products.posthog_ai.eval_harness.scorers import LastToolCallNot, NoToolCall
+from products.posthog_ai.eval_harness.scorers import AnswerToolCallNot, NoToolCall
 from products.posthog_ai.evals.product_analytics.scorers import (
     INSIGHT_WRITE_TOOLS,
     RetentionSchemaAlignment,
@@ -129,7 +129,9 @@ async def eval_retention(ctx: EvalContext) -> None:
         cases=cases,
         scorers=[
             NoToolCall(forbidden=INSIGHT_WRITE_TOOLS, name="no_persistent_insight_save"),
-            LastToolCallNot(forbidden="execute-sql", name="last_call_not_execute_sql"),
+            AnswerToolCallNot(
+                forbidden="execute-sql", preferred={"query-retention"}, name="answer_tool_not_execute_sql"
+            ),
             RetentionSchemaAlignment(),
             RetentionTimeRangeRelevancy(),
         ],

@@ -8,7 +8,6 @@ import {
   EmptyHeader,
   EmptyMedia,
   EmptyTitle,
-  Spinner,
   Tabs,
   TabsContent,
   TabsList,
@@ -16,6 +15,7 @@ import {
 } from "@posthog/quill";
 import { useSetHeaderContent } from "@posthog/ui/hooks/useSetHeaderContent";
 import { FileExplorer } from "@posthog/ui/primitives/FileExplorer";
+import { LoadingState } from "@posthog/ui/primitives/LoadingState";
 import {
   PageHeader,
   PageHeaderDescription,
@@ -23,6 +23,7 @@ import {
   PageHeaderTitle,
   PageHeaderTitleRow,
 } from "@posthog/ui/primitives/PageHeader";
+import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   useContextWikiTree,
@@ -127,11 +128,7 @@ function ContextWikiBody({ initialPath }: { initialPath?: string }) {
   }, [tree, selectedPath]);
 
   if (isLoading) {
-    return (
-      <div className="flex h-full items-center justify-center">
-        <Spinner className="size-5" />
-      </div>
-    );
+    return <LoadingState />;
   }
 
   if (error instanceof ContextWikiUnavailableError) {
@@ -189,7 +186,7 @@ function ContextWikiBody({ initialPath }: { initialPath?: string }) {
               onClick={() => enable.mutate()}
               disabled={enable.isPending}
             >
-              {enable.isPending ? <Spinner className="size-4" /> : null}
+              {enable.isPending ? <Spinner /> : null}
               Enable context wiki
             </Button>
             {enable.error ? (

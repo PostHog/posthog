@@ -1,4 +1,4 @@
-import api from 'lib/api'
+import api, { ApiMethodOptions } from 'lib/api'
 
 import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
 import { DashboardFilter, HogQLVariable, RefreshType, TileFilters } from '~/queries/schema/schema-general'
@@ -7,11 +7,12 @@ import { InsightShortId, QueryBasedInsightModel } from '~/types'
 async function _perform(
     method: 'create' | 'update',
     insight: Partial<QueryBasedInsightModel>,
-    id?: number
+    id?: number,
+    options?: ApiMethodOptions
 ): Promise<QueryBasedInsightModel> {
     const legacyInsight =
-        method === 'create' ? await api.insights[method](insight) : await api.insights[method](id!, insight)
-    return getQueryBasedInsightModel(legacyInsight)
+        method === 'create' ? await api.insights[method](insight) : await api.insights[method](id!, insight, options)
+    return getQueryBasedInsightModel(legacyInsight, 'insight_write')
 }
 
 export const insightsApi = {
@@ -36,20 +37,24 @@ export const insightsApi = {
             return null
         }
         const legacyInsight = legacyInsights.results[0]
-        return getQueryBasedInsightModel(legacyInsight) as QueryBasedInsightModel
+        return getQueryBasedInsightModel(legacyInsight, 'insight_scene_load') as QueryBasedInsightModel
     },
     async getByNumericId(numericId: number): Promise<QueryBasedInsightModel | null> {
         const legacyInsight = await api.insights.get(numericId)
         if (legacyInsight === null) {
             return null
         }
-        return getQueryBasedInsightModel(legacyInsight)
+        return getQueryBasedInsightModel(legacyInsight, 'insight_load_by_numeric_id')
     },
     async create(insight: Partial<QueryBasedInsightModel>): Promise<QueryBasedInsightModel> {
         return this._perform('create', insight)
     },
-    async update(id: number, insightUpdate: Partial<QueryBasedInsightModel>): Promise<QueryBasedInsightModel> {
-        return this._perform('update', insightUpdate, id)
+    async update(
+        id: number,
+        insightUpdate: Partial<QueryBasedInsightModel>,
+        options?: ApiMethodOptions
+    ): Promise<QueryBasedInsightModel> {
+        return this._perform('update', insightUpdate, id, options)
     },
     async duplicate(insight: QueryBasedInsightModel): Promise<QueryBasedInsightModel> {
         const { id, short_id, result, created_at, created_by, last_modified_at, last_modified_by, ...rest } = insight

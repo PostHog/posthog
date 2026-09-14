@@ -178,6 +178,15 @@ const scoutFinding = makeSignal({
     },
 })
 
+const scoutFindingWithLongName = makeSignal({
+    ...scoutFinding,
+    signal_id: 'sig-scout-long-name',
+    extra: {
+        ...(scoutFinding.extra as unknown as Record<string, unknown>),
+        skill_name: 'signals-scout-upload-pipeline-throughput-and-chunked-transfer-failure-watch',
+    },
+})
+
 const errorTrackingIssue = makeSignal({
     source_product: 'error_tracking',
     source_type: 'issue_spiking',
@@ -477,6 +486,11 @@ export const ErrorTrackingStackTrace: Story = {
         }),
     ],
     render: () => <Rail signals={[errorTrackingIssueWithStackTrace]} />,
+}
+
+/** A scout name longer than the rail truncates, and the relative time stays at the end of the line. */
+export const LongScoutName: Story = {
+    render: () => <Rail signals={[scoutFindingWithLongName]} />,
 }
 
 /** One card per source with a dedicated renderer, so a layout change to any of them shows up here. */

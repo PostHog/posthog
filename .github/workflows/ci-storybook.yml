@@ -302,7 +302,11 @@ jobs:
             # shard.
             # module-graph.json only exists once the Vite build completes, so no
             # `if: always()`: on a failed/cancelled build it would just warn.
+            # select-stories falls back to the full matrix when the graph is
+            # missing, so a failed upload costs one narrowing opportunity rather
+            # than the build and the whole visual-regression matrix behind it.
             - name: Upload module-graph artifact
+              continue-on-error: true
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               with:
                   name: storybook-module-graph
@@ -689,8 +693,12 @@ jobs:
                       vr-cli/products/visual_review/cli/node_modules
                   key: ${{ steps.restore-vr-cli.outputs.cache-primary-key }}
 
+            # The "Fail on test-runner failure" step below is the verdict, so a
+            # failed upload must not red a passing shard. ci-storybook-update-test-timing
+            # requires a complete set of shards, so it skips a run that loses one.
             - name: Upload test results
               if: always()
+              continue-on-error: true
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               with:
                   name: junit-results-storybook-${{ matrix.browser }}-${{ matrix.shard }}

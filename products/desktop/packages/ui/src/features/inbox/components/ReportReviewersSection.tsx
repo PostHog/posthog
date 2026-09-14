@@ -9,7 +9,6 @@ import {
   Popover,
   PopoverContent,
   PopoverTrigger,
-  Spinner,
 } from "@posthog/quill";
 import type { SignalReport, SuggestedReviewer } from "@posthog/shared/types";
 import { DetailSection } from "@posthog/ui/features/inbox/components/DetailSection";
@@ -23,6 +22,7 @@ import {
   useReportActionResultTracker,
   useReportActionTracker,
 } from "@posthog/ui/features/inbox/hooks/useReportActionTracker";
+import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { useMemo, useState } from "react";
 
 export function ReportReviewersSection({ report }: { report: SignalReport }) {

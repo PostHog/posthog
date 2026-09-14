@@ -1,6 +1,7 @@
 import re
 import uuid
 import textwrap
+from dataclasses import field
 from typing import Any
 
 from django.db import models
@@ -8,18 +9,29 @@ from django.db import models
 import structlog
 from temporalio import activity
 
+from posthog.dataclasses import frozen
 from posthog.temporal.ai.slack_app.attachments import (
     PreparedSlackAttachments,
+    SlackAttachmentBudget,
+    attachment_display_name,
     build_slack_attachment_prompt_text,
     get_slack_bot_token,
+    merge_prepared_attachments,
     prepare_slack_file_artifacts,
+    prepare_slack_thread_file_artifacts,
 )
 from posthog.temporal.ai.slack_app.helpers import block_if_team_over_quota, safe_react
 from posthog.temporal.ai.slack_app.types import PostHogCodeSlackMentionWorkflowInputs, SlackAppModelOverride
 from posthog.temporal.common.utils import close_db_connections
 
 from products.slack_app.backend.facade.api import slack_artifact_delivery_state_updates
-from products.slack_app.backend.services.slack_messages import context_block, post_slack_thread_reply, thread_permalink
+from products.slack_app.backend.services.slack_messages import (
+    SlackThreadMessage,
+    context_block,
+    parse_slack_file_refs,
+    post_slack_thread_reply,
+    thread_permalink,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -97,6 +109,23 @@ def _format_author_token(user_id: str | None, display_name: str | None) -> str:
     if uid:
         return f"<@{uid}|{name}>"
     return name
+
+
+def _attachment_names(msg: SlackThreadMessage) -> list[str]:
+    return [attachment_display_name(file) for file in msg.files]
+
+
+def _body_with_attachment_note(body: str, attachment_names: list[str]) -> str:
+    """Name a message's attachments under its body.
+
+    The files themselves reach the agent as workspace artifacts, named but unattributed.
+    This is what ties each one back to the message it was posted in, so the agent can tell
+    the chart somebody opened the thread with from the log somebody pasted later.
+    """
+    if not attachment_names:
+        return body
+    note = f"[Attached file(s): {', '.join(attachment_names)}]"
+    return f"{body}\n{note}" if body else note
 
 
 def _indent_body(text: str, indent: str = "  ") -> str:
@@ -211,7 +240,7 @@ def _upload_prepared_slack_attachments(
 
 def _build_posthog_code_task_description(
     initiator_text: str,
-    thread_messages: list[dict[str, str]],
+    thread_messages: list[SlackThreadMessage],
     initiator_ts: str | None,
     mentioner_slack_user_id: str | None = None,
     mentioner_display_name: str | None = None,
@@ -253,22 +282,26 @@ def _build_posthog_code_task_description(
     mentioner_entry: dict[str, str] | None = None
     context_entries: list[str] = []
     for msg in thread_messages:
-        msg_text = (msg.get("text") or "").strip()
-        if not msg_text:
+        msg_text = msg.text.strip()
+        attachment_names = _attachment_names(msg)
+        # A message can be an attachment and nothing else — the screenshot somebody opened
+        # the thread with, posted without a word. Dropping it for having no text would
+        # leave the agent holding a file no message accounts for.
+        if not msg_text and not attachment_names:
             continue
 
-        author = _format_author_token(msg.get("user_id"), msg.get("user"))
+        author = _format_author_token(msg.user_id, msg.user)
         if thread_author_entry is None:
-            thread_author_entry = {"author": author, "ts": msg.get("ts") or ""}
+            thread_author_entry = {"author": author, "ts": msg.ts}
 
-        is_initiator_slot = bool(initiator_ts) and msg.get("ts") == initiator_ts
+        is_initiator_slot = bool(initiator_ts) and msg.ts == initiator_ts
         if is_initiator_slot and mentioner_entry is None:
-            mentioner_entry = {"author": author, "ts": msg.get("ts") or ""}
+            mentioner_entry = {"author": author, "ts": msg.ts}
 
         if is_initiator_slot:
             body = _INITIATOR_PLACEHOLDER
         else:
-            body = _strip_context_tag(msg["text"])
+            body = _body_with_attachment_note(_strip_context_tag(msg.text), attachment_names)
 
         context_entries.append(f"{author}:\n{_indent_body(body)}")
 
@@ -379,20 +412,36 @@ def _ts_in_diff_window(candidate_ts: str, *, after_ts: str | None, before_ts: st
     return True
 
 
-def build_thread_context_update_block(
-    thread_messages: list[dict[str, str]],
+@frozen
+class ThreadContextUpdate:
+    """What the agent missed in a Slack thread while it was not being spoken to.
+
+    ``block`` is ``None`` when there is nothing new to surface — the caller should send
+    the follow-up text plain in that case. ``watermark`` is the largest `ts` the caller
+    should persist after a successful forward.
+
+    ``messages`` are every message the watermark moves past, carried so their attachments
+    can be fetched for the same turn. That is a wider set than ``block`` renders when the
+    window was truncated. The watermark advances regardless, so a file on a message the
+    block dropped gets no second chance to reach the agent.
+    """
+
+    block: str | None
+    watermark: str | None
+    messages: list[SlackThreadMessage] = field(default_factory=list)
+
+
+def build_thread_context_update(
+    thread_messages: list[SlackThreadMessage],
     *,
     last_forwarded_ts: str | None,
     event_ts: str | None,
     max_messages: int = _THREAD_UPDATE_MAX_MESSAGES,
-) -> tuple[str | None, str | None]:
+) -> ThreadContextUpdate:
     """Render an update block of messages the agent hasn't seen yet.
 
-    Returns ``(block, new_watermark)``. ``block`` is ``None`` when there's nothing
-    new to surface — the caller should send the follow-up text plain in that case.
-    ``new_watermark`` is the largest `ts` we'd want the caller to persist after a
-    successful forward (covers the diff window *and* the arriving event so a brand-new
-    follow-up still advances the watermark when there are no in-between messages).
+    The watermark covers the diff window *and* the arriving event, so a brand-new
+    follow-up still advances it when there are no in-between messages.
 
     The window is open on both ends: messages with ``ts > last_forwarded_ts`` and
     ``ts < event_ts`` are included. The arriving message itself is not — it lands as
@@ -408,18 +457,20 @@ def build_thread_context_update_block(
     caller doesn't advance past anything it didn't actually show the agent.
     """
     if not event_ts:
-        return None, last_forwarded_ts
+        return ThreadContextUpdate(block=None, watermark=last_forwarded_ts)
 
-    in_window: list[dict[str, str]] = []
+    in_window: list[SlackThreadMessage] = []
     max_seen_ts: str | None = last_forwarded_ts
     for msg in thread_messages:
-        msg_ts = msg.get("ts") or ""
+        msg_ts = msg.ts
         if not _ts_in_diff_window(msg_ts, after_ts=last_forwarded_ts, before_ts=event_ts):
             continue
-        # Skip messages with no rendered text — bot status updates we already filter
-        # at fetch time may still appear as empty entries, no point spending lines on them.
-        msg_text = (msg.get("text") or "").strip()
-        if not msg_text:
+        # Skip messages with nothing in them — bot status updates we already filter at
+        # fetch time may still appear as empty entries, no point spending lines on them.
+        # An attachment posted without a word is not empty: the file reaches the agent,
+        # so the message that carried it has to as well.
+        msg_text = msg.text.strip()
+        if not msg_text and not _attachment_names(msg):
             continue
         in_window.append(msg)
         if max_seen_ts is None or msg_ts > (max_seen_ts or ""):
@@ -430,16 +481,18 @@ def build_thread_context_update_block(
     new_watermark = event_ts or max_seen_ts or last_forwarded_ts
 
     if not in_window:
-        return None, new_watermark
+        return ThreadContextUpdate(block=None, watermark=new_watermark)
 
     truncated = len(in_window) > max_messages
-    if truncated:
-        in_window = in_window[-max_messages:]
+    rendered = in_window[-max_messages:] if truncated else in_window
 
     entries: list[str] = []
-    for msg in in_window:
-        author = _format_author_token(msg.get("user_id"), msg.get("user"))
-        body = _strip_context_tag(_strip_context_update_tag(msg["text"]))
+    for msg in rendered:
+        author = _format_author_token(msg.user_id, msg.user)
+        body = _body_with_attachment_note(
+            _strip_context_tag(_strip_context_update_tag(msg.text)),
+            _attachment_names(msg),
+        )
         entries.append(f"{author}:\n{_indent_body(body)}")
 
     header_lines = [
@@ -456,7 +509,7 @@ def build_thread_context_update_block(
     header = "\n".join(header_lines)
     body = "\n".join(entries)
     block = f"<{_THREAD_CONTEXT_UPDATE_TAG}>\n{header}\n\n{body}\n</{_THREAD_CONTEXT_UPDATE_TAG}>"
-    return block, new_watermark
+    return ThreadContextUpdate(block=block, watermark=new_watermark, messages=in_window)
 
 
 def derive_mention_workflow_id(inputs: PostHogCodeSlackMentionWorkflowInputs) -> str:
@@ -486,7 +539,7 @@ def create_posthog_code_task_for_repo_activity(
     slack_user_id: str,
     user_id: int,
     event: dict[str, Any],
-    thread_messages: list[dict[str, str]],
+    thread_messages: list[SlackThreadMessage],
     repository: str | None,
     repo_research_task_id: str | None = None,
     repo_research_run_id: str | None = None,
@@ -677,7 +730,18 @@ def create_posthog_code_task_for_repo_activity(
     # where the agent finishes and tries to relay before the mapping exists
     task_run = created.latest_run
     if task_run:
-        prepared_attachments = prepare_slack_file_artifacts(event.get("files"), get_slack_bot_token(slack, integration))
+        bot_token = get_slack_bot_token(slack, integration)
+        event_files = parse_slack_file_refs(event.get("files"))
+        # The thread's own attachments matter as much as the tagging message's: the
+        # screenshot under discussion is usually the one the thread opened with, and the
+        # request several replies down says "look at this" about it.
+        attachment_budget = SlackAttachmentBudget()
+        prepared_attachments = merge_prepared_attachments(
+            prepare_slack_file_artifacts(event_files, bot_token, budget=attachment_budget),
+            prepare_slack_thread_file_artifacts(
+                thread_messages, bot_token, already_requested=event_files, budget=attachment_budget
+            ),
+        )
         uploaded_attachments, attachment_skips = _upload_prepared_slack_attachments(
             tasks_facade,
             task_run_id=task_run.id,
@@ -700,7 +764,7 @@ def create_posthog_code_task_for_repo_activity(
         initial_watermark = _max_ts(
             user_message_ts,
             thread_ts,
-            *(m.get("ts") or "" for m in thread_messages),
+            *(m.ts for m in thread_messages),
         )
         SlackThreadTaskMapping.objects.update_or_create(
             integration=integration,
@@ -879,9 +943,12 @@ def forward_posthog_code_followup_activity(
     )
 
     user_text = decode_slack_event_text(slack, integration, event_text)
-    prepared_attachments = prepare_slack_file_artifacts(
-        inputs.event.get("files"), get_slack_bot_token(slack, integration)
-    )
+    bot_token = get_slack_bot_token(slack, integration)
+    event_files = parse_slack_file_refs(inputs.event.get("files"))
+    # Shared with the thread fetch below, so the reply and the catch-up files draw on one
+    # allowance instead of two.
+    attachment_budget = SlackAttachmentBudget()
+    prepared_attachments = prepare_slack_file_artifacts(event_files, bot_token, budget=attachment_budget)
     if not user_text and not prepared_attachments.has_files:
         return True
     if not user_text and not prepared_attachments.artifacts:
@@ -899,8 +966,7 @@ def forward_posthog_code_followup_activity(
     # Best-effort: if the fetch or diff build raises, we still forward the follow-up
     # so the user isn't blocked, and we DO NOT advance the watermark — the next
     # follow-up retries the same window from a fresh fetch.
-    update_block: str | None = None
-    new_watermark: str | None = None
+    update = ThreadContextUpdate(block=None, watermark=None)
     try:
         auth_response = slack.client.auth_test()
         our_bot_id = auth_response.get("bot_id") if auth_response else None
@@ -911,7 +977,7 @@ def forward_posthog_code_followup_activity(
         our_bot_id = None
     try:
         thread_messages = collect_thread_messages(slack, integration, channel, thread_ts, our_bot_id)
-        update_block, new_watermark = build_thread_context_update_block(
+        update = build_thread_context_update(
             thread_messages,
             last_forwarded_ts=mapping.last_forwarded_ts,
             event_ts=user_message_ts,
@@ -923,8 +989,18 @@ def forward_posthog_code_followup_activity(
             thread_ts=thread_ts,
         )
 
-    if update_block:
-        user_text = f"{update_block}\n\n{user_text}"
+    new_watermark = update.watermark
+    if update.block:
+        user_text = f"{update.block}\n\n{user_text}"
+    # Files posted in the thread while the agent was quiet arrive with the messages that
+    # carried them, so a reply saying "look at this" about a screenshot posted upthread
+    # has the screenshot to look at.
+    prepared_attachments = merge_prepared_attachments(
+        prepared_attachments,
+        prepare_slack_thread_file_artifacts(
+            update.messages, bot_token, already_requested=event_files, budget=attachment_budget
+        ),
+    )
 
     if user_message_ts:
         safe_react(slack.client, channel, user_message_ts, "eyes")
@@ -1234,7 +1310,7 @@ def _resume_task_with_new_run(
     integration = slack.integration
     user_text = decode_slack_event_text(slack, integration, event_text)
     prepared_attachments = prepare_slack_file_artifacts(
-        inputs.event.get("files"), get_slack_bot_token(slack, integration)
+        parse_slack_file_refs(inputs.event.get("files")), get_slack_bot_token(slack, integration)
     )
     if not user_text and not prepared_attachments.has_files:
         return True

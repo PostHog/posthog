@@ -494,7 +494,10 @@ class TestGithubSource:
         "selection,expected_message",
         [
             ("oauth", "No GitHub account is connected. Connect a GitHub account and try again."),
-            ("pat", "GitHub personal access token is not configured. Please update the source configuration."),
+            (
+                "pat",
+                "No GitHub personal access token is set. Enter one, or switch the authentication type to OAuth and connect a GitHub account.",
+            ),
         ],
     )
     def test_validate_credentials_maps_config_errors_to_friendly_message(self, selection, expected_message):
@@ -712,6 +715,7 @@ class TestGithubSource:
         inputs.schema_metadata = None
         inputs.s3_folder_name = "issues"
         inputs.should_use_incremental_field = False
+        inputs.last_synced_at = datetime.datetime(2026, 9, 8, tzinfo=datetime.UTC)
 
         self.source.source_for_pipeline(config, mock.MagicMock(), inputs)
 
@@ -719,6 +723,7 @@ class TestGithubSource:
         assert kwargs["repository"] == "legacy/repo"
         assert kwargs["endpoint"] == "issues"
         assert kwargs["response_name"] == "issues"
+        assert kwargs["reconcile_since"] == inputs.last_synced_at
 
     @pytest.mark.parametrize(
         "pin,expected",

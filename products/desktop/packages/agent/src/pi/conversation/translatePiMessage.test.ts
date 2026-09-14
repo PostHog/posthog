@@ -234,6 +234,58 @@ describe("createPiMessageTranslator", () => {
     ]);
   });
 
+  it("keeps current-work calls out of the conversation", () => {
+    const translator = createPiMessageTranslator();
+    const message = makeAssistant([
+      {
+        id: "current-work-1",
+        type: "toolCall",
+        name: "set_current_work",
+        arguments: { status: "Writing regression tests" },
+      } as never,
+    ]);
+    const result: ToolResultMessage = {
+      role: "toolResult",
+      toolCallId: "current-work-1",
+      toolName: "set_current_work",
+      content: [
+        { type: "text", text: "Current work: Writing regression tests" },
+      ],
+      isError: false,
+      timestamp: 2,
+    };
+
+    expect(translator.translate(message)).toEqual([]);
+    expect(
+      translator.translateToolExecutionStart(
+        "current-work-1",
+        "set_current_work",
+        { status: "Writing regression tests" },
+        1,
+      ),
+    ).toEqual([]);
+    expect(
+      translator.translateToolExecutionUpdate(
+        "current-work-1",
+        "set_current_work",
+        { status: "Writing regression tests" },
+        { content: [] },
+        1,
+      ),
+    ).toEqual([]);
+    expect(
+      translator.translateToolExecutionEnd(
+        "current-work-1",
+        "set_current_work",
+        { content: [] },
+        false,
+        false,
+        2,
+      ),
+    ).toEqual([]);
+    expect(translator.translate(result)).toEqual([]);
+  });
+
   it("classifies ls as a directory listing", () => {
     const translator = createPiMessageTranslator();
     const message = makeAssistant([

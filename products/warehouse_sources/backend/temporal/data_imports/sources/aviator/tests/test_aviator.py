@@ -2,7 +2,7 @@ from datetime import UTC, date, datetime
 from typing import Any
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
@@ -88,7 +88,7 @@ class TestFlattenAnalytics:
 
 
 class TestAnalyticsWindow:
-    @freeze_time("2026-06-15")
+    @time_machine.travel("2026-06-15", tick=False)
     def test_first_sync_uses_default_lookback(self) -> None:
         # No watermark: pull the configured history window (365 days) rather than an unbounded range.
         config = AVIATOR_ENDPOINTS["merge_queue_analytics"]
@@ -96,7 +96,7 @@ class TestAnalyticsWindow:
         assert start == "2025-06-15"
         assert end == "2026-06-15"
 
-    @freeze_time("2026-06-15")
+    @time_machine.travel("2026-06-15", tick=False)
     def test_incremental_run_rewinds_watermark_by_lookback(self) -> None:
         # Recent daily aggregates get revised upstream, so each run must re-pull a trailing window;
         # advancing straight from the watermark would freeze the last few days at stale values.
@@ -116,13 +116,13 @@ class TestAnalyticsWindow:
     )
     def test_watermark_accepts_multiple_value_types(self, _name: str, value: Any, expected_start: str) -> None:
         config = AVIATOR_ENDPOINTS["merge_queue_analytics"]
-        with freeze_time("2026-06-15"):
+        with time_machine.travel("2026-06-15", tick=False):
             start, _ = _analytics_window(
                 config, should_use_incremental_field=True, db_incremental_field_last_value=value
             )
         assert start == expected_start
 
-    @freeze_time("2026-06-15")
+    @time_machine.travel("2026-06-15", tick=False)
     def test_future_watermark_is_clamped_to_today(self) -> None:
         # A future-dated watermark would otherwise make start > end and produce an invalid window.
         config = AVIATOR_ENDPOINTS["merge_queue_analytics"]
@@ -291,7 +291,7 @@ class TestFanOutExtraction:
             captured.update(params or {})
             return {"mergequeue_usage": [{"date": "2026-06-14", "total": 5}]}
 
-        with freeze_time("2026-06-15"):
+        with time_machine.travel("2026-06-15", tick=False):
             rows = _run_fan_out(
                 "merge_queue_analytics",
                 fake_fetch,

@@ -29,6 +29,8 @@ from products.alerts.backend.models.alert import (
 )
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.exports.backend.models.exported_asset import ExportedAsset
+from products.notebooks.backend.facade.content import is_markdown_notebook_content
+from products.notebooks.backend.models import Notebook
 from products.product_analytics.backend.facade.models import Insight
 
 
@@ -69,7 +71,7 @@ class TestInvestigationVerdictPersistence(NonAtomicBaseTest):
         )
 
     @pytest.mark.asyncio
-    @patch("posthog.temporal.ai.anomaly_investigation.workflow._prepare_insight_chart_url", return_value=None)
+    @patch("posthog.temporal.ai.anomaly_investigation.workflow.prepare_alert_insight_chart_url", return_value=None)
     @patch("posthog.temporal.ai.anomaly_investigation.workflow.run_investigation")
     @patch("temporalio.activity.heartbeat")
     @patch("temporalio.activity.info")
@@ -101,8 +103,12 @@ class TestInvestigationVerdictPersistence(NonAtomicBaseTest):
         assert self.alert_check.investigation_summary == "Confirmed spike caused by campaign launch."
         assert self.alert_check.investigation_notebook_id is not None
 
+        # A follow-up agent appends through the MCP cell tools, which only accept a markdown notebook.
+        notebook = await sync_to_async(Notebook.objects.get)(id=self.alert_check.investigation_notebook_id)
+        assert is_markdown_notebook_content(notebook.content)
+
     @pytest.mark.asyncio
-    @patch("posthog.temporal.ai.anomaly_investigation.workflow.exports.render_png_export")
+    @patch("posthog.tasks.alerts.utils.exports.render_png_export")
     @patch("posthog.temporal.ai.anomaly_investigation.workflow.run_investigation")
     @patch("temporalio.activity.heartbeat")
     @patch("temporalio.activity.info")
@@ -135,7 +141,7 @@ class TestInvestigationVerdictPersistence(NonAtomicBaseTest):
         mock_render.assert_not_called()
 
     @pytest.mark.asyncio
-    @patch("posthog.temporal.ai.anomaly_investigation.workflow._prepare_insight_chart_url", return_value=None)
+    @patch("posthog.temporal.ai.anomaly_investigation.workflow.prepare_alert_insight_chart_url", return_value=None)
     @patch("posthog.temporal.ai.anomaly_investigation.workflow.signals.emit_signal")
     @patch("posthog.temporal.ai.anomaly_investigation.workflow.run_investigation")
     @patch("temporalio.activity.heartbeat")
@@ -176,7 +182,7 @@ class TestInvestigationVerdictPersistence(NonAtomicBaseTest):
 
     @pytest.mark.asyncio
     @patch("posthog.temporal.ai.anomaly_investigation.workflow.dispatch_alert_notification", return_value=[])
-    @patch("posthog.temporal.ai.anomaly_investigation.workflow.exports.render_png_export")
+    @patch("posthog.tasks.alerts.utils.exports.render_png_export")
     @patch("posthog.temporal.ai.anomaly_investigation.workflow.run_investigation")
     @patch("temporalio.activity.heartbeat")
     @patch("temporalio.activity.info")

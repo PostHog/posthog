@@ -288,6 +288,7 @@ describe("mapAppServerNotification", () => {
         sessionUpdate: "tool_call_update",
         toolCallId: "spawn-1",
         status: "completed",
+        _meta: { posthog: { toolName: "spawn_agent" } },
       },
     });
   });
@@ -709,30 +710,85 @@ describe("parseUnifiedDiff", () => {
 });
 
 describe("mcpToolCall result rendering", () => {
-  it("renders a completed mcpToolCall's result content as text", () => {
-    expect(
-      mapAppServerNotification("s-1", APP_SERVER_NOTIFICATIONS.ITEM_COMPLETED, {
-        item: {
-          type: "mcpToolCall",
-          id: "m1",
-          server: "posthog",
-          tool: "query",
-          status: "completed",
-          arguments: { sql: "SELECT 1" },
-          result: { content: [{ type: "text", text: "42 rows" }] },
+  it.each(["live", "replay"])(
+    "preserves a completed MCP result alongside its text in %s",
+    (source) => {
+      const rawResult = {
+        content: [{ type: "text", text: "42 rows" }],
+        _meta: {
+          "com.posthog.mcp/app_data": { query: { kind: "TrendsQuery" } },
         },
-      }),
-    ).toEqual({
-      sessionId: "s-1",
-      update: {
-        sessionUpdate: "tool_call_update",
+        structuredContent: { rows: 42 },
+      };
+      const item = {
+        type: "mcpToolCall",
+        id: "m1",
+        server: "posthog",
+        tool: "query",
+        status: "completed",
+        arguments: { sql: "SELECT 1" },
+        result: rawResult,
+      };
+      const notification =
+        source === "live"
+          ? mapAppServerNotification(
+              "s-1",
+              APP_SERVER_NOTIFICATIONS.ITEM_COMPLETED,
+              { item },
+            )
+          : mapHistoryItem("s-1", item)[0];
+      expect(notification?.update).toMatchObject({
+        sessionUpdate: source === "live" ? "tool_call_update" : "tool_call",
         toolCallId: "m1",
         status: "completed",
+        rawOutput: rawResult,
         content: [
           { type: "content", content: { type: "text", text: "42 rows" } },
         ],
+        _meta: {
+          posthog: {
+            toolName: "mcp__posthog__query",
+            mcp: { server: "posthog", tool: "query" },
+          },
+        },
+      });
+    },
+  );
+
+  it("strips null optional fields from the raw MCP result", () => {
+    const result = mapAppServerNotification(
+      "s-1",
+      APP_SERVER_NOTIFICATIONS.ITEM_COMPLETED,
+      {
+        item: {
+          type: "mcpToolCall",
+          id: "m3",
+          server: "posthog",
+          tool: "exec",
+          status: "completed",
+          arguments: { command: "call query-trends" },
+          result: {
+            content: [{ type: "text", text: "Date|Pageviews" }],
+            structuredContent: null,
+            _meta: {
+              ui: { resourceUri: "ui://posthog/query-results.html" },
+              "com.posthog.mcp/app_data": { query: {}, results: [] },
+            },
+          },
+        },
+      },
+    );
+    const rawOutput = result?.update as {
+      rawOutput?: Record<string, unknown>;
+    };
+    expect(rawOutput.rawOutput).toEqual({
+      content: [{ type: "text", text: "Date|Pageviews" }],
+      _meta: {
+        ui: { resourceUri: "ui://posthog/query-results.html" },
+        "com.posthog.mcp/app_data": { query: {}, results: [] },
       },
     });
+    expect("structuredContent" in (rawOutput.rawOutput ?? {})).toBe(false);
   });
 
   it("renders a failed mcpToolCall's error message", () => {
