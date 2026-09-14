@@ -366,4 +366,4 @@ class TestOwnPullRequestCarveOut:
         prompt = build_supersede_prompt(self._PR, "the previous summary")
         assert self._PR in prompt
         assert "the previous summary" in prompt
-        assert "`supersede`" in prompt
+        assert "obsolete_pr_urls" in prompt

@@ -1088,6 +1088,8 @@ class SignalReportArtefact(UUIDModel):
         PULL_REQUEST = "pull_request"
         CHECK_RESULT = "check_result"
         IMPLEMENTATION_DECISION = "implementation_decision"
+        IMPLEMENTATION_REPLACEMENT = "implementation_replacement"
+        IMPLEMENTATION_HANDOVER = "implementation_handover"
 
     # Every artefact is an append-only, point-in-time log entry — nothing is mutated in place by
     # the producers. The two sets below classify *what an entry means*, not how it is written:
@@ -1121,6 +1123,8 @@ class SignalReportArtefact(UUIDModel):
             ArtefactType.SUMMARY_CHANGE,
             ArtefactType.CODE_REVIEW,
             ArtefactType.RELATED_TO,
+            ArtefactType.IMPLEMENTATION_REPLACEMENT,
+            ArtefactType.IMPLEMENTATION_HANDOVER,
             ArtefactType.WORK_CLAIM,
             ArtefactType.WORK_RELEASE,
             ArtefactType.PULL_REQUEST,

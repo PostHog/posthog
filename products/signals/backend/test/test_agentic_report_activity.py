@@ -2,6 +2,7 @@ import json
 import random
 import asyncio
 from datetime import UTC, datetime
+from uuid import UUID
 
 import pytest
 from unittest.mock import AsyncMock, Mock, patch
@@ -20,7 +21,13 @@ from posthog.models.user_integration import UserIntegration
 from posthog.sync import database_sync_to_async
 from posthog.temporal.oauth import grants_scratchpad_write
 
-from products.signals.backend.artefact_schemas import DISMISSAL_REASON_WRONG_REPO, Dismissal, NoteArtefact
+from products.signals.backend.artefact_schemas import (
+    DISMISSAL_REASON_WRONG_REPO,
+    Dismissal,
+    NoteArtefact,
+    ImplementationAssessment,
+    ImplementationTarget,
+)
 from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact, SignalScoutNote
 from products.signals.backend.repo_corrections import SCOUT_REPOSITORY_REASON
 from products.signals.backend.report_charts import ReportChart
@@ -29,7 +36,6 @@ from products.signals.backend.report_generation.research import (
     ActionabilityChoice,
     ActionabilityUpdate,
     FixVerificationOutput,
-    ImplementationDecision,
     Priority,
     PriorityAssessment,
     PriorityUpdate,
@@ -42,6 +48,7 @@ from products.signals.backend.report_generation.research import (
 )
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
 from products.signals.backend.report_metrics import ReportMetric
+from products.signals.backend.supersession import ImplementationResearchContext
 from products.signals.backend.temporal.agentic.report import (
     RESEARCH_MCP_SCOPES,
     RunAgenticReportInput,
@@ -1160,7 +1167,9 @@ async def test_run_multi_turn_research_ends_session_when_followup_fails():
     "supersede_outcome",
     [
         RuntimeError("custom_prompt - poll_for_turn: timed out after 1800s"),
-        ImplementationDecision(supersede=True, reason="the root cause moved"),
+        ImplementationAssessment(
+            obsolete_pr_urls=["https://github.com/example/repo/pull/1"], reason="the root cause moved"
+        ),
     ],
 )
 async def test_run_multi_turn_research_survives_a_failed_supersede_turn(supersede_outcome):
@@ -1210,14 +1219,32 @@ async def test_run_multi_turn_research_survives_a_failed_supersede_turn(supersed
             signals,
             Mock(),
             previous_report_research=previous,
-            own_pr_url="https://github.com/PostHog/posthog/pull/1",
+            implementation_context=ImplementationResearchContext(
+                candidates=(
+                    ImplementationTarget(
+                        task_id=UUID(int=1),
+                        run_id=UUID(int=2),
+                        pr_url="https://github.com/example/repo/pull/1",
+                        head_sha="abc",
+                        automation_artefact_id=UUID(int=3),
+                    ),
+                ),
+                run_count=2,
+                started_at=datetime(2026, 1, 1, tzinfo=UTC),
+            ),
         )
 
     assert (result.title, result.summary) == ("New title", "New summary")
     session.end.assert_awaited_once()
     assert "status" not in session.end.await_args.kwargs
     decided = result.effective_implementation_decision()
-    assert decided == (None if isinstance(supersede_outcome, Exception) else supersede_outcome)
+    if isinstance(supersede_outcome, Exception):
+        assert decided is None
+    else:
+        assert decided is not None
+        assert decided.reason == supersede_outcome.reason
+        assert [target.pr_url for target in decided.targets] == supersede_outcome.obsolete_pr_urls
+        assert decided.research_run_count == 2
 
 
 @pytest.mark.asyncio
@@ -1258,7 +1285,9 @@ async def test_run_multi_turn_research_only_asks_about_the_pr_when_actionable(ac
         ),
         "priority": PriorityUpdate(previous_assessment_correct=True),
         "presentation": ReportPresentationOutput(title="New title", summary="New summary"),
-        "supersede": ImplementationDecision(supersede=True, reason="the root cause moved"),
+        "supersede": ImplementationAssessment(
+            obsolete_pr_urls=["https://github.com/example/repo/pull/1"], reason="the root cause moved"
+        ),
     }
     asked_labels: list[str] = []
 
@@ -1280,7 +1309,19 @@ async def test_run_multi_turn_research_only_asks_about_the_pr_when_actionable(ac
             signals,
             Mock(),
             previous_report_research=previous,
-            own_pr_url="https://github.com/PostHog/posthog/pull/1",
+            implementation_context=ImplementationResearchContext(
+                candidates=(
+                    ImplementationTarget(
+                        task_id=UUID(int=1),
+                        run_id=UUID(int=2),
+                        pr_url="https://github.com/example/repo/pull/1",
+                        head_sha="abc",
+                        automation_artefact_id=UUID(int=3),
+                    ),
+                ),
+                run_count=2,
+                started_at=datetime(2026, 1, 1, tzinfo=UTC),
+            ),
         )
 
     assert ("supersede" in asked_labels) is expects_supersede_turn

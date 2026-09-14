@@ -25,7 +25,6 @@ from products.business_knowledge.backend.logic import is_available_for_team
 from products.signals.backend.agent_runtime import STEP_RESEARCH, resolve_agent_runtime
 from products.signals.backend.artefact_schemas import ArtefactContent, RelatedTo, SuggestedReviewers
 from products.signals.backend.auto_start import ReviewerContent
-from products.signals.backend.implementation_pr import fetch_implementation_pr_urls_for_reports
 from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact
 from products.signals.backend.repo_corrections import SCOUT_REPOSITORY_CONTENT_NEEDLE, WRONG_REPO_CONTENT_NEEDLE
 from products.signals.backend.report_charts import ReportChart, chart_batch_error
@@ -49,6 +48,7 @@ from products.signals.backend.report_generation.reviewer_telemetry import (
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
 from products.signals.backend.report_metrics import ReportMetric, metric_batch_error
 from products.signals.backend.report_steering import ReportSteering, load_research_steering
+from products.signals.backend.supersession import research_implementation_context
 from products.signals.backend.temporal.agentic import (
     SIGNALS_REPORT_RESEARCH_ENV_NAME,
     get_or_create_signals_sandbox_env,
@@ -581,16 +581,6 @@ async def _persist_agentic_report_artefacts(
     # `maybe_autostart_implementation_activity` in temporal/summary.py.
 
 
-def _fetch_own_pr_url(team_id: int, report_id: str) -> str | None:
-    """The report's current implementation PR, or None. Never raises: a lookup failure must not
-    cost the report its research run, only the supersede decision it would have enabled."""
-    try:
-        return fetch_implementation_pr_urls_for_reports([str(report_id)], team_id=team_id).get(str(report_id))
-    except Exception:
-        logger.exception("signals research own-PR lookup failed", report_id=report_id)
-        return None
-
-
 def _team_has_business_knowledge(team_id: int) -> bool:
     """Flag + ready-sources check, evaluated fresh per run so a flag flip takes
     effect immediately. Fail open to False — research must not die on a flag-service
@@ -749,15 +739,15 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
             # The report's current PR, when it has one. It keeps the in-flight check from reading
             # the report's own draft as somebody else's work, and it is what the supersede turn asks
             # about. Best-effort: research must not fail over a PR lookup.
-            own_pr_url = await database_sync_to_async(_fetch_own_pr_url, thread_sensitive=False)(
-                input.team_id, input.report_id
-            )
+            implementation_context = await database_sync_to_async(
+                research_implementation_context, thread_sensitive=False
+            )(input.team_id, input.report_id)
             result = await run_multi_turn_research(
                 input.signals,
                 context,
                 previous_report_id=input.report_id if previous_research else None,
                 previous_report_research=previous_research,
-                own_pr_url=own_pr_url,
+                implementation_context=implementation_context,
                 signal_report_id=input.report_id,
                 has_business_knowledge=has_bk,
                 resolved_report_title=resolved_report_title,

@@ -48,6 +48,8 @@ import {
     CommitContent,
     DismissalContent,
     ImplementationDecisionContent,
+    ImplementationReplacementContent,
+    ImplementationHandoverContent,
     LineReferenceContent,
     NoteContent,
     RelatedToContent,
@@ -134,6 +136,8 @@ const ARTEFACT_MARKER: Record<string, ComponentType<{ className?: string }>> = {
     code_review: IconListCheck,
     check_result: IconCalendar,
     implementation_decision: IconRefresh,
+    implementation_replacement: IconRefresh,
+    implementation_handover: IconRefresh,
 }
 
 function dismissReasonLabel(reason: string): string {
@@ -448,7 +452,7 @@ function renderArtefactSummary(artefact: SignalReportArtefact): JSX.Element | nu
             }
             return (
                 <LemonTag size="small" type={supersede ? 'warning' : 'muted'}>
-                    {supersede ? 'Replaced' : 'Still the right fix'}
+                    {supersede ? 'Replacement recommended' : 'Still the right fix'}
                 </LemonTag>
             )
         }
@@ -535,7 +539,50 @@ function renderArtefactBody({
         }
         case 'implementation_decision': {
             const c = content as ImplementationDecisionContent
-            return c.reason?.trim() ? <ReasoningBody text={c.reason} /> : null
+            return (
+                <div className="space-y-1 text-xs">
+                    <ReasoningBody text={c.reason ?? ''} />
+                    {(c.targets ?? []).map(({ pr_url }) => (
+                        <Link key={pr_url} to={pr_url} target="_blank" className="block">
+                            {pr_url}
+                        </Link>
+                    ))}
+                </div>
+            )
+        }
+        case 'implementation_replacement': {
+            const c = content as ImplementationReplacementContent
+            return (
+                <div className="space-y-1 text-xs">
+                    <ReasoningBody text="PostHog started an automated replacement for:" />
+                    {(c.decision?.targets ?? []).map(({ pr_url }) => (
+                        <Link key={pr_url} to={pr_url} target="_blank" className="block">
+                            {pr_url}
+                        </Link>
+                    ))}
+                </div>
+            )
+        }
+        case 'implementation_handover': {
+            const c = content as ImplementationHandoverContent
+            return (
+                <div className="space-y-1 text-xs">
+                    <ReasoningBody text={c.explanation ?? ''} />
+                    {(c.replacement_pr_urls ?? []).map((url) => (
+                        <Link key={url} to={url} target="_blank" className="block">
+                            {url}
+                        </Link>
+                    ))}
+                    {Object.entries(c.results ?? {}).map(([url, result]) => (
+                        <div key={url}>
+                            <Link to={url} target="_blank">
+                                {url}
+                            </Link>
+                            : {result === 'skipped' ? 'Not closed by PostHog' : 'Closed'}
+                        </div>
+                    ))}
+                </div>
+            )
         }
         default: {
             const value = (content as { content?: unknown })?.content
@@ -618,7 +665,16 @@ export function ArtefactLogList({
     if (artefacts.length === 0) {
         return null
     }
-    const ordered = [...artefacts].sort((a, b) => b.created_at.localeCompare(a.created_at))
+    const ordered = artefacts
+        .filter(
+            (artefact) =>
+                artefact.type !== 'implementation_handover' ||
+                (artefact.content as ImplementationHandoverContent).status !== 'processing'
+        )
+        .sort((a, b) => b.created_at.localeCompare(a.created_at))
+    if (ordered.length === 0) {
+        return null
+    }
     return (
         <div className="relative">
             <span className="absolute bottom-2.5 left-2.5 top-2.5 w-px bg-border" aria-hidden />

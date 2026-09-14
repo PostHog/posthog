@@ -14,6 +14,8 @@ from products.signals.backend.artefact_schemas import (
     ActionabilityAssessment,
     ActionabilityChoice,
     NoteArtefact,
+
+    ImplementationAssessment,
     ImplementationDecision,
     Priority,
     PriorityAssessment,
@@ -34,6 +36,7 @@ from products.signals.backend.report_metrics import (
     MAX_REPORT_METRICS,
     ReportMetric,
 )
+from products.signals.backend.supersession import NO_IMPLEMENTATION_CONTEXT, ImplementationResearchContext
 
 # Deferred: importing temporal.types here runs the signals temporal package __init__, which
 # eager-imports agentic -> report -> back into this module, forming a circular import.
@@ -812,29 +815,20 @@ Respond with a JSON object matching this schema:
 
 
 def build_supersede_prompt(own_pr_url: str, previous_summary: str | None) -> str:
-    """Build the prompt asking whether this pass changed the fix enough to replace the report's PR.
+    schema = json.dumps(ImplementationAssessment.model_json_schema(), indent=2)
+    return f"""Review only these PRs created by automated Self-driving implementation runs:
+{own_pr_url}
 
-    Sent last, after the new title and summary exist, because that summary is what the replacement
-    pull request would be built from — so the agent compares the two descriptions of the fix rather
-    than guessing from findings alone.
-    """
-    schema = json.dumps(ImplementationDecision.model_json_schema(), indent=2)
-    previous_summary_block = (
-        f"\n## The summary the open pull request was built from\n\n{previous_summary}\n" if previous_summary else ""
-    )
+Previous research summary:
+{previous_summary or "No previous summary available."}
 
-    return f"""One last decision. This report already has an open pull request: {own_pr_url}
+Select only the supplied PR URLs whose fixes are now obsolete because the root cause or required
+change materially differs. Read each selected PR before deciding. Keep PRs that still fit, even
+when another PR from the same implementation needs replacing. More evidence for the same fix is
+not a reason to replace it. Never select a manual, interactive, external-agent, or unlisted PR.
+When in doubt, return an empty obsolete_pr_urls list.
 
-It was built from an earlier pass of this research. You have just re-summarized the report, so the
-question is whether that pull request still implements the right fix.
-{previous_summary_block}
-Set `supersede` to `true` only when this pass changed **what the fix should be** — a different root
-cause, a different file or layer, a materially wider or narrower scope. Finding more evidence for
-the same fix is not a reason: the open pull request already implements it, and replacing it would
-throw away review someone may already have done. When in doubt, leave it `false`.
-
-Respond with a JSON object matching this schema:
-
+Respond with JSON matching this schema:
 <jsonschema>
 {schema}
 </jsonschema>"""
@@ -994,14 +988,13 @@ async def run_multi_turn_research(
     charts_enabled: bool = False,
     metrics_enabled: bool = False,
     steering_section: str = "",
-    own_pr_url: str | None = None,
+    implementation_context: ImplementationResearchContext = NO_IMPLEMENTATION_CONTEXT,
 ) -> ReportResearchOutput:
     """Orchestrate a multi-turn sandbox session that investigates each signal individually.
 
-    `own_pr_url` is the pull request this report already has, when it has one. It does two things:
-    it stops the in-flight check treating the report's own draft as somebody else's work, and it is
-    what makes the final supersede turn worth asking.
+    Only server-verified automatic implementations are candidates for replacement.
     """
+    own_pr_url = "\n".join(target.pr_url for target in implementation_context.candidates) or None
     from products.tasks.backend.facade import api as tasks_facade
     from products.tasks.backend.facade.agents import MultiTurnSession
 
@@ -1206,6 +1199,7 @@ async def run_multi_turn_research(
             own_pr_url
             and previous_report_research is not None
             and actionability_result.actionability == ActionabilityChoice.IMMEDIATELY_ACTIONABLE
+            and not actionability_result.already_addressed
         ):
             if output_fn:
                 output_fn("Deciding whether the open PR still fits...")
@@ -1216,10 +1210,21 @@ async def run_multi_turn_research(
             # what the common answer says. The report persists, and the next pass asks again.
             # `CancelledError` is not an `Exception`, so a canceled activity still fails the run.
             try:
-                implementation_decision = await session.send_followup(
+                assessment = await session.send_followup(
                     build_supersede_prompt(own_pr_url, previous_report_research.summary),
-                    ImplementationDecision,
+                    ImplementationAssessment,
                     label="supersede",
+                )
+                candidates = {target.pr_url: target for target in implementation_context.candidates}
+                selected = list(dict.fromkeys(assessment.obsolete_pr_urls))
+                if any(url not in candidates for url in selected):
+                    raise ValueError("Research selected a PR outside the automated candidate set")
+                implementation_decision = ImplementationDecision(
+                    supersede=bool(selected),
+                    reason=assessment.reason,
+                    targets=[candidates[url] for url in selected],
+                    research_run_count=implementation_context.run_count,
+                    research_started_at=implementation_context.started_at,
                 )
             except Exception:
                 logger.exception("multi_turn_research: supersede turn failed, keeping the report's open PR")

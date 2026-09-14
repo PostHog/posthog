@@ -48,6 +48,43 @@ def connect_task_run_assignment_sync() -> None:
         sync_task_run_pr_to_assignments,
         dispatch_uid="signals_sync_task_run_pr_to_assignments",
     )
+    connect_task_run_post_save(
+        schedule_implementation_handover,
+        dispatch_uid="signals_schedule_implementation_handover",
+    )
+
+
+def schedule_implementation_handover(sender: type, instance: Any, created: bool, **kwargs: Any) -> None:
+    update_fields = kwargs.get("update_fields")
+    if update_fields is not None and not {"status", "output"}.intersection(update_fields):
+        return
+    from products.signals.backend.tasks import reconcile_implementation_replacement
+
+    for replacement_id in SignalReportArtefact.objects.filter(
+        team_id=instance.team_id, task_id=instance.task_id, type="implementation_replacement"
+    ).values_list("id", flat=True):
+        transaction.on_commit(
+            partial(reconcile_implementation_replacement.delay, instance.team_id, str(replacement_id))
+        )
+
+
+@receiver(post_save, sender=SignalReportArtefact)
+def schedule_handover_for_work_change(sender: type, instance: SignalReportArtefact, **kwargs: Any) -> None:
+    if instance.type not in {"implementation_replacement", "work_claim", "work_release", "pull_request"}:
+        return
+    from products.signals.backend.supersession import schedule_report_replacements
+
+    transaction.on_commit(partial(schedule_report_replacements, instance.team_id, str(instance.report_id)))
+
+
+@receiver(post_save, sender=SignalReport)
+def schedule_handover_for_report_change(sender: type, instance: SignalReport, **kwargs: Any) -> None:
+    update_fields = kwargs.get("update_fields")
+    if update_fields is not None and not {"status", "run_count"}.intersection(update_fields):
+        return
+    from products.signals.backend.supersession import schedule_report_replacements
+
+    transaction.on_commit(partial(schedule_report_replacements, instance.team_id, str(instance.id)))
 
 
 def sync_task_run_pr_to_assignments(sender: type, instance: Any, created: bool, **kwargs: Any) -> None:

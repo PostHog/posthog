@@ -16,7 +16,6 @@ from posthog.models.user import User
 from products.signals.backend.artefact_schemas import (
     DISMISSAL_NOTE_MAX_LENGTH,
     CodeReference,
-    ImplementationDecision,
     NoteArtefact,
     Priority,
     PriorityAssessment,
@@ -1430,17 +1429,43 @@ class TestSignalReportArtefactLogWriteViewSet(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert SignalReportArtefact.objects.filter(id=artefact.id).exists()
 
-    def test_delete_implementation_decision_is_rejected(self):
-        # implementation_decision is system-generated and read-only through the API: deleting the
-        # latest one would resurface a superseded decision as canonical and reopen a report's PR.
+    @parameterized.expand(
+        [
+            ("implementation_decision", {"supersede": True, "reason": "the root cause moved"}),
+            (
+                "implementation_replacement",
+                {
+                    "decision_id": str(uuid.UUID(int=1)),
+                    "run_id": str(uuid.UUID(int=2)),
+                    "decision": {"supersede": True, "reason": "the root cause moved"},
+                },
+            ),
+            ("implementation_handover", {"replacement_id": str(uuid.UUID(int=1)), "status": "completed"}),
+        ]
+    )
+    def test_implementation_lifecycle_artefacts_cannot_be_forged_or_removed(
+        self, artefact_type: str, content: dict
+    ) -> None:
         report = self._create_report()
-        artefact = SignalReportArtefact.append_status(
+        artefact = SignalReportArtefact.objects.create(
             team_id=self.team.id,
-            report_id=str(report.id),
-            content=ImplementationDecision(supersede=True, reason="the root cause moved"),
-            attribution=ArtefactAttribution.system(),
+            report=report,
+            type=artefact_type,
+            content=json.dumps(content),
+            actor_kind="system",
         )
-
+        response = self.client.post(
+            self._list_url(str(report.id)),
+            data=json.dumps({"artefact_type": artefact_type, "content": content}),
+            content_type="application/json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        response = self.client.patch(
+            self._detail_url(str(report.id), str(artefact.id)),
+            data=json.dumps({"content": content}),
+            content_type="application/json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
         response = self.client.delete(self._detail_url(str(report.id), str(artefact.id)))
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert SignalReportArtefact.objects.filter(id=artefact.id).exists()

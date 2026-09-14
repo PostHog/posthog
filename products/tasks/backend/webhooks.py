@@ -14,8 +14,6 @@ from posthog.models.team.team import Team
 from posthog.models.user_integration import UserIntegration
 
 from products.signals.backend.facade.github import update_pull_request_assignments
-from products.signals.backend.implementation_pr import close_superseded_implementation_prs
-from products.signals.backend.models import SignalReport
 from products.tasks.backend.constants import PR_LOOP_ENABLED_STATE_KEY
 from products.tasks.backend.facade.api import post_pr_created_thread_update, signal_workflow_completion
 from products.tasks.backend.facade.cancellation import cancel_task_run
@@ -287,12 +285,6 @@ def handle_pull_request_event(payload: dict) -> HttpResponse:
     # `_record_run_pr_url` swallows a failed write, so closing the older PR on a run that never
     # recorded this one would leave the report linked to the closed PR while its replacement sits
     # open and unlinked. Both PRs staying open is the recoverable side of that choice.
-    if task_run and action == "opened" and pr_url in read_pr_urls(task_run.output):
-        # Hand over from the PR this one replaces, now that the replacement exists. Doing it here,
-        # rather than polling after the task is created, means the report is never left without an
-        # open PR: if the replacement run never opens one, nothing closes.
-        _close_superseded_signal_report_prs(task_run, pr_url)
-
     if action == "closed" and merged:
         # Only trust the merge for the run that actually claims this PR URL. The pr_url backstop
         # above already covers branch-matched internal PRs, so requiring equality here keeps a
@@ -567,39 +559,3 @@ def _task_run_scope_team_ids(payload: dict) -> list[int]:
     )
 
     return sorted(team_ids)
-
-
-def _close_superseded_signal_report_prs(task_run: TaskRun, pr_url: str) -> None:
-    """Close the earlier implementation PRs of any signal report this run's task belongs to.
-
-    Best-effort: a failed handover leaves both PRs open, which someone can sort out, whereas raising
-    would fail a webhook GitHub retries.
-    """
-    try:
-        report_ids = list(
-            SignalReport.objects.filter(SignalReport.reports_for_task_filter(task_run.task_id)).values_list(
-                "id", flat=True
-            )
-        )
-        for report_id in report_ids:
-            closed = close_superseded_implementation_prs(
-                team_id=task_run.team_id,
-                report_id=str(report_id),
-                task_id=str(task_run.task_id),
-                pr_url=pr_url,
-            )
-            if closed:
-                logger.info(
-                    "github_pr_webhook_signal_report_pr_superseded",
-                    report_id=str(report_id),
-                    task_id=str(task_run.task_id),
-                    pr_url=pr_url,
-                    closed=closed,
-                )
-    except Exception:
-        logger.warning(
-            "github_pr_webhook_signal_report_supersede_failed",
-            task_id=str(task_run.task_id),
-            pr_url=pr_url,
-            exc_info=True,
-        )

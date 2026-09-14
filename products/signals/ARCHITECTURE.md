@@ -232,8 +232,10 @@ On re-promotion:
 - **Agentic research** reconstructs previous findings / actionability / priority from artefacts and reuses prior work signal-by-signal when still valid
 - **Agentic artefacts** are append-only — the previous run's rows are kept; the new run appends only the entries that actually changed (the agent confirms a still-correct finding/judgment instead of regenerating it), and status types resolve latest-wins
 - **`task_run` artefacts are never removed** on re-promotion; they are the historical record of research and auto-started coding runs
-- **Auto-start is deduplicated per report** by a legacy `SignalReportTask` implementation link (not the freeform `task_run` log), checked inside the report-row `select_for_update`
+- **Auto-start is deduplicated per report** by a legacy `SignalReportTask` implementation link (alongside the protected `task_run` log), checked inside the report-row `select_for_update`
 - **Workflow ID** includes `run_count` on reruns to avoid Temporal ID collisions with earlier executions
+
+An immediately actionable re-research can select obsolete PRs created by automatically started implementation runs. The server verifies exact-run automation receipts and GitHub branches, transfers only the matching task claim, and starts at most one replacement per research pass. Selected predecessors close only after the replacement completes with verified open PRs. Manual work and runs without automation receipts remain ineligible. Read [automated PR replacement](../../docs/internal/self-driving-pr-replacement.md) when changing research decisions, claim transfer, handover retries, or report completion.
 
 ### `SignalReportReingestionWorkflow` (`signal-report-reingestion`)
 
@@ -584,7 +586,7 @@ Notes:
 
 ### `SignalReportTask` (legacy — implementation gate only)
 
-The legacy report↔task link table. General task↔report association has moved to `task_run` artefacts (a `task_run` artefact's `task` FK is the association; purpose comes from its `(product, type)`). This table survives for **one** job: it's the auto-start idempotency gate. `record_implementation_task` dual-writes a `relationship="implementation"` row here **and** the `task_run` artefact; auto-start checks this table (not the freeform, API-mutable artefact log) when deciding whether an implementation has already started. Once `backfill_task_run_artefacts` has converted every legacy row into a `task_run` artefact, the gate can move to the artefact log and this table can be dropped.
+The legacy report↔task link table. General task↔report association has moved to `task_run` artefacts (a `task_run` artefact's `task` FK is the association; purpose comes from its `(product, type)`). This table survives for **one** job: it's the auto-start idempotency gate. `record_implementation_task` dual-writes a `relationship="implementation"` row here **and** the `task_run` artefact; auto-start checks this table (alongside protected task-run artefacts) when deciding whether an implementation has already started. Once `backfill_task_run_artefacts` has converted every legacy row into a `task_run` artefact, the gate can move to the artefact log and this table can be dropped.
 
 ### `SignalSourceConfig`
 

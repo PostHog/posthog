@@ -31,7 +31,6 @@ from products.signals.backend.auto_start import (
     _report_meets_team_autostart_threshold,
     _resolve_autostart_assignee,
     _resolve_autostart_fallback_user,
-    _resolve_supersede,
     _resolve_triggering_user,
     load_report_steering,
     maybe_autostart_from_report_artefacts,
@@ -53,7 +52,6 @@ from products.signals.backend.quota import SelfDrivingQuotaGate
 from products.signals.backend.report_generation.research import (
     ActionabilityAssessment,
     ActionabilityChoice,
-    ImplementationDecision,
     Priority,
     PriorityAssessment,
 )
@@ -1114,108 +1112,6 @@ _EXISTING_PR_URL = "https://github.com/PostHog/posthog/pull/1"
 
 
 @pytest.mark.django_db
-@pytest.mark.parametrize(
-    ("status", "supersede", "run_count", "implemented_at_run_count", "pr_url", "expected_allowed"),
-    [
-        # The whole point: a later pass said the fix changed, and the report has a PR to replace.
-        (SignalReport.Status.READY, True, 2, 1, _EXISTING_PR_URL, True),
-        # The agent looked and decided the open PR still fits.
-        (SignalReport.Status.READY, False, 2, 1, _EXISTING_PR_URL, False),
-        # No decision at all — a first pass, or a report that predates superseding.
-        (SignalReport.Status.READY, None, 2, 1, _EXISTING_PR_URL, False),
-        # This pass already opened the replacement. Without this a retried evaluation opens a second.
-        (SignalReport.Status.READY, True, 2, 2, _EXISTING_PR_URL, False),
-        # The report's implementation run never opened a PR, so there is nothing to replace. Also
-        # covers a report whose only PR came from a "Discuss" task: the handover can never close
-        # one, so it must not be resolved here and promised a replacement.
-        (SignalReport.Status.READY, True, 2, 1, None, False),
-        # The pass that wrote the decision is still running, so the report's summary is the previous
-        # pass's. A reviewer edit landing here would build the replacement from that older prose and
-        # close the PR matching it, and stamp the pass out of its own settle-point turn.
-        (SignalReport.Status.IN_PROGRESS, True, 2, 1, _EXISTING_PR_URL, False),
-        # An archived report keeps its artefacts, so without this an edit could still trade its
-        # reviewed PR for a replacement after the report left the inbox.
-        (SignalReport.Status.SUPPRESSED, True, 2, 1, _EXISTING_PR_URL, False),
-    ],
-)
-def test_resolve_supersede(team, status, supersede, run_count, implemented_at_run_count, pr_url, expected_allowed):
-    report = SignalReport.objects.create(
-        team=team,
-        status=status,
-        title="t",
-        summary="s",
-        signal_count=2,
-        total_weight=1.0,
-        run_count=run_count,
-        implemented_at_run_count=implemented_at_run_count,
-    )
-    decision = None if supersede is None else ImplementationDecision(supersede=supersede, reason="the root cause moved")
-    with patch(
-        "products.signals.backend.auto_start.fetch_implementation_task_pr_url",
-        return_value=pr_url,
-    ):
-        resolved = _resolve_supersede(report, decision)
-
-    assert resolved.allowed is expected_allowed
-    if expected_allowed:
-        assert resolved.superseded_pr_url == pr_url
-        assert resolved.reason == "the root cause moved"
-
-
-@pytest.mark.django_db
-def test_supersede_creates_a_second_task_and_only_one(organization, team):
-    """A supersede decision opens exactly one replacement. The stamp under the lock is what stops a
-    retried or racing evaluation opening a third PR off the same decision."""
-    Task = apps.get_model("tasks", "Task")
-    TaskRun = apps.get_model("tasks", "TaskRun")
-    user = _create_org_member_with_github("supersede@example.com", organization, "SuperCat")
-    report = SignalReport.objects.create(
-        team=team,
-        status=SignalReport.Status.READY,
-        title="t",
-        summary="s",
-        signal_count=2,
-        total_weight=1.0,
-        run_count=1,
-    )
-
-    def _fake_create_and_run_task(**kwargs):
-        task = Task.objects.create(
-            team=team,
-            title=kwargs["title"],
-            description=kwargs["description"],
-            created_by=user,
-            origin_product=Task.OriginProduct.SIGNAL_REPORT,
-        )
-        run = TaskRun.objects.create(task=task, team=team)
-        return SimpleNamespace(task_id=task.id, team_id=team.id, latest_run=SimpleNamespace(id=run.id))
-
-    kwargs = {
-        "team_id": team.id,
-        "report_id": str(report.id),
-        "title": "t",
-        "description": "d",
-        "user_id": user.id,
-        "repository": "owner/repo",
-        "base_branch": None,
-    }
-    supersede = SupersedeDecision(allowed=True, superseded_pr_url=_EXISTING_PR_URL, reason="the root cause moved")
-    with patch.object(tasks_facade, "create_and_run_task", side_effect=_fake_create_and_run_task) as mock_create:
-        # The report's first implementation, built from research pass 1.
-        first = _create_implementation_task_if_absent(**kwargs)
-        # Pass 2 finds the fix has changed. The replacement opens, and the retry behind it does not.
-        SignalReport.objects.filter(id=report.id).update(run_count=2)
-        second = _create_implementation_task_if_absent(**kwargs, supersede=supersede)
-        third = _create_implementation_task_if_absent(**kwargs, supersede=supersede)
-
-    assert (first, second, third) == (True, True, False)
-    assert mock_create.call_count == 2
-    report.refresh_from_db()
-    assert report.implemented_at_run_count == 2
-    assert len(signals_task_ids(report_id=str(report.id), type=TASK_RUN_TYPE_IMPLEMENTATION)) == 2
-
-
-@pytest.mark.django_db
 def test_supersede_without_permission_leaves_the_gate_closed(organization, team):
     user = _create_org_member_with_github("nosupersede@example.com", organization, "PlainCat")
     report = SignalReport.objects.create(
@@ -1262,79 +1158,6 @@ def test_autostart_description_names_the_pr_it_replaces(allowed):
     )
     assert (_EXISTING_PR_URL in description) is allowed
     assert ("the root cause moved" in description) is allowed
-
-
-@pytest.mark.asyncio
-@pytest.mark.django_db(transaction=True)
-@pytest.mark.parametrize("supersede_allowed", [True, False])
-async def test_supersede_bypasses_the_already_addressed_gate(supersede_allowed):
-    """The in-flight work an agent finds on a re-research is the report's own draft PR, so
-    `already_addressed` is true on exactly the passes that are allowed to replace it. Without the
-    bypass, superseding never fires and the feature is inert."""
-    Task = apps.get_model("tasks", "Task")
-    TaskRun = apps.get_model("tasks", "TaskRun")
-
-    def _setup() -> tuple[Team, SignalReport]:
-        organization = Organization.objects.create(name="bypass-org")
-        team = Team.objects.create(organization=organization, name="bypass-team")
-        enabler = User.objects.create(email="bypass-enabler@example.com")
-        OrganizationMembership.objects.create(user=enabler, organization=organization)
-        SignalSourceConfig.objects.create(
-            team=team, source_product="error_tracking", source_type="issue_created", created_by=enabler
-        )
-        report = SignalReport.objects.create(
-            team=team,
-            status=SignalReport.Status.READY,
-            title="t",
-            summary="s",
-            signal_count=2,
-            total_weight=1.0,
-            run_count=2,
-            implemented_at_run_count=1,
-        )
-        task = Task.objects.create(
-            team=team, title="impl", description="d", origin_product=Task.OriginProduct.SIGNAL_REPORT
-        )
-        SignalReportTask.objects.create(team=team, report=report, task=task, relationship=TASK_RUN_TYPE_IMPLEMENTATION)
-        TaskRun.objects.create(team=team, task=task, output={"pr_url": _EXISTING_PR_URL})
-        return team, report
-
-    team, report = await sync_to_async(_setup)()
-
-    def _fake_create_and_run_task(**kwargs):
-        task = Task.objects.create(
-            team_id=team.id,
-            title=kwargs["title"],
-            description=kwargs["description"],
-            origin_product=Task.OriginProduct.SIGNAL_REPORT,
-        )
-        run = TaskRun.objects.create(task=task, team_id=team.id)
-        return SimpleNamespace(task_id=task.id, team_id=team.id, latest_run=SimpleNamespace(id=run.id))
-
-    pinned = AgentRuntime(runtime_adapter="codex", model="gpt-5.6-terra", reasoning_effort="medium")
-    with (
-        patch.object(tasks_facade, "create_and_run_task", side_effect=_fake_create_and_run_task) as mock_create,
-        patch("products.signals.backend.auto_start.resolve_agent_runtime", return_value=pinned),
-    ):
-        await maybe_autostart_implementation_task(
-            team_id=team.id,
-            report_id=str(report.id),
-            repository="owner/repo",
-            title="t",
-            summary="s",
-            actionability=ActionabilityAssessment(
-                explanation="An open PR already covers this.",
-                actionability=ActionabilityChoice.IMMEDIATELY_ACTIONABLE,
-                already_addressed=True,
-            ),
-            reviewers_content=[],
-            priority=PriorityAssessment(explanation="Affects many sessions.", priority=Priority.P2),
-            implementation_decision=ImplementationDecision(supersede=supersede_allowed, reason="the root cause moved"),
-        )
-
-    assert mock_create.call_count == (1 if supersede_allowed else 0)
-    if supersede_allowed:
-        assert _EXISTING_PR_URL in mock_create.call_args.kwargs["description"]
 
 
 @pytest.mark.asyncio

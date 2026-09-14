@@ -1,173 +1,421 @@
-import pytest
+from datetime import timedelta
+from types import SimpleNamespace
+from uuid import uuid4
+
+from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
-from django.apps import apps
+from django.db import transaction
+from django.utils import timezone
 
-from posthog.models import Organization, Team
+from asgiref.sync import async_to_sync
+from parameterized import parameterized
 
-from products.signals.backend.implementation_pr import (
-    close_superseded_implementation_prs,
-    fetch_implementation_pr_state_for_reports,
-    fetch_implementation_prs_for_reports,
-    fetch_implementation_task_pr_url,
-    report_has_newer_implementation_task,
+from products.signals.backend.artefact_attribution import ArtefactAttribution
+from products.signals.backend.artefact_schemas import (
+    ImplementationDecision,
+    ImplementationHandover,
+    ImplementationReplacement,
 )
-from products.signals.backend.models import SignalReport, SignalReportTask
-from products.signals.backend.report_assignments import update_assignments_for_pull_request
-from products.signals.backend.task_run_artefacts import TASK_RUN_TYPE_DISCUSSION, TASK_RUN_TYPE_IMPLEMENTATION
+from products.signals.backend.auto_start import (
+    _create_implementation_task_if_absent,
+    _resolve_supersede,
+    maybe_autostart_implementation_task,
+)
+from products.signals.backend.models import SignalReport, SignalReportArtefact
+from products.signals.backend.report_assignments import create_claim, release_claim, update_assignments_for_pull_request
+from products.signals.backend.report_claims import ReportClaim, get_active_claim
+from products.signals.backend.report_generation.research import ActionabilityAssessment, ActionabilityChoice
+from products.signals.backend.supersession import (
+    MAX_HANDOVER_ATTEMPTS,
+    append_handover,
+    automated_targets,
+    latest_handover,
+    pending_replacement,
+    reconcile_replacement,
+    research_implementation_context,
+)
+from products.signals.backend.task_run_artefacts import record_implementation_task
+from products.tasks.backend.models import Task, TaskRun
 
-_OLD_PR = "https://github.com/PostHog/posthog/pull/1"
-_NEW_PR = "https://github.com/PostHog/posthog/pull/2"
-
-
-@pytest.fixture
-def team(db):
-    org = Organization.objects.create(name="supersede-org")
-    team = Team.objects.create(organization=org, name="supersede-team")
-    yield team
-    team.delete()
-    org.delete()
-
-
-@pytest.fixture
-def report(team):
-    return SignalReport.objects.create(
-        team=team, status=SignalReport.Status.READY, title="t", summary="s", signal_count=1, total_weight=1.0
-    )
-
-
-def _link_task(team, report, *, pr_url, relationship=TASK_RUN_TYPE_IMPLEMENTATION):
-    Task = apps.get_model("tasks", "Task")
-    TaskRun = apps.get_model("tasks", "TaskRun")
-    task = Task.objects.create(
-        team=team, title="impl", description="d", origin_product=Task.OriginProduct.SIGNAL_REPORT
-    )
-    SignalReportTask.objects.create(team=team, report=report, task=task, relationship=relationship)
-    TaskRun.objects.create(team=team, task=task, output={"pr_url": pr_url} if pr_url else {})
-    return task
+OLD_PR = "https://github.com/example/repo/pull/1"
+KEPT_PR = "https://github.com/example/repo/pull/2"
+NEW_PR = "https://github.com/example/repo/pull/3"
 
 
-def _github(state="open", merged=False):
-    github = MagicMock()
-    github.get_pull_request.return_value = {"success": True, "state": state, "merged": merged}
-    github.comment_on_pull_request.return_value = {"success": True}
-    github.close_pull_request.return_value = {"success": True, "number": 1, "state": "closed"}
-    return github
-
-
-@pytest.mark.django_db
-def test_report_surfaces_the_replacement_after_the_old_pr_closes(team, report):
-    _link_task(team, report, pr_url=_OLD_PR)
-    _link_task(team, report, pr_url=_NEW_PR)
-
-    update_assignments_for_pull_request(
-        team_ids=[team.id], repository="posthog/posthog", pr_number=1, pr_state="closed"
-    )
-
-    surfaced = fetch_implementation_pr_state_for_reports([str(report.id)], team_id=team.id)
-
-    assert surfaced[str(report.id)].url == _NEW_PR
-
-
-@pytest.mark.django_db
-def test_report_retains_discussion_and_implementation_prs(team, report):
-    _link_task(team, report, pr_url=_OLD_PR)
-    _link_task(team, report, pr_url=_NEW_PR, relationship=TASK_RUN_TYPE_DISCUSSION)
-
-    surfaced = fetch_implementation_prs_for_reports([str(report.id)], team_id=team.id)
-
-    assert {pr.url for pr in surfaced[str(report.id)]} == {_OLD_PR, _NEW_PR}
-
-
-@pytest.mark.django_db
-@pytest.mark.parametrize("relationship", [TASK_RUN_TYPE_IMPLEMENTATION, TASK_RUN_TYPE_DISCUSSION])
-def test_supersede_lookup_only_resolves_implementation_prs(team, report, relationship):
-    _link_task(team, report, pr_url=_OLD_PR, relationship=relationship)
-
-    resolved = fetch_implementation_task_pr_url(team.id, str(report.id))
-
-    # The handover only ever closes implementation PRs, so resolving a "Discuss" PR here would
-    # supersede work a person started: a second PR opens, claiming to replace one that never closes.
-    assert resolved == (_OLD_PR if relationship == TASK_RUN_TYPE_IMPLEMENTATION else None)
-
-
-@pytest.mark.django_db
-def test_supersede_lookup_prefers_the_newest_implementation_pr(team, report):
-    _link_task(team, report, pr_url=_OLD_PR)
-    _link_task(team, report, pr_url=_NEW_PR)
-
-    assert fetch_implementation_task_pr_url(team.id, str(report.id)) == _NEW_PR
-
-
-@pytest.mark.django_db
-@pytest.mark.parametrize("position", ["older", "newest", "only"])
-def test_report_has_newer_implementation_task(team, report, position):
-    first = _link_task(team, report, pr_url=_OLD_PR)
-    if position != "only":
-        second = _link_task(team, report, pr_url=_NEW_PR)
-    task = first if position in ("older", "only") else second
-
-    assert report_has_newer_implementation_task(team.id, str(report.id), str(task.id)) is (position == "older")
-
-
-@pytest.mark.django_db
-def test_closing_a_superseded_pr_does_not_archive_the_report(team, report):
-    """A superseded PR closes unmerged, which is indistinguishable from an abandoned one at the
-    GitHub webhook. Without the guard the handover archives the very report it is replacing work for."""
-    _link_task(team, report, pr_url=_OLD_PR)
-    # The replacement task exists but has not opened its PR yet, so the old PR is still the one the
-    # report surfaces — the window where the close looks like an abandonment.
-    _link_task(team, report, pr_url=None)
-
-    update_assignments_for_pull_request(
-        team_ids=[team.id], repository="posthog/posthog", pr_number=1, pr_state="closed"
-    )
-
-    report.refresh_from_db()
-    assert report.status == SignalReport.Status.READY
-
-
-@pytest.mark.django_db
-def test_closing_the_newest_pr_still_archives_the_report(team, report):
-    _link_task(team, report, pr_url=_OLD_PR)
-
-    update_assignments_for_pull_request(
-        team_ids=[team.id], repository="posthog/posthog", pr_number=1, pr_state="closed"
-    )
-
-    report.refresh_from_db()
-    assert report.status == SignalReport.Status.SUPPRESSED
-
-
-@pytest.mark.django_db
-def test_handover_closes_the_earlier_pr_only(team, report):
-    _link_task(team, report, pr_url=_OLD_PR)
-    new_task = _link_task(team, report, pr_url=_NEW_PR)
-    github = _github()
-
-    with patch(
-        "products.signals.backend.implementation_pr.GitHubIntegration.first_for_team_repository",
-        return_value=github,
-    ):
-        closed = close_superseded_implementation_prs(
-            team_id=team.id, report_id=str(report.id), task_id=str(new_task.id), pr_url=_NEW_PR
+class TestSupersedeHandover(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.report = SignalReport.objects.create(
+            team=self.team,
+            status="ready",
+            title="Fix checkout",
+            summary="Updated fix",
+            run_count=2,
+            implemented_at_run_count=1,
+            last_run_at=timezone.now(),
         )
-
-    assert closed == 1
-    # The URL it acted on is the old PR: closing the replacement would leave the report with nothing.
-    assert github.get_pull_request.call_args.args[1] == 1
-
-
-@pytest.mark.django_db
-def test_handover_closes_nothing_for_a_report_with_one_implementation(team, report):
-    task = _link_task(team, report, pr_url=_NEW_PR)
-
-    with patch(
-        "products.signals.backend.implementation_pr.GitHubIntegration.first_for_team_repository"
-    ) as mock_resolve:
-        closed = close_superseded_implementation_prs(
-            team_id=team.id, report_id=str(report.id), task_id=str(task.id), pr_url=_NEW_PR
+        self.task = Task.objects.create(
+            team=self.team,
+            signal_report=self.report,
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+            title="Original implementation",
+            repository="example/repo",
+            internal=True,
         )
+        self.implementation_run = TaskRun.objects.create(
+            team=self.team,
+            task=self.task,
+            status="completed",
+            environment="cloud",
+            state={"ai_stage": "implementation", "self_driving_head_branch": "automated-original"},
+            output={"pr_urls": [OLD_PR, KEPT_PR]},
+        )
+        with transaction.atomic():
+            record_implementation_task(
+                team_id=self.team.id,
+                report_id=str(self.report.id),
+                task_id=str(self.task.id),
+                run_id=str(self.implementation_run.id),
+                automation_branch="automated-original",
+            )
+        self.prs = {
+            n: {
+                "success": True,
+                "state": "open",
+                "merged": False,
+                "head_sha": f"sha-{n}",
+                "head_branch": "automated-original" if n != 3 else "automated-replacement",
+                "head_repository": "example/repo",
+            }
+            for n in (1, 2, 3)
+        }
+        self.github = MagicMock()
+        self.github.get_pull_request.side_effect = lambda repository, number: self.prs[number]
+        self.github.has_pull_request_comment.return_value = False
+        self.github.comment_on_pull_request.return_value = {"success": True}
 
-    assert closed == 0
-    mock_resolve.assert_not_called()
+        def close(repository, number):
+            self.prs[number] = {**self.prs[number], "state": "closed"}
+            return {"success": True, "state": "closed"}
+
+        self.github.close_pull_request.side_effect = close
+        patcher = patch(
+            "products.signals.backend.supersession.GitHubIntegration.first_for_team_repository",
+            return_value=self.github,
+        )
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def current_claim(self) -> ReportClaim:
+        claim = get_active_claim(team_id=self.team.id, report_id=self.report.id)
+        assert claim is not None
+        return claim
+
+    def handover(self, replacement: SignalReportArtefact) -> ImplementationHandover:
+        handover = latest_handover(replacement)
+        assert handover is not None
+        return handover
+
+    def decision(self) -> ImplementationDecision:
+        context = research_implementation_context(self.team.id, str(self.report.id))
+        decision = ImplementationDecision(
+            supersede=True,
+            reason="The first fix targets the wrong layer.",
+            targets=[target for target in context.candidates if target.pr_url == OLD_PR],
+            research_run_count=context.run_count,
+            research_started_at=context.started_at,
+        )
+        SignalReportArtefact.append_status(
+            team_id=self.team.id,
+            report_id=str(self.report.id),
+            content=decision,
+            attribution=ArtefactAttribution.system(),
+        )
+        return decision
+
+    def start_replacement(self) -> SignalReportArtefact:
+        decision = self.decision()
+        supersede = _resolve_supersede(self.report, decision)
+        assert supersede.allowed
+
+        def create(**kwargs):
+            task = Task.objects.create(
+                team=self.team,
+                signal_report=self.report,
+                origin_product=Task.OriginProduct.SIGNAL_REPORT,
+                title="Replacement",
+                repository="example/repo",
+                internal=True,
+            )
+            run = TaskRun.objects.create(
+                team=self.team,
+                task=task,
+                status="in_progress",
+                environment="cloud",
+                state={"ai_stage": "implementation", "self_driving_head_branch": kwargs["self_driving_head_branch"]},
+                output={},
+            )
+            return SimpleNamespace(task_id=task.id, latest_run=SimpleNamespace(id=run.id))
+
+        with patch("products.signals.backend.auto_start.tasks_facade.create_and_run_task", side_effect=create):
+            outcomes = [
+                _create_implementation_task_if_absent(
+                    team_id=self.team.id,
+                    report_id=str(self.report.id),
+                    title="Replacement",
+                    description="Fix the changed layer",
+                    user_id=self.user.id,
+                    repository="example/repo",
+                    base_branch=None,
+                    supersede=supersede,
+                )
+                for _ in range(2)
+            ]
+            assert outcomes == [True, False]
+        return SignalReportArtefact.objects.get(report=self.report, type="implementation_replacement")
+
+    def complete(self, replacement: SignalReportArtefact) -> TaskRun:
+        content = ImplementationReplacement.model_validate_json(replacement.content)
+        run = TaskRun.objects.get(id=content.run_id)
+        self.prs[3]["head_branch"] = run.state["self_driving_head_branch"]
+        run.status = "completed"
+        run.output = {"pr_url": NEW_PR, "pr_state": "open"}
+        run.save(update_fields=["status", "output"])
+        return run
+
+    def test_selective_handover_transfers_claim_and_is_idempotent(self) -> None:
+        replacement = self.start_replacement()
+        assert self.current_claim().actor_task_id == replacement.task_id
+        assert not reconcile_replacement(self.team.id, str(replacement.id))
+        self.github.close_pull_request.assert_not_called()
+        self.complete(replacement)
+        assert not reconcile_replacement(self.team.id, str(replacement.id))
+        assert not reconcile_replacement(self.team.id, str(replacement.id))
+        self.github.close_pull_request.assert_called_once_with("example/repo", 1)
+        assert self.prs[2]["state"] == "open"
+        assert self.handover(replacement).status == "completed"
+
+    @parameterized.expand([("interactive", "cloud", "interactive"), ("local", "local", "background")])
+    def test_non_automated_execution_modes_are_ineligible(self, name: str, environment: str, mode: str) -> None:
+        self.implementation_run.environment = environment
+        self.implementation_run.state = {**self.implementation_run.state, "mode": mode}
+        self.implementation_run.save(update_fields=["environment", "state"])
+        assert not automated_targets(self.team.id, str(self.report.id))
+
+    def test_manual_background_run_cannot_inherit_automation_receipt(self) -> None:
+        self.implementation_run.output = {}
+        self.implementation_run.save(update_fields=["output"])
+        TaskRun.objects.create(
+            team=self.team,
+            task=self.task,
+            status="completed",
+            environment="cloud",
+            state=self.implementation_run.state,
+            output={"pr_url": OLD_PR},
+        )
+        assert not automated_targets(self.team.id, str(self.report.id))
+
+    def test_missing_receipt_and_cross_team_are_ineligible(self) -> None:
+        assert not automated_targets(self.team.id + 1, str(self.report.id))
+        SignalReportArtefact.objects.filter(report=self.report, type="task_run").delete()
+        assert not automated_targets(self.team.id, str(self.report.id))
+
+    def test_active_user_continuation_blocks_the_entire_task(self) -> None:
+        TaskRun.objects.create(
+            team=self.team, task=self.task, status="in_progress", environment="cloud", state={"mode": "interactive"}
+        )
+        assert not automated_targets(self.team.id, str(self.report.id))
+
+    def test_completed_manual_continuation_also_blocks_the_original_run(self) -> None:
+        TaskRun.objects.create(
+            team=self.team,
+            task=self.task,
+            status="completed",
+            environment="cloud",
+            state=self.implementation_run.state,
+            output={"pr_url": OLD_PR},
+        )
+        assert not automated_targets(self.team.id, str(self.report.id))
+
+    def test_fork_and_changed_head_do_not_authorize_replacement(self) -> None:
+        decision = self.decision()
+        self.prs[1]["head_sha"] = "human-edit"
+        assert not _resolve_supersede(self.report, decision).allowed
+        self.prs[1]["head_repository"] = "other/repo"
+        assert OLD_PR not in {
+            target.pr_url for target in research_implementation_context(self.team.id, str(self.report.id)).candidates
+        }
+
+    def test_human_claim_blocks_replacement(self) -> None:
+        decision = self.decision()
+        with transaction.atomic():
+            claim = get_active_claim(team_id=self.team.id, report_id=self.report.id)
+            assert claim is not None
+            release_claim(claim, ArtefactAttribution.system())
+            create_claim(self.report, ArtefactAttribution.from_user(self.user.id))
+        assert not _resolve_supersede(self.report, decision).allowed
+
+    @parameterized.expand([("new_pass",), ("dismissed",)])
+    def test_rechecks_generation_and_status_after_resolving(self, change: str) -> None:
+        supersede = _resolve_supersede(self.report, self.decision())
+        assert supersede.allowed
+        SignalReport.objects.filter(id=self.report.id).update(
+            **({"run_count": 3} if change == "new_pass" else {"status": "suppressed"})
+        )
+        with patch("products.signals.backend.auto_start.tasks_facade.create_and_run_task") as create:
+            assert not _create_implementation_task_if_absent(
+                team_id=self.team.id,
+                report_id=str(self.report.id),
+                title="t",
+                description="d",
+                user_id=self.user.id,
+                repository="example/repo",
+                base_branch=None,
+                supersede=supersede,
+            )
+        create.assert_not_called()
+
+    def test_closing_predecessor_keeps_pending_report_active(self) -> None:
+        replacement = self.start_replacement()
+        for number in (1, 2):
+            update_assignments_for_pull_request(
+                team_ids=[self.team.id], repository="example/repo", pr_number=number, pr_state="closed"
+            )
+        self.report.refresh_from_db()
+        assert self.report.status == "ready"
+        pending = pending_replacement(self.team.id, str(self.report.id))
+        assert pending is not None and pending.id == replacement.id
+
+    @parameterized.expand([("failed",), ("cancelled",)])
+    def test_unsuccessful_replacement_releases_only_its_claim(self, status: str) -> None:
+        replacement = self.start_replacement()
+        content = ImplementationReplacement.model_validate_json(replacement.content)
+        TaskRun.objects.filter(id=content.run_id).update(status=status)
+        assert not reconcile_replacement(self.team.id, str(replacement.id))
+        assert pending_replacement(self.team.id, str(self.report.id)) is None
+        assert get_active_claim(team_id=self.team.id, report_id=self.report.id) is None
+        self.github.close_pull_request.assert_not_called()
+
+    def test_closed_replacement_does_not_close_predecessors(self) -> None:
+        replacement = self.start_replacement()
+        self.complete(replacement)
+        self.prs[3]["state"] = "closed"
+        assert not reconcile_replacement(self.team.id, str(replacement.id))
+        assert self.handover(replacement).status == "needs_attention"
+        self.github.close_pull_request.assert_not_called()
+
+    @parameterized.expand([("branch", "head_branch", "unrelated"), ("fork", "head_repository", "other/repo")])
+    def test_unrelated_replacement_output_cannot_authorize_closure(self, name: str, field: str, value: str) -> None:
+        replacement = self.start_replacement()
+        self.complete(replacement)
+        self.prs[3][field] = value
+        assert not reconcile_replacement(self.team.id, str(replacement.id))
+        assert self.handover(replacement).status == "needs_attention"
+        self.github.close_pull_request.assert_not_called()
+
+    def test_human_push_during_comment_does_not_close_predecessor(self) -> None:
+        replacement = self.start_replacement()
+        self.complete(replacement)
+
+        def comment(repository, number, body):
+            self.prs[number]["head_sha"] = "human-edit"
+            return {"success": True}
+
+        self.github.comment_on_pull_request.side_effect = comment
+        assert reconcile_replacement(self.team.id, str(replacement.id))
+        assert not reconcile_replacement(self.team.id, str(replacement.id))
+        assert self.handover(replacement).results[OLD_PR] == "skipped"
+        self.github.close_pull_request.assert_not_called()
+
+    def test_changed_predecessor_is_left_open(self) -> None:
+        replacement = self.start_replacement()
+        self.complete(replacement)
+        self.prs[1]["head_sha"] = "human-edit"
+        assert not reconcile_replacement(self.team.id, str(replacement.id))
+        assert self.handover(replacement).results[OLD_PR] == "skipped"
+        self.github.close_pull_request.assert_not_called()
+
+    def test_transient_failure_retries_without_duplicate_close(self) -> None:
+        replacement = self.start_replacement()
+        self.complete(replacement)
+        self.github.close_pull_request.side_effect = None
+        self.github.close_pull_request.return_value = {"success": False}
+        assert reconcile_replacement(self.team.id, str(replacement.id))
+        assert self.handover(replacement).status == "processing"
+        self.github.close_pull_request.return_value = {"success": True}
+        assert not reconcile_replacement(self.team.id, str(replacement.id))
+        assert self.handover(replacement).status == "completed"
+
+    def test_missing_output_exhausts_retries_and_releases_the_claim(self) -> None:
+        replacement = self.start_replacement()
+        content = ImplementationReplacement.model_validate_json(replacement.content)
+        TaskRun.objects.filter(id=content.run_id).update(status="completed", output={})
+        for attempt in range(MAX_HANDOVER_ATTEMPTS):
+            assert reconcile_replacement(self.team.id, str(replacement.id)) == (attempt < MAX_HANDOVER_ATTEMPTS - 1)
+        assert self.handover(replacement).status == "failed"
+        assert pending_replacement(self.team.id, str(self.report.id)) is None
+        assert get_active_claim(team_id=self.team.id, report_id=self.report.id) is None
+        self.github.close_pull_request.assert_not_called()
+
+    def test_worker_lease_blocks_duplicates_then_recovers_after_expiry(self) -> None:
+        replacement = self.start_replacement()
+        self.complete(replacement)
+        progress = ImplementationHandover(
+            replacement_id=replacement.id,
+            status="processing",
+            attempt=1,
+            worker_token=uuid4(),
+            lease_until=timezone.now() + timedelta(minutes=5),
+        )
+        append_handover(replacement, progress)
+        assert reconcile_replacement(self.team.id, str(replacement.id))
+        self.github.close_pull_request.assert_not_called()
+        progress.lease_until = timezone.now() - timedelta(seconds=1)
+        append_handover(replacement, progress)
+        with patch("products.signals.backend.tasks.reconcile_implementation_replacement.apply_async") as enqueue:
+            with self.captureOnCommitCallbacks(execute=True):
+                assert not reconcile_replacement(self.team.id, str(replacement.id))
+            assert any(call.kwargs.get("countdown") == 301 for call in enqueue.call_args_list)
+        assert self.handover(replacement).status == "completed"
+        self.github.close_pull_request.assert_called_once_with("example/repo", 1)
+
+    def test_human_takeover_during_verification_preserves_claim_and_predecessors(self) -> None:
+        replacement = self.start_replacement()
+        self.complete(replacement)
+        original = self.github.get_pull_request.side_effect
+
+        def read(repository, number):
+            if number == 3:
+                with transaction.atomic():
+                    claim = self.current_claim()
+                    if claim.actor_kind == "task":
+                        release_claim(claim, ArtefactAttribution.system())
+                        create_claim(self.report, ArtefactAttribution.from_user(self.user.id))
+            return original(repository, number)
+
+        self.github.get_pull_request.side_effect = read
+        assert not reconcile_replacement(self.team.id, str(replacement.id))
+        assert self.handover(replacement).status == "cancelled"
+        assert self.current_claim().actor_user_id == self.user.id
+        self.github.close_pull_request.assert_not_called()
+
+    def test_external_work_already_addressed_blocks_supersede(self) -> None:
+        decision = self.decision()
+        with patch("products.signals.backend.auto_start.tasks_facade.create_and_run_task") as create:
+            async_to_sync(maybe_autostart_implementation_task)(
+                team_id=self.team.id,
+                report_id=str(self.report.id),
+                repository="example/repo",
+                title="t",
+                summary="s",
+                actionability=ActionabilityAssessment(
+                    explanation="Another PR fixes it",
+                    actionability=ActionabilityChoice.IMMEDIATELY_ACTIONABLE,
+                    already_addressed=True,
+                ),
+                reviewers_content=[],
+                priority=None,
+                implementation_decision=decision,
+            )
+        create.assert_not_called()
