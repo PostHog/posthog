@@ -315,13 +315,16 @@ function IspBreakdown({
                     },
                 ]}
             />
-            <IspCoverage isps={isps} emailsSent={emailsSent} />
+            {sharedDomains.length === 0 && <IspCoverage isps={isps} emailsSent={emailsSent} />}
         </div>
     )
 }
 
 // The card counts every workflow email sent; the table counts what AWS attributed to the verified
 // domains. Different populations, and the table is routinely the smaller one.
+//
+// Only sound while no domain is shared. A shared domain puts another project's mail in the table
+// but not in the card, so the two stop being comparable and the caller withholds this.
 function IspCoverage({
     isps,
     emailsSent,
