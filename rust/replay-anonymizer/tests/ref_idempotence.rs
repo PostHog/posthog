@@ -1,7 +1,7 @@
 //! Re-scrubbing already-mirrored output must preserve its image content refs — but only when the
 //! caller vouches for where that input came from.
 //!
-//! The mirror replaces each inlined image with an `image:<pseudo_team>:<hash>` ref and ships the
+//! The mirror replaces each inlined image with an `image:<team_id>:<hash>` ref and ships the
 //! bytes out of band, so that ref is the only join key back to them. Remote images keep a media
 //! placeholder and carry an `imageurl:<hash>` ref in a namespaced sibling attribute.
 //! Scrubbing mirrored output a second time must not destroy either join key.
@@ -18,7 +18,7 @@ use posthog_replay_anonymizer::{
 use serde_json::{json, Value};
 
 const TS0: f64 = 1_700_000_000_000.0;
-const REF: &str = "image:0123456789abcdef0123456789abcdef:AAAAAAAAAAAAAAAAAAAAAA";
+const REF: &str = "image:42:AAAAAAAAAAAAAAAAAAAAAA";
 const URL_REF: &str = "imageurl:AAAAAAAAAAAAAAAAAAAAAA";
 const LEGACY_URL_REF: &str = "imageurl:0123456789abcdef0123456789abcdef:AAAAAAAAAAAAAAAAAAAAAA";
 const NUMBERED_PLACEHOLDER: &str = "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 80 80'><rect width='80' height='80' fill='%23f3f4f6'/><rect x='6' y='6' width='68' height='68' fill='none' stroke='%23d1d5db' stroke-width='2' rx='6'/><circle cx='26' cy='26' r='6' fill='%239ca3af'/><path d='M14 60 L34 40 L48 50 L66 32 L66 66 L14 66 Z' fill='%239ca3af'/><metadata id='anon-image-slot-0'/></svg>";

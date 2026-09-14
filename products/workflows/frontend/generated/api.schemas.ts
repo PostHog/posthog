@@ -1808,7 +1808,7 @@ export type HogFlowsListParams = {
      */
     trigger?: string
     /**
-     * Filter by workflow type. `messaging` returns workflows with an email, SMS, or push action; `automation` returns the rest.
+     * Filter by workflow type. `loop` returns workflows owned by a Desktop loop; `messaging` returns the remaining workflows with an email, SMS, or push action; `automation` returns the rest.
      */
     type?: HogFlowsListType
     updated_at?: string
@@ -1832,6 +1832,7 @@ export type HogFlowsListType = (typeof HogFlowsListType)[keyof typeof HogFlowsLi
 
 export const HogFlowsListType = {
     Automation: 'automation',
+    Loop: 'loop',
     Messaging: 'messaging',
 } as const
 
