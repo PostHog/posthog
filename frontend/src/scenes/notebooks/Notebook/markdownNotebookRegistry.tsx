@@ -211,6 +211,12 @@ const INLINE_QUERY_NOTEBOOK_NODE_OPTIONS: CreatePostHogWidgetNodeOptions<any> = 
         isDefaultFilterApplied: KNOWN_NODES[NotebookNodeType.Query].attributes.isDefaultFilterApplied,
         showSettings: KNOWN_NODES[NotebookNodeType.Query].attributes.showSettings,
         outputTab: KNOWN_NODES[NotebookNodeType.Query].attributes.outputTab,
+        returnVariable: KNOWN_NODES[NotebookNodeType.Query].attributes.returnVariable,
+        dataframeSource: KNOWN_NODES[NotebookNodeType.Query].attributes.dataframeSource,
+        dataframeQuery: KNOWN_NODES[NotebookNodeType.Query].attributes.dataframeQuery,
+        runId: KNOWN_NODES[NotebookNodeType.Query].attributes.runId,
+        result: KNOWN_NODES[NotebookNodeType.Query].attributes.result,
+        runStatus: KNOWN_NODES[NotebookNodeType.Query].attributes.runStatus,
     },
     defaultView: undefined,
     views: undefined,
@@ -360,7 +366,7 @@ export const NOTEBOOK_MARKDOWN_REGISTRY: NotebookComponentRegistry = createMarkd
             ToolbarComponent: definition.ToolbarComponent,
             exclusiveEditPanel: definition.exclusiveEditPanel,
             editableTitle: options?.editableTitle,
-            persistNodeId: ['Widget', 'SQLV2', 'PythonV2'].includes(definition.tagName),
+            persistNodeId: ['Widget', 'SQLV2', 'PythonV2', 'Insight', 'Query'].includes(definition.tagName),
             // Nodes with a Settings panel keep their filters toggle on read-only canvases
             // (customer profiles), where the panel is the only way to configure them.
             viewModeFilters: !!options?.Settings,

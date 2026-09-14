@@ -4,6 +4,18 @@ import { JSONContent } from 'lib/components/RichContentEditor/types'
 import { NOTEBOOK_NODE_TYPE_TO_MARKDOWN_TAG, getSqlV2PropsFromQueryProp } from '../Notebook/markdownNotebookV2'
 import { NotebookNodeType } from '../types'
 
+function isInsightDataframeNode(node: JSONContent): boolean {
+    return (
+        node.type === NotebookNodeType.Query &&
+        !!(
+            node.attrs?.id ||
+            node.attrs?.query?.kind === 'InsightVizNode' ||
+            node.attrs?.query?.kind === 'SavedInsightNode' ||
+            node.attrs?.dataframeQuery
+        )
+    )
+}
+
 export type SqlV2NodeSummary = {
     nodeId: string
     code: string
@@ -215,6 +227,9 @@ const expandMarkdownNotebookNodesOfTypes = (node: any, nodeTypes: NotebookNodeTy
         const tag = NOTEBOOK_NODE_TYPE_TO_MARKDOWN_TAG[nodeType]
         if (tag) {
             nodeTypeByTag.set(tag, nodeType)
+            if (nodeType === NotebookNodeType.Query) {
+                nodeTypeByTag.set('Insight', nodeType)
+            }
         }
     }
     return parseMarkdownNotebookNodeCached(node).nodes.flatMap((block): JSONContent[] => {
@@ -246,7 +261,7 @@ const expandMarkdownNotebookNodesOfType = (node: any, nodeType: NotebookNodeType
     expandMarkdownNotebookNodesOfTypes(node, [nodeType])
 
 const expandMarkdownNotebookSqlV2Nodes = (node: any): JSONContent[] =>
-    expandMarkdownNotebookNodesOfType(node, NotebookNodeType.SQLV2)
+    expandMarkdownNotebookNodesOfTypes(node, [NotebookNodeType.SQLV2, NotebookNodeType.Query])
 
 export const collectSqlV2Nodes = (content?: JSONContent | null): SqlV2NodeSummary[] => {
     if (!content || typeof content !== 'object') {
@@ -260,12 +275,18 @@ export const collectSqlV2Nodes = (content?: JSONContent | null): SqlV2NodeSummar
         if (!node || typeof node !== 'object') {
             return
         }
-        if (node.type === NotebookNodeType.SQLV2) {
+        if (node.type === NotebookNodeType.SQLV2 || isInsightDataframeNode(node)) {
             const attrs = node.attrs ?? {}
-            const code = typeof attrs.code === 'string' ? attrs.code : ''
+            const rawCode = isInsightDataframeNode(node) ? attrs.dataframeQuery : attrs.code
+            const code = typeof rawCode === 'string' ? rawCode : ''
             // A missing attribute predates the optional name (legacy default); an explicit
             // blank or invalid one binds no dataframe (nothing can reference it).
-            const rawReturnVariable = typeof attrs.returnVariable === 'string' ? attrs.returnVariable : 'sql_df'
+            const rawReturnVariable =
+                typeof attrs.returnVariable === 'string'
+                    ? attrs.returnVariable
+                    : isInsightDataframeNode(node)
+                      ? 'insight_df'
+                      : 'sql_df'
             const returnVariable = isReferenceableSqlV2FrameName(rawReturnVariable)
                 ? buildUniqueSqlV2ReturnVariable(resolveSqlV2ReturnVariable(rawReturnVariable), usedReturnVariables)
                 : ''
@@ -345,13 +366,23 @@ export const collectNotebookFrameNodes = (content?: JSONContent | null): Noteboo
         if (!node || typeof node !== 'object') {
             return
         }
-        if (node.type === NotebookNodeType.SQLV2 || node.type === NotebookNodeType.PythonV2) {
+        if (
+            node.type === NotebookNodeType.SQLV2 ||
+            node.type === NotebookNodeType.PythonV2 ||
+            isInsightDataframeNode(node)
+        ) {
             const attrs = node.attrs ?? {}
-            const isSql = node.type === NotebookNodeType.SQLV2
+            const isSql = node.type === NotebookNodeType.SQLV2 || isInsightDataframeNode(node)
             // A missing attribute predates the optional name (legacy 'sql_df'/'df' defaults);
             // an explicit blank or invalid one binds no dataframe — nothing to browse.
             const rawReturnVariable =
-                typeof attrs.returnVariable === 'string' ? attrs.returnVariable : isSql ? 'sql_df' : 'df'
+                typeof attrs.returnVariable === 'string'
+                    ? attrs.returnVariable
+                    : isInsightDataframeNode(node)
+                      ? 'insight_df'
+                      : isSql
+                        ? 'sql_df'
+                        : 'df'
             let name: string | null
             if (isSql) {
                 name = isReferenceableSqlV2FrameName(rawReturnVariable)
@@ -372,12 +403,20 @@ export const collectNotebookFrameNodes = (content?: JSONContent | null): Noteboo
                     columns: frameNodeColumns(result),
                     rowCount: typeof result?.row_count === 'number' ? result.row_count : null,
                     hasRun: Boolean(result),
-                    code: typeof attrs.code === 'string' ? attrs.code : '',
+                    code: isInsightDataframeNode(node)
+                        ? (attrs.dataframeQuery ?? '')
+                        : typeof attrs.code === 'string'
+                          ? attrs.code
+                          : '',
                 })
             }
         }
         if (node.type === NotebookNodeType.MarkdownNotebook) {
-            expandMarkdownNotebookNodesOfTypes(node, [NotebookNodeType.SQLV2, NotebookNodeType.PythonV2]).forEach(walk)
+            expandMarkdownNotebookNodesOfTypes(node, [
+                NotebookNodeType.SQLV2,
+                NotebookNodeType.PythonV2,
+                NotebookNodeType.Query,
+            ]).forEach(walk)
         }
         if (Array.isArray(node.content)) {
             node.content.forEach(walk)
@@ -500,11 +539,16 @@ export const buildNotebookDependencyGraph = (content?: JSONContent | null): Note
             return
         }
 
-        if (node.type === NotebookNodeType.SQLV2) {
+        if (node.type === NotebookNodeType.SQLV2 || isInsightDataframeNode(node)) {
             const attrs = node.attrs ?? {}
             sqlV2Index += 1
             // Blank or invalid name = display-only cell: it exports nothing (see collectSqlV2Nodes).
-            const rawReturnVariable = typeof attrs.returnVariable === 'string' ? attrs.returnVariable : 'sql_df'
+            const rawReturnVariable =
+                typeof attrs.returnVariable === 'string'
+                    ? attrs.returnVariable
+                    : isInsightDataframeNode(node)
+                      ? 'insight_df'
+                      : 'sql_df'
             const returnVariable = isReferenceableSqlV2FrameName(rawReturnVariable)
                 ? buildUniqueSqlV2ReturnVariable(
                       resolveSqlV2ReturnVariable(rawReturnVariable),
@@ -514,16 +558,17 @@ export const buildNotebookDependencyGraph = (content?: JSONContent | null): Note
             if (returnVariable) {
                 usedSqlV2ReturnVariables.add(normalizeSqlIdentifier(returnVariable))
             }
-            const code = typeof attrs.code === 'string' ? attrs.code : ''
+            const rawCode = isInsightDataframeNode(node) ? attrs.dataframeQuery : attrs.code
+            const code = typeof rawCode === 'string' ? rawCode : ''
             const connectionId =
                 typeof attrs.connectionId === 'string' && attrs.connectionId ? attrs.connectionId : null
             nodes.push({
                 nodeId: attrs.nodeId ?? '',
-                nodeType: NotebookNodeType.SQLV2,
+                nodeType: isInsightDataframeNode(node) ? NotebookNodeType.Query : NotebookNodeType.SQLV2,
                 nodeIndex: sqlV2Index,
                 title: typeof attrs.title === 'string' ? attrs.title : '',
                 exports: returnVariable ? [returnVariable] : [],
-                uses: extractDuckSqlTables(code),
+                uses: isInsightDataframeNode(node) ? [] : extractDuckSqlTables(code),
                 code,
                 returnVariable,
                 connectionId,
@@ -551,9 +596,12 @@ export const buildNotebookDependencyGraph = (content?: JSONContent | null): Note
         }
 
         if (node.type === NotebookNodeType.MarkdownNotebook) {
-            // Markdown notebooks (the only V2 surface) store cells as component tags, so both
-            // V2 cell types must be expanded in one pass to preserve dependency order.
-            expandMarkdownNotebookNodesOfTypes(node, [NotebookNodeType.SQLV2, NotebookNodeType.PythonV2]).forEach(walk)
+            // Expand all dataframe sources in one pass to preserve dependency order.
+            expandMarkdownNotebookNodesOfTypes(node, [
+                NotebookNodeType.SQLV2,
+                NotebookNodeType.PythonV2,
+                NotebookNodeType.Query,
+            ]).forEach(walk)
         }
 
         if (Array.isArray(node.content)) {

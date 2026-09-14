@@ -63,7 +63,7 @@ const VIZ_MIN_HEIGHT = 350
 // when a python cell reads the frame, so it must be a plain identifier. Empty is fine —
 // the cell is then display-only.
 const VALID_RETURN_VARIABLE = /^[A-Za-z_][A-Za-z0-9_]*$/
-const returnVariableValidationError = (returnVariable: string): string | null => {
+export const returnVariableValidationError = (returnVariable: string): string | null => {
     if (!returnVariable || VALID_RETURN_VARIABLE.test(returnVariable)) {
         return null
     }

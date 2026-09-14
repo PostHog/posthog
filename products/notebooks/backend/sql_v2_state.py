@@ -34,7 +34,7 @@ from products.notebooks.backend.util import (
     iter_markdown_blocks,
 )
 
-_CELL_TAGS = {"SQLV2": "sql", "PythonV2": "python", "Query": "saved_insight"}
+_CELL_TAGS = {"SQLV2": "sql", "PythonV2": "python", "Query": "saved_insight", "Insight": "saved_insight"}
 
 # Prose sits outside the runnable-cell ceiling below, so this is the only bound on how many
 # cells one save can turn into. The reader is an agent that pays context for every block it is
@@ -83,7 +83,7 @@ def extract_cells(content: Any) -> list[NotebookCellState]:
         node_id = props.get("nodeId")
         if not isinstance(node_id, str) or not node_id:
             continue
-        code = props.get("code")
+        code = props.get("dataframeQuery") if cell_type == "saved_insight" else props.get("code")
         dataframe_name = props.get("returnVariable")
         cells.append(
             NotebookCellState(
@@ -136,7 +136,7 @@ def build_dependency_edges(cells: list[NotebookCellState]) -> None:
     SQL cells win dataframe-name collisions, unnamed cells export nothing."""
     owner_by_name: dict[str, str] = {}
     for cell in cells:
-        if cell.cell_type == "sql" and _DATAFRAME_NAME.match(cell.dataframe_name):
+        if cell.cell_type in ("sql", "saved_insight") and _DATAFRAME_NAME.match(cell.dataframe_name):
             owner_by_name.setdefault(cell.dataframe_name, cell.node_id)
     for cell in cells:
         if cell.cell_type == "python" and _DATAFRAME_NAME.match(cell.dataframe_name):
@@ -164,7 +164,9 @@ def _is_stale(
             upstream = cells_by_node[upstream_id]
             upstream_run = latest_done_by_node.get(upstream_id)
             refs[upstream.dataframe_name] = (
-                upstream_run.code if upstream_run is not None and upstream.cell_type == "sql" else None
+                upstream_run.code
+                if upstream_run is not None and upstream.cell_type in ("sql", "saved_insight")
+                else None
             )
         try:
             # Same order as dispatch (resolve_sql_node_run): variables bind before the CTE
@@ -196,7 +198,7 @@ def _is_stale(
 
 
 def annotate_run_state(cells: list[NotebookCellState], team_id: int, notebook: Any) -> None:
-    runnable_ids = [cell.node_id for cell in cells if cell.cell_type in ("sql", "python")]
+    runnable_ids = [cell.node_id for cell in cells if cell.cell_type in ("sql", "python", "saved_insight")]
     if not runnable_ids:
         return
     latest_by_node: dict[str, NotebookNodeRun] = {}
@@ -215,7 +217,7 @@ def annotate_run_state(cells: list[NotebookCellState], team_id: int, notebook: A
     cells_by_node = {cell.node_id: cell for cell in cells}
     variables = build_notebook_variables(notebook.variables or [])
     for cell in cells:
-        if cell.cell_type not in ("sql", "python"):
+        if cell.cell_type not in ("sql", "python", "saved_insight"):
             continue
         latest = latest_by_node.get(cell.node_id)
         if latest is None:

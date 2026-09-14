@@ -38,7 +38,7 @@ import { JSONContent } from 'lib/components/RichContentEditor/types'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { base64Decode, base64Encode } from 'lib/utils/base64'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
-import { downloadFile, uuid } from 'lib/utils/dom'
+import { downloadFile } from 'lib/utils/dom'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { objectsEqual } from 'lib/utils/objects'
 import { slugify } from 'lib/utils/strings'
@@ -465,9 +465,6 @@ export interface notebookLogicActions {
     insertComment: (context: Record<string, any>) => {
         context: Record<string, any>
     }
-    insertInsightDataframe: (code: string) => {
-        code: string
-    }
     loadNotebook: () => {
         value: true
     }
@@ -825,7 +822,6 @@ export const notebookLogic = kea<notebookLogicType>([
         insertAfterLastNode: (content: JSONContent) => ({
             content,
         }),
-        insertInsightDataframe: (code: string) => ({ code }),
         setShowHistory: (showHistory: boolean) => ({ showHistory }),
         setContainerSize: (containerSize: 'small' | 'medium') => ({ containerSize }),
         setContentAtLastRun: (content: JSONContent | null) => ({ content }),
@@ -1907,22 +1903,6 @@ export const notebookLogic = kea<notebookLogicType>([
                     }
                 }
             )
-        },
-        insertInsightDataframe: ({ code }) => {
-            if (!values.canEditNotebook || values.isShared || !code.trim()) {
-                return
-            }
-            const usedNames = new Set(
-                buildNotebookDependencyGraph(values.content).nodes.flatMap((node) => node.exports)
-            )
-            let returnVariable = 'insight_df'
-            for (let suffix = 2; usedNames.has(returnVariable); suffix++) {
-                returnVariable = `insight_df_${suffix}`
-            }
-            actions.insertAfterLastNode({
-                type: NotebookNodeType.SQLV2,
-                attrs: { nodeId: uuid(), code, returnVariable, showFilters: true },
-            })
         },
         pasteAfterLastNode: async ({ content }) => {
             await runWhenNotebookIsReady(

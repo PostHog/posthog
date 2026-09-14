@@ -326,6 +326,19 @@ const meta: Meta = {
     decorators: [
         mswDecorator({
             get: {
+                '/api/projects/:team_id/notebooks/:short_id/sql_v2/runs/:run_id': {
+                    status: 'done',
+                    result: {
+                        columns: ['event', 'count'],
+                        types: [
+                            ['event', 'String'],
+                            ['count', 'Int64'],
+                        ],
+                        row_count: 1,
+                    },
+                    rows: [['$pageview', 42]],
+                    error: null,
+                },
                 '/api/projects/:team_id/notebooks/kernel/compute_options': {
                     currency: 'USD',
                     cpu_rate_per_core_hour: 0.2,
@@ -434,6 +447,18 @@ const meta: Meta = {
                 },
             },
             post: {
+                '/api/projects/:team_id/notebooks/:short_id/collab/markdown_save': async ({ params, request }) => {
+                    const body = (await request.json()) as Record<string, unknown> & { version: number }
+                    return {
+                        ...notebooks[params.short_id as keyof typeof notebooks],
+                        ...body,
+                        version: body.version + 1,
+                    }
+                },
+                '/api/projects/:team_id/notebooks/:short_id/sql_v2/run': async ({ request }) => {
+                    const body = (await request.json()) as { node_id: string }
+                    return { run_id: `run-${body.node_id}`, starts_sandbox: false }
+                },
                 '/api/projects/:team_id/session_recording_playlists/:playlist_id/playlist_viewed': { success: true },
                 '/api/environments/:team_id/query/:kind': async ({ request }) => {
                     const body = (await request.json()) as {

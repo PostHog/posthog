@@ -297,7 +297,7 @@ def _dataframe_owners(notebook: Notebook) -> dict[str, str]:
     cells = extract_cells(notebook.content)
     eligible_cells = [cell for cell in cells if _INPUT_NAME.fullmatch(cell.dataframe_name)]
     preferred_owners: dict[str, str] = {}
-    for cell_type in ("sql", "python"):
+    for cell_type in ("sql", "saved_insight", "python"):
         for cell in eligible_cells:
             if cell.cell_type == cell_type:
                 preferred_owners.setdefault(cell.dataframe_name, cell.node_id)

@@ -30,9 +30,11 @@ Widget IDs are saved when their settings, title, or panel visibility change, so 
 
 SQL cells start with `sql_df`; Python cells receive a unique name beginning with `df_`.
 You can rename a dataframe in its result panel.
-For an insight that exposes SQL, **Use as dataframe** adds a SQL cell named `insight_df` (with a numeric suffix when needed).
-Run that cell before referencing its dataframe from SQL, Python, or a generated widget.
-The added cell holds a copy of the insight's query; later changes to the saved insight do not update that copy.
+Insights that expose SQL have the same dataframe name field below their results, starting with `insight_df` (with a numeric suffix when needed).
+The insight prepares its dataframe automatically, so SQL, Python, and generated widgets can reference that name without another cell.
+Preparation runs the insight's SQL once and saves the run reference and column metadata.
+Renaming the dataframe or reopening the notebook reuses that run when the insight's query and refresh timestamp match.
+Changing or refreshing the insight prepares a new run; **Retry dataframe** retries a failed preparation.
 
 SQL and Python cells save their run ID, column metadata, and row count in the notebook.
 Result rows, console output, and images load from the saved run instead of being embedded in notebook markdown.

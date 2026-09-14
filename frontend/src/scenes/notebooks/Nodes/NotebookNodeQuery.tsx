@@ -29,7 +29,8 @@ import {
 } from '~/queries/utils'
 import { InsightLogicProps, InsightShortId } from '~/types'
 
-import { NotebookInsightDataframeButton } from 'products/notebooks/frontend/NotebookInsightDataframeButton'
+import { NotebookInsightDataframe } from 'products/notebooks/frontend/NotebookInsightDataframe'
+import type { InsightDataframeAttributes } from 'products/notebooks/frontend/notebookInsightDataframeLogic'
 
 import { NotebookNodeAttributeProperties, NotebookNodeProps, NotebookNodeType } from '../types'
 import {
@@ -257,7 +258,6 @@ const Component = ({
     return (
         <div className="flex flex-1 flex-col h-full" data-attr="notebook-node-query">
             <BindLogic logic={insightLogic} props={insightLogicProps}>
-                {isInsightViz ? <NotebookInsightDataframeButton insightProps={dataframeInsightProps} /> : null}
                 {isInsightViz ? (
                     <div className="flex flex-1 flex-col overflow-hidden">{queryComponent}</div>
                 ) : (
@@ -265,12 +265,19 @@ const Component = ({
                         {queryComponent}
                     </ScrollableShadows>
                 )}
+                {isInsightViz ? (
+                    <NotebookInsightDataframe
+                        insightProps={dataframeInsightProps}
+                        attributes={attributes}
+                        updateAttributes={updateAttributes}
+                    />
+                ) : null}
             </BindLogic>
         </div>
     )
 }
 
-type NotebookNodeQueryAttributes = {
+type NotebookNodeQueryAttributes = InsightDataframeAttributes & {
     query: QuerySchema
     id?: InsightShortId
     view?: string
@@ -483,6 +490,13 @@ export const NotebookNodeQuery = createPostHogWidgetNode<NotebookNodeQueryAttrib
         outputTab: {
             default: OutputTab.Results,
         },
+        nodeId: {},
+        returnVariable: {},
+        dataframeSource: {},
+        dataframeQuery: {},
+        runId: {},
+        result: {},
+        runStatus: {},
     },
     href: (attributes) => {
         const query = getResolvedNotebookQuery(attributes)

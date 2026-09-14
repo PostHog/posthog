@@ -45,6 +45,7 @@ class TestCellExtractionAndEdges(SimpleTestCase):
             '<PythonV2 nodeId="p2" code="import pandas as pd\n\nout = pd.DataFrame()" returnVariable="multiline" />\n\n'
             '\\<PythonV2 nodeId="p3" code="\\# Build the frame\n\nout = df.head()" returnVariable="recovered" />\n\n'
             '<Query nodeId="q1" query={{"kind":"SavedInsightNode","shortId":"abc"}} />\n\n'
+            '<Insight nodeId="i1" id="example" returnVariable="insight_df" dataframeQuery="SELECT 1" />\n\n'
             '<SQLV2 code="select 2" returnVariable="anon" />\n\n'
             '<RevenueCard metric="arr" />\n'
         )
@@ -55,9 +56,11 @@ class TestCellExtractionAndEdges(SimpleTestCase):
             ("p2", "python", "multiline"),
             ("p3", "python", "recovered"),
             ("q1", "saved_insight", ""),
+            ("i1", "saved_insight", "insight_df"),
         ]
         assert cells[2].code == "import pandas as pd\n\nout = pd.DataFrame()"
         assert cells[3].code == "# Build the frame\n\nout = df.head()"
+        assert cells[5].code == "SELECT 1"
 
     @parameterized.expand(
         [
@@ -99,10 +102,16 @@ class TestCellExtractionAndEdges(SimpleTestCase):
             # Python deps come from globals analysis, so a comment mention is not an edge.
             ("python_comment", '<PythonV2 nodeId="b" code="# df\\nx = 1" returnVariable="" />', []),
             ("python_use", '<PythonV2 nodeId="b" code="x = df.head()" returnVariable="" />', ["a"]),
+            ("insight_source", '<SQLV2 nodeId="b" code="select * from df" returnVariable="" />', ["a"]),
         ]
     )
     def test_dependency_edges(self, _name: str, downstream_tag: str, expected_depends_on: list[str]) -> None:
-        content = markdown_content(f'<SQLV2 nodeId="a" code="select 1" returnVariable="df" />\n\n{downstream_tag}\n')
+        source = (
+            '<Insight nodeId="a" id="example" dataframeQuery="select 1" returnVariable="df" />'
+            if _name == "insight_source"
+            else '<SQLV2 nodeId="a" code="select 1" returnVariable="df" />'
+        )
+        content = markdown_content(f"{source}\n\n{downstream_tag}\n")
         cells = extract_cells(content)
         build_dependency_edges(cells)
         assert cells[1].depends_on == expected_depends_on
