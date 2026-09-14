@@ -20,8 +20,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.etsy.setti
 ETSY_API_BASE = "https://api.etsy.com/v3/application"
 ETSY_TOKEN_URL = "https://api.etsy.com/v3/public/oauth/token"
 
-# Etsy caps list pages at 100 rows and rejects an offset above 12,000. Some endpoints cap the
-# offset lower and the window narrower still, so both are overridable per endpoint.
+# Etsy caps list pages at 100 rows and rejects an offset above 12,000.
 PAGE_SIZE = 100
 MAX_OFFSET = 12_000
 # Walk history in 90-day slices, halving a slice that holds more rows than the offset ceiling can
