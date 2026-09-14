@@ -55,6 +55,7 @@ class TestRouteThreadMessage(TestCase):
             email="alice@example.com",
             display_name="Alice",
             real_name="Alice Example",
+            is_workspace_member=True,
             refreshed_at=timezone.now(),
         )
         # Bob participates in the thread (default ``_make_event`` user). Seed
@@ -69,6 +70,7 @@ class TestRouteThreadMessage(TestCase):
             email="bob@example.com",
             display_name="Bob",
             real_name="Bob Example",
+            is_workspace_member=True,
             refreshed_at=timezone.now(),
         )
 
@@ -312,6 +314,7 @@ class TestRouteThreadMessage(TestCase):
             email="carol@example.com",
             display_name="Carol",
             real_name="Carol Example",
+            is_workspace_member=True,
             refreshed_at=timezone.now(),
         )
 

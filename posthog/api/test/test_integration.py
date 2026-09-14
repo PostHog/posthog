@@ -165,6 +165,9 @@ class TestSlackIntegration:
                 {"id": "U4", "team_id": "T_OTHER", "enterprise_user": {"teams": ["T_HOME", "T_OTHER"]}},
                 True,
             ),
+            # Positive evidence required: assuming a missing team_id is local would let
+            # an external profile pass the email gate this helper also serves.
+            ("no_team_id_reported", {"id": "U5"}, False),
         ]
     )
     @patch("posthog.models.integration.slack.WebClient")

@@ -34,7 +34,9 @@ class TestResolveSlackUser:
     def test_success(self, mock_webclient_class):
         mock_client = MagicMock()
         mock_webclient_class.return_value = mock_client
-        mock_client.users_info.return_value = {"user": {"profile": {"email": "dev@example.com", "display_name": "Dev"}}}
+        mock_client.users_info.return_value = {
+            "user": {"team_id": "T12345", "profile": {"email": "dev@example.com", "display_name": "Dev"}}
+        }
 
         slack = SlackIntegration(self.integration)
         result = resolve_slack_user(slack, self.integration, "U123", "C001", "1234.5678")
@@ -55,7 +57,7 @@ class TestResolveSlackUser:
     def test_matches_email_case_insensitively(self, mock_webclient_class, slack_email):
         mock_client = MagicMock()
         mock_webclient_class.return_value = mock_client
-        mock_client.users_info.return_value = {"user": {"profile": {"email": slack_email}}}
+        mock_client.users_info.return_value = {"user": {"team_id": "T12345", "profile": {"email": slack_email}}}
 
         slack = SlackIntegration(self.integration)
         result = resolve_slack_user(slack, self.integration, "U123", "C001", "1234.5678")
@@ -68,7 +70,7 @@ class TestResolveSlackUser:
     def test_missing_email(self, mock_webclient_class):
         mock_client = MagicMock()
         mock_webclient_class.return_value = mock_client
-        mock_client.users_info.return_value = {"user": {"profile": {}}}
+        mock_client.users_info.return_value = {"user": {"team_id": "T12345", "profile": {}}}
 
         slack = SlackIntegration(self.integration)
         result = resolve_slack_user(slack, self.integration, "U123", "C001", "1234.5678")
@@ -94,7 +96,9 @@ class TestResolveSlackUser:
     def test_no_org_membership(self, mock_webclient_class):
         mock_client = MagicMock()
         mock_webclient_class.return_value = mock_client
-        mock_client.users_info.return_value = {"user": {"profile": {"email": "stranger@example.com"}}}
+        mock_client.users_info.return_value = {
+            "user": {"team_id": "T12345", "profile": {"email": "stranger@example.com"}}
+        }
 
         slack = SlackIntegration(self.integration)
         result = resolve_slack_user(slack, self.integration, "U123", "C001", "1234.5678")
@@ -111,7 +115,7 @@ class TestResolveSlackUser:
     def test_no_team_access(self, mock_permissions_class, mock_webclient_class):
         mock_client = MagicMock()
         mock_webclient_class.return_value = mock_client
-        mock_client.users_info.return_value = {"user": {"profile": {"email": "dev@example.com"}}}
+        mock_client.users_info.return_value = {"user": {"team_id": "T12345", "profile": {"email": "dev@example.com"}}}
 
         mock_permissions = MagicMock()
         mock_permissions.current_team.effective_membership_level = None
@@ -136,6 +140,7 @@ class TestResolveSlackUser:
             email="dev@example.com",
             display_name="Dev",
             real_name="Developer",
+            is_workspace_member=True,
             refreshed_at=timezone.now(),
         )
 
@@ -146,6 +151,21 @@ class TestResolveSlackUser:
         assert result.user.email == "dev@example.com"
         assert result.slack_email == "dev@example.com"
         mock_client.users_info.assert_not_called()
+
+    @patch("posthog.models.integration.slack.WebClient")
+    def test_refuses_a_member_of_another_workspace(self, mock_webclient_class):
+        mock_client = MagicMock()
+        mock_webclient_class.return_value = mock_client
+        # A Slack Connect member of another workspace, in a channel shared with this one.
+        # Their profile email matches an organization member, but the workspace PostHog is
+        # connected to does not vouch for it, so the mention must not run as that member.
+        mock_client.users_info.return_value = {"user": {"team_id": "T_OTHER", "profile": {"email": "dev@example.com"}}}
+
+        slack = SlackIntegration(self.integration)
+        result = resolve_slack_user(slack, self.integration, "U_EXTERNAL", "C001", "1234.5678")
+
+        assert result is None
+        assert "another workspace" in mock_client.chat_postMessage.call_args.kwargs["text"]
 
     @pytest.mark.parametrize(
         "stale_refreshed_at",
@@ -160,6 +180,7 @@ class TestResolveSlackUser:
         mock_webclient_class.return_value = mock_client
         mock_client.users_info.return_value = {
             "user": {
+                "team_id": "T12345",
                 "is_admin": True,
                 "is_owner": False,
                 "profile": {"email": "dev@example.com", "display_name": "Dev (renamed)", "real_name": "Developer"},
@@ -173,6 +194,7 @@ class TestResolveSlackUser:
             email="dev@example.com",
             display_name="Dev",
             real_name="Developer",
+            is_workspace_member=True,
             refreshed_at=stale_refreshed_at(),
         )
 
@@ -193,6 +215,7 @@ class TestResolveSlackUser:
         mock_webclient_class.return_value = mock_client
         mock_client.users_info.return_value = {
             "user": {
+                "team_id": "T12345",
                 "is_admin": True,
                 "is_owner": True,
                 "profile": {
@@ -236,6 +259,7 @@ class TestLookupSlackUserIdByEmail:
             integration=self.integration,
             slack_user_id="U123",
             email="dev@example.com",
+            is_workspace_member=True,
             refreshed_at=timezone.now(),
         )
 
@@ -289,6 +313,7 @@ class TestLookupSlackUserIdByEmail:
             integration=self.integration,
             slack_user_id="U123",
             email="dev@example.com",
+            is_workspace_member=True,
             refreshed_at=stale_refreshed_at(),
         )
 

@@ -59,6 +59,7 @@ class _SlashCommandTestBase(TestCase):
             email="dev@example.com",
             display_name="Dev",
             real_name="Dev User",
+            is_workspace_member=True,
             refreshed_at=timezone.now(),
         )
 

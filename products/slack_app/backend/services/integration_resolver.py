@@ -22,7 +22,7 @@ ResolutionSource = Literal[
     "needs_picker",
 ]
 
-UserResolutionFailure = Literal["user_not_found", "no_team_access"]
+UserResolutionFailure = Literal["user_not_found", "no_team_access", "external_workspace", "user_lookup_failed"]
 
 
 def user_resolution_failure_reply(
@@ -45,6 +45,16 @@ def user_resolution_failure_reply(
         return (
             "Sorry, I couldn't find your email address in Slack. "
             "Please make sure your email is visible in your Slack profile."
+        )
+    if failure_reason == "external_workspace":
+        return (
+            "Sorry, I can only reply to people in the Slack workspace PostHog is connected to. "
+            "You're in this channel from another workspace, so I can't match you to a PostHog account."
+        )
+    if failure_reason == "user_lookup_failed":
+        return (
+            "Sorry, I couldn't look up your Slack profile right now, so I can't match you "
+            "to a PostHog account. Please try again in a few minutes."
         )
     if failure_reason == "no_team_access":
         # The membership lookup succeeded by email, so it's always known here.
@@ -241,6 +251,7 @@ def resolve_user_for_workspace(
     # depends on (``get_slack_user_info`` etc). Inline-imported to break the
     # cycle until those helpers are factored out into a shared module.
     from products.slack_app.backend.api import get_slack_email_for_user, resolve_posthog_user_from_event
+    from products.slack_app.backend.services.slack_user_info import get_cached_workspace_membership
 
     if not slack_user_id:
         logger.warning(
@@ -271,14 +282,27 @@ def resolve_user_for_workspace(
     )
     if posthog_user is None:
         slack_email = get_slack_email_for_user(probe, slack_user_id)
+        # A Slack Connect external never resolves, and never will, so name that as its own
+        # failure instead of telling them to make their profile email visible. A failed
+        # lookup left no verdict, and that must not be reported as "you are external", so
+        # it gets its own reason too. The verdict was cached by the lookups above when they
+        # succeeded, so this reads the cache and never calls Slack.
+        membership = get_cached_workspace_membership(probe, slack_user_id)
+        reason: UserResolutionFailure
+        if membership is True:
+            reason = "user_not_found"
+        elif membership is False:
+            reason = "external_workspace"
+        else:
+            reason = "user_lookup_failed"
         logger.warning(
             "slack_app_no_integration_found",
-            reason="user_not_found",
+            reason=reason,
             slack_team_id=slack_team_id,
             slack_user_id=slack_user_id,
             event_id=event_id,
         )
-        return UserAndIntegrationsResolution(failure_reason="user_not_found", slack_email=slack_email)
+        return UserAndIntegrationsResolution(failure_reason=reason, slack_email=slack_email)
 
     # Filter to integrations the user can access. A resolved target the user can't
     # reach is dropped so the caller falls through to the picker / sole-candidate

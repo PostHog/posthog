@@ -129,6 +129,7 @@ from .slack import (
     SlackIntegrationError,
     SlackRequestSignature,
     sign_slack_request,
+    slack_member_belongs_to_workspace,
     validate_slack_request,
 )
 from .snowflake import SnowflakeIntegration, SnowflakeIntegrationError
@@ -192,6 +193,7 @@ __all__ = [
     "SlackIntegration",
     "SlackRequestSignature",
     "sign_slack_request",
+    "slack_member_belongs_to_workspace",
     "validate_slack_request",
     "google_ads_hierarchy_level",
     "GoogleAdsIntegration",
