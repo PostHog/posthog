@@ -8696,6 +8696,10 @@ snapshots:
         hash: v1.k794b7964.434383db5739f05638540be4be2f7671cdb35cca73c32df11f324feb17f3685c.suVpXuPkYmQJtBx6L0JVf4p_bj929kIWSY2fds0lPfw
     scenes-app-notebooks-components-notebook-select-button--with-slow-network-response--light:
         hash: v1.k794b7964.678b0f73befa0690622fd5eb7a920f5c25919af7a9b516a08756e866b37de352.QhzKGfEQA_MQykTL8uuyOryngt75iNv9BydvL5ckPjQ
+    scenes-app-notebooks-dataframe-hint--on-a-cell-with-no-dataframe-name--dark:
+        hash: v1.k794b7964.c514f9c921ab2d62d5a606ce864e2ea7648d8c446a24953eeb05bcd9bab7d81c.x_PIhQv3vtYvOPdaM-UKcaD7VGHvyNe9j5chqN8atMc
+    scenes-app-notebooks-dataframe-hint--on-a-cell-with-no-dataframe-name--light:
+        hash: v1.k794b7964.2842594a831ecb4282c2ce5ee22e35b5470c9a9dd3c922392c19cf8be1fd5167.IALQWvI7pWlhLr3_LCiYedy5vIeAaEDoAIGJ8UblQoM
     scenes-app-notebooks-kernel-info--free-compute--dark:
         hash: v1.k794b7964.9f16845ad724b67d68cd068ab5a2f8ca6fc8ab83e710d6e2f28b113fe09b9171._s-RfNP8c5cc0e10ja9PrgPhUh70q_D7letZIoo0vf8
     scenes-app-notebooks-kernel-info--free-compute--light:
