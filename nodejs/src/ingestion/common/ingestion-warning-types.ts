@@ -87,6 +87,9 @@ export const INGESTION_WARNING_TYPES = {
     invalid_group_set: { category: 'event', severity: 'error' },
     invalid_process_person_profile: { category: 'event', severity: 'warning' },
     invalid_event_when_process_person_profile_is_false: { category: 'event', severity: 'error' },
+    // Severity is 'warning', not 'error': the event is ingested, but without the
+    // group columns the sender asked for.
+    groups_ignored_when_process_person_profile_is_false: { category: 'event', severity: 'warning' },
     event_dropped_too_old: { category: 'event', severity: 'info' },
 
     // Cookieless mode — events missing the data required to compute a cookieless distinct id
