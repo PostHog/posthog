@@ -36,7 +36,7 @@ use personhog_leader::fencing::{
     preregister_fencing_metrics, FencedChangelogProducers, FencedProducerConfig,
 };
 use personhog_leader::inflight::InflightTracker;
-use personhog_leader::pg::{LifecycleTables, PgFallback};
+use personhog_leader::pg::{validate_table_name, PgFallback};
 use personhog_leader::recovery::{ChangelogRecovery, RecoveryConfig};
 use personhog_leader::service::{sweep_idle_locks, PersonHogLeaderService, PropertySizeLimits};
 use personhog_leader::settle::prune_and_settle_tick;
@@ -65,7 +65,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     config
         .validate_shutdown_budgets()
         .expect("Invalid shutdown configuration");
-    LifecycleTables::paired_with(&config.fallback_table).expect("Invalid FALLBACK_TABLE");
+    validate_table_name(&config.fallback_table).expect("Invalid FALLBACK_TABLE");
 
     // Initialize tracing
     let log_layer = fmt::layer()

@@ -189,7 +189,6 @@ pub struct OpRow {
 #[async_trait]
 pub trait OpDriver: Send + Sync {
     fn op_type(&self) -> &'static str;
-    fn tables(&self) -> &IdentityTables;
     /// The step a freshly created op row starts on.
     fn initial_step(&self) -> &'static str;
     async fn run_step(&self, pool: &PgPool, op: &OpRow) -> Result<(), SagaError>;
@@ -235,19 +234,6 @@ impl Engine {
         &self.tables
     }
 
-    /// A driver leasing in one namespace and stepping in the other never completes.
-    fn check_driver(&self, driver: &dyn OpDriver) -> Result<(), SagaError> {
-        if driver.tables() != &self.tables {
-            return Err(SagaError::CorruptState(format!(
-                "{} driver targets {:?} but the engine targets {:?}",
-                driver.op_type(),
-                driver.tables(),
-                self.tables
-            )));
-        }
-        Ok(())
-    }
-
     /// Create the op if it is new, then drive it to a terminal step and
     /// return the terminal row. A retry with the same op_id attaches to the
     /// existing op: completed → returns the recorded row without running
@@ -279,7 +265,6 @@ impl Engine {
         team_id: i64,
         request: &Value,
     ) -> Result<OpRow, SagaError> {
-        self.check_driver(driver)?;
         let inserted = mirrored_query!(
             self.tables.is_validation(),
             r#"
@@ -329,7 +314,6 @@ impl Engine {
         op_id: Uuid,
         team_id: i64,
     ) -> Result<OpRow, SagaError> {
-        self.check_driver(driver)?;
         let Some(row) = self.load(op_id).await? else {
             return Err(SagaError::CorruptState(format!(
                 "op {op_id} does not exist"
@@ -366,7 +350,6 @@ impl Engine {
         op_id: Uuid,
         wait_for_lease: bool,
     ) -> Result<OpRow, SagaError> {
-        self.check_driver(driver)?;
         let deadline = tokio::time::Instant::now() + self.config.execute_timeout;
         // The attempt number returned by our claim, used as a fencing token:
         // renew/release only touch the lease while `attempt` still matches,

@@ -182,10 +182,6 @@ impl OpDriver for DeleteDriver {
         OP_TYPE_DELETE
     }
 
-    fn tables(&self) -> &IdentityTables {
-        &self.tables
-    }
-
     fn initial_step(&self) -> &'static str {
         DeleteStep::Started.as_str()
     }
