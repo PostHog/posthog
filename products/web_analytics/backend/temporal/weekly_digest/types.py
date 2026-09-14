@@ -1,6 +1,8 @@
 import dataclasses
 from enum import StrEnum
 
+from products.web_analytics.backend.temporal.digest_common import DigestBatchTotals
+
 
 class DigestOutcome(StrEnum):
     """Outcome of attempting to send a single digest email to a single user."""
@@ -67,39 +69,12 @@ class DigestBatchInput:
     dry_run: bool = False
 
 
-@dataclasses.dataclass
-class DigestBatchResult:
-    """`failure_rate` excludes `orgs_skipped`: digest skips are benign
-    pre-processing exclusions (no targeted members, no teams, race-deleted
-    org), not detector errors, so they shouldn't trip the workflow's threshold
-    alarm.
-    """
-
-    batch_size: int = 0
-    orgs_processed: int = 0
-    orgs_skipped: int = 0
-    orgs_failed: int = 0
+@dataclasses.dataclass(frozen=False)
+class DigestBatchResult(DigestBatchTotals):
     emails_sent: int = 0
     emails_skipped_optout: int = 0
     emails_skipped_no_data: int = 0
     emails_failed: int = 0
-    teams_failed: int = 0
-    build_duration: float = 0.0
-    send_duration: float = 0.0
-
-    @property
-    def total_duration(self) -> float:
-        return self.build_duration + self.send_duration
-
-    @property
-    def failure_rate(self) -> float:
-        attempted = self.orgs_processed + self.orgs_failed
-        return self.orgs_failed / attempted if attempted > 0 else 0.0
-
-    def __iadd__(self, other: "DigestBatchResult") -> "DigestBatchResult":
-        for f in dataclasses.fields(self):
-            setattr(self, f.name, getattr(self, f.name) + getattr(other, f.name))
-        return self
 
 
 @dataclasses.dataclass

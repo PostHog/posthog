@@ -302,6 +302,8 @@ def _build_and_send_for_org(org_id: str, flag_key: str, dry_run: bool = False) -
     counts.team_count = len(team_digest_data)
     counts.teams_failed = len(build.failed_teams)
     if not team_digest_data:
+        if build.failed_teams:
+            raise RuntimeError("WA digest notification: no team with web analytics data could be built")
         counts.skipped_reason = "no_wa_data"
         return counts
 

@@ -142,6 +142,29 @@ def _format_duration(seconds: float | None) -> str:
     return f"{minutes}m {secs}s"
 
 
+def _run_stats_table_query(
+    team: Team,
+    breakdown_by: WebStatsBreakdown,
+    limit: int,
+    days: int,
+    compare: bool,
+    *,
+    execution_mode: ExecutionMode,
+    user: User | None,
+) -> WebStatsTableQueryResponse:
+    query = WebStatsTableQuery(
+        breakdownBy=breakdown_by,
+        dateRange=DateRange(date_from=f"-{days}d"),
+        compareFilter=CompareFilter(compare=compare),
+        limit=limit,
+        orderBy=[WebAnalyticsOrderByFields.VISITORS, WebAnalyticsOrderByDirection.DESC],
+        filterTestAccounts=True,
+        properties=[],
+    )
+    runner = WebStatsTableQueryRunner(team=team, query=query)
+    return _require_digest_response(runner.run(execution_mode=execution_mode, user=user))
+
+
 def get_top_pages(
     team: Team,
     limit: int = 5,
@@ -152,18 +175,9 @@ def get_top_pages(
     user: User | None = None,
 ) -> list[dict]:
     tag_queries(product=ProductKey.WEB_ANALYTICS, team_id=team.pk, name="weekly_digest:top_pages")
-
-    query = WebStatsTableQuery(
-        breakdownBy=WebStatsBreakdown.PAGE,
-        dateRange=DateRange(date_from=f"-{days}d"),
-        compareFilter=CompareFilter(compare=compare),
-        limit=limit,
-        orderBy=[WebAnalyticsOrderByFields.VISITORS, WebAnalyticsOrderByDirection.DESC],
-        filterTestAccounts=True,
-        properties=[],
+    response = _run_stats_table_query(
+        team, WebStatsBreakdown.PAGE, limit, days, compare, execution_mode=execution_mode, user=user
     )
-    runner = WebStatsTableQueryRunner(team=team, query=query)
-    response = _require_digest_response(runner.run(execution_mode=execution_mode, user=user))
 
     return [
         {
@@ -186,18 +200,9 @@ def get_top_sources(
     user: User | None = None,
 ) -> list[dict]:
     tag_queries(product=ProductKey.WEB_ANALYTICS, team_id=team.pk, name="weekly_digest:top_sources")
-
-    query = WebStatsTableQuery(
-        breakdownBy=WebStatsBreakdown.INITIAL_REFERRING_DOMAIN,
-        dateRange=DateRange(date_from=f"-{days}d"),
-        compareFilter=CompareFilter(compare=compare),
-        limit=limit,
-        orderBy=[WebAnalyticsOrderByFields.VISITORS, WebAnalyticsOrderByDirection.DESC],
-        filterTestAccounts=True,
-        properties=[],
+    response = _run_stats_table_query(
+        team, WebStatsBreakdown.INITIAL_REFERRING_DOMAIN, limit, days, compare, execution_mode=execution_mode, user=user
     )
-    runner = WebStatsTableQueryRunner(team=team, query=query)
-    response = _require_digest_response(runner.run(execution_mode=execution_mode, user=user))
 
     return [
         {

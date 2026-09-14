@@ -228,7 +228,12 @@ export function WebAnalyticsRecapScene(): JSX.Element {
                 title="Couldn't load your recap"
                 description="Something went wrong while building this recap. Try again, and if it keeps happening contact support."
                 action={
-                    <LemonButton type="primary" onClick={() => loadRecap()} data-attr="web-analytics-recap-retry">
+                    <LemonButton
+                        type="primary"
+                        loading={recapLoading}
+                        onClick={() => loadRecap()}
+                        data-attr="web-analytics-recap-retry"
+                    >
                         Try again
                     </LemonButton>
                 }
