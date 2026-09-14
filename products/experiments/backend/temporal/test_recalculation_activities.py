@@ -1,5 +1,7 @@
+import asyncio
 from contextlib import contextmanager
 from datetime import datetime, timedelta
+from types import SimpleNamespace
 
 import pytest
 import time_machine
@@ -28,9 +30,11 @@ from products.experiments.backend.models.experiment import (
 from products.experiments.backend.temporal.models import (
     CONCURRENCY_LIMIT_RETRY_DELAY_SECONDS,
     MAX_METRIC_ATTEMPTS,
+    MetricRecalculationResult,
     RecalculationProgressUpdate,
 )
 from products.experiments.backend.temporal.recalc_fingerprint import compute_recalc_fingerprint
+from products.experiments.backend.temporal.recalculation_activities import calculate_experiment_metric_for_recalculation
 from products.experiments.backend.temporal.recalculation_logic import (
     _calculate_experiment_metric_for_recalculation_sync,
     _discover_experiment_metrics_sync,
@@ -1039,6 +1043,7 @@ class TestCalculateActivity(BaseTest):
         # scheme, or the timeseries workflow). _store_result must update that row in place, not insert a second
         # one and crash with IntegrityError. This is what unsticks experiments already collided in production.
         exp = self._experiment(flag_key="store-upsert-key", metrics=[_mean_metric("m1")])
+        recalc = self._recalc(exp, metric_uuids=["m1"])
         query_to = datetime.fromisoformat(_QUERY_TO)
         ExperimentMetricResult.objects.create(
             experiment=exp,
@@ -1051,6 +1056,7 @@ class TestCalculateActivity(BaseTest):
         )
 
         _store_result(
+            recalculation_id=str(recalc.id),
             experiment_id=exp.id,
             metric_uuid="m1",
             recalc_fp="new-deterministic-fingerprint",
@@ -1066,6 +1072,47 @@ class TestCalculateActivity(BaseTest):
         row = rows.get()
         assert row.fingerprint == "new-deterministic-fingerprint"
         assert row.result == {"fresh": True}
+
+    @parameterized.expand(
+        [
+            (ExperimentMetricsRecalculation.Status.FAILED,),
+            (ExperimentMetricsRecalculation.Status.COMPLETED,),
+        ]
+    )
+    def test_store_result_skips_a_recalculation_that_already_went_terminal(self, status: str):
+        # The staleness sweep force-fails a superseded run's row and cancels its workflow, but sync_to_async
+        # cannot stop a thread mid-query, so that run's calc can still reach _store_result afterwards. Without
+        # the terminal check it overwrites the superseding run's result on the shared upsert key.
+        exp = self._experiment(flag_key="store-superseded", metrics=[_mean_metric("m1")])
+        recalc = self._recalc(exp, metric_uuids=["m1"])
+        ExperimentMetricsRecalculation.objects.filter(id=recalc.id).update(status=status)
+        query_to = datetime.fromisoformat(_QUERY_TO)
+        ExperimentMetricResult.objects.create(
+            experiment=exp,
+            metric_uuid="m1",
+            fingerprint="fingerprint-from-the-superseding-run",
+            query_from=query_to,
+            query_to=query_to,
+            status=ExperimentMetricResult.Status.COMPLETED,
+            result={"fresh": True},
+        )
+
+        _store_result(
+            recalculation_id=str(recalc.id),
+            experiment_id=exp.id,
+            metric_uuid="m1",
+            recalc_fp="fingerprint-from-the-orphaned-run",
+            query_from=query_to,
+            query_to=query_to,
+            status=ExperimentMetricResult.Status.FAILED,
+            result=None,
+            error_message="the orphan's late failure",
+        )
+
+        row = ExperimentMetricResult.objects.get(experiment=exp, metric_uuid="m1", query_to=query_to)
+        assert row.status == ExperimentMetricResult.Status.COMPLETED
+        assert row.result == {"fresh": True}
+        assert row.error_message is None
 
     @parameterized.expand(
         [
@@ -1210,6 +1257,40 @@ class TestMissingRecalcRow:
         assert bogus_id in str(exc_info.value)
         assert "not found" in str(exc_info.value)
         assert exc_info.value.non_retryable is True
+
+
+class TestCalculateActivityCancellation:
+    # The calc body runs through sync_to_async, which cannot stop its worker thread once it has started. A
+    # plain `await` returns the moment Temporal cancels the activity and leaves the ClickHouse query, its DB
+    # connection and the runner's result buffers alive and unsupervised.
+    async def test_cancellation_drains_the_body_before_propagating(self):
+        started = asyncio.Event()
+        body_finished = False
+
+        async def _slow_body(*args, **kwargs):
+            nonlocal body_finished
+            started.set()
+            await asyncio.sleep(0.05)
+            body_finished = True
+            return MetricRecalculationResult(metric_uuid="m1", success=True)
+
+        with (
+            patch(
+                "products.experiments.backend.temporal.recalculation_activities._calculate_experiment_metric_for_recalculation_sync",
+                _slow_body,
+            ),
+            patch("temporalio.activity.info", return_value=SimpleNamespace(attempt=1)),
+        ):
+            task = asyncio.ensure_future(
+                calculate_experiment_metric_for_recalculation(1, "m1", "r1", _QUERY_TO)  # type: ignore[arg-type]
+            )
+            await started.wait()
+            task.cancel()
+
+            with pytest.raises(asyncio.CancelledError):
+                await task
+
+        assert body_finished is True
 
 
 @contextmanager

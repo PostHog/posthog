@@ -5,10 +5,14 @@ These are thin ``@temporalio.activity.defn`` wrappers; the DB-touching implement
 and lets the logic be unit-tested without the activity decorator.
 """
 
+import asyncio
+
+import structlog
 import temporalio.activity
 
 from products.experiments.backend.temporal.models import (
     MAX_METRIC_ATTEMPTS,
+    METRIC_CALC_ACTIVITY_TIMEOUT_SECONDS,
     ExperimentMetricToRecalculate,
     MetricRecalculationResult,
     RecalculationProgressUpdate,
@@ -18,6 +22,8 @@ from products.experiments.backend.temporal.recalculation_logic import (
     _discover_experiment_metrics_sync,
     _update_recalculation_progress_sync,
 )
+
+logger = structlog.get_logger(__name__)
 
 
 @temporalio.activity.defn
@@ -57,6 +63,25 @@ async def calculate_experiment_metric_for_recalculation(
     """
     attempt = temporalio.activity.info().attempt
     is_final_attempt = attempt >= MAX_METRIC_ATTEMPTS
-    return await _calculate_experiment_metric_for_recalculation_sync(
-        experiment_id, metric_uuid, recalculation_id, query_to, metric_type, is_final_attempt, attempt
+    task = asyncio.ensure_future(
+        _calculate_experiment_metric_for_recalculation_sync(
+            experiment_id, metric_uuid, recalculation_id, query_to, metric_type, is_final_attempt, attempt
+        )
     )
+    try:
+        return await asyncio.shield(task)
+    except asyncio.CancelledError:
+        # sync_to_async cannot stop its worker thread. Returning here leaves the ClickHouse query, its DB
+        # connection and the runner's result buffers alive and unsupervised, so the worker keeps paying for
+        # an attempt Temporal has already given up on. Wait the thread out first, bounded by the activity's
+        # own per-attempt budget because the body cannot outlive that by design.
+        try:
+            await asyncio.wait_for(asyncio.shield(task), timeout=METRIC_CALC_ACTIVITY_TIMEOUT_SECONDS)
+        except Exception:
+            logger.warning(
+                "experiment_metric_recalculation_drain_after_cancel_failed",
+                metric_uuid=metric_uuid,
+                recalculation_id=recalculation_id,
+                exc_info=True,
+            )
+        raise
