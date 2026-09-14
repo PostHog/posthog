@@ -7,7 +7,6 @@ import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonMenu, LemonMenuItem, LemonMenuItems, LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
@@ -240,7 +239,6 @@ export function DashboardEditSaveCancelButtons({
 export function EditModeActions(): JSX.Element {
     const { canEditDashboard, layoutEditMode, tiles, dashboardCustomizeMenuOpen } = useValues(dashboardLogic)
     const { setDashboardEditing, setDashboardCustomizeMenuOpen } = useActions(dashboardLogic)
-    const dashboardCustomizationEnabled = useFeatureFlag('DASHBOARD_CUSTOMIZATION')
 
     return (
         <>
@@ -267,26 +265,20 @@ export function EditModeActions(): JSX.Element {
                         icon={<IconGridMasonry fontSize="16" />}
                         tooltip="Customize dashboard"
                         tooltipPlacement="top"
-                        sideAction={
-                            dashboardCustomizationEnabled
-                                ? {
-                                      'data-attr': 'dashboard-edit-layout-customize-dropdown',
-                                      dropdown: {
-                                          closeOnClickInside: false,
-                                          placement: 'bottom-end',
-                                          overlay: (
-                                              <LemonMenuOverlay items={[{ label: () => <DashboardCustomizeMenu /> }]} />
-                                          ),
-                                      },
-                                  }
-                                : undefined
-                        }
+                        sideAction={{
+                            'data-attr': 'dashboard-edit-layout-customize-dropdown',
+                            dropdown: {
+                                closeOnClickInside: false,
+                                placement: 'bottom-end',
+                                overlay: <LemonMenuOverlay items={[{ label: () => <DashboardCustomizeMenu /> }]} />,
+                            },
+                        }}
                     >
                         Customize
                     </LemonButton>
                 </Shortcut>
             )}
-            {layoutEditMode && dashboardCustomizationEnabled && tiles.length > 0 && (
+            {layoutEditMode && tiles.length > 0 && (
                 <LemonMenu
                     items={[{ label: () => <DashboardCustomizeMenu /> }]}
                     closeOnClickInside={false}
@@ -332,7 +324,6 @@ export function FullscreenModeActions(): JSX.Element {
 export function ViewModeActions(): JSX.Element {
     const { dashboard, canEditDashboard, tiles } = useValues(dashboardLogic)
     const { setDashboardEditing } = useActions(dashboardLogic)
-    const dashboardCustomizationEnabled = useFeatureFlag('DASHBOARD_CUSTOMIZATION')
     const { push } = useActions(router)
     if (!dashboard) {
         return <></>
@@ -379,20 +370,14 @@ export function ViewModeActions(): JSX.Element {
                         icon={<IconGridMasonry fontSize="16" />}
                         tooltip="Customize dashboard"
                         tooltipPlacement="top"
-                        sideAction={
-                            dashboardCustomizationEnabled
-                                ? {
-                                      'data-attr': 'dashboard-edit-layout-customize-dropdown',
-                                      dropdown: {
-                                          closeOnClickInside: false,
-                                          placement: 'bottom-end',
-                                          overlay: (
-                                              <LemonMenuOverlay items={[{ label: () => <DashboardCustomizeMenu /> }]} />
-                                          ),
-                                      },
-                                  }
-                                : undefined
-                        }
+                        sideAction={{
+                            'data-attr': 'dashboard-edit-layout-customize-dropdown',
+                            dropdown: {
+                                closeOnClickInside: false,
+                                placement: 'bottom-end',
+                                overlay: <LemonMenuOverlay items={[{ label: () => <DashboardCustomizeMenu /> }]} />,
+                            },
+                        }}
                     >
                         Customize
                     </LemonButton>
