@@ -931,8 +931,12 @@ def backfill_skill_digests(*, batch_size: int = 500, recompute: bool = False) ->
 
 
 def _backfill_digests(model: type[_DigestModel], batch_size: int, recompute: bool) -> int:
-    digest_field, _ = model.DIGEST_FIELDS
-    queryset = model.objects.all() if recompute else model.objects.filter(**{f"{digest_field}__isnull": True})
+    if recompute:
+        queryset = model.objects.all()
+    elif model is LLMSkill:
+        queryset = model.objects.filter(skill_md_sha256__isnull=True)
+    else:
+        queryset = model.objects.filter(content_sha256__isnull=True)
     # Cursor on the primary key rather than re-running the "needs a digest" filter: under
     # `recompute` that filter matches every row, so a fixed `[:batch_size]` slice would never
     # advance and the walk would never end.

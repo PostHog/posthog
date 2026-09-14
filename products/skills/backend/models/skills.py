@@ -84,16 +84,15 @@ class LLMSkill(UUIDModel):
 
     # Versioning (same pattern as LLMPrompt)
     version = models.PositiveIntegerField(default=1)
-    is_latest = models.BooleanField(default=True)
     version_description = models.CharField(max_length=400, null=True, blank=True)
+    is_latest = models.BooleanField(default=True)
+    deleted = models.BooleanField(default=False)
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
     created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
 
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
-
-    deleted = models.BooleanField(default=False)
 
     # Digest of the *rendered* SKILL.md (frontmatter + body), not of `body` alone: the manifest
     # describes the file a host downloads, and that file carries the frontmatter too. Bare hex,
