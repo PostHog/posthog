@@ -2,10 +2,18 @@
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
         "id": {
-            "description": "Project ID. Omit it, or pass `@current`, to target the caller's active project.",
-            "exclusiveMinimum": 0,
-            "maximum": 9007199254740991,
-            "type": "integer"
+            "anyOf": [
+                {
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991,
+                    "type": "integer"
+                },
+                {
+                    "const": "@current",
+                    "type": "string"
+                }
+            ],
+            "description": "Project ID. Omit it, or pass `@current`, to target the caller's active project."
         }
     },
     "type": "object"

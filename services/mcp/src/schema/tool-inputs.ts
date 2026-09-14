@@ -655,12 +655,16 @@ export const ProjectSetActiveSchema = z.object({
  * session's active project. Forwarding `@current` to the API instead would
  * resolve it from the user's saved team, a different project whenever the
  * session has switched.
+ *
+ * The literal is a union branch, not a preprocess step, so the advertised JSON
+ * schema enumerates it — a preprocess renders as the wrapped schema alone, which
+ * leaves a schema-validating client rejecting the value the description offers.
+ * Same reason `OrganizationSetActiveSchema` above is a union. Stringified
+ * integers stay a cast, per the house convention in `cast-helpers`.
  */
 export const ProjectIdOrCurrentSchema = z
-    .preprocess(
-        (value) => (value === '@current' ? undefined : castStringToInt(value)),
-        z.number().int().positive().optional()
-    )
+    .preprocess(castStringToInt, z.union([z.number().int().positive(), z.literal('@current')]).optional())
+    .transform((value) => (value === '@current' ? undefined : value))
     .describe("Project ID. Omit it, or pass `@current`, to target the caller's active project.")
 
 // Debug MCP UI Apps
