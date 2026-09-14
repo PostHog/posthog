@@ -373,7 +373,10 @@ class ZipRenderer(BaseRenderer):
 def _spec_problem_messages(export: SkillExport) -> list[str]:
     """The shared packaging rules as plain messages, for the endpoints that report them as strings."""
     return [
-        problem.message
+        # Most rules word the message for the `spec_problems` field, which carries the path in its
+        # own column. A flat string has nowhere else to put it, so two bad files would otherwise
+        # produce the same sentence twice and the author could not tell which file to rename.
+        f"file '{problem.file_path}': {problem.message}" if problem.file_path else problem.message
         for problem in compute_spec_problems(export.name, export.description, [f.path for f in export.files])
     ]
 

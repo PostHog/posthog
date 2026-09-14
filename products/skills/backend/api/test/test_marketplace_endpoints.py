@@ -137,6 +137,33 @@ class TestSkillZipExport(APIBaseTest):
         assert data["allowed_tools"] == ["Bash", "Write"]
         assert any(f["path"] == "scripts/x.py" for f in data["files"])
 
+    def test_export_names_the_file_in_each_path_problem(self):
+        # Most path rules word their message without the path, so two bad files would report the
+        # same sentence twice and the author could not tell which one to rename.
+        skill = LLMSkill.objects.create(
+            team=self.team,
+            name="legacy-paths",
+            description="Legacy paths.",
+            body="# legacy-paths\n",
+            version=1,
+            is_latest=True,
+            created_by=self.user,
+        )
+        # Bypasses the serializer validation so the rows look like ones that predate it.
+        LLMSkillFile.objects.create(skill=skill, path="/first.md", content="x")
+        LLMSkillFile.objects.create(skill=skill, path="/second.md", content="x")
+
+        response = self.client.get(self._url("legacy-paths"))
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        body = response.json()
+        assert body["problems"] == [
+            "file '/first.md': File paths must be relative, not absolute.",
+            "file '/second.md': File paths must be relative, not absolute.",
+        ]
+        assert "/first.md" in body["detail"]
+        assert "/second.md" in body["detail"]
+
     def test_import_missing_file_is_400(self):
         response = self.client.post(f"/api/environments/{self.team.id}/llm_skills/import", {}, format="multipart")
         assert response.status_code == status.HTTP_400_BAD_REQUEST
