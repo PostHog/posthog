@@ -128,7 +128,9 @@ place you can be, so it survives a reload, restores with the rail, and a report
 opened out of it carries `?from=/inbox/triage`, which is what makes the close
 button land back in the queue. `InboxTriagePane` renders it for both layouts;
 the button in the list header is a `Link`, and `useInboxTriageHotkey` gives the
-list its "t". Nothing holds triage in a store: the URL is the state.
+list its "t". An empty queue disables that button in place instead of hiding
+it, so the header never reads as if triage had been taken away. Nothing holds
+triage in a store: the URL is the state.
 
 `useSetHeaderContent` takes the title row or `null`; a view with nothing to name
 pushes null. Beside the rail's list the pane names nothing, so `InboxView`
