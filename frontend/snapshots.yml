@@ -3117,29 +3117,29 @@ snapshots:
     insights-funneltrendstable--default--light:
         hash: v1.k794b7964.f4486460f4481d343ecf8e0890d94f8d4c3da70164008d53bc762b6900623bc1.MRfTllR3ODYt6mNxjI-nTmfYZk0V2cXLMRmUwbKFC1Q
     insights-insightseriestooltip--compare-to-previous-period--dark:
-        hash: v1.k794b7964.87bb24ae627d7ae4349e3ff4ff140f845ac3f0e3443c94eb77ffa172237c303d.XbFd2fGd29VAUNDjyNUG9-m2P2N7zpe528qjdqdXBKE
+        hash: v1.k794b7964.c32d3ebefd235ba4395c12cbf2ddcccc8549bfad4079e9d6c3d92731bc4e349e.oOrJIQc5FF3F17eAQCrT5DrSl0AnUR-gO-Y0SYSRtno
     insights-insightseriestooltip--compare-to-previous-period--light:
-        hash: v1.k794b7964.887f50a8fb784402eb68bbcd7bc441a483a1cd9ed7b6b5e7ab25040cfab2837e.wdu0JxKXwmBvmClqjpilf6q1vPvufoVpIPWb629waSA
+        hash: v1.k794b7964.0e4f7fbbc63a7fdbd47ae9f8fba7e9e2ce31991d9e7fdfc9754b48a216bc7bb7.JggS89Cwd-t323cD2xY4zeh2Qx-q5d0N6jkwl0fPDrA
     insights-insightseriestooltip--compare-to-previous-period-with-breakdown--dark:
-        hash: v1.k794b7964.ada5b19ef29ef4924c6a945e20bb8e0fe834ecddcf24cddc2ba4edc8fb328621.XEJcqQUCUHPRS0GWP8j5UYecf9sKP6SVwwJc0HSEFFE
+        hash: v1.k794b7964.2a42b92ebe4dc59f362caca791d19986225a95a073e3eb375cc48c6b1d907e90.FxqiKojXUO8mAnRKVgnhHbrsfHubFiA9Y2Tg2p48bQg
     insights-insightseriestooltip--compare-to-previous-period-with-breakdown--light:
-        hash: v1.k794b7964.5587e7a896a9bc8e23e2aea1bbc90a81e5c1d76df5db3fc99a030488badcf96f.wIxEzm8vuXxLBqnPNUHn3vdlGn-0piukfsBP48Zf8pg
+        hash: v1.k794b7964.4bc57964d63bb01af69bab9b057b3a22dda080a384450632fec019e5edf050b5.Hfxxh4CaIywvfJwUwisoOl_WdRKVTLUMR-MKgmYQIdc
     insights-insightseriestooltip--long-series-name-with-breakdown--dark:
         hash: v1.k794b7964.485977959af7e78f4b0336e816b4bafb8ad96e1190a574ee8a8229d1d30971f7.L4xNQeB80wWVuJ2IhRJkYvQfDkNTXVdT0pDvOsxD3Tc
     insights-insightseriestooltip--long-series-name-with-breakdown--light:
         hash: v1.k794b7964.ab54b7f07f0c042ffe71895f14dda907d4c3e7877214e10c27d5424a01b2b6d7.Y5dt0GPeSpZvIz7V-AZz9JC54fL3uVO5wQH26Nj-Z_A
     insights-insightseriestooltip--multiple-formulas-with-breakdown--dark:
-        hash: v1.k794b7964.7a17448bbd7b31f1eaa50affed819fee4e295d2a4e7dd5826fd7718da52213ee.hMF1qjDD8qCjJ6mGw1V7hK0mVzT_kfFy1z2WWeJpPug
+        hash: v1.k794b7964.65bce95fb06d2b8d3904e23b7a85979a4d1899550e1776ee4f2cf8fd1427e522.e2_2F4qqVdTVvmsHA2sp8rDQve7uuzcQQj5Mk4wJsoQ
     insights-insightseriestooltip--multiple-formulas-with-breakdown--light:
-        hash: v1.k794b7964.3175d080a0e954a36b55ed3258de555f65ac953c275a89b3aad302c153060274.4YRMTzGzpb4JNcqvjyJqYyEXVdpttgvVughFo7fXFFM
+        hash: v1.k794b7964.93ec0c24c0d1230198502dbf7e5e9506b2f9f311d85c174cf37de79a7ffce307.EmDl7WDvn77gUOLHD6FnehgqoSDPSvvT3jUMDJuB3P8
     insights-insightseriestooltip--multiple-series-with-breakdown--dark:
-        hash: v1.k794b7964.d03acd30d3bd10fea25ceadc18f658a3b68029c91594328e2ca29d9c086ccf2b.HuxAeDDZFVlAMrv4ma9Ur-Oxh3bXLyPu0HlQaWmxmN4
+        hash: v1.k794b7964.97665e05f935fabfe80f601bea62d58be337e04651a636c9e4912ca405e17367.2zQ3iGPIXoOzT1b5wKvIpASa5n_DKhLlTOE4wD6RM3A
     insights-insightseriestooltip--multiple-series-with-breakdown--light:
-        hash: v1.k794b7964.32f4f50be9cc7eb9564906b7bed5c6bbe0d0efc39fe52e4ec0ef8bc3c8725e29.YPPQ8tBkIfQHsr2RwFw4XJZdY3yiZOaQEADjS1OsN5s
+        hash: v1.k794b7964.0ae03bff0792f880a5522f99e9c86e0d3ba736a647b64254fdbe67f857e670c4.NUNxTJP9abnNeAOwPj1tG24civN_kPygVEbASv_OAes
     insights-insightseriestooltip--same-event-series-with-breakdown--dark:
-        hash: v1.k794b7964.37a916ab8d2b3cb2df7b90980f9333ac107be063e02a336dbcba0aa998130a5a.Sypeo_xPZx7ObVi0fmODe1_QJzZXq0Jeo2YCijOt1dc
+        hash: v1.k794b7964.8675892b42c60468827d92f3ed0289d9cd174fd9398ce170f7aad270f8c5a559.Io8wQLL1DkaFkHEyXA9mENrSxXPMBLNqFE8XCGWSVVE
     insights-insightseriestooltip--same-event-series-with-breakdown--light:
-        hash: v1.k794b7964.b9596373fdd1604b76510220a1f84fe0bfab4e5fb4345d8dc38349d004adbf85.GPljI0_ciOeu_8GwLFZ7_3VQ_1M5SJWqnUkHZK6aITc
+        hash: v1.k794b7964.73da1ade2e6f06bf168f6b5cdeecef0ac5217f08d9088d8372fd4e714dc1ea61.tDVYCr1wotnHByPgma0aujTC7s2YpgTarEEW8QW9u-I
     insights-insightstable--aggregation--dark:
         hash: v1.k794b7964.531d5fdec5bc837da5dd1f334b850e6321fde25a7fb70834856ae88338214e28.RVObUcwlwFdjIrk0GTbySMzPeAWR7zUyPLsUtdIu57w
     insights-insightstable--aggregation--light:
