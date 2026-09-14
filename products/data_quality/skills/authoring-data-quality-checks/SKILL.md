@@ -57,9 +57,18 @@ neighboring subject. A soft-deleted row keeps its original name, so a replacemen
 name. Read the deleted flag through `coalesce`: it is null on rows that predate the column's
 default, and the product counts a null row as live.
 
-Resolve the view first. A materialized view's backing table carries the view's own name, and no
-exposed column tells the two apart. A name that a view answers to is a view. A check on that
-backing table is accepted, and then it stays silent. Materialization selects checks by
+One name can reach either kind, so read which kind it is before you resolve an ID:
+
+```sql
+SELECT table_type FROM system.information_schema.tables WHERE table_name = 'orders'
+```
+
+`view` sends you to the saved-query lookup, `data_warehouse` to the table lookup. A live table wins
+a name a view also holds, so this query decides, not the order you look things up in.
+
+A materialized view's backing table is absent from this catalog, and the view answers to the name
+instead. A table row you find under a name this query calls a `view` is therefore that backing
+table. A check on it is accepted, and then it stays silent: materialization selects checks by
 `saved_query_id`, and the only table-side trigger runs after a source sync, which a backing table
 never gets.
 
@@ -71,8 +80,7 @@ never gets.
   WHERE name = 'orders' AND coalesce(deleted, 0) = 0
   ```
 
-- **Warehouse table.** Resolve a table only when no view holds the name. The subject name is the
-  warehouse table's own name: an imported source prefixes it (e.g. `stripe_charge`), while a
+- **Warehouse table.** The subject name is the warehouse table's own name: an imported source prefixes it (e.g. `stripe_charge`), while a
   self-managed table keeps the name it was created with. The `id` is the `table_id`. Live tables can
   share one name, so take the newest. That is the row a query by that name reaches.
 
@@ -138,6 +146,7 @@ Reach for these first, in roughly this order:
   (`select 1 from orders where total != subtotal + tax`). Every row it returns counts as a failure.
 
 Call `posthog:data-quality-check-types` for each type's exact config schema rather than guessing.
+Skip it when the project has no view to pass, and read the config above instead.
 
 Checks live on the subject they audit: create them with `data-quality-check-create-on-view`
 (`saved_query_id` path parameter) or `data-quality-check-create-on-table` (`table_id`).
