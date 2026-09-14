@@ -19,6 +19,10 @@ const meta: Meta<typeof CustomerTaskWorkflowReferenceInput> = {
                 },
             },
         },
+        // Wait for Monaco to mount so raw-mode stories have a stable snapshot layout.
+        testOptions: {
+            waitForSelector: '.monaco-editor',
+        },
     },
 }
 export default meta
