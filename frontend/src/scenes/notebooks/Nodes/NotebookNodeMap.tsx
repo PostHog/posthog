@@ -5,7 +5,8 @@ import { LemonSkeleton } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
-import { personLogic } from 'scenes/persons/personLogic'
+
+import { personLogic } from 'products/persons/frontend/logics/personLogic'
 
 import { Map } from '../../../lib/components/Map/Map'
 import { NotebookNodeProps, NotebookNodeType } from '../types'

@@ -2,6 +2,7 @@ import '~/styles'
 import './styles.scss'
 
 import { KeaPlugin, resetContext } from 'kea'
+import { disposablesPlugin } from 'kea-disposables'
 import { formsPlugin } from 'kea-forms'
 import { loadersPlugin } from 'kea-loaders'
 import { localStoragePlugin } from 'kea-localstorage'
@@ -12,14 +13,13 @@ import { windowValuesPlugin } from 'kea-window-values'
 import type { PostHog } from 'posthog-js'
 import { createRoot } from 'react-dom/client'
 
-import { disposablesPlugin } from '~/kea-disposables'
 import { ToolbarApp } from '~/toolbar/ToolbarApp'
 import { canonicalizeApiHost } from '~/toolbar/toolbarConfigLogic'
 import { isToolbarMounted, posthogToolbarController, setToolbarRefs } from '~/toolbar/toolbarController'
 import { toolbarLogger } from '~/toolbar/toolbarLogger'
 import { captureToolbarException } from '~/toolbar/toolbarPosthogJS'
 import { isToolbarRequestError } from '~/toolbar/toolbarRequestError'
-import { safeFetch } from '~/toolbar/utils'
+import { safeFetch, toError } from '~/toolbar/utils'
 import { ToolbarParams } from '~/types'
 
 interface InitKeaProps {
@@ -55,7 +55,10 @@ const initKeaInToolbar = ({ routerHistory, routerLocation, beforePlugins }: Init
                 // expected request failures (4xx/5xx/network) - those are logged above but
                 // must not pollute error tracking. Anything else is a genuine toolbar bug.
                 if (!isToolbarRequestError(error)) {
-                    captureToolbarException(error, 'kea_loader', {
+                    // A loader can reject with a non-Error value (e.g. html-to-image throws a raw
+                    // DOM Event). Normalize first so no bare value reaches error tracking without a
+                    // message or stack, whatever a loader throws.
+                    captureToolbarException(toError(error), 'kea_loader', {
                         reducer_key: reducerKey,
                         action_key: actionKey,
                     })

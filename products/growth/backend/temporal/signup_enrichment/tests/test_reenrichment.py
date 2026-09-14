@@ -230,8 +230,8 @@ class TestReenrichOrganizationActivity(BaseTest):
             "days_since_first_fetch": None,
         }
         assert enrich.await_args is not None
-        assert enrich.await_args.kwargs["is_recheck"] is True
-        assert enrich.await_args.kwargs["role_at_organization"] == "engineering"
+        assert enrich.await_args.kwargs["ctx"].is_recheck is True
+        assert enrich.await_args.kwargs["ctx"].role_at_organization == "engineering"
         event = pha_client.capture.call_args
         assert event.kwargs["event"] == "icp_reenrichment_completed"
         assert event.kwargs["properties"]["icp_fit_status"] == "scored"

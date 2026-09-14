@@ -18,6 +18,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.decagon.decagon import (
+    CONTRACT_MISMATCH_ERROR,
     DecagonResumeConfig,
     decagon_source,
     validate_credentials as validate_decagon_credentials,
@@ -98,6 +99,15 @@ You can find your API key on the **Developer** page of the [Decagon dashboard](h
                 "include this endpoint. Ask Decagon to enable it, then re-enable the sync. If "
                 "every table is failing, generate a new key on the Developer page of the Decagon "
                 "dashboard and reconnect."
+            ),
+            # The walk read the endpoint and kept nothing while the endpoint reported rows, so
+            # the response no longer matches the config this source ships. Every attempt repeats
+            # the same request and fails the same way, so retrying only multiplies the reports
+            # and leaves the schema enabled to repeat it on the next schedule.
+            CONTRACT_MISMATCH_ERROR: (
+                "Decagon reports rows for this table, but PostHog could not read any of them. This "
+                "is not a problem with your API key. Contact support so we can update the sync to "
+                "match what Decagon now sends."
             ),
         }
 

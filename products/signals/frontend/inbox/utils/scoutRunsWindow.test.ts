@@ -7,6 +7,8 @@ import {
     deriveRunOutcome,
     expensiveRunCostThreshold,
     formatRunCost,
+    filedOrAddedLabel,
+    groupScoutRuns,
     mostRecentEmittedRuns,
     rosterRunCosts,
     runMatchesFilter,
@@ -19,6 +21,9 @@ import {
     scoutCronScheduleError,
     scoutDisplayName,
     scoutReportActivityLabel,
+    scoutRunFailureLine,
+    scoutRunGroupKey,
+    scoutRunReportLabel,
     weeklyCronToDayTime,
 } from './scoutRunsWindow'
 
@@ -182,6 +187,130 @@ describe('scoutRunsWindow report channel', () => {
             ['no report activity', {}, null],
         ])('%s', (_name, overrides, expected) => {
             expect(scoutReportActivityLabel(makeRun(overrides))).toEqual(expected)
+        })
+    })
+
+    // The row tags read in the report channel's words, and a report both filed and later edited is
+    // one report — the header strip derives it the same way, so the two must not disagree.
+    describe('scoutRunReportLabel', () => {
+        it.each<[string, Partial<SignalScoutRunSummary>, string | null]>([
+            ['filed only', { emitted_report_ids: ['r-1'] }, `Filed ${pluralize(1, 'report')}`],
+            ['added to only', { edited_report_ids: ['r-1', 'r-2'] }, `Added to ${pluralize(2, 'report')}`],
+            [
+                'filed one and added to another',
+                { emitted_report_ids: ['r-1'], edited_report_ids: ['r-2'] },
+                'Filed 1 · added to 1',
+            ],
+            [
+                'filed then edited the same report counts once',
+                { emitted_report_ids: ['r-1'], edited_report_ids: ['r-1'] },
+                `Filed ${pluralize(1, 'report')}`,
+            ],
+            ['no report activity', {}, null],
+        ])('%s', (_name, overrides, expected) => {
+            expect(scoutRunReportLabel(makeRun(overrides))).toEqual(expected)
+        })
+
+        // The header strip shares this label, and hands it the rollup's deduped id sets rather
+        // than one run's arrays.
+        it('takes id sets, and drops a filed report from the added-to count', () => {
+            expect(filedOrAddedLabel(new Set(['r-1']), new Set(['r-1', 'r-2']))).toEqual('Filed 1 · added to 1')
+        })
+    })
+
+    describe('scoutRunFailureLine', () => {
+        // The close-out is agent prose, so its first line can open with any markdown marker. Each
+        // has to go before the sentence split, or the split stops on the marker's own punctuation.
+        it.each<[string, string, string]>([
+            ['a heading', '## Stopped mid-plan\nEligibility is healthy. More.', 'Stopped mid-plan'],
+            ['a bullet', '- Stopped mid-plan. More.', 'Stopped mid-plan.'],
+            ['an ordered item', '1. Stopped mid-plan. More.', 'Stopped mid-plan.'],
+            ['an ordered item in brackets', '1) Stopped mid-plan. More.', 'Stopped mid-plan.'],
+            ['a decimal that is not a marker', '1.5s of runtime. More.', '1.5s of runtime.'],
+        ])('takes the first sentence of a close-out opening with %s', (_name, summary, expected) => {
+            expect(scoutRunFailureLine(makeRun({ status: 'failed', summary }), NOW)).toBe(expected)
+        })
+
+        // The serializer sends the first line of the task's error message as `failure_reason`, so a
+        // failure that never got to its close-out still says what went wrong.
+        it.each<[string, Partial<SignalScoutRunSummary>, string]>([
+            [
+                'the recorded reason when the run wrote no close-out',
+                {
+                    summary: '',
+                    error: 'ToolError: the sandbox closed the connection\n  at step 3',
+                    failure_reason: 'ToolError: the sandbox closed the connection',
+                },
+                'ToolError: the sandbox closed the connection',
+            ],
+            [
+                'the close-out ahead of the reason',
+                {
+                    summary: 'Stopped mid-plan. More.',
+                    error: 'ToolError: the sandbox closed the connection',
+                    failure_reason: 'ToolError: the sandbox closed the connection',
+                },
+                'Stopped mid-plan.',
+            ],
+        ])('takes %s', (_name, overrides, expected) => {
+            expect(scoutRunFailureLine(makeRun({ status: 'failed', ...overrides }), NOW)).toBe(expected)
+        })
+
+        // A run killed at the deadline records no message, so the serializer derives a placeholder
+        // reason with a null `error`. The elapsed time says more than the placeholder does.
+        it('names the duration when the run never wrote a close-out', () => {
+            const run = makeRun({
+                status: 'failed',
+                summary: '',
+                error: null,
+                failure_reason: 'failed (no error message recorded)',
+                started_at: '2026-06-27T21:00:00Z',
+                completed_at: '2026-06-27T21:00:37Z',
+            })
+            expect(scoutRunFailureLine(run, NOW)).toBe('Ended after 37s without a close-out.')
+        })
+    })
+
+    // A scout's history is mostly quiet, so a flat list buries the failures anyone opened it for.
+    describe('groupScoutRuns', () => {
+        const quiet = (id: string): SignalScoutRunSummary => makeRun({ run_id: id })
+        const failed = (id: string): SignalScoutRunSummary => makeRun({ run_id: id, status: 'failed' })
+        const filed = (id: string): SignalScoutRunSummary => makeRun({ run_id: id, emitted_report_ids: ['r-1'] })
+
+        it('folds a run of quiet runs into one group and keeps them in order', () => {
+            const groups = groupScoutRuns([quiet('a'), quiet('b'), quiet('c')])
+            expect(groups).toHaveLength(1)
+            expect(groups[0]).toMatchObject({ kind: 'quiet' })
+            expect(groups[0].kind === 'quiet' && groups[0].runs.map((run) => run.run_id)).toEqual(['a', 'b', 'c'])
+        })
+
+        it('folds consecutive failures into one group', () => {
+            const groups = groupScoutRuns([failed('a'), failed('b'), failed('c')])
+            expect(groups).toHaveLength(1)
+            expect(groups[0].kind === 'failed' && groups[0].runs).toHaveLength(3)
+        })
+
+        it('never merges across a productive run, so a group only spans what it says it does', () => {
+            const groups = groupScoutRuns([quiet('a'), filed('b'), quiet('c'), failed('d'), quiet('e')])
+            expect(groups.map((group) => group.kind)).toEqual(['quiet', 'run', 'quiet', 'failed', 'quiet'])
+        })
+
+        it('never merges a failure into a quiet group', () => {
+            const groups = groupScoutRuns([quiet('a'), failed('b')])
+            expect(groups.map((group) => group.kind)).toEqual(['quiet', 'failed'])
+        })
+
+        it('keeps a lone quiet run as a group of one, so the list does not switch grammar', () => {
+            const groups = groupScoutRuns([quiet('a')])
+            expect(groups[0].kind === 'quiet' && groups[0].runs).toHaveLength(1)
+        })
+
+        // The detail view polls and prepends, so a group's key has to survive a newer run joining
+        // it. Otherwise React remounts the group and the reader's open rows close.
+        it('keys a folded group the same way once a newer run joins it', () => {
+            const [before] = groupScoutRuns([quiet('b'), quiet('c')])
+            const [after] = groupScoutRuns([quiet('a'), quiet('b'), quiet('c')])
+            expect(scoutRunGroupKey(after)).toEqual(scoutRunGroupKey(before))
         })
     })
 
