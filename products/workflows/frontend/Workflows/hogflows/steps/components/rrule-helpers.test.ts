@@ -21,6 +21,7 @@ import {
 describe('rrule-helpers', () => {
     describe('frequencyToRRule', () => {
         test.each([
+            ['hourly', RRule.HOURLY],
             ['daily', RRule.DAILY],
             ['weekly', RRule.WEEKLY],
             ['monthly', RRule.MONTHLY],
@@ -105,6 +106,23 @@ describe('rrule-helpers', () => {
             expect(dayjs(result.endDate!).month()).toBe(5) // 0-indexed June
         })
 
+        it('parses an hourly rule as hourly state', () => {
+            const result = parseRRuleToState('FREQ=HOURLY;INTERVAL=1')
+            expect(result.frequency).toBe('hourly')
+            expect(result.interval).toBe(1)
+            expect(result.rawRRule).toBeNull()
+        })
+
+        test.each([
+            ['FREQ=HOURLY', 'a rule the controls would write differently'],
+            ['FREQ=HOURLY;INTERVAL=6;BYHOUR=9,12', 'a rule with parts the controls do not have'],
+            ['FREQ=MINUTELY;INTERVAL=30', 'a frequency the controls do not have'],
+        ])('keeps %s, %s', (rrule) => {
+            const state = parseRRuleToState(rrule, '2026-04-10T09:00:00.000Z')
+            expect(state.rawRRule).toBe(rrule)
+            expect(stateToRRule(state, '2026-04-10T09:00:00.000Z')).toBe(rrule)
+        })
+
         it('returns DEFAULT_STATE for malformed input', () => {
             const result = parseRRuleToState('NOT_A_VALID_RRULE!!!!')
             expect(result).toEqual(DEFAULT_STATE)
@@ -167,6 +185,16 @@ describe('rrule-helpers', () => {
             expect(dayjs(parsed.endDate!).month()).toBe(11) // 0-indexed December
         })
 
+        it('roundtrips hourly every 2 hours', () => {
+            const state: ScheduleState = { ...DEFAULT_STATE, frequency: 'hourly', interval: 2 }
+            const rruleStr = stateToRRule(state, null)
+            expect(rruleStr).toBe('FREQ=HOURLY;INTERVAL=2')
+            const parsed = parseRRuleToState(rruleStr)
+            expect(parsed.frequency).toBe('hourly')
+            expect(parsed.interval).toBe(2)
+            expect(parsed.rawRRule).toBeNull()
+        })
+
         it('produces a string without leading RRULE: prefix', () => {
             const state: ScheduleState = { ...DEFAULT_STATE, frequency: 'daily', interval: 1 }
             const result = stateToRRule(state, null)
@@ -188,6 +216,13 @@ describe('rrule-helpers', () => {
             const state: ScheduleState = { ...DEFAULT_STATE, frequency: 'daily', endType: 'never' }
             const result = computePreviewOccurrences(state, startsAt, undefined, 3)
             expect(result).toHaveLength(3)
+        })
+
+        it('skips past occurrences of an hourly schedule that started long ago', () => {
+            const state: ScheduleState = { ...DEFAULT_STATE, frequency: 'hourly', endType: 'never' }
+            const result = computePreviewOccurrences(state, dayjs().subtract(1, 'year').toISOString())
+            expect(result).toHaveLength(6)
+            expect(fakeUtcToReal(result[0]).isAfter(dayjs())).toBe(true)
         })
 
         it('returns empty array for invalid startsAt', () => {
@@ -309,6 +344,16 @@ describe('rrule-helpers', () => {
             const state: ScheduleState = { ...DEFAULT_STATE, frequency: 'daily', interval: 1 }
             const result = buildSummary(state, null)
             expect(result).toContain('Runs every day')
+        })
+
+        it('returns "Runs every hour" for hourly interval 1', () => {
+            const state: ScheduleState = { ...DEFAULT_STATE, frequency: 'hourly', interval: 1 }
+            expect(buildSummary(state, null)).toContain('Runs every hour')
+        })
+
+        it('describes a kept rule with its own wording', () => {
+            const state = parseRRuleToState('FREQ=MINUTELY;INTERVAL=30', null)
+            expect(buildSummary(state, null)).toBe('Runs every 30 minutes.')
         })
 
         it('returns interval string for daily interval 2', () => {

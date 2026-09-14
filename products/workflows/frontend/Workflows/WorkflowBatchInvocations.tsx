@@ -144,7 +144,7 @@ function UpcomingOccurrences(): JSX.Element | null {
         if (!currentSchedule?.rrule || isOneTimeSchedule(currentSchedule.rrule)) {
             return null
         }
-        return parseRRuleToState(currentSchedule.rrule)
+        return parseRRuleToState(currentSchedule.rrule, currentSchedule.starts_at)
     }, [currentSchedule])
 
     const occurrences = useMemo(() => {
