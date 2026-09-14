@@ -9,7 +9,7 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { SidePanelTab } from '~/types'
 
-import { runnerPanelLogic, runStreamLogic } from 'products/posthog_ai/frontend/api/logics'
+import { attachedContextLogic, runnerPanelLogic, runStreamLogic } from 'products/posthog_ai/frontend/api/logics'
 
 import { makeReport } from './__mocks__/inboxMocks'
 import {
@@ -63,6 +63,11 @@ describe('inboxTaskKickoffLogic', () => {
             'opens one %s run without leaving the report',
             async (relationship) => {
                 const originalPath = router.values.location.pathname
+                if (relationship === 'discussion') {
+                    attachedContextLogic.actions.registerContext('test-picker', [
+                        { type: 'insight', key: 'insight-one', label: 'Conversion rate' },
+                    ])
+                }
                 await expectLogic(logic, () => {
                     if (relationship === 'implementation') {
                         logic.actions.createPrFromReport(report)
@@ -82,6 +87,16 @@ describe('inboxTaskKickoffLogic', () => {
                     mode: 'interactive',
                     pending_user_message: expect.any(String),
                 })
+                if (relationship === 'discussion') {
+                    expect(createdTasks[0]).toMatchObject({
+                        description: expect.stringContaining('- insight insight-one ("Conversion rate")'),
+                        signal_report_discussion_question: 'Explain the recommendation',
+                    })
+                    expect(startedRuns[0].pending_user_message).toBe(createdTasks[0].description)
+                    expect(attachedContextLogic.values.sentContextKeysByTask['report-task']).toContain(
+                        'insight:insight-one'
+                    )
+                }
                 expect(router.values.location.pathname).toBe(originalPath)
                 expect(sidePanelStateLogic.values.selectedTab).toBe(SidePanelTab.Max)
                 expect(sidePanelStateLogic.values.selectedTabOptions).toBe(REPORT_AI_PANEL)

@@ -7,6 +7,8 @@ import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePane
 import { initKeaTests } from '~/test/init'
 import { SidePanelTab } from '~/types'
 
+import { attachedContextLogic } from 'products/posthog_ai/frontend/api/logics'
+
 import { captureInboxReportAction } from '../../inboxAnalytics'
 import {
     inboxTaskKickoffLogic,
@@ -141,6 +143,24 @@ describe('DiscussReportButton', () => {
             'https://app/report-1',
             'Who is affected?'
         )
+    })
+
+    it('keeps the report context attached', async () => {
+        attachedContextLogic.actions.registerContext('report', [
+            {
+                type: 'signal_report',
+                key: 'report-1',
+                label: 'Report: Exceptions spiked',
+                dismissible: false,
+            },
+        ])
+        const user = await openPanel(makeReport())
+
+        await user.click(screen.getByText('Report: Exceptions spiked'))
+
+        expect(attachedContextLogic.values.contextItems).toEqual([
+            expect.objectContaining({ type: 'signal_report', key: 'report-1' }),
+        ])
     })
 
     it('blocks another submission while the report task is starting', async () => {

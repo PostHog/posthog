@@ -13,7 +13,14 @@ export function ReportAiPanel({ panelId }: { panelId: string }): JSX.Element {
     const report = reportChatContext?.report
     useAttachedContext(
         report
-            ? [{ type: 'signal_report', key: report.id, label: `Report: ${report.title || 'Untitled report'}` }]
+            ? [
+                  {
+                      type: 'signal_report',
+                      key: report.id,
+                      label: `Report: ${report.title || 'Untitled report'}`,
+                      dismissible: false,
+                  },
+              ]
             : null
     )
 
