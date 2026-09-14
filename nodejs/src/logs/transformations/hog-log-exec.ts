@@ -57,22 +57,50 @@ export function buildLogRecordGlobals(
 ): LogTransformationGlobals {
     return {
         project,
-        record: {
-            body: record.body ?? null,
-            attributes: decodeAttributeMap(record.attributes),
-            resource_attributes: decodeAttributeMap(record.resource_attributes),
-            severity_text: record.severity_text ?? null,
-            severity_number: record.severity_number ?? null,
-            service_name: record.service_name ?? null,
-            instrumentation_scope: record.instrumentation_scope ?? null,
-            event_name: record.event_name ?? null,
-            timestamp: record.timestamp ?? null,
-            observed_timestamp: record.observed_timestamp ?? null,
-            trace_id: idToHex(record.trace_id, 16),
-            span_id: idToHex(record.span_id, 8),
-        },
+        record: buildLogRecordGlobalsRecord(record),
         inputs,
     }
+}
+
+/** The `record` half of the globals, with attribute maps decoded once. */
+export function buildLogRecordGlobalsRecord(record: LogRecord): LogTransformationGlobals['record'] {
+    return {
+        body: record.body ?? null,
+        attributes: decodeAttributeMap(record.attributes),
+        resource_attributes: decodeAttributeMap(record.resource_attributes),
+        severity_text: record.severity_text ?? null,
+        severity_number: record.severity_number ?? null,
+        service_name: record.service_name ?? null,
+        instrumentation_scope: record.instrumentation_scope ?? null,
+        event_name: record.event_name ?? null,
+        timestamp: record.timestamp ?? null,
+        observed_timestamp: record.observed_timestamp ?? null,
+        trace_id: idToHex(record.trace_id, 16),
+        span_id: idToHex(record.span_id, 8),
+    }
+}
+
+/**
+ * Refreshes the mutable record fields of an already-built globals object from the
+ * (possibly transformed) record. Lets the per-function loop reuse one globals build
+ * per record instead of re-decoding every attribute map per function.
+ */
+export function refreshLogRecordGlobalsRecord(
+    target: LogTransformationGlobals['record'],
+    record: LogRecord
+): void {
+    target.body = record.body ?? null
+    target.attributes = decodeAttributeMap(record.attributes)
+    target.resource_attributes = decodeAttributeMap(record.resource_attributes)
+    target.severity_text = record.severity_text ?? null
+    target.severity_number = record.severity_number ?? null
+    target.service_name = record.service_name ?? null
+    target.instrumentation_scope = record.instrumentation_scope ?? null
+    target.event_name = record.event_name ?? null
+    target.timestamp = record.timestamp ?? null
+    target.observed_timestamp = record.observed_timestamp ?? null
+    target.trace_id = idToHex(record.trace_id, 16)
+    target.span_id = idToHex(record.span_id, 8)
 }
 
 function decodeAttributeMap(map: Record<string, string> | null | undefined): Record<string, string> {
@@ -91,16 +119,22 @@ function decodeAttributeMap(map: Record<string, string> | null | undefined): Rec
  */
 function encodeAttributeMap(
     map: Record<string, string>,
-    original: Record<string, string> | null | undefined
+    original: Record<string, string> | null | undefined,
+    // The same map already decoded by the globals build: comparing against it decides
+    // "untouched" without decoding every original wire value a second time.
+    originalDecoded?: Record<string, string>
 ): Record<string, string> {
     const out: Record<string, string> = {}
     for (const [key, value] of Object.entries(map)) {
         const originalValue = original?.[key]
-        if (originalValue !== undefined && decodeLogAttributeValue(originalValue) === value) {
-            out[key] = originalValue
-        } else {
-            out[key] = encodeLogAttributeValue(value)
+        if (originalValue !== undefined) {
+            const decoded = originalDecoded?.[key] ?? decodeLogAttributeValue(originalValue)
+            if (decoded === value) {
+                out[key] = originalValue
+                continue
+            }
         }
+        out[key] = encodeLogAttributeValue(value)
     }
     return out
 }
@@ -195,7 +229,14 @@ function redactSensitiveStrings(
     return value
 }
 
-export function applyTransformResult(record: LogRecord, execResult: unknown): 'mutated' | 'dropped' | 'invalid' {
+export function applyTransformResult(
+    record: LogRecord,
+    execResult: unknown,
+    decodedOriginals?: {
+        attributes?: Record<string, string>
+        resource_attributes?: Record<string, string>
+    }
+): 'mutated' | 'dropped' | 'invalid' {
     if (execResult === null || execResult === undefined || execResult === false) {
         return 'dropped'
     }
@@ -282,11 +323,16 @@ export function applyTransformResult(record: LogRecord, execResult: unknown): 'm
         record.severity_text = severityText
     }
     if (attributes !== undefined) {
-        record.attributes = attributes === null ? null : encodeAttributeMap(attributes, record.attributes)
+        record.attributes =
+            attributes === null
+                ? null
+                : encodeAttributeMap(attributes, record.attributes, decodedOriginals?.attributes)
     }
     if (resourceAttributes !== undefined) {
         record.resource_attributes =
-            resourceAttributes === null ? null : encodeAttributeMap(resourceAttributes, record.resource_attributes)
+            resourceAttributes === null
+                ? null
+                : encodeAttributeMap(resourceAttributes, record.resource_attributes, decodedOriginals?.resource_attributes)
     }
 
     return 'mutated'
@@ -388,7 +434,13 @@ export function executeLogTransformation(
     // can copy a decrypted input into a writable field, and Logs readers must not be
     // able to recover encrypted input values that way.
     const converted = redactSensitiveStrings(convertHogToJS(execResult.result), options.sensitiveValues)
-    const applied = applyTransformResult(record, converted)
+    // The globals' decoded maps double as the "untouched" reference for re-encoding:
+    // values the transformation left alone keep their exact original wire encoding
+    // without a second JSON decode per attribute.
+    const applied = applyTransformResult(record, converted, {
+        attributes: globals.record.attributes,
+        resource_attributes: globals.record.resource_attributes,
+    })
 
     if (applied === 'invalid') {
         return {
