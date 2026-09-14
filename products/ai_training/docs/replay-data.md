@@ -181,6 +181,9 @@ New privacy settings use `AI_RESEARCH_REPLAY_*`:
 - `IMAGE_FETCH_V2_DYNAMODB_TABLE` selects the fresh v2 frontier.
 - `S3_PREFIX` selects v2 replay storage and defaults to `rrweb_2`.
 
+The v2 producer requires `AI_RESEARCH_REPLAY_PRIVACY_TABLE` and `AI_RESEARCH_REPLAY_KMS_KEY_ARN` at startup.
+Missing values stop startup before it consumes Kafka messages.
+
 Established HMAC settings retain their transition aliases.
 When both aliases are set, the `AI_RESEARCH_REPLAY_*` value takes precedence, including an explicit empty value.
 The wrapped HMAC secret keeps the single name `SESSION_RECORDING_ML_PSEUDONYM_WRAPPED_KEY` in both the environment and secret store.
