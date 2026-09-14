@@ -9,12 +9,18 @@ import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import {
+    advanceLevel,
     createInitialState,
     GameState,
+    HIT_X,
+    isAwaitingQueue,
     isMergeable,
     isOver,
     ITEMS,
     LANE_COUNT,
+    LAST_LEVEL,
+    levelOf,
+    LEVELS,
     moveLane,
     QUEUE_HOLD_MS,
     REQUIRED_APPROVALS,
@@ -48,6 +54,9 @@ function progressLabel(state: GameState): string {
     if (state.phase === 'queued') {
         return 'In the merge queue'
     }
+    if (isAwaitingQueue(state)) {
+        return 'Ready. Catch /trunk merge'
+    }
     if (!state.ciGreen && state.approvals < REQUIRED_APPROVALS) {
         return 'Waiting on CI and reviews'
     }
@@ -65,6 +74,12 @@ function StatusBar({ state }: { state: GameState }): JSX.Element {
 
     return (
         <div className="flex flex-wrap gap-2 items-center">
+            <LemonTag type="option">
+                <span translate="no">
+                    {state.level + 1}/{LEVELS.length}
+                </span>
+                <span>&nbsp;{levelOf(state).name}</span>
+            </LemonTag>
             <LemonTag type={state.ciGreen ? 'success' : 'danger'}>{state.ciGreen ? 'CI green' : 'CI red'}</LemonTag>
             <LemonTag type={state.approvals >= REQUIRED_APPROVALS ? 'success' : 'default'}>
                 <span>Approvals&nbsp;</span>
@@ -93,7 +108,7 @@ function Track({ state }: { state: GameState }): JSX.Element {
         <div
             className="ShipIt__track"
             aria-hidden="true"
-            style={{ '--ship-it-lanes': LANE_COUNT } as React.CSSProperties}
+            style={{ '--ship-it-lanes': LANE_COUNT, '--ship-it-hit': HIT_X } as React.CSSProperties}
         >
             {Array.from({ length: LANE_COUNT }, (_, lane) => (
                 <div key={lane} className="ShipIt__lane" />
@@ -104,7 +119,7 @@ function Track({ state }: { state: GameState }): JSX.Element {
                 data-mergeable={isMergeable(state)}
                 style={{ top: `${(state.lane + 0.5) * (100 / LANE_COUNT)}%` }}
             >
-                #100000
+                #100001
             </div>
             {state.items.map((item) => (
                 <div
@@ -128,11 +143,13 @@ function Overlay({
     started,
     best,
     onStart,
+    onAdvance,
 }: {
     state: GameState
     started: boolean
     best: number
     onStart: () => void
+    onAdvance: () => void
 }): JSX.Element | null {
     if (!started) {
         return (
@@ -143,9 +160,34 @@ function Overlay({
                     flakes and the stale bot. It only moves toward the merge queue while CI is green and both approvals
                     hold.
                 </p>
-                <p className="ShipIt__hint">Arrow keys, W and S, or the buttons below.</p>
+                <p className="ShipIt__hint">
+                    Three levels, each one harder. Arrow keys, W and S, or the buttons below.
+                </p>
                 <LemonButton type="primary" onClick={onStart}>
                     Open a pull request
+                </LemonButton>
+            </div>
+        )
+    }
+
+    const score = Math.floor(state.score)
+
+    if (state.phase === 'merged' && state.level < LAST_LEVEL) {
+        const next = LEVELS[state.level + 1]
+        return (
+            <div className="ShipIt__overlay">
+                <h2>Merged</h2>
+                <p>
+                    <span>Next up: </span>
+                    <span>{next.name}</span>
+                    <span>. {next.goal}</span>
+                </p>
+                <p className="ShipIt__hint">
+                    <span>Score so far&nbsp;</span>
+                    <span translate="no">{score}</span>
+                </p>
+                <LemonButton type="primary" onClick={onAdvance}>
+                    Open the next one
                 </LemonButton>
             </div>
         )
@@ -155,19 +197,18 @@ function Overlay({
         return null
     }
 
-    const score = Math.floor(state.score)
     const merged = state.phase === 'merged'
 
     return (
         <div className="ShipIt__overlay">
-            <h2>{merged ? 'Merged' : 'Closed as stale'}</h2>
+            <h2>{merged ? 'Shipped' : 'Closed as stale'}</h2>
             <p>
-                <span>{merged ? 'It landed. You scored ' : 'The stale bot got there first. You scored '}</span>
+                <span>{merged ? 'All three landed. You scored ' : 'The stale bot got there first. You scored '}</span>
                 <span translate="no">{score}</span>
                 <span>{score >= best ? ', your best yet.' : '.'}</span>
             </p>
             <LemonButton type="primary" onClick={onStart}>
-                {merged ? 'Open another' : 'Try again'}
+                {merged ? 'Go again' : 'Try again'}
             </LemonButton>
         </div>
     )
@@ -179,7 +220,9 @@ export function ShipIt(): JSX.Element {
     const [best, setBest] = useState(readBestScore)
     const boardRef = useRef<HTMLDivElement>(null)
 
-    const running = started && !isOver(state)
+    // The track runs only while the pull request is alive, so it also stops between levels.
+    const running = started && (state.phase === 'coding' || state.phase === 'queued')
+    const betweenLevels = state.phase === 'merged' && state.level < LAST_LEVEL
 
     const start = useCallback((): void => {
         setState(createInitialState())
@@ -187,7 +230,17 @@ export function ShipIt(): JSX.Element {
         boardRef.current?.focus()
     }, [])
 
-    const move = useCallback((delta: number): void => setState((current) => moveLane(current, delta)), [])
+    const advance = useCallback((): void => {
+        setState((current) => advanceLevel(current))
+        boardRef.current?.focus()
+    }, [])
+
+    const move = useCallback((delta: number): void => {
+        setState((current) => moveLane(current, delta))
+        // The lane buttons sit outside the board, so without this a click leaves focus on the button
+        // and every later arrow key misses the board's handler.
+        boardRef.current?.focus()
+    }, [])
 
     useEffect(() => {
         if (!running) {
@@ -228,7 +281,7 @@ export function ShipIt(): JSX.Element {
             move(1)
         } else if ((key === 'enter' || key === ' ') && !running) {
             event.preventDefault()
-            start()
+            betweenLevels ? advance() : start()
         }
     }
 
@@ -267,7 +320,7 @@ export function ShipIt(): JSX.Element {
                 onKeyDown={onKeyDown}
             >
                 <Track state={state} />
-                <Overlay state={state} started={started} best={best} onStart={start} />
+                <Overlay state={state} started={started} best={best} onStart={start} onAdvance={advance} />
             </div>
 
             <div className="flex flex-wrap gap-2 justify-between items-center">

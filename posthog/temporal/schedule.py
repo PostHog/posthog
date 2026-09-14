@@ -80,7 +80,10 @@ from posthog.temporal.weekly_digest.types import WeeklyDigestInput
 
 from products.alerts.backend.facade.temporal import create_alerts_product_check_due_schedule
 from products.billing_alerts.backend.temporal.schedule import create_schedule_due_billing_alert_checks_schedule
-from products.business_knowledge.backend.temporal.schedule import create_business_knowledge_refresh_coordinator_schedule
+from products.business_knowledge.backend.temporal.schedule import (
+    create_business_knowledge_learning_coordinator_schedule,
+    create_business_knowledge_refresh_coordinator_schedule,
+)
 from products.context_layer.backend.temporal.schedule import create_context_layer_dream_schedule
 from products.conversations.backend.temporal.channel_summary.schedule import create_channel_summary_coordinator_schedule
 from products.conversations.backend.temporal.schedule import create_support_reply_coordinator_schedule
@@ -922,6 +925,7 @@ schedules = [
     create_warehouse_sources_queue_partition_management_schedule,
     create_health_check_schedules,
     create_conversations_signals_coordinator_schedule,
+    create_business_knowledge_learning_coordinator_schedule,
     create_business_knowledge_refresh_coordinator_schedule,
     create_error_tracking_symbol_set_cleanup_schedule,
     create_error_tracking_spike_event_cleanup_schedule,

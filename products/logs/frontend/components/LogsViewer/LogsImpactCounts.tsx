@@ -5,9 +5,9 @@ import ViewRecordingButton, {
     ViewRecordingButtonVariant,
 } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { humanFriendlyLargeNumber, percentage } from 'lib/utils/numbers'
-import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 
 import type { _LogsImpactResponseApi, _LogsImpactTopValueApi } from 'products/logs/frontend/generated/api.schemas'
+import { PersonDisplay } from 'products/persons/frontend/components/PersonDisplay'
 
 export interface LogsImpactCountsProps {
     impact: _LogsImpactResponseApi

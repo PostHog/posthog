@@ -29,10 +29,7 @@ def snowflake_env_vars_are_set():
     return True
 
 
-SKIP_IF_MISSING_REQUIRED_ENV_VARS = pytest.mark.skipif(
-    not snowflake_env_vars_are_set(),
-    reason="Snowflake required env vars are not set",
-)
+SKIP_IF_MISSING_REQUIRED_ENV_VARS = pytest.mark.requires_vendor_credentials(check=snowflake_env_vars_are_set)
 
 pytestmark = [SKIP_IF_MISSING_REQUIRED_ENV_VARS, pytest.mark.asyncio]
 
