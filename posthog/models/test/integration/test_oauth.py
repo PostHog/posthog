@@ -1511,6 +1511,35 @@ class TestPardotIntegrationModel(BaseTest):
         # The callback path can no longer name the kind, so the kind rides in the state instead.
         assert state["kind"] == "pardot"
 
+    @patch("posthog.models.integration.oauth.requests.post")
+    def test_token_exchange_retries_against_the_sandbox_host(self, mock_post):
+        # An Account Engagement business unit can live on a Salesforce sandbox org, which mints a
+        # code the production token host rejects. Refresh and revoke already follow the org's own
+        # host, so without this retry the connect is the only step that fails for those orgs.
+        production = MagicMock(status_code=400, text='{"error":"invalid_grant"}')
+        production.json.return_value = {"error": "invalid_grant"}
+        sandbox = MagicMock(status_code=200)
+        sandbox.json.return_value = {
+            "access_token": "at",
+            "refresh_token": "rt",
+            "instance_url": "https://acme--sandbox.sandbox.my.salesforce.com",
+        }
+        mock_post.side_effect = [production, sandbox]
+
+        integration = OauthIntegration.integration_from_oauth_response(
+            "pardot",
+            self.team.id,
+            self.user,
+            {"code": "code", "state": "token=state_token"},
+        )
+
+        assert integration.integration_id == "https://acme--sandbox.sandbox.my.salesforce.com"
+        retry = mock_post.call_args_list[1]
+        assert retry.args[0] == "https://test.salesforce.com/services/oauth2/token"
+        assert retry.kwargs["data"]["redirect_uri"] == "https://localhost:8010/integrations/salesforce/callback"
+        # Same guard as the first exchange: a 30x must not resend the client secret and the code.
+        assert retry.kwargs["allow_redirects"] is False
+
     def test_pardot_is_an_oauth_kind(self):
         # Not being listed makes the authorize + callback endpoints reject the kind and drops
         # it out of the scheduled token refresh sweep.
