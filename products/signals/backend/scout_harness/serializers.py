@@ -1472,6 +1472,18 @@ class EditReportRequestSerializer(serializers.Serializer):
             "empty list is a no-op (existing reviewers are left untouched, never cleared)."
         ),
     )
+    repository = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Optional repository to point the report at, as `owner/repo` — the fix for a report that "
+            "surfaced against the wrong codebase, so you correct it in place instead of filing a "
+            "duplicate. It replaces the report's current target and re-runs autostart, so a report "
+            "that had no repository to open a PR against can now open a draft PR. Omit the field to "
+            "leave the target as it is, and pass the `NO_REPO` sentinel for a report where nothing "
+            "under version control could change."
+        ),
+    )
     charts = serializers.ListField(
         required=False,
         allow_null=True,
@@ -1511,6 +1523,19 @@ class EditReportRequestSerializer(serializers.Serializer):
         ),
     )
 
+    def validate(self, attrs: dict) -> dict:
+        """Reject a body field this serializer does not declare.
+
+        The tool definition the scout reads and this endpoint deploy separately, so a scout can send a
+        field a running backend does not know yet. DRF drops an undeclared key without a word, which
+        turns a correction the caller asked for into a call that reports success and changes nothing.
+        Failing the whole edit says so, and costs the caller a retry rather than a wrong report.
+        """
+        unknown = sorted(set(self.initial_data) - set(self.fields))
+        if unknown:
+            raise serializers.ValidationError(f"unknown fields: {', '.join(unknown)}")
+        return attrs
+
 
 class EditReportResponseSerializer(serializers.Serializer):
     report_id = serializers.CharField(help_text="Id of the edited report.")
@@ -1523,6 +1548,17 @@ class EditReportResponseSerializer(serializers.Serializer):
         help_text="How many observations this edit added to the report's evidence rail; 0 if none."
     )
     reviewers_set = serializers.BooleanField(help_text="Whether the report's suggested reviewers were replaced.")
+    repository_set = serializers.BooleanField(
+        help_text="Whether the report's repository was replaced (true for a cleared target too)."
+    )
+    repository = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "The repository the report points at now, read back from the report rather than echoed "
+            "from the request; null when the report has no target. Compare it with the `repository` "
+            "you sent to confirm the correction landed."
+        ),
+    )
     charts_set = serializers.IntegerField(
         allow_null=True,
         help_text=(

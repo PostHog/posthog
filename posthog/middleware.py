@@ -1325,7 +1325,15 @@ class CSPMiddleware:
                 # nothing to an attacker who cannot already run script, and nothing further to one who
                 # can. Session replay decompresses snapshots with snappy-wasm and the HogQL editor
                 # parses with a WebAssembly build, so both break without it.
-                f"script-src 'self' 'nonce-{nonce}' 'wasm-unsafe-eval' {resource_url} https://*.i.posthog.com",
+                #
+                # Stripe and Turnstile are the two scripts we cannot serve ourselves: both vendors
+                # require the file to load from their own origin, so the flag-font trick of shipping
+                # a copy does not apply. `loadStripe` injects js.stripe.com for the payment entry
+                # modal, and the signup captcha loads the Turnstile API. `frame-src 'self' https:`
+                # already admits the iframes each one opens, and neither produced a connect-src
+                # violation while this policy was report-only, so their API calls run inside those
+                # frames rather than from our page.
+                f"script-src 'self' 'nonce-{nonce}' 'wasm-unsafe-eval' {resource_url} https://*.i.posthog.com https://js.stripe.com https://challenges.cloudflare.com",
                 # A data: font cannot execute script, and this directive governs font loading only,
                 # so the token widens nothing else. It also carries nothing out: a data: URL makes
                 # no request, which is what the CSS-injection attacks on this directive need. The

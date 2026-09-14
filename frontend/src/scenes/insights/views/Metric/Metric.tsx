@@ -19,9 +19,10 @@ import {
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { teamLogic } from 'scenes/teamLogic'
-import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 
 import { ChartDisplayType, ChartParams, TrendResult } from '~/types'
+
+import { trendsDataLogic } from 'products/product_analytics/frontend/insights/trends/trendsDataLogic'
 
 import { insightLogic } from '../../insightLogic'
 import {
