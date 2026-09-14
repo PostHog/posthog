@@ -12,6 +12,54 @@ import {
 } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
+const ConversationsPatternsListSchema = () => {
+    const ConversationsPatternsListQueryParams = orvalSchemas.ConversationsPatternsListQueryParams()
+    return ConversationsPatternsListQueryParams
+}
+
+const conversationsPatternsList = (): ToolBase<
+    ReturnType<typeof ConversationsPatternsListSchema>,
+    WithPostHogUrl<Schemas.PaginatedTicketPatternList>
+> => ({
+    name: 'conversations-patterns-list',
+    schema: ConversationsPatternsListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ConversationsPatternsListSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PaginatedTicketPatternList>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/conversations/patterns/`,
+            query: {
+                limit: params.limit,
+                offset: params.offset,
+                status: params.status,
+                ticket_id: params.ticket_id,
+            },
+        })
+        return await withPostHogUrl(context, result, '/support/tickets')
+    },
+})
+
+const ConversationsPatternsRetrieveSchema = () => {
+    const ConversationsPatternsRetrieveParams = orvalSchemas.ConversationsPatternsRetrieveParams()
+    return ConversationsPatternsRetrieveParams.omit({ project_id: true })
+}
+
+const conversationsPatternsRetrieve = (): ToolBase<
+    ReturnType<typeof ConversationsPatternsRetrieveSchema>,
+    Schemas.TicketPattern
+> => ({
+    name: 'conversations-patterns-retrieve',
+    schema: ConversationsPatternsRetrieveSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ConversationsPatternsRetrieveSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.TicketPattern>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/conversations/patterns/${encodeURIComponent(String(params.id))}/`,
+        })
+        return result
+    },
+})
+
 const ConversationsTicketsListSchema = () => {
     const ConversationsTicketsListQueryParams = orvalSchemas.ConversationsTicketsListQueryParams()
     return ConversationsTicketsListQueryParams
@@ -435,6 +483,8 @@ const conversationsViewsUpdate = (): ToolBase<
 })
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
+    'conversations-patterns-list': conversationsPatternsList,
+    'conversations-patterns-retrieve': conversationsPatternsRetrieve,
     'conversations-tickets-list': conversationsTicketsList,
     'conversations-tickets-messages-retrieve': conversationsTicketsMessagesRetrieve,
     'conversations-tickets-notes-destroy': conversationsTicketsNotesDestroy,

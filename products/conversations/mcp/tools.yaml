@@ -17,10 +17,32 @@ tools:
         enabled: false
     conversations-patterns-list:
         operation: conversations_patterns_list
-        enabled: false
+        enabled: true
+        scopes:
+            - ticket:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List ticket patterns
+        description: >
+            List ticket patterns in the project. A pattern opens when several different customers raise the same
+            topic inside a short window. Filter by status (open, confirmed, dismissed, resolved). Each pattern
+            carries its topic, title, ticket and requester counts, when it was first seen, and a preview of the
+            tickets behind it. Returns nothing when ticket pattern detection is off for the project.
     conversations-patterns-retrieve:
         operation: conversations_patterns_retrieve
-        enabled: false
+        enabled: true
+        scopes:
+            - ticket:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get ticket pattern
+        description: >
+            Get one ticket pattern by ID, with its status, severity, counts, evidence, and the tickets behind it.
     conversations-tickets-ai-feedback-create:
         operation: conversations_tickets_ai_feedback_create
         enabled: false

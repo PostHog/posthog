@@ -3,10 +3,65 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 11 enabled ops
+ * PostHog API - MCP 13 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
+
+/**
+ * Clusters of tickets from distinct customers about one topic, found by the pattern detector.
+ *
+ * Read-only apart from the two state transitions, which are POST actions rather than PATCH so a
+ * client cannot set a pattern back to open, and so the baseline feedback that makes the detector
+ * learn happens in the same request.
+ *
+ * A pattern is a team-wide aggregate: its topic is built from ticket text and its counts span the
+ * whole inbox. `TicketPattern` has no access-control resource of its own, so the mixin's object
+ * checks pass for everyone and a single ticket grant would otherwise open every pattern. The gate
+ * is therefore all-or-nothing on the ticket resource, the same rule `unread_count` applies: a
+ * member with any object-level ticket restriction, or no ticket access, sees no patterns and
+ * cannot transition one.
+ */
+export const ConversationsPatternsListParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const ConversationsPatternsListQueryParams = () => zod.object({
+    limit: zod.number().optional().describe('Number of results to return per page.'),
+    offset: zod.number().optional().describe('The initial index from which to return the results.'),
+    status: zod
+        .string()
+        .optional()
+        .describe('Comma-separated statuses to include: open, confirmed, dismissed, resolved.'),
+    ticket_id: zod.string().optional().describe('Only patterns this ticket is evidence for.'),
+})
+
+/**
+ * Clusters of tickets from distinct customers about one topic, found by the pattern detector.
+ *
+ * Read-only apart from the two state transitions, which are POST actions rather than PATCH so a
+ * client cannot set a pattern back to open, and so the baseline feedback that makes the detector
+ * learn happens in the same request.
+ *
+ * A pattern is a team-wide aggregate: its topic is built from ticket text and its counts span the
+ * whole inbox. `TicketPattern` has no access-control resource of its own, so the mixin's object
+ * checks pass for everyone and a single ticket grant would otherwise open every pattern. The gate
+ * is therefore all-or-nothing on the ticket resource, the same rule `unread_count` applies: a
+ * member with any object-level ticket restriction, or no ticket access, sees no patterns and
+ * cannot transition one.
+ */
+export const ConversationsPatternsRetrieveParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this ticket pattern.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
 
 /**
  * List tickets with person data attached.
