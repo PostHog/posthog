@@ -47,6 +47,7 @@ export function TicketPatternBanner(): JSX.Element | null {
                         onClose={() => hideBanner(pattern.id)}
                         action={{
                             children: 'Review',
+                            size: 'xsmall',
                             to: urls.supportPatterns(),
                             'data-attr': 'ticket-pattern-banner-review',
                         }}
