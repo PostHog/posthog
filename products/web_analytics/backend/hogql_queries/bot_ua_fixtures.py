@@ -199,6 +199,8 @@ BOT_USER_AGENTS: dict[str, list[str]] = {
         "Mozilla/5.0 (compatible; PolycoreSupabaseDetector/1.0; +https://www.polycore.ai/)",
         "UnboundCompute-PublicSnapshot/1.0 (+https://unboundcompute.com/)",
         "swissAItalentBot/1.0 (+https://swissaitalent.ch/bot)",
+        "PurityBot/1.0 (+https://puri.li/bot)",
+        "NumbatTopicCalibration/1.0 (one-off research crawl; +https://numbat.io)",
     ],
     "seo_crawler": [
         "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.5359.128 Mobile Safari/537.36 (compatible; AhrefsSiteAudit/6.1; +http://ahrefs.com/robot/site-audit)",
@@ -246,6 +248,13 @@ BOT_USER_AGENTS: dict[str, list[str]] = {
         "PagePilot-SiteAudit/1.0 (+https://pagepilot-ai-24.polsia.app)",
         "double-ats-customer-discoverer/0.1 (+https://double.fyi; respectful crawler)",
         "BenchRankBot/1.0 (+https://benchrank.app/bot)",
+        # Self-declared crawlers observed in production `$http_log` traffic
+        "lychee/0.24.2",
+        "Mozilla/5.0 (compatible; Lychee/1.0; +https://github.com/lycheeverse/lychee)",
+        "Mozilla/5.0 (compatible; lychee-link-checker)",
+        "Mozilla/5.0 (compatible; lychee link checker)",
+        "textiqSEO/0.1 (+https://github.com/AnatolyRytik/textiqSEO)",
+        "Mozilla/5.0 (compatible; internal-link-study/1.0; +https://nadiamohamed.me)",
     ],
     "social_crawler": [
         "Mozilla/5.0 (compatible; FacebookBot/1.0; +https://developers.facebook.com/docs/sharing/webmasters/crawler)",

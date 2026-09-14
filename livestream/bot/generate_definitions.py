@@ -26,20 +26,30 @@ from products.web_analytics.backend.hogql_queries.bot_definitions import BOT_DEF
 _REGEX_ESCAPE = re.compile(r"\\(.)")
 
 
+OUTPUT_PATH = Path(__file__).parent / "definitions.json"
+
+
 def as_literal(pattern: str) -> str:
     return _REGEX_ESCAPE.sub(r"\1", pattern)
 
 
-entries = [
-    {
-        "pattern": as_literal(pattern),
-        "name": bot_def.name,
-        "category": bot_def.category,
-        "traffic_type": bot_def.traffic_type,
-    }
-    for pattern, bot_def in BOT_DEFINITIONS.items()
-]
+def generate_entries() -> list[dict[str, str]]:
+    return [
+        {
+            "pattern": as_literal(pattern),
+            "name": bot_def.name,
+            "category": bot_def.category,
+            "traffic_type": bot_def.traffic_type,
+        }
+        for pattern, bot_def in BOT_DEFINITIONS.items()
+    ]
 
-output_path = Path(__file__).parent / "definitions.json"
-output_path.write_text(json.dumps(entries, indent=2) + "\n")
-sys.stdout.write(f"Generated {output_path} with {len(entries)} bot definitions\n")
+
+def main() -> None:
+    entries = generate_entries()
+    OUTPUT_PATH.write_text(json.dumps(entries, indent=2) + "\n")
+    sys.stdout.write(f"Generated {OUTPUT_PATH} with {len(entries)} bot definitions\n")
+
+
+if __name__ == "__main__":
+    main()
