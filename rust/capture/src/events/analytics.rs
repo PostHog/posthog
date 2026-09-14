@@ -10,6 +10,7 @@ use chrono::DateTime;
 use common_ingestion_warnings::{
     WarningEmitter, CAPTURE_LEGACY_ANALYTICS, CAPTURE_LEGACY_RATE_LIMIT,
 };
+use common_types::timestamp::correctable_clock_skew;
 use common_types::{CapturedEvent, RawEvent};
 use limiters::token_dropper::TokenDropper;
 use metrics::{counter, histogram};
@@ -162,8 +163,8 @@ pub fn process_single_event(
         ignore_sent_at,
         context.now,
     );
-    if let Some(skew) = parsed_timestamp.clock_skew {
-        report_clock_skew(skew);
+    if let Some(measured) = parsed_timestamp.clock_skew {
+        report_clock_skew(measured, correctable_clock_skew(measured));
     }
 
     let event_name = event.event.clone();
@@ -853,7 +854,7 @@ mod tests {
             .with_timezone(&Utc);
 
         let sent_at = OffsetDateTime::parse(
-            "2023-01-01T12:00:05Z",
+            "2023-01-01T12:05:00Z",
             &time::format_description::well_known::Rfc3339,
         )
         .unwrap();
@@ -866,7 +867,7 @@ mod tests {
 
         assert!(result.is_ok());
         let processed = result.unwrap();
-        let expected = Utc.with_ymd_and_hms(2023, 1, 1, 11, 59, 50).unwrap();
+        let expected = Utc.with_ymd_and_hms(2023, 1, 1, 11, 57, 25).unwrap();
         assert_eq!(processed.metadata.computed_timestamp, Some(expected));
     }
 

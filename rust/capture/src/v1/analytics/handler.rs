@@ -9,8 +9,10 @@ use super::context::Context;
 use super::types::Batch;
 use tracing::Level;
 
+use crate::prometheus::abs_seconds;
 use crate::v1::constants::*;
 use crate::{ctx_log, log_stat_error, router, v1};
+use common_types::timestamp::correctable_clock_skew;
 
 pub async fn handle_request(
     state: State<router::State>,
@@ -36,8 +38,10 @@ pub async fn handle_request(
     // TODO: purposely chatty, for now
     ctx_log!(Level::INFO, context, "handle_request called");
 
-    let skew_seconds = context.clock_skew().num_milliseconds().saturating_abs() as f64 / 1000.0;
-    metrics::histogram!(CAPTURE_V1_CLOCK_SKEW_SECONDS).record(skew_seconds);
+    let measured_skew = context.clock_skew();
+    let applied_skew = correctable_clock_skew(measured_skew);
+    metrics::histogram!(CAPTURE_V1_CLOCK_SKEW_SECONDS).record(abs_seconds(measured_skew));
+    metrics::histogram!(CAPTURE_V1_CLOCK_SKEW_APPLIED_SECONDS).record(abs_seconds(applied_skew));
 
     // Non-fatal: unusable PostHog-Sdk-Info means $lib/$lib_version can't be
     // materialized for this batch. Count once per request for visibility.

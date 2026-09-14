@@ -3,6 +3,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use chrono::{DateTime, Utc};
+use common_types::timestamp::correctable_clock_skew;
 use metrics::histogram;
 use uuid::Uuid;
 
@@ -667,7 +668,9 @@ fn normalize_timestamp(
         return raw_event_ts;
     }
 
-    let adjusted = raw_event_ts - context.clock_skew();
+    // Only the part of the measurement outside the deadband is safe to
+    // subtract, because the rest can be request transit delay.
+    let adjusted = raw_event_ts - correctable_clock_skew(context.clock_skew());
     let now = context.server_received_at;
     if adjusted.signed_duration_since(now).num_milliseconds() > FUTURE_EVENT_HOURS_CUTOFF_MS {
         metrics::counter!(CAPTURE_V1_EVENT_ADJUSTMENTS_APPLIED, "reason" => "future_timestamp_clamp")
@@ -1862,19 +1865,29 @@ mod tests {
     #[test]
     fn normalize_positive_skew_client_ahead() {
         let now = dt("2026-03-19T12:00:00Z");
-        let ctx = ctx_with_skew(now, Duration::seconds(10));
+        let ctx = ctx_with_skew(now, Duration::minutes(10));
         let event_ts = dt("2026-03-19T11:00:00Z");
         let result = normalize_timestamp(&ctx, false, event_ts);
-        assert_eq!(result, dt("2026-03-19T10:59:50Z"));
+        assert_eq!(result, dt("2026-03-19T10:52:30Z"));
     }
 
     #[test]
     fn normalize_negative_skew_client_behind() {
         let now = dt("2026-03-19T12:00:00Z");
-        let ctx = ctx_with_skew(now, Duration::seconds(-10));
+        let ctx = ctx_with_skew(now, Duration::minutes(-10));
         let event_ts = dt("2026-03-19T11:00:00Z");
         let result = normalize_timestamp(&ctx, false, event_ts);
-        assert_eq!(result, dt("2026-03-19T11:00:10Z"));
+        assert_eq!(result, dt("2026-03-19T11:07:30Z"));
+    }
+
+    #[test]
+    fn normalize_ignores_transit_delay() {
+        // The request took 40s to arrive, which reads as a device 40s behind.
+        let now = dt("2026-03-19T12:00:00Z");
+        let ctx = ctx_with_skew(now, Duration::seconds(-40));
+        let event_ts = dt("2026-03-19T11:00:00Z");
+        let result = normalize_timestamp(&ctx, false, event_ts);
+        assert_eq!(result, event_ts);
     }
 
     #[test]
@@ -1898,7 +1911,7 @@ mod tests {
     #[test]
     fn normalize_disable_skew_correction_skips_adjustment() {
         let now = dt("2026-03-19T12:00:00Z");
-        let ctx = ctx_with_skew(now, Duration::seconds(10));
+        let ctx = ctx_with_skew(now, Duration::minutes(10));
         let event_ts = dt("2026-03-19T11:00:00Z");
         let result = normalize_timestamp(&ctx, true, event_ts);
         assert_eq!(result, event_ts);
@@ -1907,10 +1920,10 @@ mod tests {
     #[test]
     fn normalize_disable_skew_correction_false_still_adjusts() {
         let now = dt("2026-03-19T12:00:00Z");
-        let ctx = ctx_with_skew(now, Duration::seconds(10));
+        let ctx = ctx_with_skew(now, Duration::minutes(10));
         let event_ts = dt("2026-03-19T11:00:00Z");
         let result = normalize_timestamp(&ctx, false, event_ts);
-        assert_eq!(result, dt("2026-03-19T10:59:50Z"));
+        assert_eq!(result, dt("2026-03-19T10:52:30Z"));
     }
 
     // --- apply_restrictions ---

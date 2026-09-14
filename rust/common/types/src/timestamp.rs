@@ -5,11 +5,30 @@ use std::borrow::Cow;
 
 const FUTURE_EVENT_HOURS_CUTOFF_MILLIS: i64 = 23 * 3600 * 1000; // 23 hours
 
+/// Skew smaller than this is left alone, because it can be request transit
+/// delay. The session replay ingester uses the same deadband on the same
+/// measurement, so both paths move an event by the same amount.
+pub const CLOCK_SKEW_DEADBAND_MS: i64 = 150 * 1000;
+
+/// The part of a measured skew that is safe to subtract from an event timestamp.
+///
+/// A measurement of `sent_at - now` is the device clock offset minus the time
+/// the request spent in transit, and one request cannot separate the two. This
+/// keeps only what exceeds the deadband, so a delay under it corrects nothing,
+/// and a change in delay moves the correction by no more than itself. A clock
+/// that is really wrong is corrected to within the deadband.
+pub fn correctable_clock_skew(measured: Duration) -> Duration {
+    let ms = measured.num_milliseconds();
+    let over_deadband = (ms.saturating_abs() - CLOCK_SKEW_DEADBAND_MS).max(0);
+    Duration::milliseconds(ms.signum() * over_deadband)
+}
+
 /// Result of parsing an event timestamp.
 pub struct ParsedTimestamp {
     /// The parsed and validated event timestamp.
     pub timestamp: DateTime<Utc>,
-    /// Clock skew (sent_at - now) when correction was applied, None otherwise.
+    /// Measured skew (sent_at - now), which mixes the device clock offset with
+    /// the request transit delay. None when no measurement was possible.
     pub clock_skew: Option<Duration>,
 }
 
@@ -66,10 +85,11 @@ fn handle_timestamp(
         if let (Some(sent_at), Some(timestamp_parsed)) = (sent_at, timestamp_parsed) {
             // Clock skew: how far the client clock is ahead of the server.
             // We subtract this from the client-provided timestamp to get
-            // the event time in server clock terms.
-            let skew = sent_at - now;
-            parsed_ts = timestamp_parsed - skew;
-            clock_skew = Some(skew);
+            // the event time in server clock terms. Only the part outside the
+            // deadband is safe to subtract, because the rest can be transit delay.
+            let measured = sent_at - now;
+            parsed_ts = timestamp_parsed - correctable_clock_skew(measured);
+            clock_skew = Some(measured);
         } else if let Some(timestamp_parsed) = timestamp_parsed {
             parsed_ts = timestamp_parsed;
         }
@@ -175,35 +195,64 @@ mod tests {
 
     #[test]
     fn positive_skew_client_clock_ahead() {
-        // Client clock is 10s ahead of server.
-        // Skew = sent_at - now = +10s
-        // Corrected = timestamp - skew = 11:00:00 - 10s = 10:59:50
+        // Client clock is 10 minutes ahead of the server, so the correction is
+        // 10 minutes less the deadband.
         let now = dt("2023-01-01T12:00:00Z");
-        let sent_at = Some(dt("2023-01-01T12:00:10Z"));
+        let sent_at = Some(dt("2023-01-01T12:10:00Z"));
         let result = parse_event_timestamp(Some("2023-01-01T11:00:00Z"), None, sent_at, false, now);
-        assert_eq!(result.timestamp, dt("2023-01-01T10:59:50Z"));
-        assert_eq!(result.clock_skew, Some(Duration::seconds(10)));
+        assert_eq!(result.timestamp, dt("2023-01-01T10:52:30Z"));
+        assert_eq!(result.clock_skew, Some(Duration::minutes(10)));
     }
 
     #[test]
     fn negative_skew_client_clock_behind() {
-        // Client clock is 10s behind server.
-        // Skew = sent_at - now = -10s
-        // Corrected = timestamp - skew = 11:00:00 + 10s = 11:00:10
+        // Client clock is 10 minutes behind the server.
         let now = dt("2023-01-01T12:00:00Z");
-        let sent_at = Some(dt("2023-01-01T11:59:50Z"));
+        let sent_at = Some(dt("2023-01-01T11:50:00Z"));
         let result = parse_event_timestamp(Some("2023-01-01T11:00:00Z"), None, sent_at, false, now);
-        assert_eq!(result.timestamp, dt("2023-01-01T11:00:10Z"));
-        assert_eq!(result.clock_skew, Some(Duration::seconds(-10)));
+        assert_eq!(result.timestamp, dt("2023-01-01T11:07:30Z"));
+        assert_eq!(result.clock_skew, Some(Duration::minutes(-10)));
     }
 
     #[test]
-    fn zero_skew_clocks_aligned() {
-        let now = dt("2023-01-01T12:00:00Z");
+    fn transit_delay_does_not_move_the_timestamp() {
+        // The request took 40s to arrive, which reads as a device 40s behind.
+        let now = dt("2023-01-01T12:00:40Z");
         let sent_at = Some(dt("2023-01-01T12:00:00Z"));
         let result = parse_event_timestamp(Some("2023-01-01T11:00:00Z"), None, sent_at, false, now);
         assert_eq!(result.timestamp, dt("2023-01-01T11:00:00Z"));
-        assert_eq!(result.clock_skew, Some(Duration::zero()));
+        assert_eq!(result.clock_skew, Some(Duration::seconds(-40)));
+    }
+
+    #[test]
+    fn correctable_skew_keeps_only_what_exceeds_the_deadband() {
+        let deadband = Duration::milliseconds(CLOCK_SKEW_DEADBAND_MS);
+        let cases = [
+            (Duration::zero(), Duration::zero()),
+            (Duration::seconds(149), Duration::zero()),
+            (Duration::seconds(-149), Duration::zero()),
+            (Duration::seconds(151), Duration::seconds(1)),
+            (Duration::seconds(-151), Duration::seconds(-1)),
+            (Duration::hours(2), Duration::hours(2) - deadband),
+            (Duration::hours(-2), -(Duration::hours(2) - deadband)),
+        ];
+        for (measured, expected) in cases {
+            assert_eq!(correctable_clock_skew(measured), expected, "{measured}");
+        }
+    }
+
+    #[test]
+    fn correctable_skew_never_grows_faster_than_the_measurement() {
+        // Two requests whose delay differs by 2s must not get corrections that
+        // differ by more than 2s, at any point of the range.
+        for start_ms in [0, 100_000, 149_000, 299_000, 449_000, 3_600_000] {
+            let low = correctable_clock_skew(Duration::milliseconds(-start_ms));
+            let high = correctable_clock_skew(Duration::milliseconds(-start_ms - 2_000));
+            assert!(
+                (high - low).num_milliseconds().abs() <= 2_000,
+                "jumped at {start_ms}ms"
+            );
+        }
     }
 
     #[test]
