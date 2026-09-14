@@ -1,4 +1,4 @@
-"""Posting and updating the one visual-review comment per PR."""
+"""Posting and updating the visual-review comment on a PR."""
 
 from __future__ import annotations
 
@@ -16,28 +16,66 @@ from . import comment_markdown, github_api, run_queries
 logger = structlog.get_logger(__name__)
 
 
-def _find_existing_comment_id(repo: Repo, pr_number: int, exclude_run_id: UUID) -> int | None:
-    """Find the GitHub comment ID from a previous run on the same PR."""
+def _comment_id(run: Run) -> int | None:
+    """The GitHub comment ID stored on a run, if it has one."""
+    value = run.metadata.get("github_comment_id")
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str) and value.isdigit():
+        return int(value)
+    return None
+
+
+def _previous_comment(repo: Repo, pr_number: int, exclude_run_id: UUID) -> tuple[Run, int] | None:
+    """The run that owns the live visual-review comment on the PR, and that comment's ID."""
     previous_run = (
         Run.objects.filter(repo=repo, pr_number=pr_number, metadata__has_key="github_comment_id")
         .exclude(id=exclude_run_id)
         .order_by("-created_at")
         .first()
     )
-    if previous_run:
-        value = previous_run.metadata.get("github_comment_id")
-        if isinstance(value, int):
-            return value
-        if isinstance(value, str) and value.isdigit():
-            return int(value)
-    return None
+    if previous_run is None:
+        return None
+    comment_id = _comment_id(previous_run)
+    return (previous_run, comment_id) if comment_id is not None else None
+
+
+def _retire_previous_comment(repo: Repo, previous_run: Run, comment_id: int) -> None:
+    """Clear the previous run's comment out of the way before a new one is posted.
+
+    An approval comment records a human decision, so it stays and says which revision
+    it covered. An unanswered review prompt holds nothing worth keeping, so it goes.
+    Best-effort: a failure here only leaves an extra comment on the PR.
+    """
+    if previous_run.review_decision == ReviewDecision.HUMAN_APPROVED:
+        approver = comment_markdown._resolve_approver(previous_run.approved_by_id)
+        response = github_api._github_api_request(
+            method="PATCH",
+            repo=repo,
+            path=f"issues/comments/{comment_id}",
+            json={"body": comment_markdown._build_superseded_approval_body(previous_run, repo, approver)},
+        )
+        retired = response.status_code == 200
+    else:
+        response = github_api._github_api_request(method="DELETE", repo=repo, path=f"issues/comments/{comment_id}")
+        retired = response.status_code in (204, 404)
+
+    if not retired:
+        logger.info(
+            "visual_review.previous_pr_comment_not_retired",
+            run_id=str(previous_run.id),
+            comment_id=comment_id,
+            status_code=response.status_code,
+        )
 
 
 def _post_review_prompt_comment(run: Run, repo: Repo) -> None:
     """
-    Post or update a PR comment prompting reviewers to approve visual changes.
+    Post a PR comment prompting reviewers to approve visual changes.
 
-    One comment per PR — subsequent runs update the existing comment in place.
+    Every run that needs review posts its own comment, so GitHub notifies the
+    reviewers and the prompt sits at the bottom of the PR with the new changes.
+    The previous run's comment is retired first, to keep one live prompt per PR.
     Skips non-actionable runs (observe-only, stale/superseded, already commented).
     Best-effort and never raises.
     """
@@ -53,34 +91,12 @@ def _post_review_prompt_comment(run: Run, repo: Repo) -> None:
     if run.metadata.get("github_comment_id"):
         return
 
-    run_url = comment_markdown._run_url(run, repo)
-    comment_body = (
-        f"👋 **Visual changes detected** for this PR.\n\n"
-        f"[Review and approve in PostHog Visual Review]({run_url})\n\n"
-        f"If these changes are unexpected, they may be caused by a flaky test or a "
-        f"broken snapshot on master. Don't approve — rerun the job or wait for a fix."
-    )
+    comment_body = comment_markdown._build_review_prompt_body(run, repo)
 
     try:
-        existing_comment_id = _find_existing_comment_id(repo, run.pr_number, exclude_run_id=run.id)
-        if existing_comment_id:
-            response = github_api._github_api_request(
-                method="PATCH",
-                repo=repo,
-                path=f"issues/comments/{existing_comment_id}",
-                json={"body": comment_body},
-            )
-            if response.status_code == 200:
-                run.metadata["github_comment_id"] = existing_comment_id
-                run.save(update_fields=["metadata"])
-                return
-            # Comment was deleted or inaccessible — fall through to create new one
-            logger.info(
-                "visual_review.pr_comment_update_failed_will_create",
-                run_id=str(run.id),
-                comment_id=existing_comment_id,
-                status_code=response.status_code,
-            )
+        previous = _previous_comment(repo, run.pr_number, exclude_run_id=run.id)
+        if previous is not None:
+            _retire_previous_comment(repo, *previous)
 
         response = github_api._github_api_request(
             method="POST",
@@ -105,12 +121,12 @@ def _post_review_prompt_comment(run: Run, repo: Repo) -> None:
 
 
 def _post_approval_comment(run: Run, repo: Repo, add_images: bool = False) -> None:
-    """Update the existing PR comment in place with the approved-changes summary.
+    """Report an approval on the PR, as an update of this run's own review prompt.
 
-    Best-effort and never raises. Skips silently when the original review-prompt
-    comment was never posted (no `github_comment_id` in run.metadata) — i.e.,
-    when the review wasn't initiated by a human. ``add_images`` embeds the
-    before/after snapshot images in the comment when the reviewer opted in.
+    Falls back to a new comment when the prompt is gone or was never posted, so an
+    approval is always visible on the PR. ``add_images`` embeds the before/after
+    snapshot images in the comment when the reviewer opted in. Best-effort and
+    never raises.
     """
     if not repo.enable_pr_comments:
         return
@@ -121,58 +137,53 @@ def _post_approval_comment(run: Run, repo: Repo, add_images: bool = False) -> No
     if run.review_decision != ReviewDecision.HUMAN_APPROVED:
         return
 
-    comment_id = run.metadata.get("github_comment_id")
-    if not comment_id:
-        return
-    if isinstance(comment_id, str) and comment_id.isdigit():
-        comment_id = int(comment_id)
-    if not isinstance(comment_id, int):
-        return
-
     approver = comment_markdown._resolve_approver(run.approved_by_id)
     body = comment_markdown._build_approval_comment_body(run, repo, approver, add_images=add_images)
+    comment_id = _comment_id(run)
 
     try:
-        response = github_api._github_api_request(
-            method="PATCH",
-            repo=repo,
-            path=f"issues/comments/{comment_id}",
-            json={"body": body},
-            timeout=15,
-        )
-        if response.status_code == 200:
-            return
-
-        # Comment was deleted or inaccessible — fall back to creating a new one
-        if response.status_code == 404:
-            create_response = github_api._github_api_request(
-                method="POST",
+        if comment_id is not None:
+            response = github_api._github_api_request(
+                method="PATCH",
                 repo=repo,
-                path=f"issues/{run.pr_number}/comments",
+                path=f"issues/comments/{comment_id}",
                 json={"body": body},
                 timeout=15,
             )
-            if create_response.status_code == 201:
-                new_comment_id = create_response.json().get("id")
-                if isinstance(new_comment_id, int):
-                    run.metadata["github_comment_id"] = new_comment_id
-                    run.save(update_fields=["metadata"], using=WRITER_DB)
+            if response.status_code == 200:
                 return
-            logger.warning(
-                "visual_review.approval_comment_create_failed",
-                run_id=str(run.id),
-                pr_number=run.pr_number,
-                status_code=create_response.status_code,
-                response=create_response.text[:200],
-            )
+
+            # Anything but a missing comment is not fixed by posting a second one.
+            if response.status_code != 404:
+                logger.warning(
+                    "visual_review.approval_comment_update_failed",
+                    run_id=str(run.id),
+                    comment_id=comment_id,
+                    status_code=response.status_code,
+                    response=response.text[:200],
+                )
+                return
+
+        create_response = github_api._github_api_request(
+            method="POST",
+            repo=repo,
+            path=f"issues/{run.pr_number}/comments",
+            json={"body": body},
+            timeout=15,
+        )
+        if create_response.status_code == 201:
+            new_comment_id = create_response.json().get("id")
+            if isinstance(new_comment_id, int):
+                run.metadata["github_comment_id"] = new_comment_id
+                run.save(update_fields=["metadata"], using=WRITER_DB)
             return
 
         logger.warning(
-            "visual_review.approval_comment_update_failed",
+            "visual_review.approval_comment_create_failed",
             run_id=str(run.id),
-            comment_id=comment_id,
-            status_code=response.status_code,
-            response=response.text[:200],
+            pr_number=run.pr_number,
+            status_code=create_response.status_code,
+            response=create_response.text[:200],
         )
     except GitHubRateLimitError:
         # Bubble up so the Celery task can retry with the suggested countdown.
