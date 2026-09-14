@@ -7,16 +7,15 @@ source as ``FROM __RUNS_SOURCE__ AS r`` (or joins it as ``r``).
 from datetime import datetime, timedelta
 
 from posthog.hogql import ast
+from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
 
 from posthog.dataclasses import frozen
 
 from products.engineering_analytics.backend.facade.contracts import WorkflowHealthRunScope
 
-# HogQL gives a query that names no LIMIT a default of 100 rows, so a read that never meant to page
-# silently returns a slice of itself. Reads whose row count is bounded by the org's shape (teams,
-# workflows, job names, a PR's runs) rather than by a caller's page size take this ceiling, so
-# truncation only ever happens where someone chose a smaller cap on purpose.
-UNPAGED_SCAN_LIMIT = 100000
+# HogQL caps a query that names no LIMIT at 100 rows and clamps any larger LIMIT to this ceiling. Reads
+# bounded by the repo's shape (workflows, job names, a PR's runs) rather than by a page size take it whole.
+UNPAGED_SCAN_LIMIT = MAX_SELECT_RETURNED_ROWS
 
 # Mirrors DECISIVE_FAILURE_CONCLUSIONS in frontend/lib/lifecycle.ts (keep the two in sync).
 DECISIVE_FAILURE_CONCLUSIONS = ("failure", "timed_out", "startup_failure", "stale")

@@ -708,9 +708,7 @@ class TrunkQuarantineDebt:
     trunk_url: str | None
     teams: list[TrunkQuarantineTeamDebt]
     tests: list[TrunkQuarantinedTest]
-    # ``tests`` is capped at ``limit``, oldest quarantine first, and ``teams`` rolls up exactly the
-    # tests that survived that cap. When ``truncated`` is True the per-team counts are lower bounds,
-    # so a caller must not present them as the whole debt.
+    # ``teams`` rolls up only the returned ``tests``, so when ``truncated`` its counts are lower bounds.
     truncated: bool
     limit: int
 

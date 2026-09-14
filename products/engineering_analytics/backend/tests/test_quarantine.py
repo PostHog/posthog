@@ -31,7 +31,10 @@ from products.engineering_analytics.backend.logic.quarantine import (
     render_quarantine_file,
     request_quarantine,
 )
-from products.engineering_analytics.backend.logic.queries.trunk_quarantine import query_trunk_quarantine_debt
+from products.engineering_analytics.backend.logic.queries.trunk_quarantine import (
+    _LIMIT as QUARANTINE_LIMIT,
+    query_trunk_quarantine_debt,
+)
 from products.engineering_analytics.backend.presentation.serializers.suite_health import QuarantineRequestSerializer
 
 _TRUNK_QUARANTINE = "products.engineering_analytics.backend.logic.queries.trunk_quarantine"
@@ -778,7 +781,7 @@ class _StubCurated:
     def __init__(self, rows: list[tuple[Any, ...]]) -> None:
         self.repository = "PostHog/posthog"
         self._rows = rows
-        self.placeholders: dict[str, Any] = {}
+        self.sql = ""
 
     def trunk_quarantined_tests_source(self) -> str:
         return "(SELECT 1)"
@@ -786,8 +789,8 @@ class _StubCurated:
     def trunk_org_url_slug(self) -> str | None:
         return None
 
-    def run(self, sql: str, **kwargs: Any) -> SimpleNamespace:
-        self.placeholders = kwargs.get("placeholders", {})
+    def run(self, sql: str, **_kwargs: Any) -> SimpleNamespace:
+        self.sql = sql
         return SimpleNamespace(results=self._rows)
 
 
@@ -808,35 +811,25 @@ class TestTrunkQuarantineDebtTruncation(TestCase):
             for index in range(count)
         ]
 
-    def _debt(self, row_count: int, limit: int) -> tuple[contracts.TrunkQuarantineDebt, _StubCurated]:
+    @parameterized.expand(
+        [("under the cap", QUARANTINE_LIMIT - 1, False), ("over the cap", QUARANTINE_LIMIT + 1, True)]
+    )
+    def test_rollup_never_counts_more_tests_than_it_returns(self, _name: str, row_count: int, truncated: bool) -> None:
         curated = _StubCurated(self._rows(row_count))
 
         def place(_repository: str, tests: list[Any]) -> RepoOwnershipResult:
             return RepoOwnershipResult(tests=[PlacedTest(path="p", owner_team="team-a")] * len(tests), resolved=True)
 
-        with (
-            mock.patch(f"{_TRUNK_QUARANTINE}._LIMIT", limit),
-            mock.patch(f"{_TRUNK_QUARANTINE}.resolve_test_ownership", side_effect=place),
-        ):
+        with mock.patch(f"{_TRUNK_QUARANTINE}.resolve_test_ownership", side_effect=place):
             debt = query_trunk_quarantine_debt(
                 curated=curated,  # type: ignore[arg-type]
                 ttl_days=30,
                 now=datetime(2026, 6, 1, tzinfo=UTC),
             )
-        return debt, curated
+        kept = min(row_count, QUARANTINE_LIMIT)
 
-    @parameterized.expand([("under the cap", 3, 5, False, 3), ("over the cap", 8, 5, True, 5)])
-    def test_rollup_never_counts_more_tests_than_it_returns(
-        self, _name: str, row_count: int, limit: int, truncated: bool, kept: int
-    ) -> None:
-        debt, curated = self._debt(row_count, limit)
-
+        assert f"LIMIT {QUARANTINE_LIMIT + 1}" in curated.sql
         assert debt.truncated is truncated
-        assert debt.limit == limit
-        assert len(debt.tests) == kept
+        assert debt.limit == QUARANTINE_LIMIT
+        assert {test.nodeid for test in debt.tests} == {f"test_{index}" for index in range(kept)}
         assert sum(team.test_count for team in debt.teams) == kept
-
-    def test_query_asks_for_one_row_past_the_cap(self) -> None:
-        _, curated = self._debt(3, 5)
-
-        assert curated.placeholders["limit_plus_one"].value == 6

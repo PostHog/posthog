@@ -102,7 +102,7 @@ function TrunkQuarantineDebtBoard(): JSX.Element {
                             ? `${humanFriendlyNumber(trunkQuarantine.tests.length)}${trunkQuarantine.truncated ? '+' : ''}`
                             : '—'
                     }
-                    caption={trunkQuarantine?.truncated ? 'oldest quarantines shown' : 'currently masked in CI'}
+                    caption="currently masked in CI"
                     loading={trunkQuarantineLoading}
                 />
                 <StatCard
@@ -125,11 +125,10 @@ function TrunkQuarantineDebtBoard(): JSX.Element {
                 />
             </div>
             {trunkQuarantine?.truncated && (
-                <LemonBanner type="info">
-                    More than {humanFriendlyNumber(trunkQuarantine.limit)} tests are quarantined. This board shows the
-                    oldest {humanFriendlyNumber(trunkQuarantine.limit)}, so the counts above are lower bounds. Open
-                    Trunk for the full list.
-                </LemonBanner>
+                <div className="text-xs text-tertiary">
+                    Showing the oldest {humanFriendlyNumber(trunkQuarantine.limit)} quarantined tests. The counts above
+                    are lower bounds.
+                </div>
             )}
             {trunkQuarantine && !trunkQuarantine.ownersResolved && (
                 <LemonBanner type="warning">

@@ -37,9 +37,7 @@ _HEADER = pr_header_query(
     """
 )
 
-# Both reads are bounded by the PR's own shape, never paged. Newest first, so a PR that somehow
-# outgrows the cap loses its oldest runs and transitions rather than the latest ones the timeline
-# exists to show; the caller reverses the rows back into chronological order.
+# Newest first, so a PR past the cap loses its oldest rows; the caller restores chronological order.
 _RUNS = f"""
     SELECT id, workflow_name, status, conclusion, run_started_at, updated_at
     FROM __RUNS_SOURCE__ AS r
