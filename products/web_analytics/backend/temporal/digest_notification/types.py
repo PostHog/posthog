@@ -48,6 +48,7 @@ class OrgDigestNotificationCounts:
     skipped_no_data: int = 0
     failed: int = 0
     team_count: int = 0
+    teams_failed: int = 0
     build_duration: float = 0.0
     send_duration: float = 0.0
     skipped_reason: str | None = None
@@ -70,6 +71,7 @@ class DigestBatchResult:
     control_exposed: int = 0
     skipped_no_data: int = 0
     failed: int = 0
+    teams_failed: int = 0
     build_duration: float = 0.0
     send_duration: float = 0.0
 
