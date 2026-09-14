@@ -163,7 +163,7 @@ export function initializePostHog(sessionId?: string) {
       environment: import.meta.env.PROD ? "production" : "development",
       // Records every fetch/XHR as an `http.client.request.duration` histogram,
       // keyed by method/host/path (posthog-js templates numeric and uuid-like
-      // path segments to `:id`). posthog-js's own capture/flags/session-recording
+      // path segments to `:id` before dimensioning). posthog-js's own capture/flags/session-recording
       // requests are excluded automatically. `attributes` keeps path-based
       // attribution to this app's own API — see `networkMetricPath`.
       network: {

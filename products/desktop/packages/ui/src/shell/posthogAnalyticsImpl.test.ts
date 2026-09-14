@@ -258,6 +258,38 @@ describe("networkMetricPath", () => {
   });
 });
 
+describe("metrics.network.attributes callback", () => {
+  it("returns undefined for requests to the app's own API host", async () => {
+    const { initializePostHog } = await loadAnalytics();
+
+    initializePostHog();
+
+    const attributesCallback = mockPosthog.init.mock.calls[0][1].metrics.network
+      .attributes;
+    const result = attributesCallback({
+      url: "https://internal-c.posthog.com/api/projects/1/tasks/",
+      method: "GET",
+    });
+
+    expect(result).toBeUndefined();
+  });
+
+  it("returns { path: 'external' } for requests to other hosts", async () => {
+    const { initializePostHog } = await loadAnalytics();
+
+    initializePostHog();
+
+    const attributesCallback = mockPosthog.init.mock.calls[0][1].metrics.network
+      .attributes;
+    const result = attributesCallback({
+      url: "https://s3.example.com/bucket/artifacts/secret_filename.pdf",
+      method: "GET",
+    });
+
+    expect(result).toEqual({ path: "external" });
+  });
+});
+
 describe("initializePostHog", () => {
   it("is idempotent across repeat calls", async () => {
     const { initializePostHog } = await loadAnalytics();
