@@ -1377,8 +1377,9 @@ def _clone_pr(
     _execute_or_raise(checkout, f"Failed to check out {head_sha}")
 
 
-# Bounds the blame history walk. The engine blames at most 30 files, so this only stops a
-# pathological file list from making the walk longer than anything will read.
+# Bounds the blame history walk. The engine blames at most 30 files, and this list is ordered the
+# same way, so the bound keeps headroom over that while stopping a pathological file list from
+# making the walk longer than anything will read.
 _MAX_BLAME_PREFETCH_PATHS = 100
 
 # Mirrors _MAX_CHANGED_LINES_PER_FILE in the engine's familiarity.py, which the backend cannot
@@ -1398,11 +1399,17 @@ def _blame_paths(files: list[dict]) -> list[str]:
     heuristic here would let the two drift apart, and naming a path the engine skips costs one more
     tree walk, because the enumeration reads local trees and the fetch is one request either way.
     The size bound is the exception, because there the cost is the fetch itself.
+
+    Ordered by changed lines, the way the engine orders its own blame selection. Taking the API's
+    order instead would bound a different set: the engine blames the largest files, so a large one
+    late in the API list would be blamed with nothing prefetched for it.
     """
-    paths = []
-    for entry in files:
-        if not entry.get("patch") or entry.get("changes", 0) > _MAX_PREFETCH_CHANGED_LINES:
-            continue
+    candidates = [
+        entry for entry in files if entry.get("patch") and entry.get("changes", 0) <= _MAX_PREFETCH_CHANGED_LINES
+    ]
+    candidates.sort(key=lambda entry: entry.get("changes", 0), reverse=True)
+    paths: list[str] = []
+    for entry in candidates:
         path = entry.get("previous_filename") or entry.get("filename")
         if path and path not in paths:
             paths.append(path)

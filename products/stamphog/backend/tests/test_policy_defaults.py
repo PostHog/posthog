@@ -169,3 +169,13 @@ def test_blame_paths_uses_the_base_side_path_and_skips_binaries() -> None:
         {"filename": "static/logo.png"},
     ]
     assert _blame_paths(files) == ["src/old_name.py", "src/plain.py"]
+
+    # The engine blames the largest files, so the bounded list has to be ordered the same way: a
+    # large file late in the API order must not be blamed with nothing prefetched for it.
+    ordered = _blame_paths(
+        [
+            {"filename": "src/small.py", "patch": "@@", "changes": 3},
+            {"filename": "src/large.py", "patch": "@@", "changes": 900},
+        ]
+    )
+    assert ordered == ["src/large.py", "src/small.py"]
