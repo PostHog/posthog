@@ -3320,7 +3320,15 @@ class TestEmailVerificationCodeAPI(APIBaseTest):
         assert self.user.email == "new-address@posthog.com"
         assert self.user.pending_email is None
 
-    def test_pending_address_taken_while_the_change_waited_is_not_promoted(self):
+    @parameterized.expand(
+        [
+            # A case variant passes the unique index on `email`, so only the fold check catches it.
+            ("active_case_variant", "New-Address@posthog.com", True),
+            # An exact match reaches the write, because the fold check reads active accounts only.
+            ("deactivated_exact_match", "new-address@posthog.com", False),
+        ]
+    )
+    def test_pending_address_taken_while_the_change_waited_is_not_promoted(self, _name, other_email, other_is_active):
         self.user.is_email_verified = True
         self.user.pending_email = "new-address@posthog.com"
         self.user.save()
@@ -3331,8 +3339,7 @@ class TestEmailVerificationCodeAPI(APIBaseTest):
                 self.client.post("/api/users/request_email_verification/", {"uuid": self.user.uuid})
         code = mock_send.call_args[0][1]
 
-        # Another account claims the address under a case the unique index on `email` allows.
-        User.objects.create(email="New-Address@posthog.com", first_name="Other")
+        User.objects.create(email=other_email, first_name="Other", is_active=other_is_active)
 
         response = self.client.post("/api/users/verify_email/", {"uuid": self.user.uuid, "code": code})
 

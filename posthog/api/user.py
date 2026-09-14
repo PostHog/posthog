@@ -7,14 +7,14 @@ import urllib.parse
 from base64 import b32encode
 from binascii import unhexlify
 from datetime import UTC, datetime, timedelta
-from typing import Any, Optional, cast
+from typing import Any, NoReturn, Optional, cast
 
 from django.conf import settings
 from django.contrib.auth import login, update_session_auth_hash
 from django.contrib.auth.password_validation import validate_password
 from django.core.cache import cache
 from django.core.exceptions import ValidationError
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import redirect
 from django.utils import timezone as django_timezone
@@ -916,6 +916,20 @@ class UserGithubLoginSerializer(serializers.Serializer):
     )
 
 
+def refuse_pending_email_promotion(user: User) -> NoReturn:
+    """Drop the staged address and refuse the change, because the address is no longer free.
+
+    The verification code is already spent, so a staged address left in place would keep mailing
+    codes for a change that can never complete.
+    """
+    user.pending_email = None
+    user.save(update_fields=["pending_email"])
+    raise serializers.ValidationError(
+        {"email": ["Another account now uses this email address. Start the change again with a different address."]},
+        code="email_taken",
+    )
+
+
 @extend_schema(extensions={"x-product": "core"})
 @extend_schema_view(
     retrieve=extend_schema(
@@ -1136,26 +1150,23 @@ class UserViewSet(
         # and in the verifier.
         if user.pending_email and user.is_email_verified is not False:
             old_email = user.email
-            # A change staged before this shipped still carries its typed case.
+            # `pending_email` holds whatever case the change was staged in.
             new_email = EmailNormalizer.normalize(user.pending_email)
             # Anyone can claim the address while the change waits for this code.
             if EmailValidationHelper.user_exists_with_stripped_alias(new_email, exclude_user_id=user.pk):
-                user.pending_email = None
-                user.save(update_fields=["pending_email"])
-                raise serializers.ValidationError(
-                    {
-                        "email": [
-                            "Another account now uses this email address. Start the change again with a different address."
-                        ]
-                    },
-                    code="email_taken",
-                )
-            with transaction.atomic():
-                user.email = new_email
-                user.pending_email = None
-                user.save(update_fields=["email", "pending_email"])
-                # Delete social auth so the old external identity can't keep logging in.
-                UserSocialAuth.objects.filter(user=user).delete()
+                refuse_pending_email_promotion(user)
+            try:
+                with transaction.atomic():
+                    user.email = new_email
+                    user.pending_email = None
+                    user.save(update_fields=["email", "pending_email"])
+                    # Delete social auth so the old external identity can't keep logging in.
+                    UserSocialAuth.objects.filter(user=user).delete()
+            except IntegrityError:
+                # The check above reads active accounts, and `email` is unique across every account,
+                # so a deactivated holder of the address reaches this write.
+                user.refresh_from_db()
+                refuse_pending_email_promotion(user)
             send_email_change_emails.delay(datetime.now(UTC).isoformat(), user.first_name, old_email, user.email)
             revoke_other_sessions_for_request(request, user)
 
