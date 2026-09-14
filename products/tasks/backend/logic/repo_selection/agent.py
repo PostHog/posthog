@@ -289,6 +289,8 @@ def _build_repo_selection_prompt(
     # So is `autostart_eligible`: it records how the repo was chosen, which is the caller's fact,
     # not the model's. Offering it would let untrusted context talk the model into vetoing autostart.
     schema.get("properties", {}).pop("autostart_eligible", None)
+    # And `no_repo_cause`: the caller decides which of its own exits produced a null repository.
+    schema.get("properties", {}).pop("no_repo_cause", None)
     schema_json = json.dumps(schema, indent=2)
     repo_list = "\n".join(f"{i + 1}. `{repo}`" for i, repo in enumerate(candidate_repos))
 

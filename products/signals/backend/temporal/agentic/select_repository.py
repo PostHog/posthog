@@ -39,6 +39,26 @@ GITHUB_ONLY_DOMAINS = [
 
 logger = structlog.get_logger(__name__)
 
+# Why repo selection ended without a repository. The cause is carried on the result and used as a
+# suffix on both the `signals_repo_research_completed` result and the report's pending reason, so
+# the two exits stay separable: `no_repo_no_integration` / `repo_selection_required_no_integration`
+# for a team with no GitHub integration resolved to a sandbox user, and `no_repo_no_match` /
+# `repo_selection_required_no_match` for a selection that ran and picked nothing.
+NO_REPO_CAUSE_NO_INTEGRATION = "no_integration"
+NO_REPO_CAUSE_NO_MATCH = "no_match"
+PENDING_REASON_REPO_SELECTION = "repo_selection_required"
+
+
+def repo_selection_pending_reason(no_repo_cause: str | None) -> str:
+    """The report's pending reason when repo selection returned no repository.
+
+    A result without a cause keeps the unsuffixed reason. It comes from a build before the cause
+    existed: a replayed workflow, or a selection persisted earlier.
+    """
+    if no_repo_cause is None:
+        return PENDING_REASON_REPO_SELECTION
+    return f"{PENDING_REASON_REPO_SELECTION}_{no_repo_cause}"
+
 
 @dataclass
 class SelectRepositoryInput:
@@ -138,13 +158,14 @@ async def select_repository_activity(input: SelectRepositoryInput) -> RepoSelect
                 no_repo_result = RepoSelectionResult(
                     repository=None,
                     reason="No GitHub integration connected to a team/user.",
+                    no_repo_cause=NO_REPO_CAUSE_NO_INTEGRATION,
                 )
                 _capture_repo_research_event(
                     "signals_repo_research_completed",
                     team,
                     team.organization,
                     input.report_id,
-                    result="no_repo",
+                    result=f"no_repo_{NO_REPO_CAUSE_NO_INTEGRATION}",
                 )
                 return no_repo_result
             sandbox_env_id = await database_sync_to_async(get_or_create_signals_sandbox_env, thread_sensitive=False)(
@@ -160,6 +181,8 @@ async def select_repository_activity(input: SelectRepositoryInput) -> RepoSelect
                 signal_report_id=input.report_id,
                 sandbox_environment_id=sandbox_env_id,
             )
+            if result.repository is None:
+                result.no_repo_cause = NO_REPO_CAUSE_NO_MATCH
             logger.info(
                 "signals repo selection completed",
                 report_id=input.report_id,
@@ -171,7 +194,7 @@ async def select_repository_activity(input: SelectRepositoryInput) -> RepoSelect
                 team,
                 team.organization,
                 input.report_id,
-                result="selected" if result.repository is not None else "no_repo",
+                result="selected" if result.repository is not None else f"no_repo_{NO_REPO_CAUSE_NO_MATCH}",
             )
             return result
     except Exception as e:

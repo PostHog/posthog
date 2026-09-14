@@ -45,6 +45,7 @@ from products.signals.backend.temporal.agentic.report import (
 )
 from products.signals.backend.temporal.agentic.select_repository import (
     SelectRepositoryInput,
+    repo_selection_pending_reason,
     select_repository_activity,
 )
 from products.signals.backend.temporal.inbox_notification import (
@@ -402,7 +403,7 @@ class SignalReportSummaryWorkflow:
                     summary=f"Could not automatically select a repository: {repo_result.reason}",
                     choice=ActionabilityChoice.REQUIRES_HUMAN_INPUT,
                     explanation=repo_result.reason,
-                    pending_reason="repo_selection_required",
+                    pending_reason=repo_selection_pending_reason(repo_result.no_repo_cause),
                 )
             else:
                 if workflow.patched("self-driving-quota-gates") and await self._quota_gate_pauses(
@@ -1008,8 +1009,8 @@ class MarkReportPendingInput:
     metrics: list[dict[str, Any]] | None = None
     # See MarkReportReadyInput.suggested_prompts — same transaction, same three states.
     suggested_prompts: list[str] | None = None
-    # Coarse cause of the transition ("repo_selection_required" / "agent_requested"), see
-    # ReportDecision.pending_reason.
+    # Cause of the transition ("repo_selection_required_no_integration" /
+    # "repo_selection_required_no_match" / "agent_requested"), see ReportDecision.pending_reason.
     pending_reason: str | None = None
 
 

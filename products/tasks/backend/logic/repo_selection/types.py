@@ -29,6 +29,12 @@ class RepoSelectionResult(BaseModel):
         default=None,
         description="UUID of the sandbox task that performed the selection, when an agent ran.",
     )
+    # Set by the caller when `repository` is None, never by the LLM (stripped from the prompt's
+    # JSON schema). Optional with a default, for the same reason as `task_id`.
+    no_repo_cause: str | None = Field(
+        default=None,
+        description="Why no repository was selected, when `repository` is null.",
+    )
     # Inferring a repo from content is weaker evidence than a caller naming one: it says "this is the
     # repo a person would target", not "open a PR here". Autostart needs the second, so an inferred
     # selection is a target for a human-triggered run only.
