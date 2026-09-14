@@ -2976,6 +2976,14 @@ snapshots:
         hash: v1.k794b7964.8f6c315b7c7c7ef951d6b8c66e6321474b1cf2fe786159e9684a7f9404ce43c1._sDXSD6yIJczScjuNBp-z_GZFmf47M7gX_f8dHtAw7w
     filters-universal-filters--default--light:
         hash: v1.k794b7964.b87688fb509e1000ea84eb91c4521e928eb6b4cbb48695a8ccf86aabe0192fb4.wCCtZF4Z8RR02dra-V1H1MCHKJ_SBUnfYCL0yhc9vcE
+    games-ship-it--default--dark:
+        hash: v1.k794b7964.d213f9a2dd3a003c7e538c2fc54212df1f05d9f25155bd8da34b960298fe1130.xrboNqfa3nM87_jlGaHt10_Y1e-v52pnLbSR3kJLj-g
+    games-ship-it--default--light:
+        hash: v1.k794b7964.01d596e433280c72fdc6f7ecb1c7120359cd57b02b24495e0b1eaadea86ed22b.f46SiJ10EcThp-NB_Ka5XcaLs6qsr61tkYpiyLEhwW4
+    games-ship-it--narrow-scene--dark:
+        hash: v1.k794b7964.d001b46f5ebea3be693f77ddaf78123e6b61d6cdd5e1e795fe5b95bb2c53f12f.LxxyIUTeYHD3xFJ7QxUfj_K9cqePGvO2-H_ff2GYYYI
+    games-ship-it--narrow-scene--light:
+        hash: v1.k794b7964.214cd1e417ddd8cbbc06c6feea531a5f16fa4ab0df690fef884aa2c2069e3a7d.Rxlm9SIIIyFCPWA-29sRI0WSyeY_jJ_JpzoXQ2ZXYek
     home-recordingrow--default--dark:
         hash: v1.k794b7964.d5df34bd174b111b01bb1c89c11eb0a468635657ffcf31c09f26113de622d437.5LMgLJxg6k8kPCHP5RVWZYhZOKoj5zEPCBelpe7TwIU
     home-recordingrow--default--light:
