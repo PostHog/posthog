@@ -8,6 +8,8 @@ from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 from posthog.hogql.visitor import clear_locations
 
+from posthog.temporal.common.errors import NonReportableError
+
 from products.data_modeling.backend.logic.incremental_filter import (
     GUARD_ALIAS,
     IncrementalFilterError,
@@ -130,6 +132,11 @@ class TestInjectIncrementalFilter(BaseTest):
                 incremental_key="day",
                 since=SINCE,
             )
+
+    def test_the_error_is_not_reported_to_error_tracking(self) -> None:
+        # A materialization raises this too, where the Temporal activity interceptor keys off the
+        # base class. Without it, each rejected key mints an error tracking issue nobody can act on.
+        self.assertTrue(issubclass(IncrementalFilterError, NonReportableError))
 
     # Regression: `SELECT *` planned incremental (eligibility expands the star) but the filter
     # raised on every run, so the retry silently rebuilt the whole table each time. The star's
