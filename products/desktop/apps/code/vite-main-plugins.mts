@@ -163,6 +163,37 @@ function copyClaudeSupportAssets(sourcePath: string, destDir: string): void {
   }
 }
 
+/**
+ * Bundling relocates the calling code, so `new URL("./x.js", import.meta.url)`
+ * inside it resolves relative to wherever the bundle ends up (flat in
+ * `.vite/build`, see the `chunkFileNames` comment in electron.vite.config.ts),
+ * not relative to the source file that wrote it. Both `rpc-host.js` and
+ * `subscription-login-host.js` are spawned by that pattern, so both need a
+ * real copy sitting at that resolved location.
+ */
+function copyAgentDistFile(
+  relativePath: string,
+  buildDirectory: string,
+  destName: string,
+): void {
+  const candidates = [
+    join(__dirname, "node_modules/@posthog/agent/dist", relativePath),
+    join(__dirname, "../../node_modules/@posthog/agent/dist", relativePath),
+    join(__dirname, "../../packages/agent/dist", relativePath),
+  ];
+  const source = candidates.find((candidate) => existsSync(candidate));
+  if (!source) {
+    throw new Error(
+      `[copy-pi-rpc-host] Unable to find @posthog/agent/dist/${relativePath}, required at runtime. Build @posthog/agent first. Checked:\n  ${candidates.join("\n  ")}`,
+    );
+  }
+  copyFileSync(source, join(buildDirectory, destName));
+  const sourceMap = `${source}.map`;
+  if (existsSync(sourceMap)) {
+    copyFileSync(sourceMap, join(buildDirectory, `${destName}.map`));
+  }
+}
+
 export function copyPiRpcHost(): Plugin {
   return {
     name: "copy-pi-rpc-host",
@@ -182,6 +213,11 @@ export function copyPiRpcHost(): Plugin {
         );
       }
       const buildDirectory = join(__dirname, ".vite/build");
+      copyAgentDistFile(
+        "pi/subscription-login-host.js",
+        buildDirectory,
+        "subscription-login-host.js",
+      );
       const productEngineerResources = join(
         dirname(source),
         "product-engineer",

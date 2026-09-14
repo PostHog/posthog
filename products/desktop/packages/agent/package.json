@@ -56,6 +56,14 @@
       "types": "./dist/pi/runtime.d.ts",
       "import": "./dist/pi/runtime.js"
     },
+    "./pi/subscription-login": {
+      "types": "./dist/pi/subscription-login.d.ts",
+      "import": "./dist/pi/subscription-login.js"
+    },
+    "./pi/subscription-login-client": {
+      "types": "./dist/pi/subscription-login-client.d.ts",
+      "import": "./dist/pi/subscription-login-client.js"
+    },
     "./pi/types": {
       "types": "./dist/pi/types.d.ts",
       "import": "./dist/pi/types.js"

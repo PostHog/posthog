@@ -1,11 +1,13 @@
 import type { TaskContextInput } from "@posthog/agent/pi/task-system-prompt";
 import type { PiThinkingLevel } from "@posthog/agent/pi/types";
+import type { PiSubscriptionProvider } from "@posthog/shared";
 
 export interface PiRunInput {
   taskContext: TaskContextInput;
   prompt: string;
   model?: string;
   thinkingLevel?: PiThinkingLevel;
+  piSubscriptionProvider?: PiSubscriptionProvider;
 }
 
 export interface PiResumeInput {

@@ -3,6 +3,7 @@ import path from "node:path";
 import {
   koffiPackageFor,
   macOnlyNativeModules,
+  requiredExternalPackages,
   requiredNativeModules,
   runtimeNativeModules,
   watcherPackageFor,
@@ -71,6 +72,10 @@ export default async function beforePack(context: BeforePackContext) {
     } else {
       copyDep(dep, rootNodeModules, localNodeModules);
     }
+  }
+
+  for (const dep of requiredExternalPackages) {
+    copyRequiredDep(dep, rootNodeModules, localNodeModules);
   }
 
   const watcherPkg = watcherPackageFor(platformName, arch);

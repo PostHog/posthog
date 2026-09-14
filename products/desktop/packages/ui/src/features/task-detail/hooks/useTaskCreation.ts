@@ -35,6 +35,10 @@ import {
   CLAUDE_SUBSCRIPTION_TOKEN_SETTINGS,
   type ClaudeSubscriptionTokenSettings,
 } from "@posthog/ui/features/settings/claudeSubscriptionTokenSettings";
+import {
+  effectivePiSubscriptionProvider,
+  usePiSubscription,
+} from "@posthog/ui/features/settings/piSubscription";
 import { settleFailedPromptRecord } from "@posthog/ui/features/task-detail/pendingPromptActions";
 import { useTaskInputPrefillStore } from "@posthog/ui/features/task-detail/stores/taskInputPrefillStore";
 import { openTask } from "@posthog/ui/router/useOpenTask";
@@ -233,6 +237,8 @@ export function useTaskCreation({
   const hostClient = useHostTRPCClient();
   const codexSubscription = useAdapterSubscription("codex");
   const claudeSubscription = useAdapterSubscription("claude");
+  const piAnthropicSubscription = usePiSubscription("anthropic");
+  const piCodexSubscription = usePiSubscription("openai-codex");
   const trpc = useHostTRPC();
   const queryClient = useQueryClient();
   const defaultAdditionalDirectoriesQuery = useQuery(
@@ -460,6 +466,18 @@ export function useTaskCreation({
             runtime !== "pi" && adapter === "claude"
               ? subscriptionModelAccess(claudeSubscription, workspaceMode)
               : undefined;
+          // settings.piModelAccess is the user's Billing pick for Pi
+          // sessions (same idea as codex/claudeModelAccess above); cloud Pi
+          // runs always bill PostHog credits regardless of that pick.
+          const piSubscriptionProvider =
+            runtime === "pi"
+              ? effectivePiSubscriptionProvider({
+                  modelAccess: settings.piModelAccess,
+                  anthropic: piAnthropicSubscription,
+                  codex: piCodexSubscription,
+                  workspaceMode,
+                })
+              : undefined;
           const input = prepareTaskInput(serializedContent, filePaths, {
             // Repo-optional surfaces may still supply an explicit task folder or
             // repository selection; otherwise creation falls back to scratch.
@@ -478,6 +496,7 @@ export function useTaskCreation({
             claudeModelAccess,
             claudeCloudModelAccess:
               workspaceMode === "cloud" ? claudeModelAccess : undefined,
+            piSubscriptionProvider,
             runtime,
             model,
             reasoningLevel,
@@ -714,6 +733,12 @@ export function useTaskCreation({
       claudeSubscription.subscriptionOn,
       claudeSubscription,
       codexSubscription,
+      piAnthropicSubscription.flagEnabled,
+      piAnthropicSubscription.loggedIn,
+      piAnthropicSubscription,
+      piCodexSubscription.flagEnabled,
+      piCodexSubscription.loggedIn,
+      piCodexSubscription,
       claudeTokenStore,
     ],
   );
