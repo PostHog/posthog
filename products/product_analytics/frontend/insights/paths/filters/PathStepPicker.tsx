@@ -3,11 +3,12 @@ import { useActions, useValues } from 'kea'
 import { LemonSelect } from '@posthog/lemon-ui'
 
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { DEFAULT_STEP_LIMIT } from 'scenes/paths/pathsDataLogic'
-import { pathsDataLogic } from 'scenes/paths/pathsDataLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { AvailableFeature } from '~/types'
+
+import { DEFAULT_STEP_LIMIT } from 'products/product_analytics/frontend/insights/paths/pathsDataLogic'
+import { pathsDataLogic } from 'products/product_analytics/frontend/insights/paths/pathsDataLogic'
 
 interface StepOption {
     label: string
