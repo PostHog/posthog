@@ -145,9 +145,6 @@ export interface slackIntegrationLogicActions {
             forceRefresh: boolean
         }
     }
-    recheckSlackChannelMembership: (channelIds: string[]) => {
-        channelIds: string[]
-    }
     loadSlackUserById: (userId: string) => {
         userId: string
     }
@@ -168,6 +165,9 @@ export interface slackIntegrationLogicActions {
         payload?: {
             userId: string
         }
+    }
+    recheckSlackChannelMembership: (channelIds: string[]) => {
+        channelIds: string[]
     }
     setRecentlySubscribedChannelIds: (channelIds: string[]) => {
         channelIds: string[]
