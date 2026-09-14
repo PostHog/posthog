@@ -152,7 +152,12 @@ export const SuspendedWithRunHistory: Story = {
                         },
                     ],
                     '/api/projects/:team_id/data_modeling_jobs/': ({ request }: { request: Request }) => {
-                        const offset = Number(new URL(request.url).searchParams.get('offset') ?? 0)
+                        const params = new URL(request.url).searchParams
+                        // Every run this model has failed, so the last-successful-sync lookup finds nothing.
+                        if (params.get('status') === 'Completed') {
+                            return [200, { count: 0, next: null, results: [] }]
+                        }
+                        const offset = Number(params.get('offset') ?? 0)
                         return [
                             200,
                             {
