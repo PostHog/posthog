@@ -159,19 +159,27 @@ export function PurePlayer({ noMeta = false, noBorder = false }: PurePlayerProps
         [isOldAndInvalid]
     )
 
+    // `durationMs` only applies the metadata cap once the recording is fully loaded, so the span and
+    // the duration it is measured against are both final only then. `fullyLoaded` also drops back
+    // while the inspector fetches full event data, so remember which recording was reported to keep
+    // this one event per view.
+    const reportedLateFullSnapshotFor = useRef<string | null>(null)
+
     useEffect(
         () => {
-            if (hasLateFullSnapshot) {
-                posthog.capture('session loaded with late full snapshot', {
-                    viewedSessionRecording: sessionRecordingId,
-                    recordingStartTime: sessionPlayerData?.start?.toISOString(),
-                    recordingDurationMs: sessionPlayerData?.durationMs,
-                    leadingUnplayableMs,
-                })
+            if (!hasLateFullSnapshot || !fullyLoaded || reportedLateFullSnapshotFor.current === sessionRecordingId) {
+                return
             }
+            reportedLateFullSnapshotFor.current = sessionRecordingId
+            posthog.capture('session loaded with late full snapshot', {
+                viewedSessionRecording: sessionRecordingId,
+                recordingStartTime: sessionPlayerData?.start?.toISOString(),
+                recordingDurationMs: sessionPlayerData?.durationMs,
+                leadingUnplayableMs,
+            })
         },
         // eslint-disable-next-line react-hooks/exhaustive-deps
-        [hasLateFullSnapshot]
+        [hasLateFullSnapshot, fullyLoaded, sessionRecordingId]
     )
 
     // An unrenderable span keeps growing while sources arrive, so the duration is only final once
