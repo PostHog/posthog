@@ -20,8 +20,13 @@ from products.signals.backend.models import (
     SignalReportAssignment,
     SignalReportPullRequest,
 )
-from products.signals.backend.report_assignments import update_assignments_for_pull_request
+from products.signals.backend.report_assignments import (
+    reconcile_terminal_task_report_claims,
+    release_terminal_task_report_claims,
+    update_assignments_for_pull_request,
+)
 from products.signals.backend.report_claims import get_active_claim
+from products.signals.backend.task_run_artefacts import record_implementation_task
 
 
 class TestPrimaryPullRequest(SimpleTestCase):
@@ -432,6 +437,86 @@ class TestSignalReportAssignmentAPI(APIBaseTest):
                 "pull_request__url", flat=True
             )
         ) == set(pr_urls)
+
+    def test_failed_implementation_releases_the_report_assignment(self):
+        Task = apps.get_model("tasks", "Task")
+        TaskRun = apps.get_model("tasks", "TaskRun")
+        report = self._create_report()
+        task = Task.objects.create(
+            team=self.team,
+            created_by=self.user,
+            title="Signal task",
+            description="Implement the report",
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+        )
+        record_implementation_task(team_id=self.team.id, report_id=str(report.id), task_id=str(task.id))
+        run = TaskRun.objects.create(team=self.team, task=task, status=TaskRun.Status.QUEUED)
+
+        with self.captureOnCommitCallbacks(execute=True):
+            run.mark_failed("sandbox unavailable")
+
+        assert get_active_claim(team_id=self.team.id, report_id=report.id) is None
+
+    def test_failed_implementation_with_a_pull_request_keeps_the_report_assignment(self):
+        Task = apps.get_model("tasks", "Task")
+        TaskRun = apps.get_model("tasks", "TaskRun")
+        report = self._create_report()
+        task = Task.objects.create(
+            team=self.team,
+            created_by=self.user,
+            title="Signal task",
+            description="Implement the report",
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+        )
+        record_implementation_task(team_id=self.team.id, report_id=str(report.id), task_id=str(task.id))
+        TaskRun.objects.create(
+            team=self.team,
+            task=task,
+            status=TaskRun.Status.FAILED,
+            output={"pr_url": "https://github.com/PostHog/posthog/pull/42"},
+        )
+
+        assert release_terminal_task_report_claims(team_id=self.team.id, task_id=str(task.id)) == 0
+        assert get_active_claim(team_id=self.team.id, report_id=report.id) is not None
+
+    def test_reconciliation_releases_existing_failed_task_assignment(self):
+        Task = apps.get_model("tasks", "Task")
+        TaskRun = apps.get_model("tasks", "TaskRun")
+        report = self._create_report()
+        task = Task.objects.create(
+            team=self.team,
+            created_by=self.user,
+            title="Signal task",
+            description="Implement the report",
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+        )
+        record_implementation_task(team_id=self.team.id, report_id=str(report.id), task_id=str(task.id))
+        TaskRun.objects.create(team=self.team, task=task, status=TaskRun.Status.FAILED)
+
+        assert reconcile_terminal_task_report_claims() == 1
+        assert get_active_claim(team_id=self.team.id, report_id=report.id) is None
+
+    def test_reconciliation_releases_a_legacy_failed_task_assignment(self):
+        Task = apps.get_model("tasks", "Task")
+        TaskRun = apps.get_model("tasks", "TaskRun")
+        report = self._create_report()
+        task = Task.objects.create(
+            team=self.team,
+            created_by=self.user,
+            title="Signal task",
+            description="Implement the report",
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+        )
+        SignalReportAssignment.all_teams.create(
+            team=self.team,
+            report=report,
+            actor_kind=SignalActorKind.TASK,
+            actor_task_id=task.id,
+        )
+        TaskRun.objects.create(team=self.team, task=task, status=TaskRun.Status.FAILED)
+
+        assert reconcile_terminal_task_report_claims() == 1
+        assert get_active_claim(team_id=self.team.id, report_id=report.id) is None
 
     @patch("products.signals.backend.report_assignments.GitHubIntegration.first_for_team_repository")
     def test_connected_pull_request_details_are_fetched(self, mock_first_for_repository):
