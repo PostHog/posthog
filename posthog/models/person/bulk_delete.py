@@ -64,6 +64,7 @@ def delete_persons_profile(
     actor: User | None,
     request=None,
     organization_id=None,
+    queue_ai_training_deletion: bool = True,
 ) -> PersonProfileDeletionResult:
     """Run ClickHouse Kafka tombstones, then a single Postgres batch delete.
 
@@ -72,9 +73,10 @@ def delete_persons_profile(
     """
     from posthog.personhog_client.client import personhog_call
 
-    queue_training_deletion(
-        team_id, "distinct", [distinct_id for person in persons for distinct_id in person.distinct_ids]
-    )
+    if queue_ai_training_deletion:
+        queue_training_deletion(
+            team_id, "distinct", [distinct_id for person in persons for distinct_id in person.distinct_ids]
+        )
     deleted: builtins.list[Person] = []
     errors: builtins.list[uuid_lib.UUID] = []
     # A missing map entry (or a failed batch fetch) passes None below, making delete_person
@@ -147,12 +149,14 @@ def queue_person_recording_deletion(
     *,
     actor: User | None,
     reason: str = "person deletion",
+    queue_ai_training_deletion: bool = True,
 ) -> None:
     if not persons:
         return
-    queue_training_deletion(
-        team_id, "distinct", [distinct_id for person in persons for distinct_id in person.distinct_ids]
-    )
+    if queue_ai_training_deletion:
+        queue_training_deletion(
+            team_id, "distinct", [distinct_id for person in persons for distinct_id in person.distinct_ids]
+        )
     _start_recording_workflows(team_id, persons, actor, reason)
 
 

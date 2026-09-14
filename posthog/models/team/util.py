@@ -8,6 +8,7 @@ from django.db import connections
 import structlog
 
 from posthog.cache_utils import cache_for
+from posthog.models.ai_training import queue_training_deletion
 from posthog.models.async_migration import is_async_migration_complete
 from posthog.temporal.common.client import sync_connect
 
@@ -351,7 +352,9 @@ def delete_team_records(team_ids: list[int]) -> None:
     from posthog.models.team import Team
 
     with transaction.atomic():
-        list(Team.objects.select_for_update().filter(id__in=team_ids))
+        teams = list(Team.objects.select_for_update().filter(id__in=team_ids))
+        for team in teams:
+            queue_training_deletion(team.pk, "team")
         Team.objects.filter(id__in=team_ids).delete()
 
 

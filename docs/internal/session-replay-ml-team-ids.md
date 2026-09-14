@@ -72,6 +72,9 @@ Restoring a deleted wrapped key would defeat deletion.
 
 Existing recording, person, team, and organization deletion flows enqueue ML privacy work.
 Person deletion includes distinct IDs even when the user does not select the replay deletion option.
+Each bulk request queues the combined resolved and supplied distinct IDs once, including IDs with no remaining person profile.
+Team deletion and its privacy outbox request commit in the same database transaction.
+If the outbox write fails, team deletion fails and can retry.
 An organization changing AI training consent to false also enqueues key removal.
 The outbox survives removal of the source team or organization.
 Its team IDs refer to the original environment, without resolving a child environment to its parent.
@@ -177,4 +180,9 @@ Renaming configuration must not rotate that key.
 The privacy task uses the `ai_research_privacy` Celery queue.
 In prod-us, only the dedicated `ai-research-privacy-worker` deployment consumes this queue.
 Its service account has a dedicated IAM role and cloud-database user.
+The database user needs SELECT and UPDATE only on `posthog_aitrainingprivacyrequest`.
+The worker starts with `bin/docker-worker-ai-training-privacy` and does not use shared Django signing secrets.
+Its process-local signing key is not used for application requests.
+The worker skips general migration checks; the outbox table must exist before deployment.
+All processes that enqueue privacy work, including the general-purpose Temporal worker, need the privacy table setting.
 Shared Django and Temporal workers cannot delete keys from the privacy table.

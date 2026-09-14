@@ -891,8 +891,12 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             raise ValidationError("You need to specify either distinct_ids or ids")
 
         persons = resolve_persons_for_deletion(self.team_id, ids, distinct_ids)
-        if distinct_ids and (not keep_person or delete_recordings):
-            queue_training_deletion(self.team_id, "distinct", distinct_ids)
+        if not keep_person or delete_recordings:
+            queue_training_deletion(
+                self.team_id,
+                "distinct",
+                [*(distinct_ids or []), *(value for person in persons for value in person.distinct_ids)],
+            )
 
         persons_deleted = 0
         errors: builtins.list[dict[str, str]] = []
@@ -903,6 +907,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 actor=cast(User, request.user),
                 request=request,
                 organization_id=self.organization.id,
+                queue_ai_training_deletion=False,
             )
             persons_deleted = result.deleted_count
             errors = [{"person_uuid": str(u)} for u in result.errors]
@@ -910,7 +915,9 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if delete_events:
             queue_person_event_deletion(self.team_id, persons, actor=cast(User, request.user))
         if delete_recordings:
-            queue_person_recording_deletion(self.team_id, persons, actor=cast(User, request.user))
+            queue_person_recording_deletion(
+                self.team_id, persons, actor=cast(User, request.user), queue_ai_training_deletion=False
+            )
 
         return {
             "persons_found": len(persons),
