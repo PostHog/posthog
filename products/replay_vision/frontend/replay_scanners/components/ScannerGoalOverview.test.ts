@@ -35,6 +35,12 @@ describe('eligibleFilterGroups', () => {
                             operator: PropertyOperator.Regex,
                         },
                         { type: PropertyFilterType.Cohort, key: 'id', value: 7, operator: PropertyOperator.In },
+                        {
+                            type: PropertyFilterType.Session,
+                            key: '$entry_current_url',
+                            value: ['/pricing'],
+                            operator: PropertyOperator.Exact,
+                        },
                     ],
                     events: [{ id: 'billing_limit_set', name: 'billing_limit_set', type: 'events', order: 0 }],
                     actions: [{ id: 42, name: 'Completed checkout', type: 'actions', order: 0 }],
@@ -43,12 +49,15 @@ describe('eligibleFilterGroups', () => {
             { experimentName: 'Checkout CTA copy', cohortNames: { 7: 'Power users' } }
         )
 
+        // The session property gets its own row and is not double-counted as a page or cohort, which
+        // are pulled from the same top-level properties list but keep their dedicated rows.
         expect(groups).toEqual([
             { label: 'Experiment', values: ['Checkout CTA copy (test variant)'] },
             { label: 'Pages', values: ['/billing', '/checkout'] },
             { label: 'Event', values: ['billing_limit_set'] },
             { label: 'Action', values: ['Completed checkout'] },
             { label: 'Cohort', values: ['Power users'] },
+            { label: 'Session', values: ['Entry URL = /pricing'] },
         ])
     })
 
@@ -128,6 +137,34 @@ describe('eligibleFilterGroups', () => {
         )
 
         expect(groups).toEqual([{ label: 'Event', values: ['$exception where TypeError: x is not a function'] }])
+    })
+
+    it('merges top-level person filters into one row, humanizing known keys and keeping custom ones', () => {
+        // A recording-level person filter would otherwise be invisible, making the scan look like it
+        // watches everyone. A known key humanizes; a custom key with no taxonomy entry keeps its name.
+        const groups = eligibleFilterGroups(
+            scanner({
+                query: {
+                    kind: NodeKind.RecordingsQuery,
+                    properties: [
+                        {
+                            type: PropertyFilterType.Person,
+                            key: '$browser',
+                            value: ['Chrome'],
+                            operator: PropertyOperator.Exact,
+                        },
+                        {
+                            type: PropertyFilterType.Person,
+                            key: 'plan',
+                            value: ['enterprise'],
+                            operator: PropertyOperator.Exact,
+                        },
+                    ],
+                },
+            })
+        )
+
+        expect(groups).toEqual([{ label: 'Person', values: ['Latest browser = Chrome', 'plan = enterprise'] }])
     })
 
     it('has no groups when the draft watches every recording', () => {
