@@ -318,6 +318,23 @@ class TestOwnershipClaims(BaseTest):
         ):
             ownership_claims.reconcile_ownership_claims(self.team)
 
+    def test_a_view_past_the_row_ceiling_is_refused_before_anything_is_applied(self):
+        all_rows = self._view_rows(*(self._decision(source_ref=f"task-{index}") for index in range(4)))
+
+        def read_after_cursor(query, **_kwargs):
+            after = [row for row in all_rows if str(row[0]) > query.where.right.value]
+            return SimpleNamespace(results=after[: query.limit.value])
+
+        with (
+            patch.object(ownership_claims, "DECISION_PAGE_SIZE", 2),
+            patch.object(ownership_claims, "MAX_DECISION_ROWS", 1),
+            patch.object(ownership_claims, "execute_hogql_query", side_effect=read_after_cursor),
+            self.assertRaises(ownership_claims.ClaimSourceMisconfigured),
+        ):
+            ownership_claims.reconcile_ownership_claims(self.team)
+
+        assert self._active_ae() is None
+
     def test_a_sweep_stops_between_decisions_when_asked(self):
         rows = self._view_rows(self._decision(source_ref="task-0"), self._decision(source_ref="task-1"))
         checks = iter([False, False, True])

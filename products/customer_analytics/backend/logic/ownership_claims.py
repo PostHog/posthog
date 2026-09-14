@@ -33,6 +33,7 @@ from typing import Any
 import structlog
 
 from posthog.hogql import ast
+from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.connection import Workload
@@ -89,6 +90,10 @@ def check_decision_columns(view_name: str, columns: dict | None) -> None:
 
 
 DECISION_PAGE_SIZE = 1000
+# A run holds every row of the view before it applies the first decision, on a worker it shares with
+# other products. The view is expected to hold recent Tasks only, so a read past this ceiling is a
+# view to narrow rather than a sweep to attempt.
+MAX_DECISION_ROWS = MAX_SELECT_RETURNED_ROWS
 
 
 def list_ownership_claim_team_ids() -> list[int]:
@@ -216,6 +221,10 @@ def _read_decision_rows(team: Team, view_name: str, should_stop: Callable[[], bo
             last = str(page[-1][0])
             kept = [row for row in page if str(row[0]) != last] or page
             rows.extend(dict(zip(DECISION_COLUMNS, row)) for row in kept)
+            if len(rows) > MAX_DECISION_ROWS:
+                raise ClaimSourceMisconfigured(
+                    f"View {view_name} holds more than {MAX_DECISION_ROWS} rows; narrow it to recent Tasks"
+                )
             next_cursor = str(kept[-1][0])
             if next_cursor <= cursor:
                 # The page filter compares toString(task_id) in ClickHouse while the cursor is the
