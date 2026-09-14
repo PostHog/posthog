@@ -56,6 +56,12 @@ EPOCH_RFC_3339 = "1970-01-01T00:00:00Z"
 # `POST /v1/usage` documents `ending_before` as at least one day after `starting_on`.
 MIN_USAGE_WINDOW = timedelta(days=1)
 
+# How much of a bucketed usage walk goes into one yielded batch, which is one Delta merge. Two caps,
+# because only one of them is ours to predict: the page cap bounds the requests a resumed attempt
+# repeats, and the row cap bounds the merge if Metronome ever returns larger pages than it does now.
+USAGE_COALESCE_PAGES = 100
+USAGE_COALESCE_ROWS = 20_000
+
 
 @frozen
 class MetronomeResumeConfig:
@@ -300,6 +306,32 @@ def _list_params(config: MetronomeEndpointConfig) -> dict[str, Any]:
     return params
 
 
+def _coalesced_pages(pages: Iterable[Any], commit_checkpoint: Callable[[], None]) -> Iterator[list[Any]]:
+    """Gather several API pages into one yielded batch, and checkpoint once that batch has landed.
+
+    `commit_checkpoint` runs after the `yield` returns, which is after the consumer flushed the
+    batch, so the cursor still only moves over rows that reached Delta. The cursor held at that
+    point is the one before the batch's last page, because `rest_client` offers a page's cursor
+    only when the page after it is pulled. A resumed attempt therefore re-reads that last page,
+    which upserts over rows it already wrote.
+    """
+    batch: list[Any] = []
+    page_count = 0
+
+    for page in pages:
+        batch.extend(page)
+        page_count += 1
+        if page_count >= USAGE_COALESCE_PAGES or len(batch) >= USAGE_COALESCE_ROWS:
+            yield batch
+            commit_checkpoint()
+            batch = []
+            page_count = 0
+
+    if batch:
+        yield batch
+        commit_checkpoint()
+
+
 def _float_usage_value(row: dict[str, Any]) -> dict[str, Any]:
     """Give the usage amount a floating point type before the column is inferred from it.
 
@@ -499,25 +531,37 @@ def metronome_source(
         ],
     }
 
+    # Only an upserting walk coalesces. A full refresh appends onto the partial table when it
+    # resumes, where re-reading a batch's last page would duplicate its rows.
+    coalesces_pages = should_use_incremental_field and bool(endpoint_config.incremental_fields)
+
+    pending_state: Optional[dict[str, Any]] = None
+
+    def persist(state: Optional[dict[str, Any]]) -> None:
+        # Persist only while there is another page to resume to; the Redis TTL cleans up on
+        # completion. The pinned window rides along so a resumed attempt replays it.
+        if resumable_source_manager is None or not state:
+            return
+        cursor = state.get("cursor")
+        if cursor:
+            resumable_source_manager.save_state(
+                MetronomeResumeConfig(
+                    next_page=str(cursor),
+                    ending_before=walk.ending_before,
+                    starting_on=walk.starting_on,
+                )
+            )
+
+    def hold(state: Optional[dict[str, Any]]) -> None:
+        nonlocal pending_state
+        pending_state = state
+
+    def commit_checkpoint() -> None:
+        persist(pending_state)
+
     resume_hook: Optional[Callable[[Optional[dict[str, Any]]], None]] = None
     if resumable_source_manager is not None:
-
-        def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
-            # Persist only while there is another page to resume to; the Redis TTL cleans up on
-            # completion. The pinned window rides along so a resumed attempt replays it.
-            if resumable_source_manager is None or not state:
-                return
-            cursor = state.get("cursor")
-            if cursor:
-                resumable_source_manager.save_state(
-                    MetronomeResumeConfig(
-                        next_page=str(cursor),
-                        ending_before=walk.ending_before,
-                        starting_on=walk.starting_on,
-                    )
-                )
-
-        resume_hook = save_checkpoint
+        resume_hook = hold if coalesces_pages else persist
 
     resource = rest_api_resource(
         config,
@@ -527,12 +571,16 @@ def metronome_source(
         resume_hook=resume_hook,
         initial_paginator_state=walk.paginator_state,
     )
-    # The resume checkpoint advances after every yielded page — rest_client fires the resume hook
-    # right after each yield — so each page has to reach Delta before the bookmark moves past it.
-    # Each yielded item is already a whole API page, so chunk_size=1 flushes it on its own rather
-    # than letting several pages sit in the batcher's buffer; a mid-sync worker shutdown would
-    # otherwise resume past the buffered pages and finish the full-refresh table with silent gaps.
-    # The fan-out tables above don't resume, so they keep the default and avoid a commit per page.
+    # `rest_client` fires the resume hook after the `yield` it belongs to, so the consumer has
+    # already taken a yielded item by the time the cursor past it is offered. chunk_size=1 turns
+    # that into a durability rule: one yielded item is one flush, so a page reaches Delta before
+    # its cursor is checkpointed, and a mid-sync worker shutdown resumes at the page it stopped on
+    # rather than past it. Buffering pages in the batcher instead would move the cursor over rows
+    # that never landed. The fan-out tables above don't resume, so they keep the default.
+    if coalesces_pages:
+        return _make_source_response(
+            endpoint_config, lambda: _coalesced_pages(resource, commit_checkpoint), chunk_size=1
+        )
     return _make_source_response(endpoint_config, lambda: resource, chunk_size=1)
 
 
