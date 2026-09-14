@@ -18,6 +18,8 @@ from asgiref.sync import sync_to_async
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 
+from .markdown_conversion import get_markdown_notebook_markdown
+from .markdown_migration import to_markdown_notebook_content
 from .models import Notebook, ResourceNotebook
 from .sql_v2_state import validate_cell_count
 
@@ -188,6 +190,10 @@ def create_account_notebook(
     created_by_id: int | None = None,
     last_modified_by_id: int | None = None,
 ) -> Notebook:
+    markdown_content = to_markdown_notebook_content(content, team_id=team_id)
+    if markdown_content is not None:
+        content = markdown_content
+        text_content = get_markdown_notebook_markdown(markdown_content)
     with transaction.atomic():
         notebook = Notebook.objects.create(
             team_id=team_id,

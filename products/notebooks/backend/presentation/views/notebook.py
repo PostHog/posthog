@@ -88,6 +88,7 @@ from products.notebooks.backend.facade.widgets import (
     start_widget_generation,
 )
 from products.notebooks.backend.kernel_runtime import build_notebook_sandbox_config, get_kernel_runtime
+from products.notebooks.backend.markdown_migration import to_markdown_notebook_content
 from products.notebooks.backend.models import KernelRuntime, Notebook, NotebookNodeRun
 from products.notebooks.backend.presentation.widget_serializers import (
     WidgetCancelRequestSerializer,
@@ -303,7 +304,9 @@ class NotebookSerializer(NotebookMinimalSerializer):
         ]
         extra_kwargs = {
             **_NOTEBOOK_FIELD_HELP_TEXTS,
-            "content": {"help_text": "Notebook content as a ProseMirror JSON document structure."},
+            "content": {
+                "help_text": "Notebook content as a ProseMirror JSON document. On create, the server stores it as a markdown notebook: one ph-markdown-notebook node that holds the converted markdown."
+            },
             "text_content": {"help_text": "Plain text representation of the notebook content for search."},
             "version": {
                 "help_text": "Version number for optimistic concurrency control. Must match the current version when updating content."
@@ -343,6 +346,14 @@ class NotebookSerializer(NotebookMinimalSerializer):
                 )
             validated_data["short_id"] = short_id
 
+        # Counted before conversion, so the event keeps reporting the size of the document the caller sent.
+        node_count = notebook_node_count(validated_data.get("content"))
+        # The cell tools and the editor work on markdown notebooks only, so a create never stores rich text.
+        markdown_content = to_markdown_notebook_content(validated_data.get("content"), team_id=team.id)
+        if markdown_content is not None:
+            validated_data["content"] = markdown_content
+            validated_data["text_content"] = markdown_collab.get_markdown_notebook_markdown(markdown_content)
+
         created_by = validated_data.pop("created_by", request.user)
         notebook = Notebook.objects.create(
             team=team,
@@ -368,7 +379,7 @@ class NotebookSerializer(NotebookMinimalSerializer):
             user=request.user,
             request=request,
             visibility=notebook.visibility,
-            node_count=notebook_node_count(notebook.content),
+            node_count=node_count,
             mcp_consumer=source_props.get("mcp_consumer"),
             api_key_type=source_props.get("api_key_type"),
         )
