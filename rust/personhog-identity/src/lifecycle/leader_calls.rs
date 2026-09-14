@@ -8,6 +8,7 @@ use futures::stream::{self, StreamExt};
 use tonic::{Code, Status};
 use uuid::Uuid;
 
+use personhog_common::grpc::is_semantic_refusal;
 use personhog_common::partitioning::partition_for_person;
 use personhog_proto::personhog::types::v1::{
     FencePersonRequest, FencePersonsRequest, FencePersonsResponse, LifecycleOpType,
@@ -80,14 +81,12 @@ fn partition_batches<T>(
         .collect()
 }
 
-/// Whether a failed batch is retried as single calls. A transport failure
-/// means no leader answered, so the step retries whole; any other refusal
-/// may be one member's, and single calls isolate it.
+/// Whether a failed batch is retried as single calls: an old fleet, a
+/// routing mismatch from a stale partition count, or one member's semantic
+/// refusal. Anything else fails the step, as a single call's failure would.
 fn falls_back_to_singles(status: &Status) -> bool {
-    !matches!(
-        status.code(),
-        Code::Unavailable | Code::DeadlineExceeded | Code::Cancelled
-    )
+    matches!(status.code(), Code::Unimplemented | Code::InvalidArgument)
+        || is_semantic_refusal(status)
 }
 
 fn record_batch_fallback(rpc: &str, status: &Status) {
@@ -147,7 +146,7 @@ pub(crate) async fn fence_victims(
         singles.extend(refused.into_iter().copied());
     }
     if !singles.is_empty() {
-        fenced.extend(fence_victims_singly(calls, op, &singles).await?);
+        fenced.extend(fence_each_victim(calls, op, &singles).await?);
     }
     Ok(fenced)
 }
@@ -185,7 +184,7 @@ fn fenced_from_batch(
         .collect()
 }
 
-async fn fence_victims_singly(
+async fn fence_each_victim(
     calls: LeaderCalls<'_>,
     op: &OpRow,
     person_ids: &[i64],
@@ -324,6 +323,7 @@ pub(crate) async fn release_fenced(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use personhog_common::grpc::semantic_refusal;
 
     #[test]
     fn partition_batches_never_mix_partitions() {
@@ -353,17 +353,22 @@ mod tests {
     }
 
     #[test]
-    fn only_transport_failures_keep_a_batch_whole() {
-        for code in [Code::Unavailable, Code::DeadlineExceeded, Code::Cancelled] {
-            assert!(!falls_back_to_singles(&Status::new(code, "")), "{code:?}");
-        }
-        for code in [
-            Code::Unimplemented,
-            Code::InvalidArgument,
-            Code::FailedPrecondition,
-            Code::NotFound,
-        ] {
+    fn only_refusals_a_single_call_can_isolate_fall_back() {
+        for code in [Code::Unimplemented, Code::InvalidArgument] {
             assert!(falls_back_to_singles(&Status::new(code, "")), "{code:?}");
+        }
+        assert!(falls_back_to_singles(&semantic_refusal(
+            "no live mark",
+            "release-unverified"
+        )));
+        for code in [
+            Code::Unavailable,
+            Code::DeadlineExceeded,
+            Code::FailedPrecondition,
+            Code::ResourceExhausted,
+            Code::Internal,
+        ] {
+            assert!(!falls_back_to_singles(&Status::new(code, "")), "{code:?}");
         }
     }
 }

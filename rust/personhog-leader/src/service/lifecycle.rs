@@ -26,10 +26,10 @@ use super::{cached_person_to_proto, partition_from_metadata, PersonHogLeaderServ
 /// caller bug, not load.
 const MAX_LIFECYCLE_BATCH_SIZE: usize = 100;
 
-/// Fences of one `FencePersons` call in flight at once. Above the
-/// fallback pool's size, extra fences only queue at the pool while the
+/// Fences or releases of one batch call in flight at once. Above the
+/// fallback pool's size, extra loads only queue at the pool while the
 /// batch holds the partition's handoff drain.
-const FENCE_BATCH_CONCURRENCY: usize = 16;
+const LIFECYCLE_BATCH_CONCURRENCY: usize = 16;
 
 /// The one error a batch answers for: a semantic refusal is the final
 /// answer for its person and must not hide behind a sibling's transient
@@ -441,7 +441,7 @@ impl PersonHogLeaderService {
             )
         });
         let results: Vec<_> = futures::stream::iter(fence_futures)
-            .buffer_unordered(FENCE_BATCH_CONCURRENCY)
+            .buffer_unordered(LIFECYCLE_BATCH_CONCURRENCY)
             .collect()
             .await;
 
@@ -568,9 +568,9 @@ impl PersonHogLeaderService {
                 let marks = mark_statuses(&lifecycle_db.pool, op_id, team_id, &person_ids).await;
                 record_release_phase("verify_mark", verify_started);
                 let marks = marks.map_err(mark_lookup_failed)?;
-                // The whole batch produces at once: writes within one
-                // fencing window share one commit. Every release runs to
-                // completion, so a sibling's failure cancels no produce.
+                // The releases run together so their death documents share
+                // fencing windows, and every one runs to completion: a
+                // sibling's failure cancels no produce in flight.
                 let release_futures: Vec<_> = releases
                     .iter()
                     .map(|release| {
@@ -578,14 +578,23 @@ impl PersonHogLeaderService {
                         self.release_committed(partition, team_id, op_id, release, mark)
                     })
                     .collect();
-                let results = futures::future::join_all(release_futures).await;
+                let results: Vec<_> = futures::stream::iter(release_futures)
+                    .buffer_unordered(LIFECYCLE_BATCH_CONCURRENCY)
+                    .collect()
+                    .await;
                 first_batch_failure(results.into_iter().filter_map(Result::err).collect())?;
             }
             ReleaseOutcome::Aborted => {
+                let mut failures = Vec::new();
                 for person in &req.persons {
-                    self.release_aborted(partition, team_id, person.person_id, op_id)
-                        .await?;
+                    if let Err(status) = self
+                        .release_aborted(partition, team_id, person.person_id, op_id)
+                        .await
+                    {
+                        failures.push(status);
+                    }
                 }
+                first_batch_failure(failures)?;
             }
             ReleaseOutcome::Unspecified => {
                 return Err(Status::invalid_argument("outcome must be specified"));

@@ -60,7 +60,7 @@ service PersonHogLeader {
 
   // ReleaseFence for many persons of one op that share one partition,
   // routed and checked like FencePersons; the marks are read in one
-  // query and the death documents share one fencing window.
+  // query and the death documents share fencing windows.
   rpc ReleaseFences(personhog.types.v1.ReleaseFencesRequest) returns (personhog.types.v1.ReleaseFencesResponse);
 
   // Internal, saga-runner only. The merge saga's document write: fold the
