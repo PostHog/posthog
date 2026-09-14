@@ -51,12 +51,15 @@ def slack_member_belongs_to_workspace(member: dict, slack_team_id: str | None) -
     connected workspace, and an external member's profile email must never be matched
     against the connected organization's members. Enterprise Grid members may carry another
     primary team_id while still belonging to this workspace via enterprise_user.teams.
+
+    Requires positive evidence. The downstream email match is an authorization decision,
+    so a member without a team_id is rejected rather than assumed local, matching the
+    Slack Connect check in posthog/tasks/comment_slack_sync.py.
     """
-    member_team_id = member.get("team_id")
+    if not slack_team_id or member.get("is_stranger"):
+        return False
     enterprise_teams = (member.get("enterprise_user") or {}).get("teams") or []
-    return not member.get("is_stranger") and (
-        member_team_id is None or member_team_id == slack_team_id or slack_team_id in enterprise_teams
-    )
+    return member.get("team_id") == slack_team_id or slack_team_id in enterprise_teams
 
 
 class SlackIntegration:

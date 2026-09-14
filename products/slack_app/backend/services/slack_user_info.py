@@ -140,8 +140,23 @@ def persist_slack_user_info(integration: Integration, slack_user_id: str, user_i
         logger.warning("slack_app_slack_user_cache_db_unavailable", integration_id=integration.id)
 
 
-def _get_workspace_membership_from_db(integration: Integration, slack_user_id: str) -> bool | None:
-    """The cached workspace verdict, or ``None`` when it is missing or stale."""
+def get_cached_workspace_membership(integration: Integration, slack_user_id: str) -> bool | None:
+    """Three-state cached workspace verdict: ``True`` member, ``False`` external,
+    ``None`` unknown (row missing, stale, or unreadable).
+
+    Slack Connect puts members of other workspaces in channels the bot can read, and
+    ``users.info`` answers for them too. Their profile, including the email address the
+    bot resolves a PostHog user from, is controlled by an admin PostHog has no
+    relationship with, so an external member must not be treated as a member of the
+    connected organization.
+
+    The verdict is only ever computed in ``persist_slack_user_info``, from a raw Slack
+    payload; this function never re-derives it. A cache-formatted payload
+    (``_format_slack_user_info_payload``) drops ``team_id``, ``is_stranger``, and
+    ``enterprise_user``, so deriving membership from one would answer from nothing.
+    Callers run after a profile fetch has already tried to write the row, so ``None``
+    means that fetch failed; authorization callers must treat it as "not a member".
+    """
     try:
         profile = SlackUserProfileCache.objects.filter(
             integration_id=integration.id, slack_user_id=slack_user_id
@@ -164,49 +179,6 @@ def get_slack_user_info(slack: SlackIntegration, integration: Integration, slack
         persist_slack_user_info(integration, slack_user_id, user_info)
         return user_info
     return {}
-
-
-def is_slack_workspace_member(slack: SlackIntegration, integration: Integration, slack_user_id: str) -> bool:
-    """Whether the Slack user's home workspace is the one this integration is installed in.
-
-    Slack Connect puts members of other workspaces in channels the bot can read, and
-    ``users.info`` answers for them too. Their profile — including the email address the
-    bot resolves a PostHog user from — is controlled by an admin PostHog has no
-    relationship with, so an external member must not be treated as a member of the
-    connected organization. See ``slack_member_belongs_to_workspace``.
-
-    Fails closed: an unreadable verdict returns ``False``. This gates an authorization
-    decision, so "we could not tell" has to read as "not a member". Cache-first, and
-    written as a side effect of every profile fetch, so the common path adds one indexed
-    read and no Slack call.
-    """
-    cached = _get_workspace_membership_from_db(integration, slack_user_id)
-    if cached is not None:
-        return cached
-
-    try:
-        user_info = get_slack_user_info(slack, integration, slack_user_id)
-    except Exception:
-        # Callers sit on the Slack webhook path, so a failed lookup answers "not a member"
-        # rather than raising into a 500 that Slack would retry.
-        logger.warning(
-            "slack_app_workspace_membership_lookup_failed",
-            integration_id=integration.id,
-            slack_user_id=slack_user_id,
-            exc_info=True,
-        )
-        return False
-
-    user = user_info.get("user")
-    if not isinstance(user, dict):
-        logger.warning(
-            "slack_app_workspace_membership_empty_response",
-            integration_id=integration.id,
-            slack_user_id=slack_user_id,
-        )
-        return False
-
-    return slack_member_belongs_to_workspace(user, integration.integration_id)
 
 
 def is_slack_workspace_admin(slack: SlackIntegration, integration: Integration, slack_user_id: str) -> bool:

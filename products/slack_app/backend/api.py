@@ -95,8 +95,8 @@ from products.slack_app.backend.services.slack_user_info import (
     clear_workspace_profile_cache,
     get_cached_bot_user_id,
     get_cached_workspace_bot_user_id,
+    get_cached_workspace_membership,
     get_slack_user_info,
-    is_slack_workspace_member,
     normalize_slack_response,
     persist_slack_user_info,
 )
@@ -424,28 +424,39 @@ def resolve_slack_user(
             slack_email = dev_email
 
         if not slack_email:
-            # Separate the two reasons the helper returns nothing: a workspace member whose
-            # profile email is hidden can fix that, a Slack Connect external cannot. The
-            # verdict is cached by the lookup above, so this reads the cache.
-            in_workspace = is_slack_workspace_member(slack, integration, slack_user_id)
-            logger.warning("slack_app_no_user_email", slack_user_id=slack_user_id, in_workspace=in_workspace)
+            # Separate the reasons the helper returns nothing: a workspace member whose
+            # profile email is hidden can fix that, a Slack Connect external cannot, and a
+            # failed lookup says nothing about the user, so it must not claim they are
+            # external. The verdict was cached by the lookup above when it succeeded, so
+            # this reads the cache and never calls Slack.
+            workspace_membership = get_cached_workspace_membership(integration, slack_user_id)
+            logger.warning(
+                "slack_app_no_user_email", slack_user_id=slack_user_id, workspace_membership=workspace_membership
+            )
+            if workspace_membership is True:
+                feedback_text = (
+                    "Sorry, I couldn't find your email address in Slack. "
+                    "Please make sure your email is visible in your Slack profile, "
+                    "and contact the PostHog team if the issue persists."
+                )
+            elif workspace_membership is False:
+                feedback_text = (
+                    "Sorry, I can only reply to people in the Slack workspace PostHog is "
+                    "connected to. You're in this channel from another workspace, so I can't "
+                    "match you to a PostHog account."
+                )
+            else:
+                feedback_text = (
+                    "Sorry, I couldn't look up your Slack profile right now, so I can't "
+                    "match you to a PostHog account. Please try again in a few minutes."
+                )
             if post_feedback:
                 _post_slack_user_feedback(
                     slack,
                     channel,
                     slack_user_id,
                     thread_ts,
-                    (
-                        "Sorry, I couldn't find your email address in Slack. "
-                        "Please make sure your email is visible in your Slack profile, "
-                        "and contact the PostHog team if the issue persists."
-                    )
-                    if in_workspace
-                    else (
-                        "Sorry, I can only reply to people in the Slack workspace PostHog is "
-                        "connected to. You're in this channel from another workspace, so I can't "
-                        "match you to a PostHog account."
-                    ),
+                    feedback_text,
                     prefer_thread_message=True,
                 )
             return None
@@ -1542,11 +1553,15 @@ def get_slack_email_for_user(probe_integration: Integration, slack_user_id: str)
         # An email is only an identity claim the connected workspace stands behind when the
         # user lives in that workspace. Slack Connect externals also answer ``users.info``,
         # and their profile is administered by an organization PostHog has no relationship
-        # with, so match the email only after the workspace check passes. The profile fetch
-        # above already cached the verdict, so this costs no extra Slack call.
-        if not is_slack_workspace_member(slack_client, probe_integration, slack_user_id):
+        # with, so release the email only on a positively cached "member" verdict. The
+        # profile fetch above wrote that verdict, so this is one indexed read and no Slack
+        # call; if the write failed, the ``None`` verdict fails closed here.
+        membership = get_cached_workspace_membership(probe_integration, slack_user_id)
+        if membership is not True:
             logger.warning(
-                "slack_app_resolve_user_email_external_workspace",
+                "slack_app_resolve_user_email_external_workspace"
+                if membership is False
+                else "slack_app_resolve_user_email_membership_unknown",
                 integration_id=probe_integration.id,
                 slack_user_id=slack_user_id,
             )

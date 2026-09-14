@@ -41,7 +41,7 @@ class TestGetSlackEmailForUser:
         mock_client = MagicMock()
         mock_webclient_class.return_value = mock_client
         mock_client.users_info.return_value = _make_slack_response(
-            {"ok": True, "user": {"id": "U1", "profile": {"email": "dev@example.com"}}}
+            {"ok": True, "user": {"id": "U1", "team_id": "T12345", "profile": {"email": "dev@example.com"}}}
         )
 
         email = get_slack_email_for_user(integration, "U1")
@@ -150,7 +150,8 @@ class TestWorkspaceGate:
         ("user_fields", "expected_email"),
         [
             pytest.param({"team_id": "T12345"}, "dev@example.com", id="same_workspace"),
-            pytest.param({}, "dev@example.com", id="no_team_id_reported"),
+            # Positive evidence required: a payload with no team_id must not read as local.
+            pytest.param({}, None, id="no_team_id_reported"),
             pytest.param(
                 {"team_id": "T_PRIMARY", "enterprise_user": {"teams": ["T12345"]}},
                 "dev@example.com",

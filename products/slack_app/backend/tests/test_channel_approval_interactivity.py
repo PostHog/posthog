@@ -117,14 +117,20 @@ class TestChannelApprovalInteractivity(_ChannelApprovalTestBase):
 
     @contextmanager
     def _stub_slack_user_email(self, email: str) -> Iterator[None]:
-        # Both the email lookup and the workspace check read the profile, each through the
-        # name bound in its own module, so the stub has to cover both bindings.
+        # Stubbing ``get_slack_user_info`` skips ``persist_slack_user_info``, which writes
+        # the cached workspace verdict the email gate reads, so the verdict is stubbed
+        # too. Each name is patched in the module that binds it.
         payload = {"user": {"team_id": self.slack_team_id, "profile": {"email": email}}}
         with (
             patch("products.slack_app.backend.api.get_slack_user_info", return_value=payload),
             patch(
                 "products.slack_app.backend.services.slack_user_info.get_slack_user_info",
                 return_value=payload,
+            ),
+            patch("products.slack_app.backend.api.get_cached_workspace_membership", return_value=True),
+            patch(
+                "products.slack_app.backend.services.slack_user_info.get_cached_workspace_membership",
+                return_value=True,
             ),
         ):
             yield

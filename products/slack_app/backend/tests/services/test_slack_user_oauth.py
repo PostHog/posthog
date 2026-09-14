@@ -180,7 +180,9 @@ class TestResolveSlackUserWithLink:
         mock_flag.return_value = False
         mock_client = MagicMock()
         mock_webclient_class.return_value = mock_client
-        mock_client.users_info.return_value = {"user": {"profile": {"email": "dev@example.com"}}}
+        mock_client.users_info.return_value = {
+            "user": {"team_id": SLACK_TEAM_ID, "profile": {"email": "dev@example.com"}}
+        }
 
         result = resolve_slack_user(
             SlackIntegration(workspace_integration), workspace_integration, SLACK_USER_ID, "C001", "1234.5"
@@ -231,7 +233,9 @@ class TestResolveSlackUserWithLink:
         mock_flag.return_value = True
         mock_client = MagicMock()
         mock_webclient_class.return_value = mock_client
-        mock_client.users_info.return_value = {"user": {"profile": {"email": "stranger@example.com"}}}
+        mock_client.users_info.return_value = {
+            "user": {"team_id": SLACK_TEAM_ID, "profile": {"email": "stranger@example.com"}}
+        }
 
         with patch("products.slack_app.backend.api.settings") as mock_settings:
             mock_settings.DEBUG = False
@@ -269,7 +273,9 @@ class TestResolveSlackUserWithLink:
         mock_flag.return_value = False
         mock_client = MagicMock()
         mock_webclient_class.return_value = mock_client
-        mock_client.users_info.return_value = {"user": {"profile": {"email": "stranger@example.com"}}}
+        mock_client.users_info.return_value = {
+            "user": {"team_id": SLACK_TEAM_ID, "profile": {"email": "stranger@example.com"}}
+        }
 
         with patch("products.slack_app.backend.api.settings") as mock_settings:
             mock_settings.DEBUG = False

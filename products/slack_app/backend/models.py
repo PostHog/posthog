@@ -103,7 +103,7 @@ class SlackUserProfileCache(UUIDModel):
     # rather than derived on read so the cached row answers the question without keeping
     # ``team_id``, ``is_stranger`` and the Enterprise Grid team list in sync separately.
     # Null means unknown (rows predating this field) and is treated as "must re-check",
-    # never as "belongs" — the email match downstream is an authorization decision.
+    # never as "belongs", because the email match downstream is an authorization decision.
     is_workspace_member = models.BooleanField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

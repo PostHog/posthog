@@ -1,4 +1,5 @@
 import pytest
+from unittest.mock import MagicMock, patch
 
 from django.apps import apps
 from django.test import override_settings
@@ -719,3 +720,80 @@ class TestLoadIntegrationsAuthStateFilter:
         assert {c.id for c in result.candidates} == {self.integration_new.id}
         assert result.integration == self.integration_new
         assert result.source == "sole_candidate"
+
+
+class TestResolveUserForWorkspaceFailureReasons:
+    """The failure branch must not report a failed Slack lookup as "you are from
+    another workspace": ``external_workspace`` needs a positively cached verdict,
+    and an unknown verdict gets its own reason with no extra Slack call."""
+
+    @pytest.fixture(autouse=True)
+    def setup(self, db):
+        from django.core.cache import cache
+
+        cache.clear()
+        self.organization = Organization.objects.create(name="Org")
+        self.team = Team.objects.create(organization=self.organization, name="A")
+        self.integration = Integration.objects.create(
+            team=self.team,
+            kind="slack",
+            integration_id=WORKSPACE,
+            sensitive_config={"access_token": "xoxb-a"},
+        )
+        yield
+        cache.clear()
+
+    def _resolve(self):
+        from products.slack_app.backend.services.integration_resolver import ResolutionResult
+
+        workspace_result = ResolutionResult(
+            integration=self.integration, source="sole_candidate", candidates=[self.integration]
+        )
+        return resolve_user_for_workspace(
+            workspace_result=workspace_result,
+            slack_team_id=WORKSPACE,
+            slack_user_id=SLACK_USER,
+        )
+
+    @patch("posthog.models.integration.slack.WebClient")
+    def test_member_with_hidden_email_is_user_not_found(self, mock_webclient_class):
+        mock_client = MagicMock()
+        mock_webclient_class.return_value = mock_client
+        mock_client.users_info.return_value = {"ok": True, "user": {"team_id": WORKSPACE, "profile": {}}}
+
+        result = self._resolve()
+
+        assert result.user is None
+        assert result.failure_reason == "user_not_found"
+
+    @patch("posthog.models.integration.slack.WebClient")
+    def test_external_member_is_external_workspace(self, mock_webclient_class):
+        mock_client = MagicMock()
+        mock_webclient_class.return_value = mock_client
+        mock_client.users_info.return_value = {
+            "ok": True,
+            "user": {"team_id": "T_ELSEWHERE", "profile": {"email": "dev@example.com"}},
+        }
+
+        result = self._resolve()
+
+        assert result.user is None
+        assert result.failure_reason == "external_workspace"
+
+    @patch("posthog.models.integration.slack.WebClient")
+    def test_failed_lookup_is_not_reported_as_external(self, mock_webclient_class):
+        from slack_sdk.errors import SlackApiError
+
+        mock_client = MagicMock()
+        mock_webclient_class.return_value = mock_client
+        mock_client.users_info.side_effect = SlackApiError(
+            message="ratelimited", response={"ok": False, "error": "ratelimited"}
+        )
+
+        result = self._resolve()
+
+        assert result.user is None
+        assert result.failure_reason == "user_lookup_failed"
+        # The two email lookups are the whole Slack budget for this webhook; the
+        # membership check must not add a third call.
+        assert mock_client.users_info.call_count == 2

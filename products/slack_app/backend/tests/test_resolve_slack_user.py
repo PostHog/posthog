@@ -34,7 +34,9 @@ class TestResolveSlackUser:
     def test_success(self, mock_webclient_class):
         mock_client = MagicMock()
         mock_webclient_class.return_value = mock_client
-        mock_client.users_info.return_value = {"user": {"profile": {"email": "dev@example.com", "display_name": "Dev"}}}
+        mock_client.users_info.return_value = {
+            "user": {"team_id": "T12345", "profile": {"email": "dev@example.com", "display_name": "Dev"}}
+        }
 
         slack = SlackIntegration(self.integration)
         result = resolve_slack_user(slack, self.integration, "U123", "C001", "1234.5678")
@@ -55,7 +57,7 @@ class TestResolveSlackUser:
     def test_matches_email_case_insensitively(self, mock_webclient_class, slack_email):
         mock_client = MagicMock()
         mock_webclient_class.return_value = mock_client
-        mock_client.users_info.return_value = {"user": {"profile": {"email": slack_email}}}
+        mock_client.users_info.return_value = {"user": {"team_id": "T12345", "profile": {"email": slack_email}}}
 
         slack = SlackIntegration(self.integration)
         result = resolve_slack_user(slack, self.integration, "U123", "C001", "1234.5678")
@@ -68,7 +70,7 @@ class TestResolveSlackUser:
     def test_missing_email(self, mock_webclient_class):
         mock_client = MagicMock()
         mock_webclient_class.return_value = mock_client
-        mock_client.users_info.return_value = {"user": {"profile": {}}}
+        mock_client.users_info.return_value = {"user": {"team_id": "T12345", "profile": {}}}
 
         slack = SlackIntegration(self.integration)
         result = resolve_slack_user(slack, self.integration, "U123", "C001", "1234.5678")
@@ -94,7 +96,9 @@ class TestResolveSlackUser:
     def test_no_org_membership(self, mock_webclient_class):
         mock_client = MagicMock()
         mock_webclient_class.return_value = mock_client
-        mock_client.users_info.return_value = {"user": {"profile": {"email": "stranger@example.com"}}}
+        mock_client.users_info.return_value = {
+            "user": {"team_id": "T12345", "profile": {"email": "stranger@example.com"}}
+        }
 
         slack = SlackIntegration(self.integration)
         result = resolve_slack_user(slack, self.integration, "U123", "C001", "1234.5678")
@@ -111,7 +115,7 @@ class TestResolveSlackUser:
     def test_no_team_access(self, mock_permissions_class, mock_webclient_class):
         mock_client = MagicMock()
         mock_webclient_class.return_value = mock_client
-        mock_client.users_info.return_value = {"user": {"profile": {"email": "dev@example.com"}}}
+        mock_client.users_info.return_value = {"user": {"team_id": "T12345", "profile": {"email": "dev@example.com"}}}
 
         mock_permissions = MagicMock()
         mock_permissions.current_team.effective_membership_level = None
@@ -176,6 +180,7 @@ class TestResolveSlackUser:
         mock_webclient_class.return_value = mock_client
         mock_client.users_info.return_value = {
             "user": {
+                "team_id": "T12345",
                 "is_admin": True,
                 "is_owner": False,
                 "profile": {"email": "dev@example.com", "display_name": "Dev (renamed)", "real_name": "Developer"},
@@ -210,6 +215,7 @@ class TestResolveSlackUser:
         mock_webclient_class.return_value = mock_client
         mock_client.users_info.return_value = {
             "user": {
+                "team_id": "T12345",
                 "is_admin": True,
                 "is_owner": True,
                 "profile": {
