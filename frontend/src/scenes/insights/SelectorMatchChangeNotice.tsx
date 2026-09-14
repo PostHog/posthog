@@ -53,13 +53,18 @@ function SelectorMatchChangeNoticeContent({
     }
 
     return (
-        <LemonBanner type="info" dismissKey={FEATURE_FLAGS.SELECTOR_MATCH_CHANGE_NOTICE}>
-            <p>Some counts in this insight are lower than they were, including for past dates.</p>
+        <LemonBanner type="warning" dismissKey={FEATURE_FLAGS.SELECTOR_MATCH_CHANGE_NOTICE} className="mb-4">
             <p>
-                Conditions written together in a selector, like a tag and a class, now have to be met by the same
-                element. Before, they could come from different elements. This changed the counts for:
+                This insight uses an action that PostHog matched incorrectly. We've fixed how action selectors are
+                matched, but we couldn't rewrite this selector to keep its old counts. Counts in this insight are lower
+                than they were, including for past dates.
             </p>
-            <ul className="list-disc list-inside mb-0">
+            <p>
+                What changed: conditions written together in a selector, like a tag and a class, now have to be met by
+                the same element. Before, they could come from different elements.
+            </p>
+            <p>This changed the counts for:</p>
+            <ul className="list-disc list-inside">
                 {selectorMatchChanges.map((change: ActionSelectorMatchChangeApi) => (
                     <li key={change.action_id}>
                         <Link to={urls.action(change.action_id)}>{change.action_name || 'Untitled action'}</Link>
@@ -72,6 +77,11 @@ function SelectorMatchChangeNoticeContent({
                     </li>
                 ))}
             </ul>
+            <p className="mt-2 mb-0">
+                <Link to="https://posthog.com/docs/product-analytics/action-selector-matching" target="_blank">
+                    Read more about action selector matching
+                </Link>
+            </p>
         </LemonBanner>
     )
 }
