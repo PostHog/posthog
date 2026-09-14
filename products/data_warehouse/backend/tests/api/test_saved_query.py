@@ -15,6 +15,9 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
+from posthog.hogql.errors import QueryError
+
+from posthog.errors import ExposedCHQueryError
 from posthog.models import ActivityLog
 from posthog.models.activity_logging.activity_log import Detail
 
@@ -1099,6 +1102,52 @@ class TestSavedQuery(APIBaseTest):
             {"sync_frequency": "every_fortnight"},
         )
         self.assertEqual(response.status_code, 400, response.content)
+
+    @parameterized.expand(
+        [
+            ("user_safe_clickhouse", ExposedCHQueryError("Division by zero", code=153), False),
+            ("user_safe_hogql", QueryError("Unknown table"), False),
+            ("unexpected", RuntimeError("inference blew up"), True),
+        ]
+    )
+    def test_column_inference_failure_only_captures_our_own_errors(self, name, error, expect_capture):
+        # A customer's bad SQL fails inference and already gets a 400. Capturing it as well files an
+        # error tracking issue against us, and an unmapped ClickHouse code opens a fresh one every
+        # time, because its class is built at runtime.
+        create = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+            {
+                "name": "event_view",
+                "query": {"kind": "HogQLQuery", "query": "select event as event from events LIMIT 100"},
+                "types": [["event", "Nullable(String)"]],
+            },
+        )
+        assert create.status_code == 201, create.content
+        view = create.json()
+
+        for send in (
+            lambda: self.client.post(
+                f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+                {"name": f"broken_{name}", "query": {"kind": "HogQLQuery", "query": "select 1"}},
+            ),
+            lambda: self.client.patch(
+                f"/api/environments/{self.team.id}/warehouse_saved_queries/{view['id']}",
+                {
+                    "query": {"kind": "HogQLQuery", "query": "select 2"},
+                    "edited_history_id": view["latest_history_id"],
+                },
+            ),
+        ):
+            with (
+                patch.object(DataWarehouseSavedQuery, "get_columns", side_effect=error),
+                patch(
+                    "products.data_warehouse.backend.presentation.views.saved_query.capture_exception"
+                ) as mock_capture,
+            ):
+                response = send()
+
+            assert response.status_code == 400, response.content
+            assert mock_capture.called is expect_capture
 
     def test_update_with_types(self):
         response = self.client.post(
