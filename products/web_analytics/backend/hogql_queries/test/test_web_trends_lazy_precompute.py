@@ -2,7 +2,7 @@ from dataclasses import replace
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person
 from unittest.mock import patch
 
@@ -111,7 +111,7 @@ class TestWebTrendsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         super().setUp()
         PreaggregationJob.objects.filter(team_id=self.team.pk).delete()
         # Precompute rows are "born expired" relative to the real ClickHouse
-        # clock under freeze_time; stop TTL merges so they survive until read.
+        # clock under the frozen clock; stop TTL merges so they survive until read.
         sync_execute("SYSTEM STOP TTL MERGES sharded_web_overview_preaggregated")
 
     def _enable_lazy(self):
@@ -199,7 +199,7 @@ class TestWebTrendsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
             ("bounce_rate", "avg", "$is_bounce"),
         ]
     )
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_precompute_matches_live_trends(self, _name: str, math: str, math_property: str | None) -> None:
         self._seed()
         query = self._build_query(math=math, math_property=math_property)
@@ -220,7 +220,7 @@ class TestWebTrendsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         assert pre_series["label"] == live_series["label"]
         assert pre_series["action"]["custom_name"] == "My metric"
 
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_compare_period_matches_live_trends(self) -> None:
         self._seed()
         query = self._build_query(compare=True)
@@ -242,7 +242,7 @@ class TestWebTrendsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
             assert pre_series["action"]["days"] == live_series["action"]["days"]
         assert precomputed.resolved_compare_date_range is not None
 
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_reuses_overview_precompute_jobs(self) -> None:
         # The whole point of the inner-WebOverviewQuery mapping: trends reads
         # must find the buckets the overview tile already built, not mint a
@@ -260,7 +260,7 @@ class TestWebTrendsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         assert PreaggregationJob.objects.filter(team_id=self.team.pk).count() == jobs_after_overview
         assert sum(precomputed.results[0]["data"]) > 0
 
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_flag_off_falls_back_to_live_path(self) -> None:
         self._seed()
         trends_flag_off = patch(
@@ -338,7 +338,7 @@ class TestWebTrendsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
     def test_servable_shape_maps_to_metric(self) -> None:
         assert trends_precompute_metric(self._build_query()) is WebTrendsMetric.UNIQUE_USERS
 
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_session_filter_falls_back(self) -> None:
         # Session filters pass the shape gate but the shared eligibility check
         # rejects them (the precompute INSERT can't apply them faithfully).
@@ -382,7 +382,7 @@ class TestWebTrendsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
             ("month", IntervalType.MONTH, "2024-01-01", "2024-01-31"),
         ]
     )
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_interval_parity_with_live_trends(
         self, _name: str, interval: IntervalType, date_from: str, date_to: str
     ) -> None:
@@ -398,7 +398,7 @@ class TestWebTrendsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         assert precomputed.results[0]["days"] == live.results[0]["days"]
         assert precomputed.results[0]["labels"] == live.results[0]["labels"]
 
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_filtered_round_trip_matches_live(self) -> None:
         # Filters must flow into the precompute INSERT and back out — if the
         # series-level merge in effective_properties or the inner query's
@@ -423,7 +423,7 @@ class TestWebTrendsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
             series_filtered = WebTrendsQueryRunner(team=self.team, query=series_query).calculate()
         assert series_filtered.results[0]["data"] == precomputed.results[0]["data"]
 
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_distinct_id_aggregation_falls_back(self) -> None:
         # Vanilla trends counts distinct_ids for these teams while the buckets
         # store person-id uniq states — genuinely different numbers.
@@ -436,7 +436,7 @@ class TestWebTrendsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
             WebTrendsQueryRunner(team=self.team, query=self._build_query()).calculate()
         assert PreaggregationJob.objects.filter(team_id=self.team.pk).count() == 0
 
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_stale_buckets_are_served_and_revalidated_via_overview_family(self) -> None:
         # Stale-within-grace buckets must be served (falling back would put
         # dashboards on the slow path at every TTL lapse) and the background
@@ -466,7 +466,7 @@ class TestWebTrendsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         assert mock_stale.called
         assert mock_stale.call_args.kwargs["family"] == "web_overview"
 
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_today_spanning_range_stitches_live_tail(self) -> None:
         # A range whose last bucket is "today": settled days come from precompute,
         # today comes from the live tail. If the tail merge keyed buckets wrong,
@@ -487,7 +487,7 @@ class TestWebTrendsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         # Settled days were still precomputed — the path did not fully fall back.
         assert PreaggregationJob.objects.filter(team_id=self.team.pk).count() > 0
 
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_today_only_range_falls_back_to_live(self) -> None:
         # The whole range is the in-progress day, so nothing is settled enough to
         # precompute: the path bails to live and mints no precompute jobs.
@@ -503,7 +503,7 @@ class TestWebTrendsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         assert precomputed.results[0]["data"] == live.results[0]["data"]
         assert sum(precomputed.results[0]["data"]) == 1
 
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_week_interval_zero_fills_full_range(self) -> None:
         self._seed()
         query = self._build_query(interval=IntervalType.WEEK)

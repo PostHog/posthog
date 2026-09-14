@@ -88,8 +88,14 @@ export const PlayerFrame = (): JSX.Element => {
     }, [ownDocument, speed, maskingWindow])
 
     const handleFrameLoad = useCallback((): void => {
-        const content = iframeRef.current?.contentDocument?.getElementById(PLAYER_FRAME_CONTENT_ID)
+        const frameDocument = iframeRef.current?.contentDocument
+        const content = frameDocument?.getElementById(PLAYER_FRAME_CONTENT_ID)
         if (!content) {
+            if (frameDocument?.URL === 'about:blank') {
+                // Firefox fires load for the frame's initial about:blank document. The shell document
+                // is still on its way, so this load says nothing about it.
+                return
+            }
             // A same-origin error page, a login redirect, and a browser error page all fire load too,
             // so a load event does not prove the shell document arrived.
             playerFrameDocumentLoadFailed()

@@ -92,7 +92,7 @@ WINDOW_PLACEHOLDERS = (
 )
 # Bumping invalidates every frozen plan (they lazily re-plan on next delivery), so prompt/harness
 # improvements reach existing subscriptions instead of only new ones.
-AI_QUERY_PLAN_VERSION = 6
+AI_QUERY_PLAN_VERSION = 7
 
 
 DEFAULT_PLANNER_MODEL = "gpt-4.1"
@@ -290,7 +290,7 @@ def sanitize_prompt(raw: str | None) -> str:
     if len(raw.strip()) > PROMPT_MAX_LENGTH:
         raise PromptRejectedError(f"Prompt exceeds {PROMPT_MAX_LENGTH} characters.")
 
-    cleaned = sanitize_user_text(raw, max_len=PROMPT_MAX_LENGTH)
+    cleaned = sanitize_user_text(raw, max_len=PROMPT_MAX_LENGTH, preserve_newlines=True)
     if not cleaned:
         raise PromptRejectedError("Prompt is empty.")
 

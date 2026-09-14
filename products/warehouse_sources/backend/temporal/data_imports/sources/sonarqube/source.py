@@ -98,8 +98,9 @@ Enter your server URL (e.g. `https://sonarqube.yourcompany.com`) and a user toke
             # A 400 means the server rejected the request itself. Keep the raised message, which
             # carries SonarQube's explanation; no fixed string can name the cause as well.
             "400 Client Error": None,
-            # Raised before the first request when the URL points at SonarQube Cloud. The message
-            # is already the guidance the user needs.
+            # Raised by `normalize_base_url` before the first request when the URL points at
+            # SonarQube Cloud, so a cloud host never reaches the API and no URL match is needed.
+            # The message is already the guidance the user needs.
             SONARQUBE_CLOUD_ERROR: None,
         }
 

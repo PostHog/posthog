@@ -2,7 +2,6 @@ import os
 import re
 import json
 import asyncio
-import logging
 from collections.abc import AsyncGenerator
 from datetime import datetime
 from time import perf_counter
@@ -16,6 +15,7 @@ from django.utils.html import escape
 
 import pydantic
 import requests as http_requests
+import structlog
 import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
@@ -78,7 +78,7 @@ from products.tasks.backend.facade.access import (
 from products.tasks.backend.facade.billing import TaskTokenUsageUnavailable, get_task_usage
 from products.tasks.backend.facade.client_provenance import get_task_client_provenance, is_sandbox_oauth_request
 from products.tasks.backend.facade.compute_quota import ComputeBillingLimitExceeded
-from products.tasks.backend.facade.contracts import TaskAnalysisError
+from products.tasks.backend.facade.contracts import TaskAnalysisError, TaskRunLogAppendUnserialized
 from products.tasks.backend.facade.metrics import (
     StreamConnectionOutcome,
     observe_stream_backlog_bytes,
@@ -94,6 +94,7 @@ from products.tasks.backend.facade.metrics import (
 from products.tasks.backend.facade.model_catalogue import TASK_RUN_GATEWAY_PRODUCT, available_model_choices
 from products.tasks.backend.facade.run_config import WARMABLE_ORIGIN_PRODUCTS, TaskArtifactAdapter, TaskArtifactType
 from products.tasks.backend.facade.streams import (
+    MAX_IDENTIFIER_CHARS,
     TASK_RUN_STREAM_WAIT_DELAY_INCREMENT_SECONDS,
     TASK_RUN_STREAM_WAIT_INITIAL_DELAY_SECONDS,
     TASK_RUN_STREAM_WAIT_MAX_DELAY_SECONDS,
@@ -107,6 +108,7 @@ from products.tasks.backend.facade.streams import (
     run_stream_presence_gated,
     run_stream_thin_tail,
     run_uses_dedicated_stream,
+    session_update_type,
 )
 from products.tasks.backend.presentation.serializers import (
     ConnectionTokenResponseSerializer,
@@ -223,7 +225,11 @@ class OctetStreamParser(BaseParser):
         return content
 
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
+
+
+def _log_field(value: object) -> str | None:
+    return None if value is None else str(value)[:MAX_IDENTIFIER_CHARS]
 
 
 def _pi_cloud_runtime_disabled_response() -> Response:
@@ -1485,6 +1491,15 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def get_serializer_context(self):
         return {**super().get_serializer_context(), "team": self.team, "team_id": self.team.id}
 
+    def handle_exception(self, exc):
+        if isinstance(exc, TaskRunLogAppendUnserialized):
+            return Response(
+                TaskRunErrorResponseSerializer({"error": "Log append busy"}).data,
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+                headers={"Retry-After": "2"},
+            )
+        return super().handle_exception(exc)
+
     def _task_id(self) -> str:
         task_id = self.kwargs.get("parent_lookup_task_id")
         if not task_id:
@@ -1876,6 +1891,9 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             200: OpenApiResponse(response=TaskRunDetailSerializer, description="Run with updated log"),
             400: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="Invalid log entries"),
             404: OpenApiResponse(description="Run not found"),
+            503: OpenApiResponse(
+                response=TaskRunErrorResponseSerializer, description="Log is locked by another append; retry"
+            ),
         },
         summary="Append log entries",
         description="Append one or more log entries to the task run log array",
@@ -1908,6 +1926,9 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             404: OpenApiResponse(description="Run not found"),
             409: OpenApiResponse(
                 response=TaskRunErrorResponseSerializer, description="Run is still active; send /clear to its agent"
+            ),
+            503: OpenApiResponse(
+                response=TaskRunErrorResponseSerializer, description="Log is locked by another append; retry"
             ),
         },
         summary="Clear conversation history",
@@ -3519,19 +3540,13 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                             observe_stream_resume_gap(origin_product)
                             logger.warning(
                                 "task_run_stream_resume_gap",
-                                extra={
-                                    "stream_key": stream_key,
-                                    "last_event_id": resume_cursor,
-                                    "reason": "trimmed" if stream_exists else "expired",
-                                },
+                                stream_key=stream_key,
+                                last_event_id=_log_field(resume_cursor),
+                                reason="trimmed" if stream_exists else "expired",
                             )
                             serve_after = -1
                     except Exception:
-                        logger.warning(
-                            "task_run_stream_attach_observe_failed",
-                            extra={"stream_key": stream_key},
-                            exc_info=True,
-                        )
+                        logger.warning("task_run_stream_attach_observe_failed", stream_key=stream_key, exc_info=True)
 
                 if serve_after is not None:
                     resume_cursor = None
@@ -3549,7 +3564,8 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                                 observe_stream_backlog_oversized(origin_product)
                                 logger.warning(
                                     "task_run_stream_backlog_oversized",
-                                    extra={"stream_key": stream_key, "backlog_bytes": backlog_bytes},
+                                    stream_key=stream_key,
+                                    backlog_bytes=backlog_bytes,
                                 )
                                 log_content = ""
                             elif not _try_reserve_backlog_bytes(backlog_bytes):
@@ -3560,7 +3576,8 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                                 observe_stream_backlog_throttled(origin_product)
                                 logger.warning(
                                     "task_run_stream_backlog_throttled",
-                                    extra={"stream_key": stream_key, "backlog_bytes": backlog_bytes},
+                                    stream_key=stream_key,
+                                    backlog_bytes=backlog_bytes,
                                 )
                                 yield format_sse_event({"error": "Backlog busy"}, event_name="error")
                                 return
@@ -3573,7 +3590,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                             del log_content
                         except Exception:
                             outcome = "backlog_error"
-                            logger.exception("task_run_stream_backlog_read_failed", extra={"stream_key": stream_key})
+                            logger.exception("task_run_stream_backlog_read_failed", stream_key=stream_key)
                             yield format_sse_event({"error": "Backlog unavailable"}, event_name="error")
                             return
                         # An oversized backlog serves nothing, so an empty index would
@@ -3651,18 +3668,17 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                             observe_stream_resume_gap(origin_product)
                             logger.warning(
                                 "task_run_stream_resume_gap",
-                                extra={"stream_key": stream_key, "last_event_id": resume_cursor},
+                                stream_key=stream_key,
+                                last_event_id=_log_field(resume_cursor),
+                                reason="trimmed",
                             )
                     except Exception:
-                        logger.warning(
-                            "task_run_stream_attach_observe_failed",
-                            extra={"stream_key": stream_key},
-                            exc_info=True,
-                        )
+                        logger.warning("task_run_stream_attach_observe_failed", stream_key=stream_key, exc_info=True)
 
                 start_id = resume_cursor or "0"
                 if not resume_cursor and start_latest and not waited_for_stream:
                     start_id = await redis_stream.get_latest_stream_id() or "0"
+                    backlog_contiguity_pending = False
                 try:
                     async for stream_item in redis_stream.read_stream_entries(
                         start_id=start_id,
@@ -3675,19 +3691,22 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                             )
                         else:
                             event_id, event = stream_item
+                            if backlog_contiguity_pending and backlog_index is not None and event.get("event_id"):
+                                # Oldest id-carrying live entry: a hole before it means
+                                # Redis evicted events whose log batch never landed — the
+                                # loss mode thin-tail trimming assumes away. Count it
+                                # before rollout.
+                                backlog_contiguity_pending = False
+                                if backlog_index.has_gap_before(event):
+                                    observe_stream_backlog_gap(origin_product)
+                                    logger.warning(
+                                        "task_run_stream_backlog_gap",
+                                        stream_key=stream_key,
+                                        event_id=_log_field(event.get("event_id")),
+                                        session_update=_log_field(session_update_type(event)),
+                                        reason="log_behind_trim",
+                                    )
                             if backlog_index is None or not backlog_index.covers(event):
-                                if backlog_contiguity_pending and backlog_index is not None and event.get("event_id"):
-                                    # First id-carrying live entry past the backlog: a
-                                    # hole before it means Redis evicted events whose
-                                    # log batch never landed — the loss mode thin-tail
-                                    # trimming assumes away. Count it before rollout.
-                                    backlog_contiguity_pending = False
-                                    if backlog_index.has_gap_before(event):
-                                        observe_stream_backlog_gap(origin_product)
-                                        logger.warning(
-                                            "task_run_stream_backlog_gap",
-                                            extra={"stream_key": stream_key, "event_id": event.get("event_id")},
-                                        )
                                 yield format_sse_event(event, event_id=event_id)
                         now = asyncio.get_running_loop().time()
                         await redis_stream.refresh_watched()

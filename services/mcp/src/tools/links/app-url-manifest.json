@@ -254,6 +254,11 @@
         "params": [],
         "scope": "project"
     },
+    "businessKnowledgeSettings": {
+        "template": "/business-knowledge/settings",
+        "params": [],
+        "scope": "project"
+    },
     "canvas": {
         "template": "/canvas",
         "params": [],
@@ -277,6 +282,11 @@
     "codeChannelLink": {
         "template": "/code/channel/{channelId}",
         "params": ["channelId"],
+        "scope": "project"
+    },
+    "codeLoopLink": {
+        "template": "/code/loop/{loopId}",
+        "params": ["loopId"],
         "scope": "project"
     },
     "codeReview": {
@@ -1117,6 +1127,11 @@
     "mcpGatewayTab": {
         "template": "/mcp-servers/{tab}",
         "params": ["tab"],
+        "scope": "project"
+    },
+    "mcpRegistry": {
+        "template": "/mcp-registry",
+        "params": [],
         "scope": "project"
     },
     "metrics": {

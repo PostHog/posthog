@@ -46,6 +46,7 @@ from posthog.dags.common.staged_dictionary import (
     create_on_every_cluster,
     load_and_verify_on_every_cluster,
 )
+from posthog.dags.deletes import deletes_job
 from posthog.dataclasses import frozen
 from posthog.models.async_deletion.delete_cohorts import sweep_cohort_deletions
 from posthog.models.person.sql import PERSON_DISTINCT_ID2_TABLE, PERSONS_TABLE
@@ -1354,6 +1355,9 @@ def drop_assets_on_failure(context: dagster.HookContext) -> None:
         # Matched by a run-queue limit of 1 in charts (argocd/dagster/deployment_settings), so a
         # second sweep run queues instead of running concurrently. The janitor depends on this.
         "clickhouse_deletion_sweep_concurrency": "v1",
+        # Nothing else bounds total runtime: the per-wait timeouts can each fire without the run
+        # ending. Safe to lose a killed run, since every op is idempotent.
+        "dagster/max_runtime": 43200,
     },
 )
 def clickhouse_deletion_sweep_job():
@@ -1371,3 +1375,83 @@ def clickhouse_deletion_sweep_job():
 
     # Each op takes the previous op's output, which is what keeps the sweeps in sequence.
     drop_snapshot_assets(delete_persons(run))
+
+
+# What the sensor launches with. Every field is pinned so a changed default cannot move production,
+# and every value is a ceiling, which is what lets one config serve both regions.
+SCHEDULED_RUN_CONFIG = {
+    "ops": {
+        "clear_removed_cohort_data": {
+            "config": {
+                "dry_run": False,
+                "cleanup": True,
+                "cohort_sweep": True,
+                # Not DEFAULT_MAX_COHORTS: at 2,000 this op is two thirds of the run and still
+                # needs ~24 US runs to drain. Draining is an attended campaign, not weekly work.
+                "max_cohorts": 100,
+                "team_batches": DEFAULT_TEAM_BATCHES,
+                # Never 0: unbounded takes the whole backlog in one run. 30M outpaces both
+                # regions' weekly arrivals, so the backlog converges.
+                "max_persons": 30_000_000,
+                "shards": 16,
+                "max_execution_time": 1800,
+                # The orphaned distinct id populate, not the persons one, sets this. 64 GiB failed it.
+                "max_memory_usage": 128 * 1024**3,
+                "dictionary_load_timeout": 1800,
+                "mutation_stall_timeout": 1800,
+                "mutation_capacity_timeout": 3600,
+                # The only bound on a slow but healthy mutation. Worst measured: 5,844 s.
+                "mutation_wait_deadline": 21600,
+                "min_team_id": 0,
+                "max_team_id": 0,
+            }
+        }
+    }
+}
+
+
+@dagster.run_status_sensor(
+    run_status=dagster.DagsterRunStatus.SUCCESS,
+    monitored_jobs=[deletes_job],
+    request_job=clickhouse_deletion_sweep_job,
+    # Enabled on registration. A sensor that never fires raises no alert, so shipping it stopped
+    # would end weekly hard-deletion silently.
+    default_status=dagster.DefaultSensorStatus.RUNNING,
+    minimum_interval_seconds=60,
+)
+def run_cleanup_sweep_after_deletes(
+    context: dagster.RunStatusSensorContext,
+) -> dagster.RunRequest | dagster.SkipReason:
+    """Chain the sweep behind the GDPR deletes run instead of giving it a cron of its own.
+
+    Both jobs mutate person and person_distinct_id2 across the cluster, and deletes_job starts
+    after the Saturday-night squash and can run for hours, so any fixed cron for the sweep
+    overlaps it in the worst weeks. Chaining on success serializes the weekend into
+    squash -> deletes_job -> sweep. A week where the upstream chain fails skips the sweep, which
+    is safe: the worklist derives from live tombstones, so the next run picks everything up.
+    """
+    active = context.instance.get_run_records(
+        dagster.RunsFilter(
+            job_name=clickhouse_deletion_sweep_job.name,
+            statuses=[
+                dagster.DagsterRunStatus.QUEUED,
+                dagster.DagsterRunStatus.NOT_STARTED,
+                dagster.DagsterRunStatus.STARTING,
+                dagster.DagsterRunStatus.STARTED,
+                # A canceling run still counts: its last mutation keeps applying server-side.
+                # wait_for_mutation_capacity holds stragglers off the tables, and the next
+                # run's janitor reaps a canceled run's dictionaries.
+                dagster.DagsterRunStatus.CANCELING,
+            ],
+        ),
+        limit=1,
+    )
+    if active:
+        # deletes_job can also be launched by hand, so back-to-back successes are possible; a
+        # second sweep mutating the same tables concurrently is the one thing this must prevent.
+        return dagster.SkipReason("a deletion sweep run is already active")
+
+    # The run_key makes each deletes_job success launch at most one sweep. The sensor is the only
+    # launch that deletes: dry_run defaults to true, so an ad-hoc run from the Dagster UI reports
+    # what it would remove rather than removing it.
+    return dagster.RunRequest(run_key=context.dagster_run.run_id, run_config=SCHEDULED_RUN_CONFIG)

@@ -19,7 +19,7 @@ from products.data_modeling.backend.schedule import get_v2_saved_query_ids
 logger = structlog.get_logger(__name__)
 
 
-def start_node_materialization(node: Node, *, resume: bool = True) -> None:
+def start_node_materialization(node: Node, *, resume: bool = True, triggered_by_id: int | None = None) -> None:
     """Start a one-off materialization workflow for a single node.
 
     Shared by node `materialize` and saved-query `run`.
@@ -27,6 +27,9 @@ def start_node_materialization(node: Node, *, resume: bool = True) -> None:
     `resume=False` is for automatic callers, such as a repair triggered by read traffic. The run
     still starts, but a suspended node keeps its marker and its failure window, so request traffic
     cannot hold the circuit breaker open.
+
+    `triggered_by_id` is the person who asked for this run, and only they are told if it fails.
+    Callers with no person behind them leave it unset.
     """
     if resume:
         # An explicit run is a request to try again, so it gets a fresh failure window.
@@ -35,6 +38,7 @@ def start_node_materialization(node: Node, *, resume: bool = True) -> None:
         team_id=node.team_id,
         dag_id=str(node.dag_id),
         node_id=str(node.id),
+        manually_triggered_by_id=triggered_by_id,
     )
 
     temporal = sync_connect()
@@ -86,7 +90,9 @@ def run_saved_query_materialization(team_id: int, saved_query_id: UUID | str) ->
     materialize_saved_query(saved_query)
 
 
-def materialize_saved_query(saved_query: DataWarehouseSavedQuery, *, resume: bool = True) -> None:
+def materialize_saved_query(
+    saved_query: DataWarehouseSavedQuery, *, resume: bool = True, triggered_by_id: int | None = None
+) -> None:
     """Materialize the saved query's backing node via the v2 workflow.
 
     Fire a single materialization — don't fan out over duplicate-DAG nodes, or two workers race to
@@ -98,4 +104,4 @@ def materialize_saved_query(saved_query: DataWarehouseSavedQuery, *, resume: boo
         # Raise rather than return: returning reports a materialization the caller can then find no
         # trace of, and there is no v1 schedule left to fall back to.
         raise MissingDagNodeError(f"Saved query {saved_query.id} has no DAG node to materialize")
-    start_node_materialization(node, resume=resume)
+    start_node_materialization(node, resume=resume, triggered_by_id=triggered_by_id)

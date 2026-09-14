@@ -52,8 +52,8 @@ export function suggestionToCreateValues(
     if (existing) {
         // The pick proposes when the scout runs, and a pick that names no cadence leaves the
         // scout's own. Everything else the config already holds is the person's own: the emit
-        // posture, the Slack destination, tags and servers stay as they are, shown in the form so
-        // turning the scout on cannot quietly restore delivery it had before.
+        // posture, the Slack destination, tags, servers, repositories and write access stay as they
+        // are, shown in the form so turning the scout on cannot quietly change what it had before.
         const { config } = existing
         return {
             name: item.skill_name,
@@ -71,6 +71,8 @@ export function suggestionToCreateValues(
                 output_destinations: config.output_destinations,
                 tags: config.tags ?? [],
                 mcp_gateway_server_ids: [...config.mcp_gateway_server_ids],
+                repositories: [...(config.repositories ?? [])],
+                write_scopes: [...(config.write_scopes ?? [])],
             },
             suggestionId: item.id,
         }

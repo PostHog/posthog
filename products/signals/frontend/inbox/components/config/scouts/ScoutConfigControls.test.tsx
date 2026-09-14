@@ -198,7 +198,10 @@ describe('ScoutConfigForm', () => {
 
     // Guards the pin's wire values: a model option must patch the raw model id (not its display
     // label), and Default must patch null (not '') — the backend treats null as "clear the pin".
-    it('pins a model from the dropdown and clears the pin via Default', () => {
+    it.each([
+        ['Claude Sonnet 5', 'claude-sonnet-5'],
+        ['GPT-5.6 Luna', 'gpt-5.6-luna'],
+    ])('pins %s from the dropdown and clears the pin via Default', (label, modelId) => {
         featureFlagLogic.mount()
         featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SCOUTS_MODEL_CONFIG], {
             [FEATURE_FLAGS.SCOUTS_MODEL_CONFIG]: true,
@@ -210,10 +213,10 @@ describe('ScoutConfigForm', () => {
         )
 
         fireEvent.click(getByLabelText(modelSelectLabel))
-        fireEvent.click(getByText('GPT-5.6 Luna'))
-        expect(onUpdate).toHaveBeenCalledWith('config-1', { model: 'gpt-5.6-luna' })
+        fireEvent.click(getByText(label))
+        expect(onUpdate).toHaveBeenCalledWith('config-1', { model: modelId })
 
-        rerender(<ScoutConfigForm config={{ ...config, model: 'gpt-5.6-luna' }} onUpdate={onUpdate} />)
+        rerender(<ScoutConfigForm config={{ ...config, model: modelId }} onUpdate={onUpdate} />)
         fireEvent.click(getByLabelText(modelSelectLabel))
         fireEvent.click(getByText('Default'))
         expect(onUpdate).toHaveBeenLastCalledWith('config-1', { model: null })

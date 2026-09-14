@@ -44,12 +44,14 @@ import type {
 import { ACCOUNTS_TABLE_DATA_NODE_KEY } from '../../constants'
 import { formatCustomPropertyValue } from '../../scenes/CustomerAnalyticsConfigurationScene/account/customPropertyTypes'
 import { AccountNotebooksExpansion } from './AccountNotebooksExpansion'
+import { AccountPinnedPropertiesExpansion } from './AccountPinnedPropertiesExpansion'
 import { AccountColumnDisplayConfig, LEGACY_ROLE_COLUMNS, accountsColumnConfigLogic } from './accountsColumnConfigLogic'
 import { AccountExpansionTab, accountsExpansionLogic } from './accountsExpansionLogic'
 import { accountsLogic, customPropertySavingKey, savingRoleKey } from './accountsLogic'
 import { AccountsTableNameCell } from './AccountsTableNameCell'
 import { accountsTableCell, isAccountsTableRow } from './accountsTableQuery'
 import { accountsViewsLogic } from './accountsViewsLogic'
+import { useAccountColumnAutoSizing } from './useAccountColumnAutoSizing'
 
 // Shape the name renderer uses from the keyed AccountsTableRow identity fields.
 type AccountNameCellData = { name: string; external_id: string | null; id: string; logo_domain: string | null }
@@ -796,9 +798,6 @@ function useExpandable(): QueryContext<DataTableNode>['expandable'] {
     const { toggleAccountExpanded } = useActions(accountsExpansionLogic)
     const accountSceneEnabled = !!featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_ACCOUNT_SCENE]
     return useMemo(() => {
-        if (accountSceneEnabled) {
-            return undefined
-        }
         return {
             noIndent: true,
             expandedRowClassName: '[&>td]:overflow-visible!',
@@ -820,9 +819,14 @@ function useExpandable(): QueryContext<DataTableNode>['expandable'] {
             },
             expandedRowRender: ({ result }) => {
                 const cell = getNameCell(result)
-                return cell ? (
+                if (!cell) {
+                    return null
+                }
+                return accountSceneEnabled ? (
+                    <AccountPinnedPropertiesExpansion accountId={cell.id} />
+                ) : (
                     <AccountNotebooksExpansion accountId={cell.id} externalId={cell.external_id ?? ''} />
-                ) : null
+                )
             },
         }
     }, [accountSceneEnabled, expandedAccountIds, toggleAccountExpanded])
@@ -868,22 +872,18 @@ const SKELETON_COLUMNS: LemonTableColumns<{ key: number }> = [
     })),
 ]
 
-function AccountsTableSkeleton({ expandable }: { expandable: boolean }): JSX.Element {
+function AccountsTableSkeleton(): JSX.Element {
     return (
         <LemonTable
             className="DataTable"
             columns={SKELETON_COLUMNS}
             dataSource={Array.from({ length: SKELETON_ROW_COUNT }, (_, key) => ({ key }))}
             rowKey="key"
-            expandable={
-                expandable
-                    ? {
-                          noIndent: true,
-                          expandedRowRender: () => null,
-                          rowExpandable: () => true,
-                      }
-                    : undefined
-            }
+            expandable={{
+                noIndent: true,
+                expandedRowRender: () => null,
+                rowExpandable: () => true,
+            }}
         />
     )
 }
@@ -897,30 +897,33 @@ export function AccountsTable(): JSX.Element {
             query: accountsQuerySource,
         } as DataNodeLogicProps)
     )
-    const { featureFlags } = useValues(featureFlagLogic)
-    const contextColumns = useContextColumns()
+    const {
+        tableRef,
+        columns: contextColumns,
+        hasAutoSizedColumns,
+    } = useAccountColumnAutoSizing(useContextColumns(), response, responseLoading)
     const expandable = useExpandable()
-    const accountSceneEnabled = !!featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_ACCOUNT_SCENE]
     const dataTableContext = useMemo<QueryContext<DataTableNode>>(
         () => ({
             columns: contextColumns,
             tableLayout: 'fixed',
-            tableStyle: Object.keys(columnWidths).length > 0 ? { width: 'max-content' } : undefined,
+            tableStyle:
+                hasAutoSizedColumns || Object.keys(columnWidths).length > 0 ? { width: 'max-content' } : undefined,
             expandable,
             dataTableRowsTransformer: sortedRowsTransformer,
             dataNodeLogicKey: ACCOUNTS_TABLE_DATA_NODE_KEY,
             emptyStateHeading: 'There are no matching accounts for this query',
             emptyStateDetail: 'Try adjusting the filters or refreshing',
         }),
-        [contextColumns, columnWidths, expandable, sortedRowsTransformer]
+        [contextColumns, columnWidths, hasAutoSizedColumns, expandable, sortedRowsTransformer]
     )
     // A null source means the query is still waiting on the relationship
     // definitions — same skeleton as the initial fetch, not an empty table.
     if ((responseLoading || !accountsQuerySource) && !response) {
-        return <AccountsTableSkeleton expandable={!accountSceneEnabled} />
+        return <AccountsTableSkeleton />
     }
     return (
-        <div className="@container">
+        <div ref={tableRef} className="@container">
             <DataTable
                 uniqueKey="customer-analytics-accounts-table"
                 query={accountsDataTableQuery}
