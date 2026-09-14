@@ -50,6 +50,7 @@ describe('CdpCyclotronWorkerBatchResolve', () => {
             // Account broadcasts convert long after the send, so the run has to carry the version
             // that sent or the conversion is credited to whatever is published by then.
             expect(state.flowVersion).toBe(4)
+            expect(state.customerTaskIdempotencyVersion).toBe(1)
             expect(state.variables).toEqual({ greeting: 'hi' })
             expect(invocation.parentRunId).toEqual('batch-job-1')
             expect(invocation.queue).toEqual('hogflow')
@@ -191,7 +192,7 @@ describe('CdpCyclotronWorkerBatchResolve', () => {
             }
         })
 
-        it('stamps the enqueue time into the state that gets persisted', async () => {
+        it('persists the enqueue time and customer task key version for new person runs', async () => {
             // The stamp is written onto the invocation by queueLifecycleRow, so it only lands in
             // cyclotron if that runs before the state is serialized. Out of order, the terminal
             // row written when the run wakes records the wake time and wins the argMax collapse.
@@ -200,7 +201,11 @@ describe('CdpCyclotronWorkerBatchResolve', () => {
             const { newJobs } = bulkCreateAndCheckIn.mock.calls[0][0]
             expect(newJobs).toHaveLength(2)
             for (const job of newJobs) {
-                expect(job.state.toString()).toContain('firstScheduledAt')
+                expect(parseJSON(job.state.toString()).state).toMatchObject({
+                    firstScheduledAt: expect.any(String),
+                    actionStepCount: 0,
+                    customerTaskIdempotencyVersion: 1,
+                })
             }
         })
 
