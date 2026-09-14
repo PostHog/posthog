@@ -24,7 +24,7 @@ export function NodeDetailTestsTabLabel({ subjectId }: { subjectId: string }): J
 
     return (
         <span className="flex items-center gap-1">
-            Tests
+            Data quality
             {tone && (
                 <Tooltip title={explanation}>
                     <IconWarning className={tone} />

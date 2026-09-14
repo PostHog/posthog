@@ -2,6 +2,7 @@
 
 from urllib.parse import urlparse
 
+from django.conf import settings
 from django.core.files.uploadedfile import UploadedFile
 from django.utils import timezone
 
@@ -104,6 +105,16 @@ class KnowledgeSourceSerializer(serializers.ModelSerializer):
             "embeddings never run and search stays keyword-only. Only meaningful while `status` is `ready`."
         ),
     )
+    learned_from_ticket_number = serializers.IntegerField(
+        source="_learned_ticket_number",
+        read_only=True,
+        allow_null=True,
+        default=None,
+        help_text="Support ticket number this learned source came from. Null for sources you added yourself.",
+    )
+    learned_from_ticket_url = serializers.SerializerMethodField(
+        help_text="App URL of the originating support ticket. Null for sources you added yourself.",
+    )
 
     class Meta:
         model = KnowledgeSource
@@ -127,6 +138,8 @@ class KnowledgeSourceSerializer(serializers.ModelSerializer):
             "next_refresh_at",
             "has_unsafe_documents",
             "embedding_status",
+            "learned_from_ticket_number",
+            "learned_from_ticket_url",
             "crawl_mode",
             "crawl_config",
             "original_filename",
@@ -150,6 +163,15 @@ class KnowledgeSourceSerializer(serializers.ModelSerializer):
     def get_has_unsafe_documents(self, obj: KnowledgeSource) -> bool:
         # Annotated by the logic layer to avoid an N+1 in list responses.
         return bool(getattr(obj, "_has_unsafe_documents", False))
+
+    @extend_schema_field(serializers.URLField(allow_null=True))
+    def get_learned_from_ticket_url(self, obj: KnowledgeSource) -> str | None:
+        ticket_number = getattr(obj, "_learned_ticket_number", None)
+        if ticket_number is None:
+            return None
+        source_team_id = getattr(obj, "_learned_source_team_id", None)
+        team_id = source_team_id if source_team_id is not None else obj.team_id
+        return f"{settings.SITE_URL}/project/{team_id}/support/tickets/{ticket_number}"
 
     @extend_schema_field(serializers.ChoiceField(choices=EmbeddingStatus.choices))
     def get_embedding_status(self, obj: KnowledgeSource) -> str:

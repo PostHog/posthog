@@ -36,6 +36,7 @@ from posthog.settings.base_variables import DEBUG
 from posthog.settings.data_stores import CLICKHOUSE_AUX_CLUSTER, CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
 
 from products.analytics_platform.backend.models import PreaggregationJob
+from products.experiments.backend.hogql_queries.types import PrecomputeSkipReason
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 
 logger = logging.getLogger(__name__)
@@ -770,13 +771,7 @@ class DebugCHQueries(viewsets.ViewSet):
     # Skip reasons the runner tags on reads that never attempted precompute. An empty reason on a
     # direct-scan read means precompute WAS attempted but the data wasn't ready (build failed/slow) —
     # that read paid for the build AND the full events scan, so it's the bucket to watch.
-    _PRECOMPUTE_SKIP_REASONS = (
-        "team_disabled",
-        "min_runtime",
-        "override_direct",
-        "data_warehouse",
-        "group_aggregation",
-    )
+    _PRECOMPUTE_SKIP_REASONS = tuple(reason.value for reason in PrecomputeSkipReason)
 
     @action(detail=False, methods=["GET"], url_path="precompute_overview", required_scopes=["query_performance:read"])
     def precompute_overview(self, request):
@@ -805,7 +800,7 @@ class DebugCHQueries(viewsets.ViewSet):
         # Reads query_log_archive (not system.query_log, which retains only hours): log_comment is a
         # typed JSON column there, so tags are dot-accessed; ifNull(toString(...), '') preserves the
         # ''-when-missing semantics JSONExtractString gave us on the raw column.
-        # nosemgrep: clickhouse-fstring-param-audit - skip_reason_counts is built from a hardcoded tuple
+        # nosemgrep: clickhouse-fstring-param-audit - skip_reason_counts is built from the PrecomputeSkipReason enum
         reads_sql = f"""
             SELECT
                 coalesce(

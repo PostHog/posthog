@@ -391,7 +391,7 @@ export interface mcpDashboardOverviewLogicValues {
     filterTestAccountsOverride: boolean | null
     harnessRows: HarnessRow[]
     harnessRowsLoading: boolean
-    hasKnownModelData: boolean
+    hasModelData: boolean
     intentClusterCount: KPIMetric
     interval: IntervalType
     kpiIncompleteTail: boolean
@@ -612,7 +612,7 @@ export interface mcpDashboardOverviewLogicMeta {
         dailyActivity: (activityRows: ActivityRow[], bucketKeys: string[]) => DailyActivity
         toolDailySeries: (toolDailyRows: ToolDailyRow[], bucketKeys: string[]) => ToolDailySeries
         notableSessions: (sessionRows: SessionRow[]) => NotableSession[]
-        hasKnownModelData: (modelRows: ModelRow[]) => boolean
+        hasModelData: (modelRows: ModelRow[]) => boolean
         intentClusterCount: (totalClusterCount: number) => KPIMetric
     }
 }
@@ -905,9 +905,9 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
             (s) => [s.sessionRows],
             (sessionRows: SessionRow[]): NotableSession[] => pickNotableSessions(sessionRows),
         ],
-        hasKnownModelData: [
+        hasModelData: [
             (s) => [s.modelRows],
-            (modelRows: ModelRow[]): boolean => modelRows.some((row) => row.model !== 'Unknown' && row.total_calls > 0),
+            (modelRows: ModelRow[]): boolean => modelRows.some((row) => row.total_calls > 0),
         ],
         intentClusterCount: [
             // The snapshot only stores the top clusters by call volume — report

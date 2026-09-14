@@ -448,6 +448,7 @@ class UpdateRepoRequestInput:
 
     baseline_file_paths: dict[str, str] | None = None
     enable_pr_comments: bool | None = None
+    debt_digest_enabled: bool | None = None
 
 
 @dataclass(frozen=True)
@@ -457,6 +458,7 @@ class UpdateRepoInput:
     repo_id: UUID
     baseline_file_paths: dict[str, str] | None = None
     enable_pr_comments: bool | None = None
+    debt_digest_enabled: bool | None = None
 
 
 @dataclass(frozen=True)
@@ -496,6 +498,7 @@ class Repo:
     repo_full_name: str
     baseline_file_paths: dict[str, str]
     enable_pr_comments: bool
+    debt_digest_enabled: bool
     created_at: datetime
 
 
