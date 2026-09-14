@@ -113,6 +113,7 @@ from posthog.hogql.database.schema.logs import (
 from posthog.hogql.database.schema.marketing_conversions_preaggregated import MarketingConversionsPreaggregatedTable
 from posthog.hogql.database.schema.marketing_costs_preaggregated import MarketingCostsPreaggregatedTable
 from posthog.hogql.database.schema.marketing_costs_precomputed import MarketingCostsPrecomputedTable
+from posthog.hogql.database.schema.marketing_sessions_preaggregated import MarketingSessionsPreaggregatedTable
 from posthog.hogql.database.schema.marketing_touchpoints_preaggregated import MarketingTouchpointsPreaggregatedTable
 from posthog.hogql.database.schema.metrics import (
     MetricAttributesTable,
@@ -494,6 +495,10 @@ def _construct_database_root_node(*, include_posthog_tables: bool) -> TableNode:
                     ),
                     "web_overview_preaggregated": TableNode(
                         name="web_overview_preaggregated", table=WebOverviewPreaggregatedTable()
+                    ),
+                    "marketing_sessions_dimensional_preaggregated": TableNode(
+                        name="marketing_sessions_dimensional_preaggregated",
+                        table=MarketingSessionsPreaggregatedTable(),
                     ),
                     "marketing_touchpoints_preaggregated": TableNode(
                         name="marketing_touchpoints_preaggregated",
