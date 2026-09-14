@@ -485,16 +485,7 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore
                 self.save(update_fields=["current_team"])
         return self.current_team
 
-    def get_github_login(self) -> str | None:
-        """Resolve this user's GitHub login.
-
-        Precedence:
-        1. `UserIntegration` (kind=github) — user's own GitHub integration
-        2. `UserSocialAuth` (provider=github) — OAuth login linkage when no GitHub user integration exists
-        3. Team-level `Integration` (kind=github) `connecting_user_github_login` — identity stored on the
-           team's GitHub integration (e.g. captured at install). Still a supported integration path,
-           lowest precedence as an identity fallback when (1)/(2) do not yield a GitHub username.
-        """
+    def _get_github_login_from_user_integration(self) -> str | None:
         from posthog.models.user_integration import UserGitHubIntegration
 
         prefetched_user_integrations = getattr(self, "_prefetched_github_user_integrations", None)
@@ -508,6 +499,9 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore
             if login:
                 return login
 
+        return None
+
+    def _get_github_login_from_social_auth(self) -> str | None:
         for sa in self.social_auth.all():
             if sa.provider != "github":
                 continue
@@ -519,6 +513,9 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore
                 if login:
                     return str(login)
 
+        return None
+
+    def _get_github_login_from_team_integration(self) -> str | None:
         prefetched_integrations = getattr(self, "_prefetched_github_integrations", None)
         team_github_integrations = (
             prefetched_integrations
@@ -534,6 +531,13 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore
                     return str(login)
 
         return None
+
+    def get_github_login(self) -> str | None:
+        return (
+            self._get_github_login_from_user_integration()
+            or self._get_github_login_from_social_auth()
+            or self._get_github_login_from_team_integration()
+        )
 
     def join(
         self,
