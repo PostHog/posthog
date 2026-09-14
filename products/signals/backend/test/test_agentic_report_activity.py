@@ -47,6 +47,7 @@ from products.signals.backend.temporal.agentic.report import (
 )
 from products.signals.backend.temporal.agentic.select_repository import (
     SelectRepositoryInput,
+    repo_selection_pending_reason,
     select_repository_activity,
 )
 from products.signals.backend.temporal.summary import (
@@ -388,31 +389,61 @@ async def test_select_repository_activity_retries_transient_db_drop(monkeypatch,
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
-async def test_select_repository_activity_no_repo(monkeypatch, ateam):
+@pytest.mark.parametrize(
+    "sandbox_user_id,selection_cause,expected_cause,expected_result,expected_reason",
+    [
+        # No sandbox user: the activity's own exit, decided before selection runs.
+        (None, None, "no_integration", "no_repo_no_integration", "repo_selection_required_no_integration"),
+        # Every other exit reports the cause the layer that produced it stamped. The activity must
+        # pass it through: relabelling them all `no_match` would put four setup and operational
+        # failures in the one bucket that measures selection quality.
+        (1, "no_match", "no_match", "no_repo_no_match", "repo_selection_required_no_match"),
+        (1, "no_integration", "no_integration", "no_repo_no_integration", "repo_selection_required_no_integration"),
+        (1, "no_eligible", "no_eligible", "no_repo_no_eligible", "repo_selection_required_no_eligible"),
+        (1, "pick_rejected", "pick_rejected", "no_repo_pick_rejected", "repo_selection_required_pick_rejected"),
+        # A result from before the cause existed (replayed payload) keeps the unsuffixed values.
+        (1, None, None, "no_repo", "repo_selection_required"),
+    ],
+)
+async def test_select_repository_activity_no_repo(
+    monkeypatch, ateam, sandbox_user_id, selection_cause, expected_cause, expected_result, expected_reason
+):
+    # Every exit ends the report in `pending_input`, so the completion event and the pending reason
+    # must name which one ran — a shared value makes a move in any of them invisible.
     monkeypatch.setattr(
         "products.signals.backend.temporal.agentic.select_repository.persisted_repo_selection",
         lambda report_id: None,
     )
     monkeypatch.setattr(
         "products.signals.backend.temporal.agentic.select_repository._resolve_sandbox_user_id",
-        lambda team_id: 1,
+        lambda team_id: sandbox_user_id,
     )
 
     async def fake_select_repo(*args, **kwargs):
-        return RepoSelectionResult(repository=None, reason="No GitHub repositories connected to this team.")
+        return RepoSelectionResult(repository=None, reason="nothing to select", no_repo_cause=selection_cause)
 
     monkeypatch.setattr(
         "products.signals.backend.temporal.agentic.select_repository.select_repository_for_report",
         fake_select_repo,
     )
 
-    with patch("products.signals.backend.temporal.agentic.select_repository.Heartbeater"):
+    with (
+        patch("products.signals.backend.temporal.agentic.select_repository.Heartbeater"),
+        patch("products.signals.backend.temporal.agentic.select_repository.posthoganalytics.capture") as mock_capture,
+    ):
         result = await select_repository_activity(
             SelectRepositoryInput(team_id=ateam.id, report_id="test-report-id", signals=_build_signals())
         )
 
     assert result.repository is None
-    assert "No GitHub repositories" in result.reason
+    assert result.no_repo_cause == expected_cause
+    assert repo_selection_pending_reason(result.no_repo_cause) == expected_reason
+    completed = [
+        call.kwargs["properties"]["result"]
+        for call in mock_capture.call_args_list
+        if call.kwargs["event"] == "signals_repo_research_completed"
+    ]
+    assert completed == [expected_result]
 
 
 @pytest.mark.asyncio
@@ -547,6 +578,7 @@ async def test_run_agentic_report_activity_persists_artefacts(monkeypatch, ateam
             "repository": "posthog/posthog",
             "reason": "Single repository connected: posthog/posthog",
             "task_id": None,
+            "no_repo_cause": None,
             "autostart_eligible": True,
         }
 

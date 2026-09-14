@@ -6,12 +6,19 @@ from unittest.mock import AsyncMock, patch
 from django.utils import timezone
 
 from asgiref.sync import async_to_sync
+from parameterized import parameterized
 
 from products.signals.backend.agent_runtime import DEFAULT_RUNTIME
 from products.signals.backend.artefact_schemas import Dismissal
 from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact
 from products.signals.backend.repo_corrections import wrong_repo_corrections_block
 from products.signals.backend.report_generation import select_repo
+from products.tasks.backend.facade.repo_selection import (
+    NO_REPO_CAUSE_NO_ELIGIBLE,
+    NO_REPO_CAUSE_PICK_REJECTED,
+    RepoSelectionRejectedError,
+    RepoSelectionUnavailableError,
+)
 from products.tasks.backend.facade.repo_selection_types import RepoSelectionResult
 
 
@@ -122,3 +129,32 @@ class TestSelectRepositoryPassesCorrections(BaseTest):
         block.assert_called_once_with(self.team.id)
         assert select.await_args is not None
         assert select.await_args.kwargs["past_corrections"] == "- entry"
+
+
+class TestSelectRepositoryNoRepoCause(BaseTest):
+    @parameterized.expand(
+        [
+            (
+                "pick_rejected",
+                RepoSelectionRejectedError("acme/not-a-candidate", "looked right"),
+                NO_REPO_CAUSE_PICK_REJECTED,
+            ),
+            (
+                "no_eligible",
+                RepoSelectionUnavailableError("No connected GitHub repositories are eligible."),
+                NO_REPO_CAUSE_NO_ELIGIBLE,
+            ),
+        ]
+    )
+    def test_collapsed_error_carries_its_own_cause(self, _name, error, expected_cause):
+        # Signals has no picker fallback, so both errors become a null result. Telemetry still has
+        # to tell them apart from an agent run that matched nothing.
+        with (
+            patch.object(select_repo, "wrong_repo_corrections_block", return_value=None),
+            patch.object(select_repo, "select_repository", new=AsyncMock(side_effect=error)),
+            patch.object(select_repo, "resolve_agent_runtime", return_value=DEFAULT_RUNTIME),
+        ):
+            result = async_to_sync(select_repo.select_repository_for_team)(self.team.id, self.user.id, "context")
+
+        assert result.repository is None
+        assert result.no_repo_cause == expected_cause

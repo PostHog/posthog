@@ -16,7 +16,11 @@ from posthog.models.team.team import Team
 from posthog.models.user_integration import UserGitHubIntegration, UserIntegration
 from posthog.sync import database_sync_to_async
 
-from products.tasks.backend.logic.repo_selection.types import RepoSelectionResult
+from products.tasks.backend.logic.repo_selection.types import (
+    NO_REPO_CAUSE_NO_INTEGRATION,
+    NO_REPO_CAUSE_NO_MATCH,
+    RepoSelectionResult,
+)
 from products.tasks.backend.logic.services.custom_prompt_internals import CustomPromptSandboxContext
 from products.tasks.backend.logic.services.custom_prompt_multi_turn_runner import MultiTurnSession
 from products.tasks.backend.logic.services.sandbox import SandboxResources
@@ -289,6 +293,8 @@ def _build_repo_selection_prompt(
     # So is `autostart_eligible`: it records how the repo was chosen, which is the caller's fact,
     # not the model's. Offering it would let untrusted context talk the model into vetoing autostart.
     schema.get("properties", {}).pop("autostart_eligible", None)
+    # And `no_repo_cause`: the caller decides which of its own exits produced a null repository.
+    schema.get("properties", {}).pop("no_repo_cause", None)
     schema_json = json.dumps(schema, indent=2)
     repo_list = "\n".join(f"{i + 1}. `{repo}`" for i, repo in enumerate(candidate_repos))
 
@@ -526,6 +532,7 @@ async def select_repository(
                 if reconnect_required
                 else "No GitHub repositories connected to this team."
             ),
+            no_repo_cause=NO_REPO_CAUSE_NO_INTEGRATION,
         )
     if candidate_repos is None:
         candidate_repos = await database_sync_to_async(_list_candidate_repos, thread_sensitive=False)(github, team_id)
@@ -533,6 +540,7 @@ async def select_repository(
         return RepoSelectionResult(
             repository=None,
             reason="No GitHub repositories connected to this team.",
+            no_repo_cause=NO_REPO_CAUSE_NO_INTEGRATION,
         )
 
     # Hydrate the heavy cache before running the agent. Single-flighted per integration —
@@ -610,6 +618,9 @@ async def select_repository(
                 result.repository,
             )
             raise RepoSelectionRejectedError(result.repository, result.reason)
+        # Only a null pick that survives to here means the agent ran and matched nothing. Set it
+        # over anything the model emitted, like `task_id` above.
+        result.no_repo_cause = NO_REPO_CAUSE_NO_MATCH if result.repository is None else None
         logger.info(
             "repo selection completed",
             extra={"repository": result.repository, "reason": result.reason, "candidates": len(candidate_repos)},

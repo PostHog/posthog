@@ -181,12 +181,14 @@ class _Recorder:
         has_assigned_signals: bool = True,
         research_choice: ActionabilityChoice = ActionabilityChoice.NOT_ACTIONABLE,
         research_metrics: list[dict[str, object]] | None = None,
+        repo_selection: RepoSelectionResult | None = None,
     ) -> None:
         self.gate_answers = gate_answers or {}
         self.fetch_results = fetch_results or [[_signal_data()]]
         self.has_assigned_signals = has_assigned_signals
         self.research_choice = research_choice
         self.research_metrics = research_metrics
+        self.repo_selection = repo_selection or RepoSelectionResult(repository="owner/repo", reason="selected")
         self.gate_checks: list[str] = []
         self.fetches = 0
         self.assigned_signal_checks = 0
@@ -261,7 +263,7 @@ async def _run_summary_workflow(recorder: _Recorder) -> None:
     @activity.defn(name="select_repository_activity")
     async def fake_select_repo(input: SelectRepositoryInput) -> RepoSelectionResult:
         recorder.repo_selections += 1
-        return RepoSelectionResult(repository="owner/repo", reason="selected")
+        return recorder.repo_selection
 
     @activity.defn(name="run_agentic_report_activity")
     async def fake_research(input: RunAgenticReportInput) -> RunAgenticReportOutput:
@@ -391,6 +393,26 @@ async def test_metric_payload_reaches_the_report_transition(choice, target):
     inputs = recorder.pending_inputs if target == "pending" else recorder.ready_inputs
     assert len(inputs) == 1
     assert inputs[0].metrics == metrics
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "no_repo_cause,expected_reason",
+    [
+        ("no_integration", "repo_selection_required_no_integration"),
+        ("no_match", "repo_selection_required_no_match"),
+        (None, "repo_selection_required"),
+    ],
+)
+async def test_no_repository_carries_the_cause_into_the_pending_reason(no_repo_cause, expected_reason):
+    recorder = _Recorder(
+        repo_selection=RepoSelectionResult(repository=None, reason="nothing matched", no_repo_cause=no_repo_cause)
+    )
+
+    await _run_summary_workflow(recorder)
+
+    assert recorder.researches == 0
+    assert [input.pending_reason for input in recorder.pending_inputs] == [expected_reason]
 
 
 # ---------------------------------------------------------------------------
