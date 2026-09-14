@@ -1,1 +1,1 @@
-0002_alter_mcpmeasuredstats_options_and_more
+0003_mcp_registry_server_lookup_indexes
