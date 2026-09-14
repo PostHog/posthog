@@ -270,6 +270,7 @@
             "type": null,
             "intents": ["web_analytics"]
         },
+        { "path": "Wizard", "category": "Tools", "iconType": null, "type": "wizard", "intents": [] },
         {
             "path": "Workflows",
             "category": "Tools",
@@ -366,7 +367,6 @@
         },
         { "path": "SQL variables", "category": "Schema", "iconType": null, "type": null, "intents": [] },
         { "path": "Annotations", "category": "Metadata", "iconType": "annotation", "type": null, "intents": [] },
-        { "path": "Comments", "category": "Metadata", "iconType": "comment", "type": null, "intents": [] },
         { "path": "Revenue definitions", "category": "Schema", "iconType": null, "type": null, "intents": [] }
     ]
 }

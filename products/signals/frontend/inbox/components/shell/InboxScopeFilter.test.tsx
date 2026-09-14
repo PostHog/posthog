@@ -1,3 +1,5 @@
+import { MOCK_DEFAULT_USER } from 'lib/api.mock'
+
 import '@testing-library/jest-dom'
 
 import { cleanup, render, screen, waitFor } from '@testing-library/react'
@@ -7,11 +9,23 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { inboxFiltersLogic } from '../../logics/inboxFiltersLogic'
+import type { InboxPerson } from './InboxPeoplePicker'
 import { InboxScopeFilter } from './InboxScopeFilter'
 
 jest.mock('posthog-js')
-// The people picker isn't needed to exercise the trigger label, and it pulls in a popover + avatars.
-jest.mock('./InboxPeoplePicker', () => ({ InboxPeoplePicker: () => null }))
+// The real picker pulls in a popover and avatars. This stand-in lists the roster rows as plain text,
+// which is all these tests read from it.
+jest.mock('./InboxPeoplePicker', () => ({
+    InboxPeoplePicker: ({ people }: { people: InboxPerson[] }) => (
+        <ul>
+            {people.map((person) => (
+                <li key={person.uuid}>
+                    {person.name} {person.trailing}
+                </li>
+            ))}
+        </ul>
+    ),
+}))
 
 describe('InboxScopeFilter', () => {
     beforeEach(() => {
@@ -21,6 +35,7 @@ describe('InboxScopeFilter', () => {
             get: {
                 '/api/projects/:team_id/signals/reports/available_reviewers': {
                     'uuid-ada': { name: 'Ada', email: 'ada@example.com' },
+                    [MOCK_DEFAULT_USER.uuid]: { name: MOCK_DEFAULT_USER.first_name, email: MOCK_DEFAULT_USER.email },
                 },
             },
         })
@@ -46,10 +61,20 @@ describe('InboxScopeFilter', () => {
         render(<InboxScopeFilter />)
 
         inboxFiltersLogic.actions.setScope('teammate:uuid-ada')
-        await waitFor(() => expect(screen.getByText('Ada')).toBeInTheDocument())
+        await waitFor(() => expect(screen.getByLabelText('Report scope: Ada')).toBeInTheDocument())
 
         inboxFiltersLogic.actions.setScope('teammate:uuid-off-roster')
-        await waitFor(() => expect(screen.getByText('Teammate')).toBeInTheDocument())
-        expect(screen.queryByText('Ada')).toBeNull()
+        await waitFor(() => expect(screen.getByLabelText('Report scope: Teammate')).toBeInTheDocument())
+        expect(screen.queryByLabelText('Report scope: Ada')).toBeNull()
+    })
+
+    // "For you" resolves to whoever opens the link, so a URL that opens to *your* reports for a
+    // teammate can only come from your own roster row. Hiding that row as a duplicate of "For you"
+    // makes your view the one scope nobody can share.
+    it('keeps the signed-in user in the roster so their scope can be shared by URL', async () => {
+        inboxFiltersLogic.mount()
+        render(<InboxScopeFilter />)
+
+        await waitFor(() => expect(screen.getByText(`${MOCK_DEFAULT_USER.first_name} (you)`)).toBeInTheDocument())
     })
 })

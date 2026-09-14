@@ -1,51 +1,92 @@
 import clsx from 'clsx'
 import { useCallback } from 'react'
 
-import { TimeSeriesBarChart, type PointClickData } from '@posthog/quill-charts'
+import {
+    BarChart,
+    ReferenceLines,
+    TimeSeriesBarChart,
+    ValueLabels,
+    type PointClickData,
+    type ValueLabelContext,
+} from '@posthog/quill-charts'
 
 import { AnnotationsLayer } from 'lib/components/AnnotationsOverlay/AnnotationsLayer'
+
+import { ChartDisplayType } from '~/types'
 
 import { makeChartErrorHandler } from 'products/product_analytics/frontend/insights/trends/shared/chartErrorHandler'
 
 import { type SqlChartProps } from './SqlChart'
-import { type SqlLineSeriesMeta, buildBarChartConfig } from './sqlLineGraphAdapter'
+import {
+    type SqlBarGraphConfig,
+    type SqlLineSeriesMeta,
+    buildBarChartConfig,
+    buildBarValueChartConfig,
+    formatSqlSeriesValue,
+} from './sqlLineGraphAdapter'
 import { useSqlChartModel } from './useSqlChartModel'
 
 const handleChartError = makeChartErrorHandler('sql-bar-chart')
 
 export const SqlBarGraph = (props: SqlChartProps): JSX.Element => {
     const { onPointClick: onPointClickProp } = props
-    const model = useSqlChartModel(props, buildBarChartConfig)
+    const isHorizontal = props.visualizationType === ChartDisplayType.ActionsBarValue
+    const model = useSqlChartModel<SqlBarGraphConfig>(
+        props,
+        isHorizontal ? buildBarValueChartConfig : buildBarChartConfig
+    )
 
     const onPointClick = useCallback(
         (data: PointClickData<SqlLineSeriesMeta>) => {
-            onPointClickProp?.(data.series.key, data.dataIndex, data.label)
+            onPointClickProp?.(data.series.key, data.dataIndex, String(props.xData?.data[data.dataIndex] ?? data.label))
         },
-        [onPointClickProp]
+        [onPointClickProp, props.xData]
+    )
+
+    const series = model?.series
+
+    const valueLabelFormatter = useCallback(
+        (_value: number, seriesIndex: number, _dataIndex: number, context: ValueLabelContext): string =>
+            formatSqlSeriesValue(context.rawValue, series?.[seriesIndex]?.meta?.settings),
+        [series]
     )
 
     return (
         <div
-            className={clsx(
-                props.className,
-                'rounded bg-surface-primary w-full grow relative overflow-hidden flex flex-col',
-                { 'h-[60vh]': props.presetChartHeight, 'h-full': !props.presetChartHeight }
-            )}
+            className={clsx(props.className, 'rounded bg-surface-primary w-full grow relative flex flex-col', {
+                'h-[60vh]': props.presetChartHeight,
+                'h-full': !props.presetChartHeight,
+                'overflow-y-auto': isHorizontal && !props.embedded,
+                'overflow-hidden': !isHorizontal || props.embedded,
+            })}
         >
-            {model && (
-                <TimeSeriesBarChart
-                    series={model.series}
-                    labels={model.labels}
-                    theme={model.theme}
-                    config={model.config}
-                    onPointClick={onPointClickProp ? onPointClick : undefined}
-                    onError={handleChartError}
-                >
-                    {props.showAnnotations && props.insightNumericId && (
-                        <AnnotationsLayer insightNumericId={props.insightNumericId} dates={model.labels} />
-                    )}
-                </TimeSeriesBarChart>
-            )}
+            {model &&
+                (isHorizontal ? (
+                    <BarChart
+                        series={model.series}
+                        labels={model.labels}
+                        theme={model.theme}
+                        config={model.config}
+                        onPointClick={onPointClickProp ? onPointClick : undefined}
+                        onError={handleChartError}
+                    >
+                        <ReferenceLines lines={model.config.referenceLines ?? []} />
+                        {props.chartSettings.showValuesOnSeries && <ValueLabels valueFormatter={valueLabelFormatter} />}
+                    </BarChart>
+                ) : (
+                    <TimeSeriesBarChart
+                        series={model.series}
+                        labels={model.labels}
+                        theme={model.theme}
+                        config={model.config}
+                        onPointClick={onPointClickProp ? onPointClick : undefined}
+                        onError={handleChartError}
+                    >
+                        {props.showAnnotations && props.insightNumericId && (
+                            <AnnotationsLayer insightNumericId={props.insightNumericId} dates={model.labels} />
+                        )}
+                    </TimeSeriesBarChart>
+                ))}
         </div>
     )
 }

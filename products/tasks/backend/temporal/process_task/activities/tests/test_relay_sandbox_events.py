@@ -292,6 +292,7 @@ class TestRelaySandboxEventsCancellation:
                 *,
                 presence_gated: bool = False,
                 origin_product: str | None = None,
+                thin_tail: bool = False,
             ) -> None:
                 self.stream_key = stream_key
 
@@ -344,11 +345,11 @@ class TestRelaySandboxEventsCancellation:
 
 class TestRelaySandboxEventsPresenceGating:
     @pytest.mark.parametrize(
-        "run_state,expected_presence_gated",
+        "run_state,expected_presence_gated,expected_thin_tail",
         [
-            pytest.param({"stream_presence_gated": True}, True, id="run_pinned_gated"),
-            pytest.param({"stream_presence_gated": False}, False, id="run_pinned_ungated"),
-            pytest.param({}, False, id="legacy_run_without_pin"),
+            pytest.param({"stream_presence_gated": True, "stream_thin_tail": True}, True, True, id="run_pinned_gated"),
+            pytest.param({"stream_presence_gated": False}, False, False, id="run_pinned_ungated"),
+            pytest.param({}, False, False, id="legacy_run_without_pin"),
         ],
     )
     async def test_stream_presence_gating_follows_pinned_run_state(
@@ -356,8 +357,9 @@ class TestRelaySandboxEventsPresenceGating:
         monkeypatch: pytest.MonkeyPatch,
         run_state: dict,
         expected_presence_gated: bool,
+        expected_thin_tail: bool,
     ) -> None:
-        constructed: list[bool] = []
+        constructed: list[tuple[bool, bool]] = []
 
         class StubTaskRunRedisStream:
             def __init__(
@@ -367,8 +369,9 @@ class TestRelaySandboxEventsPresenceGating:
                 *,
                 presence_gated: bool = False,
                 origin_product: str | None = None,
+                thin_tail: bool = False,
             ) -> None:
-                constructed.append(presence_gated)
+                constructed.append((presence_gated, thin_tail))
 
             async def initialize(self) -> None:
                 return None
@@ -413,7 +416,7 @@ class TestRelaySandboxEventsPresenceGating:
             )
         )
 
-        assert constructed == [expected_presence_gated]
+        assert constructed == [(expected_presence_gated, expected_thin_tail)]
 
 
 class TestRelaySandboxEventsMissingActor:
@@ -435,6 +438,7 @@ class TestRelaySandboxEventsMissingActor:
                 *,
                 presence_gated: bool = False,
                 origin_product: str | None = None,
+                thin_tail: bool = False,
             ) -> None:
                 self.stream_key = stream_key
 
@@ -1042,6 +1046,7 @@ class TestRelaySandboxEventsErrorHandling:
                 *,
                 presence_gated: bool = False,
                 origin_product: str | None = None,
+                thin_tail: bool = False,
             ) -> None:
                 self.stream_key = stream_key
 

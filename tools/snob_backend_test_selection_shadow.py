@@ -45,6 +45,7 @@ import warnings
 import subprocess
 from dataclasses import asdict, dataclass, field
 from pathlib import Path, PurePosixPath
+from typing import Any
 
 REPO_ROOT = Path(__file__).parent.parent.resolve()
 DURATIONS_PATH = REPO_ROOT / ".test_durations"
@@ -566,13 +567,13 @@ def ast_select_tests(changed_files: list[str], features_by_path: dict[str, TestF
     )
 
 
-def snob_select_tests(changed_files: list[str]) -> dict[str, object]:
+def snob_select_tests(changed_files: list[str]) -> dict[str, Any]:
     changed_py_files = [path for path in changed_files if path.endswith(".py")]
     if not changed_py_files:
         return {"status": "ok", "tests": [], "count": 0}
 
     try:
-        import snob_lib
+        import snob_lib  # ty: ignore[unresolved-import]
     except ImportError as exc:
         return {"status": "error", "error": f"could not import snob_lib: {exc}", "tests": [], "count": 0}
 
@@ -607,7 +608,6 @@ def estimate_duration(test_files: list[str], durations: dict[str, float]) -> flo
 _TEMPORAL_PREFIXES = ("posthog/temporal/", "products/signals/backend/emission/")
 _POE_PREFIXES = (
     "posthog/clickhouse/",
-    "posthog/queries/",
     "ee/clickhouse/",
 )
 _CORE_IGNORED_PREFIXES = ("posthog/dags/", "common/hogvm/python/test/", "posthog/test/repo_invariants/")
@@ -677,7 +677,7 @@ def narrowable_baseline_seconds(durations: dict[str, float]) -> float:
     return total
 
 
-def build_result(base_ref: str) -> dict[str, object]:
+def build_result(base_ref: str) -> dict[str, Any]:
     os.chdir(REPO_ROOT)
     changed_files = changed_files_from_git(base_ref)
     features_by_path = classify_tests()
@@ -720,7 +720,7 @@ def build_result(base_ref: str) -> dict[str, object]:
     }
 
 
-def format_summary(result: dict[str, object]) -> str:
+def format_summary(result: dict[str, Any]) -> str:
     snob = result["snob"]
     ast_data = result["ast"]
     combined = result["combined"]

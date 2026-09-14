@@ -54,6 +54,7 @@ import {
  */
 const STORE_BATCH_BUDGET_MS = 50_000
 const IMAGE_FETCH_KAFKA_QUEUE_BUDGET_KBYTES = 102_400
+const IMAGE_FETCH_MIN_CONSUMER_QUEUE_KBYTES = 25_600
 
 /** Matches MAX_URL_LEN in the crate, which is what the collector applied to the first candidate. */
 const MAX_REDIRECT_URL_LENGTH = 2048
@@ -162,6 +163,8 @@ export function buildImageFetchConsumerConfigs(
         autoCommit: true,
         autoOffsetStore: true,
         fetchBatchSize: config.SESSION_RECORDING_ML_IMAGE_FETCH_BATCH_SIZE,
+        maxBackgroundTasks: 2,
+        backgroundTaskTimeoutMs: 240_000,
     }))
 }
 
@@ -174,15 +177,26 @@ export function buildImageFetchConsumerOverrides(
     return {
         'fetch.message.max.bytes': maximumRecordBytes,
         'max.partition.fetch.bytes': maximumRecordBytes,
-        'queued.max.messages.kbytes': Math.floor(IMAGE_FETCH_KAFKA_QUEUE_BUDGET_KBYTES / consumerCount),
+        'queued.max.messages.kbytes': Math.max(
+            IMAGE_FETCH_MIN_CONSUMER_QUEUE_KBYTES,
+            Math.floor(IMAGE_FETCH_KAFKA_QUEUE_BUDGET_KBYTES / consumerCount)
+        ),
     }
+}
+
+export async function shutdownImageFetchConsumers(
+    consumers: Pick<KafkaConsumerV2, 'stopConsuming' | 'disconnect'>[],
+    batchJoiner: ImageFetchBatchJoiner
+): Promise<void> {
+    await Promise.allSettled(consumers.map((consumer) => consumer.stopConsuming()))
+    await batchJoiner.waitForProcessing()
+    await Promise.allSettled(consumers.map((consumer) => consumer.disconnect()))
 }
 
 /**
  * The image fetch lane.
  *
- * It has its own deployment because it waits on network IO and wants many small pods, where the
- * scrub sidecar it feeds uses CPU and ML models and wants few large ones.
+ * It scales separately because fetching waits on network IO while scrubbing needs CPU and ML models.
  */
 export class IngestionSessionReplayMlImageFetchServer implements NodeServer {
     readonly lifecycle: ServerLifecycle
@@ -285,9 +299,7 @@ export class IngestionSessionReplayMlImageFetchServer implements NodeServer {
 
         this.lifecycle.services.push({
             id: 'session-replay-ml-image-fetch',
-            onShutdown: async () => {
-                await Promise.all(consumers.map((consumer) => consumer.disconnect()))
-            },
+            onShutdown: () => shutdownImageFetchConsumers(consumers, batchJoiner),
             healthcheck: () => {
                 for (const consumer of consumers) {
                     const health = consumer.isHealthy()

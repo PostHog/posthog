@@ -1,10 +1,10 @@
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.models import TableNode
 from posthog.hogql.database.schema.numbers import NumbersTable
-from posthog.hogql.database.trino_unnest_table import TrinoUnnestTable
+from posthog.hogql.database.trino_unnest_table import TRINO_UNNEST_TABLE_NAME
 from posthog.hogql.transforms.trino.any_join import lower_trino_any_joins
 from posthog.hogql.transforms.trino.errors import TrinoLoweringError
+from posthog.hogql.transforms.trino.expressions import expression_key, positional_index
 from posthog.hogql.transforms.trino.query_wrappers import lower_trino_query_wrappers
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor
 
@@ -106,27 +106,38 @@ class TrinoSelectAliasLowerer(CloningVisitor):
     def __init__(self) -> None:
         super().__init__(clear_types=False)
         self.aliases: dict[str, ast.Expr] = {}
-        self.alias_positions: dict[str, int] = {}
         self.expanding: set[str] = set()
-        self.in_group_by = False
 
     def visit_select_query(self, node: ast.SelectQuery) -> ast.SelectQuery:
         outer_aliases = self.aliases
-        outer_alias_positions = self.alias_positions
         self.aliases = {expr.alias: expr.expr for expr in node.select if isinstance(expr, ast.Alias)}
-        self.alias_positions = {
-            expr.alias: index for index, expr in enumerate(node.select, start=1) if isinstance(expr, ast.Alias)
-        }
         lowered = super().visit_select_query(node)
-        if node.group_by is not None:
-            outer_in_group_by = self.in_group_by
-            self.in_group_by = True
-            try:
-                lowered.group_by = [self.visit(expr) for expr in node.group_by]
-            finally:
-                self.in_group_by = outer_in_group_by
+        if node.group_by is not None and lowered.group_by is not None and lowered.group_by_mode is None:
+            projections = [expression_key(expr) for expr in lowered.select]
+            # Separate parameter occurrences are not identical grouping expressions in Trino.
+            for index, expr in enumerate(lowered.group_by):
+                if positional_index(node.group_by[index]) is not None:
+                    continue
+                key = expression_key(expr)
+                if key in projections:
+                    lowered.group_by[index] = ast.PositionalRef(index=projections.index(key) + 1)
+        if node.order_by is not None and lowered.order_by is not None:
+            alias_positions = {
+                expr.alias: index + 1 for index, expr in enumerate(node.select) if isinstance(expr, ast.Alias)
+            }
+            for original, order in zip(node.order_by, lowered.order_by, strict=True):
+                expr = original.expr
+                while isinstance(expr, ast.Alias) and expr.hidden:
+                    expr = expr.expr
+                if (
+                    isinstance(expr, ast.Field)
+                    and isinstance(expr.type, ast.FieldAliasType)
+                    and len(expr.chain) == 1
+                    and isinstance(expr.chain[0], str)
+                    and (position := alias_positions.get(expr.chain[0])) is not None
+                ):
+                    order.expr = ast.PositionalRef(index=position)
         self.aliases = outer_aliases
-        self.alias_positions = outer_alias_positions
         return lowered
 
     def visit_field(self, node: ast.Field) -> ast.Expr:
@@ -138,8 +149,6 @@ class TrinoSelectAliasLowerer(CloningVisitor):
             and node.chain[0] not in self.expanding
         ):
             alias = node.chain[0]
-            if self.in_group_by:
-                return ast.PositionalRef(index=self.alias_positions[alias])
             self.expanding.add(alias)
             try:
                 return self.visit(self.aliases[alias])
@@ -164,7 +173,7 @@ class TrinoArrayJoinFunctionLowerer(CloningVisitor):
         for table_name, output_name, array_expr in pending:
             join = ast.JoinExpr(
                 join_type="CROSS JOIN" if lowered.select_from is not None else None,
-                table=ast.Field(chain=[table_name]),
+                table=ast.Field(chain=[TRINO_UNNEST_TABLE_NAME]),
                 table_args=[_wrap_unnest_elements(array_expr, f"{table_name}_value")],
                 alias=table_name,
                 column_aliases=[output_name],
@@ -183,17 +192,9 @@ class TrinoArrayJoinFunctionLowerer(CloningVisitor):
             return super().visit_call(node)
         if len(node.args) != 1:
             raise TrinoLoweringError("TRINO_ARRAY_JOIN_ARGUMENT_COUNT", "arrayJoin with other than one argument", node)
-        if self.context.database is None:
-            raise TrinoLoweringError(
-                "TRINO_ARRAY_JOIN_DATABASE_REQUIRED", "arrayJoin without a resolved database", node
-            )
         table_name = f"__trino_array_function_{self.unnest_index}"
         output_name = f"value_{self.unnest_index}"
         self.unnest_index += 1
-        self.context.database.tables.add_child(
-            TableNode(name=table_name, table=TrinoUnnestTable(name=table_name)),
-            table_conflict_mode="override",
-        )
         self.pending_unnests.append((table_name, output_name, self.visit(node.args[0])))
         return ast.Field(chain=[output_name], start=node.start, end=node.end)
 
@@ -225,23 +226,14 @@ class TrinoNormalizer(TraversingVisitor):
             raise TrinoLoweringError("TRINO_ARRAY_JOIN_ALIAS_REQUIRED", "ARRAY JOIN without an output alias", node)
         if node.select_from is None:
             raise TrinoLoweringError("TRINO_ARRAY_JOIN_RELATION_REQUIRED", "ARRAY JOIN without a FROM relation", node)
-        if self.context.database is None:
-            raise TrinoLoweringError(
-                "TRINO_ARRAY_JOIN_DATABASE_REQUIRED", "ARRAY JOIN without a resolved database", node
-            )
-
         table_name = f"__trino_unnest_{self.unnest_index}"
         self.unnest_index += 1
-        self.context.database.tables.add_child(
-            TableNode(name=table_name, table=TrinoUnnestTable(name=table_name)),
-            table_conflict_mode="override",
-        )
         final_join = node.select_from
         while final_join.next_join is not None:
             final_join = final_join.next_join
         final_join.next_join = ast.JoinExpr(
             join_type="CROSS JOIN",
-            table=ast.Field(chain=[table_name]),
+            table=ast.Field(chain=[TRINO_UNNEST_TABLE_NAME]),
             table_args=[_wrap_unnest_elements(array_expr.expr, f"{table_name}_value")],
             alias=table_name,
             column_aliases=[array_expr.alias],

@@ -232,24 +232,27 @@ describe("PostHogAPIClient", () => {
 
   it.each([
     [
-      "includes message_id and text_parts when provided",
+      "includes message_id, text_parts and trace_id when provided",
       ["part one", "final answer"],
       "msg-1",
+      "f960aead-b2af-4ee0-b0eb-630109a1b2a0",
       {
         text: "final answer",
         text_parts: ["part one", "final answer"],
         message_id: "msg-1",
+        trace_id: "f960aead-b2af-4ee0-b0eb-630109a1b2a0",
       },
     ],
     [
       "omits optional fields when unknown",
       undefined,
       undefined,
+      undefined,
       { text: "final answer" },
     ],
   ])(
     "relay_message body %s",
-    async (_label, textParts, messageId, expectedBody) => {
+    async (_label, textParts, messageId, traceId, expectedBody) => {
       const client = new PostHogAPIClient({
         apiUrl: "https://app.posthog.com",
         getApiKey: vi.fn().mockResolvedValue("token"),
@@ -267,6 +270,7 @@ describe("PostHogAPIClient", () => {
         "final answer",
         textParts,
         messageId,
+        traceId,
       );
 
       expect(mockFetch).toHaveBeenCalledWith(

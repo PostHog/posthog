@@ -41,12 +41,11 @@ class PartitionResult:
 
 @temporalio.activity.defn
 async def manage_warehouse_sources_queue_partitions() -> dict:
-    database_url: str = settings.WAREHOUSE_SOURCES_DATABASE_URL
     ensured: list[str] = []
     dropped: list[str] = []
     errors: list[str] = []
 
-    with psycopg.Connection.connect(database_url, autocommit=True) as conn:
+    with psycopg.Connection.connect(settings.WAREHOUSE_SOURCES_DATABASE_URL, autocommit=True) as conn:
         today = datetime.now(UTC).date()
 
         for table in PARTITIONED_TABLES:

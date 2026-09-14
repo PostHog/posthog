@@ -390,8 +390,8 @@ So the trigger for this pattern is any of: **a judgment with more than one axis*
 - **Bound what you write for non-candidates.** "Record which axis failed" is right for items that are close, and ruinous as a blanket rule on a busy queue — one `remember` call per rejected item can spend the run before the real candidates get read.
   Persist a **state transition** (an item that changed axis since last run) or a capped set of near-misses, and roll the rest into one aggregate backlog entry.
 - **Close the loop on what you filed — and know what closing it can and cannot do.** A "ready to pick up" report is wrong the moment someone picks it up, and it costs a person duplicating work already underway.
-  Re-check each `report:` entry every run and `edit_report` once the item is assigned, PR-linked, or closed — but note that `edit_report` mutates `title`, `summary`, `append_note`, `suggested_reviewers`, `charts`, and `suggested_prompts` **only**.
-  It cannot change status or actionability, so an appended note does not retire the report.
+  Re-check each `report:` entry every run and `edit_report` once the item is assigned, PR-linked, or closed — but note that `edit_report` mutates `title`, `summary`, `append_note`, `append_evidence`, `suggested_reviewers`, `charts`, and `suggested_prompts` **only**.
+  It cannot change status or actionability, so an appended note or evidence row does not retire the report.
   Rewrite the **title and summary** so the stale framing is gone from the surface a human scans, and leave the status change to a person.
 - **Routing the outcome is part of the design.** On the report channel a queue scout can hand work straight to a draft PR: `actionability: immediately_actionable` + `repository` + a `priority` makes the report **eligible** to autostart one.
   Eligible is not automatic — the team's autostart toggle, its priority threshold, the org's self-driving quota, and resolving a runner identity each gate it independently, so a correctly-filed report can sit still for reasons that have nothing to do with the scout.
@@ -418,7 +418,7 @@ Proven shapes: a daily LLM-analytics digest (latency / errors / clusters / cost 
   Score every section as the latest window vs the team's own trailing like-for-like baseline, lead with anything urgent, and keep steady-state items to one line.
   (One exception to "always emittable": if the watched surface isn't in use at all, write a `not-in-use:<domain>` memory and skip the digest entirely — don't post an empty report.)
 - **Channel + cadence:** the report channel (`emit_report`), **exactly one report per calendar day**.
-  Before emitting, check `dedupe:<domain>:{date}` in the scratchpad **and** `inbox-reports-list` — `emit_report` is not idempotent, so a same-day re-run must skip, and an emit that may have already landed must never be retried.
+  Before emitting, check `dedupe:<domain>:{date}` in the scratchpad **and** `inbox-reports-list` — the emit key only covers a retry of the same call within one run, so a same-day re-run must skip rather than file the finding again.
   After emitting, record `report:<domain>:{date}` with the returned `report_id` and `dedupe:<domain>:{date}`.
 - **Memory is what lets it speak in deltas.** A cursor (`pattern:<domain>:cursor` — the timestamp the last digest covered through) windows each run; baseline snapshots (`pattern:<domain>:cost-baseline`, `:latency-bands`, a cluster/state snapshot) let the digest say what moved rather than what is; `noise:` entries fold known recurring things (a nightly batch spike, a deliberate model swap) in as context instead of re-raising them.
 - **Budget discipline is load-bearing.** The digest has a fixed section structure and a hard run budget, so query economically: one combined SQL returning several sections' numbers beats one query per section, and a shallow digest that posts beats a thorough one that times out.

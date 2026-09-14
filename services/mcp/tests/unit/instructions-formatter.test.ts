@@ -250,6 +250,10 @@ describe('InstructionsFormatter', () => {
             const formatter = new InstructionsFormatter()
             const result = formatter.buildClaudeExecCommandReference(fullCtx)
 
+            // Skills off is the shipped default: the reference must carry no skill syntax.
+            expect(result).not.toContain('(posthog|project):<skill>')
+            expect(result).not.toContain('SKILLS FIRST')
+
             expect(result).toContain('**LEARN FIRST: HARD REQUIREMENT**')
             expect(result).toContain('learn <topic...> - load one or more learning topics')
             expect(result).toContain('Topics are cumulative.')
@@ -287,17 +291,46 @@ describe('InstructionsFormatter', () => {
             expect(result).not.toMatch(/\{help_topics\}|\{query_tools\}|\{metadata\}|\{defined_groups\}|\{guidelines\}/)
         })
 
+        it('advertises skill syntax inside the schema budget only when skills are enabled', () => {
+            const formatter = new InstructionsFormatter()
+            const result = formatter.buildClaudeExecCommandReference(fullCtx, { skillsEnabled: true })
+
+            expect(result).toContain('**SKILLS FIRST: HARD REQUIREMENT**')
+            expect(result).toContain('(posthog|project):<skill> [path...]')
+            // The compact variant, not the full routing paragraph, which belongs to the uncapped reference.
+            expect(result).not.toContain('never clone, grep, or web-search PostHog internals')
+            expect(result).toContain('- analytics:')
+            expect(result).toContain('learn <topic...> - load one or more learning topics')
+        })
+
+        it('keeps URL patterns inline when learn is unavailable', () => {
+            const formatter = new InstructionsFormatter()
+            const result = formatter.buildClaudeExecCommandReference(fullCtx, {
+                learnEnabled: false,
+                skillsEnabled: false,
+            })
+
+            expect(result).toContain('### URL patterns')
+            expect(result).not.toContain('- urls:')
+            expect(result).not.toContain('learn <topic...>')
+        })
+
+        it('adds the full skills-first routing to the uncapped reference only when enabled', () => {
+            const formatter = new InstructionsFormatter()
+            const off = formatter.buildExecCommandReference(fullCtx, { stripEnvContext: false })
+            const on = formatter.buildExecCommandReference(fullCtx, { stripEnvContext: false, learnEnabled: true })
+
+            expect(off).not.toContain('SKILLS FIRST')
+            expect(on).toContain('**SKILLS FIRST: HARD REQUIREMENT**')
+            expect(on).toContain('never clone, grep, or web-search PostHog internals')
+        })
+
         it('builds optional learning topics from their full guidance', () => {
             const formatter = new InstructionsFormatter()
-            const entries = formatter.buildClaudeExecHelpEntries(fullCtx)
+            const entries = formatter.buildClaudeExecLearnGuides(fullCtx)
             const analytics = entries.find((entry) => entry.id === 'analytics')
 
-            expect(entries.map(({ id, kind }) => ({ id, kind }))).toEqual([
-                { id: 'analytics', kind: 'guide' },
-                { id: 'visualizations', kind: 'guide' },
-                { id: 'urls', kind: 'guide' },
-                { id: 'feedback', kind: 'guide' },
-            ])
+            expect(entries.map(({ id }) => id)).toEqual(['analytics', 'visualizations', 'urls', 'feedback'])
             expect(analytics?.content).toContain('### Retrieving data')
             expect(analytics?.content).toContain('### Examples')
             expect(analytics?.content).toContain('- `query-trends` — time series')
@@ -317,7 +350,7 @@ describe('InstructionsFormatter', () => {
                 renderUiEnabled: false,
             }
 
-            expect(formatter.buildClaudeExecHelpEntries(ctx).map((entry) => entry.id)).toEqual([
+            expect(formatter.buildClaudeExecLearnGuides(ctx).map((entry) => entry.id)).toEqual([
                 'analytics',
                 'urls',
                 'feedback',
@@ -344,7 +377,7 @@ describe('InstructionsFormatter', () => {
             {
                 name: 'analytics learn topic content',
                 render: (formatter, ctx) =>
-                    formatter.buildClaudeExecHelpEntries(ctx).find((entry) => entry.id === 'analytics')!.content,
+                    formatter.buildClaudeExecLearnGuides(ctx).find((entry) => entry.id === 'analytics')!.content,
                 mustPrecede: ['### Retrieving data', '#### Schema-first workflow'],
             },
             {
@@ -370,7 +403,7 @@ describe('InstructionsFormatter', () => {
         it('advertises governed metrics in the analytics topic description', () => {
             const formatter = new InstructionsFormatter()
             const analyticsEntry = formatter
-                .buildClaudeExecHelpEntries(fullCtx)
+                .buildClaudeExecLearnGuides(fullCtx)
                 .find((entry) => entry.id === 'analytics')!
             expect(analyticsEntry.description).toContain('governed metrics')
         })
@@ -388,7 +421,7 @@ describe('InstructionsFormatter', () => {
             {
                 name: 'analytics learn topic content',
                 render: (formatter, ctx) =>
-                    formatter.buildClaudeExecHelpEntries(ctx).find((entry) => entry.id === 'analytics')!.content,
+                    formatter.buildClaudeExecLearnGuides(ctx).find((entry) => entry.id === 'analytics')!.content,
             },
             {
                 name: 'buildExecCommandReference',

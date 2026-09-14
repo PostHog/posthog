@@ -84,14 +84,21 @@ export function hasSamlDomainScopeConflict(
     })
 }
 
+export function getIdentityProviderConfigsForScope(
+    configs: IdentityProviderConfigApi[],
+    configScope: ConfigScopeEnumApi
+): IdentityProviderConfigApi[] {
+    const scopedConfigs = configs.filter((config) => config.config_scope === configScope)
+    return scopedConfigs.length > 0
+        ? scopedConfigs
+        : configs.filter((config) => config.config_scope == null || config.config_scope === '')
+}
+
 export function getIdentityProviderConfigForScope(
     configs: IdentityProviderConfigApi[],
     configScope: ConfigScopeEnumApi
 ): IdentityProviderConfigApi | undefined {
-    return (
-        configs.find((config) => config.config_scope === configScope) ??
-        configs.find((config) => config.config_scope == null || config.config_scope === '')
-    )
+    return getIdentityProviderConfigsForScope(configs, configScope)[0]
 }
 
 export interface IdentityProviderConfigStatusDescription {

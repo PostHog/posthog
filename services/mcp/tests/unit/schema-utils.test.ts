@@ -61,6 +61,84 @@ describe('schema-utils', () => {
             expect(result.properties.filter!.fields).toEqual(['key', 'value'])
         })
 
+        // A tool whose whole payload sits under one required object is the shape
+        // callers flatten. The summary is all they see once the full schema
+        // overflows the token budget, so the nesting has to survive into it.
+        describe('a sole required object parameter', () => {
+            const wrapperSchema = (
+                query: Record<string, unknown>,
+                siblings: Record<string, unknown> = {}
+            ): Record<string, unknown> => ({
+                type: 'object',
+                required: ['query'],
+                properties: { query, ...siblings },
+            })
+            const objectQuery = { type: 'object', properties: { limit: { type: 'number' } } }
+
+            it('says every parameter goes inside it', () => {
+                const result = summarizeSchema(wrapperSchema(objectQuery), 'query-logs')
+
+                expect(result.properties.query!.hint).toBe(
+                    'DO NOT GUESS — you MUST run `schema query-logs query` before populating this field. Every parameter goes inside it — send {"query": {...}}, not the fields at the top level'
+                )
+            })
+
+            it('says so for a wrapper that is a union of object variants', () => {
+                // `read-data-schema` keys its shape off a `kind` discriminator.
+                const unionQuery = {
+                    anyOf: [
+                        { type: 'object', properties: { kind: { const: 'events' } } },
+                        { type: 'object', properties: { kind: { const: 'event_properties' } } },
+                    ],
+                }
+
+                expect(summarizeSchema(wrapperSchema(unionQuery), 'read-data-schema').properties.query!.hint).toContain(
+                    'Every parameter goes inside it'
+                )
+            })
+
+            it('ignores the tool-level output_format control when counting parameters', () => {
+                const withControl = wrapperSchema(objectQuery, { output_format: { type: 'string' } })
+
+                expect(summarizeSchema(withControl, 'query-logs').properties.query!.hint).toContain(
+                    'Every parameter goes inside it'
+                )
+            })
+
+            it.each([
+                [
+                    'the object sits beside other top-level fields',
+                    wrapperSchema(objectQuery, { name: { type: 'string' } }),
+                ],
+                [
+                    'the object is optional',
+                    { type: 'object', properties: { query: objectQuery } } as Record<string, unknown>,
+                ],
+            ])('stays with the bare drill-down hint when %s', (_label, schema) => {
+                // Saying "everything goes inside it" here would flatten calls that
+                // were already correct: the other top-level fields are real parameters.
+                const result = summarizeSchema(schema as Record<string, unknown>, 'view-create')
+
+                expect(result.properties.query!.hint).toBe(
+                    'DO NOT GUESS — you MUST run `schema view-create query` before populating this field'
+                )
+            })
+
+            it('does not repeat the wrapper note on fields inside the wrapper', () => {
+                const nested = {
+                    type: 'object',
+                    required: ['dateRange'],
+                    properties: { dateRange: { type: 'object', properties: { date_from: { type: 'string' } } } },
+                }
+
+                const result = summarizeSchema(nested, 'query-logs', 'query')
+
+                expect(result.properties.dateRange!.hint).toBe(
+                    'DO NOT GUESS — you MUST run `schema query-logs query.dateRange` before populating this field'
+                )
+            })
+        })
+
         it('adds hints for arrays with complex items', () => {
             const schema = {
                 type: 'object',

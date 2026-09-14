@@ -78,7 +78,9 @@ export interface logsPatternsLogicValues {
     compareEnabled: boolean // logsViewerConfigLogic
     viewMode: LogsViewerViewMode // logsViewerConfigLogic
     filters: LogsViewerFilters // logsViewerFiltersLogic
+    personId: string | undefined // logsViewerFiltersLogic
     queryFilterGroup: UniversalFiltersGroup // logsViewerFiltersLogic
+    sessionId: string | undefined // logsViewerFiltersLogic
     utcDateRange: {
         date_from: string | null | undefined
         date_to: string | null | undefined
@@ -98,7 +100,9 @@ export interface logsPatternsLogicValues {
             explicitDate: boolean | null | undefined
         }
         filterGroup: _LogPropertyFilterApi[]
+        personId: string | undefined
         searchTerm: string | undefined
+        sessionId: string | undefined
     }
     patternsResponse: _LogsPatternsResponseApi
     patternsResponseLoading: boolean
@@ -192,7 +196,9 @@ export interface logsPatternsLogicMeta {
                 date_to: string | null | undefined
                 explicitDate: boolean | null | undefined
             },
-            queryFilterGroup: UniversalFiltersGroup
+            queryFilterGroup: UniversalFiltersGroup,
+            personId: string | undefined,
+            sessionId: string | undefined
         ) => {
             dateRange: {
                 date_from: string | null | undefined
@@ -200,7 +206,9 @@ export interface logsPatternsLogicMeta {
                 explicitDate: boolean | null | undefined
             }
             filterGroup: _LogPropertyFilterApi[]
+            personId: string | undefined
             searchTerm: string | undefined
+            sessionId: string | undefined
         }
         patterns: (patternsResponse: _LogsPatternsResponseApi) => _LogPatternApi[]
         sparklineLabels: (patternsResponse: _LogsPatternsResponseApi) => string[]
@@ -227,7 +235,7 @@ export const logsPatternsLogic = kea<logsPatternsLogicType>([
             teamLogic,
             ['currentTeamId'],
             logsViewerFiltersLogic({ id: props.id }),
-            ['filters', 'utcDateRange', 'queryFilterGroup'],
+            ['filters', 'utcDateRange', 'queryFilterGroup', 'personId', 'sessionId'],
             logsViewerConfigLogic({ id: props.id }),
             ['viewMode', 'compareEnabled', 'baselineMode'],
         ],
@@ -320,7 +328,7 @@ export const logsPatternsLogic = kea<logsPatternsLogicType>([
         // windows with exactly the filters a plain mine would use, or compare mode would
         // silently answer a different question than the table next to it.
         patternsQueryBody: [
-            (s) => [s.filters, s.utcDateRange, s.queryFilterGroup],
+            (s) => [s.filters, s.utcDateRange, s.queryFilterGroup, s.personId, s.sessionId],
             (
                 filters: import('../LogsViewer/config/types').LogsViewerFilters,
                 utcDateRange: {
@@ -328,7 +336,9 @@ export const logsPatternsLogic = kea<logsPatternsLogicType>([
                     date_to: string | null | undefined
                     explicitDate: boolean | null | undefined
                 },
-                queryFilterGroup: UniversalFiltersGroup
+                queryFilterGroup: UniversalFiltersGroup,
+                personId: string | undefined,
+                sessionId: string | undefined
             ) => ({
                 dateRange: utcDateRange,
                 searchTerm: filters.searchTerm || undefined,
@@ -336,6 +346,10 @@ export const logsPatternsLogic = kea<logsPatternsLogicType>([
                 // `queryFilterGroup` folds in any pinned filters from an embedded viewer
                 // (person/trace logs), so a scoped viewer can't mine project-wide patterns.
                 filterGroup: queryFilterGroup as unknown as _LogPropertyFilterApi[],
+                // Person and session scoping travel as their own fields, not in the filter
+                // group, so they have to be sent explicitly here too.
+                personId,
+                sessionId,
             }),
         ],
         patterns: [
@@ -416,24 +430,43 @@ export const logsPatternsLogic = kea<logsPatternsLogicType>([
             // never hidden state. Prefer the validated regex; fall back to plain-text matching
             // on the template's literal content when validation withheld it.
             viewMatchingLogs: ({ pattern }) => {
-                const predicate: LogPropertyFilter | null = pattern.match_regex
+                const exactMatch = !!pattern.match_patterns?.length && pattern.pattern_version != null
+                const predicate: LogPropertyFilter | null = exactMatch
                     ? {
-                          key: 'message',
-                          value: pattern.match_regex,
-                          operator: PropertyOperator.Regex,
+                          key: 'pattern',
+                          value: pattern.match_patterns!,
+                          operator: PropertyOperator.Exact,
                           type: PropertyFilterType.Log,
                       }
-                    : pattern.match_literal
+                    : pattern.match_regex
                       ? {
                             key: 'message',
-                            value: pattern.match_literal,
-                            operator: PropertyOperator.IContains,
+                            value: pattern.match_regex,
+                            operator: PropertyOperator.Regex,
                             type: PropertyFilterType.Log,
                         }
-                      : null
+                      : pattern.match_literal
+                        ? {
+                              key: 'message',
+                              value: pattern.match_literal,
+                              operator: PropertyOperator.IContains,
+                              type: PropertyFilterType.Log,
+                          }
+                        : null
                 if (!predicate) {
                     return
                 }
+                const predicates: LogPropertyFilter[] = exactMatch
+                    ? [
+                          predicate,
+                          {
+                              key: 'pattern_version',
+                              value: pattern.pattern_version!,
+                              operator: PropertyOperator.Exact,
+                              type: PropertyFilterType.Log,
+                          },
+                      ]
+                    : [predicate]
                 const group = values.filters.filterGroup
                 const inner = group.values[0] as UniversalFiltersGroup | undefined
                 const newGroup: UniversalFiltersGroup =
@@ -441,14 +474,14 @@ export const logsPatternsLogic = kea<logsPatternsLogicType>([
                         ? {
                               ...group,
                               values: [
-                                  { ...inner, values: [...inner.values, predicate] } as UniversalFiltersGroup,
+                                  { ...inner, values: [...inner.values, ...predicates] } as UniversalFiltersGroup,
                                   ...group.values.slice(1),
                               ],
                           }
                         : {
                               type: FilterLogicalOperator.And,
                               values: [
-                                  { type: FilterLogicalOperator.And, values: [predicate] } as UniversalFiltersGroup,
+                                  { type: FilterLogicalOperator.And, values: predicates } as UniversalFiltersGroup,
                               ],
                           }
                 // Leave Patterns mode first so the filter write below doesn't re-trigger a mine:
@@ -462,11 +495,11 @@ export const logsPatternsLogic = kea<logsPatternsLogicType>([
                 // cap-truncated services list, or a severity outside the canonical buckets. Written
                 // into the same group as the pattern predicate so the drill-down is one filter change.
                 let scopedGroup = newGroup
-                if (pattern.services.length > 0 && pattern.services.length < SERVICES_LIST_CAP) {
+                if (!exactMatch && pattern.services.length > 0 && pattern.services.length < SERVICES_LIST_CAP) {
                     scopedGroup = setFacetIncluded(scopedGroup, SERVICE_NAME_FILTER, pattern.services)
                 }
                 const severities = Object.keys(pattern.severity_counts)
-                if (severities.length > 0 && severities.every((s) => CANONICAL_SEVERITIES.includes(s))) {
+                if (!exactMatch && severities.length > 0 && severities.every((s) => CANONICAL_SEVERITIES.includes(s))) {
                     scopedGroup = setFacetIncluded(scopedGroup, SEVERITY_LEVEL_FILTER, severities)
                 }
                 actions.setFilterGroup(scopedGroup, false)

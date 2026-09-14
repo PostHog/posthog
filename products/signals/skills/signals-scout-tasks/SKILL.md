@@ -202,7 +202,7 @@ Author / edit / remember / skip, against the four-states classifier:
 
 - **Search the inbox first.**
   The `report:tasks:<cluster>` pointer is the reliable path (retrieve the id directly); with no pointer, `inbox-reports-list` by repository name _and_ by the failure class.
-- **Edit** (`scout-edit-report`) when a live report covers the cluster and it's still failing — `append_note` the fresh rate, volume, and any newly-affected repos.
+- **Edit** (`scout-edit-report`) when a live report covers the cluster and it is still failing — add the fresh rate, volume, and newly affected repositories with `append_evidence`.
   This is the default when a match exists.
   `edit-report` can't change status, so a `resolved` / `suppressed` match means authoring fresh for the relapse and repointing the key.
 - **Cite a concrete run.** The lens-A queries aggregate, so they return no ids to quote. Before filing, run cookbook query 9 narrowed to the cluster for a representative `task_id` + `run_id` pair, and use those in the `evidence` (and for `tasks-runs-retrieve` if you want one worked example).

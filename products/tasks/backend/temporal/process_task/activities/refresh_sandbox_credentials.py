@@ -6,10 +6,15 @@ from temporalio import activity
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.utils import asyncify, retry_on_db_connection_drop
 
-from products.tasks.backend.exceptions import CredentialUnavailableError, SandboxNotFoundError, SandboxNotRunningError
-from products.tasks.backend.logic.services.sandbox import get_sandbox_class_for_sandbox_id
+from products.tasks.backend.exceptions import (
+    CredentialUnavailableError,
+    SandboxExecutionError,
+    SandboxNotFoundError,
+    SandboxNotRunningError,
+)
+from products.tasks.backend.logic.services.sandbox import SandboxBase, get_sandbox_class_for_sandbox_id
 from products.tasks.backend.models import TASK_OWNERSHIP_VERSION_STATE_KEY, Task, TaskRun
-from products.tasks.backend.temporal.metrics import increment_credential_refresh
+from products.tasks.backend.temporal.metrics import increment_credential_refresh, increment_sandbox_wedge_probe
 from products.tasks.backend.temporal.observability import log_activity_execution, track_event
 from products.tasks.backend.temporal.process_task.sandbox_credentials import (
     DEFAULT_REFRESH_INTERVAL_SECONDS,
@@ -19,6 +24,47 @@ from products.tasks.backend.temporal.process_task.sandbox_credentials import (
 from .get_task_processing_context import TaskProcessingContext
 
 logger = get_logger(__name__)
+
+_SANDBOX_WEDGE_PROBE_COMMAND = """
+printf 'memory_current='; cat /sys/fs/cgroup/memory.current 2>/dev/null || printf 'unavailable\n'
+printf 'memory_max='; cat /sys/fs/cgroup/memory.max 2>/dev/null || printf 'unavailable\n'
+printf 'oom_kill='; awk '$1 == "oom_kill" { print $2 }' /sys/fs/cgroup/memory.events 2>/dev/null || printf 'unavailable\n'
+printf 'pids_current='; cat /sys/fs/cgroup/pids.current 2>/dev/null || printf 'unavailable\n'
+printf 'pids_max='; cat /sys/fs/cgroup/pids.max 2>/dev/null || printf 'unavailable\n'
+printf 'tmp_available_kb='; df -Pk /tmp 2>/dev/null | awk 'NR == 2 { print $4 }'
+""".strip()
+
+
+def _probe_value_as_int(probe: dict[str, str], key: str) -> int | None:
+    try:
+        return int(probe[key])
+    except (KeyError, ValueError):
+        return None
+
+
+def _sandbox_wedge_verdict(probe: dict[str, str]) -> str:
+    pids_current = _probe_value_as_int(probe, "pids_current")
+    pids_max = _probe_value_as_int(probe, "pids_max")
+    if pids_current is not None and pids_max is not None and pids_current >= pids_max:
+        return "pids_exhausted"
+    tmp_available_kb = _probe_value_as_int(probe, "tmp_available_kb")
+    if tmp_available_kb is not None and tmp_available_kb <= 0:
+        return "disk_full"
+    if (_probe_value_as_int(probe, "oom_kill") or 0) > 0:
+        return "oom_seen"
+    return "unknown"
+
+
+def _probe_sandbox_wedge(sandbox: SandboxBase) -> tuple[str, dict[str, str]]:
+    try:
+        result = sandbox.execute(_SANDBOX_WEDGE_PROBE_COMMAND, timeout_seconds=10)
+    except Exception as error:
+        return "unknown", {"probe_error": str(error)}
+    probe = dict(line.split("=", 1) for line in result.stdout.splitlines() if "=" in line)
+    probe["exit_code"] = str(result.exit_code)
+    if result.stderr:
+        probe["stderr"] = result.stderr
+    return _sandbox_wedge_verdict(probe), probe
 
 
 def _with_current_authorship(ctx: TaskProcessingContext) -> TaskProcessingContext:
@@ -182,6 +228,29 @@ def refresh_sandbox_credentials(input: RefreshSandboxCredentialsInput) -> Refres
                 )
                 increment_credential_refresh(credential.kind, "orphaned")
                 orphaned_kinds.append(credential.kind)
+                continue
+            except SandboxExecutionError as error:
+                if "path" in error.context and ctx.sandbox_backend == "modal":
+                    verdict, probe = _probe_sandbox_wedge(sandbox)
+                    write_stage = str(error.context.get("write_stage", "unknown"))
+                    logger.warning(
+                        "sandbox_wedge_probe",
+                        kind=credential.kind,
+                        sandbox_id=input.sandbox_id,
+                        run_id=ctx.run_id,
+                        verdict=verdict,
+                        write_stage=write_stage,
+                        probe=probe,
+                    )
+                    increment_sandbox_wedge_probe(verdict, write_stage)
+                logger.warning(
+                    "sandbox_credential_refresh_failed",
+                    kind=credential.kind,
+                    sandbox_id=input.sandbox_id,
+                    run_id=ctx.run_id,
+                    exc_info=True,
+                )
+                increment_credential_refresh(credential.kind, "failed")
                 continue
             except Exception:
                 logger.warning(

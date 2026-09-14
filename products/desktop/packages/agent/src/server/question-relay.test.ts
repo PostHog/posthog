@@ -1,5 +1,14 @@
 import { type SetupServerApi, setupServer } from "msw/node";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 import { classifyAgentError } from "../adapters/error-classification";
 import type { PostHogAPIClient } from "../posthog-api";
 import {
@@ -9,7 +18,11 @@ import {
 } from "../test/fixtures/api";
 import { createPostHogHandlers } from "../test/mocks/msw-handlers";
 import type { Task, TaskRun } from "../types";
-import { AgentServer, UPSTREAM_PROVIDER_FAILURE_MESSAGE } from "./agent-server";
+import {
+  AgentServer,
+  type PreparedInitialTaskMessage,
+  UPSTREAM_PROVIDER_FAILURE_MESSAGE,
+} from "./agent-server";
 
 interface TestableAgentServer {
   posthogAPI: PostHogAPIClient;
@@ -30,11 +43,28 @@ interface TestableAgentServer {
   relayAgentResponse: (
     payload: Record<string, unknown>,
     messageId?: string,
+    traceId?: string | null,
   ) => Promise<void>;
-  sendInitialTaskMessage: (
+  prepareInitialTaskMessage: (
     payload: Record<string, unknown>,
     prefetchedRun?: TaskRun | null,
+  ) => Promise<PreparedInitialTaskMessage>;
+  sendInitialTaskMessage: (
+    payload: Record<string, unknown>,
+    prepared: PreparedInitialTaskMessage,
   ) => Promise<void>;
+}
+
+async function startInitialTaskMessage(
+  server: TestableAgentServer,
+  payload: Record<string, unknown>,
+  prefetchedRun?: TaskRun | null,
+): Promise<void> {
+  const prepared = await server.prepareInitialTaskMessage(
+    payload,
+    prefetchedRun,
+  );
+  await server.sendInitialTaskMessage(payload, prepared);
 }
 
 const TEST_PAYLOAD = {
@@ -135,13 +165,21 @@ describe("Question relay", () => {
   let mswServer: SetupServerApi;
   const port = 3098;
 
-  beforeEach(async () => {
-    repo = await createTestRepo("question-relay");
+  // msw patches fetch process-wide. A second listen() on an already-patched
+  // fetch throws, so patch once per file and reset the handlers per test.
+  beforeAll(() => {
     mswServer = setupServer(
       ...createPostHogHandlers({ baseUrl: "http://localhost:8000" }),
     );
     mswServer.listen({ onUnhandledRequest: "bypass" });
+  });
 
+  afterAll(() => {
+    mswServer.close();
+  });
+
+  beforeEach(async () => {
+    repo = await createTestRepo("question-relay");
     server = new AgentServer({
       port,
       jwtPublicKey: "unused-in-unit-tests",
@@ -156,7 +194,7 @@ describe("Question relay", () => {
   });
 
   afterEach(async () => {
-    mswServer.close();
+    mswServer.resetHandlers();
     await repo.cleanup();
   });
 
@@ -583,10 +621,11 @@ describe("Question relay", () => {
         "agent response",
         ["first part", "agent response"],
         undefined,
+        undefined,
       );
     });
 
-    it("passes the initiating message id through to relayMessage", async () => {
+    it("passes the initiating message id and the turn's trace id through to relayMessage", async () => {
       const relaySpy = vi
         .spyOn(server.posthogAPI, "relayMessage")
         .mockResolvedValue(undefined);
@@ -602,7 +641,11 @@ describe("Question relay", () => {
       };
 
       server.questionRelayedToSlack = false;
-      await server.relayAgentResponse(TEST_PAYLOAD, "msg-123");
+      await server.relayAgentResponse(
+        TEST_PAYLOAD,
+        "msg-123",
+        "f960aead-b2af-4ee0-b0eb-630109a1b2a0",
+      );
 
       expect(relaySpy).toHaveBeenCalledWith(
         "test-task-id",
@@ -610,6 +653,7 @@ describe("Question relay", () => {
         "agent response",
         ["agent response"],
         "msg-123",
+        "f960aead-b2af-4ee0-b0eb-630109a1b2a0",
       );
     });
 
@@ -665,7 +709,7 @@ describe("Question relay", () => {
         },
       };
 
-      await server.sendInitialTaskMessage(TEST_PAYLOAD);
+      await startInitialTaskMessage(server, TEST_PAYLOAD);
 
       expect(promptSpy).toHaveBeenCalledWith({
         sessionId: "acp-session",
@@ -710,7 +754,7 @@ describe("Question relay", () => {
         },
       };
 
-      await server.sendInitialTaskMessage(TEST_PAYLOAD);
+      await startInitialTaskMessage(server, TEST_PAYLOAD);
 
       expect(promptSpy).toHaveBeenCalledWith({
         sessionId: "acp-session",
@@ -745,7 +789,7 @@ describe("Question relay", () => {
         },
       };
 
-      await server.sendInitialTaskMessage(TEST_PAYLOAD);
+      await startInitialTaskMessage(server, TEST_PAYLOAD);
 
       expect(promptSpy).toHaveBeenCalledWith({
         sessionId: "acp-session",
@@ -780,7 +824,7 @@ describe("Question relay", () => {
         },
       };
 
-      await server.sendInitialTaskMessage(TEST_PAYLOAD);
+      await startInitialTaskMessage(server, TEST_PAYLOAD);
 
       expect(promptSpy).not.toHaveBeenCalled();
     });
@@ -810,7 +854,8 @@ describe("Question relay", () => {
         },
       };
 
-      await server.sendInitialTaskMessage(
+      await startInitialTaskMessage(
+        server,
         TEST_PAYLOAD,
         createTaskRun({
           id: "test-run-id",
@@ -845,7 +890,8 @@ describe("Question relay", () => {
           },
         };
 
-        const sendPromise = server.sendInitialTaskMessage(
+        const sendPromise = startInitialTaskMessage(
+          server,
           TEST_PAYLOAD,
           createTaskRun({
             id: "test-run-id",
@@ -900,7 +946,7 @@ describe("Question relay", () => {
 
       vi.useFakeTimers();
       try {
-        const sendPromise = server.sendInitialTaskMessage(TEST_PAYLOAD);
+        const sendPromise = startInitialTaskMessage(server, TEST_PAYLOAD);
         await vi.advanceTimersByTimeAsync(5_000);
         await sendPromise;
       } finally {
@@ -952,7 +998,7 @@ describe("Question relay", () => {
 
       vi.useFakeTimers();
       try {
-        const sendPromise = server.sendInitialTaskMessage(TEST_PAYLOAD);
+        const sendPromise = startInitialTaskMessage(server, TEST_PAYLOAD);
         await vi.advanceTimersByTimeAsync(5_000);
         await sendPromise;
       } finally {
@@ -967,7 +1013,7 @@ describe("Question relay", () => {
       expect(updateTaskRunSpy).not.toHaveBeenCalled();
     });
 
-    it("surfaces the shared provider failure message once upstream retries are exhausted", async () => {
+    it("stores the classified cause once upstream retries are exhausted", async () => {
       vi.spyOn(server.posthogAPI, "getTask").mockResolvedValue({
         id: "test-task-id",
         title: "t",
@@ -1001,7 +1047,7 @@ describe("Question relay", () => {
 
       vi.useFakeTimers();
       try {
-        const sendPromise = server.sendInitialTaskMessage(TEST_PAYLOAD);
+        const sendPromise = startInitialTaskMessage(server, TEST_PAYLOAD);
         await vi.advanceTimersByTimeAsync(10_000);
         await sendPromise;
       } finally {
@@ -1014,7 +1060,7 @@ describe("Question relay", () => {
         "test-run-id",
         {
           status: "failed",
-          error_message: UPSTREAM_PROVIDER_FAILURE_MESSAGE,
+          error_message: `upstream_connection_error: ${UPSTREAM_PROVIDER_FAILURE_MESSAGE}`,
         },
       );
     });

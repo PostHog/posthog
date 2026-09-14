@@ -1,10 +1,10 @@
 // Templated prompts behind the scout chat CTA chips. The agent leans on the
-// exploring-signals-scouts and authoring-signals-scouts skills from the
+// exploring-scouts and authoring-scouts skills from the
 // PostHog MCP.
 
 export const SCOUT_AUTHOR_PROMPT = `I'd like to make a new scout for this PostHog project.
 
-Use the authoring-signals-scouts skill from the PostHog MCP to guide creating a new signals scout.
+Use the authoring-scouts skill from the PostHog MCP to guide creating a new signals scout.
 
 First, take a quick scan of this PostHog project to ground your suggestions: skim its events, insights, dashboards, recently emitted signals, and the existing scout fleet so you understand what this product is and where automated monitoring would add value.
 
@@ -12,9 +12,25 @@ Then ask me what sort of scout I'd like to make, and offer a few concrete sugges
 
 If the skill is unavailable, fall back to the signals-scout MCP tools directly (config list to see the existing fleet) plus the read-data and insight tools to scan the project.`;
 
+/**
+ * The authoring prompt, led by what the person typed in the New agent dialog.
+ * An empty brief falls back to the open-ended template.
+ */
+export function buildScoutAuthorPrompt(brief: string): string {
+  const trimmed = brief.trim();
+  if (!trimmed) return SCOUT_AUTHOR_PROMPT;
+  return `I'd like to make a new scout for this PostHog project. Here is what it should do:
+
+${trimmed}
+
+Use the authoring-scouts skill from the PostHog MCP to author this scout end to end. Take a quick scan of the project first (events, insights, existing scouts, recent signals) so the scout's thresholds and scope fit the data. Ask me only what you cannot infer, then create the scout as a dry run and tell me how to review its first output.
+
+If the skill is unavailable, fall back to the signals-scout MCP tools directly.`;
+}
+
 export const SCOUT_FLEET_OVERVIEW_PROMPT = `How is my scout fleet performing?
 
-Use the exploring-signals-scouts skill from the PostHog MCP to survey the signals scout fleet on this project and give me a high-level overview:
+Use the exploring-scouts skill from the PostHog MCP to survey the signals scout fleet on this project and give me a high-level overview:
 
 - The fleet: which scouts exist, enabled vs disabled, and their cadences
 - Recent run health: success rate, failures and timeouts, anything stuck
@@ -26,7 +42,7 @@ Lead with a short overall verdict, then per-scout notes only where something is 
 
 export const SCOUT_RECENT_SIGNALS_PROMPT = `What signals have my scouts emitted recently?
 
-Use the exploring-signals-scouts skill from the PostHog MCP to pull the most recent scout runs that emitted findings and walk me through the signals:
+Use the exploring-scouts skill from the PostHog MCP to pull the most recent scout runs that emitted findings and walk me through the signals:
 
 - What each signal says, in plain language
 - Which scout emitted it, when, and its severity/confidence where available
@@ -82,7 +98,7 @@ ${
     : "Give me a brief readout on what this finding means and whether it looks genuinely actionable or like noise, then ask what I want to dig into."
 }
 
-Use the exploring-signals-scouts skill from the PostHog MCP to ground your investigation: fetch this exact run's emissions (run ${runId}) for the finding's full context, pull the \`${skillName}\` scout's recent runs, cross-reference the relevant product data, and assess whether it's real and worth acting on. If the skill is unavailable, fall back to the signals-scout MCP tools directly (config list, runs list, run emissions) plus the read-data and insight tools.`;
+Use the exploring-scouts skill from the PostHog MCP to ground your investigation: fetch this exact run's emissions (run ${runId}) for the finding's full context, pull the \`${skillName}\` scout's recent runs, cross-reference the relevant product data, and assess whether it's real and worth acting on. If the skill is unavailable, fall back to the signals-scout MCP tools directly (config list, runs list, run emissions) plus the read-data and insight tools.`;
 }
 
 /** Per-scout variant of the templated questions, scoped to one skill. */
@@ -92,7 +108,7 @@ export function buildScoutCheckinPrompt(
 ): string {
   return `How is my ${displayName} scout performing?
 
-Use the exploring-signals-scouts skill from the PostHog MCP to dig into the \`${skillName}\` scout on this project:
+Use the exploring-scouts skill from the PostHog MCP to dig into the \`${skillName}\` scout on this project:
 
 - Its config: enabled, cadence, dry-run posture
 - Recent run history: successes, failures, timeouts, durations

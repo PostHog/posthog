@@ -5,6 +5,8 @@ from posthog.test.base import BaseTest
 
 from django.test import override_settings
 
+from parameterized import parameterized
+
 from products.review_hog.backend.models import ReviewReport, ReviewReportArtefact
 from products.review_hog.backend.reviewer.artefact_content import (
     ChunkSetArtefact,
@@ -289,10 +291,13 @@ class TestUpsertReviewReport(BaseTest):
 
         assert ReviewReport.objects.for_team(self.team.id).get(id=report_id).run_count == 1
 
-    def test_branch_target_upserts_by_head_branch_and_upgrades_to_pr(self) -> None:
+    @parameterized.expand([("same_casing", "o/r"), ("github_casing", "O/R")])
+    def test_branch_target_upserts_by_head_branch_and_upgrades_to_pr(self, _name, pr_turn_repository) -> None:
         # A PR-less branch target keys by head_branch (pr_number NULL); the first fetch that finds a
         # PR for the branch must upgrade the SAME row (backfilling number + url) so the stored review
         # and its watermarks carry into the publishable turn instead of splitting across two reports.
+        # The two turns can disagree on repository casing — a branch target carries the caller's
+        # slug, the PR turn carries GitHub's — and a casing-sensitive match splits the target in two.
         branch_id = upsert_review_report(
             team_id=self.team.id, repository="o/r", pr_url="", pr_metadata=_pr_metadata(pr_number=0)
         )
@@ -308,7 +313,7 @@ class TestUpsertReviewReport(BaseTest):
 
         upgraded = upsert_review_report(
             team_id=self.team.id,
-            repository="o/r",
+            repository=pr_turn_repository,
             pr_url="https://github.com/o/r/pull/123",
             pr_metadata=_pr_metadata(),
         )
@@ -318,7 +323,7 @@ class TestUpsertReviewReport(BaseTest):
         refreshed = ReviewReport.objects.for_team(self.team.id).get(id=branch_id)
         assert refreshed.pr_number == 123
         assert refreshed.pr_url == "https://github.com/o/r/pull/123"
-        assert ReviewReport.objects.for_team(self.team.id).filter(repository="o/r").count() == 1
+        assert ReviewReport.objects.for_team(self.team.id).filter(repository__iexact="o/r").count() == 1
 
     def test_provenance_is_stamped_on_create_and_never_overwritten(self) -> None:
         # The signals link is the durable provenance (the artefact on the signals side is deletable):

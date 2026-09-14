@@ -3,7 +3,7 @@ from datetime import UTC, date, datetime
 from typing import Any
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from unittest import mock
 
 from parameterized import parameterized
@@ -87,7 +87,7 @@ class TestFormatStartValue:
     def test_format(self, _name: str, value: Any, expected: str) -> None:
         assert _format_start_value(value) == expected
 
-    @freeze_time("2026-06-15T12:00:00Z")
+    @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
     def test_future_datetime_clamped_to_now(self) -> None:
         # Asking for requests created after "now" is pointless; cap it so we don't skip the window.
         assert _format_start_value(datetime(2027, 1, 1, tzinfo=UTC)) == "2026-06-15T12:00:00+00:00"

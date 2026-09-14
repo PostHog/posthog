@@ -35,6 +35,16 @@ const mockAcpClient = vi.hoisted(() => ({
             _meta?: { codeToolKind?: string };
           };
         }) => Promise<unknown>;
+        sessionUpdate: (params: {
+          update: {
+            sessionUpdate: "tool_call" | "tool_call_update";
+            toolCallId: string;
+            status?: string;
+            rawInput?: unknown;
+            rawOutput?: unknown;
+            _meta?: unknown;
+          };
+        }) => Promise<void>;
       }
     | undefined,
 }));
@@ -208,6 +218,7 @@ function createMockDependencies() {
     agentAuthAdapter: {
       getCurrentCredentials: vi.fn().mockResolvedValue(null),
       gatewayAuthToken: vi.fn().mockResolvedValue("gateway-token"),
+      gatewayPublishToken: vi.fn().mockResolvedValue("gateway-token"),
       gatewayProjectId: vi.fn().mockReturnValue(1),
       ensureGatewayProxy: vi.fn().mockResolvedValue("http://127.0.0.1:9999"),
       configureProcessEnv: vi.fn().mockResolvedValue(undefined),
@@ -318,6 +329,7 @@ describe("AgentService", () => {
     it.each([
       { action: "login" as const, expected: "'auth' 'login'" },
       { action: "logout" as const, expected: "'auth' 'logout'" },
+      { action: "setup-token" as const, expected: "'setup-token'" },
     ])(
       "describes the claude auth $action terminal",
       async ({ action, expected }) => {
@@ -376,7 +388,6 @@ describe("AgentService", () => {
       ).mountContextWiki(credentials);
 
     const ENV_KEYS = [
-      "POSTHOG_API_KEY",
       "POSTHOG_PERSONAL_API_KEY",
       "POSTHOG_CONTEXT_LAYER_PATH",
       "POSTHOG_CONTEXT_LAYER_COMMITS_PATH",
@@ -394,35 +405,30 @@ describe("AgentService", () => {
       }
     });
 
-    // POSTHOG_API_KEY is what the auth sync just wrote, and it is deliberately
-    // absent while impersonating — so an impersonation credential must never
-    // reach the agent subprocess as a publish token.
+    // The publish token is whatever the auth adapter hands out; it stays null
+    // for impersonated sessions so that credential never reaches a subprocess.
     it.each([
-      ["the auth sync wrote one", "synced-key", "synced-key"],
-      ["the session is impersonated", undefined, undefined],
-    ])(
-      "exposes a publish token only when %s",
-      async (_label, apiKey, expected) => {
-        if (apiKey) {
-          process.env.POSTHOG_API_KEY = apiKey;
-        }
-        mockPrepareContextWiki.mockResolvedValueOnce(mount);
+      ["a session the adapter covers", "gateway-token", "gateway-token"],
+      ["an impersonated session", null, undefined],
+    ])("exposes the publish token for %s", async (_label, token, expected) => {
+      vi.mocked(
+        deps.agentAuthAdapter.gatewayPublishToken,
+      ).mockResolvedValueOnce(token);
+      mockPrepareContextWiki.mockResolvedValueOnce(mount);
 
-        const wiki = await mountContextWiki();
+      const wiki = await mountContextWiki();
 
-        expect(wiki).toEqual({
-          path: mount.path,
-          commitsPath: mount.commitsPath,
-          personalApiKey: expected,
-        });
-      },
-    );
+      expect(wiki).toEqual({
+        path: mount.path,
+        commitsPath: mount.commitsPath,
+        personalApiKey: expected,
+      });
+    });
 
     // The mount travels per-session precisely because the harness adapters
     // snapshot process.env at spawn time — a global write here would let
     // concurrent session starts leak one session's token into another.
     it("never writes the wiki vars to shared process.env", async () => {
-      process.env.POSTHOG_API_KEY = "synced-key";
       mockPrepareContextWiki.mockResolvedValueOnce(mount);
 
       await mountContextWiki();
@@ -433,7 +439,6 @@ describe("AgentService", () => {
     });
 
     it("threads the mount into agent.run as a per-session value", async () => {
-      process.env.POSTHOG_API_KEY = "synced-key";
       mockPrepareContextWiki.mockResolvedValue(mount);
 
       await service.startSession(baseSessionParams);
@@ -445,7 +450,7 @@ describe("AgentService", () => {
           contextWiki: {
             path: mount.path,
             commitsPath: mount.commitsPath,
-            personalApiKey: "synced-key",
+            personalApiKey: "gateway-token",
           },
         }),
       );
@@ -585,6 +590,59 @@ describe("AgentService", () => {
       expect(deps.agentAuthAdapter.buildMcpServers).not.toHaveBeenCalled();
       expect(deps.mcpAppsService.addServerConfigs).not.toHaveBeenCalled();
     });
+  });
+
+  describe("MCP tool result forwarding", () => {
+    it.each([
+      [
+        "legacy claudeCode channel (Claude adapter)",
+        { claudeCode: { toolName: "mcp__posthog__query" } },
+      ],
+      [
+        "canonical posthog channel (Codex adapter)",
+        {
+          posthog: {
+            toolName: "mcp__posthog__query",
+            mcp: { server: "posthog", tool: "query" },
+          },
+        },
+      ],
+    ])(
+      "forwards tool input/result to McpAppsService for the %s",
+      async (_label, meta) => {
+        await service.startSession(baseSessionParams);
+
+        await mockAcpClient.current?.sessionUpdate({
+          update: {
+            sessionUpdate: "tool_call",
+            toolCallId: "tc-1",
+            rawInput: { sql: "SELECT 1" },
+            _meta: meta,
+          },
+        });
+        expect(deps.mcpAppsService.notifyToolInput).toHaveBeenCalledWith(
+          "mcp__posthog__query",
+          "tc-1",
+          { sql: "SELECT 1" },
+        );
+
+        await mockAcpClient.current?.sessionUpdate({
+          update: {
+            sessionUpdate: "tool_call_update",
+            toolCallId: "tc-1",
+            status: "completed",
+            rawOutput: { content: [{ type: "text", text: "42 rows" }] },
+            _meta: meta,
+          },
+        });
+        expect(deps.mcpAppsService.notifyToolResult).toHaveBeenCalledWith(
+          "mcp__posthog__query",
+          "tc-1",
+          { content: [{ type: "text", text: "42 rows" }] },
+          false,
+        );
+      },
+    );
   });
 
   describe("reconnect", () => {
@@ -738,6 +796,7 @@ describe("AgentService", () => {
 
       expect(mockNewSession).toHaveBeenCalledTimes(1);
       expect(mockNewSession.mock.calls[0][0]._meta).toMatchObject({
+        taskId: "task-1",
         taskRunId: "run-1",
         environment: "local",
       });

@@ -126,7 +126,7 @@ def prepare_and_print_ast(
                     TrinoTranspilerInput(
                         node=prepared_ast,
                         values=tuple(context.values.items()),
-                        table_locators=tuple(context.trino_table_locators.items()),
+                        table_locators=context.trino_table_locators,
                         persons_on_events_mode=context.modifiers.personsOnEventsMode,
                         convert_to_project_timezone=context.modifiers.convertToProjectTimezone,
                         limit_top_select=context.limit_top_select,
@@ -192,6 +192,7 @@ def prepare_ast_for_printing(
                 user=context.user,
                 timings=context.timings,
                 bypass_warehouse_access_control=context.bypass_warehouse_access_control,
+                use_cached_sources=context.use_cached_sources,
                 trigger="printer",
             )
     if context.direct_postgres_connection_metadata is None and context.database is not None:

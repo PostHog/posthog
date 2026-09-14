@@ -118,6 +118,16 @@ describe('the authorized urls list logic', () => {
                 proposedUrlValidationErrors: { url: 'Please enter a valid URL' },
             })
         })
+
+        it('allows an unchanged URL when editing', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setAuthorizedUrls(['https://example.com'])
+                logic.actions.setEditUrlIndex(0)
+            }).toMatchValues({
+                proposedUrl: { url: 'https://example.com' },
+                proposedUrlHasErrors: false,
+            })
+        })
     })
 
     describe('loading suggestions', () => {

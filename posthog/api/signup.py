@@ -33,6 +33,7 @@ from posthog.email import is_email_available
 from posthog.event_usage import alias_invite_id, report_user_joined_organization, report_user_signed_up
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.email_utils import EmailValidationHelper, reject_plus_addressed_email, validate_display_name
+from posthog.helpers.oauth_pending_connection import read_pending_oauth_connection
 from posthog.helpers.verified_domain_enforcement import resolve_login_organization
 from posthog.models import InviteExpiredException, Organization, OrganizationDomain, OrganizationInvite, Team, User
 from posthog.models.identity_provider_config import ConfigScope, IdentityProviderConfig
@@ -63,6 +64,15 @@ def verify_email_or_login(request: Request, user: User) -> None:
         email_verification_code_verifier.send_code(user)
     else:
         login(request, user, backend="django.contrib.auth.backends.ModelBackend")
+
+
+def requested_next_url(request) -> str | None:
+    """The `next_url` the client asked to land on, or None.
+
+    Only a relative url is honored, so a signup response cannot redirect away from this domain.
+    """
+    next_url = request.data.get("next_url") if request and request.data else None
+    return next_url if next_url and is_relative_url(next_url) else None
 
 
 def get_redirect_url(uuid: str, is_email_verified: bool, next_url: str | None = None) -> str:
@@ -305,6 +315,7 @@ class SignupSerializer(serializers.Serializer):
             role_at_organization=role_at_organization,
             referral_source=referral_source,
             referral_source_ai_prompt=referral_source_ai_prompt,
+            oauth_connection=read_pending_oauth_connection(request),
         )
 
         # Fire-and-forget real-time enrichment for onboarding routing. Fully guarded and
@@ -350,12 +361,7 @@ class SignupSerializer(serializers.Serializer):
         return Team.objects.create_with_data(initiating_user=user, organization=organization)
 
     def to_representation(self, instance) -> dict:
-        request = self.context.get("request")
-        next_url = request.data.get("next_url") if request and request.data else None
-        # We only want to redirect to a relative url so that we don't redirect away from the current domain
-        if next_url and not is_relative_url(next_url):
-            next_url = None
-
+        next_url = requested_next_url(self.context.get("request"))
         data = UserBasicSerializer(instance=instance).data
         data["redirect_url"] = get_redirect_url(data["uuid"], data["is_email_verified"], next_url)
         return data
@@ -475,11 +481,13 @@ class InviteSignupSerializer(serializers.Serializer):
         return validate_display_name(value)
 
     def to_representation(self, instance):
-        data = UserBasicSerializer(instance=instance).data
-        # Setup-delegation invites hand off onboarding to the invitee — route them straight into
+        next_url = requested_next_url(self.context.get("request"))
+        # Setup-delegation invites hand off onboarding to the invitee - route them straight into
         # onboarding instead of the default post-signup landing page, otherwise the sceneLogic
         # redirect race can drop them on the homepage.
-        next_url = "/onboarding" if self.context.get("delegated_onboarding") else None
+        if self.context.get("delegated_onboarding"):
+            next_url = "/onboarding"
+        data = UserBasicSerializer(instance=instance).data
         data["redirect_url"] = get_redirect_url(data["uuid"], data["is_email_verified"], next_url)
         return data
 
@@ -666,6 +674,7 @@ class InviteSignupSerializer(serializers.Serializer):
                 user_analytics_metadata=user.get_analytics_metadata(),
                 org_analytics_metadata=user.organization.get_analytics_metadata() if user.organization else None,
                 role_at_organization=role_at_organization,
+                oauth_connection=read_pending_oauth_connection(request),
                 referral_source="signed up from invite link",
             )
 
@@ -1109,6 +1118,7 @@ def social_create_user(
         user_analytics_metadata=user.get_analytics_metadata(),
         org_analytics_metadata=user.organization.get_analytics_metadata() if user.organization else None,
         referral_source="social signup - no info",
+        oauth_connection=read_pending_oauth_connection(request),
     )
 
     return {"is_new": True, "user": user}

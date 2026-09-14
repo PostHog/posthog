@@ -50,7 +50,6 @@ export function MessageChannels(): JSX.Element {
                 )}
                 {showProductIntroduction && (
                     <ProductIntroduction
-                        productName="Workflows channel"
                         thingName="channel integration"
                         description="Set up messaging channels to automatically send emails, SMS, or Slack notifications triggered by user actions and events."
                         docsURL="https://posthog.com/docs/workflows/configure-channels"

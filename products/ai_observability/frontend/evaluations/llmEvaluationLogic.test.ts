@@ -300,6 +300,18 @@ describe('llmEvaluationLogic', () => {
             })
         })
 
+        it('records the polarity on the boolean output config', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.loadEvaluationSuccess({ ...mockEvaluation })
+                logic.actions.setTrueIsFailure(true)
+            }).toMatchValues({
+                evaluation: expect.objectContaining({
+                    output_config: { allows_na: false, true_is_failure: true },
+                }),
+                hasUnsavedChanges: true,
+            })
+        })
+
         it('setTriggerConditions updates conditions', async () => {
             await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
 
@@ -739,7 +751,7 @@ return result`,
             })
 
             it('calculates summary from server-side aggregate counts', async () => {
-                logic.actions.loadRunsStatsSuccess({ total: 3, applicable: 2, passed: 1 })
+                logic.actions.loadRunsStatsSuccess({ total: 3, applicable: 2, trueCount: 1 })
 
                 await expectLogic(logic).toMatchValues({
                     runsSummary: {
@@ -989,6 +1001,19 @@ return result`,
 
                 await expectLogic(logic).toMatchValues({
                     filteredEvaluationRuns: [expect.objectContaining({ id: 'run-1', result: true })],
+                })
+            })
+
+            it('treats a false result as a pass for a detector', async () => {
+                logic.actions.loadEvaluationSuccess({
+                    ...mockEvaluation,
+                    output_config: { allows_na: false, true_is_failure: true },
+                })
+                logic.actions.loadEvaluationRunsSuccess(mockRuns)
+                logic.actions.setEvaluationRunsFilter('pass', 'all')
+
+                await expectLogic(logic).toMatchValues({
+                    filteredEvaluationRuns: [expect.objectContaining({ id: 'run-2', result: false })],
                 })
             })
 

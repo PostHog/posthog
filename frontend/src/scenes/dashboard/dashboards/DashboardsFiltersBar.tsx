@@ -28,7 +28,6 @@ export function DashboardsFiltersBar({ extraActions }: DashboardsFiltersBarProps
         }
         setFilters({ tags: Array.from(selected) })
     }
-
     return (
         <div className="flex justify-between gap-2 flex-wrap mb-4">
             <LemonInput type="search" placeholder="Search for dashboards" onChange={setSearch} value={filters.search} />
@@ -62,6 +61,18 @@ export function DashboardsFiltersBar({ extraActions }: DashboardsFiltersBarProps
                                     fullWidth
                                     className="max-w-full"
                                 />
+                                {(filters.tags?.length || 0) > 0 && (
+                                    <LemonButton
+                                        data-attr="dashboard-tags-clear-selection"
+                                        fullWidth
+                                        role="menuitem"
+                                        size="small"
+                                        onClick={() => setFilters({ tags: [] })}
+                                        type="tertiary"
+                                    >
+                                        Clear selection
+                                    </LemonButton>
+                                )}
                                 <div
                                     ref={tagListScrollRef}
                                     className="max-h-80 overflow-y-auto"
@@ -108,20 +119,6 @@ export function DashboardsFiltersBar({ extraActions }: DashboardsFiltersBarProps
                                         ) : null}
                                     </ul>
                                 </div>
-                                {(filters.tags?.length || 0) > 0 && (
-                                    <>
-                                        <div className="my-1 border-t" />
-                                        <LemonButton
-                                            fullWidth
-                                            role="menuitem"
-                                            size="small"
-                                            onClick={() => setFilters({ tags: [] })}
-                                            type="tertiary"
-                                        >
-                                            Clear selection
-                                        </LemonButton>
-                                    </>
-                                )}
                             </div>
                         }
                     >

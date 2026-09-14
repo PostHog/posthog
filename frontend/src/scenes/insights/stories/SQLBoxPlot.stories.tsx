@@ -3,7 +3,6 @@ import { waitFor } from '@testing-library/dom'
 import userEvent from '@testing-library/user-event'
 import { useEffect, useRef } from 'react'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { createInsightStory } from 'scenes/insights/__mocks__/createInsightScene'
 
 import { mswDecorator } from '~/mocks/browser'
@@ -50,7 +49,6 @@ const meta: Meta = {
     title: 'Scenes-App/Insights/SQLBoxPlot',
     parameters: {
         layout: 'fullscreen',
-        featureFlags: [FEATURE_FLAGS.SQL_BOX_PLOT_INSIGHT],
         testOptions: {
             snapshotBrowsers: ['chromium'],
             viewport: { width: 1300, height: 720 },

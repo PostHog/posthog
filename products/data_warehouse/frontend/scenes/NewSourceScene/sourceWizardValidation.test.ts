@@ -1,7 +1,7 @@
 import type { SourceFieldConfig } from '~/queries/schema/schema-general'
 
 import { findOauthBranch, normalizeMultiValue } from '../../shared/components/forms/IntegrationAccountSelector'
-import { getErrorsForFields } from './sourceWizardLogic'
+import { getErrorsForFields, missingUploadedFileKeys } from './sourceWizardLogic'
 
 const REPOSITORIES_FIELD: SourceFieldConfig = {
     type: 'oauth-account-select',
@@ -112,6 +112,26 @@ describe('source wizard multi-value fields', () => {
             [['a/b'], 'legacy/repo', ['a/b']],
         ])('value %p with legacy %p normalizes to %p', (value, legacy, expected) => {
             expect(normalizeMultiValue(value, legacy)).toEqual(expected)
+        })
+    })
+    describe('missingUploadedFileKeys', () => {
+        const SERVICE_ACCOUNT_KEYS = ['project_id', 'private_key', 'client_email']
+
+        // Uploading the wrong JSON is the common mistake here: it parses, so the only thing that
+        // catches it is the declared key list.
+        it.each([
+            [{ project_id: 'p', private_key: 'k', client_email: 'e' }, []],
+            [{ project_info: { project_id: 'p' } }, SERVICE_ACCOUNT_KEYS],
+            [{ project_id: 'p', private_key: '', client_email: 'e' }, ['private_key']],
+            [{ project_id: 'p', private_key: null, client_email: 'e' }, ['private_key']],
+            [[{ project_id: 'p' }], SERVICE_ACCOUNT_KEYS],
+            ['not an object', SERVICE_ACCOUNT_KEYS],
+        ])('reports %p as missing %p', (parsed, expected) => {
+            expect(missingUploadedFileKeys(parsed, SERVICE_ACCOUNT_KEYS)).toEqual(expected)
+        })
+
+        it('accepts any shape when the source declares no specific keys', () => {
+            expect(missingUploadedFileKeys({ anything: true }, '*')).toEqual([])
         })
     })
 })

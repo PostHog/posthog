@@ -122,6 +122,44 @@ def test_readonly_request_takes_priority_over_full_credential_path(
     mock_full.assert_not_called()
 
 
+@pytest.mark.parametrize(
+    "github_integration_id, expected",
+    [(5, "FULL_TOKEN"), (None, "")],
+    ids=["entitled_discussion_gets_the_team_credential", "unentitled_discussion_stays_credential_less"],
+)
+@patch("products.tasks.backend.temporal.process_task.activities.provision_sandbox.emit_agent_log")
+@patch("products.tasks.backend.temporal.process_task.activities.provision_sandbox.get_sandbox_github_token")
+def test_repo_less_report_run_follows_the_integration_the_create_path_attached(
+    mock_full: MagicMock, _mock_log: MagicMock, github_integration_id: int | None, expected: str
+) -> None:
+    # Ask AI on a report runs repo-less, and it used to get no credential whatever it carried, so
+    # it could not clone a private repository or push. The attached integration is the signal now:
+    # the create path attaches one only after the Desktop gate passed, and a scout or scout-chat
+    # task never gets one at all.
+    from products.tasks.backend.models import Task  # noqa: PLC0415 — model import kept off this module's import path
+    from products.tasks.backend.temporal.process_task.activities.provision_sandbox import (  # noqa: PLC0415 — activities import the workflow stack; keep it off this module's import path
+        _resolve_sandbox_github_token,
+    )
+
+    mock_full.return_value = "FULL_TOKEN"
+    task = Task(origin_product=Task.OriginProduct.SIGNAL_REPORT)
+    ctx = TaskProcessingContext(
+        task_id="t",
+        run_id="r",
+        team_id=1,
+        team_uuid="u",
+        organization_id="o",
+        github_integration_id=github_integration_id,
+        repository=None,
+        distinct_id="d",
+        state={},
+    )
+
+    token = _resolve_sandbox_github_token(ctx, task=task, actor_user=None, repository=None, has_repo=False)
+
+    assert token == expected
+
+
 @patch("products.tasks.backend.temporal.process_task.activities.provision_sandbox.emit_agent_log")
 @patch("products.tasks.backend.temporal.process_task.activities.provision_sandbox.get_sandbox_github_token")
 def test_reauthorization_required_surfaces_as_credential_unavailable(

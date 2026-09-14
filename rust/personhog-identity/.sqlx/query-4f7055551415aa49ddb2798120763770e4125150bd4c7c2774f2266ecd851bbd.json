@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT step, completed_at FROM lifecycle_op WHERE op_id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "step",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "completed_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      true
+    ]
+  },
+  "hash": "4f7055551415aa49ddb2798120763770e4125150bd4c7c2774f2266ecd851bbd"
+}

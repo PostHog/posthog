@@ -241,6 +241,31 @@ export function computeFleetSummary(rows: FleetRow[]): FleetSummary {
     }
 }
 
+/** The fields the workflow-list order reads. Structural, so a table row and a test fixture both satisfy
+ *  it without importing the full health row. */
+export interface OrderableWorkflowRow {
+    workflowName: string
+    runCount: number
+    mergeQueueRunCount: number
+}
+
+/** A workflow the merge queue runs on its gate branches, so it blocks a merge from landing. It is the
+ *  closest proxy for a required check that the run data carries. */
+export function isGatingWorkflow(row: OrderableWorkflowRow): boolean {
+    return row.mergeQueueRunCount > 0
+}
+
+/** The workflow list's default order: gating workflows first, then the busiest, then by name. The name
+ *  tiebreak keeps equal run counts in a fixed order, so the table does not reshuffle between renders. */
+export function orderWorkflowHealthRows<T extends OrderableWorkflowRow>(rows: T[]): T[] {
+    return [...rows].sort(
+        (a, b) =>
+            Number(isGatingWorkflow(b)) - Number(isGatingWorkflow(a)) ||
+            b.runCount - a.runCount ||
+            a.workflowName.localeCompare(b.workflowName)
+    )
+}
+
 /**
  * Roll a run's jobs up to one cost figure, mirroring the backend cost model (logic/cost.py): only
  * self-hosted runners are billable, and a job contributes once settled. Returns null when there's

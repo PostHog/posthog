@@ -2,28 +2,42 @@ from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
 
+from parameterized import parameterized
+
 from products.growth.backend.constants import TEAM_SDK_CACHE_EXPIRY
 from products.growth.backend.team_sdk_versions import get_and_cache_team_sdk_versions, get_sdk_versions_for_team
 
 
 class TestGetSdkVersionsForTeam(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("posthog-server",),
+            ("posthog-unity",),
+            ("posthog-node-mcp",),
+            ("posthog-python-mcp",),
+            ("posthog-edge",),
+            ("posthog-convex",),
+            ("posthog-rails",),
+            ("posthog-aspnetcore",),
+        ]
+    )
     @patch("products.growth.backend.team_sdk_versions.run_query")
     @patch("products.growth.backend.team_sdk_versions.Team.objects.get")
     def test_sorts_partial_and_full_semver_versions_consistently(
-        self, mock_team_get: MagicMock, mock_run_query: MagicMock
+        self, sdk_type: str, mock_team_get: MagicMock, mock_run_query: MagicMock
     ) -> None:
         mock_team_get.return_value = MagicMock()
         mock_run_query.return_value = MagicMock(
             results=[
-                ("posthog-server", "1.2.0", "2026-07-14T00:00:00Z", 100),
-                ("posthog-server", "1.10", "2026-07-14T00:00:00Z", 50),
+                (sdk_type, "1.2.0", "2026-07-14T00:00:00Z", 100),
+                (sdk_type, "1.10", "2026-07-14T00:00:00Z", 50),
             ]
         )
 
         result = get_sdk_versions_for_team(team_id=1)
 
         assert result is not None
-        assert [entry["lib_version"] for entry in result["posthog-server"]] == ["1.10", "1.2.0"]
+        assert [entry["lib_version"] for entry in result[sdk_type]] == ["1.10", "1.2.0"]
 
 
 class TestGetAndCacheTeamSdkVersions(SimpleTestCase):

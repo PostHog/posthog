@@ -113,7 +113,6 @@ class TestTransformations:
             "name": "Test Org",
             "logo_media_id": uuid.uuid4(),
             "is_member_join_email_enabled": True,
-            "is_hipaa": False,
             "available_product_features": [{"key": "feature1"}],  # ArrayField, so psycopg2 parses it
             "usage": '{"events": 1000}',  # ::text on the PG side
             "personalization": '{"role": "engineer"}',
@@ -126,7 +125,6 @@ class TestTransformations:
         assert transformed["id"] == str(test_uuid)
         assert isinstance(transformed["logo_media_id"], str)
         assert transformed["is_member_join_email_enabled"] == 1
-        assert transformed["is_hipaa"] == 0
         # ArrayField columns arrive as Python lists, but the mirror column is String, so the
         # ClickHouse driver rejects any value the transform leaves unserialized.
         assert transformed["available_product_features"] == '[{"key": "feature1"}]'
@@ -277,6 +275,8 @@ class TestTableDdl:
         sql = TABLE_CONFIGS["posthog_team"].ddl()
         assert "models.posthog_team" in sql
         assert "ReplicatedReplacingMergeTree" in sql
+        assert "event_retention_months UInt16 DEFAULT 84" in sql
+        assert "event_retention_months" in TABLE_CONFIGS["posthog_team"].select_columns
 
     def test_feature_flag_ddl_shape(self):
         sql = TABLE_CONFIGS["posthog_featureflag"].ddl()

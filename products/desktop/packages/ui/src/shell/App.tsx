@@ -28,6 +28,7 @@ import { useOnboardingStore } from "@posthog/ui/features/onboarding/onboardingSt
 import { SettingsDialog } from "@posthog/ui/features/settings/SettingsDialog";
 import { UpdateBanner } from "@posthog/ui/features/sidebar/components/UpdateBanner";
 import { PendingPromptRecovery } from "@posthog/ui/features/task-detail/components/PendingPromptRecovery";
+import { UpdateAvailableModal } from "@posthog/ui/features/updates/UpdateAvailableModal";
 import { router } from "@posthog/ui/router/router";
 import { AppLoadingScreen } from "@posthog/ui/shell/AppLoadingScreen";
 import {
@@ -336,6 +337,7 @@ function App({ devToolbar }: AppProps) {
             <ScopeReauthPrompt />
             <AddDirectoryDialog />
             <ErrorDetailsDialog />
+            <UpdateAvailableModal />
           </div>
           {devToolbar}
         </div>

@@ -5,19 +5,22 @@ import structlog
 from celery import current_app
 
 from posthog.models.team import Team
+from posthog.models.user import User
 
 from products.conversations.backend.facade import api as conversations
-from products.conversations.backend.facade.types import EmailThreadAccountLinkInput
+from products.conversations.backend.facade.types import EmailThreadAccountLinkInput, EmailThreadForAccountMatching
 from products.customer_analytics.backend.facade import contracts
+from products.customer_analytics.backend.logic.account_member_search import is_account_member_search_enabled
 from products.customer_analytics.backend.logic.email_account_matching import (
     MatchedAccount,
     match_accounts_for_emails,
+    match_accounts_for_gmail_emails,
     normalize_emails,
 )
 
 logger = structlog.get_logger(__name__)
 
-_MATCH_SOURCE_PRIORITY = {"known_email": 0, "person_group": 1, "email_domain": 2}
+_MATCH_SOURCE_PRIORITY = {"known_email": 0, "person_group": 1, "organization_member": 2, "email_domain": 3}
 _RECALCULATION_TASK = "customer_analytics.recalculate_email_thread_account_links"
 _RECALCULATION_THREADS_TASK = "customer_analytics.recalculate_email_thread_account_links_for_threads"
 _RECALCULATION_LOCK_SECONDS = 15 * 60
@@ -134,16 +137,27 @@ def recalculate_email_thread_links(
         if not threads:
             return processed
 
-        # One matcher pass per page, not per thread: participants and domains that recur
-        # across a customer's threads collapse into a single set of queries.
-        page_matches = match_accounts_for_emails(
-            team, [email for thread in threads for email in thread.participant_emails]
-        )
+        owner_ids = {thread.gmail_owner_id for thread in threads if thread.gmail_owner_id is not None}
+        owners_by_id = User.objects.in_bulk(owner_ids)
+        enabled_owner_ids = {
+            owner_id for owner_id, owner in owners_by_id.items() if is_account_member_search_enabled(team, owner)
+        }
+        threads_by_member_search: dict[bool, list[EmailThreadForAccountMatching]] = {}
         for thread in threads:
+            member_search_enabled = thread.gmail_owner_id in enabled_owner_ids
+            threads_by_member_search.setdefault(member_search_enabled, []).append(thread)
+        matches_by_member_search = {
+            member_search_enabled: (
+                match_accounts_for_gmail_emails if member_search_enabled else match_accounts_for_emails
+            )(team, [email for thread in matching_threads for email in thread.participant_emails])
+            for member_search_enabled, matching_threads in threads_by_member_search.items()
+        }
+        for thread in threads:
+            group_matches = matches_by_member_search[thread.gmail_owner_id in enabled_owner_ids]
             thread_matches = {
-                email: page_matches[email]
+                email: group_matches[email]
                 for email in normalize_emails(thread.participant_emails)
-                if email in page_matches
+                if email in group_matches
             }
             matches = _dedupe_account_matches(thread_matches)
             conversations.replace_email_thread_account_links(

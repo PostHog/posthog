@@ -15,7 +15,12 @@ import {
 import { pluralize } from 'lib/utils/strings'
 import { organizationLogic } from 'scenes/organizationLogic'
 
-import { BulkCopyFailure, flagSelectionLogic, getBulkCopyDisabledReason } from './flagSelectionLogic'
+import {
+    BulkCopyFailure,
+    flagSelectionLogic,
+    getBulkCopyDisabledReason,
+    projectSelectOptions,
+} from './flagSelectionLogic'
 
 /** "Copy to projects" bulk action button shared by the flags overview table and the projects grid. */
 export function BulkCopyToProjectsButton({
@@ -128,10 +133,7 @@ export function BulkCopyFlagsModal(): JSX.Element | null {
     )
     const teamNameById = useMemo(() => new Map(teams.map((team) => [team.id, team.name])), [teams])
     const destinationOptions = useMemo(
-        () =>
-            teams
-                .filter((team) => team.id !== bulkCopySourceProjectId)
-                .map((team) => ({ key: String(team.id), label: team.name, value: team.id })),
+        () => projectSelectOptions(teams, bulkCopySourceProjectId),
         [teams, bulkCopySourceProjectId]
     )
 
