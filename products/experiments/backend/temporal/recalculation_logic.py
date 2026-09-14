@@ -708,6 +708,36 @@ def _calculate_experiment_metric_for_recalculation_sync(
         client_query_id = f"experiment_metric_recalc_{recalculation_id}_{metric_uuid}"
 
         calc_started_at = time.perf_counter()
+        query_from = experiment.start_date
+
+        def record_terminal_error(message: str, error_type: str) -> None:
+            _store_result(
+                recalculation_id=recalculation_id,
+                experiment_id=experiment_id,
+                metric_uuid=metric_uuid,
+                recalc_fp=recalc_fp,
+                query_from=query_from,
+                query_to=query_to_dt,
+                status=ExperimentMetricResult.Status.FAILED,
+                result=None,
+                error_message=message,
+                query_id=client_query_id,
+            )
+            _record_failure(recalculation_id, metric_uuid, "calculation", message)
+            _capture_experiment_metric_event(
+                experiment,
+                metric_uuid,
+                metric_type,
+                metric_dict,
+                "experiment metric error",
+                {
+                    "duration_ms": round((time.perf_counter() - calc_started_at) * 1000),
+                    "error_type": error_type,
+                    "error_message": message,
+                },
+                trigger=state.trigger,
+            )
+
         try:
             runner = ExperimentQueryRunner(
                 query=ExperimentQuery(experiment_id=experiment_id, metric=build_metric(metric_dict)),
@@ -801,32 +831,7 @@ def _calculate_experiment_metric_for_recalculation_sync(
         except (ConcurrencyLimitExceeded, ClickHouseAtCapacity) as e:
             message = str(e)[:_MAX_ERROR_MESSAGE_LENGTH]
             if is_final_attempt:
-                _store_result(
-                    recalculation_id=recalculation_id,
-                    experiment_id=experiment_id,
-                    metric_uuid=metric_uuid,
-                    recalc_fp=recalc_fp,
-                    query_from=experiment.start_date,
-                    query_to=query_to_dt,
-                    status=ExperimentMetricResult.Status.FAILED,
-                    result=None,
-                    error_message=message,
-                    query_id=client_query_id,
-                )
-                _record_failure(recalculation_id, metric_uuid, "calculation", message)
-                _capture_experiment_metric_event(
-                    experiment,
-                    metric_uuid,
-                    metric_type,
-                    metric_dict,
-                    "experiment metric error",
-                    {
-                        "duration_ms": round((time.perf_counter() - calc_started_at) * 1000),
-                        "error_type": classify_experiment_query_error(e),
-                        "error_message": message,
-                    },
-                    trigger=state.trigger,
-                )
+                record_terminal_error(message, classify_experiment_query_error(e))
             logger.warning(
                 "Experiment metric recalculation deferred by ClickHouse backpressure",
                 experiment_id=experiment_id,
@@ -886,32 +891,7 @@ def _calculate_experiment_metric_for_recalculation_sync(
                     },
                 )
             if is_final_attempt or is_permanent:
-                _store_result(
-                    recalculation_id=recalculation_id,
-                    experiment_id=experiment_id,
-                    metric_uuid=metric_uuid,
-                    recalc_fp=recalc_fp,
-                    query_from=experiment.start_date,
-                    query_to=query_to_dt,
-                    status=ExperimentMetricResult.Status.FAILED,
-                    result=None,
-                    error_message=message,
-                    query_id=client_query_id,
-                )
-                _record_failure(recalculation_id, metric_uuid, "calculation", message)
-                _capture_experiment_metric_event(
-                    experiment,
-                    metric_uuid,
-                    metric_type,
-                    metric_dict,
-                    "experiment metric error",
-                    {
-                        "duration_ms": round((time.perf_counter() - calc_started_at) * 1000),
-                        "error_type": error_type,
-                        "error_message": message,
-                    },
-                    trigger=state.trigger,
-                )
+                record_terminal_error(message, error_type)
             logger.exception(
                 "Experiment metric recalculation failed",
                 experiment_id=experiment_id,

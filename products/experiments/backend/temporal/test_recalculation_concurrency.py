@@ -4,6 +4,7 @@ from queue import Queue
 from time import monotonic
 
 import pytest
+import time_machine
 from unittest.mock import patch
 
 from django.db import connection, connections, transaction
@@ -24,6 +25,7 @@ from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.parametrize("existing_result", [False, True])
+@time_machine.travel("2026-09-01T12:00:00Z", tick=False)
 def test_superseded_result_cannot_overwrite_a_replacement_during_commit(
     team: Team, user: User, existing_result: bool
 ) -> None:
