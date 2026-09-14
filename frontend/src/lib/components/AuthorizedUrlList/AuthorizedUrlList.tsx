@@ -30,6 +30,9 @@ export interface AuthorizedUrlListProps {
     launchInSameTab?: boolean
     /** Drop the verbose "there are no authorized URLs" explainer box (e.g. compact onboarding). */
     hideEmptyState?: boolean
+    /** Drop the add form's Save button where the surface commits the typed URL with its own primary
+     * button (e.g. onboarding Continue), so only one primary button is on screen. */
+    hideAddFormSubmit?: boolean
 }
 
 export function AuthorizedUrlList({
@@ -47,6 +50,7 @@ export function AuthorizedUrlList({
     showLaunch = true,
     launchInSameTab = false,
     hideEmptyState = false,
+    hideAddFormSubmit = false,
 }: AuthorizedUrlListProps & { addText?: string }): JSX.Element {
     const logic = authorizedUrlListLogic({
         experimentId: experimentId ?? null,
@@ -87,6 +91,7 @@ export function AuthorizedUrlList({
                         experimentId={experimentId}
                         productTourId={productTourId}
                         allowWildCards={allowWildCards}
+                        hideSubmitButton={hideAddFormSubmit}
                     />
                 </div>
             ) : allowAdd ? (

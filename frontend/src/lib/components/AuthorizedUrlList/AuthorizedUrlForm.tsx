@@ -15,6 +15,7 @@ export interface AuthorizedUrlFormProps {
     experimentId?: ExperimentIdType
     productTourId?: string | null
     allowWildCards?: boolean
+    hideSubmitButton?: boolean
 }
 
 export function AuthorizedUrlForm({
@@ -23,6 +24,7 @@ export function AuthorizedUrlForm({
     productTourId,
     type,
     allowWildCards,
+    hideSubmitButton,
 }: AuthorizedUrlFormProps): JSX.Element {
     const logic = authorizedUrlListLogic({
         actionId: actionId ?? null,
@@ -63,9 +65,16 @@ export function AuthorizedUrlForm({
                 <LemonButton type="secondary" onClick={cancelProposingUrl}>
                     Cancel
                 </LemonButton>
-                <LemonButton htmlType="submit" type="primary" loading={isProposedUrlSubmitting} data-attr="url-save">
-                    Save
-                </LemonButton>
+                {!hideSubmitButton && (
+                    <LemonButton
+                        htmlType="submit"
+                        type="primary"
+                        loading={isProposedUrlSubmitting}
+                        data-attr="url-save"
+                    >
+                        Save
+                    </LemonButton>
+                )}
             </div>
         </Form>
     )
