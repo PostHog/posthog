@@ -72,6 +72,20 @@ describe('workflowLogic schedule reducers', () => {
         })
     })
 
+    describe('publishDisabledReason selector', () => {
+        it('says a saved schedule is already live when nothing is staged', () => {
+            logic.actions.setSchedules([makeSchedule()])
+
+            expect(logic.values.publishDisabledReason).toBe(
+                'No changes staged to publish. Schedule changes apply to the live workflow as soon as you save them.'
+            )
+        })
+
+        it('keeps the plain reason when the workflow has no schedule', () => {
+            expect(logic.values.publishDisabledReason).toBe('No changes staged to publish')
+        })
+    })
+
     describe('pendingSchedule selector', () => {
         it('returns false when no changes have been made', async () => {
             await expectLogic(logic, () => {
