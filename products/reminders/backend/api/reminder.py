@@ -7,8 +7,9 @@ from django.utils import timezone
 
 from drf_spectacular.utils import extend_schema
 from rest_framework import serializers, viewsets
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.request import Request
 
 from posthog.api.shared import UserBasicSerializer
 from posthog.auth import (
@@ -18,7 +19,11 @@ from posthog.auth import (
     SessionAuthentication,
 )
 from posthog.models import Organization, Team, User
-from posthog.permissions import APIScopePermission
+from posthog.permissions import (
+    APIScopePermission,
+    get_authenticator_scoped_organization_ids,
+    get_authenticator_scoped_team_ids,
+)
 from posthog.user_permissions import UserPermissions
 
 from products.reminders.backend.constants import MAX_ACTIVE_REMINDERS_PER_USER, RESOURCE_MODELS, RESOURCE_TYPES
@@ -26,11 +31,23 @@ from products.reminders.backend.models import Reminder
 from products.reminders.backend.scheduling import compute_next_fire_at, exceeds_daily_frequency_cap, resolve_timezone
 
 
+def token_scope_restrictions(request: Request) -> tuple[list[str] | None, list[int] | None]:
+    """APIScopePermission.check_team_and_org_permissions returns early for `scope_object = "user"`,
+    because /api/users/@me/ takes no organization or project. This viewset takes both, so it applies
+    the credential's restrictions itself.
+    """
+    authenticator = getattr(request, "successful_authenticator", None)
+    return (
+        get_authenticator_scoped_organization_ids(authenticator),
+        get_authenticator_scoped_team_ids(authenticator),
+    )
+
+
 class ReminderSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
-    # User-scoped endpoint: the user picks the org/team from their own memberships and
-    # _validate_membership enforces access — there is no single org/team in request context
-    # for the scoped PK fields to derive from, so suppress the IDOR scoping rule here.
+    # User-scoped endpoint: the user picks the org/team from their own memberships, and
+    # _validate_membership enforces that membership and the credential's reach. No single org/team
+    # is in request context for the scoped PK fields, so suppress the IDOR scoping rule here.
     organization = serializers.PrimaryKeyRelatedField(  # nosemgrep: unscoped-primary-key-related-field
         queryset=Organization.objects.all(),
         help_text="ID of the organization this reminder belongs to. You must be a member of it.",
@@ -129,6 +146,12 @@ class ReminderSerializer(serializers.ModelSerializer):
                 raise ValidationError("The team does not belong to the chosen organization.")
             if permissions.team(team).effective_membership_level is None:
                 raise ValidationError("You do not have access to this team.")
+
+        scoped_organizations, scoped_teams = token_scope_restrictions(self.context["request"])
+        if scoped_organizations is not None and str(organization.id) not in scoped_organizations:
+            raise PermissionDenied(f"This credential has no access to organization ID {organization.id}.")
+        if scoped_teams is not None and (team is None or team.id not in scoped_teams):
+            raise PermissionDenied("This credential is restricted to specific projects.")
 
     def _validate_resource(self, attrs: dict[str, Any], team: Team | None) -> None:
         instance = self.instance
@@ -246,11 +269,17 @@ class ReminderViewSet(viewsets.ModelViewSet):
     queryset = Reminder.objects.none()
 
     def get_queryset(self) -> QuerySet[Reminder]:
-        return (
+        queryset = (
             Reminder.objects.filter(created_by=cast(User, self.request.user), deleted=False)
             .select_related("created_by", "team", "organization")
             .order_by("-created_at")
         )
+        scoped_organizations, scoped_teams = token_scope_restrictions(self.request)
+        if scoped_organizations is not None:
+            queryset = queryset.filter(organization_id__in=scoped_organizations)
+        if scoped_teams is not None:
+            queryset = queryset.filter(team_id__in=scoped_teams)
+        return queryset
 
     def perform_destroy(self, instance: Reminder) -> None:
         instance.deleted = True
