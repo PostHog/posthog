@@ -21,7 +21,6 @@ _SELECT = f"""
     FROM __RUNS_SOURCE__ AS r
     WHERE run_started_at >= {{date_from}} AND head_branch = {{branch}}
     GROUP BY workflow_name
-    ORDER BY workflow_name
     LIMIT {UNPAGED_SCAN_LIMIT}
 """
 

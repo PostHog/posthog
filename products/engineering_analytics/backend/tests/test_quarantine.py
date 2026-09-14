@@ -31,7 +31,10 @@ from products.engineering_analytics.backend.logic.quarantine import (
     render_quarantine_file,
     request_quarantine,
 )
-from products.engineering_analytics.backend.logic.queries.trunk_quarantine import query_trunk_quarantine_debt
+from products.engineering_analytics.backend.logic.queries.trunk_quarantine import (
+    _LIMIT as QUARANTINE_LIMIT,
+    query_trunk_quarantine_debt,
+)
 from products.engineering_analytics.backend.presentation.serializers.suite_health import QuarantineRequestSerializer
 
 _TRUNK_QUARANTINE = "products.engineering_analytics.backend.logic.queries.trunk_quarantine"
@@ -778,7 +781,7 @@ class _StubCurated:
     def __init__(self, rows: list[tuple[Any, ...]]) -> None:
         self.repository = "PostHog/posthog"
         self._rows = rows
-        self.placeholders: dict[str, Any] = {}
+        self.sql = ""
 
     def trunk_quarantined_tests_source(self) -> str:
         return "(SELECT 1)"
@@ -786,8 +789,8 @@ class _StubCurated:
     def trunk_org_url_slug(self) -> str | None:
         return None
 
-    def run(self, sql: str, **kwargs: Any) -> SimpleNamespace:
-        self.placeholders = kwargs.get("placeholders", {})
+    def run(self, sql: str, **_kwargs: Any) -> SimpleNamespace:
+        self.sql = sql
         return SimpleNamespace(results=self._rows)
 
 
@@ -839,4 +842,4 @@ class TestTrunkQuarantineDebtTruncation(TestCase):
     def test_query_asks_for_one_row_past_the_cap(self) -> None:
         _, curated = self._debt(3, 5)
 
-        assert curated.placeholders["limit_plus_one"].value == 6
+        assert f"LIMIT {QUARANTINE_LIMIT + 1}" in curated.sql
