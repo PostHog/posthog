@@ -1,4 +1,4 @@
-import { LogicWrapper, MakeLogicType, afterMount, kea, key, path, props, reducers } from 'kea'
+import { LogicWrapper, MakeLogicType, actions, afterMount, kea, key, listeners, path, props, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { ApiConfig, ApiError } from 'lib/api'
@@ -6,6 +6,8 @@ import { ApiConfig, ApiError } from 'lib/api'
 import { apiErrorDetail } from './checksApi'
 import * as api from './generated/api'
 import type { DataQualityCheckScheduleApi, PatchedDataQualityCheckScheduleUpdateApi } from './generated/api.schemas'
+
+const SCHEDULE_REFRESH_INTERVAL_MS = 30_000
 
 export interface DataQualityScheduleLogicProps {
     metricId: string
@@ -46,6 +48,12 @@ export interface dataQualityScheduleLogicActions {
         schedule: DataQualityCheckScheduleApi
         payload?: any
     }
+    refreshSchedule: () => {
+        value: true
+    }
+    refreshScheduleSuccess: (schedule: DataQualityCheckScheduleApi) => {
+        schedule: DataQualityCheckScheduleApi
+    }
     updateSchedule: (patch: PatchedDataQualityCheckScheduleUpdateApi) => PatchedDataQualityCheckScheduleUpdateApi
     updateScheduleFailure: (
         error: string,
@@ -79,6 +87,10 @@ export const dataQualityScheduleLogic: LogicWrapper<dataQualityScheduleLogicType
     props({} as DataQualityScheduleLogicProps),
     key((props) => props.metricId),
     path((key) => ['products', 'data_quality', 'frontend', 'dataQualityScheduleLogic', key]),
+    actions({
+        refreshSchedule: true,
+        refreshScheduleSuccess: (schedule: DataQualityCheckScheduleApi) => ({ schedule }),
+    }),
     loaders(({ props, actions }) => ({
         schedule: [
             null as DataQualityCheckScheduleApi | null,
@@ -113,6 +125,9 @@ export const dataQualityScheduleLogic: LogicWrapper<dataQualityScheduleLogicType
         ],
     })),
     reducers({
+        schedule: {
+            refreshScheduleSuccess: (_, { schedule }) => schedule,
+        },
         scheduleError: [
             null as DataQualityScheduleError | null,
             {
@@ -126,5 +141,30 @@ export const dataQualityScheduleLogic: LogicWrapper<dataQualityScheduleLogicType
             },
         ],
     }),
-    afterMount(({ actions }) => actions.loadSchedule()),
+    listeners(({ actions, props, values }) => ({
+        refreshSchedule: async () => {
+            if (values.scheduleLoading) {
+                return
+            }
+            const previousSchedule = values.schedule
+            try {
+                const schedule = await api.dataCatalogMetricsChecksScheduleRetrieve(
+                    String(ApiConfig.getCurrentTeamId()),
+                    props.metricId
+                )
+                if (!values.scheduleLoading && values.schedule === previousSchedule) {
+                    actions.refreshScheduleSuccess(schedule)
+                }
+            } catch {
+                return
+            }
+        },
+    })),
+    afterMount(({ actions, cache }) => {
+        actions.loadSchedule()
+        cache.disposables.add(() => {
+            const refreshTimer = window.setInterval(actions.refreshSchedule, SCHEDULE_REFRESH_INTERVAL_MS)
+            return () => window.clearInterval(refreshTimer)
+        })
+    }),
 ])

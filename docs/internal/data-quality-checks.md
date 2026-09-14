@@ -59,3 +59,5 @@ Scheduled executions skip an occurrence when the previous scheduled workflow is 
 A reconciler runs every 15 minutes, processing bounded pages of checks and product-filtered Temporal schedules. It performs up to 10 independent repairs or deletions at a time within a page, then advances only after the whole page succeeds. It repairs missing schedules without changing existing intervals or pause states, and deletes schedules whose metrics no longer exist. Deleting or disabling all checks retains the metric's schedule preferences and executes no check queries. Deleted metrics stop producing check queries immediately, even if schedule cleanup needs a retry.
 
 In the metric Tests tab, a failed schedule edit refreshes the persisted state and offers Reload before another edit. Schedule controls stay disabled while a request is pending or its outcome is uncertain.
+
+Background schedule refreshes preserve a newer edit response, so a pending refresh cannot undo the settings shown after an edit.
