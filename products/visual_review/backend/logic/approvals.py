@@ -40,11 +40,11 @@ def finalize_run(
     Set ``commit_to_github=False`` for CLI auto-approve, which writes the baseline locally
     instead of pushing it to the PR branch.
 
-    The post-approval PR comment is always posted when the repo has PR comments enabled. It
-    updates the run's review prompt when the run has one, and posts a new comment when it does
-    not. ``add_images_to_comment_on_pr`` only controls whether the before/after snapshot images
-    are embedded in that comment; defaults false so the comment stays a text summary unless the
-    reviewer opts in.
+    The post-approval PR comment is posted when the repo has PR comments enabled and
+    ``commit_to_github`` is true. It updates the run's review prompt when the run has one, and
+    posts a new comment when it does not. ``add_images_to_comment_on_pr`` only controls whether
+    the before/after snapshot images are embedded in that comment; defaults false so the comment
+    stays a text summary unless the reviewer opts in.
     """
     run = run_queries._get_run_for_update(run_id, team_id=team_id)
     repo = run.repo
