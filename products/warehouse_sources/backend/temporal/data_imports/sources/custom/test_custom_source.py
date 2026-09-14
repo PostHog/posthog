@@ -324,6 +324,22 @@ class TestValidateManifestUrls(SimpleTestCase):
         assert not ok
         assert "Remove the HTTP method" in (err or "")
 
+    @parameterized.expand(
+        [
+            ("leading", '"https://api.example.com/v1'),
+            ("wrapped", '"https://api.example.com/v1"'),
+            ("single", "'https://api.example.com/v1'"),
+        ]
+    )
+    def test_rejects_base_url_with_quote_marks(self, _name: str, base_url: str):
+        # A quote kept from a copied code sample used to surface an unhelpful "missing a hostname"
+        # that echoed the pasted value back — the message must name the quote instead.
+        manifest = _minimal_manifest(base_url=base_url)
+        ok, err = validate_manifest_urls(manifest, team_id=999)
+        assert not ok
+        assert "Remove the quote marks" in (err or "")
+        assert base_url not in (err or "")
+
     @override_settings(CLOUD_DEPLOYMENT="US")
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.custom.source._is_host_safe",

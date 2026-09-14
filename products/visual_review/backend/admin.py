@@ -68,11 +68,12 @@ class RepoAdmin(admin.ModelAdmin):
         "repo_external_id",
         "team_link",
         "enable_pr_comments",
+        "debt_digest_enabled",
         "created_at",
         "updated_at",
     )
     list_display_links = ("id", "repo_full_name")
-    list_filter = ("enable_pr_comments", "created_at")
+    list_filter = ("enable_pr_comments", "debt_digest_enabled", "created_at")
     search_fields = ("id", "repo_full_name", "repo_external_id", "team_id")
     ordering = ("-created_at",)
     show_full_result_count = False
@@ -89,7 +90,7 @@ class RepoAdmin(admin.ModelAdmin):
     )
     fieldsets = (
         (None, {"fields": ("id", "team_id", "repo_external_id", "repo_full_name")}),
-        ("Configuration", {"fields": ("baseline_file_paths", "enable_pr_comments")}),
+        ("Configuration", {"fields": ("baseline_file_paths", "enable_pr_comments", "debt_digest_enabled")}),
         ("Security", {"fields": ("signing_keys_summary",)}),
         ("Dates", {"fields": ("created_at", "updated_at")}),
     )

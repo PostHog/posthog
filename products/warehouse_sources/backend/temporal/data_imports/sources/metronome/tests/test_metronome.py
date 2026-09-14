@@ -15,6 +15,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.metronome.
     EPOCH_RFC_3339,
     MetronomeCursorPaginator,
     MetronomeResumeConfig,
+    _clamp_window_start,
     _format_rfc3339,
     _paginator_for,
     get_resource,
@@ -150,12 +151,25 @@ class TestMetronomeResources:
         assert resource["endpoint"]["json"] == expected_body
         assert resource["endpoint"]["params"] == {"limit": 100}
 
+    @parameterized.expand([("usage",), ("usage_daily",), ("usage_hourly",)])
+    def test_usage_endpoints_page_by_cursor_and_send_no_page_size(self, endpoint) -> None:
+        # `POST /v1/usage` takes `next_page` in the query string but accepts no `limit`, and it
+        # rejects the whole request when `limit` is present. Answering that by dropping the cursor
+        # instead of the page size would import the first page and report success.
+        resource = cast(
+            dict[str, Any],
+            get_resource(endpoint, should_use_incremental_field=False, window_starting_on=EPOCH_RFC_3339),
+        )
+
+        assert resource["endpoint"]["params"] == {}
+        assert isinstance(resource["endpoint"]["paginator"], MetronomeCursorPaginator)
+
     @parameterized.expand([("invoices",), ("contracts",)])
     def test_get_resource_rejects_fanout_endpoints(self, endpoint) -> None:
         with pytest.raises(ValueError, match="Fan-out endpoint"):
             get_resource(endpoint, should_use_incremental_field=False)
 
-    @parameterized.expand([("usage_daily", "day"), ("usage_hourly", "hour")])
+    @parameterized.expand([("usage_daily", "DAY"), ("usage_hourly", "HOUR")])
     def test_bucketed_usage_merges_on_a_body_window_with_no_injected_param(self, endpoint, window_size) -> None:
         resource = cast(
             dict[str, Any],
@@ -169,6 +183,24 @@ class TestMetronomeResources:
         assert body["window_size"] == window_size
         assert body["starting_on"] == "2026-01-01T00:00:00Z"
         assert body["ending_before"] > "2026-01-01T00:00:00Z"
+        # An hourly table asks for whole days too; Metronome 400s on a bound off UTC midnight.
+        assert body["ending_before"].endswith("T00:00:00Z")
+
+    @parameterized.expand(
+        [
+            ("a_full_day_is_left_alone", "2026-09-03T00:00:00Z", "2026-09-04T00:00:00Z", "2026-09-03T00:00:00Z"),
+            (
+                "a_shorter_window_backs_the_start_off",
+                "2026-09-04T00:00:00Z",
+                "2026-09-04T00:00:00Z",
+                "2026-09-03T00:00:00Z",
+            ),
+        ]
+    )
+    def test_clamp_window_start_holds_the_one_day_minimum(self, _name, starting_on, ending_before, expected) -> None:
+        # Metronome rejects a window shorter than a day, so the end bound reaching the start has to
+        # widen the request rather than send one the vendor answers with a 400.
+        assert _clamp_window_start(starting_on, ending_before) == expected
 
     @parameterized.expand([("usage_daily",), ("usage_hourly",)])
     def test_get_resource_rejects_a_bucketed_endpoint_with_no_lower_bound(self, endpoint) -> None:
@@ -182,9 +214,10 @@ class TestMetronomeResources:
 
         assert resource["endpoint"]["method"] == "post"
         body = resource["endpoint"]["json"]
-        assert body["window_size"] == "none"
+        assert body["window_size"] == "NONE"
         assert body["starting_on"] == EPOCH_RFC_3339
         assert body["ending_before"] > EPOCH_RFC_3339
+        assert body["ending_before"].endswith("T00:00:00Z")
 
 
 class TestMetronomeSourceResponse:
@@ -222,11 +255,11 @@ class TestMetronomeSourceResponse:
                 "2026-03-14T00:00:00Z",
             ),
             (
-                "a_watermark_is_floored_to_the_hour",
+                "an_hourly_watermark_floors_to_utc_midnight_too",
                 "usage_hourly",
                 datetime(2026, 3, 14, 15, 9, 26, tzinfo=UTC),
                 None,
-                "2026-03-14T15:00:00Z",
+                "2026-03-14T00:00:00Z",
             ),
             (
                 "a_first_sync_starts_where_the_schema_recorded_its_range",
@@ -247,7 +280,15 @@ class TestMetronomeSourceResponse:
                 "usage_hourly",
                 None,
                 None,
-                "2026-08-04T12:00:00Z",
+                "2026-08-04T00:00:00Z",
+            ),
+            # The window runs to the next midnight, so the day in progress is inside it.
+            (
+                "a_watermark_inside_today_still_asks_for_today",
+                "usage_daily",
+                NOW,
+                None,
+                "2026-09-03T00:00:00Z",
             ),
         ]
     )

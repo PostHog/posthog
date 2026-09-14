@@ -19,7 +19,9 @@ from posthog.dataclasses import frozen
 from .constants import DEFAULT_MAX_LENGTH, MAX_TREE_DEPTH, SEPARATOR
 from .event_formatter import format_event_text_repr
 from .message_formatter import (
+    FormatterLines,
     FormatterOptions,
+    RenderBudgetExceeded,
     add_line_numbers,
     format_input_messages,
     format_output_messages,
@@ -323,6 +325,8 @@ def _format_state(state: Any, label: str, options: FormatterOptions | None = Non
 
         lines.append(str(state))
         return lines
+    except RenderBudgetExceeded:
+        raise
     except Exception:
         return ["", f"{label}:", "", str(state)]
 
@@ -431,7 +435,7 @@ def _render_tree(
     - <<<GEN_EXPANDABLE|eventId|displayText|encodedContent>>> for include_markers=True
     - Plain text [+] indicators for include_markers=False
     """
-    lines: list[str] = []
+    lines = FormatterLines(options)
 
     if depth > MAX_TREE_DEPTH:
         lines.append(f"{prefix}  [... max depth reached]")
@@ -488,7 +492,7 @@ def format_trace_text_repr(
     Returns:
         Tuple of (formatted_text, was_sampled) - the text representation and whether uniform sampling was applied
     """
-    lines: list[str] = []
+    lines = FormatterLines(options)
     props = trace.get("properties", {})
 
     # Trace header - support both camelCase (API) and snake_case (properties)
@@ -541,6 +545,8 @@ def format_trace_text_repr(
     # Add line numbers if requested
     if options and options.get("include_line_numbers", False):
         formatted_text = add_line_numbers(formatted_text)
+
+    lines.check_length(len(formatted_text))
 
     # Apply max_length constraint by uniformly sampling lines if needed
     # Defaults to 2M chars to fit within LLM context windows

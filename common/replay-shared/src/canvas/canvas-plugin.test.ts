@@ -394,6 +394,28 @@ describe('CanvasReplayerPlugin', () => {
         )
     })
 
+    describe('reconstructed image document', () => {
+        it('builds the image in the document that holds the recorded canvas', () => {
+            const replayDocument = document.implementation.createHTMLDocument()
+            const canvas = replayDocument.createElement('canvas')
+            replayDocument.body.appendChild(canvas)
+
+            const created: Element[] = []
+            const createInReplayDocument = replayDocument.createElement.bind(replayDocument)
+            jest.spyOn(replayDocument, 'createElement').mockImplementation((tagName: string) => {
+                const element = createInReplayDocument(tagName)
+                created.push(element)
+                return element
+            })
+
+            const plugin = CanvasReplayerPlugin([])
+            plugin.onBuild?.(canvas, { id: 1, replayer: mockReplayer } as any)
+
+            const image = created.find((element) => element.tagName === 'IMG')
+            expect(image?.ownerDocument).toBe(replayDocument)
+        })
+    })
+
     describe('target canvas sizing from snapshot mutations', () => {
         const makeCanvasEvent = (
             id: number,

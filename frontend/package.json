@@ -227,6 +227,7 @@
         "husky": "catalog:",
         "image-blob-reduce": "^4.1.0",
         "kea": "catalog:",
+        "kea-disposables": "catalog:",
         "kea-forms": "catalog:",
         "kea-loaders": "catalog:",
         "kea-localstorage": "catalog:",

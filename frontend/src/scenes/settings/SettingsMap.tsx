@@ -76,6 +76,7 @@ import { LogsSamplingSection } from 'products/logs/frontend/components/LogsSampl
 import { LogsFeatureFlagKeys } from 'products/logs/frontend/logsFeatureFlagKeys'
 import { WorkflowsEmailTrackingConsentSettings } from 'products/workflows/frontend/scenes/settings/WorkflowsEmailTrackingConsentSettings'
 import { WorkflowsEngagementEventsSettings } from 'products/workflows/frontend/scenes/settings/WorkflowsEngagementEventsSettings'
+import { WorkflowsTaskLimitsSettings } from 'products/workflows/frontend/scenes/settings/WorkflowsTaskLimitsSettings'
 
 import { IntegrationsList } from '../../lib/integrations/IntegrationsList'
 import {
@@ -122,6 +123,7 @@ import {
     LogsRetentionSettings,
 } from './environment/LogsCaptureSettings'
 import { LogsDistinctIdAttributeKeys } from './environment/LogsDistinctIdAttributeKeys'
+import { LogsPatternMessageKeys } from './environment/LogsPatternMessageKeys'
 import { LogsSessionIdAttributeKeys } from './environment/LogsSessionIdAttributeKeys'
 import { ManagedReverseProxy } from './environment/ManagedReverseProxy'
 import { MarketingAnalyticsSettingsWrapper } from './environment/MarketingAnalyticsSettingsWrapper'
@@ -916,6 +918,14 @@ export const SETTINGS_MAP: SettingSection[] = [
                 keywords: ['log', 'person', 'distinct', 'attribute', 'pivot', 'profile', 'link'],
             },
             {
+                id: 'logs-pattern-message-keys',
+                title: 'Pattern message extraction',
+                description:
+                    'Choose which JSON keys provide the message used to group logs into patterns. Keys are matched literally at the top level, in order. This does not change the stored log body.',
+                component: <LogsPatternMessageKeys />,
+                keywords: ['log', 'pattern', 'message', 'extract', 'json', 'group'],
+            },
+            {
                 id: 'logs-session-id-attribute-keys',
                 title: 'Link to session',
                 description: (
@@ -1327,7 +1337,7 @@ export const SETTINGS_MAP: SettingSection[] = [
         settings: [
             {
                 id: 'business-knowledge-learn-from-support',
-                title: 'Learn from support',
+                title: 'Self-learning',
                 description:
                     'When on, PostHog learns reusable answers from public human replies on resolved support tickets.',
                 component: <LearnFromSupportSetting />,
@@ -1536,6 +1546,15 @@ export const SETTINGS_MAP: SettingSection[] = [
                     'opt-in',
                     'opt-out',
                 ],
+            },
+            {
+                id: 'workflows-ai-task-limits',
+                title: 'AI task limits',
+                description:
+                    'How many AI tasks your workflows can create in a rolling 24 hours. One limit applies to each workflow on its own, the other to every workflow in the project together. Leave a limit empty to use the default. Set it to zero to pause task creation. Contact support to raise a limit above 500 per workflow or 2,500 per project.',
+                component: <WorkflowsTaskLimitsSettings />,
+                flag: 'WORKFLOW_AI_TASK_ACTION',
+                keywords: ['workflows', 'ai', 'task', 'agent', 'limit', 'rate', 'cap', 'daily', 'spend', 'pause'],
             },
         ],
     },

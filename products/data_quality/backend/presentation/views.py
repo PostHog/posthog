@@ -9,6 +9,7 @@ a suite-run handle to poll.
 
 from collections import defaultdict
 from collections.abc import Callable, Sequence
+from dataclasses import replace
 from functools import cached_property
 from typing import TYPE_CHECKING, ClassVar, cast
 from uuid import UUID
@@ -19,7 +20,7 @@ from django.shortcuts import get_object_or_404
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
 from rest_framework import mixins, status, viewsets
-from rest_framework.exceptions import NotFound, PermissionDenied
+from rest_framework.exceptions import APIException, NotFound, PermissionDenied
 from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -35,12 +36,14 @@ from posthog.permissions import APIScopePermission, TeamMemberAccessPermission, 
 from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
 
 from ..facade import api
-from ..facade.enums import CheckRunStatus, SubjectStatus, SubjectType
+from ..facade.enums import CheckRunStatus, SubjectStatus, SubjectType, SuiteRunTrigger
 from ..facade.flags import is_data_quality_checks_enabled
 from ..facade.models import DataQualityCheck, DataQualityCheckRun, DataQualitySuiteRun
 from .serializers import (
     CheckTypeSerializer,
     DataQualityCheckRunSerializer,
+    DataQualityCheckScheduleSerializer,
+    DataQualityCheckScheduleUpdateSerializer,
     DataQualityCheckSerializer,
     DataQualityGateConfigSerializer,
     DataQualityOverviewCheckSerializer,
@@ -572,10 +575,67 @@ class TableCheckViewSet(_BaseCheckViewSet, AccessControlViewSetMixin):
     subject_field = "table"
 
 
+class ScheduleUnavailableAPIError(APIException):
+    status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    default_code = "schedule_unavailable"
+    default_detail = "Could not read or update the check schedule. Reload it and try again."
+
+
 class MetricCheckViewSet(_BaseCheckViewSet):
     scope_object = "data_catalog"
     subject_type = SubjectType.METRIC
     subject_field = "metric"
+    QUERY_GATED_ACTIONS = _BaseCheckViewSet.QUERY_GATED_ACTIONS | {"schedule"}
+
+    @extend_schema(methods=["GET"], request=None, responses={200: DataQualityCheckScheduleSerializer})
+    @extend_schema(
+        methods=["PATCH"],
+        request=DataQualityCheckScheduleUpdateSerializer,
+        responses={200: DataQualityCheckScheduleSerializer},
+    )
+    @action(methods=["GET", "PATCH"], detail=False, pagination_class=None)
+    def schedule(self, request: Request, **kwargs) -> Response:
+        if not self._subject_checks().exists():
+            raise NotFound("Add a check to create this metric's schedule.")
+        if request.method == "PATCH":
+            self._require_enabled_check_access()
+            serializer = DataQualityCheckScheduleUpdateSerializer(data=request.data)
+            serializer.is_valid(raise_exception=True)
+        try:
+            before = api.get_schedule(self.team_id, self.subject_type, self.subject_uuid)
+            if before is None:
+                raise api.ScheduleUnavailableError()
+            if request.method == "PATCH":
+                api.set_schedule(self.team_id, self.subject_type, self.subject_uuid, **serializer.validated_data)
+            schedule = (
+                api.get_schedule(self.team_id, self.subject_type, self.subject_uuid)
+                if request.method == "PATCH"
+                else before
+            )
+            if schedule is None:
+                raise api.ScheduleUnavailableError()
+        except api.ScheduleUnavailableError as error:
+            raise ScheduleUnavailableAPIError() from error
+        if request.method == "PATCH":
+            api.log_metric_schedule_change(self.team_id, self.subject_uuid, before, schedule, cast(User, request.user))
+        return Response(DataQualityCheckScheduleSerializer(self._with_schedule_history(schedule)).data)
+
+    def _subject_checks(self) -> QuerySet[DataQualityCheck]:
+        return DataQualityCheck.objects.for_team(self.team_id).filter(metric_id=self.subject_uuid)
+
+    def _with_schedule_history(self, schedule: api.MetricCheckSchedule) -> api.MetricCheckSchedule:
+        suites = DataQualitySuiteRun.objects.for_team(self.team_id).filter(
+            subject_type=self.subject_type, subject_uuid=self.subject_uuid, trigger=SuiteRunTrigger.SCHEDULED
+        )
+        if self._can_be_object_denied():
+            context = self._denial_context()
+            suites = suites.exclude(api.unreadable_suites_q(context)).exclude(
+                api.suites_backing_unreadable_runs_q(self.team_id, context)
+            )
+        last_suite = suites.order_by("-started_at", "-id").first()
+        if last_suite is None:
+            return schedule
+        return replace(schedule, last_run_at=last_suite.started_at, last_suite_run=last_suite.id)
 
 
 class _BaseSuiteRunViewSet(

@@ -1,7 +1,10 @@
 import emojiRegex from 'emoji-regex'
 
+import { isActionFilter, isEventFilter } from 'lib/components/UniversalFilters/utils'
+
 import {
     LegacyRecordingFilters,
+    PropertyOperator,
     RecordingUniversalFilters,
     type SessionRecordingMaskingConfig,
     type SessionRecordingMaskingLevel,
@@ -40,6 +43,28 @@ export const filtersFromUniversalFilterGroups = (filters: RecordingUniversalFilt
     }
     return flatten(filters.filter_group.values)
 }
+
+// The properties people reach for when they mean "show me sessions that visited this page".
+const PAGE_PROPERTY_KEYS = ['$current_url', '$pathname']
+
+type PageProperty = { key?: unknown; operator?: PropertyOperator; value?: any }
+
+const isPagePropertyFilter = (filter: PageProperty): boolean =>
+    PAGE_PROPERTY_KEYS.includes(filter.key as string) &&
+    !!filter.operator &&
+    filter.value != null &&
+    filter.value !== '' &&
+    !(Array.isArray(filter.value) && filter.value.length === 0)
+
+const pagePropertiesOf = (filter: UniversalFilterValue): PageProperty[] =>
+    isEventFilter(filter) || isActionFilter(filter) ? (filter.properties ?? []) : [filter]
+
+/**
+ * True when the filters express "sessions that visited page X". Those match pageview events from anywhere
+ * in the session, so they can match a moment the video never covers, unlike `visited_page`.
+ */
+export const hasPageFilter = (filters: RecordingUniversalFilters): boolean =>
+    filtersFromUniversalFilterGroups(filters).some((filter) => pagePropertiesOf(filter).some(isPagePropertyFilter))
 
 export const getMaskingLevelFromConfig = (config: SessionRecordingMaskingConfig): SessionRecordingMaskingLevel => {
     if (config.maskTextSelector === '*' && config.maskAllInputs && config.blockSelector === 'img') {

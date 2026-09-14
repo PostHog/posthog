@@ -75,7 +75,7 @@ import {
 } from 'products/posthog_ai/frontend/api/logics'
 import {
     AssistantFailureMessage,
-    ContextUsageBar,
+    ContextUsageChip,
     MarkdownMessage,
     MessageTemplate,
     ReasoningAnswer,
@@ -405,8 +405,8 @@ export function SandboxComposerSurfaces(): JSX.Element | null {
             logic={runStreamLogic}
             props={{ streamKey: sandboxConversationKey, conversationId: sandboxConversationKey }}
         >
-            <div className="w-full max-w-180 self-center mx-auto">
-                <ContextUsageBar />
+            <div className="w-full max-w-180 self-center mx-auto flex justify-end">
+                <ContextUsageChip />
             </div>
         </BindLogic>
     )

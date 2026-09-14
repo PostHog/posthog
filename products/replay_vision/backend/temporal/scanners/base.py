@@ -5,7 +5,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Annotated, Any, ClassVar, Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from posthog.dataclasses import frozen
 
@@ -95,6 +95,12 @@ class SignalsResponse(BaseModel, frozen=True):
             "reveals. Usually empty: most sessions show nothing video-only. List each issue separately."
         ),
     )
+
+    @model_validator(mode="after")
+    def _validate_time_ranges(self) -> "SignalsResponse":
+        if any(signal.end_time < signal.start_time for signal in self.signals):
+            raise ValueError("end_time must be greater than or equal to start_time")
+        return self
 
 
 @dataclass(frozen=True)

@@ -14,6 +14,7 @@ from rest_framework import status
 from rest_framework.test import APIRequestFactory
 
 from posthog.constants import AvailableFeature
+from posthog.models.activity_logging.activity_log import ActivityLog, Detail, log_activity
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.data_catalog.backend.facade.models import Metric
@@ -31,6 +32,8 @@ from products.warehouse_sources.backend.models.table import DataWarehouseTable
 if TYPE_CHECKING:
     from posthog.models.team import Team
 
+from .schedule_helpers import schedule_client
+
 START_SUITE = "products.data_quality.backend.logic.checks.sync_connect"
 FLAG = "products.data_quality.backend.presentation.views.is_data_quality_checks_enabled"
 
@@ -44,6 +47,10 @@ class TestMetricCheckAPI(APIBaseTest):
             definition={"kind": "HogQLQuery", "query": "SELECT 10 AS signups"},
             referenced_table_names=[],
         )
+        self.temporal = schedule_client()
+        self.enterContext(
+            patch("products.data_quality.backend.logic.schedules.async_connect", AsyncMock(return_value=self.temporal))
+        )
         self.url = f"/api/projects/{self.team.id}/data_catalog/metrics/{self.metric.id}/checks"
         self.suites_url = f"/api/projects/{self.team.id}/data_catalog/metrics/{self.metric.id}/check_suite_runs"
         flag = patch(FLAG, return_value=True)
@@ -51,16 +58,18 @@ class TestMetricCheckAPI(APIBaseTest):
         self.addCleanup(flag.stop)
 
     def _create(self) -> dict:
-        response = self.client.post(
-            f"{self.url}/",
-            {"check_type": "custom_sql", "config": {"query": "SELECT * FROM {metric} WHERE signups < 100"}},
-        )
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.post(
+                f"{self.url}/",
+                {"check_type": "custom_sql", "config": {"query": "SELECT * FROM {metric} WHERE signups < 100"}},
+            )
         assert response.status_code == 201, response.content
         return response.json()
 
     @parameterized.expand(
         [
             ("checks_list", "get", "checks/"),
+            ("checks_schedule", "get", "checks/schedule/"),
             ("checks_health", "get", "checks/health/"),
             ("checks_run_all", "post", "checks/run_all/"),
             ("suite_runs_list", "get", "check_suite_runs/"),
@@ -93,10 +102,48 @@ class TestMetricCheckAPI(APIBaseTest):
                 response = self.client.get(f"{parent}/{identifier}/{action}/")
                 assert response.status_code == 404, response.content
 
-    def test_metric_check_authoring_and_overview(self) -> None:
+    def test_schedule_change_refuses_queries_the_editor_cannot_run(self) -> None:
+        check = self._create()
+        denied = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="restricted_orders",
+            query={"kind": "HogQLQuery", "query": "SELECT 1 AS id"},
+        )
+        DataQualityCheck.objects.for_team(self.team.id).filter(id=check["id"]).update(
+            config={"query": "SELECT * FROM {metric} WHERE EXISTS (SELECT 1 FROM restricted_orders)"},
+        )
+        self.organization.available_product_features = [{"key": AvailableFeature.ACCESS_CONTROL}]
+        self.organization.save(update_fields=["available_product_features"])
+        AccessControl.objects.create(
+            team=self.team,
+            resource="warehouse_view",
+            resource_id=str(denied.id),
+            organization_member=self.organization_membership,
+            access_level="none",
+        )
+        cache.clear()
+        with patch(
+            "posthog.hogql.database.database.feature_enabled_or_false",
+            side_effect=lambda name, *a, **k: name == "hogql-warehouse-access-control",
+        ):
+            response = self.client.patch(f"{self.url}/schedule/", {"interval": "6hour"})
+        assert response.status_code == 403, response.content
+        schedule = api.get_schedule(self.team.id, "metric", self.metric.id)
+        assert schedule is not None
+        assert schedule.interval == "24hour"
+
+    def test_metric_check_authoring_schedule_and_overview(self) -> None:
+        assert self.client.get(f"{self.url}/schedule/").status_code == 404
+        assert self.client.patch(f"{self.url}/schedule/", {"enabled": False}).status_code == 404
         check = self._create()
         assert [entry["check_type"] for entry in self.client.get(f"{self.url}/check_types/").json()] == ["custom_sql"]
         assert self.client.get(f"{self.url}/").json()["results"][0]["id"] == check["id"]
+        schedule = self.client.get(f"{self.url}/schedule/").json()
+        assert schedule["interval"] == "24hour"
+        patched = self.client.patch(f"{self.url}/schedule/", {"interval": "6hour", "enabled": False})
+        assert patched.status_code == 200
+        assert patched.json()["interval"] == "6hour"
+        assert patched.json()["enabled"] is False
         edited = self.client.patch(
             f"{self.url}/{check['id']}/", {"config": {"query": "SELECT * FROM {metric} WHERE signups < 50"}}
         )
@@ -108,6 +155,58 @@ class TestMetricCheckAPI(APIBaseTest):
         assert row["subject_metric_name"] == "registrations"
         assert "definition" not in row and "values" not in row
         assert self.client.delete(f"{self.url}/{check['id']}/").status_code == 204
+        assert self.client.get(f"{self.url}/schedule/").status_code == 200
+
+    def test_schedule_service_failure_is_retryable(self) -> None:
+        self._create()
+        with patch("products.data_quality.backend.logic.schedules.async_connect", AsyncMock(side_effect=TimeoutError)):
+            response = self.client.patch(f"{self.url}/schedule/", {"enabled": False})
+        assert response.status_code == 503
+        assert self.client.get(f"{self.url}/schedule/").json()["enabled"] is True
+
+    def test_schedule_history_excludes_manual_suites(self) -> None:
+        self._create()
+        scheduled = DataQualitySuiteRun.objects.for_team(self.team.id).create(
+            team=self.team, trigger="scheduled", subject_type=SubjectType.METRIC, subject_uuid=self.metric.id
+        )
+        DataQualitySuiteRun.objects.for_team(self.team.id).create(
+            team=self.team, trigger="manual", subject_type=SubjectType.METRIC, subject_uuid=self.metric.id
+        )
+        schedule = self.client.get(f"{self.url}/schedule/").json()
+        assert schedule["last_suite_run"] == str(scheduled.id)
+
+    def test_schedule_history_hides_a_suite_with_revoked_reference_access(self) -> None:
+        check = self._create()
+        view = DataWarehouseSavedQuery.objects.create(
+            team=self.team, name="restricted_orders", query={"kind": "HogQLQuery", "query": "SELECT 1 AS id"}
+        )
+        suite = DataQualitySuiteRun.objects.for_team(self.team.id).create(
+            team=self.team, trigger="scheduled", subject_type=SubjectType.METRIC, subject_uuid=self.metric.id
+        )
+        DataQualityCheckRun.objects.for_team(self.team.id).create(
+            team=self.team,
+            suite_run=suite,
+            quality_check_id=check["id"],
+            subject_type=SubjectType.METRIC,
+            subject_uuid=self.metric.id,
+            check_type=CheckType.CUSTOM_SQL,
+            status=CheckRunStatus.PASSED,
+            referenced_subjects=[{"subject_type": "view", "subject_uuid": str(view.id)}],
+        )
+        self.organization.available_product_features = [{"key": AvailableFeature.ACCESS_CONTROL}]
+        self.organization.save(update_fields=["available_product_features"])
+        assert self.client.get(f"{self.url}/schedule/").json()["last_suite_run"] == str(suite.id)
+        AccessControl.objects.create(
+            team=self.team,
+            resource="warehouse_view",
+            resource_id=str(view.id),
+            organization_member=self.organization_membership,
+            access_level="none",
+        )
+        cache.clear()
+        schedule = self.client.get(f"{self.url}/schedule/").json()
+        assert schedule["last_suite_run"] is None
+        assert schedule["last_run_at"] is None
 
     def test_a_metric_that_leaves_hogql_still_takes_presentation_edits(self) -> None:
         check = self._create()
@@ -149,6 +248,7 @@ class TestMetricCheckAPI(APIBaseTest):
         )
         cache.clear()
         assert self.client.get(f"{self.url}/").status_code == 403
+        assert self.client.get(f"{self.url}/schedule/").status_code == 403
         assert self.client.get(f"{self.suites_url}/").status_code == 403
         assert self.client.get(f"/api/projects/{self.team.id}/data_quality_checks/").json()["results"] == []
 
@@ -327,6 +427,61 @@ class TestDataQualityCheckAPI(APIBaseTest):
         flag = patch(FLAG, return_value=True)
         flag.start()
         self.addCleanup(flag.stop)
+
+    def test_model_history_includes_deleted_checks_without_other_models(self) -> None:
+        check = self._create_check()
+        other_view = DataWarehouseSavedQuery.objects.create(
+            team=self.team, name="other_orders", query={"kind": "HogQLQuery", "query": "SELECT 1"}
+        )
+        other_check = self._create_check(url=self._checks_url(other_view.id))
+        for item_id, scope in [
+            (self.view.id, "DataWarehouseSavedQuery"),
+            (check.id, "DataQualityCheck"),
+            (other_check.id, "DataQualityCheck"),
+        ]:
+            log_activity(
+                organization_id=self.organization.id,
+                was_impersonated=False,
+                team_id=self.team.id,
+                user=self.user,
+                item_id=str(item_id),
+                scope=scope,
+                activity="created",
+                detail=Detail(name="Example"),
+            )
+        deleted = self.client.delete(f"{self.url}/{check.id}/")
+        assert deleted.status_code == 204
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/activity_log/",
+            {
+                "scopes": "DataWarehouseSavedQuery,DataQualityCheck",
+                "item_id": str(self.view.id),
+            },
+        )
+        assert response.status_code == 200, response.content
+        item_ids = {entry["item_id"] for entry in response.json()["results"]}
+        assert str(self.view.id) in item_ids
+        assert str(check.id) in item_ids
+        assert str(other_check.id) not in item_ids
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/activity_log/",
+            {"scopes": "DataWarehouseSavedQuery,DataQualityCheck", "item_id": str(check.id)},
+        )
+        assert response.status_code == 200, response.content
+        assert {entry["item_id"] for entry in response.json()["results"]} == {str(check.id)}
+
+    def test_deleting_a_check_is_logged_as_a_deletion_not_an_update(self) -> None:
+        check = self._create_check()
+        assert self.client.delete(f"{self.url}/{check.id}/").status_code == 204
+
+        entry = (
+            ActivityLog.objects.filter(team_id=self.team.id, scope="DataQualityCheck", item_id=str(check.id))
+            .order_by("-created_at")
+            .first()
+        )
+        assert entry is not None
+        assert entry.activity == "deleted"
 
     def _checks_url(self, saved_query_id) -> str:
         return f"/api/projects/{self.team.id}/warehouse_saved_queries/{saved_query_id}/checks"
