@@ -125,7 +125,8 @@ def decode_slack_event_text(slack: SlackIntegration, integration: Integration, t
     handler can't drift back into the original mention-eating bug.
     """
     bot_user_id = get_cached_bot_user_id(slack, integration)
-    return resolve_user_mentions_text(slack, integration, text, strip_bot_user_id=bot_user_id).strip()
+    decoded_text = resolve_user_mentions_text(slack, integration, text, strip_bot_user_id=bot_user_id).strip()
+    return decoded_text.replace("&lt;", "<").replace("&gt;", ">").replace("&amp;", "&")
 
 
 def labeled_mentions_to_display_names(text: str) -> str:

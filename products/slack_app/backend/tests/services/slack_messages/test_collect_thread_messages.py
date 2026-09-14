@@ -349,6 +349,18 @@ class TestDecodeSlackEventText:
 
         assert result == "hello world"
 
+    @patch("products.slack_app.backend.services.slack_messages.get_cached_bot_user_id")
+    def test_decodes_slack_text_entities_once(self, mock_get_bot_user_id):
+        mock_get_bot_user_id.return_value = "UBOT"
+
+        result = decode_slack_event_text(
+            self.slack,
+            self.integration,
+            "alpha &gt; beta &lt; gamma &amp; delta &amp;gt;",
+        )
+
+        assert result == "alpha > beta < gamma & delta &gt;"
+
 
 class TestLabeledMentionsToDisplayNames:
     def test_unwraps_labeled_mention(self):
