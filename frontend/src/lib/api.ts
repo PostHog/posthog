@@ -2056,7 +2056,7 @@ const normalizeUrl = (url: string): string => {
     return url
 }
 
-const prepareUrl = (url: string): string => {
+const prepareUrl = (url: string, method: string = 'GET'): string => {
     let output = normalizeUrl(url)
 
     // OAuth mode: route the data API to the selected region's host. Only `/api/*` is rewritten —
@@ -2069,7 +2069,10 @@ const prepareUrl = (url: string): string => {
 
     const exporterContext = getCurrentExporterData()
 
-    if (exporterContext && exporterContext.accessToken) {
+    // The backend only accepts the sharing token on GET and HEAD. On a write it answers with a
+    // sharing-specific auth failure, so leave the token off and let the write fail as an ordinary
+    // unauthenticated request.
+    if ((method === 'GET' || method === 'HEAD') && exporterContext && exporterContext.accessToken) {
         output =
             output +
             (output.indexOf('?') === -1 ? '?' : '&') +
@@ -7093,7 +7096,7 @@ const api = {
         data: P,
         options?: ApiMethodOptions
     ): Promise<T> {
-        url = prepareUrl(url)
+        url = prepareUrl(url, method)
         ensureProjectIdNotInvalid(url)
         const isFormData = data instanceof FormData
 
@@ -7129,7 +7132,7 @@ const api = {
     },
 
     async createResponse(url: string, data?: any, options?: ApiMethodOptions): Promise<Response> {
-        url = prepareUrl(url)
+        url = prepareUrl(url, 'POST')
         ensureProjectIdNotInvalid(url)
         const isFormData = data instanceof FormData
 
@@ -7150,7 +7153,7 @@ const api = {
     },
 
     async delete(url: string): Promise<any> {
-        url = prepareUrl(url)
+        url = prepareUrl(url, 'DELETE')
         ensureProjectIdNotInvalid(url)
         return await handleFetch(url, 'DELETE', async () =>
             fetch(url, {

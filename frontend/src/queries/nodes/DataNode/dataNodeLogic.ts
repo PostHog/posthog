@@ -31,6 +31,7 @@ import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
+import { isSharedView } from '~/exporter/exporterViewLogic'
 import { DataNodeCollectionProps, dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
 import { removeExpressionComment } from '~/queries/nodes/DataTable/utils'
 import { performQuery } from '~/queries/query'
@@ -1014,6 +1015,13 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
 
                     if (!validateQuery(query)) {
                         return null
+                    }
+
+                    // A shared view can only send GET requests with its sharing token, so a fresh
+                    // query POST always fails auth. Its data is inlined as cachedResults, so keep
+                    // those. A poll of a running query id is a GET, so it stays allowed.
+                    if (isSharedView() && !pollOnly) {
+                        return props.cachedResults ?? values.response ?? null
                     }
 
                     actions.abortAnyRunningQuery()
