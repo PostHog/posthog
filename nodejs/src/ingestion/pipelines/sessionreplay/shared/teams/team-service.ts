@@ -7,6 +7,11 @@ import { Team, TeamId } from '~/types'
 import { TeamServiceMetrics } from './metrics'
 import { TeamForReplay } from './types'
 
+// Team replay settings change rarely, so a stale read costs little. Every session replay consumer
+// process keeps its own copy, so the refresh is jittered to spread the scans over time.
+const REFRESH_MAX_AGE_MS = 5 * 60 * 1000
+const REFRESH_JITTER_MS = 5 * 60 * 1000
+
 interface TeamServiceData {
     tokenMap: Record<string, TeamForReplay>
     // The raw DB value; validated to a RetentionPeriod on read in getRetentionPeriodByTeamId.
@@ -19,12 +24,13 @@ export class TeamService {
     constructor(private postgres: PostgresRouter) {
         this.teamRefresher = new BackgroundRefresher(
             () => this.fetchTeamTokensWithRecordings(),
-            5 * 60 * 1000, // 5 minutes
+            REFRESH_MAX_AGE_MS,
             (e) => {
                 // We ignore the error and wait for postgres to recover
                 logger.error('Error refreshing team tokens', e)
                 TeamServiceMetrics.incrementRefreshErrors()
-            }
+            },
+            REFRESH_JITTER_MS
         )
     }
 
