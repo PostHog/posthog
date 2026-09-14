@@ -249,6 +249,7 @@ For the same reason, anything that rewrites the Customer analytics URL (the scen
 `accountsLogic.viewState` owns the full snapshot used by session drafts and saved views.
 `applyViewState` restores the snapshot without intermediate URL writes.
 Drafts use project-and-user-scoped `sessionStorage`, including cleared filters and unsaved changes to a selected view.
+The draft key comes from loaded `teamLogic` and `userLogic` state. Draft hydration and automatic saved-view restoration wait for both IDs.
 An explicit shared URL wins over the draft. The draft wins over automatic saved-view restoration.
 Selecting a saved view explicitly replaces the draft.
 See [Accounts table](../../../../../docs/internal/customer-analytics-accounts-table.md) when changing persistence or navigation.

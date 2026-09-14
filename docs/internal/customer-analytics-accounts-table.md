@@ -7,7 +7,9 @@ The draft includes search, tags, assignment filters, account property and relati
 It also keeps sorting, selected columns, column display settings, and overview tile settings.
 
 The browser stores one draft per project and user in `sessionStorage`.
-It survives list remounts and page reloads in the same tab.
+Draft restoration waits for the loaded project and user IDs before deciding whether to apply a saved view.
+Automatic column updates do not replace the pending draft with default URL state.
+The draft survives list remounts and page reloads in the same tab.
 It does not update a saved view or store account rows.
 Closing the browser tab ends the draft session.
 

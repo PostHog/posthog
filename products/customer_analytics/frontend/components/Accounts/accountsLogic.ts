@@ -7,7 +7,6 @@ import {
     isAssignmentStatus,
 } from 'lib/components/AccountAssignmentFilter/accountAssignmentFilterTypes'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { getCurrentTeamIdOrNone, getCurrentUserIdOrNone } from 'lib/utils/getAppContext'
 import { isUUIDLike } from 'lib/utils/guards'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { objectsEqual } from 'lib/utils/objects'
@@ -75,7 +74,7 @@ import {
     readAccountsViewDraft,
     writeAccountsViewDraft,
 } from './accountsViewState'
-import { AccountsEvents } from './constants'
+import { AccountsEvents, DEFAULT_TILES } from './constants'
 
 export const SEARCH_DEBOUNCE_MS = 300
 
@@ -144,11 +143,24 @@ function hasSharedView(hashParams: Record<string, any> | undefined): boolean {
     )
 }
 
+interface AccountsViewDraftIdentity {
+    teamId: number
+    userId: string
+}
+
+function getAccountsViewDraftIdentity(
+    currentTeamId: number | null,
+    user: UserType | null
+): AccountsViewDraftIdentity | null {
+    return currentTeamId !== null && user?.uuid ? { teamId: currentTeamId, userId: user.uuid } : null
+}
+
 function persistViewStateAndUrl(
     actions: { persistViewState: (search?: string) => unknown; syncViewStateToUrl: () => unknown },
-    isRestoring: boolean
+    isRestoring: boolean,
+    viewStateHydrated: boolean
 ): void {
-    if (isRestoring) {
+    if (isRestoring || !viewStateHydrated) {
         return
     }
     actions.persistViewState()
@@ -1270,9 +1282,12 @@ export const accountsLogic = kea<accountsLogicType>([
             actions.persistViewState()
         },
         persistViewState: ({ search }) => {
+            const draftIdentity = getAccountsViewDraftIdentity(values.currentTeamId, values.user)
             if (
                 !values.viewStateHydrated ||
                 cache.applyingViewState ||
+                !draftIdentity ||
+                !objectsEqual(cache.viewStateDraftIdentity, draftIdentity) ||
                 !accountsPathToWriteBackTo(values.accountIdFilter)
             ) {
                 return
@@ -1281,29 +1296,30 @@ export const accountsLogic = kea<accountsLogicType>([
                 ...values.viewState,
                 filters: { ...values.viewState.filters, search: search ?? values.searchInput },
             }
-            writeAccountsViewDraft(getCurrentTeamIdOrNone(), getCurrentUserIdOrNone(), viewState)
+            writeAccountsViewDraft(draftIdentity.teamId, draftIdentity.userId, viewState)
         },
-        setSearchQuery: () => persistViewStateAndUrl(actions, cache.applyingViewState),
-        setTagsFilter: () => persistViewStateAndUrl(actions, cache.applyingViewState),
-        setSortOrder: () => persistViewStateAndUrl(actions, cache.applyingViewState),
-        restoreSelectColumns: () => persistViewStateAndUrl(actions, cache.applyingViewState),
-        selectColumn: () => persistViewStateAndUrl(actions, cache.applyingViewState),
+        setSearchQuery: () => persistViewStateAndUrl(actions, cache.applyingViewState, values.viewStateHydrated),
+        setTagsFilter: () => persistViewStateAndUrl(actions, cache.applyingViewState, values.viewStateHydrated),
+        setSortOrder: () => persistViewStateAndUrl(actions, cache.applyingViewState, values.viewStateHydrated),
+        restoreSelectColumns: () => persistViewStateAndUrl(actions, cache.applyingViewState, values.viewStateHydrated),
+        selectColumn: () => persistViewStateAndUrl(actions, cache.applyingViewState, values.viewStateHydrated),
         [accountsColumnConfigLogic.actionTypes.moveColumn]: () =>
-            persistViewStateAndUrl(actions, cache.applyingViewState),
-        setColumnDisplay: () => persistViewStateAndUrl(actions, cache.applyingViewState),
-        setColumnDisplayConfig: () => persistViewStateAndUrl(actions, cache.applyingViewState),
-        setTileFilter: () => persistViewStateAndUrl(actions, cache.applyingViewState),
-        setTiles: () => persistViewStateAndUrl(actions, cache.applyingViewState),
+            persistViewStateAndUrl(actions, cache.applyingViewState, values.viewStateHydrated),
+        setColumnDisplay: () => persistViewStateAndUrl(actions, cache.applyingViewState, values.viewStateHydrated),
+        setColumnDisplayConfig: () =>
+            persistViewStateAndUrl(actions, cache.applyingViewState, values.viewStateHydrated),
+        setTileFilter: () => persistViewStateAndUrl(actions, cache.applyingViewState, values.viewStateHydrated),
+        setTiles: () => persistViewStateAndUrl(actions, cache.applyingViewState, values.viewStateHydrated),
         [accountsOverviewTilesLogic.actionTypes.addTile]: () =>
-            persistViewStateAndUrl(actions, cache.applyingViewState),
+            persistViewStateAndUrl(actions, cache.applyingViewState, values.viewStateHydrated),
         [accountsOverviewTilesLogic.actionTypes.updateTile]: () =>
-            persistViewStateAndUrl(actions, cache.applyingViewState),
+            persistViewStateAndUrl(actions, cache.applyingViewState, values.viewStateHydrated),
         [accountsOverviewTilesLogic.actionTypes.removeTile]: () =>
-            persistViewStateAndUrl(actions, cache.applyingViewState),
+            persistViewStateAndUrl(actions, cache.applyingViewState, values.viewStateHydrated),
         [accountsOverviewTilesLogic.actionTypes.moveTile]: () =>
-            persistViewStateAndUrl(actions, cache.applyingViewState),
+            persistViewStateAndUrl(actions, cache.applyingViewState, values.viewStateHydrated),
         [accountsOverviewTilesLogic.actionTypes.resetTiles]: () =>
-            persistViewStateAndUrl(actions, cache.applyingViewState),
+            persistViewStateAndUrl(actions, cache.applyingViewState, values.viewStateHydrated),
         listLoadData: ({ queryId }) => {
             if (cache.awaitingCustomPropertyRefresh) {
                 cache.awaitingCustomPropertyRefresh = false
@@ -1353,7 +1369,7 @@ export const accountsLogic = kea<accountsLogicType>([
             actions.setAccountFilters(values.accountFilters)
         },
         setAccountFilters: ({ filters }) => {
-            persistViewStateAndUrl(actions, cache.applyingViewState)
+            persistViewStateAndUrl(actions, cache.applyingViewState, values.viewStateHydrated)
             if (!cache.customPropertyDefinitionsLoaded || !cache.relationshipDefinitionsLoaded) {
                 return
             }
@@ -1439,7 +1455,7 @@ export const accountsLogic = kea<accountsLogicType>([
         },
         // Selected users apply only to assigned accounts.
         setAssignmentStatus: ({ status }) => {
-            persistViewStateAndUrl(actions, cache.applyingViewState)
+            persistViewStateAndUrl(actions, cache.applyingViewState, values.viewStateHydrated)
             if (status !== 'assigned' && values.assignedToFilter.length > 0) {
                 actions.setAssignedToFilter([])
             }
@@ -1448,7 +1464,7 @@ export const accountsLogic = kea<accountsLogicType>([
             actions.setAssignedToFilter(value && values.currentUserId !== null ? [values.currentUserId] : [])
         },
         setAssignedToFilter: ({ value }) => {
-            persistViewStateAndUrl(actions, cache.applyingViewState)
+            persistViewStateAndUrl(actions, cache.applyingViewState, values.viewStateHydrated)
             if (value.length > 0 && values.assignmentStatus !== 'assigned') {
                 actions.setAssignmentStatus('assigned')
             }
@@ -1480,9 +1496,26 @@ export const accountsLogic = kea<accountsLogicType>([
                 actions.setAssignedToFilter([])
             }
         },
+        [teamLogic.actionTypes.loadCurrentTeamSuccess]: () => {
+            const draftIdentity = getAccountsViewDraftIdentity(values.currentTeamId, values.user)
+            if (
+                !values.viewStateHydrated ||
+                (draftIdentity && !objectsEqual(cache.viewStateDraftIdentity, draftIdentity))
+            ) {
+                actions.restoreViewStateFromRoute()
+            }
+        },
         // Viewer-relative preferences and legacy mine links must wait for the user ID.
         loadUserSuccess: ({ user }) => {
             cache.userUnavailable = user === null
+            const draftIdentity = getAccountsViewDraftIdentity(values.currentTeamId, values.user)
+            if (
+                !values.viewStateHydrated ||
+                (draftIdentity && !objectsEqual(cache.viewStateDraftIdentity, draftIdentity))
+            ) {
+                actions.restoreViewStateFromRoute()
+                return
+            }
             if (cache.pendingMineOnlyRestore && values.currentUserId !== null) {
                 cache.pendingMineOnlyRestore = false
                 actions.setAssignedToFilter([values.currentUserId])
@@ -1515,15 +1548,15 @@ export const accountsLogic = kea<accountsLogicType>([
             })
         },
         setSelectColumns: () => {
-            persistViewStateAndUrl(actions, cache.applyingViewState)
+            persistViewStateAndUrl(actions, cache.applyingViewState, values.viewStateHydrated)
             clearSortIfColumnRemoved(values, actions)
         },
         unselectColumn: () => {
-            persistViewStateAndUrl(actions, cache.applyingViewState)
+            persistViewStateAndUrl(actions, cache.applyingViewState, values.viewStateHydrated)
             clearSortIfColumnRemoved(values, actions)
         },
         resetColumns: () => {
-            persistViewStateAndUrl(actions, cache.applyingViewState)
+            persistViewStateAndUrl(actions, cache.applyingViewState, values.viewStateHydrated)
             clearSortIfColumnRemoved(values, actions)
         },
         refresh: () => {
@@ -1551,10 +1584,19 @@ export const accountsLogic = kea<accountsLogicType>([
                 return
             }
 
+            const draftIdentity = getAccountsViewDraftIdentity(values.currentTeamId, values.user)
+            if (!sharedView && !draftIdentity) {
+                actions.setViewStateHydrated(false)
+                return
+            }
+
+            const previousDraftIdentity = cache.viewStateDraftIdentity
             cache.assignmentStateResolved = false
             cache.pendingMineOnlyRestore = false
+            cache.viewStateDraftIdentity = draftIdentity
+            actions.setDraftRestored(false)
             let restored = false
-            const draft = readAccountsViewDraft(getCurrentTeamIdOrNone(), getCurrentUserIdOrNone())
+            const draft = draftIdentity ? readAccountsViewDraft(draftIdentity.teamId, draftIdentity.userId) : null
             if (sharedView) {
                 cache.mineOnlyChangedOutsideAccounts = undefined
                 cache.pendingMineOnlyRestore = !!sharedView.mine && values.currentUserId === null
@@ -1584,6 +1626,20 @@ export const accountsLogic = kea<accountsLogicType>([
                 } else if (draft) {
                     actions.applyViewState(draft, { source: 'draft', columns: 'restore' })
                     restored = true
+                } else if (previousDraftIdentity && !objectsEqual(previousDraftIdentity, draftIdentity)) {
+                    actions.applyViewState(
+                        viewStateWithMineOnly(
+                            accountsViewStateFromUrl(
+                                {},
+                                values.defaultSelectColumns,
+                                values.currentUserId,
+                                DEFAULT_TILES
+                            ),
+                            values.mineOnly,
+                            values.currentUserId
+                        ),
+                        { source: 'defaults', columns: 'defaults' }
+                    )
                 } else if (values.mineOnly) {
                     if (values.currentUserId === null) {
                         cache.pendingMineOnlyRestore = true
