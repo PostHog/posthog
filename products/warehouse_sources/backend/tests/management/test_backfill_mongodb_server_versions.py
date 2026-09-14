@@ -61,3 +61,24 @@ def test_unreachable_source_does_not_stop_the_survey(team) -> None:
     reachable.refresh_from_db()
     assert unreachable.connection_metadata == {}
     assert reachable.connection_metadata == {"engine": "mongodb", "server_version": "7.0.14", "wire_version": 21}
+
+
+def test_live_run_keeps_a_write_that_landed_during_the_probe(team) -> None:
+    # Probing costs a round trip per source and the discovery pass writes the same field, so a
+    # merge into this run's opening snapshot would drop whatever landed while the probe ran.
+    source = _create_source(team, "reachable.example.com")
+
+    def probe(connection_string: str, team_id: int) -> dict[str, Any]:
+        ExternalDataSource.objects.filter(pk=source.pk).update(connection_metadata={"database": "analytics"})
+        return {"engine": "mongodb", "server_version": "7.0.14", "wire_version": 21}
+
+    with patch(PROBE, side_effect=probe):
+        call_command(COMMAND, "--live-run")
+
+    source.refresh_from_db()
+    assert source.connection_metadata == {
+        "database": "analytics",
+        "engine": "mongodb",
+        "server_version": "7.0.14",
+        "wire_version": 21,
+    }

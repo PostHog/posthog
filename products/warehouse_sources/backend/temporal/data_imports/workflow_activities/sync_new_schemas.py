@@ -122,8 +122,11 @@ def sync_new_schemas_activity(inputs: SyncNewSchemasActivityInputs) -> None:
         else:
             if isinstance(server_metadata, dict) and server_metadata:
                 # Merge rather than replace, so the direct-query connection config that shares this
-                # field survives. `updated_at` stays out so a probe does not read as a customer edit.
-                source.connection_metadata = {**(source.connection_metadata or {}), **server_metadata}
+                # field survives. The field is an unconstrained JSONField, so a non-mapping value is
+                # replaced rather than unpacked, which would raise and fail the pass. `updated_at`
+                # stays out so a probe does not read as a customer edit.
+                existing = source.connection_metadata if isinstance(source.connection_metadata, dict) else {}
+                source.connection_metadata = {**existing, **server_metadata}
                 source.save(update_fields=["connection_metadata"])
     else:
         raise ValueError(f"Source type missing from SourceRegistry: {source.source_type}")

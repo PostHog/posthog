@@ -905,12 +905,15 @@ class TestGetServerMetadata(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("single_node", "7.0.14", [("a.example.com", 21)], 21),
+            ("single_node", "7.0.14", [("a.example.com", 21)], 21, 1, 1),
             # The driver refuses the whole topology over one node below its floor, so reporting
             # anything but the weakest node would mark this source safe to upgrade when it is not.
-            ("replica_set_reports_weakest_node", "4.0.28", [("a.example.com", 21), ("b.example.com", 7)], 7),
-            ("unhandshaked_node_is_ignored", "6.0.1", [("a.example.com", 13), ("b.example.com", None)], 13),
-            ("no_handshaked_node_reports_no_wire_version", "", [("a.example.com", None)], None),
+            ("replica_set_reports_weakest_node", "4.0.28", [("a.example.com", 21), ("b.example.com", 7)], 7, 2, 2),
+            # Server selection returns on the first usable node, so the wire version here comes
+            # from a partial view. The counts have to disagree, or the reading passes as complete
+            # and an older secondary the probe never saw goes uncounted.
+            ("unhandshaked_node_is_ignored", "6.0.1", [("a.example.com", 13), ("b.example.com", None)], 13, 1, 2),
+            ("no_handshaked_node_reports_no_wire_version", "", [("a.example.com", None)], None, 0, 1),
         ]
     )
     def test_wire_version_comes_from_the_weakest_handshaked_node(
@@ -919,6 +922,8 @@ class TestGetServerMetadata(SimpleTestCase):
         server_version: str,
         nodes: list[tuple[str, int | None]],
         expected_wire_version: int | None,
+        expected_handshaked_nodes: int,
+        expected_topology_nodes: int,
     ) -> None:
         servers = [self._server(host, max_wire_version) for host, max_wire_version in nodes]
 
@@ -927,6 +932,8 @@ class TestGetServerMetadata(SimpleTestCase):
 
         assert metadata["engine"] == "mongodb"
         assert metadata["server_version"] == server_version
+        assert metadata["handshaked_nodes"] == expected_handshaked_nodes
+        assert metadata["topology_nodes"] == expected_topology_nodes
         if expected_wire_version is None:
             assert "wire_version" not in metadata
         else:

@@ -163,7 +163,20 @@ def test_auto_enable_not_called_when_nothing_created():
     mocks["auto_enable_new_schemas"].assert_not_called()
 
 
-def test_server_metadata_is_merged_onto_the_source():
+@pytest.mark.parametrize(
+    "existing,expected",
+    [
+        (
+            {"database": "analytics", "wire_version": 21},
+            {"database": "analytics", "engine": "mongodb", "wire_version": 7},
+        ),
+        # connection_metadata is an unconstrained JSONField, so a non-mapping value has to be
+        # replaced. Unpacking one raises and fails a discovery pass that otherwise succeeded.
+        (["unexpected"], {"engine": "mongodb", "wire_version": 7}),
+    ],
+    ids=["merges_and_the_probed_key_wins", "replaces_a_non_mapping_value"],
+)
+def test_server_metadata_is_merged_onto_the_source(existing, expected):
     # Assigning instead of merging would drop the other keys this field carries, such as the
     # direct-query connection config. A freshly probed key still has to win on overlap.
     source_mock = mock.MagicMock()
@@ -171,10 +184,10 @@ def test_server_metadata_is_merged_onto_the_source():
     source_mock.get_schemas.return_value = []
     source_mock.get_server_metadata.return_value = {"engine": "mongodb", "wire_version": 7}
 
-    mocks = _run_activity(source_mock, source_connection_metadata={"database": "analytics", "wire_version": 21})
+    mocks = _run_activity(source_mock, source_connection_metadata=existing)
 
     source = mocks["objects"].get.return_value
-    assert source.connection_metadata == {"database": "analytics", "engine": "mongodb", "wire_version": 7}
+    assert source.connection_metadata == expected
     # `updated_at` stays out so a probe does not read as a customer edit.
     source.save.assert_called_once_with(update_fields=["connection_metadata"])
 

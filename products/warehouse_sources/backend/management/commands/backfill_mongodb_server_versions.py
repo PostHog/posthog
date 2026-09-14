@@ -19,16 +19,17 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 logger = structlog.get_logger(__name__)
 
-# pymongo 4.14 raised its floor from wire version 7 (MongoDB 4.0) to 8 (MongoDB 4.2), so a source
-# below this reports a cluster that release would refuse to talk to.
-PYMONGO_MIN_WIRE_VERSION = 8
+# pymongo 4.14 raises its floor from wire version 7 (MongoDB 4.0) to 8 (MongoDB 4.2). The pinned
+# driver is 4.13, which still accepts 7, so this is the floor a cluster has to clear after that
+# upgrade and not one it fails today.
+TARGET_MIN_WIRE_VERSION = 8
 
 
 class Command(BaseCommand):
     help = (
         "Probe every MongoDB source for the server version its cluster reports and store it on the "
         "source's connection_metadata. Reports a version breakdown and how many clusters sit below "
-        "the current pymongo wire-version floor. Previews by default; pass --live-run to persist."
+        "the floor pymongo 4.14 introduces. Previews by default; pass --live-run to persist."
     )
 
     def add_arguments(self, parser: CommandParser) -> None:
@@ -64,6 +65,7 @@ class Command(BaseCommand):
         below_floor = 0
         probed = 0
         failed = 0
+        partial = 0
 
         for source in sources:
             metadata = self._probe(source_impl, source)
@@ -75,20 +77,33 @@ class Command(BaseCommand):
             version = str(metadata.get("server_version") or "unknown")
             versions[version] = versions.get(version, 0) + 1
             wire_version = metadata.get("wire_version")
-            if isinstance(wire_version, int) and wire_version < PYMONGO_MIN_WIRE_VERSION:
+            if isinstance(wire_version, int) and wire_version < TARGET_MIN_WIRE_VERSION:
                 below_floor += 1
                 self.stdout.write(
                     f"source {source.id} (team {source.team_id}): MongoDB {version}, "
-                    f"wire version {wire_version} is below the pymongo floor of {PYMONGO_MIN_WIRE_VERSION}"
+                    f"wire version {wire_version} is below the pymongo 4.14 floor of {TARGET_MIN_WIRE_VERSION}"
                 )
+            if metadata.get("handshaked_nodes") != metadata.get("topology_nodes"):
+                partial += 1
 
             if live_run:
+                # Probing costs a network round trip per source, and the schema-discovery pass
+                # writes this same field, so re-read the row instead of merging into the snapshot
+                # this run started from and dropping whatever landed in between.
+                source.refresh_from_db(fields=["connection_metadata"])
+                # The field is an unconstrained JSONField, so a non-mapping value is replaced
+                # rather than unpacked, which would raise and end the survey.
+                existing = source.connection_metadata if isinstance(source.connection_metadata, dict) else {}
                 # Only connection_metadata is written, so `updated_at` keeps the time of the last
                 # real change to the source and a backfill does not read as a customer edit.
-                source.connection_metadata = {**(source.connection_metadata or {}), **metadata}
+                source.connection_metadata = {**existing, **metadata}
                 source.save(update_fields=["connection_metadata"])
 
-        self.stdout.write(f"probed {probed}, failed {failed}, below pymongo floor {below_floor}")
+        self.stdout.write(f"probed {probed}, failed {failed}, below the pymongo 4.14 floor {below_floor}")
+        if partial:
+            # A source whose nodes were not all handshaked may hide an older member, so its wire
+            # version is a ceiling rather than a reading.
+            self.stdout.write(f"  {partial} source(s) reported only part of their topology")
         for version, count in sorted(versions.items()):
             self.stdout.write(f"  MongoDB {version}: {count}")
         if not live_run:
