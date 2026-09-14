@@ -114,12 +114,12 @@ TASKS_USE_MODAL_RESUME_SNAPSHOTS: bool = get_from_env(
     type_cast=str_to_bool,
 )
 
-# Force-enables process_task continue_as_new regardless of the tasks-continue-as-new flag
-# (for local E2E / emergency on). The flag is the normal cloud toggle. continue_as_new bounds
-# replay cost so long runs don't trip the 2s workflow-task deadlock detector on eviction.
+# On by default; set to False to disable process_task continue_as_new (emergency off).
+# continue_as_new bounds replay cost so long runs don't trip the 2s workflow-task deadlock
+# detector on eviction.
 TASKS_CONTINUE_AS_NEW_ENABLED: bool = get_from_env(
     "TASKS_CONTINUE_AS_NEW_ENABLED",
-    False,
+    True,
     type_cast=str_to_bool,
 )
 
