@@ -454,14 +454,16 @@ Note: PostHog exposes three aggregate Pull API v5 reports (daily, geo, partners)
 
 ## Appsignal — gaps
 
-Today (5): `deploy_markers`, `error_samples`, `exception_incidents`, `performance_incidents`, `performance_samples`
+Today (11): `apps`, `deploy_markers`, `error_samples`, `exception_incidents`, `log_lines`, `metric_names`, `metric_timeseries`, `performance_incidents`, `performance_samples`, `performance_traces`, `trace_spans`
 
 Diffed against: <https://docs.appsignal.com/api/v2/overview>
 
-- [ ] `organization { apps } (GraphQL app/site list)` — lookup resolving the app_id / site_id every other table is keyed by (high)
-- [ ] `POST /api/v2/logs/lines` — log lines are only available here — GraphQL exposes no log field at all (high)
-- [ ] `POST /api/v2/metrics/timeseries, /api/v2/metrics/list, /api/v2/metrics/names` — all custom and platform metric data plus the metric-name lookup; the GraphQL metrics API is deprecated (high)
-- [ ] `POST /api/v2/tracing/traces and /api/v2/tracing/trace (spans)` — distributed trace and span data underlying the samples we already sync (high)
+- [x] `organization { apps } (GraphQL app/site list)` — lookup resolving the app_id / site_id every other table is keyed by (high)
+- [x] `POST /api/v2/logs/lines` — log lines are only available here — GraphQL exposes no log field at all (high)
+- [x] `POST /api/v2/metrics/timeseries, GET /api/v2/metrics/names, GET /api/v2/metrics/type_and_tags` — all custom and platform metric data plus the metric-name lookup; the GraphQL metrics API is deprecated (high)
+- [ ] `POST /api/v2/metrics/list` — the same metric data aggregated into rows by a caller-chosen `group_by`; derivable in SQL from `metric_timeseries`, so it was skipped (low)
+- [x] `POST /api/v2/tracing/traces/performance and /api/v2/tracing/trace (spans)` — distributed trace and span data underlying the samples we already sync (high)
+- [ ] `POST /api/v2/tracing/traces/errors` — error traces, keyed by incident digest; no digest-listing endpoint appears on the published V2 reference (medium)
 - [ ] `AnomalyIncident (GraphQL)` — anomaly/trigger incidents are a first-class incident type alongside exception and performance incidents we sync (high)
 - [ ] `LogIncident (GraphQL)` — log-based incidents, the fourth incident type, otherwise invisible (medium)
 - [ ] `POST /api/v2/deploys/stats` — throughput, mean and error_rate per revision — joins directly onto deploy_markers (medium)
@@ -470,7 +472,7 @@ Diffed against: <https://docs.appsignal.com/api/v2/overview>
 - [ ] `uptime monitors (GraphQL)` — uptime check results, a separate monitoring signal from incidents (medium)
 - [ ] `check-ins / cron (GraphQL)` — scheduled-job execution history — misses and late runs (medium)
 
-Note: AppSignal split its API in two: GraphQL for models (apps, incidents, markers, dashboards, alerts, uptime monitors, check-ins) and a REST Public API V2 for bulk data (metrics, logs, traces, Kubernetes, deploy stats). PostHog currently uses only the legacy /api/{app_id}/\*.json endpoints plus GraphQL incidents, so the entire V2 surface is unmapped. Anomaly and log incident types confirmed from the GraphQL mutations page; V2 routes confirmed from the per-page docs.
+Note: AppSignal split its API in two: GraphQL for models (apps, incidents, markers, dashboards, alerts, uptime monitors, check-ins) and a REST Public API V2 for bulk data (metrics, logs, traces, Kubernetes, deploy stats). PostHog reads the legacy /api/{app_id}/\*.json endpoints, GraphQL incidents and the app list, plus the V2 logs, metrics and tracing endpoints; Kubernetes, deploy stats and check-ins are still unmapped. Anomaly and log incident types confirmed from the GraphQL mutations page; V2 routes confirmed from the per-page docs.
 
 ## Appstack — adequate
 
