@@ -180,3 +180,7 @@ def test_blame_paths_uses_the_base_side_path_and_skips_binaries() -> None:
     # The binary is excluded from the history walk but not from the diff set: one blob is cheap,
     # and without it the merge-base diff fails instead of degrading.
     assert _changed_paths(files) == ["src/old_name.py", "src/plain.py", "static/logo.png"]
+    # Uncapped: the diff runs before the size gate, so a capped list would turn an oversized PR's
+    # refusal into a failed review.
+    many = [{"filename": f"src/f{i}.py"} for i in range(250)]
+    assert len(_changed_paths(many)) == 250

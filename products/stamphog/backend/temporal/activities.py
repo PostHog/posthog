@@ -1376,9 +1376,9 @@ def _clone_pr(
     _execute_or_raise(checkout, f"Failed to check out {head_sha}")
 
 
-# Bounds the prefetch pathspec. The size gate already caps a reviewable PR well below this, so the
-# cap only stops a pathological file list from building an unbounded command line.
-_MAX_PREFETCH_PATHS = 100
+# Bounds the blame history walk. The engine blames at most 30 files, so this only stops a
+# pathological file list from making the walk longer than anything will read.
+_MAX_BLAME_PREFETCH_PATHS = 100
 
 # Mirrors _MAX_CHANGED_LINES_PER_FILE in the engine's familiarity.py, which the backend cannot
 # import. Over-naming a path is cheap, but a file this large is one the engine drops before it
@@ -1405,7 +1405,7 @@ def _blame_paths(files: list[dict]) -> list[str]:
         path = entry.get("previous_filename") or entry.get("filename")
         if path and path not in paths:
             paths.append(path)
-    return paths[:_MAX_PREFETCH_PATHS]
+    return paths[:_MAX_BLAME_PREFETCH_PATHS]
 
 
 def _changed_paths(files: list[dict]) -> list[str]:
@@ -1415,13 +1415,17 @@ def _changed_paths(files: list[dict]) -> list[str]:
     every changed file, binaries and huge files included. One blob each, so the size and binary
     bounds that keep _blame_paths cheap do not belong here — a path left out of this list has no
     old-side content, and the diff that builds the PR data fails outright rather than degrading.
+
+    Uncapped for the same reason. The diff runs before the size gate, so capping the list would
+    turn an oversized PR's clean refusal into a failed review. The file list is already bounded by
+    the API's own paging, which is far below what an argument list holds.
     """
     paths = []
     for entry in files:
         path = entry.get("previous_filename") or entry.get("filename")
         if path and path not in paths:
             paths.append(path)
-    return paths[:_MAX_PREFETCH_PATHS]
+    return paths
 
 
 def _prefetch_review_blobs(
