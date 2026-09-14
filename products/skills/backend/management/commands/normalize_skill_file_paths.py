@@ -7,6 +7,7 @@ from django.core.management.base import BaseCommand
 from posthog.dataclasses import frozen
 
 from products.skills.backend.api.skill_services import normalize_skill_file_path
+from products.skills.backend.marketplace.adapters import bundle_paths_are_safe
 from products.skills.backend.models import LLMSkillFile
 
 READ_CHUNK_SIZE = 1000
@@ -17,6 +18,7 @@ class SkillPathPlan:
     rewrites: list[tuple[UUID, str, str]]
     collisions: list[tuple[str, str]]
     unfixable: list[tuple[str, str]]
+    unsafe: bool
 
 
 @frozen
@@ -31,6 +33,12 @@ def plan_skill_paths(rows: list[tuple[UUID, str]]) -> SkillPathPlan:
     A path that already normalizes to itself stays untouched. A path whose canonical form collides
     case-insensitively with another path of the same skill is reported, not rewritten: the two rows
     hold different content, so choosing a winner would silently drop one.
+
+    The rewrites are then kept only if the whole resulting path set passes the same gate the bundle
+    uses. A rewrite turns one flat name into a directory, so `assets\\logo.png` beside a file named
+    `assets` clones today and fails to clone once it becomes `assets/logo.png`. The gate counts the
+    generated SKILL.md and Codex sidecar and rejects those ancestor conflicts, so a skill it turns
+    down keeps every stored path and is reported for manual repair.
     """
     rewrites: list[tuple[UUID, str, str]] = []
     collisions: list[tuple[str, str]] = []
@@ -50,7 +58,10 @@ def plan_skill_paths(rows: list[tuple[UUID, str]]) -> SkillPathPlan:
             continue
         taken.add(canonical.lower())
         rewrites.append((row_id, path, canonical))
-    return SkillPathPlan(rewrites=rewrites, collisions=collisions, unfixable=unfixable)
+    rewritten = {path: canonical for _, path, canonical in rewrites}
+    if rewrites and not bundle_paths_are_safe([rewritten.get(path, path) for _, path in rows]):
+        return SkillPathPlan(rewrites=[], collisions=collisions, unfixable=unfixable, unsafe=True)
+    return SkillPathPlan(rewrites=rewrites, collisions=collisions, unfixable=unfixable, unsafe=False)
 
 
 class Command(BaseCommand):
@@ -65,13 +76,20 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options) -> None:
         apply: bool = options["apply"]
-        rewritten = collided = unfixable = 0
+        rewritten = collided = unfixable = unsafe = 0
 
         if not apply:
             self.stdout.write(self.style.WARNING("Dry run — pass --apply to write the rewrites."))
 
         for skill_files in self._rows_by_skill(options["team_id"]):
             plan = plan_skill_paths(skill_files.rows)
+            if plan.unsafe:
+                unsafe += 1
+                self.stdout.write(
+                    self.style.WARNING(
+                        f"skill {skill_files.skill_id}: left alone — the rewritten paths would still be unsafe to clone"
+                    )
+                )
             for path, canonical in plan.collisions:
                 collided += 1
                 self.stdout.write(
@@ -93,7 +111,10 @@ class Command(BaseCommand):
 
         verb = "Rewrote" if apply else "Would rewrite"
         self.stdout.write(
-            self.style.SUCCESS(f"{verb} {rewritten} path(s); {collided} collision(s); {unfixable} unfixable path(s).")
+            self.style.SUCCESS(
+                f"{verb} {rewritten} path(s); {collided} collision(s); "
+                f"{unfixable} unfixable path(s); {unsafe} skill(s) left alone."
+            )
         )
 
     def _rows_by_skill(self, team_id: int | None) -> Iterator[SkillFileRows]:

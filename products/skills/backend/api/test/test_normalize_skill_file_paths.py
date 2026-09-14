@@ -9,7 +9,8 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 
 from products.skills.backend.management.commands.normalize_skill_file_paths import plan_skill_paths
-from products.skills.backend.marketplace.adapters import SkillBundle, build_skill_bundle
+from products.skills.backend.marketplace.adapters import SkillBundle, build_skill_bundle, build_team_marketplace_tree
+from products.skills.backend.marketplace.git_smart_http import synthesize_repo
 from products.skills.backend.models import LLMSkill, LLMSkillFile
 
 ROW_A = UUID("0198f000-0000-7000-8000-00000000000a")
@@ -19,32 +20,44 @@ ROW_B = UUID("0198f000-0000-7000-8000-00000000000b")
 class TestPlanSkillPaths(SimpleTestCase):
     @parameterized.expand(
         [
-            ("separator", [(ROW_A, "refs\\guide.md")], [(ROW_A, "refs\\guide.md", "refs/guide.md")], [], []),
-            ("already_canonical", [(ROW_A, "refs/guide.md")], [], [], []),
+            ("separator", [(ROW_A, "refs\\guide.md")], [(ROW_A, "refs\\guide.md", "refs/guide.md")], [], [], False),
+            ("already_canonical", [(ROW_A, "refs/guide.md")], [], [], [], False),
             (
                 "collision_with_stored_path",
                 [(ROW_A, "refs\\guide.md"), (ROW_B, "refs/Guide.md")],
                 [],
                 [("refs\\guide.md", "refs/guide.md")],
                 [],
+                False,
             ),
             (
                 "collision_between_rewrites",
                 [(ROW_A, "refs\\guide.md"), (ROW_B, "Refs\\Guide.md")],
-                [(ROW_A, "refs\\guide.md", "refs/guide.md")],
+                [],
                 [("Refs\\Guide.md", "Refs/Guide.md")],
                 [],
+                True,
             ),
-            ("trailing_slash", [(ROW_A, "refs/")], [], [], ["refs/"]),
-            ("absolute", [(ROW_A, "/refs/guide.md")], [], [], ["/refs/guide.md"]),
+            ("trailing_slash", [(ROW_A, "refs/")], [], [], ["refs/"], False),
+            ("absolute", [(ROW_A, "/refs/guide.md")], [], [], ["/refs/guide.md"], False),
+            (
+                "rewrite_would_shadow_a_stored_file",
+                [(ROW_A, "assets"), (ROW_B, "assets\\logo.png")],
+                [],
+                [],
+                [],
+                True,
+            ),
+            ("rewrite_would_shadow_the_generated_sidecar", [(ROW_A, "Agents\\OpenAI.yaml")], [], [], [], True),
         ]
     )
-    def test_plan(self, _name, rows, rewrites, collisions, unfixable) -> None:
+    def test_plan(self, _name, rows, rewrites, collisions, unfixable, unsafe) -> None:
         plan = plan_skill_paths(rows)
 
         assert plan.rewrites == rewrites
         assert plan.collisions == collisions
         assert [path for path, _ in plan.unfixable] == unfixable
+        assert plan.unsafe == unsafe
 
 
 class TestNormalizeSkillFilePathsCommand(BaseTest):
@@ -95,3 +108,20 @@ class TestNormalizeSkillFilePathsCommand(BaseTest):
 
         self.file.refresh_from_db()
         assert self.file.path == "references\\guide.md"
+
+    def test_apply_leaves_a_skill_whose_rewrite_would_break_the_clone(self) -> None:
+        shadowed = LLMSkill.objects.create(
+            team=self.team,
+            name="shadowed-skill",
+            description="A skill whose rewrite would shadow a stored file.",
+            body="# Shadowed",
+            created_by=self.user,
+        )
+        LLMSkillFile.objects.create(skill=shadowed, path="assets", content="not a directory")
+        logo = LLMSkillFile.objects.create(skill=shadowed, path="assets\\logo.png", content="png")
+
+        self._run("--apply")
+
+        logo.refresh_from_db()
+        assert logo.path == "assets\\logo.png"
+        synthesize_repo(build_team_marketplace_tree(self.team), author="a <a@example.com>", message="m")
