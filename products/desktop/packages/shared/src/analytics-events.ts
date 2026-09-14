@@ -74,6 +74,7 @@ export type CommandMenuAction =
   | "open-loops"
   | "open-usage"
   | "open-cost-management"
+  | "send-feedback"
   | "search-files"
   | "open-file"
   | "reload-window"

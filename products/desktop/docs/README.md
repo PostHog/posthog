@@ -23,6 +23,8 @@ Start with the guide that matches the work you are doing. [AGENTS.md](../AGENTS.
 
 ## Feature references
 
+- [Desktop feedback](./FEEDBACK.md)
+
 | Guide | Use it for |
 | --- | --- |
 | [Deep links](./DEEP-LINKS.md) | Work with `posthog-code://` routes and OAuth callbacks. |
