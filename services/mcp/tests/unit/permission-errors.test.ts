@@ -463,6 +463,23 @@ describe('handleToolError with API errors', () => {
         expect(result.isError).toBe(true)
     })
 
+    it('keeps the wrapping context so the agent reads what the call failed on', () => {
+        const original = new PostHogValidationError({
+            detail: 'cannot_insert_null_in_ordinary_column',
+            attr: undefined,
+            code: 'cannot_insert_null_in_ordinary_column',
+            extra: undefined,
+            url: 'https://us.posthog.com/api/environments/2/query/',
+            method: 'POST',
+        })
+        const wrapped = wrapError(`Failed to query insight abc12345: ${original.message}`, original)
+
+        const result = handleToolError(wrapped, 'insight-query')
+
+        const [content] = result.content as Array<{ type: string; text: string }>
+        expect(content?.text).toContain('Failed to query insight abc12345')
+    })
+
     it('still captures unexpected non-HTTP errors', () => {
         const error = new Error('boom — something unexpected went wrong')
 

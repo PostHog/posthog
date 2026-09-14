@@ -83,3 +83,32 @@ class TestWrapClickhouseQueryError:
 
         assert isinstance(wrapped, InternalCHQueryError)
         assert not isinstance(wrapped, ExposedCHQueryError)
+
+    @parameterized.expand(
+        [
+            # A local ClickHouse error does not name "DB::Exception" in its own text, so the only
+            # match sits in the stack-trace frames ("DB::Exception::Exception").
+            (
+                "local error",
+                "Cannot convert NULL value to non-Nullable type: while converting source column."
+                " Stack trace:\n\n0. DB::Exception::Exception(DB::Exception::MessageMasked&&) @ 0x1\n",
+                "Cannot convert NULL value to non-Nullable type: while converting source column.",
+            ),
+            (
+                "remote error",
+                "Received from ch1:9000. DB::Exception: Cannot convert NULL value to non-Nullable type."
+                " Stack trace:\n\n0. DB::Exception::Exception(DB::Exception::MessageMasked&&) @ 0x1\n",
+                "Cannot convert NULL value to non-Nullable type.",
+            ),
+            (
+                "no stack trace",
+                "DB::Exception: Cannot convert NULL value to non-Nullable type.",
+                "Cannot convert NULL value to non-Nullable type.",
+            ),
+        ]
+    )
+    def test_exposed_error_keeps_the_clickhouse_message(self, _name: str, message: str, expected: str) -> None:
+        wrapped = wrap_clickhouse_query_error(ServerException(message, code=349))
+
+        assert isinstance(wrapped, ExposedCHQueryError)
+        assert str(wrapped) == expected
