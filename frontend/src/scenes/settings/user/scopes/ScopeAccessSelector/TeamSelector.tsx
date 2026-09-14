@@ -7,6 +7,7 @@ export const TeamSelector = ({ teams, organizations, mode, value, onChange }: Te
     <LemonInputSelect
         mode={mode}
         data-attr="teams"
+        showChevron
         value={value}
         onChange={onChange}
         options={(teams || []).map((team) => createTeamOption(team, organizations))}

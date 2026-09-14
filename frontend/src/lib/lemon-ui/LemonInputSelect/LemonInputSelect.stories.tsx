@@ -79,6 +79,14 @@ export const SingleSelectWithIdKeys: Story = {
     },
 }
 
+export const WithChevron: Story = {
+    args: {
+        placeholder: 'Pick one email',
+        mode: 'single',
+        showChevron: true,
+    },
+}
+
 export const MultipleSelect: Story = {
     args: {
         placeholder: 'Pick email addresses',
