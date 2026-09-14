@@ -1,8 +1,6 @@
 import { MakeLogicType, actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
 import posthog from 'posthog-js'
 
-import { lemonToast } from '@posthog/lemon-ui'
-
 import api, { ApiError, RateLimitError } from 'lib/api'
 import { isEventPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -17,7 +15,6 @@ import type { FeatureFlagsSet } from '../../../lib/logic/featureFlagLogic'
 import type { TeamPublicType, TeamType } from '../../../types'
 import { deduplicateEvents } from './deduplicateEvents'
 
-const ERROR_TOAST_ID = 'live-stream-error'
 const EVENTS_ENDPOINT = 'events'
 
 export const LIVE_EVENTS_SUPPORTED_OPERATORS: PropertyOperator[] = [
@@ -363,12 +360,6 @@ export const liveEventsLogic = kea<liveEventsLogicType>([
                 })
                 return () => controller.abort()
             }, 'eventsConnection')
-        },
-        streamErrored: ({ error }) => {
-            lemonToast.error(error.message, { toastId: ERROR_TOAST_ID, autoClose: false })
-        },
-        streamConnected: () => {
-            lemonToast.dismiss(ERROR_TOAST_ID)
         },
         [teamLogic.actionTypes.loadCurrentTeamSuccess]: () => {
             if (cache.awaitingTeam) {

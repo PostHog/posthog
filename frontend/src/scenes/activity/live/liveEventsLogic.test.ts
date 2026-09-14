@@ -2,6 +2,8 @@ import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
 
+import { lemonToast } from '@posthog/lemon-ui'
+
 import api, { ApiError } from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -11,6 +13,7 @@ import { initKeaTests } from '~/test/init'
 import { AnyPropertyFilter, LiveEvent, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { liveEventsLogic } from './liveEventsLogic'
+import { liveEventsTableSceneLogic } from './liveEventsTableSceneLogic'
 
 function makeLiveEvent(currentUrl?: string): LiveEvent {
     return {
@@ -32,10 +35,12 @@ describe('liveEventsLogic', () => {
     let logic: ReturnType<typeof liveEventsLogic.build>
     let flagsLogic: ReturnType<typeof featureFlagLogic.build>
     let streamSpy: jest.SpyInstance
+    let toastSpy: jest.SpyInstance
 
     beforeEach(() => {
         initKeaTests()
         streamSpy = jest.spyOn(api, 'stream').mockResolvedValue(undefined as any)
+        toastSpy = jest.spyOn(lemonToast, 'error').mockReturnValue(undefined as any)
         flagsLogic = featureFlagLogic()
         flagsLogic.mount()
         logic = liveEventsLogic()
@@ -46,6 +51,7 @@ describe('liveEventsLogic', () => {
         logic?.unmount()
         flagsLogic?.unmount()
         streamSpy.mockRestore()
+        toastSpy.mockRestore()
     })
 
     function setRichFiltersFlag(enabled: boolean): void {
@@ -114,6 +120,19 @@ describe('liveEventsLogic', () => {
             await expectLogic(logic, () => {
                 lastStreamOptions().onOpen?.()
             }).toMatchValues({ streamError: null })
+        })
+
+        it.each([
+            ['on its own, so onboarding stays quiet', false],
+            ['once the live events scene is mounted', true],
+        ])('toasts %s', (_label, sceneMounted) => {
+            const sceneLogic = sceneMounted ? liveEventsTableSceneLogic() : null
+            sceneLogic?.mount()
+
+            lastStreamOptions().onError(new ApiError(undefined, 504))
+
+            expect(toastSpy).toHaveBeenCalledTimes(sceneMounted ? 1 : 0)
+            sceneLogic?.unmount()
         })
 
         it('does not connect without a live events token, and says so', async () => {
