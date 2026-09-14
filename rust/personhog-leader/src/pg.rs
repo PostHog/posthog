@@ -20,13 +20,15 @@ pub struct PgFallback {
 
 impl PgFallback {
     pub fn lifecycle_tables(&self) -> LifecycleTables {
-        LifecycleTables::paired_with(&self.table)
+        LifecycleTables::paired_with(&self.table).expect("FALLBACK_TABLE is validated at startup")
     }
 }
 
 /// The saga tables paired with a person table. Identity writes marks to
 /// the pair matching its person table, so the fence checks must read the
-/// same pair or every committed release fails closed.
+/// same pair or every committed release fails closed. Only the two known
+/// person tables pair: a near-miss name must not silently read the real
+/// saga tables.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct LifecycleTables {
     pub op: &'static str,
@@ -34,17 +36,19 @@ pub struct LifecycleTables {
 }
 
 impl LifecycleTables {
-    pub fn paired_with(person_table: &str) -> Self {
-        if person_table == "personhog_person_tmp" {
-            Self {
-                op: "lifecycle_op_tmp",
-                op_person: "lifecycle_op_person_tmp",
-            }
-        } else {
-            Self {
+    pub fn paired_with(person_table: &str) -> Result<Self, String> {
+        match person_table {
+            "posthog_person" => Ok(Self {
                 op: "lifecycle_op",
                 op_person: "lifecycle_op_person",
-            }
+            }),
+            "personhog_person_tmp" => Ok(Self {
+                op: "lifecycle_op_tmp",
+                op_person: "lifecycle_op_person_tmp",
+            }),
+            other => Err(format!(
+                "FALLBACK_TABLE {other:?} has no saga table pair; use posthog_person or personhog_person_tmp"
+            )),
         }
     }
 }
@@ -60,15 +64,6 @@ pub async fn acquire_timed(
     histogram!("personhog_leader_fallback_pool_acquire_ms", "caller" => caller)
         .record(start.elapsed().as_secs_f64() * 1000.0);
     conn
-}
-
-/// Validate a configured table identifier before it is interpolated into
-/// SQL (identifiers cannot be bound as parameters).
-pub fn validate_table_name(table: &str) -> Result<(), String> {
-    if table.is_empty() || !table.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
-        return Err(format!("invalid fallback table name: {table:?}"));
-    }
-    Ok(())
 }
 
 /// Reads a person from the configured fallback table — the table the
@@ -172,4 +167,24 @@ pub async fn load_person_from_pg(
         is_deleted: false,
         last_seen_at: last_seen_at.map(|t| t.timestamp_millis()),
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::LifecycleTables;
+
+    #[test]
+    fn only_the_two_known_person_tables_pair_with_saga_tables() {
+        assert_eq!(
+            LifecycleTables::paired_with("personhog_person_tmp")
+                .unwrap()
+                .op,
+            "lifecycle_op_tmp"
+        );
+        assert_eq!(
+            LifecycleTables::paired_with("posthog_person").unwrap().op,
+            "lifecycle_op"
+        );
+        assert!(LifecycleTables::paired_with("personhog_person_tmp_alt").is_err());
+    }
 }

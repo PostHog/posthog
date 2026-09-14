@@ -478,6 +478,10 @@ impl OpDriver for MergeDriver {
         OP_TYPE_MERGE
     }
 
+    fn tables(&self) -> &IdentityTables {
+        &self.tables
+    }
+
     fn initial_step(&self) -> &'static str {
         MergeStep::Started.as_str()
     }

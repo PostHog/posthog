@@ -22,20 +22,30 @@ use sqlx::postgres::PgPool;
 use uuid::Uuid;
 
 use personhog_common::grpc::semantic_refusal;
+use personhog_identity::config::IdentityTables;
 use personhog_identity::lifecycle::engine::{
     advance_step_in_tx, complete_op_in_tx, OpDriver, OpRow, SagaError, STEP_COMPLETED,
 };
+
+static REAL_TABLES: std::sync::LazyLock<IdentityTables> =
+    std::sync::LazyLock::new(IdentityTables::real);
 
 /// Two-step dummy op: `started → half → completed`. Counts step executions
 /// so tests can prove what did (or did not) re-run.
 struct DummyDriver {
     steps_run: AtomicUsize,
+    tables: IdentityTables,
 }
 
 impl DummyDriver {
     fn new() -> Self {
+        Self::on(common::default_tables())
+    }
+
+    fn on(tables: IdentityTables) -> Self {
         Self {
             steps_run: AtomicUsize::new(0),
+            tables,
         }
     }
 }
@@ -44,6 +54,10 @@ impl DummyDriver {
 impl OpDriver for DummyDriver {
     fn op_type(&self) -> &'static str {
         "merge"
+    }
+
+    fn tables(&self) -> &IdentityTables {
+        &self.tables
     }
 
     fn initial_step(&self) -> &'static str {
@@ -112,6 +126,26 @@ async fn op_row(ctx: &TestContext, op_id: Uuid) -> (String, i32, Option<serde_js
     .await
     .expect("op row exists");
     (row.0, row.1, row.2, row.3.is_some())
+}
+
+#[tokio::test]
+async fn a_driver_on_the_other_table_set_is_refused_before_any_write() {
+    let ctx = TestContext::new().await;
+    let engine = ctx.engine();
+    let driver = DummyDriver::on(common::tmp_tables());
+    let op_id = Uuid::now_v7();
+
+    let err = engine
+        .execute(&driver, op_id, ctx.team_id, &json!({"work": 1}))
+        .await
+        .expect_err("a mismatched driver must be refused");
+
+    assert!(matches!(err, SagaError::CorruptState(_)), "got {err:?}");
+    assert_eq!(driver.steps_run.load(Ordering::SeqCst), 0);
+    assert!(
+        engine.load(op_id).await.expect("load").is_none(),
+        "no op row may exist"
+    );
 }
 
 #[tokio::test]
@@ -338,6 +372,10 @@ struct SlowDriver;
 
 #[async_trait]
 impl OpDriver for SlowDriver {
+    fn tables(&self) -> &IdentityTables {
+        &REAL_TABLES
+    }
+
     fn op_type(&self) -> &'static str {
         "merge"
     }
@@ -458,6 +496,10 @@ struct StolenLeaseDriver {
 
 #[async_trait]
 impl OpDriver for StolenLeaseDriver {
+    fn tables(&self) -> &IdentityTables {
+        &REAL_TABLES
+    }
+
     fn op_type(&self) -> &'static str {
         "merge"
     }
@@ -559,6 +601,10 @@ impl RefusingDriver {
 
 #[async_trait]
 impl OpDriver for RefusingDriver {
+    fn tables(&self) -> &IdentityTables {
+        &REAL_TABLES
+    }
+
     fn op_type(&self) -> &'static str {
         "merge"
     }
@@ -659,6 +705,10 @@ struct StolenLeaseRefusingDriver;
 
 #[async_trait]
 impl OpDriver for StolenLeaseRefusingDriver {
+    fn tables(&self) -> &IdentityTables {
+        &REAL_TABLES
+    }
+
     fn op_type(&self) -> &'static str {
         "merge"
     }
@@ -825,6 +875,10 @@ struct DeadlockingDriver {
 
 #[async_trait]
 impl OpDriver for DeadlockingDriver {
+    fn tables(&self) -> &IdentityTables {
+        &REAL_TABLES
+    }
+
     fn op_type(&self) -> &'static str {
         "merge"
     }
