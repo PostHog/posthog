@@ -68,7 +68,7 @@ class TestClosePrWhenReportDismissed(BaseTest):
     ):
         report = self._create_report(report_status=source_status)
         if with_actor:
-            report._transition_actor_user_id = self.user.id
+            report._transition_actor_user_id = self.user.id  # type: ignore[attr-defined]
         with patch("products.signals.backend.tasks.close_dismissed_report_pr") as mock_task:
             self._save_transition(report, new_status, **transition_kwargs)
         mock_task.delay.assert_called_once_with(
