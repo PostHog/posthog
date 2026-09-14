@@ -410,17 +410,31 @@ class TaxonomyAgentToolkit:
         # Restricted and hidden properties are indistinguishable from non-existent ones, so we do not leak their values.
         prop_type = PropertyDefinition.Type.PERSON if entity == "person" else PropertyDefinition.Type.GROUP
         excluded = await self._excluded_property_names(prop_type)
-        if excluded:
-            allowed_names = []
-            for property_name in property_names:
-                if property_name in excluded:
-                    results.append(TaxonomyErrorMessages.property_values_not_found(property_name, entity))
-                else:
-                    allowed_names.append(property_name)
+        allowed_names = [property_name for property_name in property_names if property_name not in excluded]
+        if len(allowed_names) < len(property_names):
             if not allowed_names:
-                return results
-            property_names = allowed_names
+                return [
+                    TaxonomyErrorMessages.property_values_not_found(property_name, entity)
+                    for property_name in property_names
+                ]
+            allowed_results = await self._sample_entity_property_values(entity, allowed_names)
+            if len(allowed_results) != len(allowed_names):
+                # A whole-batch error has no per-property slots to merge into.
+                return allowed_results
+            # The caller reads results by request position, so an excluded name must keep its own slot.
+            allowed_queue = iter(allowed_results)
+            return [
+                TaxonomyErrorMessages.property_values_not_found(property_name, entity)
+                if property_name in excluded
+                else next(allowed_queue)
+                for property_name in property_names
+            ]
 
+        return await self._sample_entity_property_values(entity, property_names)
+
+    async def _sample_entity_property_values(self, entity: str, property_names: list[str]) -> list[str]:
+        """Sample values for property names already cleared for this entity."""
+        results = []
         groups = await self._get_groups()
         query = self._build_query(entity, property_names, groups)
         if query is None:
