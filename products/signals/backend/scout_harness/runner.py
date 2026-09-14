@@ -60,7 +60,12 @@ from products.signals.backend.temporal.agentic import (
     resolve_acting_user_id_for_team,
 )
 from products.tasks.backend.facade import api as tasks_facade
-from products.tasks.backend.facade.agents import CustomPromptSandboxContext, MultiTurnSession, TurnPollTimeout
+from products.tasks.backend.facade.agents import (
+    AgentTurnFailed,
+    CustomPromptSandboxContext,
+    MultiTurnSession,
+    TurnPollTimeout,
+)
 
 if TYPE_CHECKING:
     from products.tasks.backend.models import TaskRun
@@ -140,6 +145,7 @@ def run_signals_scout(
     repository: str | None = None,
     verbose: bool = False,
     triggered_by: str = TRIGGERED_BY_SCHEDULE,
+    run_note: str | None = None,
 ) -> RunResult:
     """Synchronous entrypoint: resolves config, spawns sandbox, persists the run row.
 
@@ -154,6 +160,7 @@ def run_signals_scout(
             repository=repository,
             verbose=verbose,
             triggered_by=triggered_by,
+            run_note=run_note,
         )
     )
 
@@ -166,6 +173,7 @@ async def arun_signals_scout(
     repository: str | None = None,
     verbose: bool = False,
     triggered_by: str = TRIGGERED_BY_SCHEDULE,
+    run_note: str | None = None,
 ) -> RunResult:
     """Async core. Safe to call from inside a running event loop (Temporal activity).
 
@@ -174,6 +182,10 @@ async def arun_signals_scout(
     `"workflow"` for a workflow step that runs a scout. Only scheduled failures feed the
     failure-streak breaker; see the failure path below. Anything but `"schedule"` is also stamped
     onto the run row's `metadata`, which is what the workflow path's cooldown reads.
+
+    `run_note` is the one-off steering a person typed when triggering the run by hand. It renders
+    its own prompt section and is stamped on the run row, so the run it steered says so in its own
+    history; it is never carried into a later run.
     """
     team = await database_sync_to_async(_get_team, thread_sensitive=False)(team_id)
 
@@ -388,6 +400,7 @@ async def arun_signals_scout(
             reasoning_effort=reasoning_effort,
             service_tier=service_tier,
             triggered_by=triggered_by,
+            run_note=run_note,
         )
         runtime_s = time.monotonic() - started
         emitted_count, _ = await database_sync_to_async(_read_run_metrics, thread_sensitive=False)(
@@ -480,7 +493,7 @@ async def arun_signals_scout(
             service_tier=service_tier,
             error_type=type(exc).__name__,
             error_message=str(exc)[:300],
-            extra_properties=_poll_timeout_properties(exc),
+            extra_properties=_failure_properties(exc),
         )
         if streak is not None and streak.tripped:
             _capture_config_auto_paused(
@@ -640,6 +653,7 @@ async def _spawn_and_run(
     reasoning_effort: str | None = None,
     service_tier: str | None = None,
     triggered_by: str = TRIGGERED_BY_SCHEDULE,
+    run_note: str | None = None,
 ) -> tuple[str, str]:
     """Spawn the sandbox, create the bridge row before the first turn, run the agent.
 
@@ -747,6 +761,7 @@ async def _spawn_and_run(
         # Resolved through the same allowlist the token is, so the prompt can never promise write
         # access the token does not carry.
         write_scopes=scope_posture["extra_write_scopes"],
+        run_note=run_note,
     )
     logger.info(
         "signals_scout: spawning sandbox",
@@ -779,6 +794,7 @@ async def _spawn_and_run(
             github_guidance=github_guidance,
             business_knowledge_maintained=business_knowledge_maintained,
             triggered_by=triggered_by,
+            run_note=run_note,
         )
         # Lifecycle start marker. The row + TaskRun now exist and the run has cleared the
         # reap + single-flight guards, so this counts exactly the runs that actually start —
@@ -982,6 +998,7 @@ def _create_run_row(
     github_guidance: bool = False,
     business_knowledge_maintained: bool = False,
     triggered_by: str = TRIGGERED_BY_SCHEDULE,
+    run_note: str | None = None,
 ) -> SignalScoutRun:
     # Stamp the routed model triple (and the OpenAI queue it asked for) onto the row's `metadata`
     # so "which model ran this?" is a column read on the run API, not an analytics-event join. Keys
@@ -1043,6 +1060,10 @@ def _create_run_row(
     # were — a scheduled patrol or a human's "Run now" must not extend it.
     if triggered_by != TRIGGERED_BY_SCHEDULE:
         metadata["triggered_by"] = triggered_by
+    # The only record of why a manual run behaved differently from the scheduled ones around it,
+    # because the note is deliberately never stored as a scout note.
+    if run_note:
+        metadata["run_note"] = run_note
     return SignalScoutRun.objects.unscoped().create(
         id=run_id,
         task_run=task_run,
@@ -1194,16 +1215,25 @@ def _record_failure_streak(config_id: Any) -> _FailureStreak | None:
         return None
 
 
-def _poll_timeout_properties(exc: BaseException) -> dict[str, Any] | None:
-    """Turn-log diagnostics for a run that died at the per-turn poll wall, or None for any other
-    failure. Every wall failure raises the same error string, which is why the fleet's timeout
-    rate reads as one cause; these properties split it into the populations that need different
-    fixes — an agent that never emitted a single turn-relevant line (never started), one that
-    worked and then went silent, and one still streaming when the budget ran out (the budget,
-    not the agent, is the constraint)."""
-    if not isinstance(exc, TurnPollTimeout):
-        return None
-    return exc.diagnostics()
+def _failure_properties(exc: BaseException) -> dict[str, Any] | None:
+    """Cause-specific analytics properties for a failed run, or None when the exception's type and
+    message already say everything.
+
+    A run that died at the per-turn poll wall gets the turn-log diagnostics. Every wall failure
+    raises the same error string, which is why the fleet's timeout rate reads as one cause; these
+    properties split it into the populations that need different fixes — an agent that never
+    emitted a single turn-relevant line (never started), one that worked and then went silent, and
+    one still streaming when the budget ran out (the budget, not the agent, is the constraint).
+
+    A run the agent itself failed gets the agent's own classification, because `error_type` is
+    `AgentTurnFailed` for all of them. A provider outage, a spend limit and a broken scout body
+    raise the same exception, so only `error_category` separates the upstream failures worth
+    retrying from the defects that must keep feeding the failure breaker."""
+    if isinstance(exc, TurnPollTimeout):
+        return exc.diagnostics()
+    if isinstance(exc, AgentTurnFailed) and exc.category is not None:
+        return {"error_category": exc.category}
+    return None
 
 
 def _run_row_exists(run_id: Any, team_id: int) -> bool:
@@ -1449,9 +1479,9 @@ def _capture_run_finished(
     are attached so the failure rate is breakable down by cause without digging into worker
     logs — the bulk of scout failures fail in this layer before the `process-task` workflow's
     own `task_run_failed` event ever fires, so this is the only event that carries their reason.
-    `extra_properties` carries cause-specific detail the error string can't (today: the turn-log
+    `extra_properties` carries cause-specific detail the error string can't: the turn-log
     diagnostics behind a per-turn poll timeout, which is a single string covering several
-    distinct failures).
+    distinct failures, and the agent's own `error_category` for a failure it classified.
     """
     properties: dict[str, Any] = {
         "skill_name": skill.name,

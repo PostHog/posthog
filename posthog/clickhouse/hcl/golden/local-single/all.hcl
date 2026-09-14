@@ -38,6 +38,9 @@ database "posthog" {
     column "uuid" {
       type = "UUID"
     }
+    column "data_deletion_request_id" {
+      type = "Nullable(UUID)"
+    }
     column "created_at" {
       type    = "DateTime64(6, 'UTC')"
       default = "now64()"
@@ -6680,6 +6683,11 @@ SQL
     index "idx_attr_values" {
       expr        = "mapValues(attributes)"
       type        = "bloom_filter(0.01)"
+      granularity = 1
+    }
+    index "idx_last_seen_minmax" {
+      expr        = "last_seen"
+      type        = "minmax"
       granularity = 1
     }
     engine "replicated_replacing_merge_tree" {

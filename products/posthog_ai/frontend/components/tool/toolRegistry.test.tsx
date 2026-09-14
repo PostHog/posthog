@@ -23,6 +23,7 @@ describe('toolRegistry', () => {
     it('resolves product declarations after importing only the registry', () => {
         expect(toolRegistry.lookup('insight-create')?.displayName).toEqual('Insight')
         expect(toolRegistry.lookup('query-trends')?.displayName).toEqual('Trends query')
+        expect(toolRegistry.lookup('execute-sql')?.keepVisible).toBe(true)
         expect(toolRegistry.lookup('query-error-tracking-issues-list')?.displayName).toEqual('Error tracking')
         expect(
             require.cache[require.resolve('products/error_tracking/frontend/posthogAi/ErrorTrackingWidget')]
@@ -71,6 +72,7 @@ describe('toolRegistry', () => {
         ['notebooks-create', 'Notebook'],
         ['dashboard-create', 'Dashboard'],
         ['query-trends', 'Trends query'],
+        ['execute-sql', 'SQL query'],
         ['insight-query', 'Insight query'],
         ['query-error-tracking-issues-list', 'Error tracking'],
     ])('gates product widget %s on a trusted PostHog-exec origin', (key, displayName) => {

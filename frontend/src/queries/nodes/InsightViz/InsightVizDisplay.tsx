@@ -35,7 +35,6 @@ import { BoxPlotResultsTable } from 'scenes/insights/views/BoxPlot/BoxPlotResult
 import { InsightsTable } from 'scenes/insights/views/InsightsTable/InsightsTable'
 import { Paths } from 'scenes/paths/Paths'
 import { PathCanvasLabel } from 'scenes/paths/PathsLabel'
-import { TrendInsight } from 'scenes/trends/Trends'
 import { WebAnalyticsInsight } from 'scenes/web-analytics/WebAnalyticsInsight'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
@@ -60,6 +59,7 @@ import { FunnelTimeToConvertTable } from 'products/product_analytics/frontend/in
 import { FunnelTrendsTable } from 'products/product_analytics/frontend/insights/funnels/FunnelTrendsTable/FunnelTrendsTable'
 import { Journeys } from 'products/product_analytics/frontend/insights/journeys/Journeys'
 import { RetentionContainer } from 'products/product_analytics/frontend/insights/retention/RetentionContainer'
+import { TrendInsight } from 'products/product_analytics/frontend/insights/trends/Trends'
 
 import { InsightDisplayConfig } from './InsightDisplayConfig'
 import { InsightResultMetadata } from './InsightResultMetadata'

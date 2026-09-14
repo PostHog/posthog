@@ -28,12 +28,14 @@ import {
     isEditingEmailAction,
 } from './workflowAgentContext'
 import { WorkflowAssets } from './WorkflowAssets'
+import { WorkflowEmailPauseBanner } from './WorkflowEmailPauseBanner'
 import { WorkflowInvocations } from './WorkflowInvocations'
 import { WorkflowLogicProps, workflowLogic } from './workflowLogic'
 import { WorkflowMetrics } from './WorkflowMetrics'
 import { WorkflowRevisions } from './WorkflowRevisions'
 import { WorkflowSceneHeader } from './WorkflowSceneHeader'
 import { WorkflowSceneLogicProps, WorkflowTab, workflowSceneLogic } from './workflowSceneLogic'
+import { TRIGGER_PREFILL_PARAM } from './workflowTriggerPrefill'
 
 export const scene: SceneExport<WorkflowSceneLogicProps> = {
     component: WorkflowScene,
@@ -55,7 +57,13 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
     const { searchParams } = useValues(router)
     const templateId = searchParams.templateId as string | undefined
     const editTemplateId = searchParams.editTemplateId as string | undefined
-    const workflowProps: WorkflowLogicProps = { id: workflowSceneProps.id, templateId, editTemplateId }
+    const triggerPrefill = searchParams[TRIGGER_PREFILL_PARAM] as string | undefined
+    const workflowProps: WorkflowLogicProps = {
+        id: workflowSceneProps.id,
+        templateId,
+        editTemplateId,
+        triggerPrefill,
+    }
 
     const batchJobsLogic = batchWorkflowJobsLogic({ id: workflowSceneProps.id })
 
@@ -167,6 +175,7 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
         <SceneContent className="h-full flex flex-col grow" data-attr="workflow-scene">
             <BindLogic logic={workflowLogic} props={workflowProps}>
                 <WorkflowSceneHeader {...props} />
+                <WorkflowEmailPauseBanner />
                 {/* Only show Logs and Metrics tabs if the workflow has already been created */}
                 {!props.id || props.id === 'new' ? (
                     <Workflow {...workflowProps} />

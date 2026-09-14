@@ -30,7 +30,7 @@ export function InboxBulkSelectionBar({ reports }: { reports: SignalReport[] }):
         <div className="flex items-center justify-between gap-3 flex-wrap rounded border border-accent bg-accent-highlight-secondary px-3 py-2">
             <div className="flex items-center gap-2 min-w-0">
                 <span className="font-medium text-sm shrink-0">{selectedCount} selected</span>
-                <span className="text-xs text-muted">Shift-click range · ⌘-click toggle · Esc to clear</span>
+                <span className="text-xs text-muted">Shift-click range · Click to toggle · Esc to clear</span>
             </div>
 
             <div className="flex items-center gap-2 flex-wrap">

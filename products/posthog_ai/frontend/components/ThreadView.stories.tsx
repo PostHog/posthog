@@ -11,6 +11,7 @@ interface ThreadFixtureProps {
     streamKey: string
     toolName: string
     title: string
+    toolInput: Record<string, unknown>
     rawOutput: unknown
 }
 
@@ -20,9 +21,10 @@ const meta: Meta<ThreadFixtureProps> = {
         streamKey: 'synthetic-conversation',
         toolName: 'notebooks-create',
         title: 'Create notebook',
+        toolInput: {},
         rawOutput: { short_id: 'example-notebook', title: 'Synthetic notebook' },
     },
-    render: ({ streamKey, toolName, title, rawOutput }) => {
+    render: ({ streamKey, toolName, title, toolInput, rawOutput }) => {
         useEffect(() => {
             const logic = runStreamLogic({ streamKey })
             const unmount = logic.mount()
@@ -39,7 +41,7 @@ const meta: Meta<ThreadFixtureProps> = {
                                 serverName: 'posthog',
                                 toolName: 'exec',
                                 status: 'in_progress',
-                                rawInput: { command: `call ${toolName} {}` },
+                                rawInput: { command: `call ${toolName} ${JSON.stringify(toolInput)}` },
                                 _meta: { claudeCode: { toolName: 'mcp__posthog__exec' } },
                             },
                         },
@@ -65,9 +67,9 @@ const meta: Meta<ThreadFixtureProps> = {
                 'replay'
             )
             return unmount
-        }, [streamKey, toolName, title, rawOutput])
+        }, [streamKey, toolName, title, toolInput, rawOutput])
         return (
-            <div className="w-180 h-160 border rounded">
+            <div className="w-180 max-w-full h-160 border rounded">
                 <BindLogic logic={runStreamLogic} props={{ streamKey }}>
                     <ThreadView />
                 </BindLogic>
@@ -127,4 +129,30 @@ export const SavedInsightQuery: Story = {
             },
         }),
     ],
+}
+
+export const ExecuteSqlWithVariables: Story = {
+    ...SavedInsightQuery,
+    args: {
+        toolName: 'execute-sql',
+        title: 'Run SQL query',
+        toolInput: { query: 'SELECT {variables.example_value} AS value;' },
+        rawOutput: {
+            content: [{ type: 'text', text: 'value\n4242' }],
+            _meta: {
+                'com.posthog.mcp/app_data': {
+                    query: {
+                        kind: 'HogQLQuery',
+                        query: 'SELECT {variables.example_value} AS value',
+                        variables: {
+                            '0199c0de-1111-7000-8000-0000000000aa': {
+                                variableId: '0199c0de-1111-7000-8000-0000000000aa',
+                                code_name: 'example_value',
+                            },
+                        },
+                    },
+                },
+            },
+        },
+    },
 }
