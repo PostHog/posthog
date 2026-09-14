@@ -6,7 +6,7 @@ description: >-
   Opens with the ground a reviewer needs (the components and concepts this PR touches, and how they fit), then the effect a person sees, then the mechanism.
   Routes each remaining fact to the form that carries it fastest (bullet, table, diagram, screenshot, collapsed block), then holds it to a checkable shape: one fact per bullet, sentences under 25 words, active voice.
   Cuts complexity rather than context: a body too short to hand over the author's model of the area fails like a bloated one.
-  Makes the body stand alone for a reader who has never opened this directory, and links every claim to its evidence or labels it unchecked.
+  Makes the body stand alone for a reader who has never opened this directory, and links claims about the world to evidence or labels them unchecked.
   Ends with a scan test over the title, the ground, and the first line of Changes.
   Not for commit messages or user-facing product copy (see `/writing-user-facing-copy`).
 ---
