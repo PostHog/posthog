@@ -169,7 +169,7 @@ const ProjectSettingsUpdateSchema = () => {
             customer_analytics_config: OrganizationsProjectsPartialUpdateBody.shape[
                 'customer_analytics_config'
             ].describe(
-                'Customer analytics event mapping. Each event field takes an events node object, for example `{"kind": "EventsNode", "event": "$pageview"}`. Pass `{}` to clear one. Null is rejected.'
+                'Customer analytics event mapping. Each event field takes an events node, for example `{"kind": "EventsNode", "event": "$pageview"}`, or an actions node, for example `{"kind": "ActionsNode", "id": 42}` where `id` is the numeric action id. Pass `{}` to clear one. Null is rejected.'
             ),
         })
 }
