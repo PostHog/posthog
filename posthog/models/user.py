@@ -522,7 +522,8 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore
             if prefetched_integrations is not None
             else self.integration_set.filter(kind="github")
             .exclude(config__connecting_user_github_login=None)
-            .only("config")[:1]
+            .only("config")
+            .order_by("id")[:1]
         )
         for integration in team_github_integrations:
             if isinstance(integration.config, dict):
@@ -533,6 +534,15 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore
         return None
 
     def get_github_login(self) -> str | None:
+        """Resolve this user's GitHub login.
+
+        Precedence:
+        1. `UserIntegration` (kind=github) — user's own GitHub integration
+        2. `UserSocialAuth` (provider=github) — OAuth login linkage when no GitHub user integration exists
+        3. Team-level `Integration` (kind=github) `connecting_user_github_login` — identity stored on the
+           team's GitHub integration (e.g. captured at install). Still a supported integration path,
+           lowest precedence as an identity fallback when (1)/(2) do not yield a GitHub username.
+        """
         return (
             self._get_github_login_from_user_integration()
             or self._get_github_login_from_social_auth()
