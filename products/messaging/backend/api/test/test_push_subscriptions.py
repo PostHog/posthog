@@ -112,7 +112,6 @@ class TestPushSubscriptionsAPI(BaseTest):
         assert response.status_code == status.HTTP_200_OK
         data = response.json()
         assert data["distinct_id"] == "user-1"
-        assert data["platform"] == "android"
 
         mock_capture.assert_called_once()
         call_kwargs = mock_capture.call_args.kwargs
@@ -138,7 +137,6 @@ class TestPushSubscriptionsAPI(BaseTest):
         assert response.status_code == status.HTTP_200_OK
         data = response.json()
         assert data["distinct_id"] == "user-1"
-        assert data["platform"] == "ios"
 
         mock_capture.assert_called_once()
         call_kwargs = mock_capture.call_args.kwargs
@@ -202,7 +200,6 @@ class TestPushSubscriptionsAPI(BaseTest):
         assert response.status_code == status.HTTP_200_OK
         data = response.json()
         assert data["distinct_id"] == "user-1"
-        assert data["platform"] == "android"
 
         mock_capture.assert_called_once()
         call_kwargs = mock_capture.call_args.kwargs
@@ -314,49 +311,24 @@ class TestPushSubscriptionsAPI(BaseTest):
             )
 
         assert response.status_code == status.HTTP_200_OK
-        assert response.json()["platform"] is None
+        assert "platform" not in response.json()
         assert capture.call_count == 1
         assert "$device_push_subscription_my-firebase-project" in capture.call_args.kwargs["properties"]["$set"]
 
-    def test_explicit_platform_is_echoed(self):
-        response = self._post(
-            {
-                "distinct_id": "user-1",
-                "device_token": "device-token",
-                "platform": "ios",
-                "app_id": "my-firebase-project",
-            }
-        )
+    def test_platform_sent_by_older_sdks_is_ignored(self):
+        with patch("products.messaging.backend.api.push_subscriptions.capture_internal") as capture:
+            response = self._post(
+                {
+                    "distinct_id": "user-1",
+                    "device_token": "device-token",
+                    "platform": "windows_phone",
+                    "app_id": "my-firebase-project",
+                }
+            )
 
         assert response.status_code == status.HTTP_200_OK
-        assert response.json()["platform"] == "ios"
-
-    def test_invalid_token_rejection_logs_the_app_id(self):
-        payload = {"distinct_id": "user-1", "device_token": "device-token", "app_id": "my-firebase-project"}
-
-        with capture_logs() as logs:
-            # The second post is served by the negative cache, a separate rejection site.
-            first = self._post(payload, api_key="phc_not_a_real_token")
-            second = self._post(payload, api_key="phc_not_a_real_token")
-
-        assert first.status_code == status.HTTP_401_UNAUTHORIZED
-        assert second.status_code == status.HTTP_401_UNAUTHORIZED
-        rejected = [entry for entry in logs if entry["event"] == "push_subscription_rejected"]
-        assert len(rejected) == 2
-        assert all(entry["app_id"] == "my-firebase-project" for entry in rejected)
-
-    def test_unexpected_platform_value_is_accepted_and_echoed(self):
-        response = self._post(
-            {
-                "distinct_id": "user-1",
-                "device_token": "device-token",
-                "platform": "windows_phone",
-                "app_id": "proj",
-            }
-        )
-
-        assert response.status_code == status.HTTP_200_OK
-        assert response.json()["platform"] == "windows_phone"
+        assert "platform" not in response.json()
+        assert capture.call_count == 1
 
     @patch("products.messaging.backend.api.push_subscriptions.capture_internal")
     def test_register_without_integration_returns_200_and_discards(self, mock_capture: MagicMock):

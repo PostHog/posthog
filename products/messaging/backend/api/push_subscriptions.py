@@ -90,13 +90,13 @@ _invalid_token_cache: TTLCache = TTLCache(maxsize=_INVALID_TOKEN_CACHE_SIZE, ttl
 _invalid_token_lock = threading.Lock()
 _PUSH_INTEGRATION_KINDS = ("firebase", "apns")
 
-# `platform` is accepted and ignored. The property is keyed on app_id and the provider is resolved
-# from app_id alone, so the field has no job. Rejecting on it cost a registration per device: a
-# rejected device re-posts on every app open and never registers.
+# SDKs send a `platform` field. It is ignored: the property is keyed on app_id and the provider is
+# resolved from app_id alone. Rejecting on it cost a registration per device, because a rejected
+# device re-posts on every app open and never registers.
 
 
 # A device registration payload is a handful of short string fields (distinct_id, device_token,
-# platform, app_id, api_key) — well under 1 KiB. Cap the raw request body far above that but far below
+# app_id, api_key) — well under 1 KiB. Cap the raw request body far above that but far below
 # Django's global limit, so a compressed body can't inflate into a memory-exhaustion payload when
 # load_data_from_request decompresses it.
 MAX_BODY_BYTES = 16 * 1024
@@ -348,7 +348,6 @@ def push_subscriptions(request: Request):
 
     distinct_id = data.get("distinct_id")
     device_token = data.get("device_token")
-    platform = data.get("platform")
     app_id = data.get("app_id")
 
     missing_fields = [
@@ -381,8 +380,6 @@ def push_subscriptions(request: Request):
     assert isinstance(device_token, str)
     assert isinstance(app_id, str)
 
-    platform = platform if isinstance(platform, str) and platform else None
-
     # Skip the JSONB lookup when the team has no integration for this app_id, which is the endpoint's
     # normal case. A cache miss or outage returns None and falls through to the real query.
     known_app_ids = _configurable_app_ids(team.id)
@@ -404,7 +401,6 @@ def push_subscriptions(request: Request):
             JsonResponse(
                 {
                     "distinct_id": distinct_id,
-                    "platform": platform,
                     "stored": False,
                     "push_enabled": False,
                 },
@@ -482,7 +478,6 @@ def push_subscriptions(request: Request):
         JsonResponse(
             {
                 "distinct_id": distinct_id,
-                "platform": platform,
             },
             status=status.HTTP_200_OK,
         ),

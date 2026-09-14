@@ -9,10 +9,10 @@ A mobile SDK with push capture enabled posts its device token to `/api/push_subs
 app starts. The server resolves the `app_id` to a Firebase or APNs integration on the team and stores
 the token as a `$device_push_subscription_<app_id>` person property.
 
-`distinct_id`, `device_token` and `app_id` are required. `platform` is accepted for compatibility and
-ignored: it is echoed back in the response but never validated, stored, or used to select the
-provider. A device whose registration is rejected re-posts on every app open and never registers, so
-the server does not reject a registration over a field it discards.
+`distinct_id`, `device_token` and `app_id` are required. SDKs also send a `platform` field, which the
+server ignores: nothing is stored or routed by it, and the provider is selected by `app_id`. A device
+whose registration is rejected re-posts on every app open and never registers, so the server does not
+reject a registration over a field it does not use.
 
 Push is opt-in per project, and the SDK cannot see whether a project opted in. So an app that ships
 with push capture on registers against every project it reports to, configured or not.
