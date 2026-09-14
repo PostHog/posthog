@@ -6,6 +6,7 @@ import { NextScheduledRun } from 'lib/components/ScheduledRunStatus'
 import { TZLabel } from 'lib/components/TZLabel'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -18,7 +19,6 @@ import {
     canSetAlertScheduleStartTime,
     cadenceFinerThanInsightInterval,
     getAlertScheduleStartMinute,
-    getAlertScheduleStartMinuteOptions,
     selectAlertCalculationInterval,
     scheduleStartTimeForInterval,
     scheduleStartTimeForMinute,
@@ -178,10 +178,13 @@ export function AlertIntervalRow({
                 {canSetAlertScheduleStartTime(alertForm.calculation_interval) && (
                     <>
                         <span>at minute</span>
-                        <LemonSelect
+                        <LemonInput
                             className="w-20 shrink-0"
+                            type="number"
+                            min={0}
+                            max={59}
+                            step={1}
                             value={getAlertScheduleStartMinute(alertForm.schedule_start_time) ?? 0}
-                            options={getAlertScheduleStartMinuteOptions()}
                             onChange={(minute) =>
                                 onSetAlertFormValue('schedule_start_time', scheduleStartTimeForMinute(minute))
                             }
