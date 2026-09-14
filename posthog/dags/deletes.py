@@ -307,7 +307,15 @@ class AdhocEventDeletesDictionary(Dictionary):
 
     @property
     def query(self) -> str:
-        return f"SELECT team_id, uuid, created_at FROM {self.source.qualified_name} WHERE (team_id, uuid) not in (SELECT team_id, uuid FROM {self.source.qualified_name} WHERE is_deleted = 1)"
+        # Grouped rather than filtered with NOT IN: the source is a ReplacingMergeTree, so a key
+        # inserted twice reads as two rows until a merge collapses them. The dictionary keeps one
+        # row per key whichever way, but which one it keeps follows the order the source rows
+        # arrive, and that order is not stable when a host parses a staged Parquet in parallel.
+        # max(is_deleted) = 0 is the same exclusion the NOT IN subquery made, on one scan.
+        return (
+            f"SELECT team_id, uuid, max(created_at) AS created_at FROM {self.source.qualified_name} "
+            f"GROUP BY team_id, uuid HAVING max(is_deleted) = 0"
+        )
 
     def staged(self) -> StagedDictionary:
         return StagedDictionary(

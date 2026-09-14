@@ -9,6 +9,7 @@
         "kea-forms": "catalog:",
         "kea-loaders": "catalog:",
         "kea-router": "catalog:",
+        "kea-subscriptions": "catalog:",
         "lodash.uniqby": "^4.7.0",
         "posthog-js": "catalog:"
     },

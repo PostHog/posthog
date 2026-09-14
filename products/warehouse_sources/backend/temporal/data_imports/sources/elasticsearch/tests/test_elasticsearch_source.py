@@ -1,6 +1,9 @@
 import pytest
 from unittest import mock
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.elasticsearch.elasticsearch import (
+    CREDENTIALS_REJECTED_ERROR,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.elasticsearch.source import (
     ElasticsearchSource,
     _auth_from_config,
@@ -86,13 +89,24 @@ class TestElasticsearchSource:
     @mock.patch.object(ElasticsearchSource, "is_database_host_valid")
     def test_validate_credentials_checks_host_then_connection(self, mock_host_valid, mock_validate):
         mock_host_valid.return_value = (True, None)
-        mock_validate.return_value = True
+        mock_validate.return_value = (True, None)
 
         is_valid, error = self.source.validate_credentials(self.config, self.team_id)
 
         assert is_valid is True
         assert error is None
         mock_host_valid.assert_called_once_with("es.example.com", self.team_id)
+
+    @mock.patch(f"{_SOURCE_MODULE}.validate_elasticsearch_credentials")
+    @mock.patch.object(ElasticsearchSource, "is_database_host_valid")
+    def test_validate_credentials_surfaces_the_probe_reason(self, mock_host_valid, mock_validate):
+        mock_host_valid.return_value = (True, None)
+        mock_validate.return_value = (False, CREDENTIALS_REJECTED_ERROR)
+
+        is_valid, error = self.source.validate_credentials(self.config, self.team_id)
+
+        assert is_valid is False
+        assert error == CREDENTIALS_REJECTED_ERROR
 
     @mock.patch.object(ElasticsearchSource, "is_database_host_valid")
     def test_validate_credentials_rejects_unsafe_host(self, mock_host_valid):

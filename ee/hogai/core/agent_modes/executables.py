@@ -25,6 +25,7 @@ from posthog.schema import (
     AgentMode,
     AssistantMessage,
     AssistantTool,
+    AssistantToolCall,
     AssistantToolCallMessage,
     ContextMessage,
     FailureMessage,
@@ -381,56 +382,16 @@ class AgentExecutable(BaseAgentLoopRootExecutable):
 
 class AgentToolsExecutable(BaseAgentLoopExecutable):
     async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
-        last_message = state.messages[-1]
-        reset_state = PartialAssistantState(root_tool_call_id=None)
+        resolved = self._resolve_tool_call(state)
+        if resolved is None:
+            return PartialAssistantState(root_tool_call_id=None)
 
-        # Check if we're resuming from an interrupted approval flow
-        tool_call_message = None
-        if isinstance(last_message, AssistantToolCallMessage) and state.root_tool_call_id:
-            # Look for the original AssistantMessage with the tool call
-            for msg in reversed(state.messages[:-1]):
-                if isinstance(msg, AssistantMessage) and msg.tool_calls:
-                    for tc in msg.tool_calls:
-                        if tc.id == state.root_tool_call_id:
-                            tool_call_message = msg
-                            break
-                    if tool_call_message:
-                        break
-        elif isinstance(last_message, AssistantMessage):
-            tool_call_message = last_message
+        tool_call_message, tool_call = resolved
 
-        if not tool_call_message or not tool_call_message.id or not state.root_tool_call_id:
-            return reset_state
-
-        # Find the current tool call in the message.
-        tool_call = next(
-            (tool_call for tool_call in tool_call_message.tool_calls or [] if tool_call.id == state.root_tool_call_id),
-            None,
-        )
-        if not tool_call:
-            return reset_state
-
-        # Find the tool class in a toolkit.
-        toolkit_manager = self._toolkit_manager_class(
-            team=self._team, user=self._user, context_manager=self.context_manager
-        )
-        available_tools = await toolkit_manager.get_tools(state, config)
-        # Filter to only MaxTool instances (dicts are server-side tools like web_search handled by Anthropic)
-        tool = next(
-            (tool for tool in available_tools if isinstance(tool, MaxTool) and tool.get_name() == tool_call.name), None
-        )
-
+        tool = await self._find_tool(state, config, tool_call.name)
         # If the tool doesn't exist, return the message to the agent
         if not tool:
-            return PartialAssistantState(
-                messages=[
-                    AssistantToolCallMessage(
-                        content=ROOT_TOOL_DOES_NOT_EXIST,
-                        id=str(uuid4()),
-                        tool_call_id=tool_call.id,
-                    )
-                ],
-            )
+            return self._tool_call_state(ROOT_TOOL_DOES_NOT_EXIST, tool_call.id)
 
         # Tricky: set the node path associated with the tool call
         tool.set_node_path(
@@ -441,93 +402,16 @@ class AgentToolsExecutable(BaseAgentLoopExecutable):
         )
 
         try:
-            # tool_call.id is typed as str|None in some LangChain shapes; OTel rejects None
-            # attribute values with a warning, so include the id only when present.
-            tool_span_attributes: dict[str, str | int] = {
-                "posthog_ai.tool_name": tool_call.name,
-                "posthog_ai.team_id": self._team.id,
-            }
-            if tool_call.id is not None:
-                tool_span_attributes["posthog_ai.tool_call_id"] = tool_call.id
-            with _tracer.start_as_current_span("posthog_ai.tool.invoke", attributes=tool_span_attributes):
-                result = await tool.ainvoke(
-                    ToolCall(type="tool_call", name=tool_call.name, args=tool_call.args, id=tool_call.id),
-                    config=config,
-                )
-                # Keep the type-mismatch raise inside the span so OTel records the exception
-                # on the tool.invoke span rather than on its (unrelated) parent.
-                if not isinstance(result, LangchainToolMessage):
-                    raise ValueError(
-                        f"Tool '{tool_call.name}' returned {type(result).__name__}, expected LangchainToolMessage"
-                    )
-
-            # Track successful tool execution
-            user_distinct_id = self._get_user_distinct_id(config)
-            if user_distinct_id:
-                with _tracer.start_as_current_span("posthoganalytics.capture"):
-                    await database_sync_to_async(posthoganalytics.capture)(
-                        distinct_id=user_distinct_id,
-                        event="ai tool executed",
-                        properties={
-                            **self._get_debug_props(config),
-                            "tool_name": tool_call.name,
-                        },
-                        groups=groups(None, self._team),
-                        send_feature_flags=True,
-                    )
+            result = await self._invoke_tool(tool, tool_call, config)
+            await self._capture_tool_executed(tool_call, config)
         except MaxToolError as e:
-            logger.exception(
-                "maxtool_error", extra={"tool": tool_call.name, "error": str(e), "retry_strategy": e.retry_strategy}
-            )
-            user_distinct_id = self._get_user_distinct_id(config)
-            capture_exception(
-                e,
-                distinct_id=user_distinct_id,
-                properties={
-                    **self._get_debug_props(config),
-                    "tool": tool_call.name,
-                    "retry_strategy": e.retry_strategy,
-                },
-            )
-
-            if user_distinct_id:
-                posthoganalytics.capture(
-                    distinct_id=user_distinct_id,
-                    event="max_tool_error",
-                    properties={
-                        **self._get_debug_props(config),
-                        "tool_name": tool_call.name,
-                        "error_type": e.__class__.__name__,
-                        "retry_strategy": e.retry_strategy,
-                        "error_message": str(e),
-                    },
-                    groups=groups(None, self._team),
-                )
-
-            content = f"Tool failed: {e.to_summary()}.{e.retry_hint}"
-            return PartialAssistantState(
-                messages=[
-                    AssistantToolCallMessage(
-                        content=content,
-                        id=str(uuid4()),
-                        tool_call_id=tool_call.id,
-                    )
-                ],
-            )
+            return self._max_tool_error_state(e, tool_call, config)
         except ValidationError as e:
             logger.exception("Validation error calling tool", extra={"tool_name": tool_call.name, "error": str(e)})
             capture_exception(
                 e, distinct_id=self._get_user_distinct_id(config), properties=self._get_debug_props(config)
             )
-            return PartialAssistantState(
-                messages=[
-                    AssistantToolCallMessage(
-                        content="There was a validation error calling the tool: " + str(e),
-                        id=str(uuid4()),
-                        tool_call_id=tool_call.id,
-                    )
-                ],
-            )
+            return self._tool_call_state("There was a validation error calling the tool: " + str(e), tool_call.id)
         except GraphInterrupt:
             # GraphInterrupt is raised when a tool calls interrupt() for approval flow.
             # Let it propagate up to be handled by LangGraph's interrupt
@@ -537,16 +421,151 @@ class AgentToolsExecutable(BaseAgentLoopExecutable):
             capture_exception(
                 e, distinct_id=self._get_user_distinct_id(config), properties=self._get_debug_props(config)
             )
-            return PartialAssistantState(
-                messages=[
-                    AssistantToolCallMessage(
-                        content="The tool raised an internal error. Do not immediately retry the tool call and explain to the user what happened. If the user asks you to retry, you are allowed to do that.",
-                        id=str(uuid4()),
-                        tool_call_id=tool_call.id,
-                    )
-                ],
+            return self._tool_call_state(
+                "The tool raised an internal error. Do not immediately retry the tool call and explain to the user what happened. If the user asks you to retry, you are allowed to do that.",
+                tool_call.id,
             )
 
+        return await self._state_from_tool_result(result, tool_call, state, config)
+
+    def _resolve_tool_call(self, state: AssistantState) -> tuple[AssistantMessage, AssistantToolCall] | None:
+        tool_call_message = self._find_tool_call_message(state)
+        if not tool_call_message or not tool_call_message.id or not state.root_tool_call_id:
+            return None
+
+        # Find the current tool call in the message.
+        tool_call = next(
+            (tool_call for tool_call in tool_call_message.tool_calls or [] if tool_call.id == state.root_tool_call_id),
+            None,
+        )
+        if not tool_call:
+            return None
+
+        return tool_call_message, tool_call
+
+    def _find_tool_call_message(self, state: AssistantState) -> AssistantMessage | None:
+        last_message = state.messages[-1]
+
+        # Check if we're resuming from an interrupted approval flow
+        if isinstance(last_message, AssistantToolCallMessage) and state.root_tool_call_id:
+            return self._find_interrupted_tool_call_message(state)
+
+        if isinstance(last_message, AssistantMessage):
+            return last_message
+
+        return None
+
+    def _find_interrupted_tool_call_message(self, state: AssistantState) -> AssistantMessage | None:
+        # Look for the original AssistantMessage with the tool call
+        for msg in reversed(state.messages[:-1]):
+            if isinstance(msg, AssistantMessage) and msg.tool_calls:
+                if any(tc.id == state.root_tool_call_id for tc in msg.tool_calls):
+                    return msg
+        return None
+
+    async def _find_tool(self, state: AssistantState, config: RunnableConfig, tool_name: str) -> MaxTool | None:
+        toolkit_manager = self._toolkit_manager_class(
+            team=self._team, user=self._user, context_manager=self.context_manager
+        )
+        available_tools = await toolkit_manager.get_tools(state, config)
+        # Filter to only MaxTool instances (dicts are server-side tools like web_search handled by Anthropic)
+        return next(
+            (tool for tool in available_tools if isinstance(tool, MaxTool) and tool.get_name() == tool_name), None
+        )
+
+    async def _invoke_tool(
+        self, tool: MaxTool, tool_call: AssistantToolCall, config: RunnableConfig
+    ) -> LangchainToolMessage:
+        # tool_call.id is typed as str|None in some LangChain shapes; OTel rejects None
+        # attribute values with a warning, so include the id only when present.
+        tool_span_attributes: dict[str, str | int] = {
+            "posthog_ai.tool_name": tool_call.name,
+            "posthog_ai.team_id": self._team.id,
+        }
+        if tool_call.id is not None:
+            tool_span_attributes["posthog_ai.tool_call_id"] = tool_call.id
+        with _tracer.start_as_current_span("posthog_ai.tool.invoke", attributes=tool_span_attributes):
+            result = await tool.ainvoke(
+                ToolCall(type="tool_call", name=tool_call.name, args=tool_call.args, id=tool_call.id),
+                config=config,
+            )
+            # Keep the type-mismatch raise inside the span so OTel records the exception
+            # on the tool.invoke span rather than on its (unrelated) parent.
+            if not isinstance(result, LangchainToolMessage):
+                raise ValueError(
+                    f"Tool '{tool_call.name}' returned {type(result).__name__}, expected LangchainToolMessage"
+                )
+        return result
+
+    async def _capture_tool_executed(self, tool_call: AssistantToolCall, config: RunnableConfig) -> None:
+        user_distinct_id = self._get_user_distinct_id(config)
+        if not user_distinct_id:
+            return
+
+        with _tracer.start_as_current_span("posthoganalytics.capture"):
+            await database_sync_to_async(posthoganalytics.capture)(
+                distinct_id=user_distinct_id,
+                event="ai tool executed",
+                properties={
+                    **self._get_debug_props(config),
+                    "tool_name": tool_call.name,
+                },
+                groups=groups(None, self._team),
+                send_feature_flags=True,
+            )
+
+    def _max_tool_error_state(
+        self, error: MaxToolError, tool_call: AssistantToolCall, config: RunnableConfig
+    ) -> PartialAssistantState:
+        logger.exception(
+            "maxtool_error",
+            extra={"tool": tool_call.name, "error": str(error), "retry_strategy": error.retry_strategy},
+        )
+        user_distinct_id = self._get_user_distinct_id(config)
+        capture_exception(
+            error,
+            distinct_id=user_distinct_id,
+            properties={
+                **self._get_debug_props(config),
+                "tool": tool_call.name,
+                "retry_strategy": error.retry_strategy,
+            },
+        )
+
+        if user_distinct_id:
+            posthoganalytics.capture(
+                distinct_id=user_distinct_id,
+                event="max_tool_error",
+                properties={
+                    **self._get_debug_props(config),
+                    "tool_name": tool_call.name,
+                    "error_type": error.__class__.__name__,
+                    "retry_strategy": error.retry_strategy,
+                    "error_message": str(error),
+                },
+                groups=groups(None, self._team),
+            )
+
+        return self._tool_call_state(f"Tool failed: {error.to_summary()}.{error.retry_hint}", tool_call.id)
+
+    def _tool_call_state(self, content: str, tool_call_id: str) -> PartialAssistantState:
+        return PartialAssistantState(
+            messages=[
+                AssistantToolCallMessage(
+                    content=content,
+                    id=str(uuid4()),
+                    tool_call_id=tool_call_id,
+                )
+            ],
+        )
+
+    async def _state_from_tool_result(
+        self,
+        result: LangchainToolMessage,
+        tool_call: AssistantToolCall,
+        state: AssistantState,
+        config: RunnableConfig,
+    ) -> PartialAssistantState:
         if isinstance(result.artifact, ToolMessagesArtifact):
             return PartialAssistantState(
                 messages=list(result.artifact.messages),
@@ -564,25 +583,30 @@ class AgentToolsExecutable(BaseAgentLoopExecutable):
         agent_mode: AgentMode | None = None
         if tool_call.name == AssistantTool.SWITCH_MODE and result.artifact:
             agent_mode = result.artifact
-            user_distinct_id = self._get_user_distinct_id(config)
-            if user_distinct_id:
-                with _tracer.start_as_current_span("posthoganalytics.capture"):
-                    await database_sync_to_async(posthoganalytics.capture)(
-                        distinct_id=user_distinct_id,
-                        event="ai mode executed",
-                        properties={
-                            **self._get_debug_props(config),
-                            "mode": agent_mode,
-                            "previous_mode": state.agent_mode_or_default,
-                        },
-                        groups=groups(None, self._team),
-                        send_feature_flags=True,
-                    )
+            await self._capture_mode_switch(agent_mode, state, config)
 
         return PartialAssistantState(
             messages=[tool_message],
             agent_mode=agent_mode,
         )
+
+    async def _capture_mode_switch(self, agent_mode: AgentMode, state: AssistantState, config: RunnableConfig) -> None:
+        user_distinct_id = self._get_user_distinct_id(config)
+        if not user_distinct_id:
+            return
+
+        with _tracer.start_as_current_span("posthoganalytics.capture"):
+            await database_sync_to_async(posthoganalytics.capture)(
+                distinct_id=user_distinct_id,
+                event="ai mode executed",
+                properties={
+                    **self._get_debug_props(config),
+                    "mode": agent_mode,
+                    "previous_mode": state.agent_mode_or_default,
+                },
+                groups=groups(None, self._team),
+                send_feature_flags=True,
+            )
 
     def router(self, state: AssistantState) -> Literal["root", "end"]:
         last_message = state.messages[-1]

@@ -196,7 +196,7 @@ class TestTask(TestCase):
         self.assertEqual(task.origin_product, Task.OriginProduct.SLACK)
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
-    def test_create_and_run_threads_ai_stage_into_state(self, mock_execute_workflow):
+    def test_create_and_run_threads_attribution_stamps_into_state(self, mock_execute_workflow):
         user = User.objects.create(email="test@test.com")
         Integration.objects.create(team=self.team, kind="github", config={})
 
@@ -209,14 +209,16 @@ class TestTask(TestCase):
                 user_id=user.id,
                 repository="posthog/posthog",
                 ai_stage="research",
+                ai_agent_name="signals-scout-errors",
             )
 
         run_id = mock_execute_workflow.call_args.kwargs["run_id"]
         task_run = TaskRun.objects.get(id=run_id)
         self.assertEqual(task_run.state["ai_stage"], "research")
+        self.assertEqual(task_run.state["ai_agent_name"], "signals-scout-errors")
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
-    def test_create_and_run_omits_ai_stage_when_not_provided(self, mock_execute_workflow):
+    def test_create_and_run_omits_attribution_stamps_when_not_provided(self, mock_execute_workflow):
         user = User.objects.create(email="test@test.com")
         Integration.objects.create(team=self.team, kind="github", config={})
 
@@ -233,6 +235,7 @@ class TestTask(TestCase):
         run_id = mock_execute_workflow.call_args.kwargs["run_id"]
         task_run = TaskRun.objects.get(id=run_id)
         self.assertNotIn("ai_stage", task_run.state)
+        self.assertNotIn("ai_agent_name", task_run.state)
 
     def test_create_run_stamps_inbox_on_a_report_linked_signal_report_task(self):
         from products.signals.backend.models import SignalReport

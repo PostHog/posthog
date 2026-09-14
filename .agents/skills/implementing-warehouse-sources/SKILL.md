@@ -737,14 +737,16 @@ preserved (omitted) secret is reused — exfiltrating the credential. `host` and
 already handled separately, so only sources whose connection target lives in a differently named field (e.g.
 Okta's `okta_domain`) need to override this. The default is `[]` (no extra fields).
 
-Pair this with `_is_host_safe` (`common/mixins.py`) at both
-source-create and sync time to block hosts resolving to internal/private IPs.
+Pair this with `is_database_host_valid` (`common/mixins.py`) at source-create time to block hosts
+resolving to internal/private IPs. At connect time, open every direct database connection through
+`with_ssh_tunnel()`, which re-checks the host on each open, and pin the validated addresses in the
+client where the driver allows it (see `pinned_host_kwargs` in `common/mixins.py`).
 
 ## Mixins
 
 From `products/warehouse_sources/backend/temporal/data_imports/sources/common/mixins.py`:
 
-- `SSHTunnelMixin` — `with_ssh_tunnel()` context plus `make_ssh_tunnel_func()` for deferred tunnel opening.
+- `SSHTunnelMixin` — `with_ssh_tunnel()` context plus `make_ssh_tunnel_func()` for deferred tunnel opening. Both re-check the SSH host and the database host on every open.
 - `OAuthMixin` — `get_oauth_integration()` to pull `Integration` from the DB.
 - `ValidateDatabaseHostMixin` — `is_database_host_valid()` to block internal VPC IPs (unless SSH tunnel is used).
 

@@ -67,22 +67,19 @@ class Migration(migrations.Migration):
         ("signals", "0001_squash_2026_09_07_initial"),
         ("skills", "0001_squash_2026_09_07_initial"),
         ("slack_app", "0001_squash_2026_09_07_initial"),
-        ("stamphog", "0001_squash_2026_09_07_initial"),
         ("streamlit_apps", "0004_squash_2026_09_07_finalize_fks"),
         ("surveys", "0001_squash_2026_09_07_initial"),
         ("tasks", "0121_squash_2026_09_07_finalize_fks"),
         ("tracing", "0001_squash_2026_09_07_initial"),
         ("user_interviews", "0001_squash_2026_09_07_initial"),
-        ("visual_review", "0001_squash_2026_09_07_initial"),
         ("warehouse_sources", "0001_squash_2026_09_07_initial"),
         ("web_analytics", "0001_squash_2026_09_07_initial"),
         ("wizard", "0001_squash_2026_09_07_initial"),
         ("workflows", "0001_squash_2026_09_07_initial"),
     ]
 
-    operations = [
-        migrations.RunSQL(
-            sql='\n                    CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS "idx_team_id_raw_id_part" ON "posthog_errortrackingstackframe" ("team_id", "raw_id", "part");\n                    ',
-            reverse_sql="",
-        ),
-    ]
+    # The one forwarded CREATE INDEX this file carried built a duplicate of
+    # unique_team_id_raw_id_part: migration 0005 had renamed that index into
+    # the constraint. The file stays, empty, because databases record it as
+    # applied and the other schema_addons files depend on it.
+    operations = []

@@ -2,10 +2,11 @@ import { MakeLogicType, actions, connect, kea, key, path, props, reducers, selec
 
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
-import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
-import { IndexedTrendResult } from 'scenes/trends/types'
 
 import { ChartDisplayType, CompareLabelType, InsightLogicProps } from '~/types'
+
+import { trendsDataLogic } from 'products/product_analytics/frontend/insights/trends/trendsDataLogic'
+import { IndexedTrendResult } from 'products/product_analytics/frontend/insights/trends/types'
 
 import type {
     AnyDataWarehouseNode,

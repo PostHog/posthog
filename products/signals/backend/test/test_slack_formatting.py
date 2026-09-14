@@ -4,8 +4,9 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
+from posthog.helpers.slack_markdown import SLACK_MARKDOWN_TEXT_MAX_LEN
+
 from products.signals.backend.slack_formatting import (
-    SLACK_MARKDOWN_TEXT_MAX_LEN,
     chunk_slack_text,
     defuse_slack_tokens,
     escape_slack_mrkdwn,

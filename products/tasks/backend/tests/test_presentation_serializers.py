@@ -1,4 +1,5 @@
 import ipaddress
+from types import SimpleNamespace
 
 from unittest.mock import patch
 
@@ -6,11 +7,17 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
+from posthog.auth import OAuthAccessTokenAuthentication
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication
+from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_EU, ARRAY_APP_CLIENT_ID_US
+
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.presentation.serializers import (
     TASK_RUN_ARTIFACT_INLINE_MAX_SIZE_BYTES,
     SandboxEnvironmentWriteSerializer,
     TaskRunArtifactUploadSerializer,
+    TaskRunBootstrapCreateRequestSerializer,
+    TaskRunCommandRequestSerializer,
     TaskRunCreateRequestSerializer,
     TaskRunLivingArtifactCreateRequestSerializer,
     TaskWriteSerializer,
@@ -86,6 +93,62 @@ class TestTaskRunLivingArtifactCreateRequestSerializer(SimpleTestCase):
 
 
 class TestTaskRunCreateRequestSerializer(SimpleTestCase):
+    @parameterized.expand(
+        [
+            (TaskRunCreateRequestSerializer, True),
+            (TaskRunCreateRequestSerializer, False),
+            (TaskRunBootstrapCreateRequestSerializer, True),
+            (TaskRunBootstrapCreateRequestSerializer, False),
+        ]
+    )
+    def test_subscription_requires_acp(
+        self,
+        serializer_class: type[TaskRunCreateRequestSerializer] | type[TaskRunBootstrapCreateRequestSerializer],
+        is_pi: bool,
+    ) -> None:
+        serializer = serializer_class(data={"claude_model_access": "own-subscription"})
+        with patch("products.tasks.backend.presentation.serializers._is_pi_task_run_request", return_value=is_pi):
+            assert serializer.is_valid() is not is_pi
+        if is_pi:
+            assert "claude_model_access" in serializer.errors
+
+    @parameterized.expand(
+        [
+            (serializer_class, resume, client_id, sandbox)
+            for serializer_class, resume in [
+                (TaskRunCreateRequestSerializer, False),
+                (TaskRunBootstrapCreateRequestSerializer, False),
+                (TaskRunCreateRequestSerializer, True),
+            ]
+            for client_id in [ARRAY_APP_CLIENT_ID_US, ARRAY_APP_CLIENT_ID_EU]
+            for sandbox in [False, True]
+        ]
+    )
+    def test_subscription_checks_oauth_origin(self, serializer_class, resume, client_id, sandbox) -> None:
+        authenticator = OAuthAccessTokenAuthentication()
+        authenticator.access_token = OAuthAccessToken(
+            application=OAuthApplication(client_id=client_id),
+            scope="task:write internal_run:read" if sandbox else "task:write",
+        )
+        serializer = serializer_class(
+            data={"resume_from_run_id": "00000000-0000-0000-0000-000000000001"}
+            if resume
+            else {"claude_model_access": "own-subscription"},
+            context={
+                "request": SimpleNamespace(successful_authenticator=authenticator),
+                "view": SimpleNamespace(kwargs={"pk": "task-1"}),
+                "team": SimpleNamespace(id=1),
+            },
+        )
+        with patch.object(
+            tasks_facade,
+            "get_task_run_detail",
+            return_value=SimpleNamespace(state={"claude_model_access": "own-subscription"}),
+        ):
+            assert serializer.is_valid() is (not sandbox and not resume), serializer.errors
+        if sandbox or resume:
+            assert "claude_model_access" in serializer.errors
+
     @patch(
         "posthog.security.url_validation.resolve_host_ips",
         return_value={ipaddress.ip_address("93.184.216.34")},
@@ -143,3 +206,26 @@ class TestTaskRunArtifactUploadSerializer(SimpleTestCase):
         if not expected_valid:
             megabytes = TASK_RUN_ARTIFACT_INLINE_MAX_SIZE_BYTES // (1024 * 1024)
             assert f"{megabytes}MB attachment limit" in str(serializer.errors["content"])
+
+
+class TestCredentialResponseSerializer(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ({"token": ""},),
+            ({"token": "x" * 4097},),
+            ({"error": "arbitrary error body"},),
+            ({"token": "invented-token", "error": "no_token"},),
+            ({"credential": "unsupported", "token": "invented-token"},),
+            ({"requestId": "x" * 129, "token": "invented-token"},),
+        ]
+    )
+    def test_rejects_invalid_credential_response(self, params: dict[str, str]) -> None:
+        serializer = TaskRunCommandRequestSerializer(
+            data={
+                "jsonrpc": "2.0",
+                "method": "credential_response",
+                "params": {"requestId": "request-1", "credential": "claude_subscription_token", **params},
+            }
+        )
+        assert not serializer.is_valid()
+        assert "params" in serializer.errors

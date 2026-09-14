@@ -7,7 +7,6 @@ import { LemonButton, LemonInput, LemonTable, LemonTag, Link, Spinner, Tooltip }
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { humanFriendlyDuration } from 'lib/utils/durations'
-import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { recordingsQueryToUniversalFilters } from 'scenes/session-recordings/filters/recordingsQueryConversions'
 import { ReplayFiltersTab } from 'scenes/session-recordings/filters/RecordingsUniversalFiltersEmbed'
 import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
@@ -19,6 +18,8 @@ import {
 import { urls } from 'scenes/urls'
 
 import { SessionRecordingType } from '~/types'
+
+import { PersonDisplay } from 'products/persons/frontend/components/PersonDisplay'
 
 import { ObservationStatusTag } from '../../components/ObservationCard'
 import { getReplayVisionEditDisabledReason } from '../../utils/accessControl'

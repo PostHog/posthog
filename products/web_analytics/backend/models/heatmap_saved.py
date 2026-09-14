@@ -21,7 +21,7 @@ class SavedHeatmap(UUIDTModel):
 
     short_id = models.CharField(max_length=12, blank=True, default=generate_short_id)
     name = models.CharField(max_length=400, null=True, blank=True)
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
     url = models.URLField(max_length=2000)
     data_url = models.URLField(max_length=2000, null=True, blank=True, help_text="URL for fetching heatmap data")
     # Planned widths to generate for screenshot-type heatmaps
@@ -37,7 +37,7 @@ class SavedHeatmap(UUIDTModel):
     # Metadata
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
-    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True)
+    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
 
     # Error handling
     exception = models.TextField(null=True, blank=True)

@@ -8,6 +8,7 @@ import MonacoDiffEditor from 'lib/components/MonacoDiffEditor'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
+import { DiffStats } from './DiffStats'
 import { EditorSkeleton } from './EditorSkeleton'
 import { FilePath } from './FilePath'
 import { GenericMcpToolRenderer } from './GenericMcpToolRenderer'
@@ -73,17 +74,14 @@ function pickDiffEditorOptions(sideBySide: boolean, hideUnchanged: boolean): edi
     return hideUnchanged ? DIFF_EDITOR_OPTIONS : SHOW_ALL_DIFF_EDITOR_OPTIONS
 }
 
-export function DiffEditor({
-    diff,
-    path,
-    sideBySide,
-    hideUnchanged = true,
-}: {
+export interface DiffEditorProps {
     diff: ToolCallDiffContent
     path?: string
     sideBySide?: boolean
     hideUnchanged?: boolean
-}): JSX.Element {
+}
+
+export function DiffEditor({ diff, path, sideBySide, hideUnchanged = true }: DiffEditorProps): JSX.Element {
     // Lazy-mount: only instantiate the Monaco diff editor once the card scrolls near the viewport.
     const { ref, inView } = useInView({ rootMargin: '500px', triggerOnce: true })
     // Match the surrounding app theme — without this Monaco falls back to its default `vs` (white) theme.
@@ -105,15 +103,6 @@ export function DiffEditor({
                 <div className="h-24 rounded border border-border-secondary" />
             )}
         </div>
-    )
-}
-
-/** +added / -removed mono stat chip for a diff. */
-export function DiffStats({ added, removed }: { added: number; removed: number }): JSX.Element {
-    return (
-        <span className="font-mono text-xs shrink-0">
-            <span className="text-success">+{added}</span> <span className="text-danger">-{removed}</span>
-        </span>
     )
 }
 

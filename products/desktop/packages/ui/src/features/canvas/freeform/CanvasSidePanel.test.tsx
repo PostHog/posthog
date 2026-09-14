@@ -29,9 +29,6 @@ vi.mock("@posthog/ui/features/sessions/components/EmbeddedSessionView", () => ({
 vi.mock("@posthog/ui/features/canvas/freeform/FreeformGenerateBar", () => ({
   FreeformGenerateBar: () => <div data-testid="canvas-composer" />,
 }));
-vi.mock("@posthog/ui/features/canvas/freeform/ContextEditor", () => ({
-  CanvasContextEditor: () => null,
-}));
 
 describe("CanvasSidePanel", () => {
   beforeEach(() => {
@@ -87,7 +84,7 @@ describe("CanvasSidePanel", () => {
     if (interactive) {
       expect(screen.getByTestId("canvas-composer")).toBeInTheDocument();
     } else {
-      expect(screen.getByText("No active run")).toBeInTheDocument();
+      expect(screen.getByText("No run yet")).toBeInTheDocument();
     }
   });
 });

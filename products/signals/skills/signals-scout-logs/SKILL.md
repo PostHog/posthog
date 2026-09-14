@@ -166,7 +166,7 @@ Direct calls (read-only):
 - `logs-alerts-events-list` — an alert's firing history (fires/resolves/flaps); tells a fresh fire from a chronically-firing misconfigured one. May 403 on a personal key.
 - `inbox-reports-list` / `inbox-reports-retrieve` — the reports already in the inbox; check before authoring so you edit instead of duplicating (`ordering=-updated_at`).
 - `inbox-report-artefacts-list` — a comparable report's artefact log, where the routed `suggested_reviewers` live (the report record doesn't expose them) — reviewer precedent.
-- `scout-members-list` — this project's members with their resolved `github_login`, to route `suggested_reviewers` to a service's owner (null `github_login` → can't route, try the next owner). The in-run roster; the org-scoped resolver tools aren't available in a scout run.
+- `scout-members-list` — this project's members with their `user_uuid` and resolved `github_login`. Route with `user_uuid` when `github_login` is null. The org-scoped resolver tools are not available in a scout run.
 - `query-error-tracking-issues-list` — cross-check whether a log error already has an issue; error tracking owns those findings.
 
 Harness-level:
