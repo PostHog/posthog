@@ -12,7 +12,7 @@ import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { ticketPatternAiScanLogic } from '../../components/TicketPatterns/ticketPatternAiScanLogic'
 
 export function TicketPatternAiScanFindings(): JSX.Element | null {
-    const { status, statusLoading, reports, reportsLoading } = useValues(ticketPatternAiScanLogic)
+    const { status, statusLoading, reports, reportsLoading, reportsFailed } = useValues(ticketPatternAiScanLogic)
     const { loadReports } = useActions(ticketPatternAiScanLogic)
 
     useEffect(() => {
@@ -43,6 +43,18 @@ export function TicketPatternAiScanFindings(): JSX.Element | null {
         >
             {statusLoading || reportsLoading ? (
                 <LemonSkeleton className="h-10 w-full" repeat={2} />
+            ) : reportsFailed ? (
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="text-muted text-sm">Couldn't load the findings.</span>
+                    <LemonButton
+                        size="small"
+                        type="secondary"
+                        onClick={() => loadReports()}
+                        data-attr="ticket-pattern-ai-scan-reports-retry"
+                    >
+                        Try again
+                    </LemonButton>
+                </div>
             ) : reports.length === 0 ? (
                 <p className="text-muted text-sm mb-0">
                     {status.enabled

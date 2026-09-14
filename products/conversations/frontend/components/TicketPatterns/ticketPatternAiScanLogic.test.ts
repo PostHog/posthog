@@ -54,6 +54,24 @@ describe('ticketPatternAiScanLogic', () => {
         expect(logic.values.toggling).toEqual(false)
     })
 
+    it('keeps a failed reports load apart from a scan that found nothing', async () => {
+        useMocks({
+            get: { '/api/projects/:team_id/conversations/pattern_ai_scan/reports/': () => [500, { detail: 'boom' }] },
+        })
+
+        logic.actions.loadReports()
+        await expectLogic(logic).toDispatchActions(['loadReportsFailure'])
+
+        expect(logic.values.reports).toEqual([])
+        expect(logic.values.reportsFailed).toEqual(true)
+
+        useMocks({ get: { '/api/projects/:team_id/conversations/pattern_ai_scan/reports/': () => [200, []] } })
+        logic.actions.loadReports()
+        await expectLogic(logic).toDispatchActions(['loadReportsSuccess'])
+
+        expect(logic.values.reportsFailed).toEqual(false)
+    })
+
     it('releases the switch and tells the person when enabling fails', async () => {
         const toast = jest.spyOn(lemonToast, 'error').mockImplementation(() => 'id')
         useMocks({
