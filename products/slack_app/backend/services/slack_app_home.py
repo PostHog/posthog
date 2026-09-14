@@ -32,15 +32,16 @@ from posthog.models.user import User
 from posthog.models.user_integration import UserIntegration
 from posthog.user_permissions import UserPermissions
 
+from products.slack_app.backend.analytics import capture_slack_event
 from products.slack_app.backend.feature_flags import is_slack_app_oauth_enabled
 from products.slack_app.backend.models import SlackSettings, SlackUserProfileCache, UntaggedFollowupMode
-from products.slack_app.backend.services.integration_resolver import load_integrations
+from products.slack_app.backend.services.integration_resolver import load_integrations, resolve_from_candidates
 from products.slack_app.backend.services.model_catalogue import (
     REASONING_EFFORT_DISPLAY_NAMES,
     RUNTIME_ADAPTER_DISPLAY_NAMES,
     available_model_choices,
     describe_run_model,
-    format_model_id,
+    display_name_for_model,
     group_by_runtime,
     label_for,
 )
@@ -58,13 +59,7 @@ from products.slack_app.backend.services.slack_app_home_stats import (
     build_stats_state,
     coerce_window_days,
 )
-from products.slack_app.backend.services.slack_settings import (
-    AIPreferences,
-    build_ai_preferences_payload,
-    resolve_ai_preferences,
-    resolve_untagged_followup_mode,
-    validate_ai_preferences,
-)
+from products.slack_app.backend.services.slack_settings import AIPreferences, resolve_untagged_followup_mode
 from products.slack_app.backend.services.slack_user_info import is_slack_workspace_admin
 from products.slack_app.backend.services.slack_user_oauth import build_invite_url, find_linked_posthog_user
 
@@ -90,6 +85,10 @@ ACTION_TASKS_PAGE_NEXT = "slack_app_home:tasks_page_next"
 ACTION_STATS_WINDOW = "slack_app_home:stats_window"
 ACTION_STATS_REFRESH = "slack_app_home:stats_refresh"
 ACTION_SET_UNTAGGED_FOLLOWUP_MODE = "slack_app_home:set_untagged_followup_mode"
+# URL buttons: Slack opens the link itself and posts a block_actions payload we
+# only ack — the ids exist so the clicks still reach the usage-analytics capture.
+ACTION_GITHUB_SETTINGS = "slack_app_home:github_settings"
+ACTION_CONNECT_ACCOUNT = "slack_app_home:connect_account"
 
 # Every control the Home tab renders, in one place. The interactivity endpoint reads
 # this to claim region ownership and to dispatch, so a control that isn't listed here
@@ -111,6 +110,8 @@ HOME_ACTION_IDS: frozenset[str] = frozenset(
         ACTION_STATS_WINDOW,
         ACTION_STATS_REFRESH,
         ACTION_SET_UNTAGGED_FOLLOWUP_MODE,
+        ACTION_GITHUB_SETTINGS,
+        ACTION_CONNECT_ACCOUNT,
     }
 )
 
@@ -207,37 +208,6 @@ def _models_for(runtime_adapter: str) -> tuple[tuple[str, str], ...]:
 def _runtime_adapter_options() -> tuple[tuple[str, str], ...]:
     """Return `(value, label)` pairs for the modal's runtime dropdown."""
     return tuple((a.value, a.label) for a in get_picker_choices())
-
-
-@dataclass(frozen=True)
-class PreferenceSource:
-    """Whether the user's own row contributed the effective `(runtime_adapter,
-    model)` pair.
-
-    Used to render the "Source: …" line on the active-model card so it's clear
-    at a glance whether the running model is a personal pick.
-    """
-
-    label: str
-
-    @classmethod
-    def personal(cls) -> PreferenceSource:
-        return cls(label="Your personal override")
-
-    @classmethod
-    def unset(cls) -> PreferenceSource:
-        return cls(label="System default")
-
-
-def resolve_source(user_row: SlackSettings | None) -> PreferenceSource:
-    """Return where the effective pair came from.
-
-    Mirrors the same atomic-pair rule the resolver uses: a row only "sources"
-    the pair when both halves are set on it.
-    """
-    if user_row and user_row.runtime_adapter and user_row.model:
-        return PreferenceSource.personal()
-    return PreferenceSource.unset()
 
 
 @dataclass(frozen=True)
@@ -394,11 +364,32 @@ class GitHubState:
     settings_url: str | None = None
 
 
+@dataclass(frozen=True)
+class RunDefaultsState:
+    """The central PostHog default a Slack run resolves to; only a model named in
+    the mention sits above it, and Slack's hardcoded floor below. The card reads
+    it so what it names is what a mention would actually launch on."""
+
+    model: str | None = None
+    reasoning_effort: str | None = None
+    runtime_adapter: str | None = None
+    #: Which level supplied it — "user", "team", or "none".
+    source: str = "none"
+    settings_url: str | None = None
+
+    @property
+    def applies(self) -> bool:
+        return bool(self.model)
+
+    @property
+    def source_label(self) -> str:
+        return "Your PostHog default" if self.source == "user" else "The project default"
+
+
 def render_home_view(
     *,
-    effective: AIPreferences,
-    user_row: SlackSettings | None,
     is_admin: bool,
+    run_defaults: RunDefaultsState | None = None,
     account_state: AccountState | None = None,
     github_state: GitHubState | None = None,
     project_state: ProjectState | None = None,
@@ -409,7 +400,7 @@ def render_home_view(
 ) -> dict:
     """Render the Block Kit payload for `views.publish` on the App Home tab."""
 
-    source = resolve_source(user_row)
+    run_defaults = run_defaults or RunDefaultsState()
     blocks: list[dict] = []
 
     blocks.extend(_header_blocks())
@@ -436,12 +427,11 @@ def render_home_view(
         blocks.extend(_project_section_blocks(project_state, is_admin=is_admin))
 
     # Section 3 — AI model settings: which model handles those mentions.
-    # Headline shows the effective triple (and its source), with the personal
-    # picker underneath. Purely a per-user preference — there's no workspace-wide
-    # model default to inherit from.
+    # Headline shows the resolved central default (and its source), with the
+    # personal editor underneath.
     blocks.append({"type": "divider"})
-    blocks.extend(_active_model_blocks(effective, source))
-    blocks.extend(_personal_section_blocks(user_row))
+    blocks.extend(_active_model_blocks(run_defaults))
+    blocks.extend(_personal_section_blocks(run_defaults))
 
     # Section 4 — thread follow-ups: whether replies other people leave in the
     # threads you started reach PostHog on their own. Absent when the workspace
@@ -575,50 +565,48 @@ def _no_project_access_blocks() -> list[dict]:
     return blocks
 
 
-def _active_model_blocks(effective: AIPreferences, source: PreferenceSource) -> list[dict]:
-    """Headline that shows which model is actually running, and why.
+def _active_model_blocks(run_defaults: RunDefaultsState) -> list[dict]:
+    """Headline that shows which model handles this viewer's mentions, and why.
 
-    With nothing set the run falls back to the Slack default, named here from the
-    same constant the run resolves against so the card can't drift from it.
+    Two rungs, in resolution order: the central PostHog default (personal or
+    project), else Slack's own floor.
     """
     header = _section_title(
         "🤖 AI model",
         "Which Claude / Codex configuration handles your @PostHog mentions.",
     )
-    source_blurb = {"type": "context", "elements": [{"type": "mrkdwn", "text": f"Source: {source.label}"}]}
 
-    if effective.is_empty:
-        return [
-            header,
-            {
-                "type": "section",
-                "text": {
-                    "type": "mrkdwn",
-                    "text": (
-                        f"Defaulting to {format_model_id(SLACK_DEFAULT_MODEL)}. Pick your own settings to override."
-                    ),
-                },
-            },
-            source_blurb,
-        ]
+    if run_defaults.applies:
+        headline = (
+            # Same phrasing as the notice a mention override posts, so the card and the
+            # thread describe a run the same way.
+            f"Currently running {describe_run_model(run_defaults.model, run_defaults.reasoning_effort)}"
+            f" · {label_for(run_defaults.runtime_adapter, RUNTIME_ADAPTER_DISPLAY_NAMES)}"
+        )
+        source_label = run_defaults.source_label
+    else:
+        headline = f"Defaulting to {display_name_for_model(SLACK_DEFAULT_MODEL)}. Pick your own settings to override."
+        source_label = "System default"
 
-    runtime_label = label_for(effective.runtime_adapter, RUNTIME_ADAPTER_DISPLAY_NAMES)
-    return [
+    blocks: list[dict] = [
         header,
-        {
-            "type": "section",
-            "text": {
-                "type": "mrkdwn",
-                # Same phrasing as the notice a mention override posts, so the card and
-                # the thread describe a run the same way.
-                "text": (
-                    f"Currently running "
-                    f"{describe_run_model(effective.model, effective.reasoning_effort)} · {runtime_label}"
-                ),
-            },
-        },
-        source_blurb,
+        {"type": "section", "text": {"type": "mrkdwn", "text": headline}},
+        {"type": "context", "elements": [{"type": "mrkdwn", "text": f"Source: {source_label}"}]},
     ]
+    if run_defaults.settings_url:
+        blocks.append(
+            {
+                "type": "context",
+                "elements": [
+                    {
+                        "type": "mrkdwn",
+                        "text": f"<{run_defaults.settings_url}|Task agent defaults in PostHog> apply everywhere: "
+                        "the task composer, PostHog Desktop, and Slack.",
+                    }
+                ],
+            }
+        )
+    return blocks
 
 
 def _project_section_blocks(state: ProjectState, *, is_admin: bool) -> list[dict]:
@@ -756,6 +744,7 @@ def _posthog_account_button(account_state: AccountState) -> dict | None:
         return None
     return {
         "type": "button",
+        "action_id": ACTION_CONNECT_ACCOUNT,
         "url": account_state.link_url,
         "text": {"type": "plain_text", "text": "Connect to PostHog", "emoji": True},
         "style": "primary",
@@ -785,6 +774,8 @@ def _github_account_button(github_state: GitHubState) -> dict | None:
         label, style = "Manage GitHub", ""
     button: dict[str, Any] = {
         "type": "button",
+        "action_id": ACTION_GITHUB_SETTINGS,
+        "value": label.lower().replace(" ", "_"),
         "url": github_state.settings_url,
         "text": {"type": "plain_text", "text": label, "emoji": True},
     }
@@ -793,11 +784,19 @@ def _github_account_button(github_state: GitHubState) -> dict | None:
     return button
 
 
-def _personal_section_blocks(user_row: SlackSettings | None) -> list[dict]:
-    """Personal AI override sub-card. Always editable by the user themselves."""
+def _personal_section_blocks(run_defaults: RunDefaultsState) -> list[dict]:
+    """Personal default sub-card. Always editable by the user themselves.
 
-    has_override = bool(user_row and user_row.runtime_adapter and user_row.model)
-    summary = _row_summary(user_row) if has_override else "_No personal override — using PostHog's default._"
+    Edits land on the viewer's central per-(user, project) tasks config, so
+    whether they have a personal default is read off `run_defaults.source`.
+    """
+
+    has_preference = run_defaults.source == "user"
+    summary = (
+        "_Your personal default (shown above) applies to Slack, the task composer, and PostHog Desktop._"
+        if has_preference
+        else "_No personal default. Inheriting the project default._"
+    )
 
     actions: list[dict] = [
         {
@@ -806,7 +805,7 @@ def _personal_section_blocks(user_row: SlackSettings | None) -> list[dict]:
             "text": {"type": "plain_text", "text": "Edit my settings", "emoji": True},
         }
     ]
-    if has_override:
+    if has_preference:
         actions.append(
             {
                 "type": "button",
@@ -814,10 +813,11 @@ def _personal_section_blocks(user_row: SlackSettings | None) -> list[dict]:
                 "style": "danger",
                 "text": {"type": "plain_text", "text": "Reset to default", "emoji": True},
                 "confirm": {
-                    "title": {"type": "plain_text", "text": "Clear your override?"},
+                    "title": {"type": "plain_text", "text": "Clear your personal default?"},
                     "text": {
                         "type": "mrkdwn",
-                        "text": "You'll go back to PostHog's default until you set new personal preferences.",
+                        "text": "This clears your task agent default, which the composer and PostHog "
+                        "Desktop use too. You'll inherit the project default until you set a new one.",
                     },
                     "confirm": {"type": "plain_text", "text": "Reset"},
                     "deny": {"type": "plain_text", "text": "Cancel"},
@@ -826,7 +826,7 @@ def _personal_section_blocks(user_row: SlackSettings | None) -> list[dict]:
         )
 
     return [
-        _subsection_label("Your override"),
+        _subsection_label("Your default"),
         {"type": "section", "text": {"type": "mrkdwn", "text": summary}},
         {"type": "actions", "elements": actions},
     ]
@@ -1258,7 +1258,7 @@ def _bar(value: int, peak: int, width: int = _STATS_BAR_WIDTH) -> str:
 
 def _stats_model_label(usage: ModelUsage) -> str:
     """Display label for a model, truncated so the bar column stays aligned."""
-    label = format_model_id(usage.model)
+    label = display_name_for_model(usage.model)
     return _truncate(label, _STATS_COLUMN_LABEL_CHARS)
 
 
@@ -1281,18 +1281,6 @@ def _stats_footnote_blocks(state: StatsState) -> list[dict]:
         )
     blocks.extend(_refreshed_at_blocks(state.refreshed_at_epoch))
     return blocks
-
-
-def _row_summary(row: SlackSettings | None) -> str:
-    if not row or not row.runtime_adapter or not row.model:
-        return "_(none)_"
-    parts = [
-        f"*Model:* {format_model_id(row.model)}",
-        f"*Runtime:* {label_for(row.runtime_adapter, RUNTIME_ADAPTER_DISPLAY_NAMES)}",
-    ]
-    if row.reasoning_effort:
-        parts.append(f"*Reasoning:* {label_for(row.reasoning_effort, REASONING_EFFORT_DISPLAY_NAMES)}")
-    return " · ".join(parts)
 
 
 # ---------------------------------------------------------------------------
@@ -1427,7 +1415,7 @@ def parse_modal_submission(view: dict) -> tuple[str | None, str | None, str | No
     """Pull `(runtime_adapter, model, reasoning_effort)` out of a Slack view_submission payload.
 
     Returns `(None, None, None)` for any block the user didn't fill in. The
-    caller validates the triple via `validate_ai_preferences`.
+    central config write validates the triple.
     """
 
     state = view.get("state", {}).get("values", {})
@@ -1473,32 +1461,10 @@ def handle_app_home_opened(event: dict, slack_team_id: str, *, integration: Inte
     if not slack_user_id:
         return
 
-    effective = resolve_ai_preferences(integration, slack_user_id)
-    user_row = _load_user_row(integration, slack_user_id)
-
     slack = SlackIntegration(integration)
-    is_admin = _is_admin(slack, integration, slack_user_id)
-    accessible = _accessible_integrations(integration, slack_user_id)
-    account_state = _resolve_account_state(integration, slack_user_id)
-    github_state = _resolve_github_state(integration, slack_user_id)
-    project_state = _resolve_project_state(integration, slack_user_id, accessible=accessible)
-    tasks_state = _resolve_tasks_state(integration, slack_user_id, accessible=accessible)
-    stats_state = _resolve_stats_state(integration, accessible=accessible, is_admin=is_admin)
-
-    view = render_home_view(
-        effective=effective,
-        user_row=user_row,
-        is_admin=is_admin,
-        account_state=account_state,
-        github_state=github_state,
-        project_state=project_state,
-        tasks_state=tasks_state,
-        stats_state=stats_state,
-        untagged_followup_mode=resolve_untagged_followup_mode(integration, slack_user_id),
-        has_project_access=bool(accessible),
-    )
+    render = _build_home_view(slack, integration, slack_user_id)
     try:
-        slack.client.views_publish(user_id=slack_user_id, view=view)
+        slack.client.views_publish(user_id=slack_user_id, view=render.view)
     except Exception:
         logger.exception(
             "slack_app_home_publish_failed",
@@ -1510,6 +1476,13 @@ def handle_app_home_opened(event: dict, slack_team_id: str, *, integration: Inte
             "slack_app_home_published",
             slack_user_id=slack_user_id,
             slack_team_id=slack_team_id,
+        )
+        capture_slack_event(
+            integration,
+            "slack app home opened",
+            slack_user_id=slack_user_id,
+            account_linked=bool(render.account_state.linked_email),
+            has_project_access=render.has_project_access,
         )
 
 
@@ -1525,6 +1498,16 @@ def handle_ai_preferences_block_action(payload: dict, action: dict) -> HttpRespo
     if integration is None:
         return HttpResponse(status=200)
 
+    capture_slack_event(
+        integration,
+        "slack app home action clicked",
+        slack_user_id=slack_user_id,
+        action=action_id,
+        # Which option the control carried: the follow-up mode, the picked project id,
+        # the stats window, the tasks page, or the GitHub button's connect/manage state.
+        value=(action.get("selected_option") or {}).get("value") or action.get("value"),
+    )
+
     # The Home tab keeps no server-side view state — every payload carries the whole
     # view's inputs instead. Read them all back once so any action republishes with the
     # controls the user had dialled in, rather than resetting its neighbours' cards.
@@ -1538,7 +1521,7 @@ def handle_ai_preferences_block_action(payload: dict, action: dict) -> HttpRespo
         return HttpResponse(status=200)
 
     if action_id == ACTION_RESET_PERSONAL:
-        _clear_personal_override(integration, slack_user_id)
+        _reset_personal_preferences(integration, slack_user_id)
         republish()
         return HttpResponse(status=200)
 
@@ -1624,13 +1607,22 @@ def handle_app_home_view_submission(payload: dict) -> HttpResponse | JsonRespons
 
     runtime_adapter, model, reasoning_effort = parse_modal_submission(view)
 
+    # Triple validation happens inside the central write — the tasks config's
+    # `validate_ai_run_preferences` runs the same pair/effort rules.
     try:
-        validate_ai_preferences(runtime_adapter, model, reasoning_effort)
+        _apply_personal_preferences(
+            integration,
+            slack_user_id,
+            runtime_adapter=runtime_adapter,
+            model=model,
+            reasoning_effort=reasoning_effort,
+        )
     except ValidationError as exc:
         return _modal_error_response(_first_validation_message(exc))
 
-    _write_row(
+    capture_slack_event(
         integration,
+        "slack app ai preferences saved",
         slack_user_id=slack_user_id,
         runtime_adapter=runtime_adapter,
         model=model,
@@ -1664,20 +1656,27 @@ def _resolve_interaction_integration(slack_team_id: str, slack_user_id: str) -> 
     return result.resolved_or_first()
 
 
-def _load_user_row(integration: Integration, slack_user_id: str) -> SlackSettings | None:
-    return SlackSettings.objects.filter(
-        slack_workspace_id=integration.integration_id,
-        slack_user_id=slack_user_id,
-    ).first()
+def _stored_personal_preferences(integration: Integration, slack_user_id: str) -> AIPreferences:
+    """The viewer's stored central preference, for prefilling the edit modal.
 
+    Deliberately the stored per-user value rather than the resolved default: the
+    modal edits their personal preference, so a project default must not appear
+    preselected as if they had chosen it. Empty for a viewer with no resolvable
+    target — the modal still opens, and the save then reports what is missing.
+    """
+    from products.tasks.backend.facade import (  # noqa: PLC0415 — keep tasks deps off the slack_app import path
+        ai_run_defaults,
+    )
 
-def _row_to_settings(row: SlackSettings | None) -> AIPreferences:
-    if row is None:
+    try:
+        user, target = _personal_preference_target(integration, slack_user_id)
+    except ValidationError:
         return AIPreferences()
+    stored = ai_run_defaults.get_user_ai_run_preferences(target.team_id, user.id)
     return AIPreferences(
-        runtime_adapter=row.runtime_adapter,
-        model=row.model,
-        reasoning_effort=row.reasoning_effort,
+        runtime_adapter=stored.get("runtime_adapter"),
+        model=stored.get("model"),
+        reasoning_effort=stored.get("reasoning_effort"),
     )
 
 
@@ -1694,7 +1693,7 @@ def _is_admin(slack: SlackIntegration, integration: Integration, slack_user_id: 
 
 
 def _open_edit_modal(integration: Integration, slack_user_id: str, *, trigger_id: str) -> None:
-    current = _row_to_settings(_load_user_row(integration, slack_user_id))
+    current = _stored_personal_preferences(integration, slack_user_id)
     supported = _supported_efforts(current.runtime_adapter, current.model)
     slack = SlackIntegration(integration)
 
@@ -1782,25 +1781,116 @@ def _supported_efforts(runtime_adapter: str | None, model: str | None) -> list[s
     return [e.value for e in get_supported_reasoning_efforts(runtime_adapter, model)] or None
 
 
-def _write_row(
+def _routed_project_integration(
+    integration: Integration, slack_user_id: str, *, accessible: list[Integration] | None = None
+) -> Integration | None:
+    """The integration of the project this viewer's mentions currently route to,
+    restricted to projects the viewer can access. None when they can reach none.
+    Pass `accessible` when the caller already resolved it, to skip the repeat
+    permissions build."""
+    if accessible is None:
+        accessible = _accessible_integrations(integration, slack_user_id)
+    try:
+        return resolve_from_candidates(
+            accessible,
+            slack_team_id=integration.integration_id,
+            slack_user_id=slack_user_id,
+        ).resolved_or_first()
+    except Exception:
+        logger.exception("slack_app_home_routed_project_resolution_failed", slack_user_id=slack_user_id)
+        return None
+
+
+def _personal_preference_target(integration: Integration, slack_user_id: str) -> tuple[User, Integration]:
+    """The PostHog user behind this viewer and the project whose central config
+    they edit — the one their mentions route to, restricted to this user's own
+    access via `resolve_from_candidates(user=...)`.
+
+    Fail-closed on purpose: the result picks the tenant for a team-scoped
+    write, so an unmapped viewer, an unauthorized workspace, or an ambiguous
+    route each raise a `ValidationError` naming the next step instead of
+    falling back to an arbitrary project.
+    """
+    user = _resolve_home_user(integration, slack_user_id)
+    if user is None:
+        raise ValidationError(
+            "Link your PostHog account first. You can do that from the Linked accounts card on the Home tab."
+        )
+    result = resolve_from_candidates(
+        _workspace_integrations(integration.integration_id),
+        slack_team_id=integration.integration_id,
+        slack_user_id=slack_user_id,
+        user=user,
+    )
+    target = result.integration
+    if target is None and len(result.candidates) == 1:
+        target = result.candidates[0]
+    if target is None:
+        raise ValidationError(
+            "Pick a default project first. You can do that from the Project routing card on the Home tab."
+        )
+    return user, target
+
+
+def _apply_personal_preferences(
     integration: Integration,
-    *,
     slack_user_id: str,
+    *,
     runtime_adapter: str | None,
     model: str | None,
     reasoning_effort: str | None,
 ) -> None:
-    """Upsert a SlackSettings row with the given AI preferences.
+    """Persist the modal's triple as the viewer's central tasks preference.
 
-    `default_integration` is left untouched on existing rows so saving AI
-    preferences doesn't accidentally overwrite the user's routing pick.
+    The central per-(user, project) config — the same store the web composer,
+    PostHog Desktop, and the MCP config tools edit — is the only place a model
+    preference lives.
+
+    Raises `ValidationError` when the viewer has no authorized target project
+    (see `_personal_preference_target`) or picks a model their account is not
+    entitled to — storing it would only produce runs the resolver skips.
     """
+    from products.tasks.backend.facade import (  # noqa: PLC0415 — keep tasks deps off the slack_app import path
+        ai_run_defaults,
+    )
+    from products.tasks.backend.facade.run_config import (  # noqa: PLC0415 — keep tasks deps off the slack_app import path
+        get_model_access_error,
+    )
 
-    payload = build_ai_preferences_payload(runtime_adapter, model, reasoning_effort)
-    SlackSettings.objects.update_or_create(
-        slack_workspace_id=integration.integration_id,
-        slack_user_id=slack_user_id,
-        defaults={"ai_preferences": payload or None},
+    user, target = _personal_preference_target(integration, slack_user_id)
+
+    access_error = get_model_access_error(model, distinct_id=user.distinct_id)
+    if access_error is not None:
+        raise ValidationError(access_error)
+
+    ai_run_defaults.update_user_ai_run_preferences(
+        target.team_id,
+        user.id,
+        runtime_adapter=runtime_adapter,
+        model=model,
+        reasoning_effort=reasoning_effort,
+    )
+
+
+def _reset_personal_preferences(integration: Integration, slack_user_id: str) -> None:
+    """Clear the viewer's central per-(user, project) preference, which resets
+    them to the project default. The reset button only renders for viewers with
+    such a preference, so an unmapped viewer is a no-op here."""
+    from products.tasks.backend.facade import (  # noqa: PLC0415 — keep tasks deps off the slack_app import path
+        ai_run_defaults,
+    )
+
+    try:
+        user, target = _personal_preference_target(integration, slack_user_id)
+    except ValidationError:
+        # Nothing central to clear for this viewer.
+        return
+    ai_run_defaults.update_user_ai_run_preferences(
+        target.team_id,
+        user.id,
+        runtime_adapter=None,
+        model=None,
+        reasoning_effort=None,
     )
 
 
@@ -1817,15 +1907,6 @@ def _apply_untagged_followup_mode_pick(integration: Integration, slack_user_id: 
     )
 
 
-def _clear_personal_override(integration: Integration, slack_user_id: str) -> None:
-    """Clear just the AI fields on the user's row. Leaves routing alone."""
-
-    SlackSettings.objects.filter(
-        slack_workspace_id=integration.integration_id,
-        slack_user_id=slack_user_id,
-    ).update(ai_preferences=None)
-
-
 def _clear_project_personal(integration: Integration, slack_user_id: str) -> None:
     """Clear the personal routing override; drop the row once it holds nothing else."""
 
@@ -1835,23 +1916,38 @@ def _clear_project_personal(integration: Integration, slack_user_id: str) -> Non
     ).first()
     if row is None:
         return
-    if not row.ai_preferences and not row.untagged_followup_mode:
+    if not row.untagged_followup_mode:
         row.delete()
         return
     row.default_integration = None
     row.save(update_fields=["default_integration", "updated_at"])
 
 
-def _republish_home(
+@dataclass(frozen=True)
+class _HomeRender:
+    """One viewer's rendered Home tab, plus the card states the callers log
+    and report analytics on."""
+
+    view: dict
+    tasks_state: TasksState
+    account_state: AccountState
+    has_project_access: bool
+
+
+def _build_home_view(
+    slack: SlackIntegration,
     integration: Integration,
     slack_user_id: str,
     *,
     view_state: HomeViewState | None = None,
-) -> None:
+) -> _HomeRender:
+    """Resolve every card's state for this viewer and render the Home tab payload.
+
+    Shared by the first publish and every interaction republish. `view_state`
+    carries the controls a click resolved to; its defaults match the resolvers'
+    own, so the first publish can omit it.
+    """
     view_state = view_state or HomeViewState()
-    user_row = _load_user_row(integration, slack_user_id)
-    effective = resolve_ai_preferences(integration, slack_user_id)
-    slack = SlackIntegration(integration)
     is_admin = _is_admin(slack, integration, slack_user_id)
     accessible = _accessible_integrations(integration, slack_user_id)
     account_state = _resolve_account_state(integration, slack_user_id)
@@ -1873,9 +1969,8 @@ def _republish_home(
         force_refresh=view_state.stats_force_refresh,
     )
     view = render_home_view(
-        effective=effective,
-        user_row=user_row,
         is_admin=is_admin,
+        run_defaults=_resolve_run_defaults_state(integration, slack_user_id, accessible=accessible),
         account_state=account_state,
         github_state=github_state,
         project_state=project_state,
@@ -1884,8 +1979,25 @@ def _republish_home(
         untagged_followup_mode=resolve_untagged_followup_mode(integration, slack_user_id),
         has_project_access=bool(accessible),
     )
+    return _HomeRender(
+        view=view,
+        tasks_state=tasks_state,
+        account_state=account_state,
+        has_project_access=bool(accessible),
+    )
+
+
+def _republish_home(
+    integration: Integration,
+    slack_user_id: str,
+    *,
+    view_state: HomeViewState | None = None,
+) -> None:
+    view_state = view_state or HomeViewState()
+    slack = SlackIntegration(integration)
+    render = _build_home_view(slack, integration, slack_user_id, view_state=view_state)
     try:
-        slack.client.views_publish(user_id=slack_user_id, view=view)
+        slack.client.views_publish(user_id=slack_user_id, view=render.view)
     except Exception:
         logger.exception("slack_app_home_republish_failed")
         return
@@ -1895,9 +2007,9 @@ def _republish_home(
         "slack_app_home_republished",
         slack_user_id=slack_user_id,
         slack_team_id=integration.integration_id,
-        slack_app_home_tasks_page=tasks_state.page,
-        slack_app_home_tasks_total_pages=tasks_state.total_pages,
-        slack_app_home_tasks_shown=len(tasks_state.items),
+        slack_app_home_tasks_page=render.tasks_state.page,
+        slack_app_home_tasks_total_pages=render.tasks_state.total_pages,
+        slack_app_home_tasks_shown=len(render.tasks_state.items),
         slack_app_home_selected_repo=view_state.selected_repo,
         slack_app_home_selected_status=view_state.selected_status,
         slack_app_home_stats_window_days=view_state.stats_window_days,
@@ -2061,6 +2173,50 @@ def _format_relative(when: datetime | None, *, now: datetime) -> str:
     if seconds < 7 * 86400:
         return f"{seconds // 86400}d ago"
     return when.strftime("%b %d")
+
+
+def _resolve_run_defaults_state(
+    integration: Integration, slack_user_id: str, *, accessible: list[Integration]
+) -> RunDefaultsState:
+    """The PostHog default this person's Slack runs fall back to, plus where to change it.
+
+    Resolves the viewer through the same cascade the run path uses (`_resolve_home_user`),
+    so an unlinked but email-matched identity reflects its own personal default rather than
+    dropping to the project rung, matching the model a mention of theirs would actually run.
+
+    Routed and access-filtered like a run, too: the card reads the default for the
+    project this person's mentions would actually launch in — their saved project
+    default, else the workspace's, else the oldest install, all within `accessible`.
+    Reading `integration.team_id` directly both exposed a project the viewer may not
+    reach and described a default their runs would not use.
+    """
+    from products.tasks.backend.facade import (  # noqa: PLC0415 — keep tasks deps off the slack_app import path
+        ai_run_defaults,
+    )
+
+    target = _routed_project_integration(integration, slack_user_id, accessible=accessible)
+    if target is None:
+        # No reachable project: nothing to describe and no settings page to offer.
+        return RunDefaultsState()
+
+    site_url = (settings.SITE_URL or "").rstrip("/")
+    settings_url = f"{site_url}/project/{target.team_id}/settings/environment-task-agents" if site_url else None
+
+    try:
+        home_user = _resolve_home_user(integration, slack_user_id)
+        resolved = ai_run_defaults.resolve_ai_run_defaults(target.team_id, home_user.id if home_user else None)
+    except Exception:
+        # The card is informational; a lookup failure must not cost the whole Home tab.
+        logger.exception("slack_app_home_run_defaults_resolution_failed", slack_user_id=slack_user_id)
+        return RunDefaultsState(settings_url=settings_url)
+
+    return RunDefaultsState(
+        model=resolved.model,
+        reasoning_effort=resolved.reasoning_effort,
+        runtime_adapter=resolved.runtime_adapter,
+        source=resolved.source,
+        settings_url=settings_url,
+    )
 
 
 def _resolve_account_state(integration: Integration, slack_user_id: str) -> AccountState:

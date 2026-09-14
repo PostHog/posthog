@@ -279,7 +279,8 @@ fi
 summary_file="${1:-}"
 set --
 if [ -n "$summary_file" ]; then
-    set -- "$@" -F "summary=@$summary_file"
+    summary="$(cat "$summary_file")"
+    set -- "$@" --form-string "summary=$summary"
 fi
 if [ "$branch" != "main" ]; then
     set -- "$@" -F "branch=$branch"

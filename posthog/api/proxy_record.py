@@ -16,6 +16,7 @@ from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound
 from rest_framework.response import Response
 from rest_framework.viewsets import ModelViewSet
+from temporalio.common import WorkflowIDConflictPolicy
 
 from posthog.api.proxy_record_diagnostics import diagnose as diagnose_proxy_record
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -33,7 +34,7 @@ from posthog.temporal.proxy_service import CreateManagedProxyInputs, DeleteManag
 from posthog.temporal.proxy_service.cloudflare import (
     CloudflareAPIError,
     get_custom_hostname_by_domain,
-    update_custom_hostname_metadata,
+    update_cloudflare_proxy_root_redirect,
 )
 from posthog.temporal.proxy_service.common import is_cloudflare_proxy_by_cname
 
@@ -319,7 +320,6 @@ class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
                 serializer = ProxyRecordUpdateSerializer(data=request.data, context={"record": record})
                 serializer.is_valid(raise_exception=True)
                 root_redirect_url = serializer.validated_data["root_redirect_url"]
-                previous_root_redirect_url = record.root_redirect_url
 
                 try:
                     hostname = get_custom_hostname_by_domain(record.domain)
@@ -328,7 +328,7 @@ class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
                             {"detail": "Cloudflare could not find this managed proxy hostname."},
                             status=status.HTTP_502_BAD_GATEWAY,
                         )
-                    update_custom_hostname_metadata(hostname, {"root_redirect_url": root_redirect_url or ""})
+                    update_cloudflare_proxy_root_redirect(record.domain, root_redirect_url)
                 except (CloudflareAPIError, requests.RequestException) as error:
                     capture_exception(error, {"domain": record.domain, "proxy_record_id": str(record.id)})
                     return Response(
@@ -340,13 +340,7 @@ class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
                 try:
                     record.save(update_fields=["root_redirect_url", "updated_at"])
                 except DatabaseError:
-                    try:
-                        update_custom_hostname_metadata(
-                            hostname, {"root_redirect_url": previous_root_redirect_url or ""}
-                        )
-                    except (CloudflareAPIError, requests.RequestException) as rollback_error:
-                        reconciliation_required = True
-                        capture_exception(rollback_error, {"domain": record.domain, "proxy_record_id": str(record.id)})
+                    reconciliation_required = True
                     raise
         except ProxyRecord.DoesNotExist:
             raise NotFound()
@@ -544,11 +538,20 @@ class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
             ProxyRecord.Status.WAITING,
             ProxyRecord.Status.ERRORING,
             ProxyRecord.Status.TIMED_OUT,
-        ):
+        ) and not is_cloudflare_proxy_by_cname(record.target_cname):
             _capture_proxy_event(request, record, "deleted")
             record.delete()
         else:
             previous_status = record.status
+            # The workflow id is fixed per record, so a repeat delete collides with the
+            # deletion already running. Join that run only when the record was already
+            # deleting. Any other status means the last run is failing, and joining it
+            # would leave the record deleting forever once it closes.
+            delete_conflict_policy = (
+                WorkflowIDConflictPolicy.USE_EXISTING
+                if previous_status == ProxyRecord.Status.DELETING
+                else WorkflowIDConflictPolicy.FAIL
+            )
             record.status = ProxyRecord.Status.DELETING
             record.save()
 
@@ -559,6 +562,7 @@ class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
                     proxy_record_id=record.id,
                     domain=record.domain,
                     target_cname=record.target_cname,
+                    root_redirect_url=record.root_redirect_url,
                 )
                 workflow_id = f"proxy-delete-{inputs.proxy_record_id}"
                 asyncio.run(
@@ -567,6 +571,7 @@ class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
                         inputs,
                         id=workflow_id,
                         task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
+                        id_conflict_policy=delete_conflict_policy,
                     )
                 )
             except Exception as e:

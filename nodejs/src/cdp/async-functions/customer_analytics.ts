@@ -9,6 +9,32 @@ import { callInternalApi } from './internal-api-call'
 import { getTeamWithSecretToken } from './secret-api-token'
 
 const ACCOUNT_ACTIONS = 'account workflow actions'
+const CLEAR_PROPERTY_MARKER = '__posthog_clear_property'
+
+function isClearPropertyMarker(value: unknown): boolean {
+    return (
+        typeof value === 'object' &&
+        value !== null &&
+        !Array.isArray(value) &&
+        Object.keys(value).length === 1 &&
+        (value as Record<string, unknown>)[CLEAR_PROPERTY_MARKER] === true
+    )
+}
+
+function normalizeAccountProperties(properties: Record<string, unknown>): Record<string, unknown> {
+    return Object.fromEntries(
+        Object.entries(properties).map(([definitionId, value]) => {
+            if (value === null) {
+                throw new Error(
+                    `[HogFunction] - postHogSetAccountProperties received null for property '${definitionId}'. ` +
+                        'Use Clear property in the workflow editor, or make the template return a value.'
+                )
+            }
+
+            return [definitionId, isClearPropertyMarker(value) ? null : value]
+        })
+    )
+}
 
 /**
  * Calls the JWT-only internal account routes (products/customer_analytics/backend/
@@ -188,11 +214,13 @@ registerAsyncFunction('postHogSetAccountProperties', {
             throw new Error("[HogFunction] - postHogSetAccountProperties call missing 'external_id' property")
         }
 
+        const normalizedProperties = normalizeAccountProperties(properties)
+
         if (context.customerAnalyticsAccountsJwt.enabled) {
             await callInternalAccountApi(context, result, externalId, {
                 method: 'PATCH',
                 subpath: '/custom_property_values',
-                body: JSON.stringify({ external_id: externalId, properties }),
+                body: JSON.stringify({ external_id: externalId, properties: normalizedProperties }),
                 extraHeaders: hogFlowHeaders(context),
             })
             return
@@ -211,7 +239,7 @@ registerAsyncFunction('postHogSetAccountProperties', {
             type: 'fetch',
             url: `${context.siteUrl}/api/customer_analytics/external/account/custom_property_values`,
             method: 'PATCH',
-            body: JSON.stringify({ external_id: externalId, properties }),
+            body: JSON.stringify({ external_id: externalId, properties: normalizedProperties }),
             headers,
         })
     },

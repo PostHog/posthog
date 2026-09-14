@@ -17,6 +17,7 @@ from jwt import PyJWTError
 
 from posthog.ph_client import ph_scoped_capture
 
+from products.tasks.backend.facade.api import signal_workflow_completion
 from products.tasks.backend.logic.services.connection_token import (
     SandboxEventIngestTokenPayload,
     validate_sandbox_event_ingest_token,
@@ -29,10 +30,11 @@ from products.tasks.backend.logic.stream.redis_stream import (
     TaskRunStreamSequenceGap,
     get_task_run_stream_key,
 )
+from products.tasks.backend.metrics import observe_stream_write_skipped
 from products.tasks.backend.models import TaskRun
 from products.tasks.backend.push_dispatcher import notify_task_run_turn_completed
 
-from ee.hogai.sandbox import is_turn_complete
+from ee.hogai.sandbox import PI_RUNTIME_ERROR_MESSAGE, is_turn_complete, pi_turn_error
 
 logger = structlog.get_logger(__name__)
 
@@ -125,7 +127,12 @@ async def handle_task_run_event_ingest(scope: ASGIMessage, receive: ASGIReceive,
         await _send_json(send, error.status_code, error.payload)
         return True
 
-    redis_stream = TaskRunRedisStream(get_task_run_stream_key(claims.run_id))
+    redis_stream = TaskRunRedisStream(
+        get_task_run_stream_key(claims.run_id),
+        presence_gated=claims.presence_gated,
+        thin_tail=claims.thin_tail,
+        origin_product=claims.origin_product,
+    )
 
     try:
         result = await _ingest_event_lines(
@@ -195,16 +202,18 @@ async def _ingest_event_lines(
             sequence = parsed_line.sequence
             event = parsed_line.event
             rtk_savings_properties = _parse_rtk_savings_properties(claims, event)
-            stream_id = await redis_stream.write_event_with_sequence(
+            write = await redis_stream.write_event_with_sequence(
                 event,
                 sequence,
                 pending_side_effect=RTK_SAVINGS_SIDE_EFFECT if rtk_savings_properties is not None else None,
             )
             await _capture_rtk_savings_if_needed(redis_stream, claims, sequence, rtk_savings_properties)
-            if stream_id is None:
+            if not write.accepted:
                 result.duplicate += 1
                 result.last_accepted_seq = max(result.last_accepted_seq, await redis_stream.get_last_sequence())
                 continue
+            if write.skipped:
+                observe_stream_write_skipped("ingest", claims.origin_product)
 
             result.accepted += 1
             result.last_accepted_seq = sequence
@@ -386,7 +395,10 @@ async def _heartbeat_workflow_if_needed(redis_stream: TaskRunRedisStream, run_id
 
     if is_turn_complete(event):
         await redis_stream.set_agent_active(False)
-        await _dispatch_turn_completed_if_interactive(run_id)
+        if pi_turn_error(event):
+            await _dispatch_turn_failed(run_id)
+        else:
+            await _dispatch_turn_completed(run_id)
         return
 
     if _is_session_update(event):
@@ -437,11 +449,11 @@ def _signal_agent_boot_milestone(
     return task_run.signal_agent_boot_milestone(milestone)
 
 
-async def _dispatch_turn_completed_if_interactive(run_id: str) -> None:
-    await sync_to_async(_dispatch_turn_completed_if_interactive_sync, thread_sensitive=True)(run_id)
+async def _dispatch_turn_completed(run_id: str) -> None:
+    await sync_to_async(_dispatch_turn_completed_sync, thread_sensitive=True)(run_id)
 
 
-def _dispatch_turn_completed_if_interactive_sync(run_id: str) -> None:
+def _dispatch_turn_completed_sync(run_id: str) -> None:
     if not settings.TEST:
         close_old_connections()
 
@@ -451,10 +463,22 @@ def _dispatch_turn_completed_if_interactive_sync(run_id: str) -> None:
         logger.warning("task_run_event_ingest_turn_completed_run_missing", run_id=run_id)
         return
 
+    task_run.signal_agent_turn_completed()
     if task_run.mode != "interactive":
         return
 
     notify_task_run_turn_completed(task_run)
+
+
+async def _dispatch_turn_failed(run_id: str) -> None:
+    await sync_to_async(_dispatch_turn_failed_sync, thread_sensitive=True)(run_id)
+
+
+def _dispatch_turn_failed_sync(run_id: str) -> None:
+    if not settings.TEST:
+        close_old_connections()
+
+    signal_workflow_completion(run_id, "failed", PI_RUNTIME_ERROR_MESSAGE)
 
 
 def _is_session_update(event: dict) -> bool:

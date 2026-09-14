@@ -8,6 +8,7 @@ import datetime as dt
 from dataclasses import asdict
 from typing import cast
 
+from django.db import models
 from django.utils import timezone
 
 from drf_spectacular.utils import extend_schema
@@ -34,13 +35,16 @@ from products.metrics.backend.facade.api import (
     list_metric_error_spikes,
     list_metric_event_samples,
     list_metric_names,
+    list_metric_picker_names,
     run_metric_query,
     team_has_metrics,
 )
 from products.metrics.backend.facade.contracts import (
     MAX_CLAUSES_PER_QUERY,
+    MAX_SPARKLINE_BATCH_SIZE,
     METRICS_ERROR_OVERLAYS_FEATURE_FLAG,
     METRICS_FEATURE_FLAG,
+    METRICS_FUNDAMENTALS_FEATURE_FLAG,
     MetricFilter,
     MetricGroupBy,
     MetricQueryClause,
@@ -51,13 +55,26 @@ from products.metrics.backend.facade.enums import AttributeScope, FilterOp, Metr
 __all__ = ["MetricsViewSet"]
 
 
+class MetricAttributeScope(models.TextChoices):
+    RESOURCE = "resource", "resource"
+    ATTRIBUTE = "attribute", "attribute"
+    AUTO = "auto", "auto"
+
+
+class Op(models.TextChoices):
+    EQ = "eq", "eq"
+    NEQ = "neq", "neq"
+    REGEX = "regex", "regex"
+    NOT_REGEX = "not_regex", "not_regex"
+
+
 class _MetricFilterSerializer(serializers.Serializer):
     key = serializers.CharField(
         max_length=255,
         help_text="Attribute name to filter on, without any type-tag suffix (e.g. 'k8s.pod.name', 'env').",
     )
     op = serializers.ChoiceField(
-        choices=["eq", "neq", "regex", "not_regex"],
+        choices=Op.choices,
         default="eq",
         help_text="Comparison operator. 'regex'/'not_regex' use RE2 syntax. Negative operators also match rows that lack the key entirely, mirroring Prometheus negative matchers.",
     )
@@ -67,7 +84,7 @@ class _MetricFilterSerializer(serializers.Serializer):
         help_text="Value to compare against. For regex operators this is the pattern.",
     )
     scope = serializers.ChoiceField(
-        choices=["resource", "attribute", "auto"],
+        choices=MetricAttributeScope.choices,
         default="auto",
         help_text="Where the attribute lives: 'resource' = per-target resource attributes (k8s.pod.name, service.version), 'attribute' = per-datapoint attributes (http.method, path), 'auto' = resource first with per-datapoint fallback. Use 'auto' unless you know the exact scope.",
     )
@@ -79,7 +96,7 @@ class _MetricGroupBySerializer(serializers.Serializer):
         help_text="Attribute name to split series by (e.g. 'k8s.pod.name', 'env').",
     )
     scope = serializers.ChoiceField(
-        choices=["resource", "attribute", "auto"],
+        choices=MetricAttributeScope.choices,
         default="auto",
         help_text="Where the attribute lives; same semantics as filter scope. Use 'auto' unless you know the exact scope.",
     )
@@ -101,7 +118,7 @@ class _MetricClauseSerializer(serializers.Serializer):
         help_text="Constrain the query to one metric type. A name can exist as several types (e.g. a counter and a gauge); without this, rows of every type sharing the name are blended into one aggregate. Get the type from 'metric-names-list'.",
     )
     aggregation = serializers.ChoiceField(
-        choices=["sum", "avg", "count", "p95", "rate", "increase", "histogram_quantile"],
+        choices=["sum", "avg", "count", "min", "max", "p95", "rate", "increase", "histogram_quantile"],
         default="sum",
         help_text="Aggregation applied per time bucket; same semantics as the top-level aggregation.",
     )
@@ -126,6 +143,17 @@ class _MetricClauseSerializer(serializers.Serializer):
     )
 
 
+class MetricQueryInterval(models.TextChoices):
+    SECOND = "second", "second"
+    MINUTE = "minute", "minute"
+    MINUTE_5 = "minute_5", "minute_5"
+    MINUTE_15 = "minute_15", "minute_15"
+    HOUR = "hour", "hour"
+    HOUR_6 = "hour_6", "hour_6"
+    DAY = "day", "day"
+    WEEK = "week", "week"
+
+
 class _MetricQueryBodySerializer(serializers.Serializer):
     metricName = serializers.CharField(
         max_length=255,
@@ -139,9 +167,9 @@ class _MetricQueryBodySerializer(serializers.Serializer):
         help_text="Constrain the query to one metric type. A name can exist as several types (e.g. a counter and a gauge); without this, rows of every type sharing the name are blended into one aggregate. Get the type from 'metric-names-list'.",
     )
     aggregation = serializers.ChoiceField(
-        choices=["sum", "avg", "count", "p95", "rate", "increase", "histogram_quantile"],
+        choices=["sum", "avg", "count", "min", "max", "p95", "rate", "increase", "histogram_quantile"],
         default="sum",
-        help_text="Aggregation applied per time bucket, always across series rather than across raw samples. 'sum', 'avg' and 'p95' reduce each series to its last sample in the bucket and then combine those, so the result does not scale with the scrape rate; 'count' is the number of series that reported. 'rate' (per-second) and 'increase' are counter-aware: per-series deltas with Prometheus counter-reset handling, temporality-aware (delta-temporality samples count as-is). 'histogram_quantile' interpolates from OTel histogram buckets and requires 'quantile'.",
+        help_text="Aggregation applied per time bucket, always across series rather than across raw samples. 'sum', 'avg', 'min', 'max' and 'p95' reduce each series to its last sample in the bucket and then combine those, so the result does not scale with the scrape rate; 'count' is the number of series that reported. 'rate' (per-second) and 'increase' are counter-aware: per-series deltas with Prometheus counter-reset handling, temporality-aware (delta-temporality samples count as-is). 'histogram_quantile' interpolates from OTel histogram buckets and requires 'quantile'.",
     )
     quantile = serializers.FloatField(
         required=False,
@@ -163,7 +191,7 @@ class _MetricQueryBodySerializer(serializers.Serializer):
         help_text="Labels to split the result into separate series by. Series share one time grid and are capped at the 100 largest.",
     )
     interval = serializers.ChoiceField(
-        choices=["second", "minute", "minute_5", "minute_15", "hour", "hour_6", "day", "week"],
+        choices=MetricQueryInterval.choices,
         required=False,
         allow_null=True,
         help_text="Bucket size for the shared time grid. Omit to auto-pick (~60 buckets across the range).",
@@ -291,7 +319,7 @@ class _MetricAnomalyBodySerializer(serializers.Serializer):
         help_text="End of the healthy comparison window. Defaults to anomalyFrom. Must not extend past anomalyFrom.",
     )
     aggregation = serializers.ChoiceField(
-        choices=["sum", "avg", "count", "p95", "rate", "increase", "histogram_quantile"],
+        choices=["sum", "avg", "count", "min", "max", "p95", "rate", "increase", "histogram_quantile"],
         required=False,
         allow_null=True,
         help_text="Aggregation to characterize. Omit to auto-pick from the metric's OTel type (counter -> rate, gauge -> avg, histogram -> histogram_quantile 0.95).",
@@ -332,6 +360,12 @@ class _MetricAnomalyDimensionSerializer(serializers.Serializer):
     )
 
 
+class MetricAnomalyDirection(models.TextChoices):
+    UP = "up", "up"
+    DOWN = "down", "down"
+    FLAT = "flat", "flat"
+
+
 class _MetricAnomalyReportSerializer(serializers.Serializer):
     metric_name = serializers.CharField(help_text="Metric that was characterized.")
     aggregation = serializers.CharField(help_text="Aggregation used (auto-picked when not specified).")
@@ -348,7 +382,7 @@ class _MetricAnomalyReportSerializer(serializers.Serializer):
         help_text="anomaly_mean / baseline_mean. A zero baseline yields anomaly_mean itself."
     )
     direction = serializers.ChoiceField(
-        choices=["up", "down", "flat"], help_text="Which way the metric moved versus the baseline."
+        choices=MetricAnomalyDirection.choices, help_text="Which way the metric moved versus the baseline."
     )
     onset_time = serializers.CharField(
         allow_null=True,
@@ -431,7 +465,35 @@ class _MetricValuesParamsSerializer(serializers.Serializer):
         return [service.strip() for service in value.split(",")]
 
 
+class _MetricCatalogValuesParamsSerializer(_MetricValuesParamsSerializer):
+    names = serializers.ListField(
+        child=serializers.CharField(max_length=255, trim_whitespace=False),
+        allow_empty=False,
+        min_length=1,
+        max_length=MAX_SPARKLINE_BATCH_SIZE,
+        help_text="Exact metric names to load as a batch. Overrides value and limit.",
+    )
+
+
 class _MetricNameSerializer(serializers.Serializer):
+    name = serializers.CharField(help_text="Metric name as it appears in the team's data.")
+    metric_type = serializers.CharField(
+        help_text="OTel metric type (gauge, sum, histogram, summary, exponential_histogram)."
+    )
+    unit = serializers.CharField(
+        required=False, allow_blank=True, help_text="Unit of the metric value, if any (e.g. 'ms', 'By')."
+    )
+    last_seen = serializers.DateTimeField(
+        required=False, allow_null=True, help_text="When the newest datapoint for this metric arrived, ISO 8601."
+    )
+    sparkline = serializers.ListField(
+        child=serializers.FloatField(),
+        required=False,
+        help_text="A small downsampled series of the metric's recent shape, for a sparkline.",
+    )
+
+
+class _MetricPickerNameSerializer(serializers.Serializer):
     name = serializers.CharField(help_text="Metric name as it appears in the team's data.")
     metric_type = serializers.CharField(
         help_text="OTel metric type (gauge, sum, histogram, summary, exponential_histogram)."
@@ -442,7 +504,18 @@ class _MetricNamesResponseSerializer(serializers.Serializer):
     results = _MetricNameSerializer(many=True, help_text="Distinct metric names ordered by recent activity.")
 
 
+class _MetricPickerNamesResponseSerializer(serializers.Serializer):
+    results = _MetricPickerNameSerializer(many=True, help_text="Distinct metric names ordered by recent activity.")
+
+
 class _MetricAttributeKeysParamsSerializer(serializers.Serializer):
+    metricName = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default="",
+        max_length=255,
+        help_text="Exact metric name to limit attribute keys to. Omit to list keys across all metrics.",
+    )
     search = serializers.CharField(
         required=False,
         allow_blank=True,
@@ -508,12 +581,15 @@ class _MetricAttributeKeySerializer(serializers.Serializer):
     name = serializers.CharField(
         help_text="Attribute key as it appears on the team's metrics (e.g. 'env', 'k8s.pod.name')."
     )
+    series_count = serializers.IntegerField(
+        help_text="Number of distinct recent series with this attribute, based on series metadata."
+    )
 
 
 class _MetricAttributeKeysResponseSerializer(serializers.Serializer):
     results = _MetricAttributeKeySerializer(
         many=True,
-        help_text="Distinct attribute keys (datapoint and resource attributes merged), most frequent first.",
+        help_text="Distinct attribute keys (datapoint and resource attributes merged), ordered by series count descending.",
     )
     count = serializers.IntegerField(help_text="Number of keys returned.")
 
@@ -672,7 +748,7 @@ class _MetricExplainBodySerializer(serializers.Serializer):
         help_text="Constrain the bucket to one metric type. A name can exist as several types; without this, rows of every type sharing the name are decomposed together.",
     )
     aggregation = serializers.ChoiceField(
-        choices=["sum", "avg", "count", "p95", "rate", "increase", "histogram_quantile"],
+        choices=["sum", "avg", "count", "min", "max", "p95", "rate", "increase", "histogram_quantile"],
         default="sum",
         help_text="The aggregation whose result should be explained. 'histogram_quantile' is rejected: it reduces bucket-count arrays rather than scalar samples, so there is no per-series value to lay out.",
     )
@@ -693,7 +769,7 @@ class _MetricExplainBodySerializer(serializers.Serializer):
         help_text="Start of the bucket to explain, as returned in a query result's 'time'. ISO 8601.",
     )
     interval = serializers.ChoiceField(
-        choices=["second", "minute", "minute_5", "minute_15", "hour", "hour_6", "day", "week"],
+        choices=MetricQueryInterval.choices,
         help_text="Bucket size the point was plotted at. Must match the query that produced it, or the decomposition explains a different span.",
     )
 
@@ -838,8 +914,48 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         return Response(asdict(overview), status=status.HTTP_200_OK)
 
     @extend_schema(
+        methods=["GET"],
         parameters=[_MetricValuesParamsSerializer],
         responses={200: _MetricNamesResponseSerializer},
+    )
+    @extend_schema(
+        methods=["POST"],
+        request=_MetricCatalogValuesParamsSerializer,
+        responses={200: _MetricNamesResponseSerializer},
+    )
+    @action(
+        detail=False,
+        methods=["GET", "POST"],
+        required_scopes=["metrics:read"],
+        throttle_classes=[ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle],
+    )
+    def values(self, request: Request, *args, **kwargs) -> Response:
+        """Distinct metric names for the team. Backs the catalog UI."""
+        tag_queries(product=Product.METRICS, feature=Feature.QUERY)
+
+        params = (
+            _MetricCatalogValuesParamsSerializer(data=request.data)
+            if request.method == "POST"
+            else _MetricValuesParamsSerializer(data=request.query_params)
+        )
+        params.is_valid(raise_exception=True)
+
+        try:
+            results = list_metric_names(
+                team=self.team,
+                search=params.validated_data["value"],
+                limit=params.validated_data["limit"],
+                services=params.validated_data["service"],
+                names=params.validated_data.get("names", []),
+            )
+        except ValueError as exc:
+            raise ParseError(str(exc))
+
+        return Response({"results": results}, status=status.HTTP_200_OK)
+
+    @extend_schema(
+        parameters=[_MetricValuesParamsSerializer],
+        responses={200: _MetricPickerNamesResponseSerializer},
     )
     @action(
         detail=False,
@@ -847,15 +963,15 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         required_scopes=["metrics:read"],
         throttle_classes=[ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle],
     )
-    def values(self, request: Request, *args, **kwargs) -> Response:
-        """Distinct metric names for the team. Backs the picker UI."""
+    def names(self, request: Request, *args, **kwargs) -> Response:
+        """Distinct metric names for the viewer picker, without sparklines or caching."""
         tag_queries(product=Product.METRICS, feature=Feature.QUERY)
 
         params = _MetricValuesParamsSerializer(data=request.query_params)
         params.is_valid(raise_exception=True)
 
         try:
-            results = list_metric_names(
+            results = list_metric_picker_names(
                 team=self.team,
                 search=params.validated_data["value"],
                 limit=params.validated_data["limit"],
@@ -877,9 +993,8 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         throttle_classes=[ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle],
     )
     def attributes(self, request: Request, *args, **kwargs) -> Response:
-        """Distinct attribute keys seen on the team's metrics (datapoint and
-        resource attributes merged), most frequent first. Backs the filter
-        bar's key autocomplete."""
+        """Attribute keys ordered by distinct series count, from highest to
+        lowest. `metricName` limits choices to one metric."""
         tag_queries(product=Product.METRICS, feature=Feature.QUERY)
 
         params = _MetricAttributeKeysParamsSerializer(data=request.query_params)
@@ -888,6 +1003,7 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         try:
             results = list_metric_attribute_keys(
                 team=self.team,
+                metric_name=params.validated_data["metricName"],
                 search=params.validated_data["search"],
                 date_from=params.validated_data["dateFrom"],
                 date_to=params.validated_data["dateTo"],
@@ -1072,6 +1188,20 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         """Take one chart point apart into the series and samples behind it,
         and recompute it independently so the plotted number can be checked
         rather than trusted."""
+        # The class-level gate admits every team on the metrics alpha, which is wider
+        # than this action should be. Fundamentals is a correctness tool for the people
+        # who build the viewer, so it carries its own flag. Without this check the tab
+        # is hidden in the UI but the data behind it stays one POST away.
+        if not posthog_feature_flag_enabled(
+            METRICS_FUNDAMENTALS_FEATURE_FLAG,
+            str(cast(User, request.user).distinct_id),
+            organization_id=self.team.organization_id,
+            team_id=self.team.pk,
+        ):
+            raise PermissionDenied(
+                f"This action requires feature flag {METRICS_FUNDAMENTALS_FEATURE_FLAG!r} to be enabled for your organization."
+            )
+
         tag_queries(product=Product.METRICS, feature=Feature.QUERY)
 
         body = _MetricExplainRequestSerializer(data=request.data)

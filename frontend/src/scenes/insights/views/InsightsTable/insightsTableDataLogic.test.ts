@@ -2,8 +2,6 @@ import { expectLogic } from 'kea-test-utils'
 
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
-import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
-import { IndexedTrendResult } from 'scenes/trends/types'
 
 import { useMocks } from '~/mocks/jest'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
@@ -17,6 +15,9 @@ import {
     InsightModel,
     PropertyMathType,
 } from '~/types'
+
+import { trendsDataLogic } from 'products/product_analytics/frontend/insights/trends/trendsDataLogic'
+import { IndexedTrendResult } from 'products/product_analytics/frontend/insights/trends/types'
 
 import { AggregationType, compareResultKey, insightsTableDataLogic } from './insightsTableDataLogic'
 

@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [ "$#" -lt 3 ]; then
-    echo "usage: $0 OUTPUT_DIR MATRIX_FILTERS EXCLUDED_JUNIT_PATH..." >&2
+if [ "$#" -lt 2 ]; then
+    echo "usage: $0 OUTPUT_DIR MATRIX_FILTERS [EXCLUDED_JUNIT_PATH...]" >&2
     exit 2
 fi
 

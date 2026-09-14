@@ -39,6 +39,8 @@ export const nameOrLinkToExperiment = (name: string | null, id?: string): JSX.El
 type AllowedExperimentFields = Pick<
     Experiment,
     | 'conclusion'
+    | 'conclusion_comment'
+    | 'status'
     | 'start_date'
     | 'end_date'
     | 'metrics'
@@ -65,6 +67,17 @@ function withoutRunningTimeCalculationKeys(value: unknown): Record<string, unkno
     return Object.fromEntries(
         Object.entries((value as Record<string, unknown> | null) ?? {}).filter(
             ([key]) => !RUNNING_TIME_CALCULATION_KEYS.includes(key)
+        )
+    )
+}
+
+const DERIVED_RUNNING_TIME_KEYS = ['recommended_running_time', 'recommended_sample_size']
+
+/** Strip the derived calculator outputs so only deliberate input edits (MDE, exposure estimate) count. */
+function withoutDerivedRunningTimeKeys(value: unknown): Record<string, unknown> {
+    return Object.fromEntries(
+        Object.entries((value as Record<string, unknown> | null) ?? {}).filter(
+            ([key]) => !DERIVED_RUNNING_TIME_KEYS.includes(key)
         )
     )
 }
@@ -284,12 +297,26 @@ export const getExperimentChangeDescription = (
             }
             return 'updated parameters'
         })
-        .with({ field: 'running_time_calculation' }, () => {
+        .with({ field: 'running_time_calculation' }, ({ before, after }) => {
+            // Opening the calculator re-saves the recomputed outputs, so they drift as exposure
+            // data changes — a row only earns its place when a calculator input was edited.
+            if (equal(withoutDerivedRunningTimeKeys(before), withoutDerivedRunningTimeKeys(after))) {
+                return null
+            }
             return 'updated the running time calculation'
         })
         .with({ field: 'excluded_variants' }, () => {
             // The change is described by the `parameters` matcher, which the backend keeps
             // mirrored while `parameters` is deprecated — avoid a duplicate line.
+            return null
+        })
+        .with({ field: 'status' }, () => {
+            // Status only moves together with a lifecycle change (launch, stop, pause), and those
+            // already produce their own descriptions, so an "updated status" clause adds nothing.
+            return null
+        })
+        .with({ field: 'conclusion_comment' }, () => {
+            // The describer renders the comment text as the row's extended description instead.
             return null
         })
         .otherwise(({ field, action }) => {

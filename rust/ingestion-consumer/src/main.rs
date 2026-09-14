@@ -5,6 +5,7 @@ use anyhow::{Context, Result};
 use axum::response::IntoResponse;
 use axum::routing::get;
 use axum::Router;
+use common_kafka_consumer::AssignmentEpoch;
 use envconfig::Envconfig;
 use futures::future::ready;
 use futures::StreamExt;
@@ -18,6 +19,7 @@ use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::{EnvFilter, Layer};
 
+use ingestion_consumer::batcher::Batcher;
 use ingestion_consumer::config::Config;
 use ingestion_consumer::consumer::IngestionConsumer;
 use ingestion_consumer::debug_recorder::{DebugLoad, DebugRecorder, DebugState, WorkerStatus};
@@ -239,12 +241,19 @@ async fn async_main(config: Config) -> Result<()> {
     } else {
         GrpcPort::Fixed(config.ingestion_worker_grpc_port)
     };
+    // The process-wide assignment epoch: bumped by the consumer's rebalance
+    // context, stamped by the transport on wire sub-batches and by the
+    // batcher on group completions. Created here so one counter serves all
+    // three.
+    let assignment_epoch = AssignmentEpoch::new();
+
     let mut transport = GrpcTransport::new(
         grpc_port,
         config.ingestion_worker_concurrent_batches,
         Duration::from_millis(config.ingestion_worker_stream_ack_timeout_ms),
     );
     transport.set_max_body_bytes(config.transport_max_body_bytes);
+    transport.set_assignment_epoch(assignment_epoch);
     let transport = Arc::new(transport);
 
     // Select the worker discovery provider and start it (static applies the
@@ -480,9 +489,19 @@ async fn async_main(config: Config) -> Result<()> {
         }
     }
 
+    // The batcher owns the dispatch orchestration; the consumer loop only
+    // submits polls to it and reads group completions back.
+    let (batcher, batcher_outputs) = Batcher::new(
+        Arc::clone(&dispatcher),
+        Arc::clone(&transport),
+        consumer_handle.clone(),
+        Duration::from_millis(config.consumer_deferred_flush_timeout_ms),
+    );
+
     let consumer = IngestionConsumer::new(
         &config,
-        Arc::clone(&dispatcher),
+        batcher,
+        batcher_outputs,
         transport,
         consumer_handle,
         debug_recorder,

@@ -19,6 +19,7 @@ import { useLiveTaskIds } from "@posthog/ui/features/tasks/useLiveTaskIds";
 import { destroyShellTerminal } from "@posthog/ui/features/terminal/destroyShellTerminal";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { FOCUSABLE_SELECTOR } from "../../../utils/overlay";
+import { useTaskViewed } from "../../sidebar/useTaskViewed";
 import {
   type CommandCenterPlacement,
   getGridDimensions,
@@ -174,6 +175,7 @@ function GridCell({
   const cellRef = useRef<HTMLDivElement>(null);
   const setActiveTask = useCommandCenterStore((s) => s.setActiveTask);
   const setActiveCell = useCommandCenterStore((s) => s.setActiveCell);
+  const { markAsViewed } = useTaskViewed();
 
   const markActive = useCallback(() => {
     setActiveCell(cell.cellIndex);
@@ -183,6 +185,9 @@ function GridCell({
   const handleCellClick = useCallback(
     (e: React.MouseEvent) => {
       markActive();
+      if (cell.taskId && cell.hasUnseenCompletion) {
+        markAsViewed(cell.taskId);
+      }
       const target = e.target as HTMLElement;
       // Don't redirect focus when the click already lands on a real control,
       // or when it bubbled in from a portaled popover whose DOM target is
@@ -200,7 +205,7 @@ function GridCell({
         ?.querySelector<HTMLElement>("[tabindex='0']")
         ?.focus({ preventScroll: true });
     },
-    [markActive],
+    [cell.hasUnseenCompletion, cell.taskId, markActive, markAsViewed],
   );
 
   const liveTaskIds = useLiveTaskIds();
@@ -394,13 +399,16 @@ export function CommandCenterGrid({ layout, cells }: CommandCenterGridProps) {
   const activeCellIndex = useCommandCenterStore((s) => s.activeCellIndex);
   const draggedKind = useCellDragActive();
   const pendingPlacement = useCommandCenterStore((s) => s.pendingPlacement);
+  const isComposing = useCommandCenterStore((s) => s.composer !== null);
   const cancelPlacement = useCommandCenterStore((s) => s.cancelPlacement);
 
-  const placement: PlacementState | null = pendingPlacement
-    ? { mode: "pick", ...pendingPlacement }
-    : draggedKind
-      ? { mode: "drag", kind: draggedKind }
-      : null;
+  const placement: PlacementState | null = isComposing
+    ? null
+    : pendingPlacement
+      ? { mode: "pick", ...pendingPlacement }
+      : draggedKind
+        ? { mode: "drag", kind: draggedKind }
+        : null;
 
   useEffect(() => {
     if (!pendingPlacement) return;

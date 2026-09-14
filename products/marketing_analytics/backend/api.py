@@ -5,7 +5,7 @@ from operator import or_
 from typing import Any, Optional, cast
 
 from django.core.cache import cache
-from django.db import transaction
+from django.db import models, transaction
 
 import structlog
 from asgiref.sync import async_to_sync
@@ -92,14 +92,17 @@ def _setup_enabled(request: Request, team: Team) -> bool:
     email = getattr(request.user, "email", None)
     if email:
         person_properties["email"] = email
-    enabled = feature_enabled_or_false(
-        "marketing-analytics-setup",
-        # Service credentials authenticate as a synthetic user with no person behind them;
-        # the team UUID keeps the call well-formed, and a person condition won't match it.
-        getattr(request.user, "distinct_id", None) or str(team.uuid),
-        groups={"organization": str(team.organization.id)},
-        person_properties=person_properties,
-        group_properties={"organization": {"id": str(team.organization.id)}},
+    enabled = any(
+        feature_enabled_or_false(
+            flag,
+            # Service credentials authenticate as a synthetic user with no person behind them;
+            # the team UUID keeps the call well-formed, and a person condition won't match it.
+            getattr(request.user, "distinct_id", None) or str(team.uuid),
+            groups={"organization": str(team.organization.id)},
+            person_properties=person_properties,
+            group_properties={"organization": {"id": str(team.organization.id)}},
+        )
+        for flag in ("marketing-analytics-setup", "new-marketing-analytics-dashboard")
     )
     request._ma_setup_flag = enabled  # type: ignore[attr-defined]
     return enabled
@@ -186,16 +189,22 @@ class CampaignAuditResultSerializer(serializers.Serializer):
     issues = UtmIssueSerializer(many=True, help_text="List of detected UTM configuration issues")
 
 
+class SourceMatch(models.TextChoices):
+    NONE = "none", "none"
+    AUTO = "auto", "auto"
+    MAPPED = "mapped", "mapped"
+
+
 class UtmEventSerializer(serializers.Serializer):
     utm_campaign = serializers.CharField(help_text="UTM campaign value from pageview events")
     utm_source = serializers.CharField(help_text="UTM source value from pageview events")
     event_count = serializers.IntegerField(help_text="Number of pageview events with this UTM combination")
     campaign_match = serializers.ChoiceField(
-        choices=["none", "auto", "mapped"],
+        choices=SourceMatch.choices,
         help_text="How utm_campaign matched: none, auto (direct name/id), or mapped (manual mapping)",
     )
     source_match = serializers.ChoiceField(
-        choices=["none", "auto", "mapped"],
+        choices=SourceMatch.choices,
         help_text="How utm_source matched: none, auto (default source), or mapped (custom mapping)",
     )
     matched_campaign = serializers.CharField(allow_null=True, help_text="Name of the matched campaign, if any")
@@ -1464,7 +1473,7 @@ class MarketingAnalyticsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
                 response=SetupPlanResponseSerializer,
                 description="Ranked, machine-applicable setup suggestions plus per-capability readiness",
             ),
-            404: OpenApiResponse(description="The marketing-analytics-setup feature flag is off for this team"),
+            404: OpenApiResponse(description="Marketing Setup and new dashboard feature flags are both off"),
         },
         summary="Get the marketing analytics setup plan",
         description=(
@@ -1521,7 +1530,7 @@ class MarketingAnalyticsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
                 description="The applied operations and the ops that reverse them",
             ),
             400: OpenApiResponse(description="An operation was malformed, unsupported, or not applicable"),
-            404: OpenApiResponse(description="The marketing-analytics-setup feature flag is off for this team"),
+            404: OpenApiResponse(description="Marketing Setup and new dashboard feature flags are both off"),
         },
         summary="Apply setup operations",
         description=(

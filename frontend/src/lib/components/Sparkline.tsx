@@ -2,7 +2,7 @@ import clsx from 'clsx'
 import { useCallback, useMemo } from 'react'
 
 import { DefaultTooltip, Sparkline as QuillSparklineChart, useChartTheme } from '@posthog/quill-charts'
-import type { Series, TooltipContext } from '@posthog/quill-charts'
+import type { Series, TooltipContext, ValueDomain } from '@posthog/quill-charts'
 
 import { getColorVar } from 'lib/colors'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
@@ -41,6 +41,9 @@ export interface SparklineProps {
     sortTooltipByCount?: boolean
     /** Format the per-series tooltip value. Defaults to `humanFriendlyNumber`. */
     renderTooltipValue?: (value: number) => string
+    /** Pin the value axis instead of auto-scaling to the data, so sparklines in a column stay
+     *  comparable to each other. */
+    valueDomain?: ValueDomain
 }
 
 function normalizeSparklineData(
@@ -112,6 +115,7 @@ export function Sparkline({
     hideZerosInTooltip = false,
     sortTooltipByCount = false,
     renderTooltipValue,
+    valueDomain,
 }: SparklineProps): JSX.Element {
     const theme = useChartTheme()
 
@@ -156,6 +160,7 @@ export function Sparkline({
                 labels={chartLabels}
                 theme={theme}
                 type={type}
+                valueDomain={valueDomain}
                 fill
                 className="h-full"
                 tooltip={renderTooltip}

@@ -25,6 +25,10 @@ DEFAULT_DATABASE_ID: Final[str] = "(default)"
 
 AUTH_USERS_TABLE: Final[str] = "auth_users"
 FIRESTORE_TABLE_PREFIX: Final[str] = "firestore_"
+# A subcollection reads as a collection group (every collection with the id, under any parent). The
+# `/` in the prefix states that scope and cannot appear in a Firestore collection id, so no root
+# collection can ever produce this name and be routed to the wrong reader.
+FIRESTORE_COLLECTION_GROUP_TABLE_PREFIX: Final[str] = "firestore_collection_group/"
 REALTIME_DATABASE_TABLE_PREFIX: Final[str] = "realtime_database_"
 
 # Firestore caps a `listDocuments` page at 300 documents; Identity Platform caps `accounts:batchGet`
@@ -33,6 +37,19 @@ FIRESTORE_PAGE_SIZE: Final[int] = 300
 FIRESTORE_COLLECTION_IDS_PAGE_SIZE: Final[int] = 300
 AUTH_USERS_PAGE_SIZE: Final[int] = 1000
 REALTIME_DATABASE_PAGE_SIZE: Final[int] = 500
+
+# Firestore has no API to list a collection's subcollections, only a single document's. So table
+# discovery samples a few documents per collection and unions the subcollection ids they report.
+# A subcollection present on no sampled document is missed. `depth` bounds how far nesting is
+# followed below the root collections.
+FIRESTORE_SUBCOLLECTION_SAMPLE_DOCUMENTS: Final[int] = 10
+FIRESTORE_MAX_SUBCOLLECTION_DEPTH: Final[int] = 3
+
+# Discovery walks the project one document sample at a time, so it can fire ~11 sequential requests
+# per collection id — all on the synchronous schema-lookup path a user waits on. Cache the result so
+# repeated lookups don't repeat the walk; the user-triggered refresh bypasses it. Mirrors the Slack
+# source's channel-discovery cache, which caps the same cost for the same reason.
+FIRESTORE_DISCOVERY_CACHE_TTL_SECONDS: Final[int] = 300
 
 # Hard stop so an endpoint that keeps handing back a page token can't page forever.
 MAX_PAGES: Final[int] = 100_000
@@ -132,7 +149,13 @@ REALTIME_DATABASE_HOST_SUFFIXES: Final[tuple[str, ...]] = (".firebaseio.com", ".
 
 
 def firestore_table_name(collection_id: str) -> str:
+    """Table name for one root-level Firestore collection (`rooms`)."""
     return f"{FIRESTORE_TABLE_PREFIX}{collection_id}"
+
+
+def firestore_collection_group_table_name(collection_id: str) -> str:
+    """Table name for one Firestore subcollection, read as a collection group keyed by its id."""
+    return f"{FIRESTORE_COLLECTION_GROUP_TABLE_PREFIX}{collection_id}"
 
 
 def is_supported_incremental_field_name(name: str) -> bool:

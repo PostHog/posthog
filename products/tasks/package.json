@@ -3,7 +3,9 @@
     "scripts": {
         "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/tests backend/logic backend/management backend/temporal -v --tb=short"
     },
-    "dependencies": {},
+    "dependencies": {
+        "@posthog/products-mcp-store": "workspace:*"
+    },
     "devDependencies": {
         "kea-test-utils": "catalog:"
     },
@@ -16,6 +18,7 @@
         "kea": "catalog:",
         "kea-loaders": "catalog:",
         "kea-router": "catalog:",
+        "kea-subscriptions": "catalog:",
         "react": "*",
         "react-dom": "*"
     }

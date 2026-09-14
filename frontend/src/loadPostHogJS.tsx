@@ -1,5 +1,4 @@
-import posthog, { BeforeSendFn, PostHogInterface, SessionRecordingOptions } from 'posthog-js'
-import { sampleOnProperty } from 'posthog-js/lib/src/extensions/sampling'
+import posthog, { BeforeSendFn, BrowserMetricsConfig, PostHogInterface, SessionRecordingOptions } from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { isOAuthMode } from 'lib/oauth/oauthClient'
@@ -10,9 +9,15 @@ import { startFramerateTracking } from './framerateTracker'
 
 export const SDK_DEFAULTS_DATE = '2026-05-30'
 
-const shouldDefer = (): boolean => {
-    const sessionId = posthog.get_session_id()
-    return sampleOnProperty(sessionId, 0.5)
+// The same hash as posthog-js's own `sampleOnProperty`, so existing sessions keep their side of the
+// split. Inlined because the deep import of that extension ships a second copy of @posthog/core.
+export function isInDeferredInitSample(sessionId: string): boolean {
+    let hash = 0
+    for (let i = 0; i < sessionId.length; i++) {
+        hash = (hash << 5) - hash + sessionId.charCodeAt(i)
+        hash |= 0
+    }
+    return Math.abs(hash) % 100 < 50
 }
 
 const shouldTrackFramerate = (loadedInstance: PostHogInterface): boolean => {
@@ -34,6 +39,13 @@ export interface LoadPostHogJSOptions {
      * / network-payload masking when the page renders sensitive bearer tokens in its own URL.
      */
     sessionRecording?: Partial<SessionRecordingOptions>
+    /**
+     * Extra `metrics` config merged on top of the defaults. `before_send` and
+     * `maskCapturedNetworkRequestFn` do not cover the network metrics channel, so the exporter
+     * app uses this to override `network.attributes` and keep the SharingConfiguration access
+     * token out of the captured `path`. See `frontend/src/exporter/index.tsx`.
+     */
+    metrics?: Partial<BrowserMetricsConfig>
 }
 
 export function loadPostHogJS(options: LoadPostHogJSOptions = {}): void {
@@ -43,7 +55,6 @@ export function loadPostHogJS(options: LoadPostHogJSOptions = {}): void {
             api_host: window.JS_POSTHOG_HOST,
             ui_host: window.JS_POSTHOG_UI_HOST,
             defaults: SDK_DEFAULTS_DATE,
-            strict_script_versioning: true,
             persistence: 'localStorage+cookie',
             cookie_persisted_properties: [
                 'prod_interest', // posthog.com sets these based on what docs were browsed
@@ -53,10 +64,11 @@ export function loadPostHogJS(options: LoadPostHogJSOptions = {}): void {
             disable_surveys: window.IMPERSONATED_SESSION,
             disable_product_tours: true,
             opt_out_capturing_by_default: window.IMPERSONATED_SESSION,
-            __preview_deferred_init_extensions: shouldDefer(),
+            __preview_deferred_init_extensions: isInDeferredInitSample(posthog.get_session_id()),
             error_tracking: {
                 __capturePostHogExceptions: true,
             },
+            metrics: { network: true, serviceName: 'posthog-app', ...options.metrics },
             before_send: options.beforeSend,
             loaded: (loadedInstance) => {
                 if (loadedInstance.sessionRecording) {

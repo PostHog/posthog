@@ -150,6 +150,112 @@ class TestDebugCHQuery(APIBaseTest):
         self.assertEqual(data["tables"]["exposures"]["written_bytes"][i], 100)
         self.assertEqual(sum(data["tables"]["metric_events"]["written_rows"]), 0)
 
+    def test_precompute_timeseries_latency_series_are_bucket_aligned_and_zero_filled(self):
+        # Same positional-indexing contract as cache_growth: the latency and bytes-per-read
+        # series must align to `buckets` and stay zero-filled where a bucket has no reads.
+        self.user.is_staff = True
+        self.user.save()
+        bucket = datetime.now(UTC).strftime("%Y-%m-%dT00:00:00Z")
+
+        with patch(
+            "posthog.api.debug_ch_queries.sync_execute",
+            side_effect=[[(bucket, 5, 4, 1, 120.0, 450.0, 2048.0)], []],
+        ):
+            resp = self.client.get("/api/debug_ch_queries/precompute_timeseries/?hours=336")
+
+        self.assertEqual(resp.status_code, HTTP_200_OK, resp.content)
+        data = resp.json()
+        i = data["buckets"].index(bucket)
+        reads = data["reads"]
+        for series in (
+            "precomputed_p50_duration_ms",
+            "precomputed_p90_duration_ms",
+            "fully_precomputed_avg_read_bytes",
+        ):
+            self.assertEqual(len(reads[series]), len(data["buckets"]))
+        self.assertEqual(reads["precomputed_p50_duration_ms"][i], 120)
+        self.assertEqual(reads["precomputed_p90_duration_ms"][i], 450)
+        self.assertEqual(reads["fully_precomputed_avg_read_bytes"][i], 2048)
+        self.assertEqual(sum(reads["precomputed_p50_duration_ms"]), 120)
+
+    def test_precompute_overview_counts_every_runner_skip_reason(self):
+        # A reason the runner emits but the breakdown omits leaves those reads counted in the
+        # totals while appearing in no skip_reasons bucket. Literal strings on purpose: the
+        # values are persisted in query_log log_comment, so a renamed enum member must fail here.
+        self.user.is_staff = True
+        self.user.save()
+        skip_counts = {
+            reason: i + 1
+            for i, reason in enumerate(
+                (
+                    "override_direct",
+                    "team_disabled",
+                    "min_runtime",
+                    "activation_config",
+                    "cohort_not_calculated",
+                    "data_warehouse",
+                    "group_aggregation",
+                )
+            )
+        }
+        reads_row = (
+            "direct_scan",
+            sum(skip_counts.values()),  # reads
+            0,  # failed_reads
+            *skip_counts.values(),
+            0,  # attempted
+            0,  # me_precomputed
+            sum(skip_counts.values()),  # me_direct_scan
+            0,  # me_not_applicable
+            10.0,  # avg_duration_ms
+            10.0,  # p50_duration_ms
+            20.0,  # p90_duration_ms
+            1024.0,  # avg_read_bytes
+            4096,  # total_read_bytes
+        )
+
+        with patch("posthog.api.debug_ch_queries.sync_execute", side_effect=[[reads_row], []]):
+            resp = self.client.get("/api/debug_ch_queries/precompute_overview/?hours=24")
+
+        self.assertEqual(resp.status_code, HTTP_200_OK, resp.content)
+        data = resp.json()
+        self.assertEqual(data["reads"]["by_exposures_path"]["direct_scan"]["skip_reasons"], skip_counts)
+        self.assertEqual(data["reads"]["total"], sum(skip_counts.values()))
+
+    def test_precompute_overview_serializes_nan_stats_as_null(self):
+        # avgIf/quantileIf return nan for a path whose reads all failed. STRICT_JSON is off,
+        # so an unguarded nan reaches the client as literal NaN — invalid JSON, blanking the
+        # tab exactly when someone is investigating the failures.
+        self.user.is_staff = True
+        self.user.save()
+        nan = float("nan")
+        no_skips = (0,) * 7
+        reads_row = (
+            "direct_scan",
+            5,  # reads
+            5,  # failed_reads
+            *no_skips,
+            0,  # attempted
+            0,  # me_precomputed
+            5,  # me_direct_scan
+            0,  # me_not_applicable
+            nan,  # avg_duration_ms
+            nan,  # p50_duration_ms
+            nan,  # p90_duration_ms
+            nan,  # avg_read_bytes
+            4096,  # total_read_bytes
+        )
+
+        with patch("posthog.api.debug_ch_queries.sync_execute", side_effect=[[reads_row], []]):
+            resp = self.client.get("/api/debug_ch_queries/precompute_overview/?hours=24")
+
+        self.assertEqual(resp.status_code, HTTP_200_OK, resp.content)
+        self.assertNotIn(b"NaN", resp.content)
+        entry = resp.json()["reads"]["by_exposures_path"]["direct_scan"]
+        self.assertEqual(entry["reads"], 5)
+        for stat in ("avg_duration_ms", "p50_duration_ms", "p90_duration_ms", "avg_read_bytes"):
+            self.assertIsNone(entry[stat])
+
     @patch("posthog.api.debug_ch_queries.sync_execute", return_value=[])
     def test_slowest_queries_pat_with_scope_and_staff_allowed(self, _mock_execute):
         self.user.is_staff = True

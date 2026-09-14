@@ -3,6 +3,7 @@ from typing import Any, Literal, Union, cast
 
 from django.core.exceptions import ValidationError
 from django.db import transaction
+from django.utils import timezone
 
 from asgiref.sync import sync_to_async
 from pydantic import BaseModel, Field
@@ -26,7 +27,7 @@ from products.access_control.backend.facade.user_access_control import AccessCon
 from products.alerts.backend.evaluation.validation import THRESHOLD_BOUNDS_REQUIRED_MESSAGE
 from products.alerts.backend.insight_alert_state_machine import apply_disable, apply_enable, apply_threshold_change
 from products.alerts.backend.models.alert import AlertConfiguration, AlertSubscription, Threshold
-from products.product_analytics.backend.facade.models import Insight
+from products.product_analytics.backend.facade.models import Insight, resolve_insight_by_id_or_short_id
 
 from ee.hogai.artifacts.types import ModelArtifactResult
 from ee.hogai.tool import MaxTool
@@ -344,6 +345,7 @@ class UpsertAlertTool(MaxTool):
 
             update_fields: list[str] = []
             conditions_or_threshold_changed = False
+            schedule_reset_required = False
 
             if action.name is not None:
                 alert.name = action.name[:255]
@@ -353,25 +355,31 @@ class UpsertAlertTool(MaxTool):
                 alert.condition = {"type": action.condition_type}
                 update_fields.append("condition")
                 conditions_or_threshold_changed = True
+                schedule_reset_required = True
 
             if action.calculation_interval is not None:
-                alert.calculation_interval = action.calculation_interval
-                update_fields.append("calculation_interval")
+                if action.calculation_interval != alert.calculation_interval:
+                    schedule_reset_required = True
+                    alert.calculation_interval = action.calculation_interval
+                    update_fields.append("calculation_interval")
 
             if action.series_index is not None:
                 alert.config = {**(alert.config or {}), "series_index": action.series_index}
                 update_fields.append("config")
+                schedule_reset_required = True
 
             enabled_changed = action.enabled is not None and action.enabled != alert.enabled
             if action.enabled is not None:
                 if enabled_changed and action.enabled:
                     update_fields.extend(apply_enable(alert))
+                    schedule_reset_required = True
                 elif enabled_changed:
                     update_fields.extend(apply_disable(alert))
                 else:
                     update_fields.append("enabled")
 
             if action.skip_weekend is not None:
+                schedule_reset_required = schedule_reset_required or action.skip_weekend != alert.skip_weekend
                 alert.skip_weekend = action.skip_weekend
                 update_fields.append("skip_weekend")
 
@@ -386,14 +394,18 @@ class UpsertAlertTool(MaxTool):
                 except ValidationError as e:
                     return str(e), {"error": "validation_failed"}
                 conditions_or_threshold_changed = True
+                schedule_reset_required = True
 
             if not update_fields and not has_threshold_changes:
                 return "No changes provided. Specify at least one field to update.", {"error": "no_changes"}
 
             if conditions_or_threshold_changed:
                 update_fields.extend(apply_threshold_change(alert))
-            alert.next_check_at = None
-            update_fields.append("next_check_at")
+            if schedule_reset_required:
+                # Keep the due timestamp so the scheduler metric can measure
+                # a recheck that remains unhandled after an edit or re-enable.
+                alert.next_check_at = timezone.now()
+                update_fields.append("next_check_at")
             await sync_to_async(alert.save)(update_fields=update_fields)
             await sync_to_async(alert.report_updated)(self._user, {"source": EventSource.POSTHOG_AI})
 
@@ -492,19 +504,12 @@ class UpsertAlertTool(MaxTool):
 
         qs = Insight.objects.filter(team=self._team, deleted=False)
 
-        # 1. Try numeric DB ID
-        try:
-            return await sync_to_async(qs.get)(id=int(effective_id)), False
-        except (ValueError, Insight.DoesNotExist):
-            pass
+        # 1. Try numeric DB ID, then short_id (including legacy numeric-only short IDs).
+        insight = await sync_to_async(resolve_insight_by_id_or_short_id)(qs, effective_id)
+        if insight is not None:
+            return insight, False
 
-        # 2. Try short_id
-        try:
-            return await sync_to_async(qs.get)(short_id=effective_id), False
-        except Insight.DoesNotExist:
-            pass
-
-        # 3. Try conversation artifact — auto-save as a new insight
+        # 2. Try conversation artifact — auto-save as a new insight
         result = await self._context_manager.artifacts.aget_visualization(self._state.messages, effective_id)
         if result is None:
             raise Insight.DoesNotExist(f"Insight or visualization '{effective_id}' not found.")

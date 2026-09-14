@@ -3,6 +3,8 @@ from unittest.mock import MagicMock, patch
 
 from django.test import override_settings
 
+from parameterized import parameterized
+
 from posthog.models.github_integration_base import GitHubIntegrationError
 from posthog.models.integration import GitHubIntegration
 from posthog.models.user_integration import ReauthorizationRequired, UserGitHubIntegration
@@ -89,16 +91,62 @@ def test_can_mint_readonly_github_token_matches_mint_eligibility(resolved, expec
         assert can_mint_readonly_github_token(1) is expected
 
 
+@parameterized.expand(
+    [
+        ("full_credential_run_reuses", False, 5),
+        ("read_only_run_clones_fresh", True, None),
+    ]
+)
+def test_repository_snapshot_reuse_is_refused_for_read_only_runs(
+    _name: str, read_access: bool, expected: int | None
+) -> None:
+    # A repository snapshot keeps its creator's write-capable token in every `.git/config` and is
+    # never fetched again, so restoring one for a read-only run hands the agent a write token and
+    # a stale tree. A Signals scout with pinned repositories is exactly that run.
+    from products.tasks.backend.temporal.process_task.activities.provision_sandbox import (  # noqa: PLC0415 — activities import the workflow stack; keep it off this module's import path
+        _repository_snapshot_integration_id,
+    )
+
+    ctx = TaskProcessingContext(
+        task_id="t",
+        run_id="r",
+        team_id=1,
+        team_uuid="u",
+        organization_id="o",
+        github_integration_id=5,
+        repository="acme/app",
+        distinct_id="d",
+        state={"github_read_access": read_access},
+    )
+
+    assert _repository_snapshot_integration_id(ctx, has_repo=True) == expected
+
+
+@parameterized.expand(
+    [
+        ("repo_less", None, False),
+        ("repo_backed", "acme/repo", True),
+    ]
+)
 @patch("products.tasks.backend.temporal.process_task.activities.provision_sandbox.emit_agent_log")
 @patch("products.tasks.backend.temporal.process_task.activities.provision_sandbox.get_sandbox_github_token")
 @patch("products.tasks.backend.temporal.process_task.activities.provision_sandbox.get_readonly_github_token")
 def test_readonly_request_takes_priority_over_full_credential_path(
-    mock_readonly: MagicMock, mock_full: MagicMock, _mock_log: MagicMock
+    _name: str,
+    repository: str | None,
+    has_repo: bool,
+    mock_readonly: MagicMock,
+    mock_full: MagicMock,
+    _mock_log: MagicMock,
 ) -> None:
-    # Task creation attaches the team's GitHub integration to every task, so a repo-less run on a
+    # Task creation attaches the team's GitHub integration to every task, so a run on a
     # GitHub-connected team satisfies the full-credential condition too. If the full path is
     # resolved first, a run that asked for read-only silently receives the write-capable
     # installation token — the exact escalation this ordering exists to prevent.
+    #
+    # The repo-backed case is the one a Signals scout with pinned repositories takes. Gating the
+    # downscope on "no repository" would hand every such scout a write-capable token as a side
+    # effect of cloning, which is a fleet-wide escalation delivered by a feature about checkouts.
     from products.tasks.backend.temporal.process_task.activities.provision_sandbox import (  # noqa: PLC0415 — activities import the workflow stack; keep it off this module's import path
         _resolve_sandbox_github_token,
     )
@@ -111,15 +159,55 @@ def test_readonly_request_takes_priority_over_full_credential_path(
         team_uuid="u",
         organization_id="o",
         github_integration_id=5,
-        repository=None,
+        repository=repository,
         distinct_id="d",
         state={"github_read_access": True},
     )
 
-    token = _resolve_sandbox_github_token(ctx, task=MagicMock(), actor_user=None, repository=None, has_repo=False)
+    token = _resolve_sandbox_github_token(
+        ctx, task=MagicMock(), actor_user=None, repository=repository, has_repo=has_repo
+    )
 
     assert token == "READONLY_TOKEN"
     mock_full.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "github_integration_id, expected",
+    [(5, "FULL_TOKEN"), (None, "")],
+    ids=["entitled_discussion_gets_the_team_credential", "unentitled_discussion_stays_credential_less"],
+)
+@patch("products.tasks.backend.temporal.process_task.activities.provision_sandbox.emit_agent_log")
+@patch("products.tasks.backend.temporal.process_task.activities.provision_sandbox.get_sandbox_github_token")
+def test_repo_less_report_run_follows_the_integration_the_create_path_attached(
+    mock_full: MagicMock, _mock_log: MagicMock, github_integration_id: int | None, expected: str
+) -> None:
+    # Ask AI on a report runs repo-less, and it used to get no credential whatever it carried, so
+    # it could not clone a private repository or push. The attached integration is the signal now:
+    # the create path attaches one only after the Desktop gate passed, and a scout or scout-chat
+    # task never gets one at all.
+    from products.tasks.backend.models import Task  # noqa: PLC0415 — model import kept off this module's import path
+    from products.tasks.backend.temporal.process_task.activities.provision_sandbox import (  # noqa: PLC0415 — activities import the workflow stack; keep it off this module's import path
+        _resolve_sandbox_github_token,
+    )
+
+    mock_full.return_value = "FULL_TOKEN"
+    task = Task(origin_product=Task.OriginProduct.SIGNAL_REPORT)
+    ctx = TaskProcessingContext(
+        task_id="t",
+        run_id="r",
+        team_id=1,
+        team_uuid="u",
+        organization_id="o",
+        github_integration_id=github_integration_id,
+        repository=None,
+        distinct_id="d",
+        state={},
+    )
+
+    token = _resolve_sandbox_github_token(ctx, task=task, actor_user=None, repository=None, has_repo=False)
+
+    assert token == expected
 
 
 @patch("products.tasks.backend.temporal.process_task.activities.provision_sandbox.emit_agent_log")

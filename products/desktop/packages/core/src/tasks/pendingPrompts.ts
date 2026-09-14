@@ -1,13 +1,12 @@
 import {
+  contentToPlainText,
+  contentToXml,
   type EditorContent,
   textToContent,
   xmlToContent,
 } from "@posthog/core/message-editor/content";
 
 const MAX_RECOVERABLE_PROMPTS = 20;
-
-/** Why a submitted prompt never reached a running task. */
-export type PendingPromptInterruptReason = "offline" | "failed";
 
 /** The fields a recovered prompt restores its composer content from. */
 export interface RecoverablePromptContent {
@@ -27,6 +26,29 @@ export function pendingPromptToContent(
 ): EditorContent {
   const xml = record.contentXml?.trim();
   return xml ? xmlToContent(xml) : textToContent(record.promptText);
+}
+
+/**
+ * Capture the durable record fields for a submit, from the composer content
+ * the person typed. Wrappers that transform the content for the task request
+ * (the autoresearch kickoff prepends a protocol preamble) must derive the
+ * record from the original content: recovery restores what the person typed,
+ * and a preamble that survives into the composer gets prepended a second time
+ * on resubmit.
+ */
+export function pendingPromptRecordFromContent(content: EditorContent): {
+  promptText: string;
+  contentXml: string;
+  attachments: { id: string; label: string }[];
+} {
+  return {
+    promptText: contentToPlainText(content).trim(),
+    contentXml: contentToXml(content).trim(),
+    attachments: (content.attachments ?? []).map((attachment) => ({
+      id: attachment.id,
+      label: attachment.label,
+    })),
+  };
 }
 
 export interface TimestampedPendingPrompt {

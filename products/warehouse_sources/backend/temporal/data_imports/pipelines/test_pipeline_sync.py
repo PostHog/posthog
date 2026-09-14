@@ -363,6 +363,128 @@ class TestValidateSchemaAndUpdateTable:
         assert not table.columns
         assert table.created_via == DataWarehouseTableCreatedVia.SOURCE
 
+    def _linked_table(self, team, schema, job, *, queryable_folder: str) -> DataWarehouseTable:
+        names = resolve_table_and_folder_names(schema.name, schema.resolved_s3_folder_name)
+        table = DataWarehouseTable.objects.create(
+            name=build_table_name(job.pipeline, names.table_storage_name),
+            format=DataWarehouseTableFormat.DeltaS3Wrapper,
+            url_pattern="s3://bucket/orders_v1/*.parquet",
+            team=team,
+            row_count=100,
+            queryable_folder=queryable_folder,
+            external_data_source=schema.source,
+            created_via=DataWarehouseTableCreatedVia.SOURCE,
+        )
+        schema.table = table
+        schema.save()
+        return table
+
+    def test_zero_reported_row_count_still_repoints_existing_table(self, team):
+        # The v3 load consumer can report row_count 0 on a redelivered final batch after a real write.
+        # An existing table must then be repointed at the freshly published files, not stranded on the
+        # previous queryable_folder - stranding it serves stale data under a green sync.
+        schema, job = self._schema_and_job(team)
+        table = self._linked_table(team, schema, job, queryable_folder="s3://bucket/orders_v1")
+
+        with (
+            patch.object(DataWarehouseTable, "get_columns", return_value={}),
+            patch.object(DataWarehouseTable, "get_count", return_value=150),
+        ):
+            async_to_sync(validate_schema_and_update_table)(
+                run_id=str(job.id),
+                team_id=team.pk,
+                schema_id=schema.id,
+                row_count=0,
+                table_format=DataWarehouseTableFormat.DeltaS3Wrapper,
+                queryable_folder="s3://bucket/orders_v2",
+            )
+
+        table.refresh_from_db()
+        assert table.queryable_folder == "s3://bucket/orders_v2"
+        # A reported 0 must not zero a table that was just republished.
+        assert table.row_count == 150
+
+    def test_zero_row_sync_creates_no_table(self, team):
+        # The publish step republishes the whole delta table every run, so files being queryable
+        # says nothing about this run writing any. A table born here has no column types to take -
+        # the run wrote no arrow batches - and registers empty, which reads as data loss.
+        schema, job = self._schema_and_job(team)
+        assert schema.table is None
+
+        with (
+            patch.object(DataWarehouseTable, "get_columns", return_value={}),
+            patch.object(DataWarehouseTable, "get_count", return_value=150),
+        ):
+            async_to_sync(validate_schema_and_update_table)(
+                run_id=str(job.id),
+                team_id=team.pk,
+                schema_id=schema.id,
+                row_count=0,
+                table_format=DataWarehouseTableFormat.DeltaS3Wrapper,
+                queryable_folder="s3://bucket/orders",
+            )
+
+        schema.refresh_from_db()
+        assert schema.table is None
+        assert not DataWarehouseTable.objects.filter(external_data_source=schema.source, deleted=False).exists()
+
+    def test_relinks_a_table_an_earlier_run_left_unlinked(self, team):
+        # An orphan must be adopted and repointed, not left unlinked and not duplicated.
+        schema, job = self._schema_and_job(team)
+        orphan = self._linked_table(team, schema, job, queryable_folder="s3://bucket/orders_v1")
+        ExternalDataSchema.objects.filter(id=schema.id).update(table=None)
+
+        with (
+            patch.object(DataWarehouseTable, "get_columns", return_value={}),
+            patch.object(DataWarehouseTable, "get_count", return_value=150),
+        ):
+            async_to_sync(validate_schema_and_update_table)(
+                run_id=str(job.id),
+                team_id=team.pk,
+                schema_id=schema.id,
+                row_count=0,
+                table_format=DataWarehouseTableFormat.DeltaS3Wrapper,
+                queryable_folder="s3://bucket/orders_v2",
+            )
+
+        schema.refresh_from_db()
+        orphan.refresh_from_db()
+        assert schema.table_id == orphan.id
+        assert orphan.queryable_folder == "s3://bucket/orders_v2"
+        assert DataWarehouseTable.objects.filter(external_data_source=schema.source, deleted=False).count() == 1
+
+    def test_does_not_adopt_a_table_another_schema_owns(self, team):
+        # A pinned folder makes "public.orders" resolve to the same table name as "orders", so a
+        # lookup on name alone would hand one schema the table its sibling is already using.
+        owner, job = self._schema_and_job(team)
+        owned = self._linked_table(team, owner, job, queryable_folder="s3://bucket/orders_v1")
+        sibling = ExternalDataSchema.objects.create(
+            name="public.orders", team=team, source=owner.source, s3_folder_name="orders"
+        )
+        sibling_job = ExternalDataJob.objects.create(
+            team=team, pipeline=owner.source, schema=sibling, status=ExternalDataJobStatus.RUNNING, rows_synced=10
+        )
+
+        with (
+            patch.object(DataWarehouseTable, "get_columns", return_value={}),
+            patch.object(DataWarehouseTable, "get_count", return_value=150),
+        ):
+            async_to_sync(validate_schema_and_update_table)(
+                run_id=str(sibling_job.id),
+                team_id=team.pk,
+                schema_id=sibling.id,
+                row_count=10,
+                table_format=DataWarehouseTableFormat.DeltaS3Wrapper,
+                queryable_folder="s3://bucket/orders_v2",
+            )
+
+        owner.refresh_from_db()
+        sibling.refresh_from_db()
+        owned.refresh_from_db()
+        assert owner.table_id == owned.id
+        assert sibling.table_id not in (None, owned.id)
+        assert owned.queryable_folder == "s3://bucket/orders_v1"
+
 
 class TestUpdateLastSyncedAt:
     @pytest.mark.asyncio

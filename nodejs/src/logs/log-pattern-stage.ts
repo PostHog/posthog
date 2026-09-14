@@ -1,7 +1,7 @@
 import { performance } from 'node:perf_hooks'
 import { Counter, Histogram } from 'prom-client'
 
-import { MASK_RULES, PATTERN_VERSION, computeLogPattern } from './log-pattern-mask'
+import { MASK_RULES, MESSAGE_KEYS, PATTERN_VERSION, buildLogPattern, zeroRuleFires } from './log-pattern-mask'
 import type { LogRecord } from './log-record-avro'
 import type { PipelineStage } from './pipeline/log-processing-pipeline'
 
@@ -67,12 +67,12 @@ export function makePatternMaskingStage(): PipelineStage {
 
 function stampBatch(records: LogRecord[]): void {
     const kindCounts = new Map<string, number>()
-    const ruleFires: number[] = new Array(MASK_RULES.length).fill(0)
+    const ruleFires: number[] = zeroRuleFires()
     let inputCapped = 0
 
     for (const record of records) {
         const start = performance.now()
-        const result = computeLogPattern(record.body)
+        const result = buildLogPattern(record.body, MESSAGE_KEYS)
         record.pattern = result.pattern
         record.pattern_version = PATTERN_VERSION
         logsPatternMaskingDurationHistogram.observe((performance.now() - start) / 1000)

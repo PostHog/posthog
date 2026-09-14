@@ -11,6 +11,7 @@ import type { ReplayScannerApi } from '../generated/api.schemas'
 import { observationsDockLogic } from '../logics/observationsDockLogic'
 import { visionQuotaLogic } from '../logics/visionQuotaLogic'
 import { quotaUx } from '../utils/quotaProjection'
+import { ScanBlock, recordingScanBlock } from '../utils/scanEligibility'
 import { visionSurfaceShown } from '../utils/visionSurface'
 import { ObservationDockCard } from './ObservationCard'
 import { ScannerTypeBadge } from './ScannerTypeBadge'
@@ -27,10 +28,12 @@ export function PlayerSidebarObservationsTab(): JSX.Element | null {
 
 function ScannerPicker({
     sessionId,
+    scanBlock,
     type = 'primary',
     placement = 'bottom-start',
 }: {
     sessionId: string
+    scanBlock: ScanBlock | null
     type?: 'primary' | 'secondary'
     placement?: 'bottom-start' | 'top-start'
 }): JSX.Element {
@@ -100,7 +103,7 @@ function ScannerPicker({
                 icon={<IconEye />}
                 sideIcon={<IconChevronDown />}
                 loading={observing}
-                disabledReason={quotaDisabledReason}
+                disabledReason={scanBlock?.reason ?? quotaDisabledReason}
                 tooltip={quotaTooltip}
                 data-attr="vision-scan-recording"
             >
@@ -115,10 +118,11 @@ function ObservationsTabContent({ sessionId }: { sessionId: string }): JSX.Eleme
     const { observations, observationsLoading, retryingObservationIds } = useValues(logic)
     const { retryObservation } = useActions(logic)
     // The player logic is keyed; seek the exact mounted instance, not a propless default
-    const { logicProps } = useValues(sessionRecordingPlayerLogic)
+    const { logicProps, sessionPlayerMetaData } = useValues(sessionRecordingPlayerLogic)
     const seekToTime = (ms: number): void => {
         sessionRecordingPlayerLogic.findMounted(logicProps)?.actions.seekToTime(ms)
     }
+    const scanBlock = recordingScanBlock(sessionPlayerMetaData)
 
     return (
         <div className="flex flex-col flex-1 min-h-0" data-attr="vision-observations-tab">
@@ -128,10 +132,23 @@ function ObservationsTabContent({ sessionId }: { sessionId: string }): JSX.Eleme
                 </div>
             ) : observations.length === 0 ? (
                 <div className="flex flex-col flex-1 items-center justify-center gap-2 p-4 text-center">
-                    <p className="text-muted text-sm mb-0">
-                        No observations yet. Pick a scanner to run on this recording.
-                    </p>
-                    <ScannerPicker sessionId={sessionId} />
+                    {scanBlock ? (
+                        // No scanner can clear the gate for this recording, so offering the picker would
+                        // only lead to an ineligible result.
+                        <>
+                            <p className="text-muted text-sm mb-0" data-attr="vision-observations-tab-skipped">
+                                Replay vision skipped this recording, so it has no summary.
+                            </p>
+                            <p className="text-muted text-xs mb-0">{scanBlock.reason}</p>
+                        </>
+                    ) : (
+                        <>
+                            <p className="text-muted text-sm mb-0">
+                                No observations yet. Pick a scanner to run on this recording.
+                            </p>
+                            <ScannerPicker sessionId={sessionId} scanBlock={scanBlock} />
+                        </>
+                    )}
                 </div>
             ) : (
                 <div className="flex-1 overflow-y-auto p-2 space-y-2">
@@ -145,7 +162,12 @@ function ObservationsTabContent({ sessionId }: { sessionId: string }): JSX.Eleme
                         />
                     ))}
                     <div className="flex justify-center">
-                        <ScannerPicker sessionId={sessionId} type="secondary" placement="top-start" />
+                        <ScannerPicker
+                            sessionId={sessionId}
+                            scanBlock={scanBlock}
+                            type="secondary"
+                            placement="top-start"
+                        />
                     </div>
                 </div>
             )}

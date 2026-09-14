@@ -211,6 +211,22 @@ def _row_filter_scan_and_predicate(
     )
 
 
+def _version_at_or_before(delta_table: deltalake.DeltaTable, as_of: dt.datetime) -> int:
+    """Resolve `as_of` to the newest commit version at or before it.
+
+    `DeltaTable.load_as_version` also accepts a datetime directly, but delta-rs has been
+    observed to resolve a datetime to a *later* version than the one at or before it once
+    the process has already opened other Delta tables (stale log-segment state carried
+    across instances) — loading by explicit integer version doesn't share that failure
+    mode, so the version is resolved from `history()` first.
+    """
+    target_ms = int(as_of.timestamp() * 1000)
+    candidates = [entry for entry in delta_table.history() if entry["timestamp"] <= target_ms]
+    if not candidates:
+        raise ValueError(f"No commit at or before {as_of.isoformat()}")
+    return max(candidates, key=lambda entry: entry["version"])["version"]
+
+
 def resolve_parent_table_ref(
     team_id: int,
     source_id: str,
@@ -264,7 +280,7 @@ def resolve_parent_table_ref(
 
         as_of = _snapshot_pin_as_of(team_id, parent_schema.id)
         if as_of is not None:
-            delta_table.load_as_version(as_of)
+            delta_table.load_as_version(_version_at_or_before(delta_table, as_of))
         if required_columns:
             # Validate eagerly: the reader is a generator, so a missing column would otherwise
             # surface deep inside the pipeline, past the caller's fall-back-to-the-API branch.

@@ -133,6 +133,32 @@ describe('cleanEntityProperties', () => {
         ])
     })
 
+    it('leaves a behavioral filter without a count operator alone', () => {
+        const properties = [
+            {
+                key: '$pageview',
+                type: 'behavioral',
+                value: 'performed_event',
+                event_type: 'events',
+                time_value: 30,
+                time_interval: 'day',
+            },
+        ]
+
+        const result = cleanEntityProperties(properties)
+
+        expect(result).toEqual([
+            {
+                key: '$pageview',
+                type: 'behavioral',
+                value: 'performed_event',
+                event_type: 'events',
+                time_value: 30,
+                time_interval: 'day',
+            },
+        ])
+    })
+
     it('handles negation for cohorts', () => {
         let properties: any = [
             {

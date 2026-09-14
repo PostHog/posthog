@@ -74,12 +74,19 @@ rules:
                               |AgentTransportBinding
                               |AgentUser
                               |AIObservabilityChecklistItemState
+                              |AITrainingDeletionRequest
                               |Alert
                               |AlertConfiguration
                               |Annotation
                               |Announcement
                               |AnnouncementDelivery
                               |ApprovalPolicy
+                              |AutoresearchIteration
+                              |AutoresearchModel
+                              |AutoresearchPipeline
+                              |AutoresearchRun
+                              |AutoresearchSuggestion
+                              |AutoresearchTrainingRun
                               |BatchExport
                               |BatchExportBackfill
                               |BatchExportFileDownload
@@ -96,6 +103,7 @@ rules:
                               |ChangeRequest
                               |ChannelContextGeneration
                               |ChannelInstructions
+                              |ChannelMembership
                               |ChannelStar
                               |ClusteringConfig
                               |ClusteringJob
@@ -108,10 +116,13 @@ rules:
                               |ContentAutopilotRun
                               |ContentAutopilotSiteProfile
                               |Conversation
+                              |ConversationInboundEvent
                               |ConversationRestoreToken
                               |CoreMemory
                               |CustomerJourney
                               |CustomerProfileConfig
+                              |CustomerTask
+                              |CustomerTaskActivity
                               |CustomOAuth2Integration
                               |CustomPropertyDefinition
                               |CustomPropertySource
@@ -160,6 +171,9 @@ rules:
                               |EventFilterConfig
                               |EventStream
                               |EventStreamMember
+                              |ErrorTrackingAlert
+                              |ErrorTrackingAlertDestination
+                              |ErrorTrackingAlertThread
                               |ErrorTrackingAssignmentRule
                               |ErrorTrackingBypassRule
                               |ErrorTrackingGroupingRule
@@ -182,10 +196,13 @@ rules:
                               |ExperimentSavedMetric
                               |ExportedAsset
                               |ExportedRecording
+                              |ExternalDataDestination
                               |ExternalDataJob
                               |ExternalDataSchema
+                              |ExternalDataSchemaDestination
                               |ExternalDataSchemaOOMEvent
                               |ExternalDataSource
+                              |ExternalDataSourceDestination
                               |FeatureFlag
                               |FeatureRequest
                               |FeatureRequestAccountLink
@@ -201,6 +218,7 @@ rules:
                               |TeamMCPGatewayConfig
                               |TeamSessionSummariesConfig
                               |TeamWorkflowsConfig
+                              |UserCustomerAnalyticsConfig
                               |FieldNote
                               |FileSystem
                               |FileSystemFolderInstructions
@@ -226,6 +244,7 @@ rules:
                               |KnowledgeChunk
                               |KnowledgeDocument
                               |KnowledgeGapSuggestion
+                              |KnowledgeLearningRun
                               |KnowledgeSource
                               |Link
                               |LiveDebuggerBreakpoint
@@ -247,6 +266,7 @@ rules:
                               |LLMTraceSummary
                               |ManagedWarehouseBackfillPartition
                               |ManagedWarehouseSourceJob
+                              |ManagedWarehouseViewTranslationResult
                               |MarketingAnalyticsGoalMapping
                               |Meeting
                               |MeetingParticipant
@@ -261,6 +281,7 @@ rules:
                               |MCPGatewayServer
                               |MCPIntentClusterSnapshot
                               |MCPIntentEmbeddingCache
+                              |MCPMeasuredStats
                               |MCPMemberServerRevocation
                               |MCPOrgRule
                               |MCPServiceAccount
@@ -289,6 +310,7 @@ rules:
                               |ReplayObservation
                               |ReplayObservationLabel
                               |ReplayObservationUsage
+                              |ReplayObservationView
                               |ReplayScanner
                               |ReplayScannerBackfill
                               |ReplayScannerPromptSuggestion
@@ -313,8 +335,11 @@ rules:
                               |SignalReport
                               |SignalReportAction
                               |SignalReportArtefact
+                              |SignalReportPullRequest
+                              |SignalReportAssignment
                               |SignalReportRefund
                               |SignalReportTask
+                              |SignalReportTrackerIssue
                               |SignalRepositoryAreaActivity
                               |SignalTeamConfig
                               |SignalSourceConfig
@@ -323,6 +348,7 @@ rules:
                               |SignalScoutEmission
                               |SignalScoutNote
                               |SignalScoutStructuredOutput
+                              |SignalScoutSuggestionSet
                               |SignalScratchpad
                               |SignalProjectProfile
                               |SingleSessionSummary
@@ -347,12 +373,14 @@ rules:
                               |TaskWorkflowDispatch
                               |TaskSearchDocument
                               |TaskSession
+                              |UserTasksConfig
                               |TaskThreadMessage
                               |TaskThreadMessageMention
                               |Channel
                               |ChannelFeedMessage
                               |EmailChannel
                               |EvaluationReport
+                              |EvaluationBackfill
                               |Text
                               |Threshold
                               |ToleratedHash
@@ -371,17 +399,19 @@ rules:
                               |UserInterview
                               |UserInterviewTopic
                               |UserRepoPreference
-                              |VisionAction
-                              |VisionActionRun
                               |VisionAlertConfiguration
                               |VisionAlertMatch
+                              |WikiPageProposal
                               |WarehouseColumnAnnotation
                               |WarehouseColumnStatistics
                               |WebAnalyticsAchievementProgress
                               |WebAnalyticsFilterPreset
                               |WebAnalyticsInteraction
                               |WebAnalyticsVisit
+                              |WizardRun
+                              |WizardRunArtifact
                               |WizardSession
+                              |WizardWorker
                           )$
                 - focus-metavariable: $SINK
       pattern-sanitizers:
@@ -457,12 +487,19 @@ rules:
                         |AgentTransportBinding
                         |AgentUser
                         |AIObservabilityChecklistItemState
+                        |AITrainingDeletionRequest
                         |Alert
                         |AlertConfiguration
                         |Annotation
                         |Announcement
                         |AnnouncementDelivery
                         |ApprovalPolicy
+                        |AutoresearchIteration
+                        |AutoresearchModel
+                        |AutoresearchPipeline
+                        |AutoresearchRun
+                        |AutoresearchSuggestion
+                        |AutoresearchTrainingRun
                         |BatchExport
                         |BatchExportBackfill
                         |BatchExportFileDownload
@@ -479,6 +516,7 @@ rules:
                         |ChangeRequest
                         |ChannelContextGeneration
                         |ChannelInstructions
+                        |ChannelMembership
                         |ChannelStar
                         |ClusteringConfig
                         |ClusteringJob
@@ -491,10 +529,13 @@ rules:
                         |ContentAutopilotRun
                         |ContentAutopilotSiteProfile
                         |Conversation
+                        |ConversationInboundEvent
                         |ConversationRestoreToken
                         |CoreMemory
                         |CustomerJourney
                         |CustomerProfileConfig
+                        |CustomerTask
+                        |CustomerTaskActivity
                         |CustomOAuth2Integration
                         |CustomPropertyDefinition
                         |CustomPropertySource
@@ -543,6 +584,9 @@ rules:
                         |EventFilterConfig
                         |EventStream
                         |EventStreamMember
+                        |ErrorTrackingAlert
+                        |ErrorTrackingAlertDestination
+                        |ErrorTrackingAlertThread
                         |ErrorTrackingAssignmentRule
                         |ErrorTrackingBypassRule
                         |ErrorTrackingGroupingRule
@@ -584,6 +628,7 @@ rules:
                         |TeamMCPGatewayConfig
                         |TeamSessionSummariesConfig
                         |TeamWorkflowsConfig
+                        |UserCustomerAnalyticsConfig
                         |FieldNote
                         |FileSystem
                         |FileSystemFolderInstructions
@@ -609,6 +654,7 @@ rules:
                         |KnowledgeChunk
                         |KnowledgeDocument
                         |KnowledgeGapSuggestion
+                        |KnowledgeLearningRun
                         |KnowledgeSource
                         |Link
                         |LiveDebuggerBreakpoint
@@ -625,6 +671,7 @@ rules:
                         |LLMTraceSummary
                         |ManagedWarehouseBackfillPartition
                         |ManagedWarehouseSourceJob
+                        |ManagedWarehouseViewTranslationResult
                         |MarketingAnalyticsGoalMapping
                         |Meeting
                         |MeetingParticipant
@@ -666,6 +713,7 @@ rules:
                         |ReplayObservation
                         |ReplayObservationLabel
                         |ReplayObservationUsage
+                        |ReplayObservationView
                         |ReplayScanner
                         |ReplayScannerBackfill
                         |ReplayScannerPromptSuggestion
@@ -690,8 +738,11 @@ rules:
                         |SignalReport
                         |SignalReportAction
                         |SignalReportArtefact
+                        |SignalReportPullRequest
+                        |SignalReportAssignment
                         |SignalReportRefund
                         |SignalReportTask
+                        |SignalReportTrackerIssue
                         |SignalRepositoryAreaActivity
                         |SignalTeamConfig
                         |SignalSourceConfig
@@ -700,6 +751,7 @@ rules:
                         |SignalScoutEmission
                         |SignalScoutNote
                         |SignalScoutStructuredOutput
+                        |SignalScoutSuggestionSet
                         |SignalScratchpad
                         |SignalProjectProfile
                         |SingleSessionSummary
@@ -723,12 +775,14 @@ rules:
                         |TaskRun
                         |TaskWorkflowDispatch
                         |TaskSession
+                        |UserTasksConfig
                         |TaskThreadMessage
                         |TaskThreadMessageMention
                         |Channel
                         |ChannelFeedMessage
                         |EmailChannel
                         |EvaluationReport
+                        |EvaluationBackfill
                         |Text
                         |Threshold
                         |ToleratedHash
@@ -747,17 +801,19 @@ rules:
                         |UserInterview
                         |UserInterviewTopic
                         |UserRepoPreference
-                        |VisionAction
-                        |VisionActionRun
                         |VisionAlertConfiguration
                         |VisionAlertMatch
+                        |WikiPageProposal
                         |WarehouseColumnAnnotation
                         |WarehouseColumnStatistics
                         |WebAnalyticsAchievementProgress
                         |WebAnalyticsFilterPreset
                         |WebAnalyticsInteraction
                         |WebAnalyticsVisit
+                        |WizardRun
+                        |WizardRunArtifact
                         |WizardSession
+                        |WizardWorker
                     )$
           # Exclude when team filter is present
           - pattern-not: $M.objects. ... .$METHOD2(..., team__project_id=$T, ...)
@@ -855,6 +911,7 @@ rules:
                               |IdentityProviderConfig
                               |LegalDocument
                               |ManagedWarehouseSourceLifecycle
+                              |ManagedWarehouseViewTranslationJob
                               |OrganizationMembership
                               |OrganizationMemberNotificationLock
                               |OrganizationDomain
@@ -930,6 +987,7 @@ rules:
                         |IdentityProviderConfig
                         |LegalDocument
                         |ManagedWarehouseSourceLifecycle
+                        |ManagedWarehouseViewTranslationJob
                         |OrganizationMembership
                         |OrganizationMemberNotificationLock
                         |OrganizationDomain
@@ -1181,7 +1239,6 @@ rules:
                               |InsightViewed
                               |KernelRuntime
                               |MCPServerInstallation
-                              |PersistedFolder
                               |Reminder
                               |SessionRecordingViewed
                               |UserFacetSettings
@@ -1255,7 +1312,6 @@ rules:
                         |FileSystemViewLog
                         |InsightViewed
                         |KernelRuntime
-                        |PersistedFolder
                         |Reminder
                         |SessionRecordingViewed
                         |UserFacetSettings

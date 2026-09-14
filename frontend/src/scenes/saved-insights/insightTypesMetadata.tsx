@@ -563,11 +563,6 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconHogQL,
         inMenu: false,
     },
-    [NodeKind.NonIntegratedConversionsTableQuery]: {
-        name: 'Non-Integrated Conversions Table',
-        icon: IconHogQL,
-        inMenu: false,
-    },
     [NodeKind.UsageMetricsQuery]: {
         name: 'Usage Metrics',
         icon: IconPieChart,
@@ -624,6 +619,12 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
     [NodeKind.MCPHarnessBreakdownQuery]: {
         name: 'MCP harness breakdown',
         description: 'MCP tool-call activity grouped by client harness.',
+        icon: IconPieChart,
+        inMenu: false,
+    },
+    [NodeKind.MCPModelBreakdownQuery]: {
+        name: 'MCP model breakdown',
+        description: 'MCP tool-call activity grouped by captured model.',
         icon: IconPieChart,
         inMenu: false,
     },

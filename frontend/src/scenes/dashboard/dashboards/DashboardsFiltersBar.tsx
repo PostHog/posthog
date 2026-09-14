@@ -4,7 +4,9 @@ import { IconChevronDown, IconFolder, IconPin, IconPinFilled, IconShare, IconX }
 import { LemonInput, Popover } from '@posthog/lemon-ui'
 
 import { MemberSelectMultiplePopover } from 'lib/components/MemberSelectMultiplePopover'
+import { useScrollObserver } from 'lib/hooks/useScrollObserver'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { DashboardsTab, dashboardsLogic } from 'scenes/dashboard/dashboards/dashboardsLogic'
 
 interface DashboardsFiltersBarProps {
@@ -12,8 +14,9 @@ interface DashboardsFiltersBarProps {
 }
 
 export function DashboardsFiltersBar({ extraActions }: DashboardsFiltersBarProps): JSX.Element {
-    const { filters, currentTab, filteredTags, tagSearch, showTagPopover } = useValues(dashboardsLogic)
-    const { setFilters, setTagSearch, setShowTagPopover, setSearch } = useActions(dashboardsLogic)
+    const { filters, currentTab, tagPageLoading, tagResults, tagSearch, showTagPopover } = useValues(dashboardsLogic)
+    const { loadMoreTagResults, setFilters, setTagSearch, setShowTagPopover, setSearch } = useActions(dashboardsLogic)
+    const tagListScrollRef = useScrollObserver({ onScrollBottom: loadMoreTagResults })
 
     const createdByIds = filters.createdBy === 'All users' ? [] : filters.createdBy
     const handleTagToggle = (tag: string): void => {
@@ -25,7 +28,6 @@ export function DashboardsFiltersBar({ extraActions }: DashboardsFiltersBarProps
         }
         setFilters({ tags: Array.from(selected) })
     }
-
     return (
         <div className="flex justify-between gap-2 flex-wrap mb-4">
             <LemonInput type="search" placeholder="Search for dashboards" onChange={setSearch} value={filters.search} />
@@ -59,51 +61,64 @@ export function DashboardsFiltersBar({ extraActions }: DashboardsFiltersBarProps
                                     fullWidth
                                     className="max-w-full"
                                 />
-                                <ul className="deprecated-space-y-px">
-                                    {filteredTags.map((tag: string) => (
-                                        <li key={tag}>
-                                            <LemonButton
-                                                fullWidth
-                                                role="menuitem"
-                                                size="small"
-                                                onClick={() => handleTagToggle(tag)}
-                                            >
-                                                <span className="flex items-center justify-between gap-2 flex-1">
-                                                    <span className="flex items-center gap-2 max-w-full">
-                                                        <input
-                                                            type="checkbox"
-                                                            className="cursor-pointer"
-                                                            checked={filters.tags?.includes(tag) || false}
-                                                            readOnly
-                                                        />
-                                                        <span>{tag}</span>
-                                                    </span>
-                                                </span>
-                                            </LemonButton>
-                                        </li>
-                                    ))}
-                                    {filteredTags.length === 0 ? (
-                                        <div className="p-2 text-secondary italic truncate border-t">
-                                            {tagSearch ? <span>No matching tags</span> : <span>No tags</span>}
-                                        </div>
-                                    ) : null}
-                                    {(filters.tags?.length || 0) > 0 && (
-                                        <>
-                                            <div className="my-1 border-t" />
-                                            <li>
+                                {(filters.tags?.length || 0) > 0 && (
+                                    <LemonButton
+                                        data-attr="dashboard-tags-clear-selection"
+                                        fullWidth
+                                        role="menuitem"
+                                        size="small"
+                                        onClick={() => setFilters({ tags: [] })}
+                                        type="tertiary"
+                                    >
+                                        Clear selection
+                                    </LemonButton>
+                                )}
+                                <div
+                                    ref={tagListScrollRef}
+                                    className="max-h-80 overflow-y-auto"
+                                    data-attr="dashboard-tags-list"
+                                    tabIndex={0}
+                                    aria-label="Tags"
+                                >
+                                    <ul className="deprecated-space-y-px">
+                                        {tagResults.map((tag: string) => (
+                                            <li key={tag}>
                                                 <LemonButton
                                                     fullWidth
                                                     role="menuitem"
                                                     size="small"
-                                                    onClick={() => setFilters({ tags: [] })}
-                                                    type="tertiary"
+                                                    onClick={() => handleTagToggle(tag)}
                                                 >
-                                                    Clear selection
+                                                    <span className="flex items-center justify-between gap-2 flex-1">
+                                                        <span className="flex items-center gap-2 max-w-full">
+                                                            <input
+                                                                type="checkbox"
+                                                                className="cursor-pointer"
+                                                                checked={filters.tags?.includes(tag) || false}
+                                                                readOnly
+                                                            />
+                                                            <span>{tag}</span>
+                                                        </span>
+                                                    </span>
                                                 </LemonButton>
                                             </li>
-                                        </>
-                                    )}
-                                </ul>
+                                        ))}
+                                        {!tagPageLoading && tagResults.length === 0 ? (
+                                            <div className="p-2 text-secondary italic truncate border-t">
+                                                {tagSearch ? <span>No matching tags</span> : <span>No tags</span>}
+                                            </div>
+                                        ) : null}
+                                        {tagPageLoading ? (
+                                            <li className="p-1" aria-label="Loading tags">
+                                                <LemonSkeleton.Row
+                                                    className="h-8 mb-1"
+                                                    repeat={tagResults.length === 0 ? 5 : 2}
+                                                    fade
+                                                />
+                                            </li>
+                                        ) : null}
+                                    </ul>
+                                </div>
                             </div>
                         }
                     >

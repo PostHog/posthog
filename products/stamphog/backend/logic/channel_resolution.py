@@ -33,10 +33,11 @@ from django.db.models import Q
 
 import structlog
 from posthog_owners.resolver import Purpose, TeamChannel, team_channel, teams_registry
-from posthog_owners.schema import TeamEntry
+from posthog_owners.schema import Producer, TeamEntry
 
 from posthog.dataclasses import frozen
-from posthog.models.integration import Integration, SlackIntegration
+from posthog.models.integration import Integration
+from posthog.team_notifications.slack import SlackChannel, fetch_channel_map, find_channel
 
 from ..facade.enums import ChannelResolutionSource
 from ..models import StamphogRepoConfig
@@ -52,14 +53,8 @@ _OWNERS_FILE_PATH = "owners.yaml"
 # The digest is automation, so it asks the registry where automation posts rather than where the
 # team's people are. That falls back to the people channel when a team never separates the two.
 _CHANNEL_PURPOSE: Purpose = "notifications"
-
-# Slack channel flags that mark a channel as shared beyond this workspace. Routing maps a GitHub
-# team slug onto a Slack channel by name, or by a registry entry. A shared channel with that name
-# therefore sends internal PR digests outside the workspace, which is a leak. is_ext_shared and
-# is_pending_ext_shared cover live and pending external connections. is_shared also catches
-# org-shared channels. A repo's own declared digest channel is exempt, because the maintainer chose
-# that channel for their own repository.
-_SHARED_CHANNEL_FLAGS = ("is_ext_shared", "is_pending_ext_shared", "is_shared")
+# Named so a team can keep the daily digest out of its channel while other bots keep posting there.
+_PRODUCER: Producer = "stamphog"
 
 
 class RoutingUnavailable(Exception):
@@ -70,12 +65,6 @@ class RoutingUnavailable(Exception):
     can be the one that declares every team's channel. A run that continues without it sends the
     morning's digests to derived channel names. One lost day costs less.
     """
-
-
-@frozen
-class SlackChannel:
-    channel_id: str
-    shared: bool
 
 
 @frozen
@@ -114,10 +103,6 @@ class RoutingContext:
     channels_by_name: dict[str, SlackChannel]
 
 
-def _is_shared_channel(channel: dict) -> bool:
-    return any(channel.get(flag) for flag in _SHARED_CHANNEL_FLAGS)
-
-
 def _candidate_repo_configs(team_id: int) -> list[StamphogRepoConfig]:
     """Every repo the team still uses, in a fixed order.
 
@@ -137,23 +122,13 @@ def _candidate_repo_configs(team_id: int) -> list[StamphogRepoConfig]:
     return list(
         StamphogRepoConfig.objects.for_team(team_id)
         .using(router.db_for_write(StamphogRepoConfig))
+        # A blank installation cannot fetch a routing file or resolve a webhook, so the row carries
+        # no registry to read and no merges to report. Left in, its unreadable fetch would raise
+        # RoutingUnavailable and stop the whole team's run.
+        .exclude(installation_id="")
         .filter(Q(enabled=True) | Q(digest_enabled=True))
         .order_by("repository")
     )
-
-
-def _fetch_channel_map(integration: Integration) -> dict[str, SlackChannel]:
-    """Public channel name -> channel, for one Slack integration.
-
-    Private channels are skipped: listing them needs a real authed Slack user, and this runs from a
-    background task with no request user to act as. Public-only is fine for name matching. The
-    shared flag rides along rather than filtering here, because the repo-declared path is allowed
-    to name a shared channel and the other paths are not.
-    """
-    return {
-        channel["name"]: SlackChannel(channel_id=channel["id"], shared=_is_shared_channel(channel))
-        for channel in SlackIntegration(integration).list_public_channels()
-    }
 
 
 @frozen
@@ -205,7 +180,7 @@ def build_routing_context(team_id: int) -> RoutingContext | None:
             declared_repo_channel[repo_config.repository] = routing.declared_channel
 
     try:
-        channels_by_name = _fetch_channel_map(integration)
+        channels_by_name = fetch_channel_map(integration)
     except Exception as e:
         raise RoutingUnavailable(f"could not list Slack channels for team {team_id}: {e}") from e
 
@@ -231,7 +206,7 @@ def _registry_answer(context: RoutingContext, slug: str, repository: str) -> Tea
     block, which no repository has a reason to write.
     """
     registry = context.registry_by_repo.get(repository) or context.inherited_registry
-    return team_channel(slug, registry, _CHANNEL_PURPOSE)
+    return team_channel(slug, registry, _CHANNEL_PURPOSE, _PRODUCER)
 
 
 def resolve_destination(context: RoutingContext, audience_key: str, repository: str) -> Destination | None:
@@ -266,19 +241,18 @@ def _match(
     context: RoutingContext, channel_name: str, source: ChannelResolutionSource, *, allow_shared: bool
 ) -> Destination | None:
     name = channel_name.removeprefix("#")
-    channel = context.channels_by_name.get(name)
-    if channel is None:
+    match = find_channel(context.channels_by_name, name, allow_shared=allow_shared)
+    if match.channel is None:
+        if match.reason == "shared":
+            logger.info("stamphog_routing_shared_channel_skipped", channel_name=name, source=source)
         # A declared channel that is not there is a dead end, never a reason to retry the slug: the
         # slug is exactly the wrong name the declaration was written to correct.
-        if source != ChannelResolutionSource.SLACK_NAME_MATCH:
+        elif source != ChannelResolutionSource.SLACK_NAME_MATCH:
             logger.info("stamphog_routing_declared_channel_not_found", channel_name=name, source=source)
-        return None
-    if channel.shared and not allow_shared:
-        logger.info("stamphog_routing_shared_channel_skipped", channel_name=name, source=source)
         return None
     return Destination(
         slack_integration_id=context.slack_integration_id,
-        channel_id=channel.channel_id,
+        channel_id=match.channel.channel_id,
         channel_name=name,
         source=source,
     )

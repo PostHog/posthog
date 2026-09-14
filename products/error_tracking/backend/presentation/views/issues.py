@@ -1,3 +1,4 @@
+from typing import cast
 from uuid import UUID
 
 from django.http import JsonResponse
@@ -16,7 +17,8 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models.activity_logging.activity_log import load_activity
-from posthog.models.activity_logging.activity_page import activity_page_response
+from posthog.models.activity_logging.activity_page import activity_page_response, parse_activity_page_params
+from posthog.models.user import User
 
 from products.error_tracking.backend.facade import (
     api as facade_api,
@@ -273,7 +275,13 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
     def merge(self, request: ValidatedRequest, *args: object, pk: object = None, **kwargs: object) -> Response:
         ids = [str(issue_id) for issue_id in request.validated_data["ids"]]
         try:
-            merge_result = issues_facade.merge_issues(self.team.id, UUID(str(pk)), ids)
+            merge_result = issues_facade.merge_issues(
+                self.team.id,
+                UUID(str(pk)),
+                ids,
+                user=cast(User, request.user),
+                was_impersonated=is_impersonated(request),
+            )
         except IssueNotFoundError:
             raise NotFound("Issue not found")
         if merge_result == issues_facade.ErrorTrackingIssueMergeResult.STALE_ISSUES:
@@ -290,7 +298,13 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
     def split(self, request: ValidatedRequest, *args: object, pk: object = None, **kwargs: object) -> Response:
         fingerprints = request.validated_data["fingerprints"]
         try:
-            new_issue_ids = issues_facade.split_issue(self.team.id, UUID(str(pk)), fingerprints)
+            new_issue_ids = issues_facade.split_issue(
+                self.team.id,
+                UUID(str(pk)),
+                fingerprints,
+                user=cast(User, request.user),
+                was_impersonated=is_impersonated(request),
+            )
         except IssueNotFoundError:
             raise NotFound("Issue not found")
         return Response({"success": True, "new_issue_ids": [str(i) for i in new_issue_ids]})
@@ -363,16 +377,16 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
     @extend_schema(operation_id="error_tracking_issues_all_activity_retrieve")
     @action(methods=["GET"], url_path="activity", detail=False, required_scopes=["activity_log:read"])
     def all_activity(self, request: request.Request, **kwargs: object) -> Response:
-        limit = int(request.query_params.get("limit", "10"))
-        page = int(request.query_params.get("page", "1"))
+        page_params = parse_activity_page_params(request)
 
-        activity_page = load_activity(scope="ErrorTrackingIssue", team_id=self.team_id, limit=limit, page=page)
-        return activity_page_response(activity_page, limit, page, request)
+        activity_page = load_activity(
+            scope="ErrorTrackingIssue", team_id=self.team_id, limit=page_params.limit, page=page_params.page
+        )
+        return activity_page_response(activity_page, page_params.limit, page_params.page, request)
 
     @action(methods=["GET"], detail=True, required_scopes=["activity_log:read"])
     def activity(self, request: request.Request, *args: object, pk: object = None, **kwargs: object) -> Response:
-        limit = int(request.query_params.get("limit", "10"))
-        page = int(request.query_params.get("page", "1"))
+        page_params = parse_activity_page_params(request)
 
         if not facade_api.issue_exists_by_id(self.team_id, str(pk)):
             return Response(status=status.HTTP_404_NOT_FOUND)
@@ -381,7 +395,7 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
             scope="ErrorTrackingIssue",
             team_id=self.team_id,
             item_ids=[str(pk)],
-            limit=limit,
-            page=page,
+            limit=page_params.limit,
+            page=page_params.page,
         )
-        return activity_page_response(activity_page, limit, page, request)
+        return activity_page_response(activity_page, page_params.limit, page_params.page, request)

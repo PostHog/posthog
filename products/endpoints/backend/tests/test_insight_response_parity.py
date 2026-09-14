@@ -16,17 +16,7 @@ from django.utils import timezone
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.schema import (
-    Breakdown,
-    BreakdownFilter,
-    BreakdownType,
-    EventsNode,
-    HogQLQueryResponse,
-    LifecycleQuery,
-    RetentionFilter,
-    RetentionQuery,
-    TrendsQuery,
-)
+from posthog.schema import Breakdown, BreakdownFilter, BreakdownType, EventsNode, HogQLQueryResponse, TrendsQuery
 
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.endpoints.backend.insight_transformers import (
@@ -41,10 +31,6 @@ pytestmark = [pytest.mark.django_db]
 
 # Fields that every TrendsQuery result dict must have
 TRENDS_REQUIRED_FIELDS = {"data", "labels", "days", "count", "label", "action"}
-# Fields that every LifecycleQuery result dict must have
-LIFECYCLE_REQUIRED_FIELDS = {"data", "labels", "days", "count", "label", "action", "status"}
-# Fields that every RetentionQuery result dict must have
-RETENTION_REQUIRED_FIELDS = {"values", "label", "date"}
 
 
 class TestInsightResponseParity(ClickhouseTestMixin, APIBaseTest):
@@ -64,19 +50,14 @@ class TestInsightResponseParity(ClickhouseTestMixin, APIBaseTest):
 
         flush_persons_and_events()
 
-        self.sync_workflow_patcher = mock.patch(
-            "products.data_warehouse.backend.logic.data_load.saved_query_service.sync_saved_query_workflow"
+        self.v2_dag_ids_patcher = mock.patch(
+            "products.data_modeling.backend.schedule.get_v2_scheduled_dag_ids",
+            side_effect=lambda candidate_dag_ids=None: set(candidate_dag_ids or []),
         )
-        self.workflow_exists_patcher = mock.patch(
-            "products.data_warehouse.backend.logic.data_load.saved_query_service.saved_query_workflow_exists",
-            return_value=False,
-        )
-        self.sync_workflow_patcher.start()
-        self.workflow_exists_patcher.start()
+        self.v2_dag_ids_patcher.start()
 
     def tearDown(self):
-        self.sync_workflow_patcher.stop()
-        self.workflow_exists_patcher.stop()
+        self.v2_dag_ids_patcher.stop()
         super().tearDown()
 
     def _materialize_endpoint(self, endpoint):
@@ -319,73 +300,6 @@ class TestInsightResponseParity(ClickhouseTestMixin, APIBaseTest):
         series = result["results"][0]
         assert series["days"] == ["2026-05-04", "2026-05-05", "2026-05-06"]
         assert series["labels"] == ["4-May-2026", "5-May-2026", "6-May-2026"]
-
-    # =========================================================================
-    # LIFECYCLE
-    # =========================================================================
-
-    def test_materialized_lifecycle_has_insight_shape(self):
-        original_query = LifecycleQuery(
-            series=[EventsNode(event="$pageview")],
-            dateRange={"date_from": "2026-01-01", "date_to": "2026-01-10"},
-        ).model_dump()
-
-        # Columns arrive in alphabetical order, the way Delta/Parquet sorts a materialized table.
-        dates = [date(2026, 1, d) for d in range(1, 11)]
-        result: dict[str, Any] = {
-            "results": [
-                (dates, "new", [1, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
-                (dates, "returning", [0, 1, 1, 1, 1, 1, 1, 1, 1, 1]),
-                (dates, "resurrecting", [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
-                (dates, "dormant", [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
-            ],
-            "columns": ["date", "status", "total"],
-            "types": ["Array(Date)", "String", "Array(Int64)"],
-        }
-
-        transform_materialized_insight_response(result, original_query, self.team)
-
-        rows = result["results"]
-        assert len(rows) > 0
-        for field in LIFECYCLE_REQUIRED_FIELDS:
-            assert field in rows[0], f"Materialized lifecycle response missing '{field}'"
-        assert {r["status"] for r in rows} == {"new", "returning", "resurrecting", "dormant"}
-        for r in rows:
-            assert len(r["data"]) == 10, f"Status {r['status']}: expected 10 data points, got {len(r['data'])}"
-
-    # =========================================================================
-    # RETENTION
-    # =========================================================================
-
-    def test_materialized_retention_has_insight_shape(self):
-        original_query = RetentionQuery(
-            retentionFilter=RetentionFilter(),
-            dateRange={"date_from": "2026-01-01", "date_to": "2026-01-10"},
-        ).model_dump()
-
-        # Columns arrive in alphabetical order, the way Delta/Parquet sorts a materialized table.
-        result: dict[str, Any] = {
-            "results": [
-                (1, 0, 0),
-                (1, 1, 0),
-                (1, 0, 1),
-                (1, 1, 1),
-                (0, 0, 2),
-                (0, 1, 2),
-            ],
-            "columns": ["count", "intervals_from_base", "start_event_matching_interval"],
-            "types": ["UInt64", "Int64", "Int64"],
-        }
-
-        transform_materialized_insight_response(result, original_query, self.team)
-
-        rows = result["results"]
-        assert len(rows) >= 3, f"Expected at least 3 cohorts, got {len(rows)}"
-        for field in RETENTION_REQUIRED_FIELDS:
-            assert field in rows[0], f"Materialized retention response missing '{field}'"
-        assert isinstance(rows[0]["values"], list)
-        assert rows[0]["values"][0]["count"] == 1
-        assert "label" in rows[0]["values"][0]
 
     # =========================================================================
     # MULTI-SERIES TRENDS

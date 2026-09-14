@@ -2,9 +2,10 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { ReactNode } from 'react'
 
+import * as businessEvolutionPng from '@posthog/brand/hoggies/png/business-evolution'
 import { LemonDropdown, LemonSkeleton, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
 
-import { BigLeaguesHog } from 'lib/components/hedgehogs'
+import { pngHoggie } from 'lib/brand/hoggies'
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
@@ -18,6 +19,8 @@ import {
 import { accountSummariesLogic, NOT_LOADED, SUMMARIES_PAGE_SIZE } from './accountSummariesLogic'
 import { AccountSummaryCadencePicker } from './AccountSummaryCadencePicker'
 
+const HedgehogBusiness = pngHoggie(businessEvolutionPng)
+
 function SummariesEmptyState({
     title,
     detail,
@@ -29,7 +32,7 @@ function SummariesEmptyState({
 }): JSX.Element {
     return (
         <div className="flex flex-col items-center justify-center gap-2 p-8 text-center">
-            <BigLeaguesHog className="w-24 h-24" />
+            <HedgehogBusiness className="w-24 h-24" />
             <h4 className="mb-0">{title}</h4>
             <p className="text-secondary max-w-sm mb-0">{detail}</p>
             {children}

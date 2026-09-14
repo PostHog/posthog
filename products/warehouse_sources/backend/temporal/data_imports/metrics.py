@@ -88,33 +88,37 @@ def emit_data_import_app_metrics(job: "ExternalDataJob") -> None:
     metric_kind, metric_name = kind_name
     finished_at = job.finished_at or dt.datetime.now(dt.UTC)
     timestamp = format_clickhouse_timestamp(finished_at)
+    schema_instance_id = str(job.schema_id) if job.schema_id else ""
 
-    common_fields = {
-        "team_id": job.team_id,
-        "app_source": DATA_IMPORT_APP_SOURCE,
-        "app_source_id": str(job.pipeline_id),
-        "instance_id": str(job.schema_id) if job.schema_id else "",
-        "timestamp": timestamp,
-    }
-
-    payloads: list[dict] = [
-        {
-            **common_fields,
-            "metric_kind": metric_kind,
-            "metric_name": metric_name,
-            "count": 1,
+    def rows_for(instance_id: str) -> list[dict]:
+        common = {
+            "team_id": job.team_id,
+            "app_source": DATA_IMPORT_APP_SOURCE,
+            "app_source_id": str(job.pipeline_id),
+            "instance_id": instance_id,
+            "timestamp": timestamp,
         }
-    ]
+        emitted = [{**common, "metric_kind": metric_kind, "metric_name": metric_name, "count": 1}]
+        if job.rows_synced and job.rows_synced > 0:
+            emitted.append({**common, "metric_kind": "rows", "metric_name": "rows_synced", "count": job.rows_synced})
+        return emitted
 
-    if job.rows_synced and job.rows_synced > 0:
-        payloads.append(
-            {
-                **common_fields,
-                "metric_kind": "rows",
-                "metric_name": "rows_synced",
-                "count": job.rows_synced,
-            }
-        )
+    payloads: list[dict] = rows_for(schema_instance_id)
+
+    # The same metrics again per destination, keyed by "<schema>/<destination>". The metric names
+    # stay as they are: they are LowCardinality on a table several products share, so a destination
+    # id cannot go in them. `instance_id` is a plain String and already means "which instance of
+    # this app source", which is what a destination is here.
+    #
+    # These are extra rows, not replacements. Everything that filters `instance_id` by a bare
+    # schema id matches exactly what it did before and never sees them.
+    #
+    # Each destination is also keyed on its own, without a schema. A source-level surface wants one
+    # series per destination across every table, and the API filters `instance_id` by equality, so
+    # without this row it would have to ask once per schema per destination.
+    for destination_id in job.destination_ids or []:
+        payloads.extend(rows_for(f"{schema_instance_id}/{destination_id}"))
+        payloads.extend(rows_for(str(destination_id)))
 
     try:
         producer = get_producer(topic=KAFKA_APP_METRICS2)

@@ -42,7 +42,7 @@ from products.experiments.backend.models.experiment import (
     ExperimentMetricResult,
     ExperimentMetricsRecalculation,
 )
-from products.experiments.backend.temporal.metric_resolution import build_metric, find_metric_dict
+from products.experiments.backend.temporal.metric_resolution import build_metric, find_metric_dict, is_scheduled_metric
 from products.experiments.backend.temporal.models import (
     CONCURRENCY_LIMIT_RETRY_DELAY_SECONDS,
     MAX_METRIC_ATTEMPTS,
@@ -134,15 +134,17 @@ def discover_experiment_metrics(experiment: Experiment) -> list[ExperimentMetric
     # Inline metrics carry their uuid directly on the dict; the metric_type is the source list.
     for source, metric_type in [(experiment.metrics, "primary"), (experiment.metrics_secondary, "secondary")]:
         for metric in source or []:
-            _add(metric.get("uuid"), metric_type)
+            if is_scheduled_metric(metric):
+                _add(metric.get("uuid"), metric_type)
 
     # Saved (shared) metrics live in the M2M through-model: uuid is on saved_metric.query["uuid"], and
     # primary/secondary is recorded on the link's metadata["type"] (default "primary").
     for link in experiment.experimenttosavedmetric_set.select_related("saved_metric").all():
         saved_query = link.saved_metric.query
-        metric_uuid = saved_query.get("uuid") if saved_query else None
+        if not is_scheduled_metric(saved_query):
+            continue
         metric_type = link.metadata.get("type", "primary") if link.metadata else "primary"
-        _add(metric_uuid, metric_type)
+        _add(saved_query.get("uuid"), metric_type)
 
     return metrics_to_recalculate
 
@@ -279,9 +281,19 @@ def _update_recalculation_progress_sync(update: RecalculationProgressUpdate) -> 
             return existing_query_to.isoformat() if existing_query_to is not None else None
 
         # Finish: same first-write-wins guard so a retried mark_completed activity doesn't re-stamp the
-        # completion timestamp (and, by symmetry with mark_started, doesn't reopen a closed run).
+        # completion timestamp (and, by symmetry with mark_started, doesn't reopen a closed run). The status
+        # filter makes an out-of-band terminal write (staleness force-fail, admin action) authoritative even
+        # when its completed_at is still NULL: the force-fail leaves completed_at unset and its workflow
+        # cancel is best-effort, so without the filter a surviving workflow would overwrite the tombstone.
         won = (
-            ExperimentMetricsRecalculation.objects.filter(id=update.recalculation_id, completed_at__isnull=True).update(
+            ExperimentMetricsRecalculation.objects.filter(
+                id=update.recalculation_id,
+                completed_at__isnull=True,
+                status__in=[
+                    ExperimentMetricsRecalculation.Status.PENDING,
+                    ExperimentMetricsRecalculation.Status.IN_PROGRESS,
+                ],
+            ).update(
                 completed_at=timezone.now(),
                 status=update.status or ExperimentMetricsRecalculation.Status.COMPLETED,
                 # The run is terminal, so no retry can be pending. Sweeps entries orphaned by a hard-killed
@@ -294,6 +306,20 @@ def _update_recalculation_progress_sync(update: RecalculationProgressUpdate) -> 
         # mark_completed doesn't double-count.
         if won:
             _capture_results_refresh_completed(update)
+        else:
+            existing_finish_state = (
+                ExperimentMetricsRecalculation.objects.filter(id=update.recalculation_id)
+                .values_list("status", "completed_at")
+                .first()
+            )
+            # completed_at set means a retried activity lost the normal dedupe race — silence. completed_at
+            # NULL means the run was force-failed out-of-band while this workflow was still executing.
+            if existing_finish_state is not None and existing_finish_state[1] is None:
+                logger.warning(
+                    "mark_completed_rejected_run_terminal",
+                    recalculation_id=update.recalculation_id,
+                    status=existing_finish_state[0],
+                )
         return None
 
 
@@ -664,7 +690,7 @@ def _calculate_experiment_metric_for_recalculation_sync(
                 query=ExperimentQuery(experiment_id=experiment_id, metric=build_metric(metric_dict)),
                 team=experiment.team,
                 as_of=query_to_dt,
-                workload=Workload.OFFLINE,
+                workload=Workload.ONLINE,
                 # Userless background recompute. Warehouse access is enforced when the metric is authored,
                 # so resolve warehouse tables here instead of failing closed.
                 bypass_warehouse_access_control=True,

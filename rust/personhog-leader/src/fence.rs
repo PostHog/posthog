@@ -45,7 +45,6 @@ use std::time::Duration;
 
 use dashmap::DashMap;
 use metrics::{counter, gauge, histogram};
-use sqlx::postgres::PgPool;
 use sqlx::Row;
 use tonic::Status;
 use uuid::Uuid;
@@ -54,6 +53,7 @@ use personhog_common::partitioning::partition_for_person;
 use personhog_proto::personhog::types::v1::LifecycleOpType;
 
 use crate::cache::PersonCacheKey;
+use crate::pg::PgFallback;
 
 /// A person's live fence: the operation that froze it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -129,22 +129,25 @@ const SCAN_TIMEOUT: Duration = Duration::from_secs(10);
 /// (a handoff cancelled after warming, then re-acquired) converges
 /// instead of accumulating. Returns how many fences were installed.
 pub async fn rebuild_partition_fences(
-    pool: &PgPool,
+    fallback: &PgFallback,
     fences: &FenceMap,
     partition: u32,
     num_partitions: u32,
 ) -> Result<usize, sqlx::Error> {
     let start = std::time::Instant::now();
-    let query = sqlx::query(
+    let tables = &fallback.lifecycle;
+    let sql = format!(
         r#"
         SELECT lop.team_id, lop.person_id, lop.op_id, o.op_type
-        FROM lifecycle_op_person lop
-        JOIN lifecycle_op o ON o.op_id = lop.op_id
+        FROM {op_person} lop
+        JOIN {op} o ON o.op_id = lop.op_id
         WHERE lop.status IN ('marked', 'sealed')
           AND lop.role <> 'target'
         "#,
-    )
-    .fetch_all(pool);
+        op_person = tables.op_person,
+        op = tables.op,
+    );
+    let query = sqlx::query(&sql).fetch_all(&fallback.pool);
 
     let rows = match tokio::time::timeout(SCAN_TIMEOUT, query).await {
         Ok(result) => result?,
@@ -173,7 +176,6 @@ pub async fn rebuild_partition_fences(
         if partition_for_person(team_id as i64, person_id, num_partitions) != partition {
             continue;
         }
-        let op_id: Uuid = row.get("op_id");
         let op_type: String = row.get("op_type");
         fences.insert(
             PersonCacheKey {
@@ -181,7 +183,7 @@ pub async fn rebuild_partition_fences(
                 person_id,
             },
             FenceState {
-                op_id,
+                op_id: row.get("op_id"),
                 op_type: LifecycleOpType::from_op_type_str(&op_type),
             },
         );
@@ -228,16 +230,16 @@ const HEAL_TRACKER_PRUNE_THRESHOLD: usize = 10_000;
 /// belongs to the op that was checked (a newer op's fence is never
 /// touched).
 pub struct FenceHealer {
-    pool: PgPool,
+    fallback: PgFallback,
     fences: FenceMap,
     /// Per-person stamp of the last triggered check, for the cooldown.
     last_checked: DashMap<PersonCacheKey, std::time::Instant>,
 }
 
 impl FenceHealer {
-    pub fn new(pool: PgPool, fences: FenceMap) -> Self {
+    pub fn new(fallback: PgFallback, fences: FenceMap) -> Self {
         Self {
-            pool,
+            fallback,
             fences,
             last_checked: DashMap::new(),
         }
@@ -271,7 +273,9 @@ impl FenceHealer {
     }
 
     async fn check_and_heal(&self, key: PersonCacheKey, state: FenceState) {
-        let status = match mark_status(&self.pool, state.op_id, key.team_id, key.person_id).await {
+        let status = match mark_status(&self.fallback, state.op_id, key.team_id, key.person_id)
+            .await
+        {
             Ok(status) => status,
             Err(e) => {
                 counter!("personhog_leader_fence_heals_total", "outcome" => "error").increment(1);
@@ -319,20 +323,23 @@ impl FenceHealer {
 /// it may produce a death document: the request alone must never be enough
 /// to destroy a person.
 pub async fn mark_status(
-    pool: &PgPool,
+    fallback: &PgFallback,
     op_id: Uuid,
     team_id: i64,
     person_id: i64,
 ) -> Result<Option<String>, sqlx::Error> {
-    sqlx::query_scalar(
-        "SELECT status FROM lifecycle_op_person \
+    let mut conn = crate::pg::acquire_timed(&fallback.pool, "mark_status").await?;
+    let sql = format!(
+        "SELECT status FROM {} \
          WHERE op_id = $1 AND team_id = $2 AND person_id = $3 AND role <> 'target'",
-    )
-    .bind(op_id)
-    .bind(team_id as i32)
-    .bind(person_id)
-    .fetch_optional(pool)
-    .await
+        fallback.lifecycle.op_person
+    );
+    sqlx::query_scalar(&sql)
+        .bind(op_id)
+        .bind(team_id as i32)
+        .bind(person_id)
+        .fetch_optional(&mut *conn)
+        .await
 }
 
 /// The fold's check: the status of the op's mark row claiming this person
@@ -345,18 +352,21 @@ pub async fn mark_status(
 /// full race — the same at-least-once residual the op_id proto comment
 /// states.
 pub async fn target_mark_status(
-    pool: &PgPool,
+    fallback: &PgFallback,
     op_id: Uuid,
     team_id: i64,
     person_id: i64,
 ) -> Result<Option<String>, sqlx::Error> {
-    sqlx::query_scalar(
-        "SELECT status FROM lifecycle_op_person \
+    let mut conn = crate::pg::acquire_timed(&fallback.pool, "target_mark_status").await?;
+    let sql = format!(
+        "SELECT status FROM {} \
          WHERE op_id = $1 AND team_id = $2 AND person_id = $3 AND role = 'target'",
-    )
-    .bind(op_id)
-    .bind(team_id as i32)
-    .bind(person_id)
-    .fetch_optional(pool)
-    .await
+        fallback.lifecycle.op_person
+    );
+    sqlx::query_scalar(&sql)
+        .bind(op_id)
+        .bind(team_id as i32)
+        .bind(person_id)
+        .fetch_optional(&mut *conn)
+        .await
 }

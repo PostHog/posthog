@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { AgentBootTracker } from "./boot-phases";
+import { AgentBootTracker, launcherToProcessMs } from "./boot-phases";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -14,7 +14,7 @@ describe("AgentBootTracker", () => {
       .mockReturnValueOnce(150)
       .mockReturnValueOnce(500);
 
-    const tracker = new AgentBootTracker("run-1", 5);
+    const tracker = new AgentBootTracker("run-1", 5, 7);
     await tracker.measure("context_fetch", async () => "ok");
     tracker.markReady();
 
@@ -24,6 +24,7 @@ describe("AgentBootTracker", () => {
       state: "ready",
       totalMs: 50,
       httpReadyMs: 5,
+      launcherToProcessMs: 7,
       phasesMs: { context_fetch: 25 },
     });
   });
@@ -52,5 +53,13 @@ describe("AgentBootTracker", () => {
       totalMs: 40,
       phasesMs: { acp_initialize: 25 },
     });
+  });
+
+  it("measures the launch wrapper to process boundary", () => {
+    vi.spyOn(Date, "now").mockReturnValue(1_000);
+    vi.spyOn(process, "uptime").mockReturnValue(0.2);
+
+    expect(launcherToProcessMs(700)).toBe(100);
+    expect(launcherToProcessMs()).toBeUndefined();
   });
 });

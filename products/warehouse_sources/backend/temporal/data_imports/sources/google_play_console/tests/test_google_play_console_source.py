@@ -11,6 +11,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.google_pla
     CANONICAL_DESCRIPTIONS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.google_play_console.settings import (
+    BREAKDOWN_TABLES,
     ENDPOINTS,
     LIST_ENDPOINTS,
     METRIC_SETS,
@@ -66,6 +67,54 @@ def test_metric_sets_sync_incrementally_on_date_but_never_append(name: str) -> N
     assert [field["field"] for field in schema.incremental_fields] == ["date"]
     assert schema.incremental_fields[0]["field_type"] == IncrementalFieldType.Date
     assert schema.default_incremental_lookback_seconds == 7 * 24 * 60 * 60
+
+
+BASE_VITALS_TABLES = (
+    "crash_rate",
+    "anr_rate",
+    "excessive_wakeup_rate",
+    "stuck_background_wakelock_rate",
+    "slow_start_rate",
+    "slow_rendering_rate",
+    "lmk_rate",
+)
+
+
+def test_the_default_vitals_tables_keep_their_grain() -> None:
+    assert METRIC_SETS["crash_rate"].dimensions == ("versionCode",)
+    assert METRIC_SETS["slow_start_rate"].dimensions == ("startType", "versionCode")
+    assert METRIC_SETS["error_counts"].dimensions == ("reportType", "versionCode")
+    assert PRIMARY_KEYS["crash_rate"] == ["app", "date", "versionCode"]
+    assert PRIMARY_KEYS["slow_start_rate"] == ["app", "date", "startType", "versionCode"]
+    assert PRIMARY_KEYS["error_counts"] == ["app", "date", "reportType", "versionCode"]
+
+
+def test_every_vitals_rate_metric_set_gets_a_device_model_and_an_api_level_table() -> None:
+    assert set(BREAKDOWN_TABLES) == {
+        f"{base}_by_{suffix}" for base in BASE_VITALS_TABLES for suffix in ("device_model", "api_level")
+    }
+    assert "error_counts_by_device_model" not in METRIC_SETS
+
+
+def test_the_wider_tables_are_the_only_ones_off_by_default() -> None:
+    schemas = GooglePlayConsoleSource().get_schemas(_config(), team_id=1)
+
+    assert {schema.name for schema in schemas if not schema.should_sync_default} == set(BREAKDOWN_TABLES)
+
+
+@pytest.mark.parametrize(
+    "name,base,dimension", [(name, base, dimension) for name, (base, dimension) in sorted(BREAKDOWN_TABLES.items())]
+)
+def test_a_wider_table_adds_one_dimension_to_its_base_table(name: str, base: str, dimension: str) -> None:
+    endpoint = METRIC_SETS[name]
+    base_endpoint = METRIC_SETS[base]
+
+    assert endpoint.dimensions == (*base_endpoint.dimensions, dimension)
+    assert endpoint.resource == base_endpoint.resource
+    assert endpoint.metrics == base_endpoint.metrics
+    assert endpoint.history_days == base_endpoint.history_days
+    assert PRIMARY_KEYS[name] == ["app", "date", *base_endpoint.dimensions, dimension]
+    assert "Off by default" in endpoint.description
 
 
 def test_error_reports_sync_incrementally_on_event_time() -> None:

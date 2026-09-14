@@ -106,9 +106,6 @@ gen/
 .typegen
 frontend/src/assets
 
-# Flox.dev lockfile (will differ slightly per local dev env, even with consistent pinning in TOML file)
-.flox/env/manifest.lock
-
 # Playwright cache + reports
 playwright-report/
 playwright/.auth/
@@ -240,3 +237,9 @@ corpora/
 # workflow's artifact; it is never committed.
 .test_durations
 .test_durations.*
+
+/context.md
+
+# Agent workspace scratch directory. Holds live browser profiles and run output
+# for local scripts, so it must never reach a commit.
+/.context/

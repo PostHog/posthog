@@ -96,7 +96,39 @@ tools:
                 - tiles.*.insight.last_viewed_at
                 - tiles.*.insight.timezone
                 - tiles.*.insight.resolved_date_range
-    dashboard-create-text-tile:
+                - tiles.*.insight.filter_override_context
+                - created_by.uuid
+                - created_by.distinct_id
+                - created_by.is_email_verified
+                - created_by.hedgehog_config
+                - tiles.*.insight.created_by.uuid
+                - tiles.*.insight.created_by.distinct_id
+                - tiles.*.insight.created_by.is_email_verified
+                - tiles.*.insight.created_by.hedgehog_config
+                - tiles.*.insight.last_modified_by.uuid
+                - tiles.*.insight.last_modified_by.distinct_id
+                - tiles.*.insight.last_modified_by.is_email_verified
+                - tiles.*.insight.last_modified_by.hedgehog_config
+                - tiles.*.text.dashboard_tiles
+                - tiles.*.text.created_by.uuid
+                - tiles.*.text.created_by.distinct_id
+                - tiles.*.text.created_by.is_email_verified
+                - tiles.*.text.created_by.hedgehog_config
+                - tiles.*.text.last_modified_by.uuid
+                - tiles.*.text.last_modified_by.distinct_id
+                - tiles.*.text.last_modified_by.is_email_verified
+                - tiles.*.text.last_modified_by.hedgehog_config
+                - tiles.*.widget.dashboard_tiles
+                - tiles.*.widget.created_by.uuid
+                - tiles.*.widget.created_by.distinct_id
+                - tiles.*.widget.created_by.is_email_verified
+                - tiles.*.widget.created_by.hedgehog_config
+                - tiles.*.widget.last_modified_by.uuid
+                - tiles.*.widget.last_modified_by.distinct_id
+                - tiles.*.widget.last_modified_by.is_email_verified
+                - tiles.*.widget.last_modified_by.hedgehog_config
+            strip_nulls: true
+    dashboard-create-tile:
         operation: dashboards_create_text_tile_create
         enabled: true
         scopes:
@@ -105,17 +137,16 @@ tools:
             readOnly: false
             destructive: false
             idempotent: false
+        input_schema: DashboardTileCreateSchema
         enrich_url: '{params.id}'
-        title: Create dashboard text tile
+        title: Create dashboard tile
         description: >
-            Add a markdown text tile to a dashboard. Text tiles render as markdown blocks — useful as section headings,
-            dividers, or annotations between insight tiles to give a dashboard structure. The desktop grid is 12 columns
-            wide; a typical heading uses a thin full-width banner (e.g. `layouts.sm = {x: 0, y: 0, w: 12, h: 1}`). If
-            `layouts` is omitted, the tile is placed using the default layout — use dashboard-reorder-tiles afterwards
-            if you need precise placement.
-        param_overrides:
-            id:
-                cast: string-int
+            Add a dashboard tile. Set `type` to text or image. Use Markdown headings, dividers, or notes for a text
+            tile. The desktop grid is 12 columns wide. A typical text heading uses a thin full-width banner (e.g.
+            `layouts.sm = {x: 0, y: 0, w: 12, h: 1}`). If `layouts` is omitted, the dashboard places the tile at the
+            bottom with the default size. Use dashboard-reorder-tiles for precise placement. An image tile body must
+            contain exactly one Markdown image, such as `![Accessible description](https://example.com/image.png)`. The
+            image URL must be reachable by dashboard viewers. Use `layouts` to control the tile size.
     dashboard-delete:
         operation: dashboards_destroy
         enabled: true
@@ -213,6 +244,38 @@ tools:
                 - tiles.*.insight.alerts
                 - tiles.*.insight.timezone
                 - tiles.*.insight.resolved_date_range
+                - tiles.*.insight.filter_override_context
+                - created_by.uuid
+                - created_by.distinct_id
+                - created_by.is_email_verified
+                - created_by.hedgehog_config
+                - tiles.*.insight.created_by.uuid
+                - tiles.*.insight.created_by.distinct_id
+                - tiles.*.insight.created_by.is_email_verified
+                - tiles.*.insight.created_by.hedgehog_config
+                - tiles.*.insight.last_modified_by.uuid
+                - tiles.*.insight.last_modified_by.distinct_id
+                - tiles.*.insight.last_modified_by.is_email_verified
+                - tiles.*.insight.last_modified_by.hedgehog_config
+                - tiles.*.text.dashboard_tiles
+                - tiles.*.text.created_by.uuid
+                - tiles.*.text.created_by.distinct_id
+                - tiles.*.text.created_by.is_email_verified
+                - tiles.*.text.created_by.hedgehog_config
+                - tiles.*.text.last_modified_by.uuid
+                - tiles.*.text.last_modified_by.distinct_id
+                - tiles.*.text.last_modified_by.is_email_verified
+                - tiles.*.text.last_modified_by.hedgehog_config
+                - tiles.*.widget.dashboard_tiles
+                - tiles.*.widget.created_by.uuid
+                - tiles.*.widget.created_by.distinct_id
+                - tiles.*.widget.created_by.is_email_verified
+                - tiles.*.widget.created_by.hedgehog_config
+                - tiles.*.widget.last_modified_by.uuid
+                - tiles.*.widget.last_modified_by.distinct_id
+                - tiles.*.widget.last_modified_by.is_email_verified
+                - tiles.*.widget.last_modified_by.hedgehog_config
+            strip_nulls: true
     dashboard-insights-run:
         operation: dashboards_run_insights_retrieve
         enabled: true
@@ -416,6 +479,38 @@ tools:
                 - tiles.*.insight.alerts
                 - tiles.*.insight.timezone
                 - tiles.*.insight.resolved_date_range
+                - tiles.*.insight.filter_override_context
+                - created_by.uuid
+                - created_by.distinct_id
+                - created_by.is_email_verified
+                - created_by.hedgehog_config
+                - tiles.*.insight.created_by.uuid
+                - tiles.*.insight.created_by.distinct_id
+                - tiles.*.insight.created_by.is_email_verified
+                - tiles.*.insight.created_by.hedgehog_config
+                - tiles.*.insight.last_modified_by.uuid
+                - tiles.*.insight.last_modified_by.distinct_id
+                - tiles.*.insight.last_modified_by.is_email_verified
+                - tiles.*.insight.last_modified_by.hedgehog_config
+                - tiles.*.text.dashboard_tiles
+                - tiles.*.text.created_by.uuid
+                - tiles.*.text.created_by.distinct_id
+                - tiles.*.text.created_by.is_email_verified
+                - tiles.*.text.created_by.hedgehog_config
+                - tiles.*.text.last_modified_by.uuid
+                - tiles.*.text.last_modified_by.distinct_id
+                - tiles.*.text.last_modified_by.is_email_verified
+                - tiles.*.text.last_modified_by.hedgehog_config
+                - tiles.*.widget.dashboard_tiles
+                - tiles.*.widget.created_by.uuid
+                - tiles.*.widget.created_by.distinct_id
+                - tiles.*.widget.created_by.is_email_verified
+                - tiles.*.widget.created_by.hedgehog_config
+                - tiles.*.widget.last_modified_by.uuid
+                - tiles.*.widget.last_modified_by.distinct_id
+                - tiles.*.widget.last_modified_by.is_email_verified
+                - tiles.*.widget.last_modified_by.hedgehog_config
+            strip_nulls: true
     dashboard-update-text-tile:
         operation: dashboards_update_text_tile_create
         enabled: true

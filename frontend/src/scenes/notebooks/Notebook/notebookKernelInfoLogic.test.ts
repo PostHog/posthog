@@ -2,8 +2,28 @@ import api from 'lib/api'
 
 import { initKeaTests } from '~/test/init'
 
+import { notebooksKernelComputeOptionsRetrieve } from 'products/notebooks/frontend/generated/api'
+
 import { notebookKernelInfoLogic } from './notebookKernelInfoLogic'
 import type { NotebookLogicMode } from './notebookLogic'
+
+jest.mock('products/notebooks/frontend/generated/api', () => ({
+    notebooksKernelComputeOptionsRetrieve: jest.fn(),
+}))
+
+const COMPUTE_OPTIONS = {
+    currency: 'USD',
+    cpu_rate_per_core_hour: 0.2,
+    memory_rate_per_gb_hour: 0.025,
+    default_preset_key: 'small',
+    presets: [
+        { key: 'small', name: 'Small', description: '', cpu_cores: 1, memory_gb: 2, hourly_price: 0.25 },
+        { key: 'balanced', name: 'Balanced', description: '', cpu_cores: 4, memory_gb: 8, hourly_price: 1 },
+    ],
+    allowed_cpu_cores: [1, 2, 4, 8],
+    allowed_memory_gb: [2, 4, 8, 16],
+    allowed_idle_timeout_seconds: [600, 1800],
+}
 
 const setHidden = (hidden: boolean): void => {
     Object.defineProperty(document, 'hidden', { configurable: true, get: () => hidden })
@@ -19,6 +39,7 @@ describe('notebookKernelInfoLogic', () => {
         kernelStatusSpy = jest
             .spyOn(api.notebooks, 'kernelStatus')
             .mockResolvedValue({ backend: null, status: 'stopped' })
+        jest.mocked(notebooksKernelComputeOptionsRetrieve).mockResolvedValue(COMPUTE_OPTIONS)
         jest.useFakeTimers()
     })
 
@@ -115,6 +136,114 @@ describe('notebookKernelInfoLogic', () => {
 
         // One fewer than a full window, because the mount request itself is already counted out.
         expect(kernelStatusSpy).toHaveBeenCalledTimes(callsPerMount - 1)
+    })
+
+    test('a failed options load blocks configuration instead of going quietly unpriced', async () => {
+        // The loader's null is also its initial value, so a swallowed failure used to leave the
+        // panel looking pre-pricing while Start stayed live.
+        jest.mocked(notebooksKernelComputeOptionsRetrieve).mockRejectedValue(new Error('boom'))
+        kernelStatusSpy.mockResolvedValue({ backend: 'modal', status: 'stopped', cpu_cores: 1, memory_gb: 2 })
+        logic = notebookKernelInfoLogic({ shortId: 'options-fail-01890abc', mode: 'notebook' })
+        logic.mount()
+        await jest.advanceTimersByTimeAsync(0)
+
+        expect(logic.values.computeOptionsFailed).toBe(true)
+        expect(logic.values.computeBlockedReason).not.toBeNull()
+    })
+
+    test('Refresh retries the rates after they failed', async () => {
+        jest.mocked(notebooksKernelComputeOptionsRetrieve).mockRejectedValueOnce(new Error('boom'))
+        logic = notebookKernelInfoLogic({ shortId: 'options-retry-01890abc', mode: 'notebook' })
+        logic.mount()
+        await jest.advanceTimersByTimeAsync(0)
+        expect(logic.values.computeOptions).toBeNull()
+
+        // Refresh reloads both, which is the panel's retry affordance.
+        jest.mocked(notebooksKernelComputeOptionsRetrieve).mockResolvedValue(COMPUTE_OPTIONS)
+        logic.actions.loadKernelInfo()
+        logic.actions.loadComputeOptions()
+        await jest.advanceTimersByTimeAsync(0)
+
+        expect(logic.values.computeOptions).not.toBeNull()
+        expect(logic.values.computeBlockedReason).toBeNull()
+    })
+
+    test('shows no price at all when the rates are unavailable', async () => {
+        // The status endpoint's hourly_price describes the running sandbox, while the sliders
+        // show the configured shape. Reusing it here would print a price for a shape that is not
+        // on screen, so the panel shows none and blocks configuration instead.
+        jest.mocked(notebooksKernelComputeOptionsRetrieve).mockRejectedValue(new Error('boom'))
+        kernelStatusSpy.mockResolvedValue({
+            backend: 'modal',
+            status: 'running',
+            cpu_cores: 4,
+            memory_gb: 8,
+            hourly_price: 1,
+        })
+        logic = notebookKernelInfoLogic({ shortId: 'no-price-01890abc', mode: 'notebook' })
+        logic.mount()
+        await jest.advanceTimersByTimeAsync(0)
+
+        expect(logic.values.selectedHourlyPrice).toBeNull()
+        expect(logic.values.computeBlockedReason).not.toBeNull()
+    })
+
+    test('does not restart again when the server already did', async () => {
+        // A resize restarts the kernel server-side. Restarting again would tear down the sandbox
+        // that was just built for the new shape.
+        const configSpy = jest.spyOn(api.notebooks, 'kernelConfig').mockResolvedValue({ restarted: true })
+        const restartSpy = jest.spyOn(api.notebooks, 'kernelRestart').mockResolvedValue({})
+        logic = notebookKernelInfoLogic({ shortId: 'no-double-restart-01890abc', mode: 'notebook' })
+        logic.mount()
+        await jest.advanceTimersByTimeAsync(0)
+
+        logic.actions.saveKernelConfig({ cpu_cores: 4, memory_gb: 8 }, 'restart')
+        await jest.advanceTimersByTimeAsync(0)
+
+        expect(configSpy).toHaveBeenCalled()
+        expect(restartSpy).not.toHaveBeenCalled()
+    })
+
+    test('a shared notebook issues no team-scoped kernel requests', async () => {
+        // A shared view renders from cachedNotebook so a logged-out viewer makes no team-scoped
+        // call. Both kernel endpoints are team-scoped, so mounting here used to 401 twice.
+        // The panel is not the only mount: notebookLogic connects this logic for every notebook,
+        // and the exporter goes through that path, so isShared has to reach it from there.
+        logic = notebookKernelInfoLogic({ shortId: 'shared-01890abc', mode: 'notebook', isShared: true })
+        logic.mount()
+        await jest.advanceTimersByTimeAsync(30_000)
+
+        expect(kernelStatusSpy).not.toHaveBeenCalled()
+        expect(jest.mocked(notebooksKernelComputeOptionsRetrieve)).not.toHaveBeenCalled()
+    })
+
+    test('quotes a hand-tuned shape at the rates the API returned', async () => {
+        logic = notebookKernelInfoLogic({ shortId: 'pricing-01890abc', mode: 'notebook' })
+        logic.mount()
+        await jest.advanceTimersByTimeAsync(0)
+
+        logic.actions.setCpuCores(8)
+        logic.actions.setMemoryGb(16)
+
+        // 8 x $0.20 + 16 x $0.025. A hardcoded rate anywhere in the widget fails here.
+        expect(logic.values.selectedHourlyPrice).toBeCloseTo(2.0, 5)
+        // No preset has this shape, so nothing should stay highlighted as selected.
+        expect(logic.values.selectedPresetKey).toBeNull()
+    })
+
+    test('a preset sets both halves of the shape it is priced for', async () => {
+        logic = notebookKernelInfoLogic({ shortId: 'preset-01890abc', mode: 'notebook' })
+        logic.mount()
+        await jest.advanceTimersByTimeAsync(0)
+
+        const balanced = logic.values.computePresets.find((preset) => preset.key === 'balanced')!
+        logic.actions.applyComputePreset(balanced)
+
+        expect(logic.values.selectedCpu).toBe(balanced.cpu_cores)
+        expect(logic.values.selectedMemory).toBe(balanced.memory_gb)
+        // The preset's advertised price has to be what the user is then quoted.
+        expect(logic.values.selectedHourlyPrice).toBeCloseTo(balanced.hourly_price, 5)
+        expect(logic.values.selectedPresetKey).toBe('balanced')
     })
 
     test('stays stopped when the tab returns after the kea store was replaced', async () => {

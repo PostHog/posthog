@@ -203,10 +203,6 @@ async def validate_schema_and_update_table(
     """
     logger = LOGGER.bind(team_id=team_id)
 
-    if row_count == 0:
-        logger.warning("Skipping `validate_schema_and_update_table` due to `row_count` being 0")
-        return
-
     @database_sync_to_async_pool
     def _validate_and_update():
         job = ExternalDataJob.objects.prefetch_related(
@@ -247,12 +243,36 @@ async def validate_schema_and_update_table(
             # minutes, surfacing as "idle in transaction" connections that stalled vacuum and
             # exhausted the connection pool.
             table_created: DataWarehouseTable | None = external_data_schema.table
+
+            if table_created is None:
+                # The ServerException handler below can leave a created table unlinked, so look for
+                # that orphan before the skip decides no table exists. Two schema names can resolve
+                # to one table name, so require that no schema owns the row.
+                table_created = DataWarehouseTable.objects.filter(
+                    team_id=team_id,
+                    name=table_name,
+                    external_data_source_id=job.pipeline.id,
+                    deleted=False,
+                    externaldataschema__isnull=True,
+                ).first()
+                if table_created is not None:
+                    logger.debug(f"Found existing table {table_created.id} - reusing it for schema {_schema_id}")
+
+            # A reported row_count of 0 does not always mean the run wrote nothing: the v3 consumer
+            # can read 0 on a redelivered final batch, and a resumed run counts only its own attempt.
+            # A publish step with nothing to make queryable is what an empty first sync looks like.
+            if row_count == 0 and table_created is None:
+                logger.warning("Skipping table creation: row_count is 0 and no table exists yet")
+                return
+
             if table_created:
                 table = table_created
                 table.format = table_params["format"]
                 table.url_pattern = new_url_pattern
                 table.queryable_folder = queryable_folder
-                if external_data_schema.table_row_count_is_cumulative:
+                if external_data_schema.table_row_count_is_cumulative or row_count == 0:
+                    # A reported 0 can under-count a real write (see above), so read the true count
+                    # from the just-published files rather than zero a table we are republishing.
                     _refresh_cumulative_row_count(table, logger, f"{_schema_name} ({_schema_id})")
                 else:
                     table.row_count = row_count
@@ -268,25 +288,19 @@ async def validate_schema_and_update_table(
                     )
                 )
 
-            if not table_created:
-                # Check if we already have an orphaned table that we can repurpose
-                existing_tables = DataWarehouseTable.objects.filter(
-                    team_id=team_id, name=table_name, external_data_source_id=job.pipeline.id, deleted=False
+            else:
+                logger.debug(f"Creating table for schema: {str(schema_id)}")
+                table = DataWarehouseTable.objects.create(
+                    external_data_source_id=job.pipeline.id,
+                    created_via=DataWarehouseTableCreatedVia.SOURCE,
+                    **table_params,
                 )
-                existing_tables_count = existing_tables.count()
-                if existing_tables_count > 0:
-                    table_created = existing_tables[0]
-                    logger.debug(
-                        f"Found {existing_tables_count} existing tables - skipping creating and using {table_created.id}"
-                    )
-
-                if not table_created:
-                    logger.debug(f"Creating table for schema: {str(schema_id)}")
-                    table_created = DataWarehouseTable.objects.create(
-                        external_data_source_id=job.pipeline.id,
-                        created_via=DataWarehouseTableCreatedVia.SOURCE,
-                        **table_params,
-                    )
+                if row_count == 0:
+                    # table_params holds 0 for a table an earlier attempt already filled. get_count()
+                    # can block long enough for the pooled connection to go stale, as above.
+                    _refresh_cumulative_row_count(table, logger, f"{_schema_name} ({_schema_id})")
+                    retry_on_db_connection_drop(lambda: table.save(update_fields=["row_count"]))
+                table_created = table
 
             assert isinstance(table_created, DataWarehouseTable) and table_created is not None
 

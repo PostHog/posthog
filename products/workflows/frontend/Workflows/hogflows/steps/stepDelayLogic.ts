@@ -201,6 +201,7 @@ export interface stepDelayLogicActions {
                   filters: {
                       all_roles_unassigned?: boolean | undefined
                       assigned_to_user_ids?: number[] | undefined
+                      assignment_status?: 'all' | 'assigned' | 'unassigned' | undefined
                       audience_type?: 'accounts' | 'persons' | undefined
                       properties: any[]
                       tag_names?: string[] | undefined
@@ -337,6 +338,7 @@ export interface stepDelayLogicActions {
                                           | 'task_mcp_installations'
                                           | 'task_model'
                                           | 'task_repository'
+                                          | 'task_skills'
                                   }[]
                                 | undefined
                             name: string
@@ -513,6 +515,7 @@ export interface stepDelayLogicActions {
                   filters: {
                       all_roles_unassigned?: boolean | undefined
                       assigned_to_user_ids?: number[] | undefined
+                      assignment_status?: 'all' | 'assigned' | 'unassigned' | undefined
                       audience_type?: 'accounts' | 'persons' | undefined
                       properties: any[]
                       tag_names?: string[] | undefined
@@ -648,6 +651,7 @@ export interface stepDelayLogicActions {
                                           | 'task_mcp_installations'
                                           | 'task_model'
                                           | 'task_repository'
+                                          | 'task_skills'
                                   }[]
                                 | undefined
                             name: string

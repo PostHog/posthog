@@ -146,6 +146,13 @@ describe('API helper', () => {
             expect(fakeFetch.mock.calls[0][0]).toEqual('/api/environments/2/query/HogQLQuery/')
         })
 
+        it('uses the accounts table endpoint for AccountsTableQuery', async () => {
+            ApiConfig.setCurrentProjectId(2)
+            await api.query({ kind: NodeKind.AccountsTableQuery, columns: [], filters: [] })
+
+            expect(fakeFetch.mock.calls[0][0]).toEqual('/api/projects/2/accounts_table_query/')
+        })
+
         it('keeps the query URL kind optional', async () => {
             await api.query({} as Record<string, any>)
 
@@ -492,6 +499,19 @@ describe('API helper', () => {
             expect(request.assembleEndpointUrl()).toEqual(
                 'organizations/123/feature_flags/my-feature-flag%2Ffoo%2Fbar%3Fbaz%3Dqux'
             )
+        })
+    })
+
+    describe('tasks', () => {
+        it.each([
+            ['task/id', 'projects/2/tasks/task%2Fid'],
+            ['../other', 'projects/2/tasks/..%2Fother'],
+        ])('keeps task ID %s inside the task path', (taskId, expectedPath) => {
+            expect(new ApiRequest().task(taskId).assembleEndpointUrl()).toEqual(expectedPath)
+        })
+
+        it.each(['.', '..'])('rejects task ID dot segment %s', (taskId) => {
+            expect(() => new ApiRequest().task(taskId)).toThrow('Invalid task ID')
         })
     })
 })

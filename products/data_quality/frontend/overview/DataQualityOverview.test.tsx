@@ -8,6 +8,7 @@ import { initKeaTests } from '~/test/init'
 import {
     dataQualityChecksHealthList,
     dataQualityChecksList,
+    dataQualityChecksMetricSubjectsList,
     dataQualityRunsCreate,
     dataQualityRunsRetrieve,
     warehouseSavedQueriesChecksCheckTypesList,
@@ -53,6 +54,7 @@ jest.mock('./DataQualityGateToggle', () => ({ DataQualityGateToggle: () => null 
 jest.mock('products/data_quality/frontend/generated/api', () => ({
     dataQualityChecksList: jest.fn(),
     dataQualityChecksHealthList: jest.fn(),
+    dataQualityChecksMetricSubjectsList: jest.fn(),
     dataQualityRunsCreate: jest.fn(),
     dataQualityRunsRetrieve: jest.fn(),
     warehouseSavedQueriesChecksRunsList: jest.fn(),
@@ -124,6 +126,7 @@ describe('DataQualityOverview', () => {
             failingHealth('orders'),
             failingHealth('customers'),
         ])
+        ;(dataQualityChecksMetricSubjectsList as jest.Mock).mockResolvedValue([])
         ;(dataQualityRunsCreate as jest.Mock).mockResolvedValue({
             id: 'suite-1',
             status: 'running',
@@ -212,7 +215,7 @@ describe('DataQualityOverview', () => {
         expect(screen.getAllByText('orders').length).toBeGreaterThan(0)
     })
 
-    it('opens the subject picker from the first-use state', async () => {
+    it('shows only the creation path from the illustrated first-use state', async () => {
         ;(dataQualityChecksList as jest.Mock).mockResolvedValue({ results: [] })
         ;(dataQualityChecksHealthList as jest.Mock).mockResolvedValue([])
         render(<DataQualityOverview />)
@@ -220,11 +223,13 @@ describe('DataQualityOverview', () => {
         expect(await screen.findByText('No checks yet')).toBeTruthy()
         expect(screen.queryByText('No checks match these filters.')).toBeNull()
         expect(document.querySelector('[data-attr="data-quality-overview-new-check"]')).not.toBeNull()
+        expect(document.querySelector('[data-attr="data-quality-overview-browse"]')).toBeNull()
+        expect(document.querySelector('[data-attr="data-quality-overview-empty-state"] img')).not.toBeNull()
 
         fireEvent.click(document.querySelector('[data-attr="data-quality-overview-first-check"]')!)
 
-        expect(await screen.findByText('Table or view')).toBeTruthy()
-        expect(document.querySelector('.ReactModal__Content')?.textContent).toContain('Connect a source or')
+        expect(await screen.findByText('Table, view, or metric')).toBeTruthy()
+        expect(document.querySelector('.ReactModal__Content')?.textContent).toContain('Browse tables and views')
     })
 
     it('keeps the existing subject-scoped editor free of a subject picker', async () => {
@@ -234,7 +239,7 @@ describe('DataQualityOverview', () => {
         fireEvent.click(await screen.findByText('Edit'))
 
         expect(await screen.findByText('Check type')).toBeTruthy()
-        expect(screen.queryByText('Table or view')).toBeNull()
+        expect(screen.queryByText('Table, view, or metric')).toBeNull()
     })
 
     it('shows a retry when the subject picker catalog cannot load', async () => {

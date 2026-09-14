@@ -603,6 +603,26 @@ BOT_DEFINITIONS: dict[str, BotDefinition] = {
         "Selenium",
         documentation_url="https://www.selenium.dev/",
     ),
+    "SlimerJS": BotDefinition(
+        "SlimerJS", "headless_browser", "Automation", "SlimerJS", documentation_url="https://slimerjs.org/"
+    ),
+    "wkhtmltopdf": BotDefinition(
+        "wkhtmltopdf", "headless_browser", "Automation", "wkhtmltopdf", documentation_url="https://wkhtmltopdf.org/"
+    ),
+    # Impossible browser states. Each pattern is anchored on a contradiction a real browser
+    # cannot produce, so it only matches hand-built or truncated user agents from scraper and
+    # stealth-automation fleets (same principle as the Malformed Chrome UA entry above). None
+    # matches a token a genuine browser shares, which keeps false positives near zero.
+    # Legacy EdgeHTML (Edge 12-18) only ever shipped with Chrome 42-64, so it cannot coexist
+    # with Chromium 100+. Modern Edge sends the "Edg/" token, not "Edge/", so it never matches.
+    r"Chrome/1\d\d.*Edge/1[2-8]\.": BotDefinition("Spoofed Edge UA", "headless_browser", "Automation", "Unknown"),
+    # Real Chromium always ends its WebKit token with "Safari/537.36"; a trailing "Safari/537.3"
+    # is the truncation left by scraped fake user agent lists that dropped the final digit.
+    r"Safari/537\.3$": BotDefinition("Truncated WebKit UA", "headless_browser", "Automation", "Unknown"),
+    # No browser emits a leading or trailing whitespace character in the user agent header.
+    r"(^\s|\s$)": BotDefinition("Whitespace-padded UA", "headless_browser", "Automation", "Unknown"),
+    # A bare "Mozilla/5.0" with no platform or engine token is a lazy scraper default.
+    r"^Mozilla/5\.0$": BotDefinition("Bare Mozilla UA", "headless_browser", "Automation", "Unknown"),
     # Server-side batch (prod $http_log Vercel log drain, 7d, self-declared crawlers/monitors
     # absent from the JS-pageview stream). Each key is anchored on the operator's own declared
     # token, never a pattern that could match a real browser.

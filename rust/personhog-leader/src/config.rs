@@ -267,7 +267,8 @@ pub struct Config {
     /// the dirty index prunes a mark as soon as the writer's committed
     /// offset shows the primary has the row, so reading an async replica
     /// here would serve stale rows for unmarked persons and silently
-    /// break read-your-write. Leader reads are strong reads.
+    /// break read-your-write. Lifecycle mark verifications read this pool
+    /// too and fail closed on replica lag.
     #[envconfig(default = "")]
     pub fallback_database_url: String,
 
@@ -278,6 +279,15 @@ pub struct Config {
     /// pairs personhog_person_tmp on both — flip them together at cutover.
     #[envconfig(default = "posthog_person")]
     pub fallback_table: String,
+
+    /// Saga state tables the fence checks read (the takeover scan, the mark
+    /// verifications, the ghost-fence healer). Must be the pair identity
+    /// writes: its LIFECYCLE_OP_TABLE and LIFECYCLE_OP_PERSON_TABLE.
+    #[envconfig(default = "lifecycle_op")]
+    pub lifecycle_op_table: String,
+
+    #[envconfig(default = "lifecycle_op_person")]
+    pub lifecycle_op_person_table: String,
 
     #[envconfig(default = "5")]
     pub fallback_pg_max_connections: u32,

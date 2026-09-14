@@ -82,7 +82,11 @@ class PostHogCodeSlackMentionCommandWorkflow(PostHogWorkflow):
 
         event = inputs.event
         channel = event.get("channel")
-        thread_ts = event.get("thread_ts") or event.get("ts")
+        # A command posted at channel root is answered at channel root. Falling back to the
+        # message's own ``ts`` would open a thread under it, putting the answer where only
+        # someone already reading that thread would find it. A command sent inside a thread
+        # still keeps its answer there.
+        thread_ts = event.get("thread_ts") or ""
         slack_user_id = event.get("user")
         if not isinstance(channel, str) or not isinstance(thread_ts, str) or not isinstance(slack_user_id, str):
             return

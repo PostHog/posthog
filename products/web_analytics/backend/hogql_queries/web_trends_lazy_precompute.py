@@ -26,12 +26,12 @@ from posthog.clickhouse.preaggregation.web_overview_preaggregated_sql import (
     DISTRIBUTED_WEB_OVERVIEW_PREAGGREGATED_TABLE,
 )
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
-from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
 from posthog.hogql_queries.query_runner import resolve_series_custom_name
 from posthog.hogql_queries.utils.timestamp_utils import format_label_date
 from posthog.models.team import Team
 from posthog.week_start_day import WeekStartDay
 
+from products.product_analytics.backend.facade.queries import TrendsQueryRunner
 from products.web_analytics.backend.hogql_queries.web_analytics_lazy_precompute import (
     WEB_ANALYTICS_LAZY_PRECOMPUTE_FALLBACK,
     WEB_ANALYTICS_LAZY_PRECOMPUTE_SUCCESS,

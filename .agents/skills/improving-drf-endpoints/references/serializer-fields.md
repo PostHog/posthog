@@ -131,13 +131,15 @@ status = serializers.ChoiceField(
 
 **Collision-prone field names.** Generic names like `format`, `type`, `status`,
 `kind`, `level`, `mode`, `state`, `platform`, `provider` already exist on multiple
-components with different choices. Reusing one for a new ChoiceField means
-drf-spectacular auto-names your enum (`Format5eaEnum` and similar), which fails CI
-under `--fail-on-warn`. Either pick a more specific field name, or add a stable
-name to `ENUM_NAME_OVERRIDES` in `posthog/settings/web.py` when you introduce the
-field. Run `python manage.py find_enum_collisions` after the change — it prints
-a suggested override entry (pastable as-is for type-hint enum collisions; for
-ChoiceField collisions you fill in the Choices/Enum class path).
+components with different choices. A ChoiceField built from a
+`models.TextChoices` class is safe: the component is named after the class
+(`ChoicesEnumNameOverrides` in `posthog/openapi/enum_names.py`), independent of
+the field name. An inline `choices=[...]` list on a colliding field name makes
+drf-spectacular auto-name your enum (`Format5eaEnum` and similar), which fails CI
+under `--fail-on-warn` — so define the choices as a TextChoices class, or as a
+fallback add an explicit `ENUM_NAME_OVERRIDES` entry in
+`posthog/settings/web.py`. Run `python manage.py find_enum_collisions` after the
+change — it prints the colliding fields and a suggested override entry.
 
 ## DictField — typed values
 

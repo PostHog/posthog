@@ -9,7 +9,6 @@ is swallowed so telemetry can never fail an activity.
 """
 
 from prometheus_client import Counter, Gauge, Histogram
-from temporalio import workflow
 
 from posthog.otel_metrics import OtelInstrumentFactory
 
@@ -34,7 +33,8 @@ REPLAY_VISION_INELIGIBLE_KINDS = Counter(
 )
 
 # Extends past the default ceiling so multi-minute upload + provider-call activities don't all land in +Inf.
-_ACTIVITY_DURATION_BUCKETS = (0.1, 0.5, 1, 2.5, 5, 10, 30, 60, 120, 300, 600)
+# The top bucket matches the provider-call activity's 20-minute start-to-close timeout.
+_ACTIVITY_DURATION_BUCKETS = (0.1, 0.5, 1, 2.5, 5, 10, 30, 60, 120, 300, 600, 900, 1200)
 
 REPLAY_VISION_ACTIVITY_DURATION = Histogram(
     "replay_vision_activity_duration_seconds",
@@ -56,6 +56,12 @@ REPLAY_VISION_MISSION_PASSES = Counter(
     "replay_vision_mission_passes_total",
     "Full mission passes sent to the provider; rate against observations shows how hard the retry layers multiply",
     ["model", "path"],
+)
+
+REPLAY_VISION_VERIFICATION_OUTCOMES = Counter(
+    "replay_vision_verification_outcomes_total",
+    "Verify-positives results per verified monitor `yes`: agreed, flipped, no_cache, no_budget, draw_failed",
+    ["scanner_type", "mode", "outcome"],
 )
 
 REPLAY_VISION_QUOTA_EXHAUSTED_SKIPS = Counter(
@@ -149,14 +155,13 @@ REPLAY_VISION_ENQUEUE_CLAIM_FAILURES = Counter(
     ["operation"],
 )
 
-REPLAY_VISION_ACTION_OCCURRENCES_DROPPED = Counter(
-    "replay_vision_action_occurrences_dropped_total",
-    "Vision-action occurrences claimed but permanently dropped because the child workflow start failed",
-)
-
-REPLAY_VISION_ACTION_RUNS_REAPED = Counter(
-    "replay_vision_action_runs_reaped_total",
-    "VisionActionRun rows stuck in running whose workflow was gone, failed by the reaper",
+REPLAY_VISION_ESTIMATE_OUTCOMES = Counter(
+    "replay_vision_estimate_outcomes_total",
+    "Estimate outcomes, recorded by scanner saves and the hourly refresher: refreshed, or skipped "
+    "because the scanner's experiment targeting can't resolve an exposed population. Most skips "
+    "are drafts that heal at launch; a rising unresolved count means scanners are stuck with no "
+    "estimate. Failures of the scanner's own query stay on the error path and are not counted",
+    ["outcome"],
 )
 
 REPLAY_VISION_GEMINI_CLEANUP_BACKLOG = Gauge(
@@ -200,6 +205,12 @@ def record_mission_pass(model: str, path: str) -> None:
     _otel.record_counter_twin(REPLAY_VISION_MISSION_PASSES, 1, labels)
 
 
+def record_verification_outcome(*, scanner_type: str, mode: str, outcome: str) -> None:
+    labels = {"scanner_type": scanner_type, "mode": mode, "outcome": outcome}
+    REPLAY_VISION_VERIFICATION_OUTCOMES.labels(**labels).inc()
+    _otel.record_counter_twin(REPLAY_VISION_VERIFICATION_OUTCOMES, 1, labels)
+
+
 def record_quota_exhausted_skip(scanner_type: str) -> None:
     REPLAY_VISION_QUOTA_EXHAUSTED_SKIPS.labels(scanner_type=scanner_type).inc()
     _otel.record_counter_twin(REPLAY_VISION_QUOTA_EXHAUSTED_SKIPS, 1, {"scanner_type": scanner_type})
@@ -228,6 +239,11 @@ def record_sweep_outcome(outcome: str, candidates: int = 0) -> None:
     if candidates > 0:
         REPLAY_VISION_SWEEP_CANDIDATES.inc(candidates)
         _otel.record_counter_twin(REPLAY_VISION_SWEEP_CANDIDATES, candidates, {})
+
+
+def record_estimate_outcome(outcome: str) -> None:
+    REPLAY_VISION_ESTIMATE_OUTCOMES.labels(outcome=outcome).inc()
+    _otel.record_counter_twin(REPLAY_VISION_ESTIMATE_OUTCOMES, 1, {"outcome": outcome})
 
 
 def record_deep_candidates(count: int) -> None:
@@ -269,19 +285,6 @@ def record_consent_skip(scanner_type: str) -> None:
 def record_enqueue_claim_failure(operation: str) -> None:
     REPLAY_VISION_ENQUEUE_CLAIM_FAILURES.labels(operation=operation).inc()
     _otel.record_counter_twin(REPLAY_VISION_ENQUEUE_CLAIM_FAILURES, 1, {"operation": operation})
-
-
-def record_vision_action_occurrence_dropped() -> None:
-    # Callable from workflow code: replays must not double-count.
-    if workflow.in_workflow() and workflow.unsafe.is_replaying():
-        return
-    REPLAY_VISION_ACTION_OCCURRENCES_DROPPED.inc()
-    _otel.record_counter_twin(REPLAY_VISION_ACTION_OCCURRENCES_DROPPED, 1, {})
-
-
-def record_vision_action_runs_reaped(count: int) -> None:
-    REPLAY_VISION_ACTION_RUNS_REAPED.inc(count)
-    _otel.record_counter_twin(REPLAY_VISION_ACTION_RUNS_REAPED, count, {})
 
 
 def record_gemini_cleanup_backlog(count: int) -> None:

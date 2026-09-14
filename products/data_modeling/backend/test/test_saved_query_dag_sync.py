@@ -5,8 +5,9 @@ from unittest import mock
 from parameterized import parameterized
 
 from posthog.hogql.database.database import Database
-from posthog.hogql.errors import QueryError
+from posthog.hogql.errors import QueryError, TableAccessDeniedError
 
+from products.data_modeling.backend.facade.system_tables import DATA_MODELING_ALLOWED_SYSTEM_TABLES
 from products.data_modeling.backend.logic.saved_query_dag_sync import (
     HasDependentsError,
     ManagedDAGError,
@@ -21,6 +22,7 @@ from products.data_modeling.backend.models.dag import DAG, DEFAULT_DAG_NAME
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_modeling.backend.models.modeling import ResolutionCycleError
 from products.data_modeling.backend.models.node import NodeType
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
 
 @pytest.mark.django_db
@@ -32,6 +34,34 @@ class TestGetDagId(BaseTest):
 
 @pytest.mark.django_db
 class TestSyncSavedQueryToDag(BaseTest):
+    @parameterized.expand(
+        [
+            (
+                "account_summary",
+                "SELECT id, feature_requests.count, email_threads.count FROM system.accounts",
+            ),
+            ("customer_tasks", "SELECT id, name, account_id FROM system.customer_tasks"),
+        ]
+    )
+    def test_saved_query_resolution_requires_explicit_data_modeling_system_allowlist(
+        self, name: str, query: str
+    ) -> None:
+        saved_query = DataWarehouseSavedQuery(
+            name=name,
+            team=self.team,
+            query={"kind": "HogQLQuery", "query": query},
+        )
+
+        with self.assertRaises(TableAccessDeniedError):
+            _ = saved_query.s3_tables
+
+        data_modeling_database = Database.create_for(
+            team=self.team,
+            bypass_warehouse_access_control=True,
+            allowed_system_tables=DATA_MODELING_ALLOWED_SYSTEM_TABLES,
+        )
+        assert saved_query.get_s3_tables(database=data_modeling_database) == []
+
     def test_sync_creates_dag_model(self):
         saved_query = DataWarehouseSavedQuery.objects.create(
             name="test_view",
@@ -101,6 +131,43 @@ class TestSyncSavedQueryToDag(BaseTest):
 
         dag = DAG.objects.get(team=self.team, name=DEFAULT_DAG_NAME)
         self.assertEqual(node.dag_id, dag.id)
+
+    @parameterized.expand(
+        [
+            ("asked_for_it_and_has_a_table", True, True, None, NodeType.MAT_VIEW),
+            # The backing table went away. Typing this a view is what stopped the node being
+            # scheduled, so it could never run again and never get its table back.
+            ("asked_for_it_and_lost_its_table", True, False, None, NodeType.MAT_VIEW),
+            ("never_asked_for_it", False, False, None, NodeType.VIEW),
+            # Revenue Analytics sets the flag when it provisions a view, before anything runs, so
+            # for managed views the table is the only honest evidence.
+            (
+                "managed_view_that_has_never_run",
+                True,
+                False,
+                DataWarehouseSavedQuery.Origin.MANAGED_VIEWSET,
+                NodeType.VIEW,
+            ),
+        ]
+    )
+    def test_node_type_follows_the_request_to_materialize(
+        self, name: str, is_materialized: bool, with_table: bool, origin: str | None, expected: str
+    ) -> None:
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            name=name,
+            team=self.team,
+            query={"query": "SELECT 1", "kind": "HogQLQuery"},
+            is_materialized=is_materialized,
+            **({"origin": origin} if origin is not None else {}),
+        )
+        if with_table:
+            saved_query.table = DataWarehouseTable.objects.create(team=self.team, name=f"{name}_tbl", format="Delta")
+            saved_query.save()
+
+        node = sync_saved_query_to_dag(saved_query)
+
+        assert node is not None
+        self.assertEqual(node.type, expected)
 
     def test_sync_creates_table_node_for_posthog_source(self):
         saved_query = DataWarehouseSavedQuery.objects.create(
@@ -277,8 +344,24 @@ class TestSyncSavedQueryToDag(BaseTest):
         with self.assertRaises(ResolutionCycleError):
             sync_saved_query_to_dag(query_a)
 
-        # node for query_a should be cleaned up
-        self.assertFalse(Node.objects.filter(saved_query=query_a).exists())
+        # query_a's node pre-existed this call and view_b still depends on it, so the failed
+        # sync must not delete it — doing so would also cascade-delete view_b's edge to it
+        node_a = Node.objects.filter(saved_query=query_a).first()
+        self.assertIsNotNone(node_a)
+        self.assertTrue(Edge.objects.filter(source=node_a).exists())
+
+    def test_sync_failure_deletes_node_it_just_created(self):
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            name="test_view",
+            team=self.team,
+            query={"query": "select * from nonexistent_table", "kind": "HogQLQuery"},
+        )
+
+        with pytest.raises(QueryError):
+            sync_saved_query_to_dag(saved_query)
+
+        # a node created for this call, with no dependents, is still cleaned up on failure
+        self.assertFalse(Node.objects.filter(saved_query=saved_query).exists())
 
     def test_sync_raises_for_empty_or_null_query(self):
         empty_query, _ = DataWarehouseSavedQuery.objects.get_or_create(

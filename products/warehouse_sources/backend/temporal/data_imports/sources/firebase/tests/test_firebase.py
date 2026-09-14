@@ -1,9 +1,12 @@
 import json
 import datetime
+from collections.abc import Iterator
 from typing import Any, Optional
 
 import pytest
 from unittest import mock
+
+from django.core.cache import cache as django_cache
 
 import jwt
 import requests
@@ -26,6 +29,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.firebase.f
     get_rows,
     get_tables,
     iter_auth_users,
+    iter_firestore_collection_group,
     iter_firestore_documents,
     iter_firestore_documents_incremental,
     iter_realtime_database,
@@ -765,6 +769,69 @@ class TestFirestoreIncrementalFieldDiscovery:
         assert list(found) == tables[:FIRESTORE_INCREMENTAL_DISCOVERY_LIMIT]
 
 
+class TestFirestoreCollectionGroup:
+    @staticmethod
+    def _group_document(document_id: str) -> dict[str, Any]:
+        return {
+            "name": f"projects/demo-project/databases/(default)/documents/rooms/room1/messages/{document_id}",
+            "fields": {"body": {"stringValue": document_id}},
+        }
+
+    def test_reads_every_document_across_parents_and_pages_by_name(self, logger: FilteringBoundLogger) -> None:
+        session = FakeSession(
+            request_responses=[
+                FakeResponse(
+                    payload=[{"document": self._group_document("m1")}, {"document": self._group_document("m2")}]
+                ),
+                FakeResponse(payload=[{"document": self._group_document("m3")}]),
+            ],
+            post_responses=[FakeResponse(payload=TOKEN_PAYLOAD)],
+        )
+        manager = FakeResumeManager()
+
+        with mock.patch(f"{_FIREBASE_MODULE}.FIRESTORE_PAGE_SIZE", 2):
+            batches = list(
+                iter_firestore_collection_group(
+                    session.as_session(), token_provider(session), credentials(), "messages", manager, logger
+                )
+            )
+
+        assert [row[FIRESTORE_ID_COLUMN] for batch in batches for row in batch] == ["m1", "m2", "m3"]
+        first_query = session.requests[0][2]["json"]["structuredQuery"]
+        assert first_query["from"] == [{"collectionId": "messages", "allDescendants": True}]
+        # The second page resumes after the last document of the first, and that name is checkpointed.
+        boundary = self._group_document("m2")["name"]
+        assert session.requests[1][2]["json"]["structuredQuery"]["startAt"]["values"] == [{"referenceValue": boundary}]
+        assert [state.cursor for state in manager.saved] == [boundary]
+        assert manager.cleared is True
+
+    def test_a_subcollection_table_reads_through_the_collection_group(self, logger: FilteringBoundLogger) -> None:
+        session = FakeSession(
+            request_responses=[FakeResponse(payload=[{"document": self._group_document("m1")}])],
+            post_responses=[FakeResponse(payload=TOKEN_PAYLOAD)],
+        )
+
+        with mock.patch(_SESSION_FACTORY, return_value=session.as_session()):
+            batches = list(get_rows(credentials(), "firestore_collection_group/messages", FakeResumeManager(), logger))
+
+        assert session.requests[0][1] == f"{DOCUMENTS_ROOT}:runQuery"
+        assert [row[FIRESTORE_ID_COLUMN] for row in batches[0]] == ["m1"]
+
+    def test_a_root_collection_named_like_a_group_reads_as_a_root(self, logger: FilteringBoundLogger) -> None:
+        # A root collection whose id starts with `collection_group_` has no slash, so it must read
+        # through `listDocuments`, not be misrouted to a collection-group query.
+        session = FakeSession(
+            request_responses=[FakeResponse(payload={"documents": [firestore_document("a")]})],
+            post_responses=[FakeResponse(payload=TOKEN_PAYLOAD)],
+        )
+
+        with mock.patch(_SESSION_FACTORY, return_value=session.as_session()):
+            list(get_rows(credentials(), "firestore_collection_group_orders", FakeResumeManager(), logger))
+
+        assert session.requests[0][0] == "GET"
+        assert session.requests[0][1] == f"{DOCUMENTS_ROOT}/collection_group_orders"
+
+
 class TestAuthUsersPagination:
     def test_stops_when_google_returns_no_token(self, logger: FilteringBoundLogger) -> None:
         session = FakeSession(
@@ -908,9 +975,21 @@ class TestRealtimeDatabase:
 
 
 class TestTableDiscovery:
+    @pytest.fixture(autouse=True)
+    def _clear_discovery_cache(self) -> Iterator[None]:
+        # Discovery is cached per credentials, so isolate each test from the others' cached walk.
+        django_cache.clear()
+        yield
+        django_cache.clear()
+
     def test_lists_auth_firestore_and_configured_paths(self) -> None:
         session = FakeSession(
-            request_responses=[FakeResponse(payload={"collectionIds": ["rooms", "users"]})],
+            request_responses=[
+                FakeResponse(payload={"collectionIds": ["rooms", "users"]}),
+                # Neither root collection has documents to probe, so no subcollections are found.
+                FakeResponse(payload={"documents": []}),
+                FakeResponse(payload={"documents": []}),
+            ],
             post_responses=[FakeResponse(payload=TOKEN_PAYLOAD)],
         )
 
@@ -929,6 +1008,113 @@ class TestTableDiscovery:
             "realtime_database_rooms",
             "realtime_database_messages_lobby",
         ]
+
+    def test_subcollections_are_discovered_by_sampling_documents(self) -> None:
+        session = FakeSession(
+            request_responses=[
+                FakeResponse(payload={"collectionIds": ["rooms"]}),
+                # Sampling `rooms` returns one document to probe for subcollections.
+                FakeResponse(payload={"documents": [firestore_document("room1")]}),
+                FakeResponse(payload={"collectionIds": ["messages"]}),
+                # Sampling the `messages` collection group finds no deeper subcollections.
+                FakeResponse(payload=[]),
+            ],
+            post_responses=[FakeResponse(payload=TOKEN_PAYLOAD)],
+        )
+
+        with mock.patch(_SESSION_FACTORY, return_value=session.as_session()):
+            tables = get_tables(credentials())
+
+        assert tables == [AUTH_USERS_TABLE, "firestore_rooms", "firestore_collection_group/messages"]
+        # The subcollection is discovered by asking a sampled document for its child collections.
+        assert session.requests[2][1] == f"{DOCUMENTS_ROOT}/rooms/room1:listCollectionIds"
+
+    def test_a_subcollection_id_is_listed_once_even_under_several_parents(self) -> None:
+        session = FakeSession(
+            request_responses=[
+                FakeResponse(payload={"collectionIds": ["rooms", "chats"]}),
+                FakeResponse(payload={"documents": [firestore_document("room1")]}),
+                FakeResponse(payload={"collectionIds": ["messages"]}),
+                FakeResponse(payload={"documents": [firestore_document("chat1")]}),
+                FakeResponse(payload={"collectionIds": ["messages"]}),
+                # One collection-group sample for the single `messages` id, then nothing deeper.
+                FakeResponse(payload=[]),
+            ],
+            post_responses=[FakeResponse(payload=TOKEN_PAYLOAD)],
+        )
+
+        with mock.patch(_SESSION_FACTORY, return_value=session.as_session()):
+            tables = get_tables(credentials())
+
+        # `messages` under both parents is one collection group, so it becomes a single table.
+        assert tables == [AUTH_USERS_TABLE, "firestore_rooms", "firestore_chats", "firestore_collection_group/messages"]
+
+    def test_a_subcollection_sharing_an_id_with_a_root_collection_is_not_hidden(self) -> None:
+        session = FakeSession(
+            request_responses=[
+                FakeResponse(payload={"collectionIds": ["messages", "rooms"]}),
+                # Root `messages` has no documents; root `rooms` holds a `messages` subcollection.
+                FakeResponse(payload={"documents": []}),
+                FakeResponse(payload={"documents": [firestore_document("room1")]}),
+                FakeResponse(payload={"collectionIds": ["messages"]}),
+                FakeResponse(payload=[]),
+            ],
+            post_responses=[FakeResponse(payload=TOKEN_PAYLOAD)],
+        )
+
+        with mock.patch(_SESSION_FACTORY, return_value=session.as_session()):
+            tables = get_tables(credentials())
+
+        # The root table reads root documents only, so the subcollection needs its own group table.
+        assert tables == [
+            AUTH_USERS_TABLE,
+            "firestore_messages",
+            "firestore_rooms",
+            "firestore_collection_group/messages",
+        ]
+
+    def test_a_table_whose_storage_name_collides_is_dropped(self) -> None:
+        session = FakeSession(
+            request_responses=[
+                # A root collection named `collection_group_messages` normalizes to the same storage
+                # name as the `messages` collection-group table.
+                FakeResponse(payload={"collectionIds": ["collection_group_messages", "rooms"]}),
+                FakeResponse(payload={"documents": []}),
+                FakeResponse(payload={"documents": [firestore_document("room1")]}),
+                FakeResponse(payload={"collectionIds": ["messages"]}),
+                FakeResponse(payload=[]),
+            ],
+            post_responses=[FakeResponse(payload=TOKEN_PAYLOAD)],
+        )
+
+        with mock.patch(_SESSION_FACTORY, return_value=session.as_session()):
+            tables = get_tables(credentials())
+
+        # The root table is discovered first, so the colliding collection-group table is dropped.
+        assert tables == [AUTH_USERS_TABLE, "firestore_collection_group_messages", "firestore_rooms"]
+
+    def test_subcollections_below_missing_parent_documents_are_discovered(self) -> None:
+        # A parent that exists only to hold a subcollection is a "missing" document: `listDocuments`
+        # omits it unless `showMissing` is set, and it returns a name with no fields. Discovery must
+        # still sample and probe it, or a collection written only under such a parent is never found.
+        missing_parent = {"name": f"{DOCUMENTS_ROOT}/rooms/room1"}
+        session = FakeSession(
+            request_responses=[
+                FakeResponse(payload={"collectionIds": ["rooms"]}),
+                FakeResponse(payload={"documents": [missing_parent]}),
+                FakeResponse(payload={"collectionIds": ["messages"]}),
+                FakeResponse(payload=[]),
+            ],
+            post_responses=[FakeResponse(payload=TOKEN_PAYLOAD)],
+        )
+
+        with mock.patch(_SESSION_FACTORY, return_value=session.as_session()):
+            tables = get_tables(credentials())
+
+        assert tables == [AUTH_USERS_TABLE, "firestore_rooms", "firestore_collection_group/messages"]
+        # Without `showMissing` on the root sample, the missing parent is dropped and its
+        # subcollection is never discovered.
+        assert session.requests[1][2]["params"]["showMissing"] == "true"
 
     @pytest.mark.parametrize("status", [403, 404])
     def test_unreachable_firestore_does_not_hide_the_other_tables(self, status: int) -> None:
@@ -978,6 +1164,32 @@ class TestTableDiscovery:
         with mock.patch(_SESSION_FACTORY, return_value=session.as_session()):
             with pytest.raises(requests.HTTPError):
                 get_tables(credentials())
+
+    def test_discovery_is_cached_and_force_refresh_rewalks(self) -> None:
+        # `rooms` has no documents to probe, so one discovery pass is two requests: the root
+        # `listCollectionIds` and the sample read that finds no subcollections.
+        session = FakeSession(
+            request_responses=[
+                FakeResponse(payload={"collectionIds": ["rooms"]}),
+                FakeResponse(payload={"documents": []}),
+            ],
+            post_responses=[FakeResponse(payload=TOKEN_PAYLOAD), FakeResponse(payload=TOKEN_PAYLOAD)],
+        )
+
+        with mock.patch(_SESSION_FACTORY, return_value=session.as_session()):
+            first = get_tables(credentials())
+            # The second lookup reuses the cached collections instead of walking the project again.
+            cached = get_tables(credentials())
+            assert len(session.requests) == 2
+
+            # A forced refresh walks again, so it needs a fresh set of discovery responses.
+            session.request_queue.extend(
+                [FakeResponse(payload={"collectionIds": ["rooms"]}), FakeResponse(payload={"documents": []})]
+            )
+            get_tables(credentials(), force_refresh=True)
+
+        assert first == cached == [AUTH_USERS_TABLE, "firestore_rooms"]
+        assert len(session.requests) == 4
 
 
 class TestSampleCapture:
@@ -1145,6 +1357,8 @@ class TestSourceResponseShape:
         [
             (AUTH_USERS_TABLE, ["localId"], False),
             ("firestore_rooms", [FIRESTORE_ID_COLUMN], True),
+            # A subcollection is a collection group, so its unique key is the full document path.
+            ("firestore_collection_group/messages", [FIRESTORE_PATH_COLUMN], True),
             ("realtime_database_rooms", [REALTIME_DATABASE_KEY_COLUMN], False),
         ],
     )

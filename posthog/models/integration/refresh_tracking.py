@@ -60,6 +60,17 @@ REFRESH_FAILURE_REASON_OTHER = "other"
 # made. Terminal on the first occurrence, since no later attempt can make the secret readable.
 REFRESH_FAILURE_REASON_UNREADABLE_SECRET = "unreadable_secret"
 
+# Failures that say nothing about the grant: the provider was unavailable or throttling us. The
+# credentials in hand are still good, so a caller refreshing on use must not flag the connection
+# for re-authorization over one - that strands a working connection until someone reconnects it.
+TRANSIENT_REFRESH_FAILURE_REASONS = frozenset(
+    {
+        REFRESH_FAILURE_REASON_HTTP_5XX,
+        REFRESH_FAILURE_REASON_NETWORK,
+        REFRESH_FAILURE_REASON_RATE_LIMITED,
+    }
+)
+
 
 def oauth_refresh_failure_reason(status_code: int, body: dict, kind: str | None = None) -> str:
     error = body.get("error")

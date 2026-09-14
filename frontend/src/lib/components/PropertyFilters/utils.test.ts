@@ -136,7 +136,7 @@ describe('formatPropertyLabel() for behavioral filters', () => {
                     { type: PropertyFilterType.Event, key: 'source', operator: PropertyOperator.Exact, value: ['web'] },
                 ],
             },
-            'Did not perform signed_up where Source = web in the last 30\u00a0days',
+            'Did not perform signed_up where source = web in the last 30\u00a0days',
             noActions,
         ],
         [
@@ -147,7 +147,7 @@ describe('formatPropertyLabel() for behavioral filters', () => {
                     { type: PropertyFilterType.Person, key: 'email', operator: PropertyOperator.IsSet, value: null },
                 ],
             },
-            'Performed signed_up where Source = web and Email address ✓ is set in the last 30\u00a0days',
+            'Performed signed_up where source = web and Email address ✓ is set in the last 30\u00a0days',
             noActions,
         ],
     ])('%s', (_name, overrides, expected, actionsById) => {

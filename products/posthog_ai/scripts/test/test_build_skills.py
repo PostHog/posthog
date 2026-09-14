@@ -542,6 +542,64 @@ def test_lint_all_catches_duplicate_skill_names(tmp_path: Path) -> None:
     assert builder.lint_all() is False
 
 
+@pytest.mark.parametrize(
+    "relpath,reserved_name,content",
+    [
+        (
+            "local-copy.md",
+            "instrument-feature-flags",
+            "---\nname: instrument-feature-flags\ndescription: Copy\n---\nBody\n",
+        ),
+        (
+            "local-copy/SKILL.md",
+            "instrument-logs",
+            "---\nname: instrument-logs\ndescription: Copy\n---\nBody\n",
+        ),
+        (
+            "local-copy/SKILL.md.j2",
+            "instrument-error-tracking",
+            "---\nname: instrument-error-tracking\ndescription: Copy\n---\n# {{ 'x' }}\n",
+        ),
+    ],
+    ids=["loose-file", "renamed-dir", "j2-entry"],
+)
+def test_lint_all_catches_reserved_name_in_frontmatter(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], relpath: str, reserved_name: str, content: str
+) -> None:
+    skill_file = tmp_path / "products" / "alpha" / "skills" / relpath
+    skill_file.parent.mkdir(parents=True)
+    skill_file.write_text(content)
+
+    builder = SkillBuilder(
+        repo_root=tmp_path,
+        products_dir=tmp_path / "products",
+        output_dir=tmp_path / "output",
+    )
+    assert builder.lint_all() is False
+    stderr = capsys.readouterr().err
+    assert f"'{reserved_name}' is owned by PostHog/context-mill" in stderr
+    # The path is the only part that tells an author which file to delete.
+    assert str(skill_file.relative_to(tmp_path)) in stderr
+
+
+def test_build_skill_rejects_reserved_name_after_rendering(tmp_path: Path) -> None:
+    # A templated name that only becomes an omnibus name once rendered slips past
+    # lint_all, which reads the raw frontmatter. build_skill sees the rendered
+    # name, so it must still refuse it.
+    skill_dir = tmp_path / "products" / "alpha" / "skills" / "local-copy"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md.j2").write_text("---\nname: instrument-{{ 'logs' }}\ndescription: Copy\n---\n# Body\n")
+
+    renderer = SkillRenderer()
+    skill = DiscoveredSkill(
+        name="local-copy", source_file=skill_dir / "SKILL.md.j2", product_dir=tmp_path / "products" / "alpha", depth=1
+    )
+    builder = SkillBuilder(repo_root=tmp_path, products_dir=tmp_path / "products", output_dir=tmp_path / "output")
+
+    with pytest.raises(ValueError, match="owned by PostHog/context-mill"):
+        builder.build_skill(skill, renderer)
+
+
 def test_build_skill_rejects_binary_file(tmp_path: Path) -> None:
     skill_dir = tmp_path / "products" / "alpha" / "skills" / "has-binary"
     skill_dir.mkdir(parents=True)

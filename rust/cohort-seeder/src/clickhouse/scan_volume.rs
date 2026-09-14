@@ -16,9 +16,15 @@ use crate::observability::metrics::{SCAN_DECODED_BYTES, SCAN_RECEIVED_BYTES};
 /// series would average them into a number describing neither. [`ScanKind::PersonBoundaries`] is
 /// separate again because it is one whole-team scan per run rather than one per chunk: folding it
 /// into `Person` would put a run's largest single scan in the same series as its smallest.
+///
+/// [`ScanKind::BehavioralCompare`] is the shadow compare's wide re-scan of a behavioral chunk. It
+/// reads the same rows as `Behavioral` over the same table, so it is separate for the opposite
+/// reason: the authoritative series must stay clean while the knob is on, and the two side by side
+/// are the projection's measured win.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ScanKind {
     Behavioral,
+    BehavioralCompare,
     Person,
     PersonBoundaries,
 }
@@ -27,6 +33,7 @@ impl ScanKind {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Behavioral => "behavioral",
+            Self::BehavioralCompare => "behavioral_compare",
             Self::Person => "person",
             Self::PersonBoundaries => "person_boundaries",
         }

@@ -8,6 +8,7 @@ import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
+import { billingJson } from '~/mocks/fixtures/_billing'
 import preflightJson from '~/mocks/fixtures/_preflight.json'
 
 import { SettingSectionId } from '../types'
@@ -117,4 +118,53 @@ export const SettingsEnvironmentIntegrations: Story = { args: { sectionId: 'envi
 
 export const SettingsEnvironmentAccessControl: Story = { args: { sectionId: 'environment-access-control' } }
 
+export const SettingsEnvironmentActivityLogs: Story = {
+    args: { sectionId: 'environment-activity-logs' },
+    // The mock organization holds no product features, so this section renders its pay gate.
+    // Billing must list the audit logs feature, otherwise the gate falls through to the settings.
+    decorators: [mswDecorator({ get: { '/api/billing/': billingJson } })],
+}
+
 export const SettingsEnvironmentDangerZone: Story = { args: { sectionId: 'environment-danger-zone' } }
+
+export const SettingsEnvironmentBusinessKnowledge: Story = {
+    args: { sectionId: 'environment-business-knowledge' },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:id/business_knowledge/settings/': {
+                    learn_from_support_enabled: false,
+                    support_enabled: true,
+                },
+            },
+        }),
+    ],
+}
+
+export const SettingsEnvironmentBusinessKnowledgeSupportOff: Story = {
+    args: { sectionId: 'environment-business-knowledge' },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:id/business_knowledge/settings/': {
+                    learn_from_support_enabled: false,
+                    support_enabled: false,
+                },
+            },
+        }),
+    ],
+}
+
+export const SettingsEnvironmentBusinessKnowledgeLearningOnSupportOff: Story = {
+    args: { sectionId: 'environment-business-knowledge' },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:id/business_knowledge/settings/': {
+                    learn_from_support_enabled: true,
+                    support_enabled: false,
+                },
+            },
+        }),
+    ],
+}

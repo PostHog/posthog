@@ -133,7 +133,12 @@ export function CustomPropertiesConfig(): JSX.Element {
                     </Tooltip>
                 </span>
             ),
-            render: (_, definition) => <ReferencesCell references={definition.references} />,
+            render: (_, definition) => (
+                <ReferencesCell
+                    hasWorkflowReference={definition.has_workflow_reference}
+                    references={definition.references}
+                />
+            ),
         },
         {
             title: 'Last updated',
@@ -158,7 +163,13 @@ export function CustomPropertiesConfig(): JSX.Element {
                     return <span className="text-secondary">Auto</span>
                 }
                 if (!definition.source) {
-                    return <span className="text-secondary">Manual</span>
+                    return definition.has_workflow_reference ? (
+                        <Tooltip title="This property is updated by a workflow.">
+                            <span className="text-secondary">Workflow</span>
+                        </Tooltip>
+                    ) : (
+                        <span className="text-secondary">Manual</span>
+                    )
                 }
                 const status = sourceSyncStatus(definition.source)
                 return (
@@ -304,11 +315,25 @@ export function CustomPropertiesConfig(): JSX.Element {
     )
 }
 
-function ReferencesCell({ references }: { references: readonly CustomPropertyReferenceApi[] }): JSX.Element {
+function ReferencesCell({
+    hasWorkflowReference,
+    references,
+}: {
+    hasWorkflowReference: boolean
+    references: readonly CustomPropertyReferenceApi[]
+}): JSX.Element {
     const [open, setOpen] = useState(false)
 
-    if (!references.length) {
+    if (!hasWorkflowReference) {
         return <span className="text-secondary">0</span>
+    }
+
+    if (!references.length) {
+        return (
+            <Tooltip title="You don't have access to view the workflow.">
+                <span className="text-secondary">Workflow</span>
+            </Tooltip>
+        )
     }
 
     return (

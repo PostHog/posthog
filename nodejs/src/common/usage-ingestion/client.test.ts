@@ -79,19 +79,52 @@ describe('UsageIngestionClient', () => {
         expect(headers).toEqual([{ 'x-client-name': 'cdp' }])
     })
 
-    it('counts the whole chunk as failed when the call itself fails', async () => {
+    // A retryable code gets the whole budget before the chunk is written off, and a code the
+    // service already decided on gets no retry at all.
+    test.each([
+        { name: 'a code the service decided on', code: Code.NotFound, label: 'NotFound', calls: 1 },
+        { name: 'a code the transport raised', code: Code.Canceled, label: 'Canceled', calls: 3 },
+    ])('counts the whole chunk as failed for $name', async ({ code, label, calls: expected }) => {
         ;(client as any).client = {
             ingestBillingUsage: () => {
                 calls += 1
-                return Promise.reject(new ConnectError('nope', Code.NotFound))
+                return Promise.reject(new ConnectError('nope', code))
             },
         }
 
         await client.ingest([record(7), record(8)])
 
-        expect(calls).toBe(1)
+        expect(calls).toBe(expected)
         expect(await counted('usage_ingestion_records_failed_total')).toEqual([
-            expect.objectContaining({ labels: expect.objectContaining({ error_code: 'NotFound' }), value: 2 }),
+            expect.objectContaining({ labels: expect.objectContaining({ error_code: label }), value: 2 }),
+        ])
+    })
+
+    // The service ends every connection with GOAWAY at max_connection_age, and connect-node
+    // reports the flush that races the teardown as Canceled or Internal. Dropping those loses
+    // usage the service never saw, so they have to be retried like any other transport failure.
+    test.each([
+        { name: 'Canceled from a GOAWAY teardown', code: Code.Canceled, label: 'Canceled' },
+        { name: 'Internal from a destroyed session', code: Code.Internal, label: 'Internal' },
+    ])('retries $name until the call succeeds', async ({ code, label }) => {
+        acceptedRecordIds = ['record-7']
+        ;(client as any).client = {
+            ingestBillingUsage: () => {
+                calls += 1
+                return calls < 3
+                    ? Promise.reject(new ConnectError('gone', code))
+                    : Promise.resolve({ acceptedRecordIds })
+            },
+        }
+
+        await client.ingest([record(7)])
+
+        expect(calls).toBe(3)
+        expect(await counted('usage_ingestion_records_sent_total')).toEqual([expect.objectContaining({ value: 1 })])
+        // A retry that lands drops nothing, so the retries read on their own counter.
+        expect(await counted('usage_ingestion_records_failed_total')).toEqual([])
+        expect(await counted('usage_ingestion_retries_total')).toEqual([
+            expect.objectContaining({ labels: expect.objectContaining({ error_code: label }), value: 2 }),
         ])
     })
 })

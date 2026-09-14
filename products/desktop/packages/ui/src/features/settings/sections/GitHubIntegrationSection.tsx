@@ -11,7 +11,7 @@ import {
   describeGithubRepoAccess,
   formatGithubAccountLabel,
 } from "@posthog/core/settings/githubRepoSummary";
-import { Button, Spinner, Text } from "@posthog/quill";
+import { Button, Text } from "@posthog/quill";
 import { useAuthStateValue } from "@posthog/ui/features/auth/store";
 import { useIsOrgAdmin } from "@posthog/ui/features/auth/useOrgRole";
 import { GithubInstallRequestsBanner } from "@posthog/ui/features/integrations/components/GithubInstallRequestsBanner";
@@ -20,6 +20,7 @@ import { useIntegrationSelectors } from "@posthog/ui/features/integrations/store
 import { useGithubConnect } from "@posthog/ui/features/integrations/useGithubUserConnect";
 import { useRepositoryIntegration } from "@posthog/ui/features/integrations/useIntegrations";
 import { openSettings } from "@posthog/ui/features/settings/hooks/useOpenSettings";
+import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { Tooltip } from "@posthog/ui/primitives/Tooltip";
 
 interface GitHubIntegrationSectionProps {

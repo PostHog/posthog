@@ -1,4 +1,4 @@
-import { InsightModel } from '~/types'
+import { InsightModel, InsightType } from '~/types'
 
 import { extractValidationErrorCode, getQueryBasedInsightModel } from './utils'
 
@@ -54,5 +54,16 @@ describe('getQueryBasedInsightModel', () => {
     ])('%s', (_name, input, expected) => {
         const result = getQueryBasedInsightModel(input as Partial<InsightModel>)
         expect(result.dashboards).toEqual(expected)
+    })
+
+    it('drops stored filters rather than converting them', () => {
+        // A blank insight is the accepted outcome here, not a fault: saving one writes a query.
+        const result = getQueryBasedInsightModel({
+            query: null,
+            filters: { insight: InsightType.TRENDS, events: [{ id: '$pageview' }] },
+        } as Partial<InsightModel>)
+
+        expect(result.query).toBeNull()
+        expect(result).not.toHaveProperty('filters')
     })
 })

@@ -79,6 +79,11 @@ describe('TaxonomicFilter selectingKeyOnly mode', () => {
         })
     }
 
+    async function selectRecentCategory(): Promise<void> {
+        await userEvent.click(await screen.findByTestId('taxonomic-category-dropdown-trigger-pill'))
+        await userEvent.click(await screen.findByTestId('taxonomic-category-dropdown-item-recent_filters'))
+    }
+
     describe('recording on selection', () => {
         it('records an EventProperty selection to recents when selectingKeyOnly is set', async () => {
             renderFilter({ selectingKeyOnly: true })
@@ -117,8 +122,7 @@ describe('TaxonomicFilter selectingKeyOnly mode', () => {
 
             renderFilter({ selectingKeyOnly: true, onChange })
 
-            await waitForTestId('taxonomic-tab-recent_filters')
-            await userEvent.click(screen.getByTestId('taxonomic-tab-recent_filters'))
+            await selectRecentCategory()
 
             await waitFor(() => {
                 expect(screen.getByTestId('prop-filter-recent_filters-0')).toBeInTheDocument()
@@ -158,9 +162,7 @@ describe('TaxonomicFilter selectingKeyOnly mode', () => {
 
             renderFilter({ selectingKeyOnly: true })
 
-            await waitForTestId('taxonomic-tab-recent_filters')
-
-            await userEvent.click(screen.getByTestId('taxonomic-tab-recent_filters'))
+            await selectRecentCategory()
 
             await waitFor(() => {
                 expect(screen.getByTestId('prop-filter-recent_filters-0')).toBeInTheDocument()
@@ -175,8 +177,7 @@ describe('TaxonomicFilter selectingKeyOnly mode', () => {
 
             renderFilter({ selectingKeyOnly: true })
 
-            await waitForTestId('taxonomic-tab-recent_filters')
-            await userEvent.click(screen.getByTestId('taxonomic-tab-recent_filters'))
+            await selectRecentCategory()
 
             await waitFor(() => {
                 expect(screen.getByTestId('prop-filter-recent_filters-0')).toBeInTheDocument()
@@ -192,8 +193,7 @@ describe('TaxonomicFilter selectingKeyOnly mode', () => {
 
             renderFilter()
 
-            await waitForTestId('taxonomic-tab-recent_filters')
-            await userEvent.click(screen.getByTestId('taxonomic-tab-recent_filters'))
+            await selectRecentCategory()
 
             await waitFor(() => {
                 expect(screen.getByTestId('prop-filter-recent_filters-0')).toBeInTheDocument()
@@ -210,8 +210,7 @@ describe('TaxonomicFilter selectingKeyOnly mode', () => {
 
             renderFilter({ onChange })
 
-            await waitForTestId('taxonomic-tab-recent_filters')
-            await userEvent.click(screen.getByTestId('taxonomic-tab-recent_filters'))
+            await selectRecentCategory()
 
             await waitFor(() => {
                 expect(screen.getByTestId('prop-filter-recent_filters-1')).toBeInTheDocument()
@@ -232,8 +231,7 @@ describe('TaxonomicFilter selectingKeyOnly mode', () => {
 
             renderFilter({ selectingKeyOnly: true })
 
-            await waitForTestId('taxonomic-tab-recent_filters')
-            await userEvent.click(screen.getByTestId('taxonomic-tab-recent_filters'))
+            await selectRecentCategory()
 
             await waitFor(() => {
                 expect(screen.getByTestId('prop-filter-recent_filters-0')).toBeInTheDocument()

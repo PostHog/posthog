@@ -54,10 +54,20 @@ impl OpDriver for DummyDriver {
         self.steps_run.fetch_add(1, Ordering::SeqCst);
         let mut tx = pool.begin().await.map_err(SagaError::Db)?;
         let advanced = match op.step.as_str() {
-            "started" => advance_step_in_tx(&mut tx, op.op_id, "started", "half").await?,
+            "started" => {
+                advance_step_in_tx(
+                    &mut tx,
+                    &common::default_tables(),
+                    op.op_id,
+                    "started",
+                    "half",
+                )
+                .await?
+            }
             "half" => {
                 complete_op_in_tx(
                     &mut tx,
+                    &common::default_tables(),
                     op.op_id,
                     "half",
                     STEP_COMPLETED,
@@ -304,7 +314,9 @@ async fn a_live_lease_blocks_a_second_driver_until_it_lapses() {
             execute_timeout: std::time::Duration::from_millis(200),
             poll_interval: std::time::Duration::from_millis(25),
             attempt_alert_threshold: 5,
+            gc_batch_limit: 10_000,
         },
+        ctx.tables.clone(),
     );
     let err = short_engine
         .execute(&driver, op_id, ctx.team_id, &json!({}))
@@ -316,6 +328,63 @@ async fn a_live_lease_blocks_a_second_driver_until_it_lapses() {
         0,
         "no step ran while another instance held the lease"
     );
+
+    ctx.cleanup().await.expect("cleanup");
+}
+
+/// Sleeps through the execute deadline without ever advancing, modeling
+/// a wedged step under a held claim.
+struct SlowDriver;
+
+#[async_trait]
+impl OpDriver for SlowDriver {
+    fn op_type(&self) -> &'static str {
+        "merge"
+    }
+
+    fn initial_step(&self) -> &'static str {
+        "started"
+    }
+
+    async fn run_step(&self, _pool: &PgPool, _op: &OpRow) -> Result<(), SagaError> {
+        tokio::time::sleep(std::time::Duration::from_millis(400)).await;
+        Ok(())
+    }
+}
+
+#[tokio::test]
+async fn a_drive_that_runs_out_its_own_deadline_says_so_and_releases_the_lease() {
+    let ctx = TestContext::new().await;
+    let op_id = Uuid::now_v7();
+
+    let short_engine = personhog_identity::lifecycle::engine::Engine::new(
+        ctx.pool.clone(),
+        personhog_identity::lifecycle::engine::EngineConfig {
+            lease: std::time::Duration::from_secs(5),
+            execute_timeout: std::time::Duration::from_millis(200),
+            poll_interval: std::time::Duration::from_millis(25),
+            attempt_alert_threshold: 5,
+            gc_batch_limit: 10_000,
+        },
+        ctx.tables.clone(),
+    );
+
+    // The claim was ours the whole time, so the answer must not blame a
+    // contending instance that does not exist; and the lease releases so
+    // the retry is not locked out for a lease term on top.
+    let err = short_engine
+        .execute(&SlowDriver, op_id, ctx.team_id, &json!({}))
+        .await
+        .expect_err("the slow drive runs out its deadline");
+    assert!(matches!(err, SagaError::DeadlineElapsed));
+    let lease_live: bool = sqlx::query_scalar(
+        "SELECT lease_expires_at IS NOT NULL AND lease_expires_at >= now() FROM lifecycle_op WHERE op_id = $1",
+    )
+    .bind(op_id)
+    .fetch_one(&ctx.pool)
+    .await
+    .expect("op row exists");
+    assert!(!lease_live, "the deadline return released the lease");
 
     ctx.cleanup().await.expect("cleanup");
 }
@@ -424,7 +493,9 @@ async fn a_driver_whose_lease_was_stolen_stops_running_steps_instead_of_renewing
             execute_timeout: std::time::Duration::from_millis(200),
             poll_interval: std::time::Duration::from_millis(25),
             attempt_alert_threshold: 5,
+            gc_batch_limit: 10_000,
         },
+        ctx.tables.clone(),
     );
     let err = short_engine
         .execute(&driver, op_id, ctx.team_id, &json!({}))
@@ -509,8 +580,15 @@ impl OpDriver for RefusingDriver {
             )));
         }
         let mut tx = pool.begin().await.map_err(SagaError::Db)?;
-        let advanced =
-            complete_op_in_tx(&mut tx, op.op_id, "started", STEP_COMPLETED, &json!({})).await?;
+        let advanced = complete_op_in_tx(
+            &mut tx,
+            &common::default_tables(),
+            op.op_id,
+            "started",
+            STEP_COMPLETED,
+            &json!({}),
+        )
+        .await?;
         if !advanced {
             tx.rollback().await.map_err(SagaError::Db)?;
             return Ok(());

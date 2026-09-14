@@ -36,10 +36,15 @@ export function isDismissedReport(report: SignalReport): boolean {
   return report.status === "suppressed" || report.status === "resolved";
 }
 
+/**
+ * A suppressed report can be restored to the inbox — except a refunded one: the
+ * backend `state` action refuses `suppressed → potential` for a refunded report
+ * (409), so offering Restore there is a dead-end affordance.
+ */
 export function isRestorableReport(
-  report: Pick<SignalReport, "status">,
+  report: Pick<SignalReport, "status" | "refund">,
 ): boolean {
-  return report.status === "suppressed";
+  return report.status === "suppressed" && report.refund == null;
 }
 
 export type InboxScope = "for-you" | "entire-project" | `teammate:${string}`;

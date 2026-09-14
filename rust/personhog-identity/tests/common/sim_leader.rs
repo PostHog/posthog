@@ -31,6 +31,7 @@ use tonic::Status;
 use uuid::Uuid;
 
 use personhog_common::grpc::semantic_refusal;
+use personhog_identity::config::IdentityTables;
 use personhog_identity::leader::{LifecycleLeader, PropertyWriter};
 use personhog_proto::personhog::types::v1::{
     FencePersonRequest, FencePersonResponse, FoldPersonDocumentRequest, FoldPersonDocumentResponse,
@@ -120,7 +121,7 @@ fn fenced_status(fence: &Fence) -> Status {
 
 pub struct SimLeader {
     pool: PgPool,
-    person_table: String,
+    tables: IdentityTables,
     calls: Mutex<Vec<LeaderCall>>,
     fences: Mutex<HashMap<i64, Fence>>,
     deaths: Mutex<HashMap<i64, DeathDocument>>,
@@ -135,10 +136,10 @@ pub struct SimLeader {
 }
 
 impl SimLeader {
-    pub fn new(pool: PgPool, person_table: String) -> Self {
+    pub fn new(pool: PgPool, tables: IdentityTables) -> Self {
         Self {
             pool,
-            person_table,
+            tables,
             calls: Mutex::new(Vec::new()),
             fences: Mutex::new(HashMap::new()),
             deaths: Mutex::new(HashMap::new()),
@@ -162,6 +163,16 @@ impl SimLeader {
             .entry((rpc, person_id))
             .or_default()
             .push_back(status);
+    }
+
+    /// Whether every scripted failure for this key has been consumed. Lets a
+    /// test tell a rejected call from a call that never happened.
+    pub fn scripted_drained(&self, rpc: Rpc, person_id: i64) -> bool {
+        self.scripted
+            .lock()
+            .unwrap()
+            .get(&(rpc, person_id))
+            .is_none_or(|queue| queue.is_empty())
     }
 
     pub fn set_sealed_identified(&self, person_id: i64, identified: bool) {
@@ -219,7 +230,7 @@ impl SimLeader {
             FROM {person_table}
             WHERE team_id = $1 AND id = $2 AND is_deleted = false
             "#,
-            person_table = self.person_table,
+            person_table = self.tables.person,
         );
         let row: Option<(Uuid, i64, chrono::DateTime<Utc>, bool, serde_json::Value)> =
             sqlx::query_as(&live_sql)
@@ -246,10 +257,11 @@ impl SimLeader {
     /// The mark row the real leader consults before producing a death
     /// document (personhog-leader/src/fence.rs `mark_status`).
     async fn mark_status(&self, op_id: Uuid, team_id: i64, person_id: i64) -> Option<String> {
-        sqlx::query_scalar(
-            "SELECT status FROM lifecycle_op_person \
+        sqlx::query_scalar(&format!(
+            "SELECT status FROM {} \
              WHERE op_id = $1 AND team_id = $2 AND person_id = $3 AND role <> 'target'",
-        )
+            self.tables.lifecycle_op_person
+        ))
         .bind(op_id)
         .bind(team_id as i32)
         .bind(person_id)
@@ -265,10 +277,11 @@ impl SimLeader {
         team_id: i64,
         person_id: i64,
     ) -> Option<String> {
-        sqlx::query_scalar(
-            "SELECT status FROM lifecycle_op_person \
+        sqlx::query_scalar(&format!(
+            "SELECT status FROM {} \
              WHERE op_id = $1 AND team_id = $2 AND person_id = $3 AND role = 'target'",
-        )
+            self.tables.lifecycle_op_person
+        ))
         .bind(op_id)
         .bind(team_id as i32)
         .bind(person_id)
@@ -549,9 +562,54 @@ impl PropertyWriter for SimLeader {
             .live_person(request.team_id, request.person_id)
             .await
             .ok_or_else(|| Status::not_found("person is destroyed"))?;
-        // The real leader OR-merges the flip and answers with the updated
-        // person; the flip reaches Postgres through the changelog, not here.
-        person.is_identified = person.is_identified || request.is_identified == Some(true);
+        // Properties are applied and persisted, because the seal reads them
+        // back out of Postgres: without this the sim cannot tell a write
+        // that landed from one that was never sent, which is exactly what
+        // the carried-operation path needs to prove.
+        let decode = |bytes: &[u8]| {
+            serde_json::from_slice::<serde_json::Map<String, serde_json::Value>>(bytes)
+                .unwrap_or_default()
+        };
+        let mut properties = decode(&person.properties);
+        // The real leader's $unset removes only keys present BEFORE the op,
+        // so a pair (set/set_once and unset of one key in one op) keeps the
+        // written value where the key was absent. Mirrored here or a
+        // carried-pair test would certify the wrong semantics.
+        let present_before: std::collections::HashSet<String> =
+            properties.keys().cloned().collect();
+        for (key, value) in decode(&request.set_once_properties) {
+            properties.entry(key).or_insert(value);
+        }
+        for (key, value) in decode(&request.set_properties) {
+            properties.insert(key, value);
+        }
+        for key in &request.unset_properties {
+            if present_before.contains(key) {
+                properties.remove(key);
+            }
+        }
+        let encoded = serde_json::Value::Object(properties);
+        // The identity flip persists too, because the seal reads the row:
+        // a carried is_identified that the real leader would surface at
+        // fence time has to be visible to the saga's identified re-check,
+        // or the one interaction the flip exists for goes unmodeled.
+        let flip = request.is_identified == Some(true);
+        let update_sql = format!(
+            "UPDATE {person_table} SET properties = $3::jsonb, is_identified = is_identified OR $4 \
+             WHERE team_id = $1 AND id = $2",
+            person_table = self.tables.person,
+        );
+        sqlx::query(&update_sql)
+            .bind(request.team_id as i32)
+            .bind(request.person_id)
+            .bind(&encoded)
+            .bind(flip)
+            .execute(&self.pool)
+            .await
+            .expect("property write");
+        person.properties = serde_json::to_vec(&encoded).expect("serialize properties");
+        // The real leader OR-merges the flip and answers with the updated person.
+        person.is_identified = person.is_identified || flip;
         self.record(LeaderCall::PropertyPush {
             person_id: request.person_id,
             is_identified: request.is_identified,

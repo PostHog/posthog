@@ -2,30 +2,30 @@
 import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
-import {
-    HogFunctionsCreateBody,
-    HogFunctionsDestroyParams,
-    HogFunctionsListQueryParams,
-    HogFunctionsPartialUpdateBody,
-    HogFunctionsPartialUpdateParams,
-} from '@/generated/error_tracking_alerts/api'
+import * as orvalSchemas from '@/generated/error_tracking_alerts/api'
 import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
-const ErrorTrackingAlertsCreateSchema = HogFunctionsCreateBody.extend({
-    type: HogFunctionsCreateBody.shape['type'].describe(
-        'Must be `internal_destination` for an error tracking alert. Other values create non-alert HogFunctions and should be created via `cdp-functions-create` instead.'
-    ),
-    template_id: HogFunctionsCreateBody.shape['template_id'].describe(
-        'Integration template — one of `template-slack`, `template-webhook`, `template-discord`, `template-microsoft-teams`, `template-linear`, `template-github`, `template-gitlab`.'
-    ),
-    enabled: HogFunctionsCreateBody.shape['enabled'].describe('Whether the alert is active. Defaults to true.'),
-})
+const ErrorTrackingAlertsCreateSchema = () => {
+    const HogFunctionsCreateBody = orvalSchemas.HogFunctionsCreateBody()
+    return HogFunctionsCreateBody.extend({
+        type: HogFunctionsCreateBody.shape['type'].describe(
+            'Must be `internal_destination` for an error tracking alert. Other values create non-alert HogFunctions and should be created via `cdp-functions-create` instead.'
+        ),
+        template_id: HogFunctionsCreateBody.shape['template_id'].describe(
+            'Integration template — one of `template-slack`, `template-webhook`, `template-discord`, `template-microsoft-teams`, `template-linear`, `template-github`, `template-gitlab`.'
+        ),
+        enabled: HogFunctionsCreateBody.shape['enabled'].describe('Whether the alert is active. Defaults to true.'),
+    })
+}
 
-const errorTrackingAlertsCreate = (): ToolBase<typeof ErrorTrackingAlertsCreateSchema, Schemas.HogFunction> => ({
+const errorTrackingAlertsCreate = (): ToolBase<
+    ReturnType<typeof ErrorTrackingAlertsCreateSchema>,
+    Schemas.HogFunction
+> => ({
     name: 'error-tracking-alerts-create',
-    schema: ErrorTrackingAlertsCreateSchema,
-    handler: async (context: Context, params: z.infer<typeof ErrorTrackingAlertsCreateSchema>) => {
+    schema: ErrorTrackingAlertsCreateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ErrorTrackingAlertsCreateSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.type !== undefined) {
@@ -76,12 +76,18 @@ const errorTrackingAlertsCreate = (): ToolBase<typeof ErrorTrackingAlertsCreateS
     },
 })
 
-const ErrorTrackingAlertsDeleteSchema = HogFunctionsDestroyParams.omit({ project_id: true })
+const ErrorTrackingAlertsDeleteSchema = () => {
+    const HogFunctionsDestroyParams = orvalSchemas.HogFunctionsDestroyParams()
+    return HogFunctionsDestroyParams.omit({ project_id: true })
+}
 
-const errorTrackingAlertsDelete = (): ToolBase<typeof ErrorTrackingAlertsDeleteSchema, Schemas.HogFunction> => ({
+const errorTrackingAlertsDelete = (): ToolBase<
+    ReturnType<typeof ErrorTrackingAlertsDeleteSchema>,
+    Schemas.HogFunction
+> => ({
     name: 'error-tracking-alerts-delete',
-    schema: ErrorTrackingAlertsDeleteSchema,
-    handler: async (context: Context, params: z.infer<typeof ErrorTrackingAlertsDeleteSchema>) => {
+    schema: ErrorTrackingAlertsDeleteSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ErrorTrackingAlertsDeleteSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.HogFunction>({
             method: 'PATCH',
@@ -92,15 +98,18 @@ const errorTrackingAlertsDelete = (): ToolBase<typeof ErrorTrackingAlertsDeleteS
     },
 })
 
-const ErrorTrackingAlertsListSchema = HogFunctionsListQueryParams
+const ErrorTrackingAlertsListSchema = () => {
+    const HogFunctionsListQueryParams = orvalSchemas.HogFunctionsListQueryParams()
+    return HogFunctionsListQueryParams
+}
 
 const errorTrackingAlertsList = (): ToolBase<
-    typeof ErrorTrackingAlertsListSchema,
+    ReturnType<typeof ErrorTrackingAlertsListSchema>,
     WithPostHogUrl<Schemas.PaginatedHogFunctionMinimalList>
 > => ({
     name: 'error-tracking-alerts-list',
-    schema: ErrorTrackingAlertsListSchema,
-    handler: async (context: Context, params: z.infer<typeof ErrorTrackingAlertsListSchema>) => {
+    schema: ErrorTrackingAlertsListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ErrorTrackingAlertsListSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedHogFunctionMinimalList>({
             method: 'GET',
@@ -139,21 +148,25 @@ const errorTrackingAlertsList = (): ToolBase<
     },
 })
 
-const ErrorTrackingAlertsPartialUpdateSchema = HogFunctionsPartialUpdateParams.omit({ project_id: true })
-    .extend(HogFunctionsPartialUpdateBody.shape)
-    .extend({
-        enabled: HogFunctionsPartialUpdateBody.shape['enabled'].describe(
-            'Set to true to activate the alert or false to silence it without deleting.'
-        ),
-    })
+const ErrorTrackingAlertsPartialUpdateSchema = () => {
+    const HogFunctionsPartialUpdateBody = orvalSchemas.HogFunctionsPartialUpdateBody()
+    const HogFunctionsPartialUpdateParams = orvalSchemas.HogFunctionsPartialUpdateParams()
+    return HogFunctionsPartialUpdateParams.omit({ project_id: true })
+        .extend(HogFunctionsPartialUpdateBody.shape)
+        .extend({
+            enabled: HogFunctionsPartialUpdateBody.shape['enabled'].describe(
+                'Set to true to activate the alert or false to silence it without deleting.'
+            ),
+        })
+}
 
 const errorTrackingAlertsPartialUpdate = (): ToolBase<
-    typeof ErrorTrackingAlertsPartialUpdateSchema,
+    ReturnType<typeof ErrorTrackingAlertsPartialUpdateSchema>,
     Schemas.HogFunction
 > => ({
     name: 'error-tracking-alerts-partial-update',
-    schema: ErrorTrackingAlertsPartialUpdateSchema,
-    handler: async (context: Context, params: z.infer<typeof ErrorTrackingAlertsPartialUpdateSchema>) => {
+    schema: ErrorTrackingAlertsPartialUpdateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ErrorTrackingAlertsPartialUpdateSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.type !== undefined) {

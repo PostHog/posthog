@@ -1,4 +1,5 @@
 import type { SignalReport } from "@posthog/shared/types";
+import { InboxReportContextMenu } from "@posthog/ui/features/inbox/components/InboxReportContextMenu";
 import { InboxReportRowView } from "@posthog/ui/features/inbox/components/InboxReportRowView";
 import { ReportRestoreButton } from "@posthog/ui/features/inbox/components/ReportRestoreButton";
 import { SuggestedReviewerAvatarStack } from "@posthog/ui/features/inbox/components/SuggestedReviewerAvatarStack";
@@ -12,18 +13,20 @@ export function InboxReportRow({
   report: SignalReport;
 }): React.JSX.Element {
   const { pointerHandlers } = useInboxReportDetailPrefetch({
-    to: "/inbox/reports/$reportId",
+    to: "/reports/$reportId",
     params: { reportId: report.id },
   });
 
   return (
-    <InboxReportRowView
-      report={report}
-      prefetchHandlers={pointerHandlers}
-      reviewers={<SuggestedReviewerAvatarStack report={report} />}
-      restoreAction={<ReportRestoreButton report={report} />}
-      onOpen={() => navigateToInboxReportDetail(report.id)}
-      onOpenPr={openExternalUrl}
-    />
+    <InboxReportContextMenu report={report}>
+      <InboxReportRowView
+        report={report}
+        prefetchHandlers={pointerHandlers}
+        reviewers={<SuggestedReviewerAvatarStack report={report} />}
+        restoreAction={<ReportRestoreButton report={report} />}
+        onOpen={() => navigateToInboxReportDetail(report.id)}
+        onOpenPr={openExternalUrl}
+      />
+    </InboxReportContextMenu>
   );
 }

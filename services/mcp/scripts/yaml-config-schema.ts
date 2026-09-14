@@ -93,11 +93,13 @@ export const ToolConfigSchema = z
                          * - `'string-int'` — casts strings that look like a base-10 integer
                          *   (e.g. `"123"`, `"-7"`) to a number. Anything else passes through
                          *   unchanged so zod still rejects with its honest error.
+                         * - `'boolean-string'` — casts a boolean to `"true"` / `"false"` for a
+                         *   string param that reads as a boolean to an agent (e.g. `enabled`).
                          *
                          * Mutually exclusive with `input_schema` and `schema_ref` (those
                          * fully replace the schema; cast composes with the existing one).
                          */
-                        cast: z.enum(['string-int']).optional(),
+                        cast: z.enum(['string-int', 'boolean-string']).optional(),
                         /**
                          * Alternate key names accepted for this param and normalized to it
                          * before validation — for identifier params agents guess different
@@ -176,6 +178,14 @@ export const ToolConfigSchema = z
         /** Variant of `feature_flag` to match exactly. Requires `feature_flag` to be set. */
         feature_flag_variant: z.string().optional(),
         /**
+         * Tool names that took over this tool's job. Set it on any tool a gate
+         * retires (`feature_flag_behavior: 'disable'`), so a call to the retired
+         * name reports the successor instead of reading as an unknown tool.
+         */
+        superseded_by: z.array(z.string()).optional(),
+        /** Extra guidance appended to the successor message, for a redirect a bare tool name cannot carry. */
+        redirect_hint: z.string().optional(),
+        /**
          * Response field filtering. Supports dot-path patterns with wildcards (e.g. 'filters.groups.*.key').
          * For list endpoints, applied to each item in `results`. `include` and `exclude` are mutually exclusive.
          */
@@ -196,6 +206,12 @@ export const ToolConfigSchema = z
                  * returns the full `include` set. Requires `include`; incompatible with `exclude`.
                  */
                 selectable: z.boolean().optional(),
+                /**
+                 * Remove keys whose value is `null` from the response, after `include`/`exclude`.
+                 * Use it on tools that echo a nested serializer schema, where the unset optional
+                 * fields dominate the payload.
+                 */
+                strip_nulls: z.boolean().optional(),
                 /** Wrap user-authored response data in an explicit informational-only tag boundary. */
                 informational_wrapper: z
                     .object({
@@ -272,6 +288,14 @@ export const ToolConfigSchema = z
     .refine((data) => !(data.feature_flag_variant && !data.feature_flag), {
         message: '`feature_flag_variant` requires `feature_flag` to be set',
         path: ['feature_flag_variant'],
+    })
+    // A list response encodes as a TOON table: one header of shared keys, then one row per
+    // item. Dropping a `null` that only some rows carry breaks that uniformity and forces the
+    // expanded per-key form, so the response grows instead of shrinking.
+    .refine((data) => !(data.response?.strip_nulls && data.list), {
+        message:
+            '`response.strip_nulls` cannot be combined with `list: true` — rows encode as a TOON table, and per-item null removal makes a ragged table larger. Use `response.exclude` to drop the fields instead.',
+        path: ['response', 'strip_nulls'],
     })
     // confirmed_action emits two factories (`-prepare`, `-execute`) via a
     // codegen path that doesn't currently wrap either with `withUiApp`.
@@ -535,6 +559,14 @@ export const QueryWrapperToolConfigSchema = z
         feature_flag_behavior: z.enum(['enable', 'disable']).optional(),
         /** Variant of `feature_flag` to match exactly. Requires `feature_flag` to be set. */
         feature_flag_variant: z.string().optional(),
+        /**
+         * Tool names that took over this tool's job. Set it on any tool a gate
+         * retires (`feature_flag_behavior: 'disable'`), so a call to the retired
+         * name reports the successor instead of reading as an unknown tool.
+         */
+        superseded_by: z.array(z.string()).optional(),
+        /** Extra guidance appended to the successor message, for a redirect a bare tool name cannot carry. */
+        redirect_hint: z.string().optional(),
     })
     .strict()
     .refine((data) => !(data.description && data.description_file), {

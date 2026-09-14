@@ -1,3 +1,10 @@
+import { z } from 'zod'
+
+import {
+    type AssignmentStatus,
+    isAssignmentStatus,
+} from 'lib/components/AccountAssignmentFilter/accountAssignmentFilterTypes'
+
 import { ColumnConfigurationApi } from 'products/product_analytics/frontend/generated/api.schemas'
 
 import { ACCOUNTS_DEFAULT_COLUMNS, AccountColumnDisplayState } from './accountsColumnConfigLogic'
@@ -8,11 +15,24 @@ import { DEFAULT_TILES } from './constants'
 
 export interface AccountsViewFilters {
     search: string
-    tags: string[]
-    unassigned: boolean
+    assignmentStatus: AssignmentStatus
     assignedTo: RoleFilterValue
+    tags: string[]
     tileFilter: TileFilter | null
     customProperties: AccountFilter[]
+}
+
+interface AccountsViewFiltersRaw extends Partial<AccountsViewFilters> {
+    /** @deprecated Legacy field, superseded by `assignmentStatus`. Read for back-compat. */
+    unassigned?: boolean
+}
+
+// Legacy views and links defaulted to assigned-only. Do not silently broaden them.
+function assignmentStatusFromRaw(raw: AccountsViewFiltersRaw): AssignmentStatus {
+    if (isAssignmentStatus(raw.assignmentStatus)) {
+        return raw.assignmentStatus
+    }
+    return raw.unassigned ? 'unassigned' : 'assigned'
 }
 
 export interface AccountsViewProperties {
@@ -28,14 +48,14 @@ export interface AccountsViewState {
     columnDisplay: AccountColumnDisplayState
 }
 
+const ACCOUNTS_VIEW_DRAFT_STORAGE_KEY = 'customerAnalytics.accounts.viewDraft'
+
 type AccountsViewPayload = Pick<ColumnConfigurationApi, 'columns' | 'order_by'> & {
     filters: Partial<AccountsViewFilters>
     properties: AccountsViewProperties
 }
 
-// A persisted filter may be a single id (e.g. `assignedTo: 7`) from before the filter
-// became multi-select. Coerce any scalar (or malformed value) into a `number[]`
-// so restoring a legacy link/view can't poison the array.
+// Older views store a single assignee ID.
 export function normalizeRoleFilter(value: unknown): RoleFilterValue {
     if (Array.isArray(value)) {
         return value.filter((entry): entry is number => typeof entry === 'number')
@@ -43,8 +63,7 @@ export function normalizeRoleFilter(value: unknown): RoleFilterValue {
     return typeof value === 'number' ? [value] : []
 }
 
-// Sort persists under the logical column name so saved views do not depend on
-// the typed query's relationship or custom-property references.
+// Persist logical column names so views do not depend on typed query references.
 export function sortOrderToOrderBy(sortOrder: AccountSortOrder): string[] {
     if (!sortOrder) {
         return []
@@ -72,10 +91,9 @@ export function serializeAccountsView(state: AccountsViewState): AccountsViewPay
     if (state.filters.tags.length > 0) {
         filters.tags = state.filters.tags
     }
-    if (state.filters.unassigned) {
-        filters.unassigned = true
-    }
-    if (state.filters.assignedTo.length > 0) {
+    // Store `all` so new views differ from field-less legacy views.
+    filters.assignmentStatus = state.filters.assignmentStatus
+    if (state.filters.assignmentStatus === 'assigned' && state.filters.assignedTo.length > 0) {
         filters.assignedTo = state.filters.assignedTo
     }
     if (state.filters.tileFilter) {
@@ -96,11 +114,86 @@ export function serializeAccountsView(state: AccountsViewState): AccountsViewPay
     }
 }
 
+const StoredTile = z.object({
+    id: z.string(),
+    label: z.string(),
+    metric: z.discriminatedUnion('type', [
+        z.object({ type: z.literal('count') }),
+        z.object({
+            type: z.enum(['sum', 'avg', 'min', 'max', 'median']),
+            columnExpression: z.string(),
+            columnLabel: z.string(),
+            scale: z.number().optional(),
+        }),
+        z.object({
+            type: z.literal('count_threshold'),
+            columnExpression: z.string(),
+            columnLabel: z.string(),
+            operator: z.string(),
+            value: z.number(),
+        }),
+    ]),
+    caption: z.string().optional(),
+    format: z.enum(['unit', 'currency', 'percentage']).optional(),
+})
+
+const AccountsViewDraft = z.object({
+    columns: z.array(z.string()),
+    sortOrder: z.object({ column: z.string(), direction: z.enum(['asc', 'desc']) }).nullable(),
+    filters: z.object({
+        search: z.string(),
+        assignmentStatus: z.enum(['all', 'assigned', 'unassigned']),
+        assignedTo: z.array(z.number()),
+        tags: z.array(z.string()),
+        tileFilter: z
+            .object({
+                tileId: z.string(),
+                filter: z.object({
+                    kind: z.literal('custom_property'),
+                    definitionId: z.string(),
+                    operator: z.string(),
+                    values: z.array(z.number()),
+                }),
+            })
+            .nullable(),
+        customProperties: z.array(z.object({}).passthrough()),
+    }),
+    tiles: z.array(StoredTile),
+    columnDisplay: z.record(z.string(), z.object({ mode: z.enum(['sparkline', 'trend']), window_days: z.number() })),
+})
+
+export function accountsViewDraftStorageKey(teamId: number, userId: string): string {
+    // Changing this storage key strands existing drafts.
+    return `${ACCOUNTS_VIEW_DRAFT_STORAGE_KEY}.${teamId}.${userId}`
+}
+
+export function readAccountsViewDraft(teamId: number | null, userId: string | null): AccountsViewState | null {
+    if (teamId === null || userId === null || typeof window === 'undefined') {
+        return null
+    }
+    try {
+        const raw = window.sessionStorage.getItem(accountsViewDraftStorageKey(teamId, userId))
+        const draft = AccountsViewDraft.safeParse(raw ? JSON.parse(raw) : null)
+        return draft.success ? (draft.data as AccountsViewState) : null
+    } catch {
+        return null
+    }
+}
+
+export function writeAccountsViewDraft(teamId: number | null, userId: string | null, draft: AccountsViewState): void {
+    if (teamId === null || userId === null || typeof window === 'undefined') {
+        return
+    }
+    try {
+        window.sessionStorage.setItem(accountsViewDraftStorageKey(teamId, userId), JSON.stringify(draft))
+    } catch {
+        // Browsers can deny session storage. List navigation must still work.
+    }
+}
+
 export function deserializeAccountsView(view: Partial<ColumnConfigurationApi>): AccountsViewState {
-    // The backend normalizes empty filters to `[]`; treat any non-object as empty.
-    const rawFilters = (
-        view.filters && !Array.isArray(view.filters) ? view.filters : {}
-    ) as Partial<AccountsViewFilters>
+    // The backend represents empty filters as an array.
+    const rawFilters = (view.filters && !Array.isArray(view.filters) ? view.filters : {}) as AccountsViewFiltersRaw
     const rawProperties = (
         view.properties && typeof view.properties === 'object' ? view.properties : {}
     ) as AccountsViewProperties
@@ -110,9 +203,9 @@ export function deserializeAccountsView(view: Partial<ColumnConfigurationApi>): 
         sortOrder: orderByToSortOrder(view.order_by),
         filters: {
             search: rawFilters.search ?? '',
-            tags: rawFilters.tags ?? [],
-            unassigned: rawFilters.unassigned ?? false,
+            assignmentStatus: assignmentStatusFromRaw(rawFilters),
             assignedTo: normalizeRoleFilter(rawFilters.assignedTo),
+            tags: rawFilters.tags ?? [],
             tileFilter: rawFilters.tileFilter ?? null,
             customProperties: Array.isArray(rawFilters.customProperties) ? rawFilters.customProperties : [],
         },

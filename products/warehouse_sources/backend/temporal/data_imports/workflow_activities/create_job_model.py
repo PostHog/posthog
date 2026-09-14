@@ -24,6 +24,10 @@ from products.warehouse_sources.backend.models.external_data_job import External
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import HIDDEN_COLUMNS, DataWarehouseTable
+from products.warehouse_sources.backend.temporal.data_imports.destinations.enablement import (
+    destination_ids_for_run,
+    is_multi_destination_enabled,
+)
 from products.warehouse_sources.backend.temporal.data_imports.external_product_hooks import (
     data_quality_checks_needed_for,
     emit_signals_enabled_for,
@@ -154,6 +158,7 @@ def _create_job(
     pipeline_version: str,
     billable: bool,
     schema_snapshot: dict[str, Any],
+    destination_ids: list[str] | None = None,
 ) -> ExternalDataJob:
     # A deadlock aborts the INSERT without creating a row, so retrying from scratch is safe. This
     # activity has no Temporal-level retry (see external_data_job.py), because a retry after job
@@ -169,6 +174,7 @@ def _create_job(
         pipeline_version=pipeline_version,
         billable=billable,
         schema_snapshot=schema_snapshot,
+        destination_ids=destination_ids or [],
     )
 
 
@@ -312,6 +318,12 @@ def create_external_data_job_model_activity(
         # behind it can never be finalized, so it would stay stuck on Running forever. With the job
         # committed first, the workflow's finalizer can always resolve it and repaint the schema.
         schema.status = ExternalDataSchema.Status.RUNNING
+        # Only v3 runs deliver to destinations; v2 has no per-batch queue to carry the ids.
+        destination_ids: list[str] = []
+        if pipeline_version == ExternalDataJob.PipelineVersion.V3 and is_multi_destination_enabled(
+            inputs.team_id, source.source_type
+        ):
+            destination_ids = destination_ids_for_run(schema)
         job = _create_job(
             team_id=inputs.team_id,
             source_id=inputs.source_id,
@@ -319,6 +331,7 @@ def create_external_data_job_model_activity(
             pipeline_version=pipeline_version,
             billable=inputs.billable,
             schema_snapshot=_build_schema_snapshot(schema),
+            destination_ids=destination_ids,
         )
         schema.save(update_fields=["status", "updated_at"])
 

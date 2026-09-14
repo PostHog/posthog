@@ -50,16 +50,16 @@ pub struct ProcessArgs {
     #[clap(flatten)]
     pub upload_concurrency: UploadConcurrencyArgs,
 
-    /// How the release is associated with exceptions. `symbol-set` (the default) stamps the
-    /// release id onto the uploaded symbol sets: the previous behavior. EXPERIMENTAL `event`
-    /// injects the release id into each chunk as `_posthogReleaseId` (alongside
-    /// content-addressed chunk ids) so the SDK reports the release per event; symbol sets stay
-    /// release-independent. Also settable via `POSTHOG_RELEASE_MODE`.
+    /// How the release is associated with exceptions. `event` (the default) injects the release
+    /// id into each chunk as `_posthogReleaseId` (alongside content-addressed chunk ids) so the
+    /// SDK reports the release per event; symbol sets stay release-independent. `symbol-set`
+    /// stamps the release id onto the uploaded symbol sets instead. Also settable via
+    /// `POSTHOG_RELEASE_MODE`.
     #[arg(
         long,
         env = "POSTHOG_RELEASE_MODE",
         value_enum,
-        default_value = "symbol-set"
+        default_value = "event"
     )]
     pub release_mode: ReleaseMode,
 }

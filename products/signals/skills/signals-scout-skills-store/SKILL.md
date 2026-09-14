@@ -129,7 +129,7 @@ Encode the category in the key prefix; rewrite a key to update in place.
 - key `pattern:skills_store:high-leverage` — _"Top tier: deploy-runbook (42 loads/30d), querying-our-dwh (v11 in 3 weeks), incident-response (referenced by 4 skills). Ranked via usage events."_
 - key `pattern:skills_store:last-deep-pass` — _"Deep pass ran 2026-06-25, audited 5 of the high-leverage tier (through incident-response). Next due after 2026-07-02."_
 - key `dedupe:skills_store:<skill-name>` — _"2026-06-30: filed P3 report on `deploy-runbook` v7 — dead link references/rollback.md, body 1.4k lines. Skip until version > 7."_ One stable key per skill — update it in place, don't mint a dated variant.
-- key `report:skills_store:<skill-name>` — _"Report `019f0a96-…` covers `deploy-runbook`'s hygiene violations. Edit it (append_note the recheck) while the skill stays broken and the report is live; if it was resolved and the skill later regresses, that's a fresh report."_
+- key `report:skills_store:<skill-name>` — _"Report `019f0a96-…` covers `deploy-runbook`'s hygiene violations. Edit it (`append_evidence` with the recheck) while the skill stays broken and the report is live; if it was resolved and the skill later regresses, that's a fresh report."_
 - key `reviewer:skills_store:<skill-name>` — _"`deploy-runbook` reports route to its author `alice` (user_uuid from skill-get created_by)."_
 - key `addressed:skills_store:<skill-name>` — _"2026-07-04: `deploy-runbook` v9 recheck clean. Don't re-flag."_
 - key `noise:skills_store:<skill-name>` — _"`sql-cookbook` intentionally long (a cookbook by design, team confirmed via dismissal). Not a body-size violation."_
@@ -142,7 +142,7 @@ For each non-compliant skill, the call is **edit an existing report, author a ne
   The `report:skills_store:<skill-name>` scratchpad pointer is the reliable path (it holds the `report_id` — `inbox-reports-retrieve` it directly); with no pointer, `inbox-reports-list` searching the skill name.
   A skill with a live report and no new violations since the version you reported is a **skip**.
 - **Edit** (`scout-edit-report`) when a still-live report already covers the skill — it's still broken at a newer version, or picked up additional violations.
-  `append_note` the recheck (version judged, which violations persist / were fixed / are new), or rewrite the title/summary on a report you authored when the violation set materially changed.
+  Add the recheck with `append_evidence` (version judged, which violations persist / were fixed / are new), or rewrite the title/summary on a report you authored when the violation set materially changed.
   `edit-report` can't change status, so if the matched report is `resolved` / `suppressed` / `failed`, don't append (it won't resurface) — a regressed skill gets a fresh report and a repointed `report:` key.
 - **Author** (`scout-emit-report`) only when no live report covers the skill — **one report per skill**, bundling every violated rule (confidence ≥ 0.65; most static checks land 0.85–0.95 because they're mechanical).
   A good report names the skill (linking `/llm-analytics/skills/<name>` — the name, not the UUID), lists each violated rule with the offending field/line and the rule it breaks in the summary, cites them in `evidence`, and gives the concrete fix — these are directly agent-fixable via `skill-update`, so make the fix copy-ready.

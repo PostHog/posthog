@@ -6,6 +6,8 @@ from collections.abc import Iterator
 from typing import Any, Optional
 from urllib.parse import quote, urlparse
 
+from django.core.cache import cache
+
 import jwt
 import requests
 import structlog
@@ -13,6 +15,7 @@ from structlog.types import FilteringBoundLogger
 
 from posthog.dataclasses import frozen
 
+from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import incremental_type_to_initial_value
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -28,16 +31,19 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.firebase.s
     FIRESTORE_API_ROOT,
     FIRESTORE_COLLECTION_IDS_PAGE_SIZE,
     FIRESTORE_CREATE_TIME_COLUMN,
+    FIRESTORE_DISCOVERY_CACHE_TTL_SECONDS,
     FIRESTORE_DOCUMENT_ID_FIELD,
     FIRESTORE_ID_COLUMN,
     FIRESTORE_INCREMENTAL_DISCOVERY_LIMIT,
     FIRESTORE_INCREMENTAL_VALUE_TYPES,
     FIRESTORE_MAX_INTEGER,
+    FIRESTORE_MAX_SUBCOLLECTION_DEPTH,
     FIRESTORE_MAX_TIMESTAMP,
     FIRESTORE_METADATA_COLUMNS,
     FIRESTORE_PAGE_SIZE,
     FIRESTORE_PATH_COLUMN,
     FIRESTORE_SCHEMA_SAMPLE_DOCUMENTS,
+    FIRESTORE_SUBCOLLECTION_SAMPLE_DOCUMENTS,
     FIRESTORE_UPDATE_TIME_COLUMN,
     GOOGLE_TOKEN_URI,
     IDENTITY_TOOLKIT_API_ROOT,
@@ -57,6 +63,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.firebase.s
     REQUEST_TIMEOUT_SECONDS,
     RESPONSE_TOO_LARGE_ERROR,
     TOKEN_EXPIRY_SKEW_SECONDS,
+    firestore_collection_group_table_name,
     firestore_table_name,
     is_supported_incremental_field_name,
     realtime_database_table_name,
@@ -360,10 +367,14 @@ def _as_column(value: Any) -> Any:
     return value
 
 
+def _relative_document_path(document_name: str) -> str:
+    """Turn a full document resource name into the path Firestore addresses it by (`rooms/room1`)."""
+    return document_name.split("/documents/", 1)[1] if "/documents/" in document_name else document_name
+
+
 def flatten_firestore_document(document: dict[str, Any]) -> dict[str, Any]:
     """Turn one Firestore document into a flat row of top-level fields plus metadata columns."""
-    name = str(document.get("name") or "")
-    path = name.split("/documents/", 1)[1] if "/documents/" in name else name
+    path = _relative_document_path(str(document.get("name") or ""))
     fields = document.get("fields")
     if not isinstance(fields, dict):
         fields = {}
@@ -400,10 +411,21 @@ def _firestore_documents_root(credentials: FirebaseCredentials) -> str:
 
 
 def list_collection_ids(
-    session: requests.Session, tokens: AccessTokenProvider, credentials: FirebaseCredentials
+    session: requests.Session,
+    tokens: AccessTokenProvider,
+    credentials: FirebaseCredentials,
+    parent_document_path: Optional[str] = None,
 ) -> list[str]:
-    """List the root-level Firestore collections in the project's database."""
-    url = f"{_firestore_documents_root(credentials)}:listCollectionIds"
+    """List the Firestore collection ids directly under a parent.
+
+    With no parent this lists the root-level collections. With a document path (`rooms/room1`) it
+    lists that document's subcollection ids — the only way Firestore exposes subcollections.
+    """
+    root = _firestore_documents_root(credentials)
+    if parent_document_path:
+        url = f"{root}/{quote(parent_document_path, safe='/')}:listCollectionIds"
+    else:
+        url = f"{root}:listCollectionIds"
     collection_ids: list[str] = []
     page_token: Optional[str] = None
 
@@ -698,6 +720,60 @@ def iter_firestore_documents(
     resumable_source_manager.clear_state()
 
 
+def _run_query_documents(results: Any) -> list[dict[str, Any]]:
+    """Pull the documents out of a `runQuery` response, skipping readTime-only entries."""
+    return [
+        result["document"]
+        for result in results
+        if isinstance(result, dict) and isinstance(result.get("document"), dict)
+    ]
+
+
+def iter_firestore_collection_group(
+    session: requests.Session,
+    tokens: AccessTokenProvider,
+    credentials: FirebaseCredentials,
+    collection_id: str,
+    resumable_source_manager: ResumableSourceManager[FirebaseResumeConfig],
+    logger: FilteringBoundLogger,
+) -> Iterator[list[dict[str, Any]]]:
+    """Read every document in a Firestore subcollection.
+
+    `listDocuments` reads only a collection under a fixed path, so a subcollection like `messages`
+    that lives under many parent documents needs a collection-group query instead. `runQuery` with
+    `allDescendants=true` returns every document in any collection with this id, at any depth.
+    """
+    url = f"{_firestore_documents_root(credentials)}:runQuery"
+    # `runQuery` has no page token, so paging is done by ordering on the document name and resuming
+    # after the last one read. The cursor is that full document resource name.
+    cursor = _resume_cursor(resumable_source_manager, logger, f"Firestore collection group {collection_id}")
+
+    for _ in range(MAX_PAGES):
+        query: dict[str, Any] = {
+            "from": [{"collectionId": collection_id, "allDescendants": True}],
+            "orderBy": [{"field": {"fieldPath": "__name__"}, "direction": "ASCENDING"}],
+            "limit": FIRESTORE_PAGE_SIZE,
+        }
+        if cursor:
+            query["startAt"] = {"values": [{"referenceValue": cursor}], "before": False}
+        results = _request(session, tokens, "POST", url, json_body={"structuredQuery": query}) or []
+
+        documents = _run_query_documents(results)
+        if documents:
+            yield [flatten_firestore_document(document) for document in documents]
+
+        if len(documents) < FIRESTORE_PAGE_SIZE:
+            break
+        next_cursor = documents[-1].get("name")
+        if not next_cursor:
+            break
+        cursor = str(next_cursor)
+        # Saved after yielding so a crash re-yields the last page instead of skipping it.
+        resumable_source_manager.save_state(FirebaseResumeConfig(cursor=cursor))
+
+    resumable_source_manager.clear_state()
+
+
 def iter_auth_users(
     session: requests.Session,
     tokens: AccessTokenProvider,
@@ -827,6 +903,15 @@ def get_rows(
 
     api_session = _api_session(credentials)
 
+    # Incremental sync isn't supported for a collection group yet, so it always reads in full —
+    # `firebase_source` never resolves an incremental cursor for one either.
+    collection_group_id = _resolve_firestore_collection_group(table_name)
+    if collection_group_id is not None:
+        yield from iter_firestore_collection_group(
+            api_session, tokens, credentials, collection_group_id, resumable_source_manager, logger
+        )
+        return
+
     collection_id = _resolve_firestore_collection(table_name)
     if collection_id is not None:
         if incremental_cursor is not None:
@@ -841,10 +926,10 @@ def get_rows(
                 resumable_source_manager,
                 logger,
             )
-            return
-        yield from iter_firestore_documents(
-            api_session, tokens, credentials, collection_id, resumable_source_manager, logger
-        )
+        else:
+            yield from iter_firestore_documents(
+                api_session, tokens, credentials, collection_id, resumable_source_manager, logger
+            )
         return
 
     path = _resolve_realtime_database_path(credentials, table_name)
@@ -856,8 +941,20 @@ def get_rows(
 
 
 def _resolve_firestore_collection(table_name: str) -> Optional[str]:
-    """Recover the Firestore collection id a table name was built from."""
+    """Recover the root Firestore collection id a table name was built from (`rooms`)."""
     prefix = firestore_table_name("")
+    if not table_name.startswith(prefix) or len(table_name) == len(prefix):
+        return None
+    collection_id = table_name[len(prefix) :]
+    # A root collection id can never contain `/`, so a remaining slash marks a collection-group table.
+    if "/" in collection_id:
+        return None
+    return collection_id
+
+
+def _resolve_firestore_collection_group(table_name: str) -> Optional[str]:
+    """Recover the collection-group id a subcollection table was built from (`messages`)."""
+    prefix = firestore_collection_group_table_name("")
     if not table_name.startswith(prefix) or len(table_name) == len(prefix):
         return None
     return table_name[len(prefix) :]
@@ -870,15 +967,167 @@ def _resolve_realtime_database_path(credentials: FirebaseCredentials, table_name
     return None
 
 
-def get_tables(credentials: FirebaseCredentials) -> list[str]:
+def _sample_firestore_document_paths(
+    session: requests.Session,
+    tokens: AccessTokenProvider,
+    credentials: FirebaseCredentials,
+    collection_id: str,
+    *,
+    as_collection_group: bool,
+    limit: int,
+) -> list[str]:
+    """Return the paths of a few documents in a collection, to probe them for subcollections."""
+    if as_collection_group:
+        # A subcollection spans many parents, so a collection-group query samples it. Only the
+        # document names are needed here, so `select` keeps the response small.
+        query = {
+            "from": [{"collectionId": collection_id, "allDescendants": True}],
+            "select": {"fields": [{"fieldPath": "__name__"}]},
+            "limit": limit,
+        }
+        results = (
+            _request(
+                session,
+                tokens,
+                "POST",
+                f"{_firestore_documents_root(credentials)}:runQuery",
+                json_body={"structuredQuery": query},
+            )
+            or []
+        )
+        documents = _run_query_documents(results)
+    else:
+        # `showMissing` surfaces parent documents that exist only to hold a subcollection. Without it
+        # `listDocuments` hides them, so a collection written only under `parent/{id}/child` is never
+        # sampled and stays invisible. A missing document returns a name and no fields, which is all
+        # this probe reads. The flag is incompatible with `where`/`orderBy`, which this call omits.
+        url = f"{_firestore_documents_root(credentials)}/{quote(collection_id, safe='')}"
+        payload = _request(session, tokens, "GET", url, params={"pageSize": limit, "showMissing": "true"}) or {}
+        documents = [doc for doc in payload.get("documents") or [] if isinstance(doc, dict)]
+
+    return [_relative_document_path(str(doc["name"])) for doc in documents if doc.get("name")]
+
+
+@frozen
+class FirestoreCollections:
+    """The Firestore collections a source can read: root collections and subcollection groups."""
+
+    root_ids: list[str]
+    subcollection_ids: list[str]
+
+
+def discover_firestore_collections(
+    session: requests.Session, tokens: AccessTokenProvider, credentials: FirebaseCredentials
+) -> FirestoreCollections:
+    """Return the Firestore collections this source can read.
+
+    Root collections come from `listCollectionIds`. Subcollections are found by sampling documents
+    and asking each for its child collection ids, following nesting down to the depth cap. A
+    subcollection reads as a collection group keyed by its id, so each subcollection id is surfaced
+    once even when it lives under more than one parent — but a subcollection is kept separate from a
+    root collection of the same id, because the two read through different queries.
+    """
+    root_ids: list[str] = []
+    seen_root_ids: set[str] = set()
+    for collection_id in list_collection_ids(session, tokens, credentials):
+        if collection_id not in seen_root_ids:
+            seen_root_ids.add(collection_id)
+            root_ids.append(collection_id)
+
+    subcollection_ids: list[str] = []
+    seen_subcollection_ids: set[str] = set()
+    # Each frontier entry is (collection id, whether it is sampled as a collection group).
+    frontier: list[tuple[str, bool]] = [(collection_id, False) for collection_id in root_ids]
+
+    for _ in range(FIRESTORE_MAX_SUBCOLLECTION_DEPTH):
+        next_frontier: list[tuple[str, bool]] = []
+        for collection_id, as_collection_group in frontier:
+            child_ids: set[str] = set()
+            for document_path in _sample_firestore_document_paths(
+                session,
+                tokens,
+                credentials,
+                collection_id,
+                as_collection_group=as_collection_group,
+                limit=FIRESTORE_SUBCOLLECTION_SAMPLE_DOCUMENTS,
+            ):
+                child_ids.update(list_collection_ids(session, tokens, credentials, parent_document_path=document_path))
+            for child_id in sorted(child_ids):
+                if child_id in seen_subcollection_ids:
+                    continue
+                seen_subcollection_ids.add(child_id)
+                subcollection_ids.append(child_id)
+                next_frontier.append((child_id, True))
+        if not next_frontier:
+            break
+        frontier = next_frontier
+
+    return FirestoreCollections(root_ids=root_ids, subcollection_ids=subcollection_ids)
+
+
+def _firestore_discovery_cache_key(credentials: FirebaseCredentials) -> str:
+    # What discovery returns is fixed by the project, the database, and the service account's read
+    # scope, so those three identify the entry. All are non-secret identifiers.
+    return f"@dwh/firebase/{credentials.project_id}/{credentials.database_id}/{credentials.client_email}/collections"
+
+
+def _discover_firestore_collections_cached(
+    session: requests.Session,
+    tokens: AccessTokenProvider,
+    credentials: FirebaseCredentials,
+    force_refresh: bool = False,
+) -> FirestoreCollections:
+    """Cached wrapper around `discover_firestore_collections`.
+
+    Discovery fires many sequential requests on the synchronous schema-lookup path, so callers that
+    don't need fresh data read through this cache; the user-triggered refresh passes
+    `force_refresh=True`. A failed walk raises before the cache is written, so the previous value
+    survives. See `FIRESTORE_DISCOVERY_CACHE_TTL_SECONDS` for why this mirrors the Slack source's
+    channel-discovery cache.
+    """
+    cache_key = _firestore_discovery_cache_key(credentials)
+    if not force_refresh:
+        cached = cache.get(cache_key)
+        if cached is not None:
+            return cached
+    discovered = discover_firestore_collections(session, tokens, credentials)
+    cache.set(cache_key, discovered, FIRESTORE_DISCOVERY_CACHE_TTL_SECONDS)
+    return discovered
+
+
+def _dedupe_by_storage_name(table_names: list[str]) -> list[str]:
+    """Drop any later table whose normalized storage name repeats an earlier one.
+
+    Downstream naming flattens distinct source names onto one warehouse table, and two schemas that
+    share a storage name would fight over one `DataWarehouseTable` row. Keeping the first occurrence
+    stops that silent overwrite.
+    """
+    seen: set[str] = set()
+    unique: list[str] = []
+    for name in table_names:
+        storage_name = NamingConvention.normalize_identifier(name)
+        if storage_name in seen:
+            LOGGER.warning(f"Skipping Firebase table {name}: storage name {storage_name} is already taken")
+            continue
+        seen.add(storage_name)
+        unique.append(name)
+    return unique
+
+
+def get_tables(credentials: FirebaseCredentials, force_refresh: bool = False) -> list[str]:
     """List every table this source can sync: Auth users, Firestore collections, configured paths."""
-    tables: list[str] = [AUTH_USERS_TABLE]
+    firestore_tables: list[str] = []
 
     tokens = AccessTokenProvider(_auth_session(credentials), credentials)
     api_session = _api_session(credentials)
     try:
-        collection_ids = list_collection_ids(api_session, tokens, credentials)
-        tables.extend(firestore_table_name(collection_id) for collection_id in collection_ids)
+        collections = _discover_firestore_collections_cached(
+            api_session, tokens, credentials, force_refresh=force_refresh
+        )
+        firestore_tables = [firestore_table_name(collection_id) for collection_id in collections.root_ids]
+        firestore_tables += [
+            firestore_collection_group_table_name(collection_id) for collection_id in collections.subcollection_ids
+        ]
     except requests.HTTPError as e:
         # A project with no Firestore database answers 404, a service account without the
         # Datastore role answers 403, and a default database provisioned in Datastore mode
@@ -889,8 +1138,8 @@ def get_tables(credentials: FirebaseCredentials) -> list[str]:
             raise
         LOGGER.warning(f"Skipping Firestore collections for Firebase project {credentials.project_id}: {status}")
 
-    tables.extend(realtime_database_table_name(path) for path in credentials.realtime_database_paths)
-    return tables
+    rtdb_tables = [realtime_database_table_name(path) for path in credentials.realtime_database_paths]
+    return _dedupe_by_storage_name([AUTH_USERS_TABLE, *firestore_tables, *rtdb_tables])
 
 
 def validate_credentials(credentials: FirebaseCredentials) -> tuple[bool, Optional[str]]:
@@ -957,7 +1206,13 @@ def firebase_source(
     incremental_field_type: Optional[IncrementalFieldType] = None,
     db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
-    is_firestore = _resolve_firestore_collection(table_name) is not None
+    collection_group_id = _resolve_firestore_collection_group(table_name)
+    collection_id = _resolve_firestore_collection(table_name)
+    is_firestore = collection_group_id is not None or collection_id is not None
+    # `resolve_incremental_cursor` resolves a cursor only for a root collection: it recovers the
+    # collection id through `_resolve_firestore_collection`, which returns None for a collection
+    # group's own `firestore_collection_group/` prefix, and `get_rows` never takes a cursor down the
+    # collection-group path either — incremental sync isn't supported for a collection group yet.
     incremental_cursor = resolve_incremental_cursor(
         table_name,
         should_use_incremental_field,
@@ -968,7 +1223,11 @@ def firebase_source(
 
     if table_name == AUTH_USERS_TABLE:
         primary_keys = AUTH_USERS_PRIMARY_KEY
-    elif is_firestore:
+    elif collection_group_id is not None:
+        # A collection group can hold documents with the same id under different parents, so the
+        # full document path is the only unique key.
+        primary_keys = [FIRESTORE_PATH_COLUMN]
+    elif collection_id is not None:
         primary_keys = [FIRESTORE_ID_COLUMN]
     else:
         primary_keys = [REALTIME_DATABASE_KEY_COLUMN]
