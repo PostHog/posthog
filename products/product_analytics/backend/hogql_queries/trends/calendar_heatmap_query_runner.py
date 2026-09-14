@@ -300,8 +300,8 @@ class CalendarHeatmapQueryRunner(AnalyticsQueryRunner[CalendarHeatmapResponse]):
     def _test_account_filters(self) -> ast.Expr:
         if not self.query.filterTestAccounts:
             return ast.Constant(value=True)
-        if isinstance(self.team.test_account_filters, list) and len(self.team.test_account_filters) > 0:
-            return property_to_expr(self.team.test_account_filters, team=self.team)
+        if self.team.resolvable_test_account_filters:
+            return property_to_expr(self.team.resolvable_test_account_filters, team=self.team)
         else:
             return ast.Constant(value=True)
 

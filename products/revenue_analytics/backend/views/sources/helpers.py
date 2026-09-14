@@ -78,12 +78,8 @@ def events_expr_for_team(team: Team) -> ast.Expr:
     from posthog.hogql.property import property_to_expr
 
     exprs = []
-    if (
-        team.revenue_analytics_config.filter_test_accounts
-        and isinstance(team.test_account_filters, list)
-        and len(team.test_account_filters) > 0
-    ):
-        exprs = [property_to_expr(filter, team) for filter in team.test_account_filters]
+    if team.revenue_analytics_config.filter_test_accounts and team.resolvable_test_account_filters:
+        exprs = [property_to_expr(filter, team) for filter in team.resolvable_test_account_filters]
 
     if len(exprs) == 0:
         return ast.Constant(value=True)

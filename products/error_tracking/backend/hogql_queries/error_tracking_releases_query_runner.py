@@ -156,7 +156,7 @@ class ErrorTrackingReleasesQueryRunner(
         ]
 
         if self.query.filterTestAccounts:
-            for prop in self.team.test_account_filters or []:
+            for prop in self.team.resolvable_test_account_filters:
                 conditions.append(property_to_expr(prop, self.team))
 
         if self.query.filterGroup:

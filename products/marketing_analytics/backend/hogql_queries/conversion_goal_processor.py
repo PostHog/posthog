@@ -604,7 +604,7 @@ class ConversionGoalProcessor:
         Coarse on purpose: it asks whether the user has any restriction, not which properties the rules
         name, since reading those means walking arbitrary filter trees where a miss fails open.
         """
-        if not self.filter_test_accounts or not self.team.test_account_filters:
+        if not self.filter_test_accounts or not self.team.resolvable_test_account_filters:
             return False
         return bool(get_restricted_properties_for_team(team_id=self.team.pk, user=self.user))
 

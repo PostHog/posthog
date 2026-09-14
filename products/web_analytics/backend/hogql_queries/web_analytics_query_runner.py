@@ -712,8 +712,8 @@ WHERE and(
     def _test_account_filters(self):
         if not self.query.filterTestAccounts:
             return []
-        if isinstance(self.team.test_account_filters, list) and len(self.team.test_account_filters) > 0:
-            return self.team.test_account_filters
+        if self.team.resolvable_test_account_filters:
+            return self.team.resolvable_test_account_filters
         else:
             return []
 

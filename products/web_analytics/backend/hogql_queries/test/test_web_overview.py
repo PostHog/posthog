@@ -1365,11 +1365,16 @@ class TestWebOverviewSessionIdSetFastPath(ClickhouseTestMixin, APIBaseTest):
                 [{"key": "email", "type": "person", "operator": "not_icontains", "value": "@posthog.com"}],
                 True,
             ),
-            ("cohort_test_filter", [{"key": "id", "type": "cohort", "value": 1}], False),
+            ("cohort_test_filter", [{"key": "id", "type": "cohort", "value": None}], False),
         ]
     )
     def test_session_id_set_supports_event_and_person_test_account_filters(self, _name, filters, expected):
-        self.team.test_account_filters = filters
+        # The cohort case needs a live cohort: a filter that points at a deleted one is dropped
+        # before the query is built, so it would not hold the query on the join path.
+        cohort = Cohort.objects.create(team=self.team, name="test")
+        self.team.test_account_filters = [
+            {**filter, "value": cohort.pk} if filter["type"] == "cohort" else filter for filter in filters
+        ]
         self.team.save()
         with override_settings(WEB_ANALYTICS_SESSION_ID_SET_TEAM_IDS=[self.team.pk]):
             runner = self._make_runner(filterTestAccounts=True)

@@ -435,12 +435,8 @@ class StickinessQueryRunner(AnalyticsQueryRunner[StickinessQueryResponse]):
                 filters.append(parse_expr("1 = 2"))
 
         # Filter Test Accounts
-        if (
-            self.query.filterTestAccounts
-            and isinstance(self.team.test_account_filters, list)
-            and len(self.team.test_account_filters) > 0
-        ):
-            for property in self.team.test_account_filters:
+        if self.query.filterTestAccounts and self.team.resolvable_test_account_filters:
+            for property in self.team.resolvable_test_account_filters:
                 filters.append(property_to_expr(property, self.team))
 
         # Properties

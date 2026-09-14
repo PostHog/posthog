@@ -54,7 +54,7 @@ class MCPModelBreakdownQueryRunner(AnalyticsQueryRunner[MCPModelBreakdownQueryRe
         ]
         properties = list(self.query.properties or [])
         if self.query.filterTestAccounts:
-            properties += self.team.test_account_filters or []
+            properties += self.team.resolvable_test_account_filters
         if properties:
             exprs.append(property_to_expr(properties, self.team))
         return ast.And(exprs=exprs)

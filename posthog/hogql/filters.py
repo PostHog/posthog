@@ -320,7 +320,7 @@ class ReplaceFilters(CloningVisitor):
             exprs.extend(self._date_range_exprs(timestamp_field))
 
             if self.filters.filterTestAccounts:
-                for prop in self.team.test_account_filters or []:
+                for prop in self.team.resolvable_test_account_filters:
                     if persons_only:
                         try:
                             exprs.append(property_to_expr(prop, self.team, scope="person"))
@@ -448,7 +448,7 @@ class ReplaceFilters(CloningVisitor):
         assert self.filters is not None
         sources: list[tuple[Any, bool]] = [(prop, False) for prop in self.filters.properties or []]
         if self.filters.filterTestAccounts:
-            sources += [(prop, True) for prop in self.team.test_account_filters or []]
+            sources += [(prop, True) for prop in self.team.resolvable_test_account_filters]
         exprs: list[ast.Expr] = []
         for prop, from_test_accounts in sources:
             expr = self._bound_property_expr(prop, bindings, from_test_accounts)

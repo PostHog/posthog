@@ -239,8 +239,8 @@ class MarketingAnalyticsRetentionQueryRunner(
         exprs: list[ast.Expr] = []
         if self.query.properties:
             exprs.append(property_to_expr(self.query.properties, self.team))
-        if self.query.filterTestAccounts and self.team.test_account_filters:
-            exprs.extend(property_to_expr(prop, self.team) for prop in self.team.test_account_filters)
+        if self.query.filterTestAccounts and self.team.resolvable_test_account_filters:
+            exprs.extend(property_to_expr(prop, self.team) for prop in self.team.resolvable_test_account_filters)
         return exprs
 
     # ------------------------------------------------------------------ CTEs
