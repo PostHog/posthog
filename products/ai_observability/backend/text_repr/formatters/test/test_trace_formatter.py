@@ -21,6 +21,7 @@ from ..trace_formatter import (
     _get_event_summary,
     _render_tree,
     format_trace_text_repr,
+    format_trace_within_budget,
     llm_trace_to_formatter_format,
 )
 
@@ -634,6 +635,43 @@ class TestFormatTraceTextRepr:
         result, _ = format_trace_text_repr(trace, hierarchy)
         assert "TRACE" in result
         assert "=" * 80 in result
+
+
+class TestFormatTraceWithinBudget:
+    """Test the budgeted fallback render."""
+
+    BUDGET = 20_000
+
+    def test_root_only_trace_keeps_both_state_sections(self) -> None:
+        trace = {
+            "properties": {
+                "$ai_span_name": "root only",
+                "$ai_input_state": "IN_START" + "i" * 15_000 + "IN_END",
+                "$ai_output_state": "OUT_START" + "o" * 15_000 + "OUT_END",
+            }
+        }
+        options: FormatterOptions = {"include_markers": False, "include_line_numbers": True}
+        result = format_trace_within_budget(trace, [], self.BUDGET, options)
+
+        assert len(result) <= self.BUDGET
+        assert "TRACE INPUT:" in result
+        assert "TRACE OUTPUT:" in result
+        for marker in ("IN_START", "IN_END", "OUT_START", "OUT_END"):
+            assert marker in result
+
+    def test_root_only_trace_keeps_an_output_state_that_fits(self) -> None:
+        trace = {
+            "properties": {
+                "$ai_span_name": "root only",
+                "$ai_input_state": "i" * 40_000,
+                "$ai_output_state": "OUT_START" + "o" * 2_000 + "OUT_MIDDLE" + "o" * 2_000 + "OUT_END",
+            }
+        }
+        options: FormatterOptions = {"include_markers": False, "include_line_numbers": True}
+        result = format_trace_within_budget(trace, [], self.BUDGET, options)
+
+        assert len(result) <= self.BUDGET
+        assert "OUT_MIDDLE" in result
 
 
 class TestEdgeCases:

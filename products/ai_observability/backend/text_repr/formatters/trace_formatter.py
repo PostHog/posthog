@@ -626,6 +626,31 @@ def _allocate_event_buffers(hierarchy: list[dict[str, Any]], budget: int, option
     return buffers
 
 
+def _fit_trace_state_render(trace: dict[str, Any], budget: int, options: FormatterOptions) -> str:
+    """Render a trace with no events, growing its state buffer from the floor while the pair fits.
+
+    Trace-level input and output render only when the trace has no events, and both read the one
+    `truncate_buffer`. A buffer set from the budget alone lets the pair render twice the budget, and
+    the sampling pass then drops whole lines, which can cost a state its entire section. Growing
+    from the floor keeps the first and last slice of both sections whatever the budget is.
+    """
+    floor_options: FormatterOptions = {**options, "truncate_buffer": MIN_EVENT_TRUNCATE_BUFFER, "max_length": budget}
+    text, _ = format_trace_text_repr(trace, [], floor_options)
+    buffer = MIN_EVENT_TRUNCATE_BUFFER
+    for _ in range(_MAX_EVENT_FIT_ATTEMPTS):
+        if len(text) >= budget:
+            break
+        candidate = min(budget, buffer * budget // max(len(text), 1))
+        if candidate <= buffer:
+            break
+        candidate_options: FormatterOptions = {**options, "truncate_buffer": candidate, "max_length": None}
+        candidate_text, _ = format_trace_text_repr(trace, [], candidate_options)
+        if len(candidate_text) > budget:
+            break
+        buffer, text = candidate, candidate_text
+    return text
+
+
 def format_trace_within_budget(
     trace: dict[str, Any],
     hierarchy: list[dict[str, Any]],
@@ -638,13 +663,17 @@ def format_trace_within_budget(
     first and last slice of each message. An LLM judge grades the latest answer, so the newest turn
     is the last content worth dropping. Uniform sampling stays as the final guarantee of the cap.
 
+    A trace with no events renders its input and output state instead, and the two share one buffer.
+
     `options` must not set `max_render_length`: this render is the fallback for a render that
     already exceeded it.
     """
     base: FormatterOptions = {**(options or {}), "truncated": True}
-    # Trace-level input and output render only when the trace has no events, and take the whole
-    # budget then. Otherwise this is the floor for any event the allocation did not reach.
-    base["truncate_buffer"] = MIN_EVENT_TRUNCATE_BUFFER if hierarchy else budget
+    if not hierarchy:
+        return _fit_trace_state_render(trace, budget, base)
+
+    # This is the floor for any event the allocation did not reach.
+    base["truncate_buffer"] = MIN_EVENT_TRUNCATE_BUFFER
 
     allocation = budget
     text = ""
