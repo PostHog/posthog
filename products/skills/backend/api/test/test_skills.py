@@ -2362,9 +2362,14 @@ class TestSkillContentDigests(APIBaseTest):
             name="digested",
             description="A skill",
             body="# Guía ✅",
+            # A jsonb column keeps object keys sorted by length and then bytewise, so these come
+            # back in neither the written order nor alphabetical order. The digest is stamped
+            # before the insert, so it has to describe bytes that do not depend on that order.
+            metadata={"seeded_by": "review_hog", "source": "products/skills", "nested": {"z": "1", "a": "2"}},
             files=[{"path": "references/guide.md", "content": "# Guía ✅"}],
         )
 
+        # `create_skill` returns the stored row, which is what the store renders its SKILL.md from.
         assert created.skill_md_sha256 == self._digest_of(created.rendered_skill_md())
         assert created.skill_md_size == len(created.rendered_skill_md().encode())
         created_file = LLMSkillFile.objects.get(skill=created)
