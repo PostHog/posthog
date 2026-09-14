@@ -15,6 +15,7 @@ import structlog
 import posthoganalytics
 from prometheus_client import Counter, Histogram
 from pydantic import BaseModel, ConfigDict
+from rest_framework.exceptions import ValidationError as DRFValidationError
 
 from posthog.schema import (
     AccountsQuery,
@@ -337,11 +338,11 @@ def _classify_error_for_slo(exc: Exception) -> tuple[QueryErrorCategory, SloOutc
       (EstimatedQueryExecutionTimeTooLong, QuerySizeExceeded) are a minority
       worth living with for now.
 
-    UserAccessControlError is folded into USER_ERROR locally since
-    classify_query_error doesn't recognise it but a 403 is the user's input,
-    not a service failure.
+    UserAccessControlError and DRF ValidationError are folded into USER_ERROR
+    locally since classify_query_error doesn't recognise them, but a 403 or a
+    400 is the user's input, not a service failure.
     """
-    if isinstance(exc, UserAccessControlError):
+    if isinstance(exc, (UserAccessControlError, DRFValidationError)):
         return QueryErrorCategory.USER_ERROR, SloOutcome.SUCCESS
     if isinstance(exc, APIQueriesBudgetExceeded):
         # A team over its budget is refused on purpose, not a platform failure.

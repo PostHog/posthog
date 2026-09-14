@@ -894,6 +894,16 @@ class TestQueryRunner(BaseTest):
                 "error",
                 True,
             ),
+            (
+                # Runner-raised user-facing validation (e.g. an experiment metric with no
+                # exposures for the control variant yet) — rendered as a 400, must not
+                # reach error tracking.
+                "drf_validation_error",
+                lambda: ValidationError("No exposures for the 'control' variant yet.", code="no_data"),
+                SloOutcome.SUCCESS,
+                "user_error",
+                False,
+            ),
             ("unclassified_value_error", ValueError, SloOutcome.FAILURE, "error", True),
         ]
     )
