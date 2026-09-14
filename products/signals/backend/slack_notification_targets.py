@@ -38,7 +38,8 @@ _UNRESOLVED_SELF_ERROR = (
 )
 _SLACK_UNAVAILABLE_ERROR = "Slack did not answer. Try saving this again in a moment."
 _SLACK_MISSING_SCOPE_ERROR = (
-    "Your Slack connection cannot list workspace members. Reconnect Slack, and then save this setting again."
+    "PostHog cannot look up members in this Slack workspace. Reconnect Slack to give it the users:read "
+    "permission, and then turn this on again."
 )
 _NO_WORKSPACE_ERROR = "Choose the Slack workspace to send these through."
 _MEMBER_LOOKUPS_PER_MINUTE = 30

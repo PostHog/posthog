@@ -100997,6 +100997,14 @@ export namespace Schemas {
 
     export type IntegrationsChannelsRetrieveParams = {
     /**
+     * Look up one channel directly by Slack channel ID (e.g. C0123ABC). When set, `search`, `limit`, and `offset` are ignored and the response holds at most that channel.
+     */
+    channel_id?: string;
+    /**
+     * Bypass the 1 hour channel cache, including for a `channel_id` lookup, which is how a caller reads the channel's current membership after inviting the app to it. Honored only for browser session callers; API key, OAuth, and MCP callers always read through the cache.
+     */
+    force_refresh?: boolean;
+    /**
      * Maximum number of channels to return per request (max 200).
      * @minimum 1
      * @maximum 200
