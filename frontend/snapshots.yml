@@ -7957,9 +7957,9 @@ snapshots:
     scenes-app-inbox-detail--report-minimal--light:
         hash: v1.k794b7964.1ec199f350734471b4a0b1463ff94a4654a30424276fc64c115c3d65db3cdb41.Tc9W_NbKBqiZUS8nJ_J48f161oSMbOpTNtd99CK-a5I
     scenes-app-inbox-detail--report-with-metrics--dark:
-        hash: v1.k794b7964.bad171e3d12c73ab696ef6b647269984c1b1848a1239a4ac5e94075e410b9e4b.0Y618PTiCBa4x5UST8EY5En4P6pTPoi6ICYt2Nj9eH0
+        hash: v1.k794b7964.90a96dde882ddfb529a258d651ce9701878bfa46ab5a7de6718aa96298ca84de.m7fGQx62WwLVg35wZgG7MsKHRzQovXeepkAqKTT4-WU
     scenes-app-inbox-detail--report-with-metrics--light:
-        hash: v1.k794b7964.c78c8e3558298313a7e4e3ca4239e41ae086b45ab814858c0c2d15017548f20f.fmCDxkkdGuHtas41FkvG2gTuICunrlsh6d7g34NYDfU
+        hash: v1.k794b7964.884780670393d4c69f55dd785aee6aab3c0d45c767094f0ea8b14eec97d6fb94.1pT8SOGxosHbWxLY8Ba2gsFzNAZTx3OzL25T3KPuLP8
     scenes-app-inbox-detail--run-failed--dark:
         hash: v1.k794b7964.8ea3a3172853ee54499c2c6cfefce80607be334c6e811241d34287a6f765653c.-6vgVoBAALRraFupOI_QA0z0eBbSWQn1uYV0rckIjsg
     scenes-app-inbox-detail--run-failed--light:
