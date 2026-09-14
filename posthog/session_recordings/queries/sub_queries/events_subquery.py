@@ -24,7 +24,7 @@ from posthog.hogql.query import execute_hogql_query, tracer
 from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_DATA_WAREHOUSE, TREND_FILTER_TYPE_EVENTS
-from posthog.hogql_queries.legacy_compatibility.filter_to_query import MathAvailability, legacy_entity_to_node
+from posthog.hogql_queries.legacy_compatibility.clean_properties import clean_entity_properties
 from posthog.models import Entity, EventProperty, Team
 from posthog.ph_client import feature_enabled_or_false
 from posthog.session_recordings.queries.sub_queries.base_query import SessionRecordingsListingBaseQuery
@@ -80,12 +80,36 @@ def _event_session_id_field() -> ast.Field:
     return ast.Field(chain=["properties", "$session_id"])
 
 
+def _node_from_entity(raw_entity: dict[str, Any]) -> EventsNode | ActionsNode | DataWarehouseNode:
+    entity = Entity(raw_entity)
+    # Replay selects sessions and never aggregates, so the entity's math fields have no effect on
+    # the node and are left out.
+    shared: dict[str, Any] = {
+        "name": entity.name,
+        "custom_name": entity.custom_name,
+        "properties": clean_entity_properties(raw_entity.get("properties")),
+    }
+
+    if entity.type == TREND_FILTER_TYPE_ACTIONS:
+        return ActionsNode(id=entity.id, **shared)
+    if entity.type == TREND_FILTER_TYPE_DATA_WAREHOUSE:
+        return DataWarehouseNode(
+            id=entity.id,
+            id_field=entity.id_field,
+            distinct_id_field=entity.distinct_id_field,
+            timestamp_field=entity.timestamp_field,
+            table_name=entity.table_name,
+            **shared,
+        )
+    return EventsNode(event=entity.id, **shared)
+
+
 def get_negative_entity_properties(
-    entities: list[EventsNode | ActionsNode | DataWarehouseNode | str],
+    entities: list[EventsNode | ActionsNode | DataWarehouseNode],
 ) -> list[AnyPropertyFilter]:
     negative_props: list[AnyPropertyFilter] = []
     for entity in entities:
-        if isinstance(entity, DataWarehouseNode | str) or not entity.properties:
+        if isinstance(entity, DataWarehouseNode) or not entity.properties:
             continue
         for prop in entity.properties:
             if is_negative_prop(prop):
@@ -137,12 +161,12 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
 
     @staticmethod
     def _event_predicates(
-        entities: Iterable[EventsNode | ActionsNode | DataWarehouseNode | str], team: Team
+        entities: Iterable[EventsNode | ActionsNode | DataWarehouseNode], team: Team
     ) -> list[ast.Expr]:
         event_exprs: list[ast.Expr] = []
 
         for entity in entities:
-            if isinstance(entity, DataWarehouseNode | str):
+            if isinstance(entity, DataWarehouseNode):
                 continue
 
             # this is always _positive_ operations
@@ -799,9 +823,7 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
         return bool(raw_entity.get("negation"))
 
     @staticmethod
-    def _entity_node(
-        raw_entity: dict[str, Any], default_type: str
-    ) -> EventsNode | ActionsNode | DataWarehouseNode | str:
+    def _entity_node(raw_entity: dict[str, Any], default_type: str) -> EventsNode | ActionsNode | DataWarehouseNode:
         # RecordingsQuery accepts untyped entity dicts, and Entity rejects any type it does not
         # know, so fall back to the type the source list implies.
         entity = (
@@ -810,7 +832,7 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
             else {**raw_entity, "type": default_type}
         )
         try:
-            return legacy_entity_to_node(Entity(entity), True, MathAvailability.Unavailable)
+            return _node_from_entity(entity)
         except ValueError as e:
             # Entity and the node models raise plain ValueErrors for a dict they can't build from
             # (pydantic's ValidationError subclasses it), and those escape as a 500. The dict is
@@ -839,7 +861,7 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
         return self.action_entities + self.event_entities
 
     @property
-    def negated_entities(self) -> list[EventsNode | ActionsNode | DataWarehouseNode | str]:
+    def negated_entities(self) -> list[EventsNode | ActionsNode | DataWarehouseNode]:
         # the legacy Entity class drops unknown keys, so negation is read off the raw dicts
         return [
             self._entity_node(e, TREND_FILTER_TYPE_ACTIONS)
