@@ -135,6 +135,15 @@ describe('useTaxonomicGroupsContext', () => {
         expect(types.has(TaxonomicFilterGroupType.SuggestedFilters)).toBe(true)
     })
 
+    it.each([TaxonomicFilterGroupType.Cohorts, TaxonomicFilterGroupType.CohortsWithAllUsers])(
+        '%s asks the cohorts endpoint for the trimmed basic payload',
+        (groupType) => {
+            const { result } = renderHook(() => useTaxonomicGroupsContext({}), { wrapper })
+            const cohortGroup = buildTaxonomicGroups(result.current).find((group) => group.type === groupType)
+            expect(cohortGroup?.endpoint).toContain('basic=true')
+        }
+    )
+
     it('makes exception properties commit as event property filters', () => {
         const { result } = renderHook(() => useTaxonomicGroupsContext({}), { wrapper })
         const exceptionGroup = buildTaxonomicGroups(result.current).find(
