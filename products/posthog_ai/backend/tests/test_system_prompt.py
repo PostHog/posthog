@@ -25,7 +25,7 @@ class TestPostHogAISystemPrompt(APIBaseTest):
         assert "`data-catalog-metric-run`" in prompt
         assert "complete governed catalog" in prompt
         assert "its shape, not whether its noun sounds like a KPI" in prompt
-        assert "a count or volume of X per day, hour, or week" in prompt
+        assert "a count, sum, or amount of X per day, hour, week, month, or year" in prompt
         assert "a rate or percentage of X" in prompt
         assert "an average, percentile, or latency of X" in prompt
         assert "a cost per X" in prompt
