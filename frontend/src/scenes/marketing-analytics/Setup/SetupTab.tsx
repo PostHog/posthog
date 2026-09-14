@@ -76,8 +76,8 @@ export function SetupTab(): JSX.Element {
     }, [active.key])
 
     return (
-        <div className="flex flex-col md:flex-row gap-6 mt-4">
-            <div className="md:hidden">
+        <div className="flex flex-col @min-[48rem]/main-content:flex-row gap-6 mt-4">
+            <div className="@min-[48rem]/main-content:hidden">
                 <LemonSelect
                     fullWidth
                     value={active.key}
@@ -86,7 +86,7 @@ export function SetupTab(): JSX.Element {
                     aria-label="Setup section"
                 />
             </div>
-            <nav className="hidden md:flex w-56 shrink-0 flex-col gap-px">
+            <nav className="hidden @min-[48rem]/main-content:flex w-56 shrink-0 flex-col gap-px">
                 {sections.map((section) => (
                     <LemonButton
                         key={section.key}

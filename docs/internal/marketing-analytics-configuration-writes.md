@@ -40,4 +40,4 @@ With `new-marketing-analytics-dashboard` enabled, Ad performance reuses the exis
 
 The new dashboard shows the conversion-goal suggestions from Setup, including missing New user and Revenue classifications. Review in Setup opens the existing configuration flow. Dismissed suggestions remain recoverable in Setup, and collapsing the dashboard suggestions persists in local storage. This does not create goals automatically or change candidate ranking.
 
-On narrow screens, Setup provides a section selector in place of the sidebar. Dashboard suggestion headers keep Review in Setup beside the title.
+When the main content panel is narrow, Setup provides a section selector in place of the sidebar. Dashboard suggestion headers keep Review in Setup beside the title.
