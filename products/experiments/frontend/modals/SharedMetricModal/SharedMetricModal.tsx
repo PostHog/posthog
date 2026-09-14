@@ -107,7 +107,7 @@ export function SharedMetricModal({
             }
         >
             <div className="deprecated-space-y-2">
-                {hasAnyCompatibleSharedMetrics || sharedMetricsResponseLoading ? (
+                {hasAnyCompatibleSharedMetrics ? (
                     <>
                         {savedMetrics.length > 0 && (
                             <LemonBanner type="info">
