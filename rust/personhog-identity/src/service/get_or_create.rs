@@ -13,6 +13,7 @@ use chrono::{DateTime, Utc};
 use futures::stream::{self, StreamExt};
 use tonic::{Code, Status};
 
+use personhog_common::grpc::current_client_name;
 use personhog_proto::personhog::identity::v1::GetOrCreatePersonEntry;
 use personhog_proto::personhog::types::v1::{Person as ProtoPerson, UpdatePersonPropertiesRequest};
 
@@ -21,11 +22,11 @@ use crate::service::validation::validate_entry;
 use crate::service::PersonHogIdentityService;
 use crate::storage::{Person, PersonStub, StubOutcome};
 
-/// Bound on concurrent leader-routed property writes within one batch.
-const MAX_CONCURRENT_PROPERTY_WRITES: usize = 8;
-
 const GET_OR_CREATE_TOTAL: &str = "personhog_identity_get_or_create_total";
 const GET_OR_CREATE_PHASE_DURATION: &str = "personhog_identity_get_or_create_phase_duration_ms";
+const GET_OR_CREATE_ENTRIES_PER_CALL: &str = "personhog_identity_get_or_create_entries_per_call";
+const CREATE_STUB_LOST_TOTAL: &str = "personhog_identity_create_stub_lost_total";
+const CREATED_AT_FALLBACK_TOTAL: &str = "personhog_identity_created_at_fallback_total";
 
 fn count_outcome(outcome: &str) {
     common_metrics::inc(
@@ -36,8 +37,30 @@ fn count_outcome(outcome: &str) {
 }
 
 fn record_phase(phase: &'static str, start: Instant) {
-    metrics::histogram!(GET_OR_CREATE_PHASE_DURATION, "phase" => phase)
-        .record(start.elapsed().as_secs_f64() * 1000.0);
+    common_metrics::histogram(
+        GET_OR_CREATE_PHASE_DURATION,
+        &[
+            ("phase".to_string(), phase.to_string()),
+            ("client".to_string(), current_client_name().to_string()),
+        ],
+        start.elapsed().as_secs_f64() * 1000.0,
+    );
+}
+
+fn count_stub_lost(resolution: &'static str) {
+    common_metrics::inc(
+        CREATE_STUB_LOST_TOTAL,
+        &[("resolution".to_string(), resolution.to_string())],
+        1,
+    );
+}
+
+fn count_created_at_fallback(reason: &'static str) {
+    common_metrics::inc(
+        CREATED_AT_FALLBACK_TOTAL,
+        &[("reason".to_string(), reason.to_string())],
+        1,
+    );
 }
 
 /// Empty bytes and an empty JSON object both mean "no properties to apply".
@@ -46,11 +69,14 @@ fn has_properties(raw: &[u8]) -> bool {
 }
 
 fn entry_created_at(entry: &GetOrCreatePersonEntry) -> DateTime<Utc> {
-    if entry.created_at > 0 {
-        DateTime::from_timestamp_millis(entry.created_at).unwrap_or_else(Utc::now)
-    } else {
-        Utc::now()
+    if entry.created_at <= 0 {
+        count_created_at_fallback("missing");
+        return Utc::now();
     }
+    DateTime::from_timestamp_millis(entry.created_at).unwrap_or_else(|| {
+        count_created_at_fallback("invalid");
+        Utc::now()
+    })
 }
 
 /// How each entry proceeds after the resolve phase.
@@ -74,10 +100,17 @@ impl PersonHogIdentityService {
         &self,
         entries: Vec<GetOrCreatePersonEntry>,
     ) -> Result<Vec<Result<(ProtoPerson, bool), Status>>, Status> {
+        common_metrics::histogram(GET_OR_CREATE_ENTRIES_PER_CALL, &[], entries.len() as f64);
+        // One pass: rejected() counts each failure, so the key filter and the plan share it.
+        let validations: Vec<Result<(), Status>> = entries
+            .iter()
+            .map(|entry| validate_entry(&self.limits, entry))
+            .collect();
         let keys: Vec<(i64, String)> = entries
             .iter()
-            .filter(|entry| validate_entry(&self.limits, entry).is_ok())
-            .map(|entry| (entry.team_id, entry.distinct_id.clone()))
+            .zip(&validations)
+            .filter(|(_, validation)| validation.is_ok())
+            .map(|(entry, _)| (entry.team_id, entry.distinct_id.clone()))
             .collect();
         let phase = Instant::now();
         let resolved = self.storage.resolve_distinct_ids(&keys).await;
@@ -89,8 +122,9 @@ impl PersonHogIdentityService {
         let mut stub_index: HashMap<(i64, String), usize> = HashMap::new();
         let plans: Vec<Plan> = entries
             .iter()
-            .map(|entry| {
-                if let Err(status) = validate_entry(&self.limits, entry) {
+            .zip(validations)
+            .map(|(entry, validation)| {
+                if let Err(status) = validation {
                     return Plan::Done(Err(status));
                 }
                 let key = (entry.team_id, entry.distinct_id.clone());
@@ -188,7 +222,7 @@ impl PersonHogIdentityService {
                 let entry = &entries[i];
                 async move { (i, self.apply_initial_properties(entry, person).await) }
             }))
-            .buffered(MAX_CONCURRENT_PROPERTY_WRITES)
+            .buffered(self.property_write_concurrency)
             .collect()
             .await;
         record_phase("apply_properties", phase);
@@ -250,11 +284,14 @@ impl PersonHogIdentityService {
                     .await
                     .map_err(|e| log_and_convert_error(e, "resolve_after_leader_not_found"))?;
                 let Some(current) = resolved.remove(&key) else {
+                    count_stub_lost("unresolved");
                     return Err(status);
                 };
                 if current.id == person.id {
+                    count_stub_lost("unchanged");
                     return Err(status);
                 }
+                count_stub_lost("moved");
                 let retry = UpdatePersonPropertiesRequest {
                     // Creation properties persist regardless of the filtered list.
                     force_update: true,

@@ -1,7 +1,7 @@
 import { useValues } from 'kea'
 import { useCallback } from 'react'
 
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, LemonTab, LemonTabs } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { AccessDenied } from 'lib/components/AccessDenied'
@@ -17,8 +17,12 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, DataWarehouseSavedQuery } from '~/types'
 
+import { DataQualityOverview } from 'products/data_quality/frontend/overview/DataQualityOverview'
+
 import { ViewsTab } from '../data-warehouse/scene/ViewsTab'
-import { modelsSceneLogic } from './modelsSceneLogic'
+import { ModelsSceneTab, modelsSceneLogic } from './modelsSceneLogic'
+import { ModelsLineageTab } from './tabs/ModelsLineageTab'
+import { ModelsOverviewTab } from './tabs/ModelsOverviewTab'
 
 export const scene: SceneExport = {
     component: ModelsScene,
@@ -27,7 +31,8 @@ export const scene: SceneExport = {
 }
 
 export function ModelsScene(): JSX.Element {
-    const { savedQueryIdToNodeId } = useValues(modelsSceneLogic)
+    const { savedQueryIdToNodeId, activeTab, dataQualityTabEnabled, suspensionBySavedQueryId } =
+        useValues(modelsSceneLogic)
 
     const getViewUrl = useCallback(
         (view: DataWarehouseSavedQuery): string => {
@@ -42,6 +47,41 @@ export function ModelsScene(): JSX.Element {
             <AccessDenied reason="You don't have access to Data warehouse tables & views, so this page isn't available." />
         )
     }
+
+    const tabs: LemonTab<ModelsSceneTab>[] = [
+        {
+            key: 'overview',
+            label: 'Overview',
+            link: urls.models(),
+            content: <ModelsOverviewTab />,
+            'data-attr': 'models-tab-overview',
+        },
+        {
+            key: 'models',
+            label: 'Models',
+            link: urls.models('models'),
+            content: <ViewsTab getViewUrl={getViewUrl} suspensionByViewId={suspensionBySavedQueryId} />,
+            'data-attr': 'models-tab-models',
+        },
+        {
+            key: 'lineage',
+            label: 'Lineage',
+            link: urls.models('lineage'),
+            content: <ModelsLineageTab />,
+            'data-attr': 'models-tab-lineage',
+        },
+        ...(dataQualityTabEnabled
+            ? [
+                  {
+                      key: 'data-quality' as const,
+                      label: 'Data quality',
+                      link: urls.models('data-quality'),
+                      content: <DataQualityOverview />,
+                      'data-attr': 'models-tab-data-quality',
+                  },
+              ]
+            : []),
+    ]
 
     return (
         <SceneContent>
@@ -78,7 +118,7 @@ export function ModelsScene(): JSX.Element {
                     </div>
                 }
             />
-            <ViewsTab getViewUrl={getViewUrl} />
+            <LemonTabs activeKey={activeTab} tabs={tabs} sceneInset />
         </SceneContent>
     )
 }

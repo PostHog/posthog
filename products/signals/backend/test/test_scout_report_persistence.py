@@ -30,6 +30,7 @@ from products.signals.backend.models import (
     SignalScoutRun,
 )
 from products.signals.backend.report_charts import MAX_REPORT_CHARTS, ReportChart
+from products.signals.backend.report_metrics import ReportMetric
 from products.signals.backend.report_prompts import MAX_SUGGESTED_PROMPT_LENGTH, MAX_SUGGESTED_PROMPTS
 from products.signals.backend.scout_harness.tools.emit import SOURCE_PRODUCT, SOURCE_TYPE
 from products.signals.backend.scout_report import (
@@ -38,12 +39,16 @@ from products.signals.backend.scout_report import (
     ScoutReportSignal,
     create_scout_report,
     set_report_charts,
+    set_report_metrics,
     set_report_suggested_prompts,
+    set_scout_report_inferred_repository,
+    set_scout_report_repository,
     set_scout_report_reviewers,
     soft_delete_scout_signal,
     update_scout_report,
 )
 from products.signals.backend.scout_report.judge import resolve_authored_report_status
+from products.signals.backend.scout_report.persistence import _report_metrics_unchanged
 
 PERSISTENCE_MODULE = "products.signals.backend.scout_report.persistence"
 
@@ -591,6 +596,186 @@ class TestScoutReportCharts(BaseTest):
             )
         with team_scope(other_team.id):
             assert self._stored_charts(other_report.report_id) == []
+
+
+class TestScoutReportMetrics(BaseTest):
+    _team_scope_cm: AbstractContextManager[None] | None = None
+
+    def setUp(self) -> None:
+        super().setUp()
+        cm = team_scope(self.team.id)
+        cm.__enter__()
+        self._team_scope_cm = cm
+        patcher = patch(f"{PERSISTENCE_MODULE}.emit_embedding_request")
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def tearDown(self) -> None:
+        if self._team_scope_cm is not None:
+            self._team_scope_cm.__exit__(None, None, None)
+            self._team_scope_cm = None
+        super().tearDown()
+
+    def _metric(self, value: int = 17) -> ReportMetric:
+        return ReportMetric.model_validate(
+            {
+                "metric_id": "affected-users",
+                "title": "Affected users",
+                "kind": "affected_users",
+                "role": "primary",
+                "value": value,
+                "value_at": "2026-08-29T12:00:00Z",
+                "value_format": "count",
+                "unit": "users",
+                "query": {
+                    "kind": "InsightVizNode",
+                    "source": {
+                        "kind": "TrendsQuery",
+                        "dateRange": {"date_from": "-30d"},
+                        "series": [{"kind": "EventsNode", "event": "$exception", "math": "dau"}],
+                    },
+                },
+            }
+        )
+
+    def _create(self, metrics: list[ReportMetric]) -> str:
+        result = create_scout_report(
+            team_id=self.team.id,
+            title="Exceptions affect 17 users",
+            summary="Seventeen users saw the same exception.",
+            signals=[ScoutReportSignal(description="same exception", source_id="obs")],
+            attribution=ArtefactAttribution.system(),
+            metrics=metrics,
+        )
+        return result.report_id
+
+    def test_create_and_replace_metrics_as_one_report_content_set(self) -> None:
+        report_id = self._create([self._metric(17)])
+        assert SignalReport.objects.get(id=report_id).metrics[0]["value"] == 17
+
+        assert set_report_metrics(team_id=self.team.id, report_id=report_id, metrics=[self._metric(23)]) is True
+        assert SignalReport.objects.get(id=report_id).metrics[0]["value"] == 23
+        assert set_report_metrics(team_id=self.team.id, report_id=report_id, metrics=[self._metric(23)]) is False
+
+    def test_an_explicit_empty_set_clears_metrics(self) -> None:
+        report_id = self._create([self._metric()])
+
+        assert set_report_metrics(team_id=self.team.id, report_id=report_id, metrics=[]) is True
+        assert SignalReport.objects.get(id=report_id).metrics == []
+
+
+class TestReportMetricsUnchanged:
+    """Unit coverage for the datetime-tolerant idempotency comparison (no DB)."""
+
+    def _canonical(self, *, value: int = 17, value_at: str = "2026-08-29T12:00:00Z") -> dict[str, object]:
+        return ReportMetric.model_validate(
+            {
+                "metric_id": "affected-users",
+                "title": "Affected users",
+                "kind": "affected_users",
+                "role": "primary",
+                "value": value,
+                "value_at": value_at,
+                "value_format": "count",
+                "unit": "users",
+                "query": {
+                    "kind": "InsightVizNode",
+                    "source": {
+                        "kind": "TrendsQuery",
+                        "dateRange": {"date_from": "-30d"},
+                        "series": [{"kind": "EventsNode", "event": "$exception", "math": "dau"}],
+                    },
+                },
+            }
+        ).model_dump(mode="json")
+
+    def test_a_refreshed_utc_offset_snapshot_equals_the_pydantic_z_form(self) -> None:
+        # The refresh worker writes value_at as `+00:00`; set_report_metrics compares against the
+        # pydantic `Z` form. The same instant must read as unchanged, not a new edit.
+        payload = [self._canonical()]
+        stored = [{**payload[0], "value_at": "2026-08-29T12:00:00+00:00"}]
+        assert _report_metrics_unchanged(stored, payload) is True
+
+    def test_a_changed_value_is_not_absorbed_by_normalization(self) -> None:
+        payload = [self._canonical(value=23)]
+        stored = [{**payload[0], "value": 999}]
+        assert _report_metrics_unchanged(stored, payload) is False
+
+    def test_a_malformed_stored_row_counts_as_changed(self) -> None:
+        assert _report_metrics_unchanged([{"metric_id": "affected-users"}], [self._canonical()]) is False
+
+
+class TestScoutReportRepository(BaseTest):
+    _team_scope_cm: AbstractContextManager[None] | None = None
+
+    def setUp(self) -> None:
+        super().setUp()
+        cm = team_scope(self.team.id)
+        cm.__enter__()
+        self._team_scope_cm = cm
+        patcher = patch(f"{PERSISTENCE_MODULE}.emit_embedding_request")
+        self.emit_mock = patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def tearDown(self) -> None:
+        if self._team_scope_cm is not None:
+            self._team_scope_cm.__exit__(None, None, None)
+            self._team_scope_cm = None
+        super().tearDown()
+
+    def _create(self) -> str:
+        result = create_scout_report(
+            team_id=self.team.id,
+            title="Signups dropped",
+            summary="Signups fell 60% on the 6th.",
+            signals=[ScoutReportSignal(description="d", source_id="obs")],
+            attribution=ArtefactAttribution.system(),
+        )
+        return result.report_id
+
+    def _set(self, report_id: str, repository: str | None) -> bool:
+        return set_scout_report_repository(
+            team_id=self.team.id,
+            report_id=report_id,
+            repository=repository,
+            attribution=ArtefactAttribution.system(),
+            author="signals-scout-errors",
+        )
+
+    @parameterized.expand([("a_repository", "acme/widgets"), ("a_cleared_target", None)])
+    def test_resending_the_stored_repository_is_not_a_change(self, _name: str, repository: str | None) -> None:
+        # `edit_report` is non-idempotent, so the same correction can arrive twice. Reporting a
+        # re-send as a change leaves a second "Set repository" note on the work log, tallies an edit
+        # that moved nothing, and re-runs autostart for a target that never changed.
+        report_id = self._create()
+
+        assert self._set(report_id, repository) is True
+        assert self._set(report_id, repository) is False
+        assert self._set(report_id, "acme/other") is True
+
+    def test_naming_an_already_inferred_repository_is_a_change(self) -> None:
+        # An inferred selection names the repository the report links, and is stamped ineligible for
+        # autostart because the report never asked for a pull request. A scout naming the same one is
+        # the decision that lifts it, so comparing the repository alone would drop the correction and
+        # leave the report unable to open a draft pull request.
+        report_id = self._create()
+        set_scout_report_inferred_repository(
+            team_id=self.team.id,
+            report_id=report_id,
+            repository="acme/widgets",
+            attribution=ArtefactAttribution.system(),
+        )
+
+        assert self._set(report_id, "acme/widgets") is True
+        selection = (
+            SignalReportArtefact.objects.filter(
+                report_id=report_id, type=SignalReportArtefact.ArtefactType.REPO_SELECTION
+            )
+            .order_by("-created_at")
+            .first()
+        )
+        assert selection is not None
+        assert '"autostart_eligible":true' in selection.content
 
 
 class TestScoutReportSuggestedPrompts(BaseTest):

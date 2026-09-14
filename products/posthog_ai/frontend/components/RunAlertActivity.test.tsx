@@ -16,12 +16,20 @@ describe('RunAlertActivity', () => {
 
     it.each([
         ['connection_failed', 'Connection lost'],
-        ['agent_error', 'Agent error'],
+        ['agent_error', 'Run stopped'],
+        ['agent_error_continued', 'Agent error'],
+        ['message_undelivered', 'Message not delivered'],
         ['agent_crash', 'Agent stopped unexpectedly'],
     ] as const)('renders the %s title with its detail message', (kind, title) => {
         render(<RunAlertActivity kind={kind} message="boom" />)
 
         expect(screen.getByText(title)).toBeInTheDocument()
         expect(screen.getByText('boom')).toBeInTheDocument()
+    })
+
+    it('notes the undelivered follow-up on a stopped run', () => {
+        render(<RunAlertActivity kind="agent_error" message="boom" undeliveredMessage />)
+
+        expect(screen.getByText('Your last message was not delivered.')).toBeInTheDocument()
     })
 })

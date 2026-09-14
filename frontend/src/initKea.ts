@@ -1,4 +1,5 @@
 import { KeaPlugin, resetContext } from 'kea'
+import { disposablesPlugin } from 'kea-disposables'
 import { formsPlugin } from 'kea-forms'
 import { loadersPlugin } from 'kea-loaders'
 import { localStoragePlugin } from 'kea-localstorage'
@@ -17,8 +18,6 @@ import {
     stripTrailingSlash,
 } from 'lib/utils/kea-router'
 import { identifierToHuman } from 'lib/utils/strings'
-
-import { disposablesPlugin } from '~/kea-disposables'
 
 /*
 Actions for which we don't want to show error alerts,

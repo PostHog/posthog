@@ -4,7 +4,7 @@ import type {
   CanvasToHostMessage,
   HostToCanvasMessage,
 } from "@posthog/core/canvas/freeformSchemas";
-import { isSafePostHogUrl } from "@posthog/shared";
+import { isSafeGitHubPullRequestUrl, isSafePostHogUrl } from "@posthog/shared";
 
 // Canvas code can post open-external without a gesture, so opens are limited.
 const EXTERNAL_OPEN_MIN_INTERVAL_MS = 1_000;
@@ -184,7 +184,12 @@ export function createCanvasHostMessageRouter(
         options.callbacks().onRendered?.();
         break;
       case "navigate":
-        if (message.nav.target === "connect" && !options.hasUserActivation())
+        if (
+          (message.nav.target === "connect" ||
+            message.nav.target === "compose-task" ||
+            message.nav.target === "new-task") &&
+          !options.hasUserActivation()
+        )
           break;
         // message.nav is already allowlist-validated by the schema parse.
         options.callbacks().onNavigate?.(message.nav);
@@ -200,7 +205,10 @@ export function createCanvasHostMessageRouter(
         break;
       case "open-external":
         // Re-checks the schema's allowlist refine in case it ever drifts.
-        if (!isSafePostHogUrl(message.url)) {
+        if (
+          !isSafePostHogUrl(message.url) &&
+          !isSafeGitHubPullRequestUrl(message.url)
+        ) {
           options.onExternalOpenBlocked?.(message.url, "unsafe-url");
         } else if (!options.hasUserActivation()) {
           options.onExternalOpenBlocked?.(message.url, "no-interaction");

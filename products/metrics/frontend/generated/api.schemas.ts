@@ -531,6 +531,18 @@ export interface _HasMetricsResponseApi {
     hasMetrics: boolean
 }
 
+export interface _MetricPickerNameApi {
+    /** Metric name as it appears in the team's data. */
+    name: string
+    /** OTel metric type (gauge, sum, histogram, summary, exponential_histogram). */
+    metric_type: string
+}
+
+export interface _MetricPickerNamesResponseApi {
+    /** Distinct metric names ordered by recent activity. */
+    results: _MetricPickerNameApi[]
+}
+
 export interface _MetricsOverviewServiceApi {
     /** Service that reported metrics inside the window. */
     service_name: string
@@ -859,6 +871,25 @@ export type MetricsErrorSpikesRetrieveParams = {
      * Upper bound (exclusive) for the spike window. Defaults to now if omitted.
      */
     dateTo?: string
+}
+
+export type MetricsNamesRetrieveParams = {
+    /**
+     * Max number of names to return. Defaults to 100; maximum 1000.
+     * @minimum 1
+     * @maximum 1000
+     */
+    limit?: number
+    /**
+     * Comma-separated services to narrow the list to, e.g. `service=web,worker`. Omit for every service. Send it empty to select only series whose sender did not set `service.name`. A service name containing a comma cannot be selected.
+     * @maxLength 1024
+     */
+    service?: string
+    /**
+     * Substring filter (case-insensitive) applied to metric names.
+     * @maxLength 255
+     */
+    value?: string
 }
 
 export type MetricsValuesRetrieveParams = {

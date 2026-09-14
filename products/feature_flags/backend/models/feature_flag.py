@@ -10,9 +10,8 @@ from django.db.models.fields.json import KeyTransform
 from django.http import HttpRequest
 from django.utils import timezone
 
-from django_deprecate_fields import deprecate_field
-
 from posthog.constants import ENRICHED_DASHBOARD_INSIGHT_IDENTIFIER
+from posthog.migration_helpers import deprecate_field
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.file_system.constants import DEFAULT_SURFACE
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin

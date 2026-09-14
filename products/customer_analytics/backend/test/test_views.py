@@ -51,6 +51,7 @@ from products.customer_analytics.backend.models import (
     TargetType,
 )
 from products.customer_analytics.backend.test.factories import create_account, create_custom_property_definition
+from products.notebooks.backend.facade.content import build_markdown_notebook_content
 from products.notebooks.backend.models import Notebook, ResourceNotebook
 from products.product_analytics.backend.facade.models import Insight
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
@@ -1296,12 +1297,7 @@ class TestAccountNotebookViewSet(APIBaseTest):
         # nosemgrep: idor-lookup-without-team (test assertion)
         notebook = Notebook.objects.get(short_id=response.json()["short_id"])
         self.assertEqual(notebook.text_content, "# Heading\n\nSome **bold** text.")
-        self.assertIsInstance(notebook.content, dict)
-        self.assertEqual(notebook.content["type"], "doc")
-        first_node = notebook.content["content"][0]
-        self.assertEqual(first_node["type"], "heading")
-        self.assertEqual(first_node["attrs"]["level"], 1)
-        self.assertEqual(first_node["content"][0]["text"], "Heading")
+        self.assertEqual(notebook.content, build_markdown_notebook_content("# Heading\n\nSome **bold** text."))
 
     def test_create_preserves_caller_supplied_content(self):
         explicit_content = {
@@ -1349,10 +1345,7 @@ class TestAccountNotebookViewSet(APIBaseTest):
         self.assertEqual(status.HTTP_201_CREATED, response.status_code, response.json())
         # nosemgrep: idor-lookup-without-team (test assertion)
         notebook = Notebook.objects.get(short_id=response.json()["short_id"])
-        self.assertEqual(notebook.content["type"], "doc")
-        first_node = notebook.content["content"][0]
-        self.assertEqual(first_node["type"], "paragraph")
-        self.assertEqual(first_node["content"][0]["text"], "Just a sentence.")
+        self.assertEqual(notebook.content, build_markdown_notebook_content("Just a sentence."))
 
     def test_create_with_empty_valid_prosemirror_doc_respects_caller(self):
         empty_doc = {"type": "doc", "content": []}
