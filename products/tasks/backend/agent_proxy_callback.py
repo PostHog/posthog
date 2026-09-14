@@ -8,6 +8,7 @@ from django.http import JsonResponse
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from jwt import PyJWTError
 
+from products.tasks.backend.facade.api import signal_workflow_completion
 from products.tasks.backend.models import TaskRun
 from products.tasks.backend.presentation.serializers import (
     AgentProxyCallbackRequestSerializer,
@@ -15,6 +16,8 @@ from products.tasks.backend.presentation.serializers import (
     TaskRunErrorResponseSerializer,
 )
 from products.tasks.backend.push_dispatcher import notify_task_run_turn_completed
+
+from ee.hogai.sandbox import PI_RUNTIME_ERROR_MESSAGE
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +45,7 @@ logger = logging.getLogger(__name__)
     description=(
         "Internal endpoint called by the standalone Node agent-proxy after accepting an ingest event "
         "that requires a Django-side side effect. Dispatches a Temporal heartbeat, a boot milestone, "
-        "or an awaiting-input mobile push notification depending on `kind`. "
+        "an awaiting-input mobile push notification, or a failed-run completion depending on `kind`. "
         "Authenticated with the forwarded sandbox event ingest JWT plus the X-Agent-Proxy-Secret "
         "shared secret (required outside local dev/test) — no session or API key involved. "
         "Best-effort: always returns 200 when auth passes; side-effect failures are logged, not surfaced."
@@ -150,5 +153,15 @@ def agent_proxy_callback(request, run_id: str) -> JsonResponse:
             logger.warning("agent_proxy_callback.run_not_found", extra={"run_id": run_id})
         except Exception:
             logger.exception("agent_proxy_callback.awaiting_input_failed", extra={"run_id": run_id})
+
+    elif kind == "turn_failed":
+        try:
+            if TaskRun.objects.filter(id=run_id, task_id=task_id, team_id=team_id).exists():
+                signal_workflow_completion(run_id, "failed", PI_RUNTIME_ERROR_MESSAGE)
+                dispatched = True
+            else:
+                logger.warning("agent_proxy_callback.run_not_found", extra={"run_id": run_id})
+        except Exception:
+            logger.exception("agent_proxy_callback.turn_failed_failed", extra={"run_id": run_id})
 
     return JsonResponse(AgentProxyCallbackResponseSerializer({"dispatched": dispatched}).data)
