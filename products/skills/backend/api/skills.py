@@ -1203,6 +1203,10 @@ class LLMSkillViewSet(
             problems.append("compatibility must be 500 characters or fewer")
 
         for skill_file in skill_export.files:
+            # create_skill inserts the files with bulk_create, which runs no model validation, so a
+            # path the column cannot hold reaches Postgres as a DataError and fails the request.
+            if len(skill_file.path) > 500:
+                problems.append(f"file '{skill_file.path}': path must be 500 characters or fewer")
             if len(skill_file.content.encode("utf-8")) > MAX_SKILL_FILE_BYTES:
                 problems.append(f"file '{skill_file.path}': content must be {MAX_SKILL_FILE_BYTES} bytes or fewer")
         return problems

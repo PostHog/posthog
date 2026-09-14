@@ -32,7 +32,7 @@ from ...api.skill_services import archive_skill, set_skill_owners
 from ...marketplace import adapters
 from ...marketplace.adapters import build_team_marketplace_tree
 from ...marketplace.credentials import issue_marketplace_credential
-from ...marketplace.packaging import SkillExport, build_skill_zip
+from ...marketplace.packaging import SkillExport, SkillFileExport, build_skill_zip
 from ...models.skills import LLMSkill, LLMSkillFile
 
 _PAK_TOKEN = "phx_marketplacetoken123"
@@ -178,6 +178,26 @@ class TestSkillZipExport(APIBaseTest):
             f"/api/environments/{self.team.id}/llm_skills/import", {"file": upload}, format="multipart"
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_import_rejects_a_path_over_the_stored_limit(self):
+        # bulk_create skips model validation, so a path the column cannot hold reaches Postgres and
+        # fails the insert rather than the request.
+        long_path = f"{'d' * 500}.md"
+        export = SkillExport(
+            name="long-path",
+            description="Long path.",
+            body="# long-path\n",
+            version=1,
+            files=[SkillFileExport(path=long_path, content="x")],
+        )
+        upload = SimpleUploadedFile("long-path.zip", build_skill_zip(export), content_type="application/zip")
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/llm_skills/import", {"file": upload}, format="multipart"
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert response.json()["problems"] == [f"file '{long_path}': path must be 500 characters or fewer"]
 
     def test_export_rejects_spec_invalid_description(self):
         # Stored limit is 4096 but the spec caps description at 1024 — export must refuse rather
