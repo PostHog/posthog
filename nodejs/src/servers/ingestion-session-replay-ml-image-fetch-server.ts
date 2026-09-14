@@ -163,6 +163,8 @@ export function buildImageFetchConsumerConfigs(
         autoCommit: true,
         autoOffsetStore: true,
         fetchBatchSize: config.SESSION_RECORDING_ML_IMAGE_FETCH_BATCH_SIZE,
+        maxBackgroundTasks: 2,
+        backgroundTaskTimeoutMs: 240_000,
     }))
 }
 
@@ -180,6 +182,15 @@ export function buildImageFetchConsumerOverrides(
             Math.floor(IMAGE_FETCH_KAFKA_QUEUE_BUDGET_KBYTES / consumerCount)
         ),
     }
+}
+
+export async function shutdownImageFetchConsumers(
+    consumers: Pick<KafkaConsumerV2, 'stopConsuming' | 'disconnect'>[],
+    batchJoiner: ImageFetchBatchJoiner
+): Promise<void> {
+    await Promise.allSettled(consumers.map((consumer) => consumer.stopConsuming()))
+    await batchJoiner.waitForProcessing()
+    await Promise.allSettled(consumers.map((consumer) => consumer.disconnect()))
 }
 
 /**
@@ -288,9 +299,7 @@ export class IngestionSessionReplayMlImageFetchServer implements NodeServer {
 
         this.lifecycle.services.push({
             id: 'session-replay-ml-image-fetch',
-            onShutdown: async () => {
-                await Promise.all(consumers.map((consumer) => consumer.disconnect()))
-            },
+            onShutdown: () => shutdownImageFetchConsumers(consumers, batchJoiner),
             healthcheck: () => {
                 for (const consumer of consumers) {
                     const health = consumer.isHealthy()

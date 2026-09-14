@@ -6,9 +6,10 @@ import { TZLabel } from 'lib/components/TZLabel'
 import ViewRecordingButton, { ViewRecordingButtonVariant } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { useWindowSize } from 'lib/hooks/useWindowSize'
 import { Popover } from 'lib/lemon-ui/Popover'
-import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 
 import { OpenQuestionResponseData } from '~/types'
+
+import { PersonDisplay } from 'products/persons/frontend/components/PersonDisplay'
 
 interface VirtualizedResponseListProps {
     responses: OpenQuestionResponseData[]

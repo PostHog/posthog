@@ -72,11 +72,11 @@ describe('InsightMeta', () => {
         })
     })
 
-    it('always shows description in non-compact mode regardless of showDescription', () => {
+    it('hides description in non-compact mode when showDescription is false', () => {
         const { container } = render(
             <InsightMetaContent title="Test" description={description} compact={false} showDescription={false} />
         )
-        expect(container.querySelector('.CardMeta__description')).toBeInTheDocument()
+        expect(container.querySelector('.CardMeta__description')).toBeNull()
     })
 
     describe('tile.show_description default-to-show mapping', () => {

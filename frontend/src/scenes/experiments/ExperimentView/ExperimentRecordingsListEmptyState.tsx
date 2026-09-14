@@ -82,9 +82,11 @@ function ReasonBanner({
                     'data-attr': 'experiment-recordings-empty-retention-docs',
                 }}
             >
-                This experiment ended on {dayjs(context.endDate).format('MMM D, YYYY')}. This project keeps recordings
-                for {pluralize(context.retentionWindowDays, 'day')}, so the recordings from its run are no longer
-                stored.
+                {context.scannedWindowEnd
+                    ? `This filter only covers sessions up to ${dayjs(context.scannedWindowEnd).format('MMM D, YYYY')}.`
+                    : `This experiment ended on ${dayjs(context.endDate).format('MMM D, YYYY')}.`}{' '}
+                This project keeps recordings for {pluralize(context.retentionWindowDays, 'day')}, so those recordings
+                are no longer stored.
             </LemonBanner>
         )
     }

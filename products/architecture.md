@@ -173,6 +173,7 @@ Production code may not add one.
 `drives(...)` lines record the tests outside a product that execute its query runners.
 They are keyed by the product's `backend/hogql_queries/` location instead of a class, and read from test modules only.
 A new line is a new outside test that drives product code, and that test belongs in the product.
+`facade-*` lines record what a facade signature promises, read from the facade itself rather than from a caller.
 A repo-invariant test compares that file against a fresh scan, in both directions.
 A count can go down.
 A count must not go up.

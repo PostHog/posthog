@@ -1,4 +1,6 @@
 import { Meta } from '@storybook/react'
+import { screen, within } from '@testing-library/dom'
+import userEvent from '@testing-library/user-event'
 
 import type { Mocks } from '~/mocks/utils'
 
@@ -80,6 +82,24 @@ export const MCPAnalyticsNeedsSetup: ProductEmptyStateStory = productEmptyStateS
     'needs-setup',
     { mocks: mcpSignalMocks(false) }
 )
+
+export const MCPAnalyticsNeedsSetupNarrow: ProductEmptyStateStory = productEmptyStateStory(
+    mcpAnalyticsEmptyState,
+    'needs-setup',
+    { mocks: mcpSignalMocks(false), containerWidth: 520 }
+)
+
+export const MCPAnalyticsAgentPrompt: ProductEmptyStateStory = {
+    ...MCPAnalyticsNeedsSetup,
+    parameters: {
+        testOptions: { waitForLoadersToDisappear: false, snapshotTargetSelector: 'body' },
+    },
+    play: async ({ canvasElement }) => {
+        const trigger = await within(canvasElement).findByRole('button', { name: 'Install with your agent' })
+        await userEvent.click(trigger)
+        await screen.findByRole('dialog')
+    },
+}
 
 export const MCPAnalyticsWaitingForData: ProductEmptyStateStory = productEmptyStateStory(
     mcpAnalyticsEmptyState,

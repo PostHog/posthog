@@ -130,6 +130,11 @@ aggregates data that is not represented as a team-scoped PostHog table,
 or returns a curated API shape that would be awkward or unsafe to rebuild in SQL.
 For these tools, keep the surface narrow and document the source and shape in the YAML description.
 
+For proxy endpoints that can fail because of either user permissions or request scope,
+return distinct API-visible error details. Agents should stop on true authorization
+failures, but they can often recover from a bad project/team filter if the response says
+the requested scope is unavailable.
+
 System tables are defined in [`posthog/hogql/database/schema/system.py`](https://github.com/PostHog/posthog/blob/master/posthog/hogql/database/schema/system.py) as `PostgresTable` instances.
 Each table must include a `team_id` column for data isolation.
 
@@ -311,6 +316,11 @@ Product teams own their definitions and control which operations are exposed as 
 
    Unknown keys are rejected at build time (Zod `.strict()`) to catch typos early.
 
+   For generated list apps, `generate:ui-apps` also checks `detail_tool` and the
+   `detail_args` keys against the tool's input schema snapshot, so a wrong argument
+   name fails generation instead of silently dropping the argument at runtime.
+   See "UI apps" in `services/mcp/CONTRIBUTING.md` for the rules.
+
    #### Custom input schemas
 
    By default, tool input schemas are auto-derived from OpenAPI via Orval.
@@ -443,8 +453,12 @@ removes that metadata and retries the size check. Text and status still reach th
 client when the remaining event fits; events that remain oversized are dropped.
 
 Native widgets read app data, existing `structuredContent`, or a direct result object.
-They never decode TOON or JSON from result text or reconstruct an executed query from
-tool arguments. Old transcripts containing only text show the generic tool card.
+They never decode TOON or JSON from result text.
+The `execute-sql` backend returns the executed query in `structured_content` alongside its formatted text.
+The MCP handler forwards that query as widget metadata, preserving resolved saved-variable definitions, `connectionId`, and `sendRawQuery`.
+The widget renders it through the shared Query component in a `DataVisualizationNode`.
+The Query component fetches the results for this visualization.
+All query widgets require the executed query from the tool result. Old transcripts containing only text show the generic tool card.
 Failed calls and missing or malformed widget data also use that fallback.
 The web client resolves tool identity from ACP `_meta.posthog`, with legacy
 `_meta.claudeCode` support. Non-exec MCP tools retain their qualified metadata names

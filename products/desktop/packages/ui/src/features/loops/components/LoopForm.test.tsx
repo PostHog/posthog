@@ -346,16 +346,14 @@ describe("LoopForm", () => {
     },
   );
 
-  it("drops a space attachment from a new workflow loop and says so", async () => {
+  it("keeps the space a new workflow loop was started from", async () => {
     const user = userEvent.setup();
-    useLoopDraftStore.getState().setPrefill({
-      ...formValues(),
-      contextTarget: {
-        folderId: "folder-1",
-        name: "general",
-        outputs: { post_to_feed: true, update_context: false, canvas_id: null },
-      },
-    });
+    const contextTarget = {
+      folderId: "folder-1",
+      name: "general",
+      outputs: { post_to_feed: true, update_context: false, canvas_id: null },
+    };
+    useLoopDraftStore.getState().setPrefill({ ...formValues(), contextTarget });
     mocks.createHogFlow.mockResolvedValue(
       hogFlowToLoop(loopShapedFlow(formValues(), "2026-09-02T08:00:00Z"), {
         projectId: PROJECT_ID,
@@ -363,18 +361,14 @@ describe("LoopForm", () => {
     );
     render(<LoopForm />);
 
-    expect(
-      screen.getByText("This loop won't be attached to #general"),
-    ).toBeInTheDocument();
-
     for (let i = 0; i < 3; i += 1) {
       await user.click(screen.getByRole("button", { name: "Next" }));
     }
     await user.click(screen.getByRole("button", { name: "Create loop" }));
 
     await waitFor(() => expect(mocks.createHogFlow).toHaveBeenCalled());
-    expect(
-      mocks.createHogFlow.mock.calls[0][0].values.contextTarget,
-    ).toBeNull();
+    expect(mocks.createHogFlow.mock.calls[0][0].values.contextTarget).toEqual(
+      contextTarget,
+    );
   });
 });

@@ -52,7 +52,7 @@ from products.signals.backend.scout_harness.lazy_seed import (
     canonical_skill_names,
     discover_canonical_skills,
 )
-from products.signals.backend.scout_harness.limits import STALE_RUN_CUTOFF_S
+from products.signals.backend.scout_harness.limits import MAX_RUN_NOTE_CHARS, STALE_RUN_CUTOFF_S
 from products.signals.backend.scout_harness.note_targets import PIPELINE_AUDIENCE_REPORT_RESEARCH as PIPELINE_AUDIENCE
 from products.signals.backend.scout_harness.prompt import FOLLOWUP_KEY_PREFIX
 from products.signals.backend.scout_harness.serializers import (
@@ -2817,7 +2817,7 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         # A partial update skips the `thread_reports` default, so the flag reaches the reader
         # through the response only and the stored destination keeps the shape it was sent in.
         assert response.json()["output_destinations"] == {
-            "slack": {**destination["slack"], "users": None, "thread_reports": False},
+            "slack": {**destination["slack"], "users": None, "thread_reports": True},
             "webhook": None,
         }
         config.refresh_from_db()
@@ -2837,11 +2837,35 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         # Reads render both target keys, null when unset; the stored JSON keeps only what was sent.
         assert response.json()["output_destinations"] == {
-            "slack": {**destination["slack"], "channel": None, "thread_reports": False},
+            "slack": {**destination["slack"], "channel": None, "thread_reports": True},
             "webhook": None,
         }
         config.refresh_from_db()
         assert config.output_destinations == destination
+
+    def test_partial_update_slack_destination_preserves_explicit_thread_opt_out(self) -> None:
+        integration = Integration.objects.create(team=self.team, kind=Integration.IntegrationKind.SLACK)
+        config = SignalScoutConfig.objects.create(
+            team=self.team,
+            skill_name="signals-scout-foo",
+            output_destinations={
+                "slack": {
+                    "integration_id": integration.id,
+                    "channel": "CSCOUTS|#scout-findings",
+                    "thread_reports": False,
+                }
+            },
+        )
+
+        response = self.client.patch(
+            self._detail_url(str(config.id)),
+            data={"output_destinations": {"slack": {"integration_id": integration.id, "users": ["U0123ABC456|@andy"]}}},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        config.refresh_from_db()
+        assert config.output_destinations["slack"]["thread_reports"] is False
 
     @parameterized.expand(
         [
@@ -3471,6 +3495,34 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         assert config.emit is True
         assert config.run_interval_minutes == 120
 
+    def test_create_upsert_preserves_omitted_slack_thread_opt_out(self) -> None:
+        self._make_skill("signals-scout-fresh")
+        integration = Integration.objects.create(team=self.team, kind=Integration.IntegrationKind.SLACK)
+        SignalScoutConfig.objects.create(
+            team=self.team,
+            skill_name="signals-scout-fresh",
+            output_destinations={
+                "slack": {
+                    "integration_id": integration.id,
+                    "channel": "COLD|#old",
+                    "thread_reports": False,
+                }
+            },
+        )
+
+        response = self.client.post(
+            self._list_url(),
+            data={
+                "skill_name": "signals-scout-fresh",
+                "output_destinations": {"slack": {"integration_id": integration.id, "channel": "CNEW|#new"}},
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        config = SignalScoutConfig.objects.get(team=self.team, skill_name="signals-scout-fresh")
+        assert config.output_destinations["slack"]["thread_reports"] is False
+
     _CAP_PATCH = "products.signals.backend.scout_harness.views.MAX_ENABLED_SCOUTS_PER_TEAM"
 
     def test_create_disabled_config_is_allowed_at_team_cap(self) -> None:
@@ -3774,7 +3826,102 @@ class TestScoutHarnessConfigRunAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_202_ACCEPTED
         assert response.json() == {"skill_name": "signals-scout-foo", "workflow_id": "wf-123", "started": True}
-        start.assert_called_once_with(connect.return_value, team_id=self.team.id, skill_name="signals-scout-foo")
+        start.assert_called_once_with(
+            connect.return_value, team_id=self.team.id, skill_name="signals-scout-foo", run_note=None
+        )
+
+    @parameterized.expand(
+        [
+            ("note", "Focus on the checkout regression.", "Focus on the checkout regression."),
+            ("padded", "  Focus on the checkout regression.  ", "Focus on the checkout regression."),
+            # Whitespace must not reach the prompt as a section saying someone left a note.
+            ("blank", "   ", None),
+        ]
+    )
+    def test_run_carries_a_one_off_note_to_the_dispatch(self, _name: str, note: str, expected: str | None) -> None:
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
+        with (
+            patch(_QUOTA, return_value=_UNDER_QUOTA),
+            patch(_CONNECT) as connect,
+            patch(_START, return_value="wf-123") as start,
+        ):
+            response = self.client.post(self._run_url(str(config.id)), data={"note": note}, format="json")
+
+        assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
+        start.assert_called_once_with(
+            connect.return_value, team_id=self.team.id, skill_name="signals-scout-foo", run_note=expected
+        )
+
+    def test_run_with_oversized_note_returns_400_without_dispatching(self) -> None:
+        # An unbounded note would crowd out the instructions it is meant to steer.
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
+        with patch(_QUOTA, return_value=_UNDER_QUOTA), patch(_CONNECT), patch(_START) as start:
+            response = self.client.post(
+                self._run_url(str(config.id)), data={"note": "x" * (MAX_RUN_NOTE_CHARS + 1)}, format="json"
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        start.assert_not_called()
+
+    def test_run_with_a_note_requires_skill_editor_access(self) -> None:
+        # A note clears the scout-note RBAC bar; triggering a run without one stays on the config write.
+        from posthog.scopes import APIScopeObject
+
+        from products.access_control.backend.facade.user_access_control import AccessControlLevel, UserAccessControl
+
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
+        real_check = UserAccessControl.check_access_level_for_resource
+
+        def deny_llm_skill(
+            self_: UserAccessControl, resource: APIScopeObject, required_level: AccessControlLevel
+        ) -> bool:
+            return False if resource == "llm_skill" else real_check(self_, resource, required_level)
+
+        with (
+            patch.object(UserAccessControl, "check_access_level_for_resource", autospec=True) as mock_check,
+            patch(_QUOTA, return_value=_UNDER_QUOTA),
+            patch(_CONNECT),
+            patch(_START, return_value="wf-123") as start,
+        ):
+            mock_check.side_effect = deny_llm_skill
+            with_note = self.client.post(
+                self._run_url(str(config.id)), data={"note": "focus on checkout"}, format="json"
+            )
+            assert with_note.status_code == status.HTTP_403_FORBIDDEN
+            start.assert_not_called()
+
+            plain = self.client.post(self._run_url(str(config.id)))
+            assert plain.status_code == status.HTTP_202_ACCEPTED, plain.json()
+            start.assert_called_once()
+
+    @parameterized.expand(
+        [
+            # Steering a run with prose an agent reads verbatim is the skill-authoring capability.
+            ("scout_scope_only", ["signal_scout:write"], status.HTTP_403_FORBIDDEN),
+            ("both_scopes", ["signal_scout:write", "llm_skill:write"], status.HTTP_202_ACCEPTED),
+        ]
+    )
+    def test_note_scope_requirements_for_api_keys(self, _name: str, scopes: list[str], expected: int) -> None:
+        from posthog.models.personal_api_key import PersonalAPIKey
+        from posthog.models.utils import generate_random_token_personal, hash_key_value
+
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
+        raw = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="k", user=self.user, secure_value=hash_key_value(raw), scopes=scopes)
+        self.client.logout()
+        with (
+            patch(_QUOTA, return_value=_UNDER_QUOTA),
+            patch(_CONNECT),
+            patch(_START, return_value="wf-123"),
+        ):
+            response = self.client.post(
+                self._run_url(str(config.id)),
+                data={"note": "focus on checkout"},
+                format="json",
+                HTTP_AUTHORIZATION=f"Bearer {raw}",
+            )
+
+        assert response.status_code == expected, response.content
 
     @parameterized.expand(
         [
