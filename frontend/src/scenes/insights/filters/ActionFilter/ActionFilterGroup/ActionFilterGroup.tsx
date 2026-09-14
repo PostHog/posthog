@@ -53,6 +53,8 @@ interface ActionFilterGroupProps {
     dataWarehousePopoverFields?: any[]
     excludedProperties?: TaxonomicPopoverProps['excludedProperties']
     includeHiddenEvents?: TaxonomicPopoverProps['includeHiddenEvents']
+    /** Warn when the row's event stopped arriving. Off where picking an uninstrumented event is intended. */
+    showEventHealth?: boolean
     groupTitle?: string
     trendsDisplayCategory?: any
     insightType?: InsightType
@@ -76,6 +78,7 @@ export function ActionFilterGroup({
     dataWarehousePopoverFields,
     excludedProperties,
     includeHiddenEvents,
+    showEventHealth,
     groupTitle,
     trendsDisplayCategory,
     insightType,
@@ -372,6 +375,7 @@ export function ActionFilterGroup({
                                     dataWarehousePopoverFields={dataWarehousePopoverFields}
                                     excludedProperties={excludedProperties}
                                     includeHiddenEvents={includeHiddenEvents}
+                                    showEventHealth={showEventHealth}
                                     definitionPopoverRenderer={definitionPopoverRenderer}
                                 />
                                 {eventIndex < nestedFilters.length - 1 && (
