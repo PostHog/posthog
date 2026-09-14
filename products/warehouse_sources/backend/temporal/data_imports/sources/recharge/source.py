@@ -70,7 +70,7 @@ Some resources (such as Payment methods) are only available on Recharge Pro or C
 """,
             iconPath="/static/services/recharge.png",
             docsUrl="https://posthog.com/docs/cdp/sources/recharge",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 [

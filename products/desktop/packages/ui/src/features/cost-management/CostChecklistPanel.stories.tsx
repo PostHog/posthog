@@ -8,6 +8,7 @@ const meta: Meta<typeof CostChecklistPanel> = {
   args: {
     onSwitchModel: () => {},
     onCreateImage: () => {},
+    onSte100Toggle: () => {},
     onInstallSkill: () => {},
     onUninstallSkill: () => {},
     onOpenSkill: () => {},
@@ -32,15 +33,17 @@ const modelNotch: CostChecklistItem = {
 };
 
 const customImage: CostChecklistItem = { kind: "custom-image", done: false };
+const ste100: CostChecklistItem = { kind: "ste100", done: false };
 
 export const BothActive: StoryObj<typeof CostChecklistPanel> = {
-  args: { items: [modelNotch, customImage] },
+  args: { items: [modelNotch, customImage, ste100] },
 };
 
 export const OneDone: StoryObj<typeof CostChecklistPanel> = {
   args: {
     items: [
       customImage,
+      ste100,
       { kind: "model-notch", done: true, modelId: "claude-sonnet-5" },
     ],
   },
@@ -77,6 +80,7 @@ export const EverySuggestion: StoryObj<typeof CostChecklistPanel> = {
     items: [
       modelNotch,
       customImage,
+      ste100,
       {
         kind: "install-skill",
         done: false,

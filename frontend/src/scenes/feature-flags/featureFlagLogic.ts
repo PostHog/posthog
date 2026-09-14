@@ -40,7 +40,7 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { stringifyWithBigInts } from 'lib/utils/json'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { objectsEqual } from 'lib/utils/objects'
-import { slugify } from 'lib/utils/strings'
+import { capitalizeFirstLetter, humanList, slugify } from 'lib/utils/strings'
 import { experimentLogic } from 'scenes/experiments/experimentLogic'
 import { FeatureFlagsTab, featureFlagsLogic, isFeatureFlagsTab } from 'scenes/feature-flags/featureFlagsLogic'
 import { projectLogic } from 'scenes/projectLogic'
@@ -65,7 +65,7 @@ import {
     FeatureFlagBucketingIdentifier,
     FeatureFlagEvaluationRuntime,
     FeatureFlagGroupType,
-    FeatureFlagStatusResponse,
+    FeatureFlagStatus,
     FeatureFlagType,
     FilterLogicalOperator,
     InsightModel,
@@ -93,8 +93,12 @@ import {
     featureFlagsCopyFlagsCreate,
     featureFlagsCopyFlagsDependencyRequirementsCreate,
     featureFlagsList,
+    featureFlagsStatusRetrieve,
 } from 'products/feature_flags/frontend/generated/api'
-import type { CopyFlagsDependencyRequirementsResponseApi } from 'products/feature_flags/frontend/generated/api.schemas'
+import type {
+    CopyFlagsDependencyRequirementsResponseApi,
+    FeatureFlagStatusResponseApi,
+} from 'products/feature_flags/frontend/generated/api.schemas'
 
 import type { CopyFlagsResponseApi } from '../../../../products/feature_flags/frontend/generated/api.schemas'
 import type { FeatureFlagsSet } from '../../lib/logic/featureFlagLogic'
@@ -108,6 +112,7 @@ import type {
     MinimalEarlyAccessFeatureType,
     OrganizationType,
     SidePanelTab,
+    TeamBasicType,
     TeamPublicType,
     TeamType,
     UserBasicType,
@@ -123,6 +128,12 @@ import { uniformAggregationGroupTypeIndex } from './defaultReleaseConditionsUtil
 import { FeatureFlagArchivedSource, reportFeatureFlagArchived } from './featureFlagArchiveDialog'
 import { checkFeatureFlagConfirmation } from './featureFlagConfirmationLogic'
 import type { FlagIntent } from './featureFlagIntentWarningLogic'
+import {
+    ProjectSelectOption,
+    aggregateCopyResponse,
+    errorMessageFrom,
+    projectSelectOptions,
+} from './flagSelectionLogic'
 import {
     ScheduleOccurrence,
     expandScheduleOccurrences,
@@ -484,6 +495,23 @@ export function validateVariantRolloutSum(variants?: MultivariateFlagVariant[]):
     return `Percentage rollouts for variants must sum to 100 (currently ${displayedSum}).`
 }
 
+/** Reason string when the project requires flag tags and none are set, otherwise undefined. */
+export function validateFeatureFlagTags(
+    tags: string[] | undefined,
+    { required, isNewFlag, hadTags }: { required: boolean; isNewFlag: boolean; hadTags: boolean }
+): string | undefined {
+    // Count named tags, not entries. `cleanTag` trims without dropping empties, so a `['']` would
+    // otherwise pass here and be rejected by the server, which normalizes blanks away.
+    if (!required || tags?.some((tag) => tag.trim().length > 0)) {
+        return undefined
+    }
+    if (isNewFlag) {
+        return 'Add at least one tag. This project requires new feature flags to be tagged.'
+    }
+    // Flags that predate the setting stay editable, so only block emptying one that already has tags.
+    return hadTags ? 'Keep at least one tag. This project requires feature flags to stay tagged.' : undefined
+}
+
 function validatePayloadRequired(is_remote_configuration: boolean, payload?: JsonType): string | undefined {
     if (!is_remote_configuration) {
         return undefined
@@ -500,6 +528,89 @@ export interface FeatureFlagLogicProps {
 
 function isOnFeatureFlagPage(id: FeatureFlagLogicProps['id']): boolean {
     return removeProjectIdIfPresent(router.values.location.pathname) === urls.featureFlag(id)
+}
+
+/**
+ * Copies a just-created flag into the extra projects picked on the creation form.
+ * Reports the per-project outcome itself and never throws: the flag already exists,
+ * so a copy failure must not fail the save.
+ */
+async function copyNewFlagToAdditionalProjects(
+    organizationId: string,
+    flagKey: string,
+    fromProjectId: number,
+    targetProjectIds: number[],
+    teams: TeamBasicType[] | null | undefined
+): Promise<void> {
+    const projectName = (projectId: number | null): string =>
+        (projectId !== null && teams?.find((team) => team.id === projectId)?.name) || `Project ${projectId}`
+
+    let aggregated: ReturnType<typeof aggregateCopyResponse>
+    try {
+        const response = await featureFlagsCopyFlagsCreate(organizationId, {
+            feature_flag_key: flagKey,
+            from_project: fromProjectId,
+            target_project_ids: targetProjectIds,
+        })
+        aggregated = aggregateCopyResponse(flagKey, targetProjectIds, response)
+    } catch (error) {
+        aggregated = {
+            copied: null,
+            failed: targetProjectIds.map((projectId) => ({
+                key: flagKey,
+                projectId,
+                errorMessage: errorMessageFrom(error),
+            })),
+            warnings: [],
+        }
+    }
+
+    const pendingApproval = aggregated.failed.filter((failure) => failure.approvalPending)
+    const hardFailures = aggregated.failed.filter((failure) => !failure.approvalPending)
+    // The endpoint overwrites a same-key flag in a target project instead of creating one,
+    // so overwrites get their own clause and downgrade the toast to a warning.
+    const overwritten = aggregated.copied?.updatedProjectIds ?? []
+    const created = aggregated.copied?.projectIds.filter((projectId) => !overwritten.includes(projectId)) ?? []
+    // Group hard failures that share a message (e.g. one rejected request expanded per
+    // target), so the toast says it once instead of once per project.
+    const failuresByMessage = new Map<string, string[]>()
+    for (const failure of hardFailures) {
+        const names = failuresByMessage.get(failure.errorMessage) ?? []
+        names.push(projectName(failure.projectId))
+        failuresByMessage.set(failure.errorMessage, names)
+    }
+    const parts = [
+        created.length > 0 ? `flag also created in ${humanList(created.map(projectName))}` : null,
+        overwritten.length > 0
+            ? `an existing flag with this key was overwritten in ${humanList(overwritten.map(projectName))}`
+            : null,
+        pendingApproval.length > 0
+            ? `copy to ${humanList(pendingApproval.map((failure) => projectName(failure.projectId)))} needs approval (a change request was created)`
+            : null,
+        ...Array.from(
+            failuresByMessage,
+            ([errorMessage, names]) => `copy to ${humanList(names)} failed: ${errorMessage}`
+        ),
+    ].filter((part): part is string => part !== null)
+
+    eventUsageLogic.actions.reportFeatureFlagCreatedInAdditionalProjects(
+        targetProjectIds.length,
+        created.length,
+        overwritten.length,
+        pendingApproval.length,
+        hardFailures.length
+    )
+
+    const level =
+        aggregated.failed.length === 0 && overwritten.length === 0
+            ? 'success'
+            : aggregated.copied || pendingApproval.length > 0
+              ? 'warning'
+              : 'error'
+    lemonToast[level](capitalizeFirstLetter(parts.join(', ')))
+    if (aggregated.warnings.length > 0) {
+        lemonToast.warning(aggregated.warnings.join(' '))
+    }
 }
 
 // KLUDGE: Payloads are returned in a <variant-key>: <payload> mapping.
@@ -741,7 +852,11 @@ export interface featureFlagLogicValues {
     activeRecurringSchedules: ScheduledChangeType[]
     activeSchedules: ScheduledChangeType[]
     activeTab: FeatureFlagsTab
+    advancedExpanded: boolean | null
+    advancedPanelOpen: boolean
     aggregationTargetName: string
+    alsoCreateInProjectOptions: ProjectSelectOption[]
+    alsoCreateInProjects: number[]
     availableTabs: FeatureFlagsTab[]
     breadcrumbs: Breadcrumb[]
     canCreateEarlyAccessFeature: boolean
@@ -868,7 +983,7 @@ export interface featureFlagLogicValues {
         ValidationErrorType
     >
     flagIntent: FlagIntent | null
-    flagStatus: FeatureFlagStatusResponse | null
+    flagStatus: FeatureFlagStatusResponseApi | null
     flagStatusLoading: boolean
     flagType: 'boolean' | 'multivariate' | 'remote_config'
     flagTypeString:
@@ -929,7 +1044,9 @@ export interface featureFlagLogicValues {
     selectedTab: FeatureFlagsTab
     showFeatureFlagErrors: boolean
     showImplementation: boolean
+    showStaleFlagBanner: boolean
     sidePanelContext: SidePanelSceneContext | null
+    tagsRequired: boolean
     templateExpanded: boolean
     templates: Array<{
         description: string
@@ -1150,7 +1267,7 @@ export interface featureFlagLogicActions {
         error: string
         errorObject?: any
     }
-    loadFeatureFlagStatus: () => any
+    loadFeatureFlagStatus: (_: void) => void
     loadFeatureFlagStatusFailure: (
         error: string,
         errorObject?: any
@@ -1159,11 +1276,11 @@ export interface featureFlagLogicActions {
         errorObject?: any
     }
     loadFeatureFlagStatusSuccess: (
-        flagStatus: Promise<FeatureFlagStatusResponse> | null,
-        payload?: any
+        flagStatus: FeatureFlagStatusResponseApi | null,
+        payload?: void
     ) => {
-        flagStatus: Promise<FeatureFlagStatusResponse> | null
-        payload?: any
+        flagStatus: FeatureFlagStatusResponseApi | null
+        payload?: void
     }
     loadFeatureFlagSuccess: (
         featureFlag: FeatureFlagType,
@@ -1391,6 +1508,12 @@ export interface featureFlagLogicActions {
     }
     setAccessDeniedToFeatureFlag: () => {
         value: true
+    }
+    setAdvancedExpanded: (expanded: boolean) => {
+        expanded: boolean
+    }
+    setAlsoCreateInProjects: (projectIds: number[]) => {
+        projectIds: number[]
     }
     setBucketingIdentifier: (bucketingIdentifier: FeatureFlagBucketingIdentifier | null) => {
         bucketingIdentifier: FeatureFlagBucketingIdentifier | null
@@ -1925,12 +2048,24 @@ export interface featureFlagLogicMeta {
         sidePanelContext: (featureFlag: FeatureFlagType) => SidePanelSceneContext | null
         recordingFilterForFlag: (featureFlag: FeatureFlagType) => Partial<RecordingUniversalFilters>
         hasEarlyAccessFeatures: (featureFlag: FeatureFlagType) => boolean
+        tagsRequired: (currentTeam: TeamPublicType | TeamType | null) => boolean
+        advancedPanelOpen: (
+            advancedExpanded: boolean | null,
+            expandAdvancedOnEdit: boolean,
+            tagsRequired: boolean,
+            featureFlag: FeatureFlagType
+        ) => boolean
         earlyAccessFeaturesList: (featureFlag: FeatureFlagType) => MinimalEarlyAccessFeatureType[]
         featureFlagKey: (featureFlag: FeatureFlagType) => string
         canCreateEarlyAccessFeature: (featureFlag: FeatureFlagType, variants: MultivariateFlagVariant[]) => boolean
         hasSurveys: (featureFlag: FeatureFlagType) => boolean | null
+        alsoCreateInProjectOptions: (
+            currentOrganization: OrganizationType | null,
+            currentProjectId: number | null
+        ) => ProjectSelectOption[]
         hasEncryptedPayloadBeenSaved: (featureFlag: FeatureFlagType, props: any) => boolean | undefined
         hasExperiment: (featureFlag: FeatureFlagType) => boolean | null
+        showStaleFlagBanner: (featureFlag: FeatureFlagType, flagStatus: FeatureFlagStatusResponseApi | null) => boolean
         isDraftExperiment: (experiment: any) => boolean
         properties: (featureFlag: FeatureFlagType) => AnyPropertyFilter[]
         variantErrors: (variants: MultivariateFlagVariant[]) => VariantError[]
@@ -2049,6 +2184,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         distributeVariantsEqually: true,
         enrichUsageDashboard: true,
         setCopyDestinationProject: (id: number | null) => ({ id }),
+        setAlsoCreateInProjects: (projectIds: number[]) => ({ projectIds }),
         setCopySchedule: (copySchedule: boolean) => ({ copySchedule }),
         setDisableCopiedFlag: (disableCopiedFlag: boolean) => ({ disableCopiedFlag }),
         setCopyDependencies: (copyDependencies: boolean) => ({ copyDependencies }),
@@ -2101,6 +2237,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         // V2 form UI actions
         setShowImplementation: (show: boolean) => ({ show }),
         setOpenVariants: (openVariants: string[]) => ({ openVariants }),
+        setAdvancedExpanded: (expanded: boolean) => ({ expanded }),
         setPayloadExpanded: (expanded: boolean) => ({ expanded }),
         setTemplateExpanded: (expanded: boolean) => ({ expanded }),
         applyUrlTemplate: (templateId: string) => ({ templateId }),
@@ -2115,10 +2252,17 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 ...NEW_FLAG,
                 ensure_experience_continuity: values.currentTeam?.flags_persistence_default || false,
             },
-            errors: ({ key, filters, is_remote_configuration }) => {
+            errors: ({ key, filters, is_remote_configuration, tags }) => {
                 const rolloutSumError = validateVariantRolloutSum(filters?.multivariate?.variants)
                 return {
                     key: validateFeatureFlagKey(key),
+                    // Cast because kea-forms types a `string[]` field's error as `string[]`, while
+                    // LemonField only renders a plain string.
+                    tags: validateFeatureFlagTags(tags, {
+                        required: values.tagsRequired,
+                        isNewFlag: !values.featureFlag.id,
+                        hadTags: !!values.originalFeatureFlag?.tags?.length,
+                    }) as any,
                     filters: {
                         multivariate: {
                             variants: filters?.multivariate?.variants?.map(
@@ -2418,6 +2562,13 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 setCopyDestinationProject: (_, { id }) => id,
             },
         ],
+        alsoCreateInProjects: [
+            [] as number[],
+            {
+                setAlsoCreateInProjects: (_, { projectIds }) => projectIds,
+                saveFeatureFlagSuccess: () => [],
+            },
+        ],
         projectFlagsToggling: [
             {} as Record<string, boolean>,
             {
@@ -2622,6 +2773,16 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     // Remap openVariants when variants are reordered
                     return remapOpenVariantsAfterReorder(state, fromIndex, toIndex)
                 },
+            },
+        ],
+        advancedExpanded: [
+            // `null` means the person has not touched the panel yet, so `advancedPanelOpen` still
+            // decides for them. Re-entering edit mode returns to that, so the overview pencil can
+            // reopen the panel after they collapsed it in an earlier edit.
+            null as boolean | null,
+            {
+                setAdvancedExpanded: (_, { expanded }) => expanded,
+                editFeatureFlag: () => null,
             },
         ],
         payloadExpanded: [
@@ -2931,6 +3092,22 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                             product_type: ProductKey.FEATURE_FLAGS,
                             intent_context: ProductIntentContext.FEATURE_FLAG_CREATED,
                         })
+                        // Copy into the extra projects inside this loader so featureFlagLoading
+                        // stays true until the copies resolve. FeatureFlag.tsx swaps the form for
+                        // a skeleton while that flag is set, which blocks a second submit through
+                        // the copy phase.
+                        const alsoCreateIn = values.alsoCreateInProjects.filter(
+                            (projectId) => projectId !== values.currentProjectId
+                        )
+                        if (alsoCreateIn.length > 0 && values.currentOrganizationId && values.currentProjectId) {
+                            await copyNewFlagToAdditionalProjects(
+                                String(values.currentOrganizationId),
+                                savedFlag.key,
+                                values.currentProjectId,
+                                alsoCreateIn,
+                                values.currentOrganization?.teams
+                            )
+                        }
                     } else {
                         // Updating an existing flag - include version in preparedFlag
                         const cachedFlag = featureFlagsLogic
@@ -3246,13 +3423,28 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 }
             },
         },
+        // A server verdict about the saved flag, so it does not follow the working copy. Every
+        // mutation that can change staleness or rollout must dispatch this again, or the stale
+        // banner outlives the change the reader just made.
         flagStatus: [
-            null as FeatureFlagStatusResponse | null,
+            null as FeatureFlagStatusResponseApi | null,
             {
-                loadFeatureFlagStatus: () => {
+                loadFeatureFlagStatus: async (_: void, breakpoint) => {
                     const { currentProjectId } = values
                     if (currentProjectId && props.id && props.id !== 'new' && props.id !== 'link') {
-                        return api.featureFlags.getStatus(currentProjectId, props.id)
+                        try {
+                            const status = await featureFlagsStatusRetrieve(String(currentProjectId), props.id)
+                            // A mutation can start a newer status request while this one is open. Discard
+                            // this response if so, or a slow earlier request would overwrite the newer verdict.
+                            breakpoint()
+                            return status
+                        } catch (error) {
+                            // The failure reducer nulls the verdict, so a superseded request that fails
+                            // late would erase the verdict a newer request already wrote. Breakpoint
+                            // first: kea-loaders swallows that and dispatches no failure.
+                            breakpoint()
+                            throw error
+                        }
                     }
                     return null
                 },
@@ -3288,6 +3480,13 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         projectsWithCurrentFlag: {
             projectFlagActiveUpdated: (state, { teamId, flagId, active }) =>
                 state.map((p) => (p.team_id === teamId && p.flag_id === flagId ? { ...p, active } : p)),
+        },
+        // kea-loaders keeps the prior value when a refetch fails, so a failed status refresh after a
+        // mutation would leave the banner rendering a verdict for a flag that no longer has it. Drop
+        // the verdict when a refetch starts or fails; only a successful load may show the banner.
+        flagStatus: {
+            loadFeatureFlagStatus: () => null,
+            loadFeatureFlagStatusFailure: () => null,
         },
     }),
     listeners(({ actions, values, props, sharedListeners }) => ({
@@ -3539,6 +3738,9 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             if (filtersErrors?.payloads?.true && !values.payloadExpanded) {
                 actions.setPayloadExpanded(true)
             }
+            if (formErrors?.tags && !values.advancedPanelOpen) {
+                actions.setAdvancedExpanded(true)
+            }
             // Yield so React flushes the expand-actions re-render before scrollToFormError schedules
             // its requestAnimationFrame callback — otherwise on browsers/scheduler combinations where
             // the render lands after RAF, `.Field--error` isn't in the DOM yet and the fallback toast
@@ -3561,6 +3763,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             // Whole flag just persisted — the baseline is now the saved state, so the form reads clean.
             actions.setOriginalFeatureFlag(toFeatureFlagBaseline(featureFlag))
             actions.updateFlag(featureFlag)
+            actions.loadFeatureFlagStatus()
             if (featureFlag.id && isOnFeatureFlagPage(props.id)) {
                 router.actions.replace(urls.featureFlag(featureFlag.id))
             }
@@ -3646,6 +3849,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     actions.setOriginalFeatureFlag(toFeatureFlagBaseline(featureFlagActiveUpdate))
                 }
                 actions.updateFlag(featureFlagActiveUpdate)
+                actions.loadFeatureFlagStatus()
             }
         },
         toggleProjectFlagActive: async ({ teamId, flagId, active }) => {
@@ -3677,6 +3881,9 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 }
                 actions.updateFlag(syncedFlag)
                 refreshTreeItem('feature_flag', String(flagId))
+                // Disabling changes the staleness verdict, so refetch it as the other mutation
+                // paths do, or the stale banner outlives the toggle made from the Projects tab.
+                actions.loadFeatureFlagStatus()
             }
         },
         refreshFeatureFlagSuccess: ({ featureFlagRefresh }) => {
@@ -3719,6 +3926,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     actions.setOriginalFeatureFlag(toFeatureFlagBaseline(featureFlagActiveUpdate))
                 }
                 actions.updateFlag(featureFlagActiveUpdate)
+                actions.loadFeatureFlagStatus()
             }
         },
         updateFeatureFlagArchivedFailure: ({ errorObject }) => {
@@ -3772,6 +3980,9 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                         refreshTreeItem('feature_flag', String(featureFlag.id))
                     }
                     actions.loadFeatureFlag()
+                    // The flag is no longer deleted, so its real verdict may differ from the retained
+                    // DELETED one. Refetch it so the banner reflects the restored flag.
+                    actions.loadFeatureFlagStatus()
                 },
             })
         },
@@ -4140,7 +4351,9 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     actions.setOriginalFeatureFlag({ ...values.originalFeatureFlag, tags: previousTags })
                 }
                 actions.updateFlag({ ...flag, tags: previousTags })
-                lemonToast.error('Failed to save tags')
+                // The server explains rule failures such as a project that requires tags, so show
+                // its message rather than a generic one the user cannot act on.
+                lemonToast.error(error?.detail || 'Failed to save tags')
             }
         },
         editFeatureFlag: async ({ editing }) => {
@@ -4378,6 +4591,23 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 return (featureFlag?.features?.length || 0) > 0
             },
         ],
+        tagsRequired: [
+            (s) => [s.currentTeam],
+            (currentTeam: TeamPublicType | TeamType | null): boolean =>
+                !!currentTeam?.feature_flag_policy_config?.require_tags,
+        ],
+        advancedPanelOpen: [
+            (s) => [s.advancedExpanded, s.expandAdvancedOnEdit, s.tagsRequired, s.featureFlag],
+            (
+                advancedExpanded: boolean | null,
+                expandAdvancedOnEdit: boolean,
+                tagsRequired: boolean,
+                featureFlag: FeatureFlagType
+            ): boolean =>
+                // A new flag that needs a tag opens the panel up front, so the person sees the tag
+                // input before they submit rather than after a rejected save.
+                advancedExpanded ?? (expandAdvancedOnEdit || (!featureFlag.id && tagsRequired)),
+        ],
         earlyAccessFeaturesList: [
             (s) => [s.featureFlag],
             (featureFlag: FeatureFlagType) => {
@@ -4402,6 +4632,13 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 return featureFlag?.surveys && featureFlag.surveys.length > 0
             },
         ],
+        // Projects the creation form can also create the flag in. Empty when the user
+        // only has access to one project, which hides the picker.
+        alsoCreateInProjectOptions: [
+            (s) => [s.currentOrganization, s.currentProjectId],
+            (currentOrganization: OrganizationType | null, currentProjectId: number | null): ProjectSelectOption[] =>
+                projectSelectOptions(currentOrganization?.teams, currentProjectId),
+        ],
         hasEncryptedPayloadBeenSaved: [
             (s) => [s.featureFlag, s.props],
             (featureFlag: FeatureFlagType, props) => {
@@ -4418,6 +4655,25 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             (s) => [s.featureFlag],
             (featureFlag: FeatureFlagType) => {
                 return featureFlag?.experiment_set && featureFlag.experiment_set.length > 0
+            },
+        ],
+        // The status endpoint serializes a StrEnum through a CharField, so it answers with the
+        // lowercase value 'stale'. The flag list serializer returns the enum member name 'STALE'
+        // instead. Both are typed as plain strings, so a wrong comparison here fails silently.
+        showStaleFlagBanner: [
+            (s) => [s.featureFlag, s.flagStatus],
+            (featureFlag: FeatureFlagType, flagStatus: FeatureFlagStatusResponseApi | null): boolean => {
+                // The reducer nulls `flagStatus` when a load starts or fails, so only a settled,
+                // successful verdict reaches this comparison.
+                if (flagStatus?.status !== FeatureFlagStatus.STALE) {
+                    return false
+                }
+                return Boolean(
+                    featureFlag.id &&
+                    !featureFlag.deleted &&
+                    !featureFlag.archived &&
+                    !featureFlag.is_remote_configuration
+                )
             },
         ],
         isDraftExperiment: [

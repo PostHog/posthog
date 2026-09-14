@@ -61,6 +61,7 @@ def forward_pending_user_message(run_id: str) -> None:
     from products.tasks.backend.logic.services.agent_command import send_user_message
     from products.tasks.backend.logic.services.connection_token import create_sandbox_connection_token
     from products.tasks.backend.logic.services.staged_artifacts import get_task_run_artifacts_by_id
+    from products.tasks.backend.logic.services.store_skills import refresh_store_skills_state
     from products.tasks.backend.metrics import observe_followup_delivery_failed
     from products.tasks.backend.models import TaskRun, stamp_pending_user_message_id
 
@@ -129,6 +130,10 @@ def forward_pending_user_message(run_id: str) -> None:
             auth_token = create_sandbox_connection_token(
                 task_run, user_id=actor_user.id, distinct_id=get_actor_distinct_id(actor_user)
             )
+            # A warm run listed its store skills when it was prepared, before anyone owned it.
+            # The agent re-reads the run on this first message, so the list must be current first.
+            if state.get("await_user_message"):
+                refresh_store_skills_state(task_run, actor_user, reason="warm_activation")
 
         from products.tasks.backend.logic.services.sandbox_usage import (  # noqa: PLC0415 — matches the file's deferred-import pattern
             measure_task_run_cpu_attribution,
@@ -258,9 +263,21 @@ def _enqueue_pending_reply_relay(task_run: Any, user_message_ts: str | None, com
             run_id=str(task_run.id),
             text=reply_text,
             user_message_ts=user_message_ts,
+            trace_id=_extract_trace_id_from_command_result(command_result_data),
         )
     except Exception:
         logger.exception("forward_pending_message_relay_enqueue_failed", run_id=str(task_run.id))
+
+
+def _extract_trace_id_from_command_result(command_result_data: Any) -> str | None:
+    """The answering turn's gateway trace id, as the agent-server reports it.
+
+    Absent for a turn that ran without the traceparent hook, and for any agent other
+    than Claude, which is what a rating with no ``$ai_trace_id`` then reflects.
+    """
+    result = command_result_data.get("result") if isinstance(command_result_data, dict) else None
+    trace_id = result.get("trace_id") if isinstance(result, dict) else None
+    return trace_id if isinstance(trace_id, str) and trace_id else None
 
 
 def _extract_assistant_text_from_command_result(command_result_data: Any) -> str | None:

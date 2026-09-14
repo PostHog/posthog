@@ -37,9 +37,26 @@ interface MessageCase {
     message: Record<string, unknown[]>
     expected: Record<string, unknown>
 }
+interface JsonLdContract {
+    schemaVersion: 1
+    typeSets: Array<{
+        name: string
+        types: string[]
+    }>
+    rejectedTypes: string[]
+    cases: Array<{
+        name: string
+        input: unknown
+        expected: unknown
+    }>
+}
+
+function loadDocument<T>(name: string): T {
+    return parseJSON(fs.readFileSync(path.join(FIXTURE_DIR, name), 'utf8'))
+}
 
 function load<T>(name: string): T[] {
-    return parseJSON(fs.readFileSync(path.join(FIXTURE_DIR, name), 'utf8'))
+    return loadDocument<T[]>(name)
 }
 
 let rustAddon: typeof import('@posthog/replay-anonymizer') | null = null
@@ -56,6 +73,7 @@ const describeAddon = rustAddon ? describe : describe.skip
 describeAddon('native rust addon matches the shared fixtures', () => {
     const eventCases = load<EventCase>('events.json')
     const messageCases = load<MessageCase>('messages.json')
+    const jsonLdContract = loadDocument<JsonLdContract>('json-ld-sanitization-v1.json')
 
     const TS0 = 1_700_000_000_000
 
@@ -96,6 +114,10 @@ describeAddon('native rust addon matches the shared fixtures', () => {
             .map((l) => parseJSON(l))
     }
 
+    test('uses the supported JSON-LD contract version', () => {
+        expect(jsonLdContract.schemaVersion).toBe(1)
+    })
+
     describe('events', () => {
         test.each(eventCases.map((c) => [c.name, c] as const))('event: %s', async (_name, c) => {
             // --runInBand is required to ensure cases are sequential
@@ -103,6 +125,44 @@ describeAddon('native rust addon matches the shared fixtures', () => {
             const result = await rustAddon!.anonymizeKafkaPayload(payloadOf('w', [c.event]))
             expect(result.failed).toBe(false)
             expect(parseLines(result.lines!)).toEqual(expectedLines('w', [c.expected]))
+        })
+    })
+
+    describe('JSON-LD contract', () => {
+        test.each(jsonLdContract.cases.map((c) => [c.name, c] as const))('JSON-LD: %s', async (_name, c) => {
+            rustAddon!.initAnonymizer({ text: [], url: [] })
+            const event = { type: 5, data: { tag: '$json_ld', payload: c.input } }
+            const expectedData = c.expected ? { tag: '$json_ld', payload: c.expected } : { tag: '$json_ld' }
+            const result = await rustAddon!.anonymizeKafkaPayload(payloadOf('w', [event]))
+            expect(result.failed).toBe(false)
+            expect(parseLines(result.lines!)).toEqual(expectedLines('w', [{ type: 5, data: expectedData }]))
+        })
+
+        test.each(jsonLdContract.typeSets.map((typeSet) => [typeSet.name, typeSet] as const))(
+            'JSON-LD types: %s',
+            async (_name, typeSet) => {
+                rustAddon!.initAnonymizer({ text: [], url: [] })
+                for (const type of typeSet.types) {
+                    const payload = { '@context': 'https://schema.org', '@type': type }
+                    const event = { type: 5, data: { tag: '$json_ld', payload } }
+                    const result = await rustAddon!.anonymizeKafkaPayload(payloadOf('w', [event]))
+                    expect(result.failed).toBe(false)
+                    expect(parseLines(result.lines!)).toEqual(
+                        expectedLines('w', [{ type: 5, data: { tag: '$json_ld', payload } }])
+                    )
+                }
+            }
+        )
+
+        test('JSON-LD rejected types', async () => {
+            rustAddon!.initAnonymizer({ text: [], url: [] })
+            for (const type of jsonLdContract.rejectedTypes) {
+                const payload = { '@context': 'https://schema.org', '@type': type }
+                const event = { type: 5, data: { tag: '$json_ld', payload } }
+                const result = await rustAddon!.anonymizeKafkaPayload(payloadOf('w', [event]))
+                expect(result.failed).toBe(false)
+                expect(parseLines(result.lines!)).toEqual(expectedLines('w', [{ type: 5, data: { tag: '$json_ld' } }]))
+            }
         })
     })
 

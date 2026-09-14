@@ -12,9 +12,10 @@ from typing import TYPE_CHECKING, Any, cast
 
 from django.core.cache import cache as django_cache
 from django.core.exceptions import ValidationError as DjangoValidationError
-from django.db.models import Count, Max, Model, Q
+from django.db.models import Count, Max, Model, Prefetch, Q
 from django.db.models.functions import Coalesce
 
+from drf_spectacular.types import OpenApiTypes
 from rest_framework import exceptions
 from rest_framework.decorators import action
 from rest_framework.generics import get_object_or_404
@@ -22,7 +23,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.viewsets import GenericViewSet
 
-from posthog.api.documentation import extend_schema
+from posthog.api.documentation import OpenApiParameter, extend_schema
 from posthog.models import PropertyDefinition
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
@@ -48,14 +49,40 @@ from products.access_control.backend.facade.user_access_control import (
     ordered_access_levels,
 )
 from products.access_control.backend.models.access_control import AccessControl
-from products.access_control.backend.models.role import Role
+from products.access_control.backend.models.role import Role, RoleMembership
 
-from .access_control import AccessControlSerializer, ResolvedAccessSerializer, upsert_access_control
+from .access_control import AccessControlSerializer, upsert_access_control
+from .serializers import (
+    AccessControlDefaultsResponseSerializer,
+    AccessControlMembersResponseSerializer,
+    AccessControlObjectRulesResponseSerializer,
+    AccessControlPropertyRulesResponseSerializer,
+    AccessControlRolesResponseSerializer,
+)
 
 if TYPE_CHECKING:
     _GenericViewSet = GenericViewSet
 else:
     _GenericViewSet = object
+
+# These actions sit on the core project viewset, so the product has to be named for the
+# generated types and MCP tools to land in access_control rather than core
+_SCHEMA_EXTENSIONS = {"x-product": "access_control"}
+
+_MEMBER_ID_PARAM = OpenApiParameter(
+    name="member_id",
+    type=OpenApiTypes.UUID,
+    location=OpenApiParameter.QUERY,
+    required=True,
+    description="The organization membership id, as `organization_membership_id` in the members endpoint.",
+)
+_ROLE_ID_PARAM = OpenApiParameter(
+    name="role_id",
+    type=OpenApiTypes.UUID,
+    location=OpenApiParameter.QUERY,
+    required=True,
+    description="The role id, as `role_id` in the roles endpoint.",
+)
 
 
 def _project_entry(subject: SubjectAccessControl, team: Team) -> dict[str, Any]:
@@ -64,7 +91,7 @@ def _project_entry(subject: SubjectAccessControl, team: Team) -> dict[str, Any]:
     return {
         "access_level": subject.stored_level("project", str(team.id)),
         "effective_access_level": subject.get_user_access_level(team),
-        "inherited_access": ResolvedAccessSerializer(asdict(inherited)).data if inherited else None,
+        "inherited_access": asdict(inherited) if inherited else None,
         "minimum": minimum_access_level("project"),
         "maximum": highest_access_level("project"),
     }
@@ -76,7 +103,7 @@ def _resource_entry(subject: SubjectAccessControl, resource: APIScopeObject) -> 
     return {
         "access_level": subject.stored_level(resource, None),
         "effective_access_level": effective.access_level if effective else None,
-        "inherited_access": ResolvedAccessSerializer(asdict(inherited)).data if inherited else None,
+        "inherited_access": asdict(inherited) if inherited else None,
         "minimum": minimum_access_level(resource),
         "maximum": highest_access_level(resource),
     }
@@ -189,7 +216,13 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
         django_cache.set(cache_key, payload, timeout=300)
         return Response(payload)
 
-    @extend_schema(exclude=True)
+    @extend_schema(
+        description="The project's default access. Returns the level that applies to the project and to each "
+        "resource type when a member or a role has no rule of their own. Also lists the resource types that accept "
+        "rules on single objects, with the levels such a rule can set.",
+        responses={200: AccessControlDefaultsResponseSerializer},
+        extensions=_SCHEMA_EXTENSIONS,
+    )
     @action(methods=["GET"], detail=True, url_path="access_control_defaults")
     def access_control_defaults(self, request: Request, *args, **kwargs):
         team = cast(Team, self.team)  # type: ignore
@@ -215,30 +248,42 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
             for r in ACCESS_CONTROL_RESOURCES
         }
 
-        # nosemgrep: api-response-must-match-schema -- unchanged response shape moved into the product boundary
-        return Response(
-            {
-                "available_project_levels": list(ordered_access_levels("project")),
-                "available_resource_levels": list(ACCESS_CONTROL_LEVELS_RESOURCE),
-                "can_edit": user_access_control.check_can_modify_access_levels_for_object(team),
-                "project_access_level": project_access_level,
-                "resource_access_levels": resource_access_levels,
-                # The resources the settings UI can search and rule on; every entry works with
-                # access_control_object_search and access_control_object_rules. Levels ride along
-                # per resource, like the per-resource access_controls endpoint returns them, so the
-                # picker can only offer what a write would accept
-                "object_rule_resources": [
-                    {
-                        "resource": r,
-                        "available_access_levels": list(ordered_access_levels(r)),
-                        "minimum_access_level": minimum_access_level(r),
-                    }
-                    for r in sorted(r for r in resources_with_object_access_controls() if display_model(r) is not None)
-                ],
-            }
-        )
+        payload = {
+            "available_project_levels": list(ordered_access_levels("project")),
+            "available_resource_levels": list(ACCESS_CONTROL_LEVELS_RESOURCE),
+            "can_edit": user_access_control.check_can_modify_access_levels_for_object(team),
+            "project_access_level": project_access_level,
+            "resource_access_levels": resource_access_levels,
+            # The resources the settings UI can search and rule on; every entry works with
+            # access_control_object_search and access_control_object_rules. Levels ride along
+            # per resource, like the per-resource access_controls endpoint returns them, so the
+            # picker can only offer what a write would accept
+            "object_rule_resources": [
+                {
+                    "resource": r,
+                    "available_access_levels": list(ordered_access_levels(r)),
+                    "minimum_access_level": minimum_access_level(r),
+                }
+                for r in sorted(r for r in resources_with_object_access_controls() if display_model(r) is not None)
+            ],
+        }
+        return Response(AccessControlDefaultsResponseSerializer(payload).data)
 
-    @extend_schema(exclude=True)
+    @extend_schema(
+        description="Every role's resolved access to this project and to each resource type in it: the role's own "
+        "rule, the level that is enforced, and the rule the enforced level comes from. Pass `role_id` for one role.",
+        parameters=[
+            OpenApiParameter(
+                name="role_id",
+                type=OpenApiTypes.UUID,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Narrow the list to one role.",
+            )
+        ],
+        responses={200: AccessControlRolesResponseSerializer},
+        extensions=_SCHEMA_EXTENSIONS,
+    )
     @action(methods=["GET"], detail=True, url_path="access_control_roles")
     def access_control_roles(self, request: Request, *args, **kwargs):
         team = cast(Team, self.team)  # type: ignore
@@ -269,17 +314,31 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
                 }
             )
 
-        # nosemgrep: api-response-must-match-schema -- unchanged response shape moved into the product boundary
-        return Response(
-            {
-                "available_project_levels": list(ordered_access_levels("project")),
-                "available_resource_levels": list(ACCESS_CONTROL_LEVELS_RESOURCE),
-                "can_edit": user_access_control.check_can_modify_access_levels_for_object(team),
-                "results": results,
-            }
-        )
+        payload = {
+            "available_project_levels": list(ordered_access_levels("project")),
+            "available_resource_levels": list(ACCESS_CONTROL_LEVELS_RESOURCE),
+            "can_edit": user_access_control.check_can_modify_access_levels_for_object(team),
+            "results": results,
+        }
+        return Response(AccessControlRolesResponseSerializer(payload).data)
 
-    @extend_schema(exclude=True)
+    @extend_schema(
+        description="Every organization member's access in this project. For the project and for each resource type, "
+        "the response gives the member's own rule and the level that is enforced. It also says where the enforced "
+        "level comes from: the member's rule, a role's rule, the project default, or full access as an organization admin. Pass "
+        "`member_id` for one member.",
+        parameters=[
+            OpenApiParameter(
+                name="member_id",
+                type=OpenApiTypes.UUID,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Narrow the list to one organization membership id.",
+            )
+        ],
+        responses={200: AccessControlMembersResponseSerializer},
+        extensions=_SCHEMA_EXTENSIONS,
+    )
     @action(methods=["GET"], detail=True, url_path="access_control_members")
     def access_control_members(self, request: Request, *args, **kwargs):
         team = cast(Team, self.team)  # type: ignore
@@ -288,7 +347,7 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
         memberships = (
             OrganizationMembership.objects.filter(organization=team.organization, user__is_active=True)
             .select_related("user")
-            .prefetch_related("role_memberships")
+            .prefetch_related(Prefetch("role_memberships", queryset=RoleMembership.objects.valid_for_authorization()))
         )
         # An optional member_id narrows the walk to one member, so the detail panel doesn't pay for the whole list
         if request.query_params.get("member_id"):
@@ -327,6 +386,7 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
                         "email": user.email,
                     },
                     "organization_level": member.level,
+                    "role_ids": role_ids,
                     "project": _project_entry(subject, team),
                     "resources": {
                         resource: _resource_entry(subject, resource) for resource in ACCESS_CONTROL_RESOURCES
@@ -334,15 +394,13 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
                 }
             )
 
-        # nosemgrep: api-response-must-match-schema -- unchanged response shape moved into the product boundary
-        return Response(
-            {
-                "available_project_levels": list(ordered_access_levels("project")),
-                "available_resource_levels": list(ACCESS_CONTROL_LEVELS_RESOURCE),
-                "can_edit": can_edit,
-                "results": results,
-            }
-        )
+        payload = {
+            "available_project_levels": list(ordered_access_levels("project")),
+            "available_resource_levels": list(ACCESS_CONTROL_LEVELS_RESOURCE),
+            "can_edit": can_edit,
+            "results": results,
+        }
+        return Response(AccessControlMembersResponseSerializer(payload).data)
 
     def _get_membership(self, request: Request, team: Team) -> OrganizationMembership:
         member_id = request.query_params.get("member_id")
@@ -396,7 +454,7 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
             )
         )
         if not rows:
-            return Response({"results": []})
+            return Response(AccessControlObjectRulesResponseSerializer({"results": []}).data)
 
         ids_by_resource: dict[str, list[str]] = defaultdict(list)
         for ac in rows:
@@ -421,7 +479,7 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
                 }
             )
         results.sort(key=lambda r: (r["resource"], (r["name"] or "").lower()))
-        return Response({"results": results})
+        return Response(AccessControlObjectRulesResponseSerializer({"results": results}).data)
 
     def _property_rules_response(
         self,
@@ -461,23 +519,37 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
                 }
             )
         results.sort(key=lambda r: (r["property_type"], (r["property"] or "").lower()))
-        return Response({"results": results})
+        return Response(AccessControlPropertyRulesResponseSerializer({"results": results}).data)
 
-    @extend_schema(exclude=True)
+    @extend_schema(
+        description="Object rules that apply to everyone in the project without a rule of their own on that object.",
+        responses={200: AccessControlObjectRulesResponseSerializer},
+        extensions=_SCHEMA_EXTENSIONS,
+    )
     @action(methods=["GET"], detail=True, url_path="access_control_default_objects")
     def access_control_default_objects(self, request: Request, *args, **kwargs) -> Response:
-        """Object-level access rules that apply to everyone without a rule of their own."""
+        """Object-level access rules that apply to everyone in the project without a rule of their own."""
         team = cast(Team, self.team)  # type: ignore
         return self._object_rules_response(team)
 
-    @extend_schema(exclude=True)
+    @extend_schema(
+        description="Property rules that apply to everyone in the project without a rule of their own on that property.",
+        responses={200: AccessControlPropertyRulesResponseSerializer},
+        extensions=_SCHEMA_EXTENSIONS,
+    )
     @action(methods=["GET"], detail=True, url_path="access_control_default_properties")
     def access_control_default_properties(self, request: Request, *args, **kwargs) -> Response:
-        """Property restrictions that apply to everyone without a rule of their own."""
+        """Property restrictions that apply to everyone in the project without a rule of their own."""
         team = cast(Team, self.team)  # type: ignore
         return self._property_rules_response(team)
 
-    @extend_schema(exclude=True)
+    @extend_schema(
+        description="Object rules configured for a member: the single objects, for example a dashboard or a notebook, "
+        "the member is granted or denied, regardless of the resource-level rules.",
+        parameters=[_MEMBER_ID_PARAM],
+        responses={200: AccessControlObjectRulesResponseSerializer},
+        extensions=_SCHEMA_EXTENSIONS,
+    )
     @action(methods=["GET"], detail=True, url_path="access_control_member_objects")
     def access_control_member_objects(self, request: Request, *args, **kwargs) -> Response:
         """Object-level access rules configured for a member."""
@@ -485,7 +557,13 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
         membership = self._get_membership(request, team)
         return self._object_rules_response(team, membership=membership)
 
-    @extend_schema(exclude=True)
+    @extend_schema(
+        description="Property rules configured for a member: the person and event properties the member can "
+        "read, read and write, or not see.",
+        parameters=[_MEMBER_ID_PARAM],
+        responses={200: AccessControlPropertyRulesResponseSerializer},
+        extensions=_SCHEMA_EXTENSIONS,
+    )
     @action(methods=["GET"], detail=True, url_path="access_control_member_properties")
     def access_control_member_properties(self, request: Request, *args, **kwargs) -> Response:
         """Property restrictions configured for a member."""
@@ -493,7 +571,13 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
         membership = self._get_membership(request, team)
         return self._property_rules_response(team, organization_member=membership)
 
-    @extend_schema(exclude=True)
+    @extend_schema(
+        description="Object rules configured for a role: the single objects the role's members are granted or "
+        "denied, regardless of the resource-level rules.",
+        parameters=[_ROLE_ID_PARAM],
+        responses={200: AccessControlObjectRulesResponseSerializer},
+        extensions=_SCHEMA_EXTENSIONS,
+    )
     @action(methods=["GET"], detail=True, url_path="access_control_role_objects")
     def access_control_role_objects(self, request: Request, *args, **kwargs) -> Response:
         """Object-level access rules configured for a role."""
@@ -501,7 +585,13 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
         role = self._get_role(request, team)
         return self._object_rules_response(team, role=role)
 
-    @extend_schema(exclude=True)
+    @extend_schema(
+        description="Property rules configured for a role: the person and event properties the role's members "
+        "can read, read and write, or not see.",
+        parameters=[_ROLE_ID_PARAM],
+        responses={200: AccessControlPropertyRulesResponseSerializer},
+        extensions=_SCHEMA_EXTENSIONS,
+    )
     @action(methods=["GET"], detail=True, url_path="access_control_role_properties")
     def access_control_role_properties(self, request: Request, *args, **kwargs) -> Response:
         """Property restrictions configured for a role."""

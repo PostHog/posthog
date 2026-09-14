@@ -16,6 +16,7 @@ import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 import { NewDashboardModal } from 'scenes/dashboard/NewDashboardModal'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
@@ -24,6 +25,8 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { dashboardsEmptyState } from 'products/dashboards/frontend/emptyState/dashboardsEmptyState'
+import { DashboardSavedViews } from 'products/dashboards/frontend/saved-views/DashboardSavedViews'
+import { dashboardSavedViewsLogic } from 'products/dashboards/frontend/saved-views/dashboardSavedViewsLogic'
 
 import { DashboardsTableContainer } from './DashboardsTable'
 
@@ -39,14 +42,15 @@ export function Dashboards(): JSX.Element {
     const { setCurrentTab } = useActions(dashboardsLogic)
     const { dashboards, currentTab, isFiltering } = useValues(dashboardsLogic)
     const { showNewDashboardModal } = useActions(newDashboardLogic)
-
+    const { currentTeamId } = useValues(teamLogic)
+    const { dashboardSavedViewsEnabled } = useValues(dashboardSavedViewsLogic({ teamId: currentTeamId }))
     const enabledTabs: LemonTab<DashboardsTab>[] = [
         {
             key: DashboardsTab.All,
             label: 'All dashboards',
         },
         { key: DashboardsTab.Yours, label: 'My dashboards' },
-        { key: DashboardsTab.Pinned, label: 'Pinned' },
+        ...(dashboardSavedViewsEnabled ? [] : [{ key: DashboardsTab.Pinned, label: 'Pinned' }]),
         {
             key: DashboardsTab.Templates,
             label: 'Templates',
@@ -94,10 +98,14 @@ export function Dashboards(): JSX.Element {
                 }
             />
             <LemonTabs
+                onChange={(newKey) => {
+                    setCurrentTab(newKey)
+                }}
                 activeKey={currentTab}
-                onChange={(newKey) => setCurrentTab(newKey)}
                 tabs={enabledTabs}
                 sceneInset
+                rightSlot={<DashboardSavedViews />}
+                rightSlotClassName="!static !justify-start !bg-transparent"
             />
 
             <div>

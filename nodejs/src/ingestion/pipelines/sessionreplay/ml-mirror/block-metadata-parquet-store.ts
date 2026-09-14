@@ -7,6 +7,7 @@ import { logger } from '~/common/utils/logger'
 import { MlBlockMetadataRow } from './block-metadata-row'
 import { MlParquetSinkMetrics } from './metrics'
 import { rowsToParquetBuffer } from './parquet-writer'
+import { replayIndexPartitions, replayIndexToParquetBuffer } from './replay-index'
 
 const cmp = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0)
 
@@ -41,6 +42,19 @@ export class BlockMetadataParquetStore {
         try {
             // Encoding, key derivation, and upload all count as write failures: each leaves the batch to
             // replay from Kafka, so the counter must see them, not just the S3 send.
+            for (const [partition, records] of replayIndexPartitions(rows)) {
+                const indexBody = await replayIndexToParquetBuffer(records)
+                this.seq += 1
+                await this.s3Client.send(
+                    new PutObjectCommand({
+                        Bucket: this.bucket,
+                        Key: `${this.prefix}-replay-index/v1/${partition}/part-${this.nodeId}-${Date.now()}-${this.seq}.parquet`,
+                        Body: indexBody,
+                        ContentType: 'application/vnd.apache.parquet',
+                    })
+                )
+                MlParquetSinkMetrics.incReplayIndexRows(String(records[0].kind), records.length)
+            }
             body = await rowsToParquetBuffer(rows)
             bounds = eventTimeBounds(rows)
             key = this.objectKey(new Date(bounds.minMs).toISOString().slice(0, 10))

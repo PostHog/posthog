@@ -1,12 +1,11 @@
 from __future__ import annotations
 
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 from click.testing import CliRunner
 from hogli.cli import cli
-from hogli.manifest import REPO_ROOT
-from hogli_commands.complexity_lint import WARN_AT, Finding, _python_findings
+from hogli_commands.complexity_lint import TEST_WARN_AT, WARN_AT, Finding, _python_findings, is_test_file
 
 runner = CliRunner()
 
@@ -35,10 +34,50 @@ class TestComplexityLint:
 
         assert [(f.name, f.complexity) for f in findings] == expected
 
+    @pytest.mark.parametrize(
+        ("branches", "expected"),
+        [
+            pytest.param(11, [], id="above_production_limit_below_test_limit"),
+            pytest.param(16, [("f", 17, TEST_WARN_AT)], id="above_test_limit_warns"),
+        ],
+    )
+    def test_findings_use_the_given_threshold(self, tmp_path, branches: int, expected: list) -> None:
+        # Complexity = branches + 1. The max_complexity argument must reach ruff's config.
+        target = tmp_path / "test_sample.py"
+        target.write_text(_branchy_function("f", branches))
+
+        findings = _python_findings([str(target)], max_complexity=TEST_WARN_AT)
+
+        assert [(f.name, f.complexity, f.limit) for f in findings] == expected
+
+    @pytest.mark.parametrize(
+        ("path", "expected"),
+        [
+            pytest.param("posthog/api/insight.py", False, id="production_module"),
+            pytest.param("posthog/api/insight.test.py", False, id="dot_test_suffix_is_not_a_convention_here"),
+            pytest.param("posthog/api/test_insight.py", True, id="colocated_test_prefix"),
+            pytest.param("posthog/api/test/test_insight.py", True, id="test_package"),
+            pytest.param("products/tasks/backend/tests/test_agent.py", True, id="tests_package"),
+            pytest.param("posthog/conftest.py", True, id="conftest"),
+            # pytest's python_files default collects *_test.py too, so the lint
+            # follows it even where the module is a migration, not a test.
+            pytest.param(
+                "posthog/clickhouse/migrations/0097_v2_test.py",
+                True,
+                id="_test_suffix_counts_as_test_even_for_migrations",
+            ),
+            pytest.param("products/customer_analytics/backend/metrics_test.py", True, id="colocated_test_suffix"),
+        ],
+    )
+    def test_is_test_file(self, path: str, expected: bool) -> None:
+        assert is_test_file(path) is expected
+
     def test_cli_reports_warnings_without_failing(self, tmp_path) -> None:
         # The check is advisory: even a high-complexity finding must exit 0 and be
         # written to the --report file the CI report poster reads.
-        finding = Finding(file="posthog/tasks/usage_report.py", line=1, column=1, name="f", complexity=17)
+        finding = Finding(
+            file="posthog/tasks/usage_report.py", line=1, column=1, name="f", complexity=17, limit=WARN_AT
+        )
         report_path = tmp_path / "findings.json"
         with patch("hogli_commands.complexity_lint._python_findings", return_value=[finding]):
             result = runner.invoke(
@@ -48,6 +87,7 @@ class TestComplexityLint:
         assert result.exit_code == 0
         assert "warning" in result.output
         assert "17" in result.output
+        assert "warn >10" in result.output
         assert finding.name in report_path.read_text()
 
     @patch("hogli_commands.complexity_lint._python_findings", return_value=[])
@@ -65,15 +105,20 @@ class TestComplexityLint:
             ],
         )
         assert result.exit_code == 0
-        mock_findings.assert_called_once_with(["posthog/tasks/usage_report.py"])
+        mock_findings.assert_called_once_with(["posthog/tasks/usage_report.py"], max_complexity=WARN_AT)
 
-    def test_thresholds_and_ci_contract_match_the_typescript_linter(self) -> None:
-        # The mjs is invoked directly by ci-frontend.yml, so its threshold and its
-        # --report flag (whose file the CI report poster reads) are pinned to the
-        # Python side's contract.
-        mjs = (REPO_ROOT / "bin" / "lint-complexity.mjs").read_text()
-        assert f"const WARN_AT = {WARN_AT}\n" in mjs
-        assert "indexOf('--report')" in mjs
+    @patch("hogli_commands.complexity_lint._python_findings", return_value=[])
+    def test_test_files_are_linted_at_the_relaxed_threshold(self, mock_findings: MagicMock) -> None:
+        # Test and production files go to ruff in separate runs, one per limit.
+        result = runner.invoke(
+            cli,
+            ["lint:complexity", "posthog/tasks/usage_report.py", "posthog/api/test/test_activity_log.py"],
+        )
+        assert result.exit_code == 0
+        assert mock_findings.call_args_list == [
+            call(["posthog/tasks/usage_report.py"], max_complexity=WARN_AT),
+            call(["posthog/api/test/test_activity_log.py"], max_complexity=TEST_WARN_AT),
+        ]
 
 
 class TestPreflightSoftCheck:

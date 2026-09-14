@@ -60,7 +60,8 @@ export function getNotebookWidgetTrust({
     const scopes = userId === null ? EMPTY_TRUST_SCOPES : scopesForUser(trustByUser, userId)
     return {
         buildTrusted:
-            validBuildHash && (sessionBuildHashes.includes(buildHash) || scopes.buildHashes.includes(buildHash)),
+            validBuildHash &&
+            ((userId === null && sessionBuildHashes.includes(buildHash)) || scopes.buildHashes.includes(buildHash)),
     }
 }
 

@@ -9,6 +9,7 @@ const meta: Meta<NotebookWidgetTrustControlsProps> = {
     component: NotebookWidgetTrustControls,
     args: {
         buildHash: 'a'.repeat(64),
+        isEditable: true,
         securityReview: {
             severity: 'high',
             summary: 'The widget may send notebook data to another window.',

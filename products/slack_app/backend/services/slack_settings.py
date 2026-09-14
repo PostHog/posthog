@@ -13,6 +13,12 @@ a half-set row reads as "no preference" rather than half-applying.
 stale effort from a previous model choice can't silently stick. Unset keys
 stay `None` so the task layer applies its own defaults rather than
 duplicating them here.
+
+Layering with the tasks product's central defaults: the resolved triple is
+passed to task creation as explicit per-run values, so Slack preferences sit
+above the central per-user / per-team defaults (see
+`products.tasks.backend.facade.ai_run_defaults`). When both Slack rows are
+empty the task layer falls back to those central defaults on its own.
 """
 
 from __future__ import annotations
@@ -126,15 +132,14 @@ def build_ai_preferences_payload(
 ) -> dict[str, str]:
     """Pack the triple into the JSON shape stored on `SlackSettings.ai_preferences`.
 
-    Drops keys whose value is `None` so callers can distinguish "intentionally
-    cleared" (key absent) from "set to falsy value".
+    The same shape the tasks product stores on `ai_run_preferences`, so the packing
+    rule lives there and this is the Slack-side name for it.
     """
-    payload = {
-        "runtime_adapter": runtime_adapter,
-        "model": model,
-        "reasoning_effort": reasoning_effort,
-    }
-    return {k: v for k, v in payload.items() if v}
+    from products.tasks.backend.facade.ai_run_defaults import (  # noqa: PLC0415 — matches the deferred tasks-facade imports below
+        build_ai_run_preferences_payload,
+    )
+
+    return build_ai_run_preferences_payload(runtime_adapter, model, reasoning_effort)
 
 
 def validate_ai_preferences(

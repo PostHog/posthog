@@ -10,6 +10,7 @@
 pub mod aggregate;
 pub mod backoff;
 pub mod chunk;
+pub mod compare;
 pub mod completion;
 pub mod condition;
 pub mod condition_analysis;
@@ -35,6 +36,7 @@ pub use cohort_core::seed::{
     BehavioralShapeHash, PersonSeed, PersonShapeHash, ReconcileCompleteMarker, ReconcileScope,
     ReconcileTile, ScopeKind, SeedTile, ShapeHashError, UnknownScopeKind,
 };
+pub use compare::{diff_tiles, Divergence, DivergenceClass, TileDiff, MAX_EXEMPLARS_PER_CLASS};
 pub(crate) use completion::MARKER_WATCH_SCHEMA;
 pub use completion::{
     CommittedOffset, CompletionParts, CompletionPhase, CompletionStatus, DispatchEpoch,

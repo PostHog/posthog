@@ -1,53 +1,122 @@
-from typing import Any
-
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
 from django.core.management import call_command
-from django.test import override_settings
 
-from posthog.models.organization import Organization, OrganizationMembership
-from posthog.models.user import User
+from parameterized import parameterized
 
+from products.growth.backend.enrichment.bridge import OrganizationBridgeInputs, WizardBridgeInputs
 from products.growth.backend.enrichment.icp_lists import clear_lists_cache
 from products.growth.backend.models import IcpScoringConfig, OrganizationEnrichment, OrganizationEnrichmentFetch
 
 _COMMAND_MODULE = "products.growth.backend.management.commands.backfill_icp_fit_scores"
+_GATES_MODULE = "products.growth.backend.enrichment.gates"
 
-# REST-shaped and matched (has "id"), but empty enough to score insufficient_data — the
-# status doesn't matter here, only that an evaluation happens and gets labeled.
-_REST_PAYLOAD: dict[str, Any] = {
-    "id": "harmonic-id-1",
+_PAYLOAD = {
+    "id": "company-1",
     "company_type": "STARTUP",
-    "headcount": None,
+    "headcount": 12,
     "funding": {"funding_total": None, "investors": []},
     "tags_v2": [],
     "traction_metrics": {},
 }
 
 
-@override_settings(CLOUD_DEPLOYMENT="US")
 class TestBackfillIcpFitScores(BaseTest):
     def setUp(self):
         super().setUp()
-        IcpScoringConfig.objects.create(version="test-lists-1", tags=[], quality_investors=[], is_active=True)
+        IcpScoringConfig.objects.create(
+            version="test-lists-1",
+            tags=[],
+            quality_investors=[],
+            is_active=True,
+        )
         clear_lists_cache()
 
     def tearDown(self):
         clear_lists_cache()
         super().tearDown()
 
-    def test_writes_the_backfill_evaluation_kind(self):
-        organization = Organization.objects.create(name="acme")
-        user = User.objects.create_user(email="founder@acme.com", password=None, first_name="f")
-        OrganizationMembership.objects.create(organization=organization, user=user)
+    def _record(self, data):
         OrganizationEnrichmentFetch.objects.create(
-            organization=organization, provider="harmonic", payload=_REST_PAYLOAD
+            organization=self.organization,
+            provider="harmonic",
+            payload=_PAYLOAD,
+        )
+        return OrganizationEnrichment.objects.create(
+            organization=self.organization,
+            data=data,
         )
 
-        with patch(f"{_COMMAND_MODULE}.get_regional_ph_client", return_value=MagicMock()):
-            call_command("backfill_icp_fit_scores", delay=0)
+    @parameterized.expand(
+        [
+            (
+                "live_stamp",
+                OrganizationBridgeInputs(wizard=WizardBridgeInputs(ai_sdk_detected=True)),
+            ),
+            ("group_read_failure", RuntimeError("group store down")),
+        ]
+    )
+    def test_wizard_score_survives_a_backfill(self, _name, bridge_result):
+        record = self._record(
+            {
+                "icp_fit_score": 15,
+                "icp_fit_flags": {"wizard_ai_sdk": True, "ai_pilled_source": "wizard"},
+                "icp_fit_version": "v0.6",
+            }
+        )
+        pha_client = MagicMock()
+        bridge_patch_kwargs = (
+            {"side_effect": bridge_result} if isinstance(bridge_result, Exception) else {"return_value": bridge_result}
+        )
 
-        record = OrganizationEnrichment.objects.get(organization=organization)
+        with (
+            patch(f"{_GATES_MODULE}.get_instance_region", return_value="US"),
+            patch(f"{_COMMAND_MODULE}.get_regional_ph_client", return_value=pha_client),
+            patch(f"{_COMMAND_MODULE}.read_organization_bridge_inputs", **bridge_patch_kwargs),
+            patch(f"{_COMMAND_MODULE}.capture_exception") as capture_mock,
+        ):
+            call_command("backfill_icp_fit_scores", "--delay=0")
+
+        if isinstance(bridge_result, Exception):
+            capture_mock.assert_called_once()
+        else:
+            capture_mock.assert_not_called()
+        record.refresh_from_db()
+        assert record.data["icp_fit_score"] == 15
+        assert record.data["icp_fit_flags"]["wizard_ai_sdk"] is True
+        assert record.data["icp_fit_flags"]["ai_pilled_source"] == "wizard"
+
+    def test_group_read_failure_skips_a_record_without_persisted_wizard_evidence(self):
+        record = self._record({"signup_role": "engineering"})
+        pha_client = MagicMock()
+
+        with (
+            patch(f"{_GATES_MODULE}.get_instance_region", return_value="US"),
+            patch(f"{_COMMAND_MODULE}.get_regional_ph_client", return_value=pha_client),
+            patch(
+                f"{_COMMAND_MODULE}.read_organization_bridge_inputs",
+                side_effect=RuntimeError("group store down"),
+            ),
+            patch(f"{_COMMAND_MODULE}.capture_exception") as capture_mock,
+        ):
+            call_command("backfill_icp_fit_scores", "--delay=0")
+
+        capture_mock.assert_called_once()
+        record.refresh_from_db()
+        assert record.data == {"signup_role": "engineering"}
+        pha_client.group_identify.assert_not_called()
+
+    def test_writes_the_backfill_evaluation_kind(self):
+        record = self._record({})
+
+        with (
+            patch(f"{_GATES_MODULE}.get_instance_region", return_value="US"),
+            patch(f"{_COMMAND_MODULE}.get_regional_ph_client", return_value=MagicMock()),
+            patch(f"{_COMMAND_MODULE}.read_organization_bridge_inputs", return_value=OrganizationBridgeInputs()),
+        ):
+            call_command("backfill_icp_fit_scores", "--delay=0")
+
+        record.refresh_from_db()
         assert record.data["icp_fit_evaluation_kind"] == "backfill"
         assert record.data["icp_fit_evaluated_at"]

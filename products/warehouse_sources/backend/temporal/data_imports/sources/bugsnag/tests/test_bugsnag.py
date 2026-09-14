@@ -251,6 +251,67 @@ class TestPerProjectFanOut:
             {"id": "e2", "organization_id": "o1", "project_id": "p2"},
         ]
 
+    def _collect_with_pages(
+        self,
+        endpoint: str,
+        pages: Mapping[str, tuple[list[dict], str | None] | Exception],
+        manager: _FakeResumableManager,
+        monkeypatch: Any,
+    ) -> list[dict]:
+        # Like `_collect`, but a page value may be an Exception to raise instead of a (items, next)
+        # tuple — used to drive the graceful-stop-on-422 pagination path.
+        monkeypatch.setattr(bugsnag, "make_tracked_session", lambda *args, **kwargs: MagicMock())
+
+        def fake_fetch_list_page(session: Any, url: str, headers: Any, logger: Any) -> tuple[list[dict], str | None]:
+            if url not in pages:
+                raise AssertionError(f"unexpected URL requested: {url}")
+            page = pages[url]
+            if isinstance(page, Exception):
+                raise page
+            return page
+
+        monkeypatch.setattr(bugsnag, "_fetch_list_page", fake_fetch_list_page)
+
+        rows: list[dict] = []
+        for table in get_rows(
+            auth_token="tok",
+            endpoint=endpoint,
+            logger=MagicMock(),
+            resumable_source_manager=manager,  # type: ignore[arg-type]
+        ):
+            rows.extend(table.to_pylist())
+        return rows
+
+    def test_pagination_ceiling_422_stops_parent_and_continues(self, monkeypatch: Any) -> None:
+        # BugSnag advertises a `next` cursor past its depth ceiling, then 422s the very cursor it
+        # gave us. The sync must keep the rows already pulled from p1, stop that parent, and move on
+        # to p2 — rather than failing the whole errors sync.
+        p1_page2 = "https://api.bugsnag.com/projects/p1/errors?base=t&offset=500&per_page=100"
+        ceiling = requests.HTTPError(response=_make_response(422))
+        pages: dict[str, tuple[list[dict], str | None] | Exception] = {
+            "https://api.bugsnag.com/user/organizations?per_page=100": ([{"id": "o1"}], None),
+            "https://api.bugsnag.com/organizations/o1/projects?per_page=100": ([{"id": "p1"}, {"id": "p2"}], None),
+            "https://api.bugsnag.com/projects/p1/errors?per_page=100": ([{"id": "e1"}], p1_page2),
+            p1_page2: ceiling,
+            "https://api.bugsnag.com/projects/p2/errors?per_page=100": ([{"id": "e2"}], None),
+        }
+        rows = self._collect_with_pages("errors", pages, _FakeResumableManager(), monkeypatch)
+        assert rows == [
+            {"id": "e1", "organization_id": "o1", "project_id": "p1"},
+            {"id": "e2", "organization_id": "o1", "project_id": "p2"},
+        ]
+
+    def test_pagination_ceiling_422_on_first_page_propagates(self, monkeypatch: Any) -> None:
+        # A 422 on a parent's first page isn't a cursor BugSnag handed us, so it must surface rather
+        # than silently yielding an empty table.
+        pages: dict[str, tuple[list[dict], str | None] | Exception] = {
+            "https://api.bugsnag.com/user/organizations?per_page=100": ([{"id": "o1"}], None),
+            "https://api.bugsnag.com/organizations/o1/projects?per_page=100": ([{"id": "p1"}], None),
+            "https://api.bugsnag.com/projects/p1/errors?per_page=100": requests.HTTPError(response=_make_response(422)),
+        }
+        with pytest.raises(requests.HTTPError):
+            self._collect_with_pages("errors", pages, _FakeResumableManager(), monkeypatch)
+
     def test_releases_caps_page_size_at_ten(self, monkeypatch: Any) -> None:
         # The releases endpoint rejects per_page above 10 with a 400, so it must request per_page=10
         # while the parent enumeration keeps the default 100. A per_page=100 releases URL is absent

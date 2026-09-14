@@ -212,7 +212,7 @@ describe('DataQualityOverview', () => {
         expect(screen.getAllByText('orders').length).toBeGreaterThan(0)
     })
 
-    it('opens the subject picker from the first-use state', async () => {
+    it('shows only the creation path from the illustrated first-use state', async () => {
         ;(dataQualityChecksList as jest.Mock).mockResolvedValue({ results: [] })
         ;(dataQualityChecksHealthList as jest.Mock).mockResolvedValue([])
         render(<DataQualityOverview />)
@@ -220,6 +220,8 @@ describe('DataQualityOverview', () => {
         expect(await screen.findByText('No checks yet')).toBeTruthy()
         expect(screen.queryByText('No checks match these filters.')).toBeNull()
         expect(document.querySelector('[data-attr="data-quality-overview-new-check"]')).not.toBeNull()
+        expect(document.querySelector('[data-attr="data-quality-overview-browse"]')).toBeNull()
+        expect(document.querySelector('[data-attr="data-quality-overview-empty-state"] img')).not.toBeNull()
 
         fireEvent.click(document.querySelector('[data-attr="data-quality-overview-first-check"]')!)
 

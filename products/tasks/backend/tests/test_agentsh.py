@@ -145,7 +145,13 @@ class TestGeneratePolicyYaml(TestCase):
         # the firewall strips either, the sandbox silently stays on the Python
         # gateway, so a migrated product keeps billing under its old tag.
         policy = yaml.safe_load(generate_policy_yaml([]))
-        for key in ("LLM_GATEWAY_URL", "AI_GATEWAY_URL", "AI_GATEWAY_PRODUCTS"):
+        for key in (
+            "LLM_GATEWAY_URL",
+            "AI_GATEWAY_URL",
+            "AI_GATEWAY_PRODUCTS",
+            "AI_GATEWAY_PRODUCT",
+            "AI_GATEWAY_AI_STAGE",
+        ):
             self.assertIn(key, policy["env_policy"]["allow"])
 
     def test_go_gateway_hosts_reachable(self):
@@ -567,8 +573,9 @@ class TestModalSandboxAgentShWrapping(TestCase):
     )
     def test_start_agent_server_drops_auto_publish_when_binary_lacks_support(self, provider, supported):
         from products.tasks.backend.logic.services.docker_sandbox import DockerSandbox
+        from products.tasks.backend.logic.services.local_skills import ENV_DISABLE_BUNDLED_SKILLS
         from products.tasks.backend.logic.services.modal_sandbox import ModalSandbox
-        from products.tasks.backend.logic.services.sandbox import ExecutionResult
+        from products.tasks.backend.logic.services.sandbox import ExecutionResult, SandboxConfig
 
         # Snapshots restored from old images carry an agent-server that rejects unknown
         # options; the launch probe must drop --autoPublish instead of crashing the run.
@@ -580,6 +587,8 @@ class TestModalSandboxAgentShWrapping(TestCase):
                 return ExecutionResult(stdout="", stderr="", exit_code=0)
             if "chmod" in command:  # gh shim install
                 return ExecutionResult(stdout="", stderr="", exit_code=0)
+            if ENV_DISABLE_BUNDLED_SKILLS in command:  # bundled-skills clear
+                return ExecutionResult(stdout="", stderr="", exit_code=0)
             self.assertIn("grep", command)
             return ExecutionResult(stdout="", stderr="", exit_code=0 if supported else 1)
 
@@ -590,11 +599,14 @@ class TestModalSandboxAgentShWrapping(TestCase):
             sandbox = DockerSandbox.__new__(DockerSandbox)
             sandbox._host_port = 8080
         sandbox.id = "sb-test"
+        sandbox.config = SandboxConfig(name="sb-test")
         cast_sandbox: Any = sandbox
         cast_sandbox.is_running = Mock(return_value=True)
         cast_sandbox._agent_server_is_healthy = Mock(return_value=False)
         cast_sandbox._free_agent_server_port = Mock()
-        cast_sandbox.write_file = Mock()
+        cast_sandbox.write_file = Mock(
+            return_value=ExecutionResult(stdout="", stderr="", exit_code=0, error=None),
+        )
         cast_sandbox.execute = execute
 
         sandbox.start_agent_server(

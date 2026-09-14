@@ -2,7 +2,7 @@ from datetime import UTC, date, datetime
 from typing import Any, Optional
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from unittest import mock
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.everhour.everhour import (
@@ -68,17 +68,17 @@ class TestFormatDate:
 
 
 class TestTimeRecordsWindow:
-    @freeze_time("2026-06-15T12:00:00Z")
+    @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
     def test_first_sync_spans_all_history(self) -> None:
         window = _time_records_window(should_use_incremental_field=True, db_incremental_field_last_value=None)
         assert window == {"from": EARLIEST_FROM_DATE, "to": "2026-06-15"}
 
-    @freeze_time("2026-06-15T12:00:00Z")
+    @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
     def test_full_refresh_spans_all_history(self) -> None:
         window = _time_records_window(should_use_incremental_field=False, db_incremental_field_last_value=None)
         assert window == {"from": EARLIEST_FROM_DATE, "to": "2026-06-15"}
 
-    @freeze_time("2026-06-15T12:00:00Z")
+    @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
     def test_incremental_floors_from_to_watermark_day(self) -> None:
         window = _time_records_window(
             should_use_incremental_field=True, db_incremental_field_last_value=date(2026, 5, 1)
@@ -124,7 +124,7 @@ class TestBuildInitialUrls:
         urls = _build_initial_urls(EVERHOUR_ENDPOINTS["clients"], None, {}, mock.MagicMock(), mock.MagicMock())
         assert urls == [f"{EVERHOUR_BASE_URL}/clients?limit=100"]
 
-    @freeze_time("2026-06-15T12:00:00Z")
+    @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
     def test_time_records_bakes_in_date_window(self) -> None:
         window = _time_records_window(should_use_incremental_field=True, db_incremental_field_last_value=None)
         urls = _build_initial_urls(EVERHOUR_ENDPOINTS["time_records"], window, {}, mock.MagicMock(), mock.MagicMock())

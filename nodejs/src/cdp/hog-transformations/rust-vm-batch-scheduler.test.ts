@@ -18,20 +18,27 @@ describe('RustVmBatchScheduler', () => {
         )
     })
 
-    it('coalesces same-program executions from one tick into a single call, mapping results back in order', async () => {
-        const scheduler = new RustVmBatchScheduler(runBatch)
-        const bytecode = ['_H', 1, 38]
+    it.each([
+        ['one array instance', (bytecode: unknown[]) => bytecode],
+        // Each team's hog function holds its own array of the same template bytecode.
+        ['distinct array instances with equal content', (bytecode: unknown[]) => [...bytecode]],
+    ])(
+        'coalesces same-program executions from one tick into a single call, mapping results back in order (%s)',
+        async (_label, instance) => {
+            const scheduler = new RustVmBatchScheduler(runBatch)
+            const bytecode = ['_H', 1, 38]
 
-        const results = await Promise.all([
-            scheduler.execute(bytecode, { event: 'a' }),
-            scheduler.execute(bytecode, { event: 'b' }),
-            scheduler.execute(bytecode, { event: 'c' }),
-        ])
+            const results = await Promise.all([
+                scheduler.execute(instance(bytecode), { event: 'a' }),
+                scheduler.execute(instance(bytecode), { event: 'b' }),
+                scheduler.execute(instance(bytecode), { event: 'c' }),
+            ])
 
-        expect(runBatch).toHaveBeenCalledTimes(1)
-        expect(runBatch).toHaveBeenCalledWith(bytecode, [{ event: 'a' }, { event: 'b' }, { event: 'c' }])
-        expect(results.map((r) => r.result)).toEqual(['result-0', 'result-1', 'result-2'])
-    })
+            expect(runBatch).toHaveBeenCalledTimes(1)
+            expect(runBatch).toHaveBeenCalledWith(bytecode, [{ event: 'a' }, { event: 'b' }, { event: 'c' }])
+            expect(results.map((r) => r.result)).toEqual(['result-0', 'result-1', 'result-2'])
+        }
+    )
 
     it('keeps different programs in separate batches', async () => {
         const scheduler = new RustVmBatchScheduler(runBatch)

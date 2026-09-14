@@ -1,4 +1,7 @@
-import type { DismissalReasonOptionValue } from "@posthog/shared";
+import type {
+  DismissalReasonOptionValue,
+  ResolveReasonOptionValue,
+} from "@posthog/shared";
 
 export interface BulkActionResult {
   successCount: number;
@@ -33,11 +36,45 @@ export function buildSuppressRequest(
 export type SnoozeStateRequest = {
   state: "potential";
   snooze_for: number;
+  dismissal_reason?: DismissalReasonOptionValue;
+  dismissal_note?: string;
 };
 
-/** Body for `updateSignalReportState` when snoozing. */
-export function buildSnoozeRequest(): SnoozeStateRequest {
-  return { state: "potential", snooze_for: 1 };
+/**
+ * Body for `updateSignalReportState` when snoozing. Carries the dismiss reason and
+ * note when one drove the snooze (e.g. "Already fixed"); a plain snooze sends neither.
+ * Notes are clamped to 4000 chars.
+ */
+export function buildSnoozeRequest(
+  dismissal?: DismissReportInput,
+): SnoozeStateRequest {
+  if (!dismissal) {
+    return { state: "potential", snooze_for: 1 };
+  }
+  return {
+    state: "potential",
+    snooze_for: 1,
+    dismissal_reason: dismissal.reason,
+    dismissal_note: dismissal.note.slice(0, 4000),
+  };
+}
+
+export type ResolveStateRequest = {
+  state: "resolved";
+  dismissal_reason: ResolveReasonOptionValue;
+  dismissal_note?: string;
+};
+
+export function buildResolveRequest(
+  reason: ResolveReasonOptionValue,
+  note: string,
+): ResolveStateRequest {
+  const trimmedNote = note.trim().slice(0, 4000);
+  return {
+    state: "resolved",
+    dismissal_reason: reason,
+    ...(trimmedNote ? { dismissal_note: trimmedNote } : {}),
+  };
 }
 
 /** Tally `Promise.allSettled` results into a success/failure count. */

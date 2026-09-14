@@ -1,20 +1,28 @@
 import { DateTime } from 'luxon'
 
 import { personCreateConflictResolvedCounter } from '~/common/persons/metrics'
+import { PersonMessage } from '~/common/persons/person-message'
 import { PersonPropertiesSizeViolationError } from '~/common/persons/repositories/person-repository'
 import { emitIngestionWarning } from '~/ingestion/common/ingestion-warnings'
 import { uuidFromDistinctId } from '~/ingestion/common/persons/person-uuid'
 import { Properties } from '~/plugin-scaffold'
 import { InternalPerson, PropertyUpdateOperation } from '~/types'
 
-import { PersonContext } from './person-context'
-import { PersonsStoreTransactionForBatch } from './persons-store-for-batch'
+import { PersonOutputs } from './person-context'
+import { PersonsStoreForBatch, PersonsStoreTransactionForBatch } from './persons-store-for-batch'
 
 export class PersonCreateService {
-    constructor(private context: PersonContext) {}
+    constructor(
+        private store: PersonsStoreForBatch,
+        private outputs: PersonOutputs
+    ) {}
 
     /**
-     * @returns [Person, boolean that indicates if person was created or not, true if person was created by this call, false if found existing person from concurrent creation]
+     * Creation messages are returned, never produced here: the caller owns the
+     * produce, so a transactional caller can defer it past commit instead of
+     * holding the transaction open across the Kafka roundtrip.
+     *
+     * @returns [Person, true if person was created by this call (false if found existing person from concurrent creation), ClickHouse messages to produce]
      */
     async createPerson(
         createdAt: DateTime,
@@ -27,7 +35,7 @@ export class PersonCreateService {
         primaryDistinctId: { distinctId: string; version?: number },
         extraDistinctIds?: { distinctId: string; version?: number }[],
         tx?: PersonsStoreTransactionForBatch
-    ): Promise<[InternalPerson, boolean]> {
+    ): Promise<[InternalPerson, boolean, PersonMessage[]]> {
         const uuid = uuidFromDistinctId(teamId, primaryDistinctId.distinctId)
 
         const props = { ...propertiesOnce, ...properties, ...{ $creator_event_uuid: creatorEventUuid } }
@@ -43,7 +51,7 @@ export class PersonCreateService {
         })
 
         try {
-            const result = await (tx || this.context.personStore).createPerson(
+            const result = await (tx || this.store).createPerson(
                 createdAt,
                 props,
                 propertiesLastUpdatedAt,
@@ -57,8 +65,7 @@ export class PersonCreateService {
             )
 
             if (result.success) {
-                await this.context.produceMessages(result.messages)
-                return [result.person, result.created]
+                return [result.person, result.created, result.messages]
             }
 
             // Handle creation conflict - another process created the person concurrently
@@ -66,12 +73,9 @@ export class PersonCreateService {
                 // Try to fetch the person that was created concurrently
                 const allDistinctIds = [primaryDistinctId, ...(extraDistinctIds || [])]
                 for (const distinctIdInfo of allDistinctIds) {
-                    const existingPerson = await this.context.personStore.fetchForUpdate(
-                        teamId,
-                        distinctIdInfo.distinctId
-                    )
+                    const existingPerson = await this.store.fetchForUpdate(teamId, distinctIdInfo.distinctId)
                     if (existingPerson) {
-                        return [existingPerson, false]
+                        return [existingPerson, false, []]
                     }
                 }
 
@@ -82,7 +86,7 @@ export class PersonCreateService {
                 // mapping, so no two identities are silently merged.
                 if (result.conflictingPerson) {
                     personCreateConflictResolvedCounter.labels({ resolved_by: 'uuid' }).inc()
-                    return [result.conflictingPerson, false]
+                    return [result.conflictingPerson, false, []]
                 }
 
                 // The holder vanished between the failed write and the lookup, so there is
@@ -99,7 +103,7 @@ export class PersonCreateService {
             throw new Error('Unexpected CreatePersonResult state')
         } catch (error) {
             if (error instanceof PersonPropertiesSizeViolationError) {
-                await emitIngestionWarning(this.context.outputs, teamId, {
+                await emitIngestionWarning(this.outputs, teamId, {
                     type: 'person_properties_size_violation',
                     details: {
                         // uuid of the person we tried to create; error.personId is a DB row id

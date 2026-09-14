@@ -47,4 +47,7 @@ export const CUSTOM_INPUT_RENDERERS: Record<
     signals_scout: lazyWithRetry(
         () => import('products/signals/frontend/components/ScoutPicker/CyclotronJobInputScoutPicker')
     ),
+    task_skills: lazyWithRetry(
+        () => import('products/tasks/frontend/components/TaskSkillsPicker/CyclotronJobInputTaskSkills')
+    ),
 }

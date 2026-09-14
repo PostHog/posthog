@@ -2,7 +2,7 @@ import datetime
 from zoneinfo import ZoneInfo
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from unittest.mock import Mock, patch
 
 from django.utils import timezone
@@ -116,20 +116,20 @@ class TestLicenseAPI(APILicensedTest):
 
     @pytest.mark.skip_on_multitenancy
     def test_highest_activated_license_is_used_after_upgrade(self):
-        with freeze_time("2022-06-01T12:00:00.000Z"):
+        with time_machine.travel("2022-06-01T12:00:00.000Z", tick=False):
             License.objects.create(
                 key="old",
                 plan="scale",
                 valid_until=datetime.datetime.now() + datetime.timedelta(days=30),
             )
-        with freeze_time("2022-06-03T12:00:00.000Z"):
+        with time_machine.travel("2022-06-03T12:00:00.000Z", tick=False):
             License.objects.create(
                 key="new",
                 plan="enterprise",
                 valid_until=datetime.datetime.now() + datetime.timedelta(days=30),
             )
 
-        with freeze_time("2022-06-03T13:00:00.000Z"):
+        with time_machine.travel("2022-06-03T13:00:00.000Z", tick=False):
             first_valid = License.objects.first_valid()
 
             self.assertIsInstance(first_valid, License)
@@ -137,20 +137,20 @@ class TestLicenseAPI(APILicensedTest):
 
     @pytest.mark.skip_on_multitenancy
     def test_highest_activated_license_is_used_after_renewal_to_lower(self):
-        with freeze_time("2022-06-01T12:00:00.000Z"):
+        with time_machine.travel("2022-06-01T12:00:00.000Z", tick=False):
             License.objects.create(
                 key="new",
                 plan="enterprise",
                 valid_until=datetime.datetime.now() + datetime.timedelta(days=30),
             )
-        with freeze_time("2022-06-27T12:00:00.000Z"):
+        with time_machine.travel("2022-06-27T12:00:00.000Z", tick=False):
             License.objects.create(
                 key="old",
                 plan="scale",
                 valid_until=datetime.datetime.now() + datetime.timedelta(days=30),
             )
 
-        with freeze_time("2022-06-27T13:00:00.000Z"):
+        with time_machine.travel("2022-06-27T13:00:00.000Z", tick=False):
             first_valid = License.objects.first_valid()
 
             self.assertIsInstance(first_valid, License)

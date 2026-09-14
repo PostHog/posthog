@@ -109,6 +109,39 @@ export function isAgentGenerationEvent(event: Record<string, unknown>): boolean 
     )
 }
 
+const CALLBACK_TIMEOUT_MS = 10_000
+const RETRY_DELAY_MS = 1000
+const RETRYABLE_KINDS: ReadonlySet<SideEffectKind> = new Set(['awaiting_input'])
+
+function fetchErrorCode(err: unknown): string | undefined {
+    if (!(err instanceof Error)) {
+        return undefined
+    }
+    const cause = (err as Error & { cause?: unknown }).cause
+    if (typeof cause === 'object' && cause !== null && 'code' in cause) {
+        return String((cause as { code: unknown }).code)
+    }
+    return err.name
+}
+
+async function postCallback(url: string, init: RequestInit, runId: string, kind: SideEffectKind): Promise<Response> {
+    const attempt = (): Promise<Response> => fetch(url, { ...init, signal: AbortSignal.timeout(CALLBACK_TIMEOUT_MS) })
+    try {
+        const response = await attempt()
+        if (!RETRYABLE_KINDS.has(kind) || response.status < 500) {
+            return response
+        }
+        logger.warn('side_effect:retry', { run: runId, kind, status: response.status })
+    } catch (err: unknown) {
+        if (!RETRYABLE_KINDS.has(kind)) {
+            throw err
+        }
+        logger.warn('side_effect:retry', { run: runId, kind, code: fetchErrorCode(err) })
+    }
+    await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS))
+    return attempt()
+}
+
 // fireCallback issues a best-effort POST to the Django agent-proxy callback.
 // The call is fire-and-forget: the promise is not returned to the caller.
 // Any failure is logged but never thrown into the ingest path.
@@ -148,18 +181,13 @@ function fireCallback(
     logger.debug('side_effect:fire', { run: runId, kind, agentActive })
 
     // Detached promise — errors are swallowed and logged.
-    fetch(url, {
-        method: 'POST',
-        headers,
-        body,
-        // Node 18+ fetch doesn't expose a timeout option in the standard API;
-        // we rely on the OS TCP timeout (typically 2 min). The callback is
-        // best-effort so a slow/hanging response is acceptable.
-    })
+    postCallback(url, { method: 'POST', headers, body }, runId, kind)
         .then(async (response) => {
             if (!response.ok) {
                 logger.warn('side_effect:non_2xx', { run: runId, kind, status: response.status })
-                await releaseMilestoneClaim(releaseClaim, runId, kind)
+                if (response.status >= 500) {
+                    await releaseMilestoneClaim(releaseClaim, runId, kind)
+                }
                 return
             }
             const payload: unknown = await response.json().catch(() => null)
@@ -174,7 +202,7 @@ function fireCallback(
         })
         .catch(async (err: unknown) => {
             const message = err instanceof Error ? err.message : String(err)
-            logger.error('side_effect:failed', { run: runId, kind, error: message })
+            logger.error('side_effect:failed', { run: runId, kind, error: message, code: fetchErrorCode(err) })
             await releaseMilestoneClaim(releaseClaim, runId, kind)
         })
 }

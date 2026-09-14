@@ -1,5 +1,5 @@
 use std::iter::Sum;
-use std::ops::{Add, AddAssign};
+use std::ops::{Add, AddAssign, Sub, SubAssign};
 
 /// A message's cost against later consumer admission budgets.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -29,6 +29,23 @@ impl Add for Charge {
 impl AddAssign for Charge {
     fn add_assign(&mut self, rhs: Charge) {
         *self = *self + rhs;
+    }
+}
+
+impl Sub for Charge {
+    type Output = Charge;
+
+    fn sub(self, rhs: Charge) -> Self::Output {
+        Charge {
+            events: self.events - rhs.events,
+            bytes: self.bytes - rhs.bytes,
+        }
+    }
+}
+
+impl SubAssign for Charge {
+    fn sub_assign(&mut self, rhs: Charge) {
+        *self = *self - rhs;
     }
 }
 

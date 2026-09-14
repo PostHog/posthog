@@ -41,7 +41,7 @@ export function FeedTabContent(): JSX.Element {
                             key={report.id}
                             report={report}
                             backUrl={urls.customerAnalyticsFeed()}
-                            onDismiss={(reason, note) => archiveReport(report.id, reason, note)}
+                            onDismiss={(dismissal) => archiveReport(report.id, dismissal)}
                         />
                     ))}
                 </div>

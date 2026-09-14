@@ -12,7 +12,7 @@ import { Breadcrumb, DataModelingEdge, DataModelingNode, DataWarehouseSavedQuery
 
 import type { DataModelingNodeType } from '../../types'
 
-export const NODE_DETAIL_SCENE_TABS = ['query', 'lineage', 'materialization', 'tests'] as const
+export const NODE_DETAIL_SCENE_TABS = ['query', 'lineage', 'materialization', 'tests', 'history'] as const
 export type NodeDetailSceneTab = (typeof NODE_DETAIL_SCENE_TABS)[number]
 
 export interface NodeDetailSceneLogicProps {
@@ -63,29 +63,11 @@ export interface nodeDetailSceneLogicActions {
     updateDataWarehouseSavedQuerySuccess: (
         dataWarehouseSavedQueries: DataWarehouseSavedQuery[],
         payload?:
-            | (Partial<DataWarehouseSavedQuery> & {
-                  edited_history_id?: string
-                  folder_id?: string | null
-                  id: string
-                  lifecycle?: string
-                  shouldRematerialize?: boolean
-                  soft_update?: boolean
-                  sync_frequency?: string
-                  types?: string[][]
-              })
+            | import('scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic').DataWarehouseSavedQueryUpdate
             | undefined
     ) => {
         dataWarehouseSavedQueries: DataWarehouseSavedQuery[]
-        payload?: Partial<DataWarehouseSavedQuery> & {
-            edited_history_id?: string
-            folder_id?: string | null
-            id: string
-            lifecycle?: string
-            shouldRematerialize?: boolean
-            soft_update?: boolean
-            sync_frequency?: string
-            types?: string[][]
-        }
+        payload?: import('scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic').DataWarehouseSavedQueryUpdate
     } // dataWarehouseViewsLogic
     canonicalizeTab: () => {
         value: true
@@ -150,7 +132,7 @@ export interface nodeDetailSceneLogicActions {
         value: true
     }
     setCurrentTab: (tab: NodeDetailSceneTab | null) => {
-        tab: 'lineage' | 'materialization' | 'query' | 'tests' | null
+        tab: 'history' | 'lineage' | 'materialization' | 'query' | 'tests' | null
     }
     updateNodeDescription: (description: string) => {
         description: string
@@ -190,9 +172,9 @@ export interface nodeDetailSceneLogicMeta {
         isMaterialized: (node: DataModelingNode | null, savedQuery: DataWarehouseSavedQuery | null) => boolean
         defaultTab: (node: DataModelingNode | null, isMaterialized: boolean) => NodeDetailSceneTab
         effectiveTab: (
-            currentTab: 'lineage' | 'materialization' | 'query' | 'tests' | null,
-            availableTabs: ('lineage' | 'materialization' | 'query' | 'tests')[],
-            defaultTab: 'lineage' | 'materialization' | 'query' | 'tests'
+            currentTab: 'history' | 'lineage' | 'materialization' | 'query' | 'tests' | null,
+            availableTabs: ('history' | 'lineage' | 'materialization' | 'query' | 'tests')[],
+            defaultTab: 'history' | 'lineage' | 'materialization' | 'query' | 'tests'
         ) => NodeDetailSceneTab | null
         effectiveLastRunAt: (node: DataModelingNode | null, savedQuery: DataWarehouseSavedQuery | null) => string | null
         effectiveLastRunStatus: (
@@ -351,6 +333,9 @@ export const nodeDetailSceneLogic = kea<nodeDetailSceneLogicType>([
                 }
                 if (featureFlags[FEATURE_FLAGS.DATA_QUALITY_CHECKS] && node.saved_query_id) {
                     tabs.push('tests')
+                }
+                if (node.saved_query_id) {
+                    tabs.push('history')
                 }
                 return tabs
             },

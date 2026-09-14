@@ -1,3 +1,4 @@
+import type { AssignmentStatus } from 'lib/components/AccountAssignmentFilter/accountAssignmentFilterTypes'
 import { isUUIDLike } from 'lib/utils/guards'
 
 import {
@@ -115,7 +116,7 @@ export interface BuildAccountsTableQueryPlanInput {
     visibleColumnNames: string[]
     searchQuery: string
     tagsFilter: string[]
-    allRolesUnassigned: boolean
+    assignmentStatus: AssignmentStatus
     assignedToFilter: RoleFilterValue
     accountIdFilter: string | null
     tileFilter: TileFilter | null
@@ -305,12 +306,20 @@ function queryFilters(input: BuildAccountsTableQueryPlanInput): AccountsTableFil
     if (input.tagsFilter.length > 0) {
         filters.push({ kind: 'tags', tagNames: input.tagsFilter } satisfies AccountsTableTagsFilter)
     }
-    if (input.allRolesUnassigned) {
+    // `all` omits the assignment filter entirely so both assigned and unassigned accounts
+    // show. `assigned` narrows to assigned accounts, further restricted to specific users
+    // when any are selected.
+    if (input.assignmentStatus === 'unassigned') {
         filters.push({ kind: 'unassigned' } satisfies AccountsTableUnassignedFilter)
-    } else if (input.assignedToFilter.length > 0) {
-        filters.push({ kind: 'assigned_to', userIds: input.assignedToFilter } satisfies AccountsTableAssignedToFilter)
-    } else {
-        filters.push({ kind: 'assigned' } satisfies AccountsTableAssignedFilter)
+    } else if (input.assignmentStatus === 'assigned') {
+        if (input.assignedToFilter.length > 0) {
+            filters.push({
+                kind: 'assigned_to',
+                userIds: input.assignedToFilter,
+            } satisfies AccountsTableAssignedToFilter)
+        } else {
+            filters.push({ kind: 'assigned' } satisfies AccountsTableAssignedFilter)
+        }
     }
     for (const filter of input.accountFilters) {
         const translatedFilter = isAccountPropertyFilter(filter)

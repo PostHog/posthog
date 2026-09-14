@@ -195,6 +195,21 @@ impl<'a> Ctx<'a> {
         collector.borrow_mut().collect(original)
     }
 
+    pub(crate) fn collects_urls(&self) -> bool {
+        self.url_collector.is_some()
+    }
+
+    /// Count a URL the walker refused before it reached the policy, in the collector's own decline
+    /// metric, so that the walker's refusals and the policy's refusals read on one panel. Like the
+    /// policy's memoized declines it counts once per distinct URL in a message, so a repeated
+    /// spacer, and a re-walk after the byte walker hands an event to the tree path, do not count
+    /// twice.
+    pub(crate) fn decline_url(&self, raw: &str, reason: &'static str) {
+        if let Some(collector) = self.url_collector.as_ref() {
+            collector.borrow_mut().decline_once(raw, reason);
+        }
+    }
+
     pub(crate) fn collect_url_from(&self, original: &str, source: ImageSource) -> Option<String> {
         let reference = self.collect_url(original)?;
         self.record_image_source(source, "url");

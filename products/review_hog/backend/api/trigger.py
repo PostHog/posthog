@@ -13,6 +13,7 @@ from posthog.models.integration import Integration
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
 
+from products.review_hog.backend.reviewer.persistence import lift_review_tier_for_joined_trigger
 from products.review_hog.backend.temporal.client import (
     start_resolution_workflow,
     start_review_pr_workflow,
@@ -53,7 +54,11 @@ class ReviewHogResolveRequestSerializer(serializers.Serializer):
 
 class ReviewHogTriggerResponseSerializer(serializers.Serializer):
     workflow_id = serializers.CharField(help_text="Temporal workflow id for the started review run.")
-    status = serializers.CharField(help_text="Run lifecycle marker; 'started' when the review was queued.")
+    status = serializers.CharField(
+        help_text="Run lifecycle marker: 'started' when the review was queued, 'joined_running_review' when a "
+        "review of this pull request was already in flight (no new run starts; a report in a cheaper tier is "
+        "lifted to human strength for the rest of that review and every later one)."
+    )
 
 
 class ReviewHogTriggerErrorSerializer(serializers.Serializer):
@@ -217,6 +222,11 @@ class ReviewHogTriggerViewSet(viewsets.ViewSet):
         # whether the run chains the resolution stage is the PR author's `resolve_comments` setting
         # (default on), not a caller flag.
         pr_url = f"https://github.com/{repo}/pull/{pr_number}"
+        # Probed before the start: a same-id start joins the running turn, whose inputs keep the
+        # original trigger, so the label's tier lift has to be written here (see the helper).
+        joins_running_review = workflow_running(
+            review_pr_workflow_id(team_id=team_id, owner=owner, repo=repo_name, pr_number=pr_number)
+        )
         workflow_id = start_review_pr_workflow(
             pr_url=pr_url,
             team_id=team_id,
@@ -224,6 +234,17 @@ class ReviewHogTriggerViewSet(viewsets.ViewSet):
             publish=publish,
             trigger_source=TRIGGER_LABEL,
         )
+        if joins_running_review:
+            lifted = lift_review_tier_for_joined_trigger(team_id=team_id, repository=repo, pr_number=pr_number)
+            logger.info(
+                f"ReviewHog trigger joined running workflow {workflow_id} for {repo}#{pr_number} (tier lifted={lifted})"
+            )
+            return Response(
+                ReviewHogTriggerResponseSerializer(
+                    {"workflow_id": workflow_id, "status": "joined_running_review"}
+                ).data,
+                status=status.HTTP_202_ACCEPTED,
+            )
         logger.info(f"ReviewHog trigger started workflow {workflow_id} for {repo}#{pr_number} (publish={publish})")
         return Response(
             ReviewHogTriggerResponseSerializer({"workflow_id": workflow_id, "status": "started"}).data,

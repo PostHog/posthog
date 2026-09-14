@@ -2,12 +2,17 @@ import { MakeLogicType, actions, connect, kea, key, listeners, path, props, redu
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { uuid } from 'lib/utils/dom'
-import { MathCategory, mathTypeToApiValues, mathsLogic } from 'scenes/trends/mathsLogic'
 
 import { AnyPropertyFilter, EntityType, EntityTypes, FilterLogicalOperator } from '~/types'
 
+import {
+    MathCategory,
+    mathTypeToApiValues,
+    mathsLogic,
+} from 'products/product_analytics/frontend/insights/trends/mathsLogic'
+import type { MathDefinition } from 'products/product_analytics/frontend/insights/trends/mathsLogic'
+
 import type { ActionFilter, AnyDataWarehouseFilter, EntityFilter } from '../../../../../types'
-import type { MathDefinition } from '../../../../trends/mathsLogic'
 import { LocalFilter, entityFilterLogic } from '../entityFilterLogic'
 
 export interface ActionFilterGroupLogicProps {

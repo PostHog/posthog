@@ -339,6 +339,15 @@
         height: 100%;
     }
 
+    // An embedded query renders `.InsightCard__viz` instead of `.InsightViz`, and that wrapper carries
+    // no sizing of its own. Give it the same full-height flex column, or the chart collapses to its
+    // content height and leaves the bottom of the card empty.
+    .InsightCard__viz {
+        display: flex;
+        flex-direction: column;
+        height: 100%;
+    }
+
     .InsightVizDisplay {
         display: flex;
         flex-direction: column;

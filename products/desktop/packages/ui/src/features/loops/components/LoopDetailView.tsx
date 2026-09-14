@@ -1,5 +1,6 @@
 import {
   ArrowLeftIcon,
+  ArrowSquareOutIcon,
   CheckCircleIcon,
   LinkIcon,
   PauseIcon,
@@ -7,6 +8,7 @@ import {
   PlayIcon,
   TrashIcon,
 } from "@phosphor-icons/react";
+import { hogFlowRequestDetail } from "@posthog/api-client/hogFlowLoops";
 import type { LoopSchemas } from "@posthog/api-client/loops";
 import { isUploadableSkillSource } from "@posthog/core/message-editor/skillTags";
 import { useHostTRPC } from "@posthog/host-router/react";
@@ -21,6 +23,7 @@ import {
   Badge,
   Button,
 } from "@posthog/quill";
+import { getCloudUrlFromRegion } from "@posthog/shared";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { UserAvatar } from "@posthog/ui/features/auth/UserAvatar";
 import { assertCloudUsageAvailable } from "@posthog/ui/features/billing/preflightCloudUsage";
@@ -28,6 +31,7 @@ import { useUsageLimitStore } from "@posthog/ui/features/billing/usageLimitStore
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
 import { useOrgMembers } from "@posthog/ui/features/canvas/hooks/useOrgMembers";
 import { userDisplayName } from "@posthog/ui/features/canvas/utils/userDisplay";
+import { useLoopsHogFlowsEnabled } from "@posthog/ui/features/feature-flags/useLoopsHogFlowsEnabled";
 import { useSetHeaderContent } from "@posthog/ui/hooks/useSetHeaderContent";
 import { Button as ActionButton } from "@posthog/ui/primitives/Button";
 import { TimezoneTimestamp } from "@posthog/ui/primitives/TimezoneTimestamp";
@@ -40,13 +44,15 @@ import {
 } from "@posthog/ui/router/navigationBridge";
 import { getRouterOrNull } from "@posthog/ui/router/routerRef";
 import { track } from "@posthog/ui/shell/analytics";
+import { openExternalUrl } from "@posthog/ui/shell/openExternal";
 import { useHostCapabilities } from "@posthog/ui/shell/useHostCapabilities";
 import { Flex, Text } from "@radix-ui/themes";
 import type { ParsedHistoryState } from "@tanstack/history";
 import { useQuery } from "@tanstack/react-query";
 import { useLocation } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useLoop } from "../hooks/useLoop";
+import { useAuthStateValue } from "../../auth/store";
+import { useLoop, useLoopHogFlow } from "../hooks/useLoop";
 import {
   useDeleteLoop,
   useRunLoop,
@@ -67,10 +73,12 @@ import {
   nextScheduleRun,
   summarizeNotificationDestinations,
 } from "../loopDisplay";
+import { hogFlowTeamSkills, isLoopShapedHogFlow } from "../loopHogFlowMapping";
 import { formatLoopModel } from "../loopModels";
 import { loopSkillBundles, primaryLoopSkillBundle } from "../loopSkill";
 import { copyLoopLink } from "../utils/copyLoopLink";
 import { LoopLoadError } from "./LoopFallbacks";
+import { LoopForeignWorkflowNotice } from "./LoopForeignWorkflowNotice";
 import { LoopForm } from "./LoopForm";
 import { LoopHeaderTitle } from "./LoopHeaderTitle";
 import { LoopRunRow } from "./LoopRunRow";
@@ -94,6 +102,23 @@ export function LoopDetailView({
     select: (location) => location.state.loopListOrigin === true,
   });
   const { data: loop, isLoading, isError } = useLoop(loopId);
+  const workflowBacked = useLoopsHogFlowsEnabled();
+  const { data: hogFlow } = useLoopHogFlow(workflowBacked ? loopId : undefined);
+  // A loop-tagged workflow someone reshaped in the workflow editor: the form
+  // would overwrite what they built, so the page goes read-only for it.
+  const foreignWorkflow =
+    workflowBacked && !!hogFlow && !isLoopShapedHogFlow(hogFlow);
+  // An archived workflow maps to a paused loop, but resuming it would set it
+  // active again rather than restore it, so it is shown read-only instead.
+  const archived = workflowBacked && hogFlow?.status === "archived";
+  const readOnly = foreignWorkflow || archived;
+  const teamSkills = hogFlow ? hogFlowTeamSkills(hogFlow) : [];
+  const cloudRegion = useAuthStateValue((state) => state.cloudRegion);
+  const projectId = useAuthStateValue((state) => state.currentProjectId);
+  const workflowUrl =
+    workflowBacked && cloudRegion && projectId != null
+      ? `${getCloudUrlFromRegion(cloudRegion)}/project/${projectId}/workflows/${loopId}/workflow`
+      : null;
   const updateLoop = useUpdateLoop(loopId);
   const deleteLoop = useDeleteLoop();
   const runLoop = useRunLoop(loopId);
@@ -206,7 +231,9 @@ export function LoopDetailView({
       }
     } catch (error) {
       toast.error("Failed to start run", {
-        description: error instanceof Error ? error.message : String(error),
+        description:
+          hogFlowRequestDetail(error) ??
+          (error instanceof Error ? error.message : String(error)),
       });
     } finally {
       setRunNowPending(false);
@@ -235,6 +262,14 @@ export function LoopDetailView({
   useEffect(() => {
     if (startEditing) setIsEditing(true);
   }, [startEditing]);
+
+  // The workflow loads after the page opens, so an edit URL can land in the
+  // form before the read-only check has an answer. Back out once it does.
+  useEffect(() => {
+    if (!readOnly) return;
+    setIsEditing(false);
+    setEditDirty(false);
+  }, [readOnly]);
 
   const leavePage = useCallback(() => {
     if (hasLoopListOrigin && canGoBackInHistory()) {
@@ -360,6 +395,12 @@ export function LoopDetailView({
     return <LoopLoadError />;
   }
 
+  // The workflow run endpoint only accepts schedule triggers; a GitHub loop
+  // fires from its repository.
+  const canRunNow =
+    !readOnly && (!workflowBacked || loop.triggers[0]?.type === "schedule");
+  const githubTriggered = loop.triggers[0]?.type === "github";
+
   return (
     <div className="h-full min-h-0 overflow-y-auto">
       <Flex
@@ -386,26 +427,32 @@ export function LoopDetailView({
               >
                 {loop.name}
               </Text>
-              <Badge variant={loopStatusBadgeVariant(loop)}>
-                {loopStatusLabel(loop)}
+              <Badge
+                variant={archived ? "default" : loopStatusBadgeVariant(loop)}
+              >
+                {archived ? "Archived" : loopStatusLabel(loop)}
               </Badge>
-              <Badge>{formatVisibility(loop.visibility)}</Badge>
+              {!workflowBacked ? (
+                <Badge>{formatVisibility(loop.visibility)}</Badge>
+              ) : null}
             </Flex>
             <Flex align="center" gap="2">
-              <Button
-                variant="outline"
-                size="sm"
-                loading={updateLoop.isPending}
-                disabled={updateLoop.isPending}
-                onClick={() => handleToggleEnabled(!loop.enabled)}
-              >
-                {loop.enabled ? (
-                  <PauseIcon size={14} />
-                ) : (
-                  <PlayIcon size={14} />
-                )}
-                {loop.enabled ? "Pause" : "Resume"}
-              </Button>
+              {!archived ? (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  loading={updateLoop.isPending}
+                  disabled={updateLoop.isPending}
+                  onClick={() => handleToggleEnabled(!loop.enabled)}
+                >
+                  {loop.enabled ? (
+                    <PauseIcon size={14} />
+                  ) : (
+                    <PlayIcon size={14} />
+                  )}
+                  {loop.enabled ? "Pause" : "Resume"}
+                </Button>
+              ) : null}
               <Button
                 variant="outline"
                 size="sm"
@@ -414,39 +461,43 @@ export function LoopDetailView({
                 <LinkIcon size={14} />
                 Copy link
               </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                loading={runNowPending}
-                disabled={runNowPending}
-                onClick={() => void handleRunNow()}
-              >
-                <PlayIcon size={14} />
-                Run now
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                className={
-                  isEditing
-                    ? "border-(--accent-7) bg-(--accent-3) text-(--accent-11)"
-                    : undefined
-                }
-                onClick={() => {
-                  if (isEditing) {
-                    requestLeaveEdit("summary");
-                    return;
+              {canRunNow ? (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  loading={runNowPending}
+                  disabled={runNowPending}
+                  onClick={() => void handleRunNow()}
+                >
+                  <PlayIcon size={14} />
+                  Run now
+                </Button>
+              ) : null}
+              {!readOnly ? (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className={
+                    isEditing
+                      ? "border-(--accent-7) bg-(--accent-3) text-(--accent-11)"
+                      : undefined
                   }
-                  setIsEditing(true);
-                }}
-              >
-                {isEditing ? (
-                  <CheckCircleIcon size={14} weight="fill" />
-                ) : (
-                  <PencilSimpleIcon size={14} />
-                )}
-                {isEditing ? "Editing" : "Edit"}
-              </Button>
+                  onClick={() => {
+                    if (isEditing) {
+                      requestLeaveEdit("summary");
+                      return;
+                    }
+                    setIsEditing(true);
+                  }}
+                >
+                  {isEditing ? (
+                    <CheckCircleIcon size={14} weight="fill" />
+                  ) : (
+                    <PencilSimpleIcon size={14} />
+                  )}
+                  {isEditing ? "Editing" : "Edit"}
+                </Button>
+              ) : null}
               <Button
                 variant="destructive"
                 size="sm"
@@ -469,7 +520,11 @@ export function LoopDetailView({
           <PausedNotice loop={loop} />
         </Flex>
 
-        {isEditing ? (
+        {archived ? (
+          <LoopArchivedNotice workflowUrl={workflowUrl} />
+        ) : foreignWorkflow ? (
+          <LoopForeignWorkflowNotice workflowUrl={workflowUrl} />
+        ) : isEditing ? (
           <LoopForm
             loop={loop}
             variant="embedded"
@@ -483,7 +538,11 @@ export function LoopDetailView({
           />
         ) : (
           <>
-            <ConfigSummarySection loop={loop} />
+            <ConfigSummarySection
+              loop={loop}
+              workflowBacked={workflowBacked}
+              teamSkills={teamSkills}
+            />
             <InstructionsSection loop={loop} />
           </>
         )}
@@ -510,8 +569,11 @@ export function LoopDetailView({
                 No runs yet
               </Text>
               <Text className="max-w-sm text-[11.5px] text-gray-10 leading-snug">
-                Runs show up here once this loop fires. Trigger one with Run
-                now, or wait for its next trigger.
+                {canRunNow
+                  ? "Runs show up here once this loop fires. Trigger one with Run now, or wait for its next trigger."
+                  : githubTriggered
+                    ? "Runs show up here once this loop fires. A matching event in the repository starts a run."
+                    : "Runs show up here once this loop fires."}
               </Text>
             </Flex>
           ) : (
@@ -604,6 +666,36 @@ function formatVisibility(visibility: LoopSchemas.LoopVisibilityEnum): string {
   return visibility.charAt(0).toUpperCase() + visibility.slice(1);
 }
 
+/**
+ * Shown in place of the configuration summary for an archived workflow. The
+ * loop API has no archived state, so resuming from here would set the workflow
+ * active instead of restoring it; restoring happens in PostHog.
+ */
+function LoopArchivedNotice({ workflowUrl }: { workflowUrl: string | null }) {
+  return (
+    <div className="flex flex-col gap-2 rounded-(--radius-2) border border-border bg-(--gray-2) px-3 py-3">
+      <span className="font-medium text-[12.5px] text-gray-12">
+        This loop is archived
+      </span>
+      <span className="text-[12px] text-gray-11 leading-snug">
+        It no longer runs and can't be edited here. Restore it in PostHog to
+        bring it back, or delete it here. Run history stays available.
+      </span>
+      {workflowUrl ? (
+        <Button
+          variant="outline"
+          size="sm"
+          className="w-fit"
+          onClick={() => openExternalUrl(workflowUrl)}
+        >
+          <ArrowSquareOutIcon size={14} />
+          Open in PostHog
+        </Button>
+      ) : null}
+    </div>
+  );
+}
+
 function PausedNotice({ loop }: { loop: LoopSchemas.Loop }) {
   const description = loopPausedDescription(loop);
   if (!description) return null;
@@ -634,7 +726,15 @@ function PausedNotice({ loop }: { loop: LoopSchemas.Loop }) {
   );
 }
 
-function ConfigSummarySection({ loop }: { loop: LoopSchemas.Loop }) {
+function ConfigSummarySection({
+  loop,
+  workflowBacked,
+  teamSkills,
+}: {
+  loop: LoopSchemas.Loop;
+  workflowBacked: boolean;
+  teamSkills: string[];
+}) {
   const displayModel = formatLoopModel(loop.runtime_adapter, loop.model);
   const {
     members,
@@ -677,7 +777,7 @@ function ConfigSummarySection({ loop }: { loop: LoopSchemas.Loop }) {
       >
         <SummaryRow label="Model">
           {[
-            loop.runtime_adapter,
+            workflowBacked ? null : loop.runtime_adapter,
             displayModel,
             loop.reasoning_effort ? `${loop.reasoning_effort} reasoning` : null,
           ]
@@ -689,6 +789,10 @@ function ConfigSummarySection({ loop }: { loop: LoopSchemas.Loop }) {
           <SummaryRow label="Skill">
             <LoopSkillSummary loop={loop} />
           </SummaryRow>
+        ) : null}
+
+        {teamSkills.length > 0 ? (
+          <SummaryRow label="Skills">{teamSkills.join(", ")}</SummaryRow>
         ) : null}
 
         <SummaryRow label="Repository">

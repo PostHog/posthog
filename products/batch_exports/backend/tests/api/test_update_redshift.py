@@ -18,12 +18,10 @@ pytestmark = [
 ]
 
 
-def create_copy_batch_export(client: HttpClient, team, user, copy_inputs: dict) -> dict:
+def create_copy_batch_export(client: HttpClient, team, user, copy_inputs: dict, integration_pk: int) -> dict:
     destination_data = {
         "type": "Redshift",
         "config": {
-            "user": "user",
-            "password": "my-password",
             "database": "my-db",
             "host": "localhost",
             "schema": "public",
@@ -31,6 +29,7 @@ def create_copy_batch_export(client: HttpClient, team, user, copy_inputs: dict) 
             "mode": "COPY",
             "copy_inputs": copy_inputs,
         },
+        "integration": integration_pk,
     }
     batch_export_data = {
         "name": "my-production-redshift-destination",
@@ -41,13 +40,13 @@ def create_copy_batch_export(client: HttpClient, team, user, copy_inputs: dict) 
     return create_batch_export_ok(client, team.pk, batch_export_data)
 
 
-def test_can_patch_redshift_batch_export(client: HttpClient, temporal, organization, team, user):
+def test_can_patch_redshift_batch_export(
+    client: HttpClient, temporal, organization, team, user, aws_redshift_integration
+):
     """Test we can patch a Redshift batch export preserving credentials."""
     destination_data = {
         "type": "Redshift",
         "config": {
-            "user": "user",
-            "password": "my-password",
             "database": "my-db",
             "host": "localhost",
             "schema": "public",
@@ -61,6 +60,7 @@ def test_can_patch_redshift_batch_export(client: HttpClient, temporal, organizat
                 "authorization": {"aws_access_key_id": "abc123", "aws_secret_access_key": "secret"},
             },
         },
+        "integration": aws_redshift_integration.pk,
     }
 
     batch_export_data = {
@@ -77,7 +77,8 @@ def test_can_patch_redshift_batch_export(client: HttpClient, temporal, organizat
         batch_export_data,
     )
 
-    # Updates bucket name, leaves everything else untouched.
+    # Updates bucket name, leaves everything else untouched. The integration is re-sent because an
+    # export that has one cannot drop it, matching what the edit form submits.
     new_destination_data = {
         "type": "Redshift",
         "config": {
@@ -85,6 +86,7 @@ def test_can_patch_redshift_batch_export(client: HttpClient, temporal, organizat
                 "s3_bucket": "my-new-production-s3-bucket",
             },
         },
+        "integration": aws_redshift_integration.pk,
     }
 
     new_batch_export_data = {
@@ -101,7 +103,7 @@ def test_can_patch_redshift_batch_export(client: HttpClient, temporal, organizat
 
 
 def test_can_patch_redshift_batch_export_switching_authorization_to_credentials(
-    client: HttpClient, temporal, organization, team, user
+    client: HttpClient, temporal, organization, team, user, aws_redshift_integration
 ):
     """Test an update can switch 'authorization' from an IAM role to inline credentials.
 
@@ -118,6 +120,7 @@ def test_can_patch_redshift_batch_export_switching_authorization_to_credentials(
             "bucket_credentials": {"aws_access_key_id": "abc123", "aws_secret_access_key": "secret"},
             "authorization": "arn:aws:iam::123456789012:role/my-role",
         },
+        aws_redshift_integration.pk,
     )
 
     new_batch_export_data = {
@@ -128,6 +131,7 @@ def test_can_patch_redshift_batch_export_switching_authorization_to_credentials(
                     "authorization": {"aws_access_key_id": "new-key", "aws_secret_access_key": "new-secret"},
                 },
             },
+            "integration": aws_redshift_integration.pk,
         },
     }
 
@@ -140,7 +144,7 @@ def test_can_patch_redshift_batch_export_switching_authorization_to_credentials(
 
 @pytest.mark.parametrize("field_name", ["authorization", "bucket_credentials"])
 def test_patching_redshift_batch_export_rejects_switching_copy_integration_to_inline(
-    client: HttpClient, temporal, organization, team, user, aws_s3_integration, field_name
+    client: HttpClient, temporal, organization, team, user, aws_s3_integration, aws_redshift_integration, field_name
 ):
     """Test COPY credentials backed by an integration cannot switch back to inline values."""
     batch_export = create_copy_batch_export(
@@ -154,6 +158,7 @@ def test_patching_redshift_batch_export_rejects_switching_copy_integration_to_in
             "bucket_credentials": aws_s3_integration.pk,
             "authorization": aws_s3_integration.pk,
         },
+        aws_redshift_integration.pk,
     )
 
     new_batch_export_data = {
@@ -164,6 +169,7 @@ def test_patching_redshift_batch_export_rejects_switching_copy_integration_to_in
                     field_name: {"aws_access_key_id": "abc123", "aws_secret_access_key": "secret"},
                 },
             },
+            "integration": aws_redshift_integration.pk,
         },
     }
 
@@ -173,7 +179,7 @@ def test_patching_redshift_batch_export_rejects_switching_copy_integration_to_in
 
 
 def test_can_patch_redshift_batch_export_swapping_copy_integration(
-    client: HttpClient, temporal, organization, team, user, aws_s3_integration
+    client: HttpClient, temporal, organization, team, user, aws_s3_integration, aws_redshift_integration
 ):
     """Test COPY credentials backed by an integration can swap to a different integration."""
     other_integration = Integration.objects.create(
@@ -195,6 +201,7 @@ def test_can_patch_redshift_batch_export_swapping_copy_integration(
             "bucket_credentials": aws_s3_integration.pk,
             "authorization": aws_s3_integration.pk,
         },
+        aws_redshift_integration.pk,
     )
 
     new_batch_export_data = {
@@ -206,6 +213,7 @@ def test_can_patch_redshift_batch_export_swapping_copy_integration(
                     "authorization": other_integration.pk,
                 },
             },
+            "integration": aws_redshift_integration.pk,
         },
     }
 

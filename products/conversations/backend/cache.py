@@ -6,6 +6,7 @@ Short TTLs ensure stale data expires quickly without explicit invalidation.
 """
 
 import json
+import uuid
 import hashlib
 from collections.abc import Generator
 from contextlib import contextmanager
@@ -91,6 +92,36 @@ def set_cached_tickets(team_id: int, widget_session_id: str, response_data: dict
         cache.set(key, response_data, timeout=TICKETS_CACHE_TTL)
     except Exception:
         logger.warning("conversations_cache_set_error", key=key)
+
+
+def _identity_tickets_cache_namespace_key(team_id: int) -> str:
+    return _make_cache_key("identity_tickets_namespace", str(team_id))
+
+
+def get_identity_tickets_cache_namespace(team_id: int) -> str | None:
+    """Return the namespace shared by identity-authenticated ticket list keys."""
+    key = _identity_tickets_cache_namespace_key(team_id)
+    new_namespace = uuid.uuid4().hex
+    try:
+        namespace = cache.get(key)
+        if namespace:
+            return str(namespace)
+        if cache.add(key, new_namespace, timeout=None):
+            return new_namespace
+        namespace = cache.get(key)
+        return str(namespace) if namespace else new_namespace
+    except Exception:
+        logger.warning("conversations_cache_get_error", key=key)
+        return None
+
+
+def invalidate_identity_tickets_cache(team_id: int) -> None:
+    """Rotate the namespace so all identity-authenticated ticket lists miss."""
+    key = _identity_tickets_cache_namespace_key(team_id)
+    try:
+        cache.set(key, uuid.uuid4().hex, timeout=None)
+    except Exception:
+        logger.warning("conversations_cache_invalidate_error", keys=[key])
 
 
 # Unread Count Cache (for dashboard nav badge)

@@ -1,10 +1,12 @@
 import os
+import uuid
 
 import pytest
 
 import aioboto3
 import pytest_asyncio
 
+from posthog.models.integration import Integration
 from posthog.temporal.tests.utils.models import acreate_batch_export, adelete_batch_export
 
 from products.batch_exports.backend.service import BatchExportModel, BatchExportSchema
@@ -58,14 +60,24 @@ async def s3_batch_export(
     encryption,
     file_format,
 ):
+    integration = await Integration.objects.acreate(
+        team_id=ateam.pk,
+        kind=Integration.IntegrationKind.AWS_S3,
+        integration_id=f"aws-s3-{uuid.uuid4()}",
+        config={"name": "aws-s3-test"},
+        sensitive_config={
+            "aws_access_key_id": os.getenv("AWS_ACCESS_KEY_ID"),
+            "aws_secret_access_key": os.getenv("AWS_SECRET_ACCESS_KEY"),
+        },
+    )
     destination_data = {
         "type": "AwsS3",
+        # Credentials come from the integration.
+        "integration_id": integration.id,
         "config": {
             "bucket_name": bucket_name,
             "region": "us-east-1",
             "prefix": s3_key_prefix,
-            "aws_access_key_id": os.getenv("AWS_ACCESS_KEY_ID"),
-            "aws_secret_access_key": os.getenv("AWS_SECRET_ACCESS_KEY"),
             "compression": compression,
             "exclude_events": exclude_events,
             "encryption": encryption,
@@ -136,6 +148,7 @@ async def test_s3_export_workflow_with_s3_bucket_with_various_intervals_and_mode
         model=model,
         ateam=ateam,
         batch_export_id=str(s3_batch_export.id),
+        integration_id=s3_batch_export.destination.integration_id,
         s3_destination_config=s3_batch_export.destination.config,
         interval=interval,
         data_interval_start=data_interval_start,
@@ -181,6 +194,7 @@ async def test_s3_export_workflow_with_s3_bucket_with_various_file_formats(
         model=model,
         ateam=ateam,
         batch_export_id=str(s3_batch_export.id),
+        integration_id=s3_batch_export.destination.integration_id,
         s3_destination_config=s3_batch_export.destination.config,
         interval=interval,
         data_interval_start=data_interval_start,

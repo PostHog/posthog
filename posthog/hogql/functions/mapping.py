@@ -259,6 +259,10 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
         ],
         signatures=[((StringType(),), StringType())],
     ),
+    # Reads an aggregate function state as a plain value. The underscore keeps it out of autocomplete and
+    # marks it private: Python-built queries over the raw sessions tables use it, and it can change or go
+    # away without notice.
+    "_finalizeAggregation": HogQLFunctionMeta("finalizeAggregation", 1, 1),
 }
 
 

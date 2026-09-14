@@ -17,6 +17,8 @@ from __future__ import annotations
 import datetime as dt
 from typing import TYPE_CHECKING, Any
 
+import time_machine
+
 from django.utils.timezone import now
 
 from posthog.models import signals
@@ -281,7 +283,7 @@ def create_people_bulk(specs: list[dict[str, Any]]) -> list[Person]:
     Each spec is a create_person() kwargs dict (team/team_id, distinct_ids, uuid, ...). Row values
     mirror what create_person writes via posthog.models.person.util.create_person /
     create_person_distinct_id — only batched. Note: distinct-id rows use Python-side
-    (freezegun-frozen) time for _timestamp rather than ClickHouse server now(); harmless because
+    (time-machine-frozen) time for _timestamp rather than ClickHouse server now(); harmless because
     pdi2 dedup uses version, not _timestamp. The persons-DB-layer path (fake off) falls back to
     per-person create_person.
     """
@@ -479,9 +481,7 @@ def stage_person_for_bulk_create(*args: Any, **kwargs: Any) -> Person:
     else:
         _next_deterministic_uuid()
 
-    if kwargs.get("immediate") or (
-        hasattr(dt.datetime.now(), "__module__") and dt.datetime.now().__module__ == "freezegun.api"
-    ):
+    if kwargs.get("immediate") or time_machine.escape_hatch.is_travelling():
         kwargs.pop("immediate", None)
         return create_person(**kwargs)
 

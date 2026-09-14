@@ -13,6 +13,11 @@ describe("searchSettings", () => {
       "Spoken narration",
     ],
     ["ranks a label prefix above keyword hits", "dock badge", "Dock badge"],
+    [
+      "finds Simplified Technical English by its standard name",
+      "STE100",
+      "Simplified Technical English (ASD-STE100)",
+    ],
   ])("%s", (_name, query, expectedFirstLabel) => {
     const results = searchSettings(query, NO_HIDDEN);
     expect(results[0]?.label).toBe(expectedFirstLabel);

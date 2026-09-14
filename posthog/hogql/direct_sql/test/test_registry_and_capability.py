@@ -39,10 +39,10 @@ class TestDirectSQLRegistry(SimpleTestCase):
         # dialect is non-None, so direct_supports_hogql is True (not raw-only).
         self.assertEqual(adapter.dialect, "clickhouse")
 
-    def test_trino_adapter_remains_raw_only(self):
+    def test_trino_adapter_compiles_hogql(self):
         adapter = get_adapter("trino")
         assert adapter is not None
-        self.assertIsNone(adapter.dialect)
+        self.assertEqual(adapter.dialect, "trino")
 
     def test_register_adapter_round_trips(self):
         class FakeAdapter:

@@ -803,8 +803,11 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
                 const result = { ...snapshotsByWindowId }
                 for (const [windowId, ranges] of Object.entries(oversizedMutationRanges)) {
                     result[windowId as unknown as number] = snapshotsByWindowId[windowId as unknown as number].filter(
+                        // Mutations only; a ViewportResize dropped here never comes back, since rrweb reads
+                        // dimensions from Meta rather than FullSnapshot
                         (event) =>
                             event.type !== EventType.IncrementalSnapshot ||
+                            event.data?.source !== IncrementalSource.Mutation ||
                             !ranges.some((range) => event.timestamp >= range.start && event.timestamp < range.end)
                     )
                 }

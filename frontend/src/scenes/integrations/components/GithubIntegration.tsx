@@ -10,6 +10,7 @@ import { githubInstallRequestsLogic } from 'lib/integrations/githubInstallReques
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import type { IntegrationConnectSurface } from 'lib/integrations/utils'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
+import { cn } from 'lib/utils/css-classes'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -20,12 +21,14 @@ import { Integration, useIntegrations } from './Integration'
 
 export function GithubIntegration({
     next,
+    centered = false,
     connectSurface,
     connectText = 'Connect account',
     emphasizeConnect = false,
     showPersonalConnectionHelp = true,
 }: {
     next?: string
+    centered?: boolean
     connectText?: string
     emphasizeConnect?: boolean
     showPersonalConnectionHelp?: boolean
@@ -75,7 +78,7 @@ export function GithubIntegration({
     }
 
     return (
-        <Integration kind="github">
+        <Integration kind="github" centered={centered}>
             {/* w-full because Integration drops its children into a bare flex row, which would
                 otherwise size the banner to its longest word. */}
             <div className="flex flex-col gap-y-4 w-full">
@@ -107,8 +110,10 @@ export function GithubIntegration({
                                 onLink={(installationId) => {
                                     // Reusing an existing install never leaves PostHog, so it's a
                                     // connect that skips GitHub entirely — worth separating from the
-                                    // clicks that redirect out.
-                                    reportConnect('settings_link_existing')
+                                    // clicks that redirect out. Falls back to `connectSurface` like
+                                    // every other button here, instead of a fixed literal, so the
+                                    // surface still says where the click happened.
+                                    reportConnect(connectSurface === 'settings' ? 'settings_link_existing' : undefined)
                                     linkExistingGithubInstallation(installationId)
                                 }}
                                 projectName={currentTeam?.name}
@@ -135,7 +140,7 @@ export function GithubIntegration({
                         </p>
                     </div>
                 ) : (
-                    <div className="flex flex-wrap gap-2">
+                    <div className={cn('flex flex-wrap gap-2', centered && 'justify-center')}>
                         {/* This leaves PostHog entirely, and a GitHub App installs at most once per
                             account, so GitHub offers install where it's missing and configure where it
                             isn't. "Connect account" matches the Linear and Jira cards, which name the
@@ -151,7 +156,7 @@ export function GithubIntegration({
                     </div>
                 )}
                 {isConnected && (
-                    <p className="text-secondary text-xs mb-0">
+                    <p className={cn('text-secondary text-xs mb-0', centered && 'text-center')}>
                         Add the PostHog app to another GitHub account, or change which repositories it can see.
                     </p>
                 )}
@@ -159,7 +164,7 @@ export function GithubIntegration({
                     !isConnected &&
                     installations.length === 0 &&
                     githubPersonalConnected === false && (
-                        <p className="text-secondary text-xs mb-0">
+                        <p className={cn('text-secondary text-xs mb-0', centered && 'text-center')}>
                             Already installed the PostHog GitHub App but don't see it here? Connect your GitHub account
                             under <Link to={urls.settings('user-personal-integrations')}>Personal integrations</Link> so
                             PostHog can find it.

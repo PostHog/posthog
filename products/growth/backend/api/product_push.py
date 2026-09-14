@@ -95,7 +95,7 @@ class ProductPushCampaignViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
             team_access_control = UserAccessControl(user=cast(User, request.user), team=team)
             if not team_access_control.check_access_level_for_object(team, "member"):
                 raise NotFound("Team not found.")
-            if project_uses_product(team.project_id, campaign.product_key):
+            if project_uses_product(team.project_id, campaign.product_key, team.organization_id):
                 return Response(status=status.HTTP_204_NO_CONTENT)
 
         return Response(self.get_serializer(campaign).data)

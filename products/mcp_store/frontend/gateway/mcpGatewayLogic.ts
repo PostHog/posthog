@@ -95,6 +95,7 @@ function templateAsGatewayServer(template: MCPServerTemplateApi, enabled: boolea
         description: template.description ?? '',
         category: template.category ?? 'dev',
         template_auth_type: template.auth_type ?? 'oauth',
+        auth_type: template.auth_type ?? 'oauth',
         is_team_enabled: enabled,
         icon_key: template.icon_key,
         icon_domain: template.icon_domain,
@@ -1392,7 +1393,7 @@ export const mcpGatewayLogic = kea<mcpGatewayLogicType>([
                 return
             }
 
-            actions.openConnectionModal(serverId, server.template_auth_type ?? 'oauth')
+            actions.openConnectionModal(serverId, server.auth_type ?? server.template_auth_type ?? 'oauth')
         },
         reconnectServer: ({ installationId }) => {
             window.location.href = getMcpServerInstallationsAuthorizeRetrieveUrl(currentProjectId(), {

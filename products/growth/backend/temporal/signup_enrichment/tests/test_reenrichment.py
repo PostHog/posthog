@@ -230,11 +230,8 @@ class TestReenrichOrganizationActivity(BaseTest):
             "days_since_first_fetch": None,
         }
         assert enrich.await_args is not None
-        assert enrich.await_args.kwargs["is_recheck"] is True
-        assert enrich.await_args.kwargs["role_at_organization"] == "engineering"
-        # The sweep must label its own writes "sweep", not the workflow's is_recheck=True
-        # default of "recheck" — see enrich_organization's fit_evaluation_kind override.
-        assert enrich.await_args.kwargs["fit_evaluation_kind"] == "sweep"
+        assert enrich.await_args.kwargs["ctx"].is_recheck is True
+        assert enrich.await_args.kwargs["ctx"].role_at_organization == "engineering"
         event = pha_client.capture.call_args
         assert event.kwargs["event"] == "icp_reenrichment_completed"
         assert event.kwargs["properties"]["icp_fit_status"] == "scored"
@@ -256,6 +253,16 @@ class TestReenrichOrganizationActivity(BaseTest):
             "days_since_first_fetch": None,
         }
         assert pha_client.capture.call_args.kwargs["properties"]["icp_fit_status"] == "not_found"
+
+    def test_a_degraded_fit_evaluation_leaves_the_event_provenance_empty(self):
+        outcome = EnrichmentOutcome(provider_fields=EnrichmentFields(company_type="STARTUP"), fit=None)
+
+        _, pha_client, _ = self._run(outcome)
+
+        properties = pha_client.capture.call_args.kwargs["properties"]
+        assert properties["icp_fit_status"] is None
+        assert properties["icp_fit_evaluated_at"] is None
+        assert properties["icp_fit_evaluation_kind"] is None
 
     def test_event_carries_previous_status_attempt_number_and_profile_age(self):
         OrganizationEnrichment.objects.create(

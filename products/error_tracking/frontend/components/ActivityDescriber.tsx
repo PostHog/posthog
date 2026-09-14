@@ -6,11 +6,11 @@ import { Link } from '@posthog/lemon-ui'
 import {
     ActivityChange,
     ActivityLogItem,
+    ActivityLogUserName,
     ChangeMapping,
     Description,
     HumanizedChange,
     defaultDescriber,
-    userNameForLogItem,
 } from 'lib/components/ActivityLog/humanizeActivity'
 import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 import { objectsEqual } from 'lib/utils/objects'
@@ -41,6 +41,13 @@ function AssigneeRenderer({ assignee }: { assignee: ErrorTrackingIssueAssignee }
             )}
         </AssigneeResolver>
     )
+}
+
+function relatedIssueIdsForLogItem(logItem: ActivityLogItem): string[] {
+    const change = (logItem.detail.changes || []).find(
+        (candidate) => candidate.field === 'merged_issue_ids' || candidate.field === 'split_issue_ids'
+    )
+    return Array.isArray(change?.after) ? change.after.map(String) : []
 }
 
 function nameAndLink(logItem?: ActivityLogItem): JSX.Element {
@@ -127,6 +134,40 @@ export function ActivityDescriber(logItem: ActivityLogItem, asNotification?: boo
         return { description: null }
     }
 
+    if (logItem.activity == 'merged' || logItem.activity == 'split') {
+        const relatedIssueIds = relatedIssueIdsForLogItem(logItem)
+        const count = relatedIssueIds.length
+        return {
+            description: (
+                <SentenceList
+                    listParts={[
+                        logItem.activity == 'merged' ? (
+                            <>
+                                merged {count === 1 ? 'an issue' : `${count} issues`} into {nameAndLink(logItem)}
+                            </>
+                        ) : (
+                            <>
+                                split {nameAndLink(logItem)} into{' '}
+                                {count > 0 ? (
+                                    <SentenceList
+                                        listParts={relatedIssueIds.map((issueId, index) => (
+                                            <Link key={issueId} to={urls.errorTrackingIssue(issueId)}>
+                                                {count === 1 ? 'a new issue' : `new issue ${index + 1}`}
+                                            </Link>
+                                        ))}
+                                    />
+                                ) : (
+                                    'new issues'
+                                )}
+                            </>
+                        ),
+                    ]}
+                    prefix={<ActivityLogUserName logItem={logItem} />}
+                />
+            ),
+        }
+    }
+
     if (logItem.activity == 'updated' || logItem.activity == 'assigned') {
         let changes: Description[] = []
 
@@ -151,12 +192,7 @@ export function ActivityDescriber(logItem: ActivityLogItem, asNotification?: boo
 
         if (changes.length) {
             return {
-                description: (
-                    <SentenceList
-                        listParts={changes}
-                        prefix={<strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong>}
-                    />
-                ),
+                description: <SentenceList listParts={changes} prefix={<ActivityLogUserName logItem={logItem} />} />,
             }
         }
     }

@@ -17,9 +17,6 @@ import { COUNTRY_CODE_TO_LONG_NAME, countryCodeToFlag } from 'lib/utils/country'
 import { formatCurrency } from 'lib/utils/currency'
 import { autoCaptureEventToDescription } from 'lib/utils/events'
 import { isURL } from 'lib/utils/url'
-import { GroupActorDisplay } from 'scenes/persons/GroupActorDisplay'
-import { pickBestPersonDistinctId } from 'scenes/persons/person-utils'
-import { PersonDisplay, PersonDisplayProps } from 'scenes/persons/PersonDisplay'
 import { sessionColumnRenderers } from 'scenes/sessions/sessionColumnRenderers'
 import { urls } from 'scenes/urls'
 
@@ -46,6 +43,9 @@ import {
 import { AnyPropertyFilter, EventType, PersonType, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { aiObservabilityColumnRenderers } from 'products/ai_observability/frontend/aiObservabilityColumnRenderers'
+import { GroupActorDisplay } from 'products/persons/frontend/components/GroupActorDisplay'
+import { PersonDisplay, PersonDisplayProps } from 'products/persons/frontend/components/PersonDisplay'
+import { pickBestPersonDistinctId } from 'products/persons/frontend/person-utils'
 
 import { extractExpressionComment, removeExpressionComment } from './utils'
 
@@ -274,11 +274,11 @@ export function renderColumn(
                         })
                     }}
                 >
-                    <Property value={record.properties[propertyKey]} />
+                    <Property value={record.properties[propertyKey]} propertyKey={propertyKey} />
                 </Link>
             )
         }
-        return <Property value={record.properties[propertyKey]} />
+        return <Property value={record.properties[propertyKey]} propertyKey={propertyKey} />
     } else if (!Array.isArray(record) && key.startsWith('person.properties.')) {
         // TODO: remove after removing the old events table
         const eventRecord = record as EventType
@@ -320,11 +320,11 @@ export function renderColumn(
                         })
                     }}
                 >
-                    <Property value={eventRecord.person?.properties?.[propertyKey]} />
+                    <Property value={eventRecord.person?.properties?.[propertyKey]} propertyKey={propertyKey} />
                 </Link>
             )
         }
-        return <Property value={eventRecord.person?.properties?.[propertyKey]} />
+        return <Property value={eventRecord.person?.properties?.[propertyKey]} propertyKey={propertyKey} />
     } else if (key === 'person') {
         const personRecord = record as PersonType
         const displayProps: PersonDisplayProps = {

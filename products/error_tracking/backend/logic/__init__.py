@@ -314,6 +314,46 @@ def release_hash_exists(team_id: int, hash_id: str) -> bool:
     return ErrorTrackingRelease.objects.filter(team_id=team_id, hash_id=hash_id).exists()
 
 
+def _sanitize_release_remote_url(remote_url: str) -> str:
+    query_start = remote_url.find("?")
+    fragment_start = remote_url.find("#")
+    sanitized_end = min(
+        (position for position in (query_start, fragment_start) if position >= 0),
+        default=len(remote_url),
+    )
+    if remote_url.startswith("//"):
+        authority_start = 2
+    else:
+        scheme_end = remote_url.find("://", 0, sanitized_end)
+        if scheme_end < 0:
+            return remote_url[:sanitized_end]
+        authority_start = scheme_end + 3
+    authority_end = remote_url.find("/", authority_start, sanitized_end)
+    if authority_end < 0:
+        authority_end = sanitized_end
+    credentials_end = remote_url.rfind("@", authority_start, authority_end)
+    if credentials_end < 0:
+        return remote_url[:sanitized_end]
+
+    return remote_url[:authority_start] + remote_url[credentials_end + 1 : sanitized_end]
+
+
+def sanitize_release_metadata(metadata: dict | None) -> dict | None:
+    if not isinstance(metadata, dict):
+        return metadata
+    git_metadata = metadata.get("git")
+    if not isinstance(git_metadata, dict):
+        return metadata
+    remote_url = git_metadata.get("remote_url")
+    if not isinstance(remote_url, str):
+        return metadata
+
+    sanitized_remote_url = _sanitize_release_remote_url(remote_url)
+    if sanitized_remote_url == remote_url:
+        return metadata
+    return {**metadata, "git": {**git_metadata, "remote_url": sanitized_remote_url}}
+
+
 def create_release(
     team_id: int,
     *,
@@ -329,7 +369,7 @@ def create_release(
         hash_id=resolved_hash_id,
         defaults={
             "id": release_id,
-            "metadata": metadata,
+            "metadata": sanitize_release_metadata(metadata),
             "project": str(project),
             "version": str(version),
         },
@@ -352,7 +392,7 @@ def update_release(
     if release is None:
         return None
     if metadata:
-        release.metadata = metadata
+        release.metadata = sanitize_release_metadata(metadata)
     if version:
         release.version = str(version)
     if project:

@@ -127,7 +127,10 @@ Generate an API key from your [ClickHouse Cloud console](https://console.clickho
         if validate_clickhouse_cloud_credentials(config.key_id, config.key_secret):
             return True, None
 
-        return False, "Invalid ClickHouse Cloud API key ID or secret"
+        return False, (
+            "Your ClickHouse Cloud API key was rejected. Check the key ID and secret, or create a new key "
+            "in your ClickHouse Cloud console, then reconnect."
+        )
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[ClickhouseCloudResumeConfig]:
         return ResumableSourceManager[ClickhouseCloudResumeConfig](inputs, ClickhouseCloudResumeConfig)

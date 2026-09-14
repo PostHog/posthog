@@ -28,8 +28,9 @@ Both stacks start from this plan branch ([#91468](https://github.com/PostHog/pos
 | --- | --- | --- |
 | Cycle 1 | `c1-delete-eager-flush` | Change 1. |
 | Cycle 2 | `c2-common-ledger` -> `c2-ledger-shadow` -> `c2-ledger-active` -> `c2-ledger-cleanup` | Changes 2 through 5, one PR per plan step. |
+| Cycle 3 | `c3-demux-groups` -> `c3-batcher` -> `c3-scheduler-seam` -> `c3-key-table` -> `c3-scheduler-switch` | Changes 6 through 10, one PR per plan step. |
 
-The stacks are independent: cycle 2 can begin without cycle 1. The merge gates remain part of the plan: change 4 cannot merge until change 3 has soaked with a zero mismatch counter, and change 5 cannot merge until change 4 is stable on every lane. Draft PRs may be prepared earlier, but they must not collapse those gates.
+The stacks are independent: cycle 2 can begin without cycle 1, and cycle 3 needs only cycle 1 and the crate from change 2. The merge gates remain part of the plan: change 4 cannot merge until change 3 has soaked with a zero mismatch counter, and change 5 cannot merge until change 4 is stable on every lane. Draft PRs may be prepared earlier, but they must not collapse those gates.
 
 ## The cycle model
 
@@ -133,7 +134,7 @@ This cycle has no switchover: the eager flush was never enabled.
 Outcome: commit contiguity is a property of a data structure, not of completion order.
 
 **Verify:** change 3 compares the frontier with every real commit on all lanes.
-Exit criterion: `ingestion_consumer_ledger_mismatch_total` stays zero across deploys and rebalances, and `ingestion_consumer_ledger_uncommitted_offsets` returns toward zero when a lane is idle — the ring drains.
+Exit criterion: `ingestion_consumer_ledger_mismatch_total` stays zero across deploys and rebalances, and `kafka_consumer_ledger_uncommitted_offsets` returns toward zero when a lane is idle — the ring drains.
 
 ### 2. Add the common Kafka consumer crate and offset ledger (implement)
 
@@ -143,7 +144,7 @@ Exit criterion: `ingestion_consumer_ledger_mismatch_total` stays zero across dep
 
 - Start from the config extraction in [Jose's branch](https://github.com/PostHog/posthog/compare/master...jose-sequeira/kafka-consumer-loop): move the current consumer config builder unchanged into `common-kafka-consumer`, retain its fixture coverage, and make `ingestion-consumer` depend on it.
 - Copy only the cycle-2 domain primitives from Jose's second commit into the new crate: the offset wrapper and the charge carried by a ledger slot. Adapt its `OffsetLedger` representation to this plan's `complete`, non-mutating `frontier`, and consuming `take_frontier` contract: Jose's current `complete` advances and removes the prefix, so it cannot be copied unchanged into the shadow comparison.
-- Do not take `Accumulator`, `Budget`, `PartitionDriver`, `PartitionManager`, or `CommitManager`; those implement later cycles and would make this PR cross several plan boundaries. The ledger module must not depend on `rdkafka`, `ingestion-consumer`, or service-specific metrics. The shared config module may retain its `rdkafka` dependency.
+- Do not take `Accumulator`, `Budget`, `PartitionDriver`, `PartitionManager`, or `CommitManager`; those implement later cycles and would make this PR cross several plan boundaries. The ledger module must not depend on `rdkafka`, `ingestion-consumer`, or service-specific metrics; it emits its own metrics under the crate prefix. The shared config module may retain its `rdkafka` dependency.
 
 - One ledger per partition. The ledger is a dense ring of delivered offsets.
 - Each slot records: complete or not, event count, byte count. The counts serve the budget in change 23.
@@ -154,7 +155,7 @@ Exit criterion: `ingestion_consumer_ledger_mismatch_total` stays zero across dep
 - Completions can arrive in any order. The frontier moves only over completed slots.
 - Kafka can deliver offsets with gaps: transaction markers occupy offsets that consumers never receive, and compaction keeps offsets while removing records. Our ingestion topics have neither today, and the commit sentinel treats a gap as a real skip (see the caveat on `CommitSentinel`).
 - The ledger still defines contiguity over delivered offsets, not offset arithmetic. A legitimate gap can then never block the frontier.
-- The sentinel's gap alert and the ledger's gap handling cannot both stand. Once the frontier owns commits (change 4), a commit that walks over a legitimate gap is correct, and the sentinel would report it as a skip. The ledger therefore counts each gap it walked over (`ingestion_consumer_ledger_gaps_total`), and the sentinel's gap alert retires in change 5. Until then the alert stays, because the ingestion topics have no legitimate gaps today and a gap is still a real skip.
+- The sentinel's gap alert and the ledger's gap handling cannot both stand. Once the frontier owns commits (change 4), a commit that walks over a legitimate gap is correct, and the sentinel would report it as a skip. The ledger therefore counts each gap it walked over (`kafka_consumer_ledger_gaps_total`), and the sentinel's gap alert retires in change 5. Until then the alert stays, because the ingestion topics have no legitimate gaps today and a gap is still a real skip.
 - Add property tests: out-of-order completion, monotonic frontier, `frontier` idempotence, the ring drains after `take_frontier`, offset gaps, ring capacity.
 
 **Interfaces:**
@@ -187,8 +188,8 @@ Exit criterion: `ingestion_consumer_ledger_mismatch_total` stays zero across dep
 **Metrics:**
 
 - Add `ingestion_consumer_ledger_mismatch_total` (counter): frontier vs committed offset disagreement.
-- Add `ingestion_consumer_ledger_uncommitted_offsets` (gauge, per partition): ring depth. It must fall at commit points. A value that only grows is a drain bug (a leak).
-- Add `ingestion_consumer_ledger_gaps_total` (counter): offset gaps the ledger walked over. Expected to stay at zero on the ingestion topics; a non-zero value is the signal the sentinel's gap alert gave before change 5 retires it.
+- Add `kafka_consumer_ledger_uncommitted_offsets` (gauge, per partition): ring depth. It must fall at commit points. A value that only grows is a drain bug (a leak).
+- Add `kafka_consumer_ledger_gaps_total` (counter): offset gaps the ledger walked over. Expected to stay at zero on the ingestion topics; a non-zero value is the signal the sentinel's gap alert gave before change 5 retires it.
 
 ### 4. Commit from the ledger frontier (switchover)
 
@@ -239,12 +240,13 @@ Exit criterion: zero key-order sentinel violations, `ingestion_consumer_transpor
 - Group messages per partition first, then per routing key. Keep offset order inside each group.
 - The dispatcher flattens the groups back into one message list. Sub-batch assembly does not change.
 - Change 7 submits them to the batcher as the accumulator.
+- The group is the seam vocabulary between the consumer loop and the batcher, so it lives in `common-kafka-consumer`, generic over the key and the message body. The crate's demux knows no routing key of its own: a keyless message is one group on its own, and the dispatcher keeps naming such a group with its synthetic per-message key.
 
 **Interfaces:**
 
-- Add `Group` in `types.rs`: partition, routing key, messages in offset order.
+- Add `Partition` to the crate's `types.rs`, and `Group` and `Accumulator` in `accumulator.rs`: a group is a partition, an optional key, and its offsets and messages in offset order; the accumulator is the demux that builds one poll's groups.
 - Modify `CollectedBatch`: carries `Vec<Group>` instead of a flat message list.
-- Modify `Dispatcher::assign_and_send`: takes groups and flattens them. `group_messages_by_routing_key` moves to the collect path.
+- Modify `Dispatcher::assign_and_send`: takes groups and flattens them. The demux moves to the collect path; the dispatcher keeps only the routing-key naming.
 
 ### 7. Encapsulate the worker batcher (prepare)
 
@@ -261,22 +263,24 @@ Exit criterion: zero key-order sentinel violations, `ingestion_consumer_transpor
 - `GrpcTransport`, `Router`, and `WorkerRegistry` keep their construction and ownership in `main.rs`. The batcher takes shared handles. Readiness gating, discovery reconciliation, the reaper, and the debug endpoints do not change.
 - The facade replicates today's behavior exactly, including the oldest-first flush pacing. This is code motion — moving code without changing it — not redesign.
 - The consumer loop keeps: poll collection, commits, the sentinels, and the admission cap. It tracks each poll's offset spans and completes the poll when completions cover them, so completion and commit behavior do not change.
-- The no-progress watchdog survives the move: a poll that gains no completions for the stall window fails the process and replays, exactly as the deferred-flush timeout does today. Every later cycle keeps this bail until cycle 10 adds the per-partition stall deadline.
-- The consumer discards a completion whose epoch is not the partition's current epoch, and counts it. The epoch already exists on master. Carrying it on the completion from this change closes the window a partition-ownership check leaves open: a partition revoked and reassigned while a group is out gets a new ledger, and the old incarnation's completion must not land in it.
+- The no-progress watchdog moves with the flush: the stall deadline lives in the batcher's flush driver, and only there. The clock suspends while a send is in flight and resets when messages land, exactly as today — a consumer-side completions-only timer cannot see the difference between a wedged flush and a slow send, and would fail drains that today survive. The batcher reports a stall (and the other fatal orchestration failures: shutdown while deferred work is unroutable, a batch with no usable workers) on an error channel beside the completions; the consumer fails the process on the first message, keeping the failure decision in the loop. Every later cycle keeps this bail until cycle 10 adds the per-partition stall deadline.
+- Each completion carries the assignment epoch read once at submit, and `submit` returns it. The consumer correlates a completion to a poll by epoch plus partition and offset — within one epoch, poll spans are disjoint per partition — and discards and counts a completion that matches no in-flight poll. The epoch already exists on master. Carrying it on the completion from this change closes the window a partition-ownership check leaves open: a partition revoked, reassigned, and replayed while a group is out has two polls holding the same offsets, and the old incarnation's completion must not land in the new poll (nor, later, in its new ledger).
 - Changes 8 and 9 extract the scheduler seam inside this boundary.
 
 **Interfaces:**
 
-- Add `Accumulator`: one poll's groups, in poll order.
-- Add `Batcher` in `batcher.rs`: `submit(Accumulator)` in, a channel of `GroupCompletion` out. It owns `Dispatcher` and the send tasks, and holds shared handles to `GrpcTransport`, `Router`, and `WorkerRegistry`. It creates batch ids internally.
-- Add `GroupCompletion`: partition, assignment epoch, offsets, accepted count. No batch id and no messages: the batcher keeps the bodies for retry, and the ledger needs only the offsets.
-- Modify `IngestionConsumer`: drop `scatter` and `flush_deferred` — they move into the batcher. Keep collect, commit, and the admission cap. Correlate completions to polls by partition and offset.
+- Submit the `Accumulator` from change 6 as one poll's groups, in poll order.
+- Add `Batcher` in `batcher.rs`: `submit(Accumulator)` in (returning the stamped assignment epoch), a channel of `GroupCompletion` plus an error channel out. It owns `Dispatcher` and the send tasks, and holds shared handles to `GrpcTransport`, `Router`, and `WorkerRegistry`, plus a lifecycle handle and the deferred-flush timeout for its flush driver. It creates batch ids internally.
+- Add `GroupCompletion` in the crate's `types.rs`: partition, assignment epoch, offsets, accepted count. No batch id and no messages: the batcher keeps the bodies for retry, and the ledger needs only the offsets.
+- Add `AssignmentEpoch` to the crate: the named home of the assignment generation. `main.rs` creates it, the rebalance context bumps it, and the transport and the batcher read it — one counter, one bump site, two readers.
+- Modify `IngestionConsumer`: drop `scatter` and `flush_deferred` — they move into the batcher. Keep collect, commit, and the admission cap. Correlate completions to polls by epoch, partition, and offset.
 - Modify `main.rs`: construct one `Batcher` from the existing transport, registry, and router. The consumer no longer sees the dispatcher.
-- Internalize `Dispatcher`'s resolve methods (`on_sub_batch_*`, `defer_failed`): only the batcher calls them.
+- Internalize `Dispatcher`'s resolve methods (`on_sub_batch_*`, `defer_failed`): only the batcher calls them in production code. The methods stay public because the e2e suite drives them directly, and that suite must pass unedited.
 
 **Metrics:**
 
-- Add `ingestion_consumer_group_completions_total` (counter) and its accepted-message sum. Cross-check: the sum tracks `ingestion_consumer_messages_processed_total`.
+- Add `ingestion_consumer_group_completions_total` (counter) and its accepted-message sum, `ingestion_consumer_group_completion_accepted_messages_total`. Cross-check: the sum tracks `ingestion_consumer_messages_processed_total`.
+- Add `ingestion_consumer_stale_group_completions_total` (counter): completions discarded because no in-flight poll matched.
 
 ### 8. Extract the scheduler seam (prepare)
 
@@ -289,15 +293,18 @@ Exit criterion: zero key-order sentinel violations, `ingestion_consumer_transpor
 - Interface out: dispatches. One dispatch is one run of one key on one worker.
 - The first implementation preserves today's semantics: pins, the stash, deferral on drain, and the flush pacing. This is code motion from `assign`, `flush_deferred`, and `on_sub_batch_resolved`.
 - The plumbing (tasks, channels, the mutex) stays as it is. Only the decisions move.
-- The seam is event-shaped, by design: each call is one event, runs to completion, does no I/O, takes no locks, and returns its effects as data (the dispatches). This shape is what later makes change 19 mechanical: the seam's handlers become the loop's select arms.
+- The seam is event-shaped, by design: each call is one event, runs to completion, does no I/O, takes no locks, and returns its effects as data (the dispatches, the deferral counts, the evicted keys). This shape is what later makes change 19 mechanical: the seam's handlers become the loop's select arms.
+- The no-locks rule needs the worker world as data: the dispatcher captures a `WorkerSnapshot` (healthy pool, aperture-narrowed candidates, per-worker health, the load table) before each seam call, and the scheduler decides over it. Change 19 already names this shape: the worker-health snapshot stays the only shared read.
+- A failed send settles in one call: the settlement's failure arm carries the failed runs, and the scheduler requeues them before it releases the keys. This is the invariant change 9's key-table needs (requeue before release); the pin-stash implementation preserves today's stash-then-decrement order inside the one call. The two-step resolve methods stay public for the e2e suite, which must pass unedited.
 - The seam makes today's implicit ordering rules explicit and reviewable in one place.
 
 **Interfaces:**
 
-- Add the `Scheduler` trait in `scheduler.rs`: `on_groups`, `on_settled`, `on_deadline` in; `Vec<Dispatch>` out.
-- Add `Dispatch`: one run of one key, with the chosen worker.
-- Add `PinStashScheduler`: the current semantics, moved out of `Dispatcher::assign`, `flush_deferred`, and `on_sub_batch_resolved`. It owns `PinTable` and `Stash` unchanged.
-- Modify `Dispatcher`: shrinks to plumbing — the lock, in-flight load, metrics, and seam calls.
+- Add the `Scheduler` trait in `scheduler.rs`: `on_groups`, `on_settled`, `on_deadline` in; a `SchedulerEffects` out — the dispatches plus the deferral counts and evicted keys, so metrics and debug events stay in the plumbing. `on_deadline` names the batch to retry while the pacing is per batch; the key-table scheduler generalizes it to a parked-retry deadline.
+- Add `Dispatch`: one run of one key, with the chosen worker and the send kind for the key-order sentinel.
+- Add `WorkerSnapshot` and `Settlement` (with its delivered and failed arms) as the seam's input vocabulary.
+- Add `PinStashScheduler`: the current semantics, moved out of `Dispatcher::assign`, `flush_deferred`, and `on_sub_batch_resolved`. It owns the pins, the `Stash`, and the `Router` unchanged — placement is a scheduling decision.
+- Modify `Dispatcher`: shrinks to plumbing — the lock, in-flight load, metrics, sentinel calls, view capture, sub-batch assembly, and seam calls. `settle` is the one production resolve entry point.
 
 ### 9. Build the key-table scheduler (implement)
 
@@ -315,10 +322,11 @@ Exit criterion: zero key-order sentinel violations, `ingestion_consumer_transpor
 **Interfaces:**
 
 - Add `KeyTableScheduler` and `KeyTable` in `key_table.rs`: per-key FIFO, outstanding flag, parked list. Implements `Scheduler`. Tests only, no production callers.
+- Modify `Scheduler::on_deadline`: takes a `Deadline` — the per-batch flush deadline (the pin-stash pacing) or the parked-retry deadline (the key-table pacing). Each implementation answers its own arm; the other arm is a no-op. The dispatcher keeps firing per-batch deadlines.
 
 **Metrics:**
 
-- Add, emitted when selected: `ingestion_consumer_key_table_keys`, `ingestion_consumer_key_table_queued_messages`, `ingestion_consumer_key_table_outstanding_keys`, `ingestion_consumer_key_table_parked_keys` (gauges), and `ingestion_consumer_parked_retries_total` (counter).
+- Add, emitted when selected: `ingestion_consumer_key_table_keys`, `ingestion_consumer_key_table_queued_messages`, `ingestion_consumer_key_table_queued_bytes`, `ingestion_consumer_key_table_outstanding_keys`, `ingestion_consumer_key_table_parked_keys` (gauges), and `ingestion_consumer_parked_retries_total` (counter). Queued bytes needs an alert before the switch: every key with an outstanding request buffers all later arrivals in full, and key cardinality is customer-controlled.
 
 ### 10. Switch to the key-table scheduler (switchover)
 
@@ -326,17 +334,23 @@ Exit criterion: zero key-order sentinel violations, `ingestion_consumer_transpor
 
 **Goal:** At most one in-flight request per key replaces pins, the stash, and the flush paths.
 
-- The switch changes the ordering rule and nothing else. Placement, transport, and completion accounting do not change in this PR.
+- The switch changes the ordering rule, and with it the completion-accounting assumption: a merged run spans polls, so one completion no longer maps onto one poll. Placement and transport do not change.
 - At most one outstanding request per key preserves per-key order. Nothing else does, and nothing else must.
 - This is proposal 2 of the design doc: sticky pins are removed. Measure worker key-cache locality before and after (open question 3).
 - Watch the cycle's exit metrics, and the key-table gauges for queue growth.
 - Rollback is the config switch back to the old scheduler.
+- The trait does not change, but the plumbing does: the dispatcher and batcher today honor only the subset of `SchedulerEffects` the pin-stash produces. The seam isolates implementations only when the caller applies the full effects from every seam call. The plumbing changes below must land before the scheduler selection — a bare config switch drops settlement dispatches and fatals on a poll whose keys are all outstanding.
 
 **Interfaces:**
 
 - Modify `Config`: add the scheduler selection.
-- Modify the batcher construction: select `KeyTableScheduler` or `PinStashScheduler`.
-- No interface shapes change.
+- Modify the batcher construction: select the scheduler. Prefer an enum over a trait object: the dispatcher calls six pin-stash-only inherent methods (`register_batch`, `release_batch`, `has_batch`, `pin_count`, `stashed_messages`, `stashed_batches`) that must stay off the trait, and change 11 deletes one arm.
+- Add `Dispatcher::settle_and_send`, called from both scatter arms: under the key table a delivered settlement dispatches the key's next run, so `settle` may no longer drop `effects.dispatches`. Dispatches are `begin_send`-ed under the lock, as in `assign_and_send`; sending from a settlement makes the scatter recursive.
+- Modify `run_scatter`'s empty-pending guard: a poll whose keys are all outstanding dispatches nothing by design and is not "no healthy workers". The guard needs a scheduler-level retained-work answer (pin-stash: `has_batch`; key table: queued or outstanding keys).
+- Replace the flush driver rather than retarget it: `run_flush_driver` is per-batch (ticket loop, `has_unfinished_flush`, per-batch stall deadline), and parked keys have no batch identity. The key table needs a global periodic `Deadline::ParkedRetry` pump plus a global stall watchdog, so a wedged key table restarts loudly instead of growing lag silently.
+- Modify `apply_completion` in the consumer: credit each offset to the in-flight poll that contains it, instead of crediting the whole completion to the poll that contains its first offset. A merged run's completion spans polls in steady state; under first-offset crediting the first poll over-counts and the later poll never completes, and its wait loop reports healthy every second while stuck.
+- Bound runs by epoch in the key table: stamp the assignment epoch on messages at enqueue, and stop `take_run` at an epoch boundary, so a run never mixes epochs and its completion carries one valid stamp. A cross-epoch completion has no correct stamp and one side is discarded as stale.
+- Purge on rebalance: drop the key table's queued messages for revoked partitions (a routing key maps to one partition). The new partition owner replays them; sending the stale queue too duplicates delivery.
 
 ### 11. Delete the old scheduler (cleanup)
 
@@ -352,7 +366,8 @@ Exit criterion: zero key-order sentinel violations, `ingestion_consumer_transpor
 - Remove `PinStashScheduler`, `PinTable`, `Stash`, and `sticky_pin_for`.
 - Remove the scheduler selection from `Config`.
 - Modify `Dispatcher`: remove the dead resolve plumbing (`clears_deferral`, `send_failed`, the flush driver).
-- Remove the pin and stash metrics (`ingestion_consumer_dispatcher_pins_total`, `ingestion_consumer_dispatcher_stashed_*`, the deferral counters). The key-table gauges replace them.
+- Remove `Deadline`: with the per-batch arm gone, the parked retry is the only deadline left.
+- Remove the pin and stash metrics (`ingestion_consumer_dispatcher_pins_total`, `ingestion_consumer_dispatcher_stashed_*`, the deferral counters, `ingestion_consumer_dispatcher_pin_evictions_total` — key-table evictions must not keep counting under a pin name). The key-table gauges replace them.
 
 ## Cycle 4: workers receive target-sized requests
 
@@ -550,7 +565,7 @@ This is a deliberate structural outcome, not routine cleanup: it is the largest 
 
 Outcome: commits advance per partition as groups complete. Needs cycles 2 and 3.
 
-**Verify:** the commit sentinel checks every commit, and `ingestion_consumer_ledger_uncommitted_offsets` shows per-partition frontier lag.
+**Verify:** the commit sentinel checks every commit, and `kafka_consumer_ledger_uncommitted_offsets` shows per-partition frontier lag.
 Exit criterion at the canary: zero sentinel violations, and a stalled partition no longer moves the commit rate of other partitions.
 
 ### 21. Switch completion to group granularity (switchover)
@@ -566,11 +581,13 @@ Exit criterion at the canary: zero sentinel violations, and a stalled partition 
 - Keep `max_in_flight_batches` as the bound on outstanding work. A poll's slot frees when all its groups are accepted.
 - Behavior change: commit timing decouples across partitions and polls. Replay exposure stays inside the admission cap.
 - Rollback is the switch back to `poll`.
+- Commit pacing is the seam for this cycle. The consumer already hands every taken frontier to a commit pacer (`commit_pacer.rs`) and commits what the pacer hands back. Today's pacer is `ImmediateCommitPacer`: everything handed over is due on the next take, so commits stay per poll. Per-partition commits at `group` granularity would commit on every group completion, which is too many commits, so this cycle adds an `IntervalCommitPacer` that keeps the latest frontier per partition and hands them out at most once per `CONSUMER_COMMIT_INTERVAL_MS`. The loop then asks the pacer on a tick, not only after a poll settles, and the tick must not sit in a `select!` next to `collect_batch`, because a dropped collection loses messages before they reach the ledger; the interval bounds the commit delay only if the collection loop itself asks the pacer, otherwise the bound is the interval plus the batch timeout. The commit sentinel must record a partition's attempted offset when the pacer hands it out, not when the frontier is handed over, or `ingestion_consumer_commit_confirmation_lag` reports pending frontiers as commits that never landed. On revoke the pacer forgets the partition; the drain in change 27 commits what the pacer still holds at shutdown. Select between the two pacers with a `CommitPacer` trait or an enum once the second one exists, not before. The sentinel's contiguity check compares the span a poll delivered against the previous commit, which catches a skip in what Kafka delivered; at `group` granularity a take no longer maps to one poll's slice, so that check retires here, after an alert on `kafka_consumer_ledger_gaps_total` stands in for it. Checking the take's own window base against the previous take is not a replacement: the ledger sets the base to the frontier it hands out, so that comparison holds by construction.
 
 **Interfaces:**
 
-- Modify `Config`: add the completion granularity.
+- Modify `Config`: add the completion granularity and `CONSUMER_COMMIT_INTERVAL_MS`.
 - Modify `IngestionConsumer::process`: at `group` granularity, select over `GroupCompletion` events. The per-poll path stays for rollback.
+- Add `IntervalCommitPacer` next to `ImmediateCommitPacer`, and the seam that selects one.
 
 ### 22. Delete the per-poll completion path (cleanup)
 
@@ -716,7 +733,7 @@ Exit criterion: `ingestion_consumer_drain_duration_seconds` stays inside the dea
 The steady-state dashboard after the migration:
 
 - Delivery: `ingestion_lag_ms`, the `ingestion_consumer_messages_processed_total` rate, and the two sentinel violation counters, which must stay at zero.
-- Commits: `ingestion_consumer_ledger_uncommitted_offsets` per partition (frontier lag, and the ring-leak detector) and the `ingestion_consumer_offset_commits_total` rate.
+- Commits: `kafka_consumer_ledger_uncommitted_offsets` per partition (frontier lag, and the ring-leak detector) and the `ingestion_consumer_offset_commits_total` rate.
 - Scheduling: the key-table gauges and `ingestion_consumer_parked_retries_total`.
 - Admission: the budget gauges and `ingestion_consumer_budget_paused`.
 - Requests: the request-size histograms, `ingestion_consumer_transport_duration_seconds`, `ingestion_consumer_governor_permits`, `ingestion_consumer_request_rtt_seconds`, and `ingestion_consumer_request_budget_partials_total`.

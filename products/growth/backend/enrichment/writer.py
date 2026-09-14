@@ -30,15 +30,16 @@ from products.growth.backend.models import OrganizationEnrichment, OrganizationE
 
 ORGANIZATION_GROUP_TYPE = "organization"
 
+# Published in org_icp_fit_current, so these names are a contract and must stay spelled out
+# as constants rather than inlined.
+HARMONIC_STATUS_KEY = "harmonic_enrichment_status"
+HARMONIC_STATUS_AT_KEY = "harmonic_enrichment_status_at"
+HARMONIC_URN_KEY = "harmonic_enrichment_urn"
+
 # Every fit key tied to one evaluation's numeric outcome. An evaluation that doesn't
 # produce one of these strips it, so the record never carries a value the current
 # evaluation didn't produce (e.g. components surviving a later disqualification).
 _FIT_NUMERIC_KEYS = ["icp_fit_score", "icp_fit_components", "icp_fit_flags", "icp_fit_dq_reason"]
-
-FIT_EVALUATION_KIND_INITIAL = "initial"
-FIT_EVALUATION_KIND_RECHECK = "recheck"
-FIT_EVALUATION_KIND_BACKFILL = "backfill"
-FIT_EVALUATION_KIND_SWEEP = "sweep"
 
 
 def merge_into_record(
@@ -69,6 +70,25 @@ def merge_into_record(
         record.save(update_fields=["data", "updated_at"])
 
 
+def write_harmonic_enrichment_status(
+    organization_id: str, *, status: str, observed_at: str, urn: str, pha_client: Client
+) -> Optional[str]:
+    """Reads the record's stored status inside the same locked write that merges the new one, so a caller can
+    tell a genuine transition from a retried batch re-stamping the same status.
+    """
+    values = {HARMONIC_STATUS_KEY: status, HARMONIC_STATUS_AT_KEY: observed_at, HARMONIC_URN_KEY: urn}
+    previous_status: Optional[str] = None
+
+    def _merge(current: dict[str, Any]) -> dict[str, Any]:
+        nonlocal previous_status
+        previous_status = current.get(HARMONIC_STATUS_KEY)
+        return values
+
+    merge_into_record(organization_id, _merge)
+    pha_client.group_identify(ORGANIZATION_GROUP_TYPE, organization_id, properties=values)
+    return previous_status
+
+
 def _fit_record_writes(fit: IcpFitResult, *, evaluation_kind: str) -> tuple[dict[str, Any], list[str]]:
     """The Postgres (data) writes and key removals for one fit evaluation.
 
@@ -76,8 +96,7 @@ def _fit_record_writes(fit: IcpFitResult, *, evaluation_kind: str) -> tuple[dict
     that is later disqualified loses its stale components and flags, and a score-less
     evaluation (insufficient_data / not_found) strips every numeric key — the status is
     the result. icp_fit_evaluated_at/icp_fit_evaluation_kind sit outside _FIT_NUMERIC_KEYS
-    so a score-less evaluation still records when and how it ran, ahead of the daily sweep
-    that starts overwriting scores in place.
+    so a score-less evaluation still records when and how it ran.
     """
     values: dict[str, Any] = {
         "icp_fit_status": fit.status,
@@ -100,6 +119,8 @@ def _fit_record_writes(fit: IcpFitResult, *, evaluation_kind: str) -> tuple[dict
                 "low_confidence": fit.low_confidence,
                 "agency_flag": fit.agency_flag,
                 "nonprofit_flag": fit.nonprofit_flag,
+                "wizard_ai_sdk": fit.wizard_ai_sdk,
+                "ai_pilled_source": fit.ai_pilled_source,
             }.items()
             if value is not None
         }
@@ -160,10 +181,10 @@ def write_organization_enrichment(
     miss-path status stamp.
 
     `fit_evaluation_kind` (initial | recheck | backfill | sweep) is required whenever
-    `fit` is given — it and an evaluated-at timestamp land on every evaluation, including
-    score-less ones, so a value written before the sweep starts overwriting scores in
-    place stays distinguishable from one it wrote. It rides the Postgres record only, not
-    the group projection or the person mirror.
+    `fit` is given. It and an evaluated-at timestamp land on every evaluation, including
+    score-less ones, because the sweep overwrites scores in place and the record must say
+    which run wrote the current value. Both ride the Postgres record only, not the group
+    projection or the person mirror.
 
     No-op when there are no set fields and no scores, so a Harmonic miss with fit scoring
     degraded leaves the stores untouched.

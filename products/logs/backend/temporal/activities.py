@@ -27,8 +27,8 @@ from posthog.slo.context import SloHandle, SloSpec, slo_operation
 from posthog.slo.types import SloArea, SloOperation
 from posthog.sync import database_sync_to_async_pool
 
-from products.alerts.backend.delivery_slo import alert_delivery_slo
-from products.alerts.backend.destinations import (
+from products.alerts.backend.facade.delivery_slo import alert_delivery_slo
+from products.alerts.backend.facade.destinations import (
     alert_internal_event_delivered,
     flush_alert_internal_events,
     produce_alert_internal_event,

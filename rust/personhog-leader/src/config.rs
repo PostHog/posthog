@@ -267,7 +267,8 @@ pub struct Config {
     /// the dirty index prunes a mark as soon as the writer's committed
     /// offset shows the primary has the row, so reading an async replica
     /// here would serve stale rows for unmarked persons and silently
-    /// break read-your-write. Leader reads are strong reads.
+    /// break read-your-write. Lifecycle mark verifications read this pool
+    /// too and fail closed on replica lag.
     #[envconfig(default = "")]
     pub fallback_database_url: String,
 

@@ -30,13 +30,13 @@ from posthog.api.services.query import process_query_dict
 from posthog.event_usage import AnalyticsProps, EventSource
 from posthog.exceptions import ClickHouseQuerySizeExceeded
 from posthog.exceptions_capture import capture_exception
-from posthog.hogql_queries.insights.utils.breakdowns import (
+from posthog.hogql_queries.query_runner import ExecutionMode
+from posthog.hogql_queries.utils.breakdowns import (
     BREAKDOWN_NULL_DISPLAY,
     BREAKDOWN_NULL_STRING_LABEL,
     BREAKDOWN_OTHER_DISPLAY,
     BREAKDOWN_OTHER_STRING_LABEL,
 )
-from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.query_creator_access import creator_access_revoked, report_creator_access_revoked
 from posthog.security.spreadsheet_safety import sanitize_formula_injection
@@ -453,7 +453,9 @@ def get_from_insights_api(exported_asset: ExportedAsset, limit: int, resource: d
             # The underlying resource (e.g. a cohort) can be deleted or become unresolvable
             # mid-export, which surfaces as a 404 partway through pagination. Treat that as
             # end-of-data and return what we have rather than failing the whole export.
-            if e.response is not None and e.response.status_code == 404:
+            # A 404 on the first page is a different thing: the path never resolved, so
+            # there is nothing to return and an empty file would read as a successful export.
+            if e.response is not None and e.response.status_code == 404 and total > 0:
                 logger.warning(
                     "csv_exporter.resource_gone",
                     exc=e,

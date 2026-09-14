@@ -152,9 +152,19 @@ def get_rows(
 
     search_input: dict[str, Any] = {}
     if should_use_incremental_field and db_incremental_field_last_value is not None:
-        # `greaterThanOrEqualTo` re-fetches the boundary row (merge dedupes on
-        # primary key) so records sharing the watermark are never skipped.
-        search_input = {"createdAt": {"greaterThanOrEqualTo": _format_created_at(db_incremental_field_last_value)}}
+        if config.created_at_search_field is None:
+            # The search input can't express the cursor, so the run re-reads everything
+            # and the primary-key merge dedupes. Sending the filter anyway fails the
+            # whole sync on a GraphQL validation error.
+            logger.debug(f"Braintree: {endpoint} search input cannot filter on createdAt, re-reading all rows")
+        else:
+            # `greaterThanOrEqualTo` re-fetches the boundary row (merge dedupes on
+            # primary key) so records sharing the watermark are never skipped.
+            search_input = {
+                config.created_at_search_field: {
+                    "greaterThanOrEqualTo": _format_created_at(db_incremental_field_last_value)
+                }
+            }
 
     resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     after: Optional[str] = resume_config.after if resume_config is not None else None

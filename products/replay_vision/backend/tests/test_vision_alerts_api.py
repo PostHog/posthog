@@ -38,7 +38,7 @@ class _VisionAlertAPITestCase(APIBaseTest):
             name=name,
             scanner_type=scanner_type,
             scanner_config={"prompt": "did the user check out?"},
-            model=ScannerModel.GEMINI_3_7_FLASH,
+            model=ScannerModel.GEMINI_3_8_FLASH,
         )
 
     def _metric_payload(self, **overrides: Any) -> dict[str, Any]:

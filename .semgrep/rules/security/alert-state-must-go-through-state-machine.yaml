@@ -61,8 +61,6 @@ rules:
               # Migrations mutate historical models from apps.get_model, so they
               # cannot call the state machine.
               - '/products/replay_vision/backend/migrations/**'
-              # Retires legacy VisionAction rows, which have no state machine to route through.
-              - '/products/replay_vision/backend/management/commands/migrate_vision_actions.py'
 
     - id: billing-alert-state-direct-mutation
       patterns:
@@ -110,14 +108,15 @@ rules:
           confidence: HIGH
       paths:
           include:
-              - '/products/alerts/backend/api/alert.py'
-              - '/products/alerts/backend/facade/api.py'
-              - '/products/alerts/backend/max_tools.py'
-              - '/products/alerts/backend/models/alert.py'
+              - '/products/alerts/backend/**/*.py'
               - '/posthog/tasks/alerts/**/*.py'
               - '/posthog/temporal/alerts/**/*.py'
               - '/.semgrep/rules/security/tests/insight-alert-state-must-go-through-state-machine.py'
           exclude:
-              - '/products/alerts/backend/api/test/**'
+              - '/products/alerts/backend/insight_alert_state_machine.py'
+              # Writes HogFunction.enabled (destination plumbing), not an alert.
+              - '/products/alerts/backend/logic/destinations.py'
+              - '/products/alerts/backend/test/**'
+              - '/products/alerts/backend/tests/**'
               - '/products/alerts/backend/**/test_*.py'
               - '/posthog/tasks/alerts/test/**'

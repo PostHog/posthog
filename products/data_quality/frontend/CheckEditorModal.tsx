@@ -13,7 +13,9 @@ import {
     Spinner,
 } from '@posthog/lemon-ui'
 
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
 import { urls } from 'scenes/urls'
 
@@ -21,6 +23,7 @@ import type { DataQualitySubjectRef } from './checksApi'
 import { checkTypeLabel } from './checksConstants'
 import { dataQualityCheckEditorLogic } from './dataQualityCheckEditorLogic'
 import { CheckTypeEnumApi, DataQualityCheckSeverityEnumApi, SubjectTypeEnumApi } from './generated/api.schemas'
+import { formatPreviewCell } from './previewCell'
 
 export function CheckEditorModal(): JSX.Element {
     const {
@@ -254,26 +257,127 @@ function CheckConfigFields({ checkType }: { checkType: CheckTypeEnumApi }): JSX.
                 </LemonField>
             )
         case CheckTypeEnumApi.CustomSql:
-            return (
-                <LemonField
-                    name="customSql"
-                    label="Query"
-                    help="Return one row per failure. The check passes when the query returns nothing."
-                >
-                    {({ value, onChange }) => (
-                        <CodeEditorResizeable
-                            language="hogQL"
-                            value={value ?? ''}
-                            onChange={(query) => onChange(query ?? '')}
-                            minHeight="8rem"
-                            maxHeight="40vh"
-                        />
-                    )}
-                </LemonField>
-            )
+            return <CustomSqlField />
         default:
             return null
     }
+}
+
+function CustomSqlField(): JSX.Element {
+    const {
+        customSqlEditorError,
+        customSqlPreview,
+        customSqlPreviewError,
+        customSqlPreviewLoading,
+        customSqlPreviewStale,
+        customSqlPreviewVerdict,
+        customSqlQueryKey,
+        customSqlSourceQuery,
+    } = useValues(dataQualityCheckEditorLogic)
+    const { runCustomSqlPreview, setCustomSqlEditorError, setCustomSqlValidationLoading } =
+        useActions(dataQualityCheckEditorLogic)
+
+    const previewRows = customSqlPreview?.rows ?? []
+    // Key and index by position, not by column name: HogQL can return two columns with the same name
+    // (e.g. `SELECT id, id`), which would collide on an object key and on the React header key.
+    const previewColumns: LemonTableColumns<unknown[]> =
+        customSqlPreview?.columns.map((column, index) => ({
+            title: column,
+            key: String(index),
+            dataIndex: index,
+            // Never hand a raw object to LemonTable: it would spread the value's `props` onto the cell.
+            render: (value: unknown) => formatPreviewCell(value),
+        })) ?? []
+
+    return (
+        <LemonField
+            name="customSql"
+            label="Query"
+            help="Return one row per failure. The check passes when the query returns nothing."
+        >
+            {({ value, onChange }) => (
+                <div className="flex flex-col gap-2">
+                    <CodeEditorResizeable
+                        language="hogQL"
+                        value={value ?? ''}
+                        onChange={(query) => onChange(query ?? '')}
+                        queryKey={customSqlQueryKey}
+                        sourceQuery={customSqlSourceQuery}
+                        onError={setCustomSqlEditorError}
+                        onMetadataLoading={setCustomSqlValidationLoading}
+                        onPressCmdEnter={() => runCustomSqlPreview(undefined)}
+                        autoFocus
+                        minHeight="8rem"
+                        maxHeight="40vh"
+                    />
+                    <div className="flex flex-col items-end gap-1">
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            loading={customSqlPreviewLoading}
+                            disabledReason={
+                                !value?.trim()
+                                    ? 'Write a query before testing it.'
+                                    : (customSqlEditorError ?? undefined)
+                            }
+                            onClick={runCustomSqlPreview}
+                            data-attr="data-quality-check-test-query"
+                        >
+                            Test query
+                        </LemonButton>
+                        {customSqlPreviewStale && (
+                            <span className="text-secondary text-xs">The query changed since the last test.</span>
+                        )}
+                    </div>
+                    {customSqlPreviewError ? (
+                        <LemonBanner type="error">{customSqlPreviewError}</LemonBanner>
+                    ) : !customSqlPreviewLoading && customSqlPreview && customSqlPreviewVerdict ? (
+                        <div className={customSqlPreviewStale ? 'opacity-60' : undefined}>
+                            {customSqlPreview.warnings.length > 0 && (
+                                <LemonBanner type="warning" className="mb-2">
+                                    This result may be incomplete or out of date:
+                                    <ul className="list-disc pl-5">
+                                        {customSqlPreview.warnings.map((warning, index) => (
+                                            <li key={index}>{warning.message}</li>
+                                        ))}
+                                    </ul>
+                                </LemonBanner>
+                            )}
+                            {customSqlPreviewVerdict === 'pass' ? (
+                                <LemonBanner type="success">
+                                    The query returned no rows. This check would pass.
+                                </LemonBanner>
+                            ) : (
+                                <>
+                                    <LemonBanner type="warning">
+                                        The query returned {customSqlPreview.hasMore ? 'at least ' : ''}
+                                        {customSqlPreview.rowCount} rows. This check would fail with{' '}
+                                        {customSqlPreview.hasMore ? 'at least ' : ''}
+                                        {customSqlPreview.rowCount} failures.
+                                    </LemonBanner>
+                                    <LemonTable<unknown[]>
+                                        className="mt-2"
+                                        columns={previewColumns}
+                                        dataSource={previewRows}
+                                        size="small"
+                                    />
+                                    {/* The table caps at 10 rows: flag truncation only when 10 are shown and the
+                                        response held more, or the query system reported more beyond them. */}
+                                    {previewRows.length === 10 &&
+                                        (customSqlPreview.hasMore ||
+                                            customSqlPreview.rowCount > previewRows.length) && (
+                                            <span className="mt-1 text-secondary text-xs">
+                                                Showing the first 10 rows.
+                                            </span>
+                                        )}
+                                </>
+                            )}
+                        </div>
+                    ) : null}
+                </div>
+            )}
+        </LemonField>
+    )
 }
 
 function RelationshipFields(): JSX.Element {

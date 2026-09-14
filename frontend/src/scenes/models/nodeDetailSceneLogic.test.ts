@@ -93,7 +93,7 @@ describe('nodeDetailSceneLogic', () => {
     it('lists every tab a saved query supports when data quality checks are on', async () => {
         await mountScene(urls.nodeDetail(NODE_ID))
 
-        expect(logic.values.availableTabs).toEqual(['query', 'lineage', 'materialization', 'tests'])
+        expect(logic.values.availableTabs).toEqual(['query', 'lineage', 'materialization', 'tests', 'history'])
     })
 
     // The tab is gated on the node's saved_query_id, not the loaded saved query, so a load failure

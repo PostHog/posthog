@@ -37,10 +37,76 @@ class TestRecoverLinksFromHtml:
         result = recover_links_from_html(text, html)
         assert "[Attiva l'inoltro](https://host.example/activate?t=abc)" in result
 
-    def test_leaves_text_untouched_when_url_already_present(self) -> None:
+    def test_wraps_url_already_present_instead_of_relinking(self) -> None:
         text = "Confirm at https://host.example/activate?t=abc now"
         html = '<a href="https://host.example/activate?t=abc">Confirm</a>'
-        assert recover_links_from_html(text, html) == text
+        assert recover_links_from_html(text, html) == "Confirm at <https://host.example/activate?t=abc> now"
+
+    @parameterized.expand(
+        [
+            ("trailing_tilde", "https://clicks.example/f/a/token~"),
+            ("trailing_tildes", "https://clicks.example/f/a/token~~/enc~"),
+            ("trailing_underscore", "https://clicks.example/f/a/token_"),
+            ("trailing_hyphen", "https://clicks.example/f/a/token-"),
+        ]
+    )
+    def test_wraps_bare_url_preserving_token_characters(self, _name: str, url: str) -> None:
+        # A tracking token keeps its terminal character only when wrapped; the
+        # renderer's GFM autolink literal would otherwise trim it and break the link.
+        result = recover_links_from_html(f"Open {url} please", "")
+        assert f"<{url}> please" in result
+
+    @parameterized.expand(
+        [
+            ("period", "See https://example.com/page. Thanks", "https://example.com/page", "."),
+            ("comma", "See https://example.com/page, then go", "https://example.com/page", ","),
+            ("question", "Seen https://example.com/page? Yes", "https://example.com/page", "?"),
+        ]
+    )
+    def test_excludes_trailing_sentence_punctuation_from_link(
+        self, _name: str, text: str, url: str, punctuation: str
+    ) -> None:
+        # Sentence punctuation trailing a prose URL must stay outside the link so a
+        # click does not navigate to an altered address.
+        result = recover_links_from_html(text, "")
+        assert f"<{url}>{punctuation}" in result
+
+    @parameterized.expand(
+        [
+            ("balanced_parens", "Read https://en.wikipedia.org/wiki/Markdown_(language) now"),
+            ("mid_path_parens", "Read https://example.com/path(param) now"),
+        ]
+    )
+    def test_keeps_balanced_parentheses_inside_url(self, _name: str, text: str) -> None:
+        # GFM autolinks balance parentheses, so a URL that legitimately contains them
+        # must stay whole rather than truncate at the first "(".
+        url = text.split("Read ", 1)[1].rsplit(" now", 1)[0]
+        result = recover_links_from_html(text, "")
+        assert f"<{url}> now" in result
+
+    def test_peels_unbalanced_wrapping_parenthesis(self) -> None:
+        result = recover_links_from_html("(https://example.com/x)", "")
+        assert result == "(<https://example.com/x>)"
+
+    def test_peels_many_unbalanced_trailing_parentheses(self) -> None:
+        result = recover_links_from_html("https://example.com/x" + ")" * 1000, "")
+        assert result == "<https://example.com/x>" + ")" * 1000
+
+    def test_handles_many_unmatched_brackets_without_backtracking(self) -> None:
+        # A body of unmatched "[" must not trigger quadratic link scanning; the text
+        # has no URL, so it is returned untouched.
+        text = "[" * 50000
+        assert recover_links_from_html(text, "") == text
+
+    def test_does_not_double_wrap_recovered_link(self) -> None:
+        text = "Please confirm.\nAttiva l'inoltro"
+        html = '<a href="https://clicks.example/f/a/token~">Attiva l\'inoltro</a>'
+        result = recover_links_from_html(text, html)
+        assert result == "Please confirm.\n[Attiva l'inoltro](https://clicks.example/f/a/token~)"
+
+    def test_leaves_existing_angle_autolink_untouched(self) -> None:
+        text = "Confirm at <https://host.example/activate~> now"
+        assert recover_links_from_html(text, "") == text
 
     def test_only_first_occurrence_is_linked(self) -> None:
         text = "click here and also click here"

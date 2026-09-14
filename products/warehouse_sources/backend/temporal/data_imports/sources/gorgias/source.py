@@ -128,7 +128,7 @@ Create an API key in your Gorgias account under **Settings → REST API**. Use t
 This source authenticates with HTTP Basic Auth (email + API key) and requires read access to the endpoints you want to sync (tickets, messages, customers, users, satisfaction surveys, tags, views, teams, macros).""",
             iconPath="/static/services/gorgias.png",
             docsUrl="https://posthog.com/docs/cdp/sources/gorgias",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 [

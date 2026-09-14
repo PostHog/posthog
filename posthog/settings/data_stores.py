@@ -639,6 +639,12 @@ AI_GATEWAY_PUBLIC_URL = os.getenv("AI_GATEWAY_PUBLIC_URL", "http://localhost:808
 # Rust feature flags service URL
 # This is used to proxy flag evaluation requests to the Rust feature flags service
 FEATURE_FLAGS_SERVICE_URL = os.getenv("FEATURE_FLAGS_SERVICE_URL", "http://localhost:3001")
+HOGQL_LANGUAGE_SERVICE_URL = get_from_env(
+    "HOGQL_LANGUAGE_SERVICE_URL", "http://localhost:8091" if DEBUG and not TEST else ""
+)
+HOGQL_LANGUAGE_SERVICE_SIGNING_KEYS = get_list(
+    get_from_env("HOGQL_LANGUAGE_SERVICE_SIGNING_KEYS", "local-development-key" if DEBUG and not TEST else "")
+)
 
 # Definitions fleet, which serves remote_config (the eval fleet 404s it). Falls back until set per env.
 FEATURE_FLAGS_DEFINITIONS_SERVICE_URL = os.getenv("FEATURE_FLAGS_DEFINITIONS_SERVICE_URL", FEATURE_FLAGS_SERVICE_URL)
@@ -677,6 +683,21 @@ CACHES = {
         },
         "KEY_PREFIX": "posthog",
     }
+}
+
+# Authorization cache reads must use the writer. Reading membership versions and values from
+# different replicas can otherwise make a revoked membership appear valid after invalidation.
+CACHES["organization_access"] = {
+    **CACHES["default"],
+    "LOCATION": REDIS_URL,
+}
+
+# Cohort dependency reads must see the writes made earlier in the same request: the create path
+# writes the new cohort's keys and then reads them back before responding, and a replica-lag miss
+# there rescans every cohort of the team inside the request.
+CACHES["cohort_dependencies"] = {
+    **CACHES["default"],
+    "LOCATION": REDIS_URL,
 }
 
 # Dedicated cache for the feature flags service (if configured)
@@ -741,6 +762,8 @@ else:
 if TEST:
     CACHES["default"] = {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}
     CACHES["query_cache"] = CACHES["default"]
+    CACHES["organization_access"] = CACHES["default"]
+    CACHES["cohort_dependencies"] = CACHES["default"]
 
 # Cache timeout for materialized columns metadata (in seconds)
 MATERIALIZED_COLUMNS_CACHE_TIMEOUT: int = get_from_env("MATERIALIZED_COLUMNS_CACHE_TIMEOUT", 900, type_cast=int)

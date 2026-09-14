@@ -37,7 +37,7 @@ export function EditablePromptComponent({
     const handledFocusRequestRef = useRef<number | undefined>(undefined)
     const [isCollapsed, setIsCollapsed] = useState(false)
     const question = getNotebookStringProp(node.props.question) ?? ''
-    const keepQuestion = node.props.keepQuestion === true
+    const keepQuestion = node.props.keepQuestion !== false
     const isEmpty = question.length === 0
     const submitDisabledReason = question.trim()
         ? isAIPromptSubmitDisabled
@@ -124,14 +124,7 @@ export function EditablePromptComponent({
                 return currentNode
             }
 
-            const nextProps = { ...currentNode.props }
-            if (keepQuestion) {
-                delete nextProps.keepQuestion
-            } else {
-                nextProps.keepQuestion = true
-            }
-
-            return { ...currentNode, props: nextProps }
+            return { ...currentNode, props: { ...currentNode.props, keepQuestion: !keepQuestion } }
         })
     }
 

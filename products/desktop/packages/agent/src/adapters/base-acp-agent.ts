@@ -16,7 +16,11 @@ import type {
   WriteTextFileRequest,
   WriteTextFileResponse,
 } from "@agentclientprotocol/sdk";
-import { isAnthropicModelId, restrictedModelMeta } from "@posthog/shared";
+import {
+  customModelMeta,
+  isAnthropicModelId,
+  restrictedModelMeta,
+} from "@posthog/shared";
 import {
   compareModelsForPicker,
   DEFAULT_GATEWAY_MODEL,
@@ -211,7 +215,14 @@ export abstract class BaseAcpAgent implements Agent {
     }
 
     if (!options.some((opt) => opt.value === currentModelId)) {
-      if (!isClaudeAdapterModelId(currentModelId)) {
+      if (isModalModelId(currentModelId) || isDeepseekModelId(currentModelId)) {
+        const fallbackOption =
+          options.find((option) => option.value === DEFAULT_GATEWAY_MODEL) ??
+          options.find((option) => option._meta === undefined);
+        if (fallbackOption) {
+          currentModelId = fallbackOption.value;
+        }
+      } else if (!isClaudeAdapterModelId(currentModelId)) {
         // A model the Claude adapter can't drive reached it, which means the adapter and model
         // desynced upstream (e.g. a Codex model paired with the Claude adapter). Log it instead of
         // silently masquerading as a deliberate Opus session.
@@ -236,6 +247,7 @@ export abstract class BaseAcpAgent implements Agent {
         value: currentModelId,
         name: currentModelId,
         description: "Custom model",
+        _meta: customModelMeta(),
       });
     }
 

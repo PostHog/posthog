@@ -47,6 +47,7 @@ import type { AlertType } from 'products/alerts/frontend/types'
 
 import { DashboardResizeHandles } from '../handles'
 import { EditModeEdge, EditModeEdgeOverlay } from './EditModeEdgeOverlay'
+import { INSIGHT_CARD_KEY_ATTR, insightCardKey } from './insightCardImageCapture'
 import { InsightMeta } from './InsightMeta'
 
 const IS_STORYBOOK = inStorybook() || inStorybookTestRunner()
@@ -172,6 +173,7 @@ export interface InsightCardProps extends Resizeable {
     timedOut?: boolean
     /** Whether the editing controls should be enabled or not. */
     showEditingControls?: boolean
+    refreshAfterDisplayOptionsChange?: (insight: QueryBasedInsightModel) => void
     /** While this tile is being resized: throttle canvas chart redraws instead of repainting on every frame. */
     isResizing?: boolean
     /** Whether the  controls for showing details should be enabled or not. */
@@ -233,6 +235,7 @@ function InsightCardInternal(
         queryId,
         timedOut,
         highlighted,
+        refreshAfterDisplayOptionsChange,
         showResizeHandles,
         isResizing,
         showEditingControls,
@@ -292,6 +295,11 @@ function InsightCardInternal(
         ? accessLevelSatisfied(AccessControlResourceType.Insight, insight.user_access_level, AccessControlLevel.Editor)
         : true
     const canPersistDisplayOptions = !!dashboardId && canEditInsight
+    const refreshAfterDisplayOptionsChangeRef = useRef(refreshAfterDisplayOptionsChange)
+    refreshAfterDisplayOptionsChangeRef.current = refreshAfterDisplayOptionsChange
+    const handleRefreshAfterDisplayOptionsChange = useCallback((updatedInsight: QueryBasedInsightModel): void => {
+        refreshAfterDisplayOptionsChangeRef.current?.(updatedInsight)
+    }, [])
 
     // Base props without setQuery — used to mount insightDataLogic and retrieve the
     // persistDisplayOptions action before wiring it back in as setQuery below.
@@ -302,8 +310,9 @@ function InsightCardInternal(
             cachedInsight: insight,
             loadPriority,
             doNotLoad,
+            refreshAfterDisplayOptionsChange: handleRefreshAfterDisplayOptionsChange,
         }),
-        [insight, dashboardId, loadPriority, doNotLoad]
+        [insight, dashboardId, loadPriority, doNotLoad, handleRefreshAfterDisplayOptionsChange]
     )
 
     const { persistDisplayOptions } = useActions(insightDataLogic(insightLogicPropsBase))
@@ -439,6 +448,7 @@ function InsightCardInternal(
                 className
             )}
             data-attr="insight-card"
+            {...{ [INSIGHT_CARD_KEY_ATTR]: insightCardKey(insight, tile) }}
             {...divProps}
             // eslint-disable-next-line react/forbid-dom-props
             style={{ ...divProps?.style, ...theme?.boxStyle }}
@@ -452,6 +462,7 @@ function InsightCardInternal(
                         ribbonColor={ribbonColor}
                         dashboardId={dashboardId}
                         persistDisplayOptions={canPersistDisplayOptions ? persistDisplayOptions : undefined}
+                        refreshAfterDisplayOptionsChange={handleRefreshAfterDisplayOptionsChange}
                         updateColor={updateColor}
                         toggleShowDescription={toggleShowDescription}
                         removeFromDashboard={removeFromDashboard}

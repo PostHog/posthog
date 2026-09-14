@@ -363,9 +363,14 @@ class PostHogCallback(InstrumentedCallback):
             product=product,
         )
 
+        ai_provider, ai_model = normalize_metric_labels(
+            standard_logging_object.get("model", ""),
+            standard_logging_object.get("custom_llm_provider", ""),
+        )
+
         properties: dict[str, Any] = {
-            "$ai_model": standard_logging_object.get("model", ""),
-            "$ai_provider": standard_logging_object.get("custom_llm_provider", ""),
+            "$ai_model": ai_model,
+            "$ai_provider": ai_provider,
             "$ai_trace_id": trace_id,
             "$ai_is_error": True,
             "$ai_error": standard_logging_object.get("error_str", ""),

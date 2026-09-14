@@ -83,6 +83,79 @@ recipient's, even though the task's `created_by` has moved by then. Additional p
 | `from_user_id` | `int?` | User ID of the previous owner        |
 | `to_user_id`   | `int`  | User ID of the recipient (new owner) |
 
+## Channel / Space Configuration Events
+
+Source: `repository_config_analytics.py`, called from `facade/api.py`, `models.py`, and
+`presentation/views/channels_api.py`.
+
+These do **not** go through `Task.capture_event()`, so the "Task events" standard-property table
+above does not apply — they carry only the properties listed here plus `groups()`. `distinct_id`
+is the acting user, falling back to the team UUID.
+
+Neither `Channel` nor `Task` has an activity log, so before these events the only trace of a
+repository change was the row's own `updated_at`.
+
+### `repository_config_changed`
+
+Fires when a Space's or a Task's repository configuration changes. Nothing is captured when a
+write resubmits the same repository set and the same integration.
+
+| Property                         | Type    | Description                                                                                       |
+| -------------------------------- | ------- | ------------------------------------------------------------------------------------------------- |
+| `subject`                        | `str`   | `space` or `task`                                                                                 |
+| `trigger`                        | `str`   | `space_settings_edit`, `task_settings_edit`, `task_created`, or `github_integration_disconnected` |
+| `team_id`                        | `int`   |                                                                                                   |
+| `channel_id`                     | `str?`  | Always set for `subject=space`; set for `subject=task` when the task has a channel                |
+| `task_id`                        | `str?`  | `subject=task` only                                                                               |
+| `origin_product`                 | `str?`  | `subject=task` only                                                                               |
+| `previous_repository_count`      | `int`   | The "from"                                                                                        |
+| `repository_count`               | `int`   | The "to"                                                                                          |
+| `added_count` / `removed_count`  | `int`   |                                                                                                   |
+| `is_first_configuration`         | `bool`  | Previous list was empty                                                                           |
+| `is_cleared`                     | `bool`  | New list is empty                                                                                 |
+| `github_integration_changed`     | `bool`  |                                                                                                   |
+| `github_integration_id`          | `int?`  | PostHog-side integration id                                                                       |
+| `previous_github_integration_id` | `int?`  |                                                                                                   |
+| `space_repository_count`         | `int?`  | `subject=task` only — the channel's current list size                                             |
+| `diverged_from_space`            | `bool?` | `subject=task` only — the new task list differs from the channel's                                |
+| `was_inherited_from_space`       | `bool?` | `subject=task` only — this edit is what broke inheritance                                         |
+| `affected_space_count`           | `int?`  | `trigger=github_integration_disconnected` only                                                    |
+
+`trigger=task_created` fires only when the caller overrode the Space default. A task that
+inherits its channel's repositories is already counted by `task_created`.
+
+`trigger=github_integration_disconnected` is one aggregate row for the whole
+`pre_delete` sweep, not one row per Space.
+
+Reading note: ticking "Use these repositories for the whole space" in the desktop repository
+dialog fires both a task-level and a space-level change from a single click. Two rows is correct
+— they are two config objects — but a "changes per user" metric counts objects, not intents.
+
+### `space_context_changed`
+
+Fires when a Space's CONTEXT.md is published or cleared. Carries byte counts only; CONTEXT.md is
+customer-authored free text.
+
+| Property                 | Type   | Description                                                         |
+| ------------------------ | ------ | ------------------------------------------------------------------- |
+| `action`                 | `str`  | `published` or `cleared`                                            |
+| `source`                 | `str`  | `user` or `agent`                                                   |
+| `storage`                | `str`  | `legacy_instructions` or `context_wiki`                             |
+| `actor_type`             | `str?` | `user_or_api`, `task_agent`, or `loop_agent` for context-wiki edits |
+| `team_id`                | `int`  |                                                                     |
+| `channel_id`             | `str`  |                                                                     |
+| `previous_version`       | `int?` | 0 when there was none; null for context-wiki commits                |
+| `new_version`            | `int?` | Null on `cleared`                                                   |
+| `is_first_version`       | `bool` |                                                                     |
+| `content_bytes`          | `int`  | Length only, never content                                          |
+| `previous_content_bytes` | `int?` | Gives edit magnitude                                                |
+| `base_version_provided`  | `bool` | Whether the client used the optimistic-concurrency guard            |
+| `versions_deleted`       | `int?` | `cleared` only                                                      |
+
+`source` is load-bearing: a loop configured with `update_context` republishes on every fire, so
+an hourly loop produces hundreds of rows a month for one Space. Filter to `source=user` for any
+human-edit question.
+
 ## TaskRun Model Events
 
 Source: `products/tasks/backend/models.py`
@@ -162,6 +235,7 @@ Tracked after sandbox and agent server are provisioned.
 | `agent_session_init_ms`         | `int`  | Agent session initialization time                         |
 | `agent_server_total_ms`         | `int`  | Agent server initialization time                          |
 | `agent_server_http_ready_ms`    | `int`  | Time from agent process start to HTTP listen              |
+| `agent_launcher_to_process_ms`  | `int`  | Time from sandbox launch command to agent process start   |
 | `agent_context_fetch_ms`        | `int`  | Task and run context fetch time inside agent-server       |
 | `agent_acp_initialize_ms`       | `int`  | ACP process handshake time                                |
 | `agent_repository_ready_ms`     | `int`  | Time waiting on the repository-ready barrier              |
@@ -272,9 +346,19 @@ These events use `TaskRun.capture_event()` so include all [TaskRun standard prop
 
 Tracked when a GitHub `pull_request.opened` webhook is received. Additional properties:
 
-| Property | Type  | Description   |
-| -------- | ----- | ------------- |
-| `pr_url` | `str` | GitHub PR URL |
+| Property                 | Type        | Description                                     |
+| ------------------------ | ----------- | ----------------------------------------------- |
+| `pr_url`                 | `str`       | GitHub PR URL                                   |
+| `pr_title`               | `str`       | PR title                                        |
+| `pr_body`                | `str`       | PR description, capped at 10,000 characters     |
+| `pr_body_truncated`      | `bool`      | Whether the cap removed part of the description |
+| `pr_labels`              | `list[str]` | Label names on the PR                           |
+| `pr_requested_reviewers` | `list[str]` | GitHub logins of the requested reviewers        |
+| `pr_is_draft`            | `bool`      | Whether the PR is a draft                       |
+
+The `pr_title`, `pr_body`, `pr_labels`, `pr_requested_reviewers`, and `pr_is_draft` properties
+carry a value only on task-authored PRs. An external PR's own words are customer business
+context, so those events get the same keys as `null`.
 
 ### `pr_merged`
 

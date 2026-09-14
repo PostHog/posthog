@@ -26,6 +26,7 @@ from products.feature_flags.backend.facade.api import (
     ship_variant,
     update_flag,
 )
+from products.feature_flags.backend.facade.config import ConfigFormatError
 from products.feature_flags.backend.facade.filters import (
     group_cohort_restriction_blocker,
     groups_carry_restriction_marker,
@@ -352,6 +353,27 @@ class TestRollOutVariant:
         assert result["groups"][1:] == [{"properties": [], "rollout_percentage": 100}]
         assert result["payloads"] == {}
         assert result["aggregation_group_type_index"] is None
+
+    def test_transform_filters_preserves_holdout(self):
+        current_filters = {
+            "groups": [{"properties": [], "rollout_percentage": 100}],
+            "multivariate": {
+                "variants": [
+                    {"key": "control", "rollout_percentage": 50},
+                    {"key": "test", "rollout_percentage": 50},
+                ]
+            },
+            "holdout": {"id": 42, "exclusion_percentage": 5},
+        }
+
+        assert _roll_out_variant(current_filters, "test")["holdout"] == {"id": 42, "exclusion_percentage": 5}
+        assert _roll_out_variant(current_filters, "test", release_to_everyone=True)["holdout"] == {
+            "id": 42,
+            "exclusion_percentage": 5,
+        }
+
+        del current_filters["holdout"]
+        assert "holdout" not in _roll_out_variant(current_filters, "test")
 
     def test_transform_filters_default_does_not_mutate_input(self):
         """Defensive: ensure the function returns a new groups list without mutating caller's filters."""
@@ -742,6 +764,20 @@ class TestExperimentRuleFromFilters:
                 ),
             ),
             (
+                "explicit_version_1",
+                {
+                    "version": 1,
+                    "groups": [{"properties": [], "rollout_percentage": 40}],
+                    "multivariate": {"variants": [{"key": "control", "rollout_percentage": 100}]},
+                },
+                ExperimentRuleConfig(
+                    variants=[{"key": "control", "rollout_percentage": 100}],
+                    rollout_percentage=40,
+                    assign_variant_by=None,
+                    holdout=None,
+                ),
+            ),
+            (
                 "empty_filters",
                 {},
                 ExperimentRuleConfig(variants=[], rollout_percentage=None, assign_variant_by=None, holdout=None),
@@ -780,3 +816,28 @@ class TestExperimentRuleFromFilters:
     )
     def test_derivation(self, _name, filters, expected):
         assert experiment_rule_from_filters(filters) == expected
+
+    @parameterized.expand(
+        [
+            ("v2_document", {"version": 2, "return_type": "boolean", "default_value": False, "rules": []}, "v2"),
+            (
+                "version_string",
+                {"version": "1", "groups": [{"properties": [], "rollout_percentage": 40}]},
+                "unsupported",
+            ),
+            (
+                "version_boolean",
+                {"version": True, "groups": [{"properties": [], "rollout_percentage": 40}]},
+                "unsupported",
+            ),
+            (
+                "unknown_future_version",
+                {"version": 3, "groups": [{"properties": [], "rollout_percentage": 40}]},
+                "unsupported",
+            ),
+        ]
+    )
+    def test_non_v1_formats_do_not_enter_the_v1_branch(self, _name, filters, expected_kind):
+        with pytest.raises(ConfigFormatError) as exc_info:
+            experiment_rule_from_filters(filters)
+        assert exc_info.value.config_format.kind == expected_kind

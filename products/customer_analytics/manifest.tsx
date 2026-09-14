@@ -5,7 +5,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
 import { ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
-import { ProductManifest } from '~/types'
+import { FileSystemIconColor, ProductManifest } from '~/types'
 
 import type { WarehousePropertiesSceneTab } from './frontend/scenes/WarehousePropertiesScene/warehousePropertiesSceneLogic'
 
@@ -25,6 +25,7 @@ export const manifest: ProductManifest = {
             projectBased: true,
             name: 'Account details',
             iconType: 'cohort',
+            layout: 'app-full-scene-height',
         },
         CustomerAnalyticsConfiguration: {
             import: () =>
@@ -59,6 +60,7 @@ export const manifest: ProductManifest = {
         '/customer_analytics/notes': ['CustomerAnalytics', 'customerAnalyticsNotes'],
         '/customer_analytics/announcements': ['CustomerAnalytics', 'customerAnalyticsAnnouncements'],
         '/customer_analytics/feed': ['CustomerAnalytics', 'customerAnalyticsFeed'],
+        '/customer_analytics/tasks': ['CustomerAnalytics', 'customerAnalyticsTasks'],
         '/customer_analytics/feature-requests': ['CustomerAnalytics', 'customerAnalyticsFeatureRequests'],
         '/customer_analytics/feature-requests/:requestId': ['CustomerAnalytics', 'customerAnalyticsFeatureRequests'],
         '/customer_analytics/journeys/new': ['CustomerJourneyBuilder', 'customerJourneyBuilder'],
@@ -87,6 +89,7 @@ export const manifest: ProductManifest = {
         customerAnalyticsNotes: (): string => '/customer_analytics/notes',
         customerAnalyticsAnnouncements: (): string => '/customer_analytics/announcements',
         customerAnalyticsFeed: (): string => '/customer_analytics/feed',
+        customerAnalyticsTasks: (): string => '/customer_analytics/tasks',
         customerAnalyticsFeatureRequests: (requestId?: string): string =>
             `/customer_analytics/feature-requests${requestId ? `/${requestId}` : ''}`,
         customerAnalyticsJourneys: (): string => '/customer_analytics/journeys',
@@ -104,6 +107,10 @@ export const manifest: ProductManifest = {
             intents: [ProductKey.CUSTOMER_ANALYTICS],
             category: ProductItemCategory.ANALYTICS,
             iconType: 'cohort',
+            iconColor: [
+                'var(--color-product-customer-analytics-light)',
+                'var(--color-product-customer-analytics-dark)',
+            ] as FileSystemIconColor,
             href: urls.customerAnalytics(),
             tags: ['beta'],
             flag: FEATURE_FLAGS.CUSTOMER_ANALYTICS,

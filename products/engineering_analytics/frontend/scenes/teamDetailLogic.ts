@@ -4,9 +4,13 @@ import { loaders } from 'kea-loaders'
 import { ApiConfig } from 'lib/api'
 import { Dayjs, dayjs } from 'lib/dayjs'
 
-import { engineeringAnalyticsTeamCiActivity, engineeringAnalyticsTeamMergeTrend } from '../generated/api'
+import {
+    engineeringAnalyticsTeamCiActivity,
+    engineeringAnalyticsTeamCiHealth,
+    engineeringAnalyticsTeamMergeTrend,
+} from '../generated/api'
 import type { TeamTestSignalApi } from '../generated/api.schemas'
-import { DEFAULT_TEAMS_WINDOW, TeamsWindow, UNOWNED_TEAM } from './teamsLogic'
+import { DEFAULT_TEAMS_WINDOW, TeamCIHealthRow, TeamsWindow, UNOWNED_TEAM, toTeamCIHealthRow } from './teamsLogic'
 
 const projectId = (): string => String(ApiConfig.getCurrentProjectId())
 
@@ -21,7 +25,6 @@ export interface TeamTestSignalRow {
     nodeid: string
     selector: string
     signalCount: number
-    signalCountPrior: number
     lastSeenAt: string
 }
 
@@ -45,6 +48,8 @@ export interface TeamMergeTrendData {
 export interface teamDetailLogicValues {
     activity: TeamActivityData | null
     activityLoading: boolean
+    healthRow: TeamCIHealthRow | null
+    healthRowLoading: boolean
     mergeTrend: TeamMergeTrendData | null
     mergeTrendLoading: boolean
     mergeTrendSeries: {
@@ -71,6 +76,21 @@ export interface teamDetailLogicActions {
         payload?: any
     ) => {
         activity: TeamActivityData
+        payload?: any
+    }
+    loadHealthRow: () => any
+    loadHealthRowFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadHealthRowSuccess: (
+        healthRow: TeamCIHealthRow | null,
+        payload?: any
+    ) => {
+        healthRow: TeamCIHealthRow | null
         payload?: any
     }
     loadMergeTrend: () => any
@@ -128,9 +148,11 @@ export const teamDetailLogic = kea<teamDetailLogicType>([
             null as TeamActivityData | null,
             {
                 loadActivity: async (): Promise<TeamActivityData> => {
+                    // Current-state list on the fixed default window, deliberately outside the
+                    // window picker's scope (the panel rule in ../AGENTS.md).
                     const data = await engineeringAnalyticsTeamCiActivity(projectId(), {
                         owner_team: props.ownerTeam,
-                        date_from: values.window,
+                        date_from: DEFAULT_TEAMS_WINDOW,
                         source_id: props.sourceId ?? undefined,
                     })
                     return {
@@ -139,11 +161,25 @@ export const teamDetailLogic = kea<teamDetailLogicType>([
                             nodeid: t.nodeid,
                             selector: t.selector,
                             signalCount: t.signal_count,
-                            signalCountPrior: t.signal_count_prior,
                             lastSeenAt: t.last_seen_at,
                         })),
                         truncatedTests: data.truncated_tests,
                     }
+                },
+            },
+        ],
+        healthRow: [
+            null as TeamCIHealthRow | null,
+            {
+                loadHealthRow: async (): Promise<TeamCIHealthRow | null> => {
+                    const data = await engineeringAnalyticsTeamCiHealth(projectId(), {
+                        date_from: values.window,
+                        owner_team: props.ownerTeam,
+                        limit: 1,
+                        source_id: props.sourceId ?? undefined,
+                    })
+                    const item = data.items[0]
+                    return item ? toTeamCIHealthRow(item) : null
                 },
             },
         ],
@@ -218,12 +254,13 @@ export const teamDetailLogic = kea<teamDetailLogicType>([
     }),
     listeners(({ actions }) => ({
         setWindow: () => {
-            actions.loadActivity()
             actions.loadMergeTrend()
+            actions.loadHealthRow()
         },
     })),
     afterMount(({ actions }) => {
         actions.loadActivity()
         actions.loadMergeTrend()
+        actions.loadHealthRow()
     }),
 ])

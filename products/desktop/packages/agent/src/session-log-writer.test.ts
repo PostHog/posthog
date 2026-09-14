@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { PostHogAPIClient } from "./posthog-api";
+import { type PostHogAPIClient, PostHogAPIError } from "./posthog-api";
 import { SessionLogWriter } from "./session-log-writer";
 import type { StoredNotification } from "./types";
 
@@ -57,6 +57,7 @@ describe("SessionLogWriter", () => {
           jsonrpc: "2.0",
           method: "session/new",
           params: {
+            output: "sk-ant-oat01-fake-test-token",
             mcpServers: [
               {
                 name: "posthog",
@@ -73,7 +74,11 @@ describe("SessionLogWriter", () => {
 
       const entries: StoredNotification[] = mockAppendLog.mock.calls[0][2];
       expect(JSON.stringify(entries)).not.toContain("protocol-secret");
+      expect(JSON.stringify(entries)).not.toContain(
+        "sk-ant-oat01-fake-test-token",
+      );
       expect(entries[0].notification.params).toEqual({
+        output: "[REDACTED]",
         mcpServers: [
           {
             name: "posthog",
@@ -84,6 +89,24 @@ describe("SessionLogWriter", () => {
           },
         ],
       });
+    });
+
+    it("persists the event id it was appended with", async () => {
+      const sessionId = "s1";
+      logWriter.register(sessionId, { taskId: "t1", runId: sessionId });
+
+      logWriter.appendRawLine(
+        sessionId,
+        JSON.stringify({ method: "test" }),
+        "boot-7",
+      );
+      logWriter.appendRawLine(sessionId, JSON.stringify({ method: "test2" }));
+
+      await logWriter.flush(sessionId);
+
+      const entries: StoredNotification[] = mockAppendLog.mock.calls[0][2];
+      expect(entries[0].event_id).toBe("boot-7");
+      expect(entries[1].event_id).toBeUndefined();
     });
 
     it("ignores unregistered sessions", async () => {
@@ -121,26 +144,153 @@ describe("SessionLogWriter", () => {
       expect(retriedEntries[0].notification.method).toBe("test");
     });
 
-    it("drops entries after max retries", async () => {
+    it("keeps retrying past ten failures and delivers once persistence recovers", async () => {
       const sessionId = "s1";
       logWriter.register(sessionId, { taskId: "t1", runId: sessionId });
 
       mockAppendLog.mockRejectedValue(new Error("persistent failure"));
-
       logWriter.appendRawLine(sessionId, JSON.stringify({ method: "test" }));
 
-      // Flush 10 times (MAX_FLUSH_RETRIES) — entries should be dropped on the 10th
-      for (let i = 0; i < 10; i++) {
+      for (let i = 0; i < 12; i++) {
         await logWriter.flush(sessionId);
       }
+      expect(mockAppendLog).toHaveBeenCalledTimes(12);
 
-      expect(mockAppendLog).toHaveBeenCalledTimes(10);
-
-      // After max retries the entries are dropped, so an 11th flush has nothing
-      mockAppendLog.mockClear();
+      mockAppendLog.mockResolvedValue(undefined);
       await logWriter.flush(sessionId);
-      expect(mockAppendLog).not.toHaveBeenCalled();
+
+      expect(mockAppendLog).toHaveBeenCalledTimes(13);
+      const delivered: StoredNotification[] = mockAppendLog.mock.calls[12][2];
+      expect(delivered.map((entry) => entry.notification.method)).toEqual([
+        "test",
+      ]);
     });
+
+    it.each([
+      ["a 404", 404, ["later"]],
+      ["a 401", 401, ["later"]],
+      ["a 503", 503, ["test", "later"]],
+    ])(
+      "after %s the next flush sends %j",
+      async (_label, status, expectedMethods) => {
+        const sessionId = "s1";
+        logWriter.register(sessionId, { taskId: "t1", runId: sessionId });
+        mockAppendLog.mockRejectedValueOnce(
+          new PostHogAPIError(`Failed request: [${status}]`, status),
+        );
+
+        logWriter.appendRawLine(sessionId, JSON.stringify({ method: "test" }));
+        await logWriter.flush(sessionId);
+        logWriter.appendRawLine(sessionId, JSON.stringify({ method: "later" }));
+        await logWriter.flush(sessionId);
+
+        expect(mockAppendLog).toHaveBeenCalledTimes(2);
+        const sent: StoredNotification[] = mockAppendLog.mock.calls[1][2];
+        expect(sent.map((entry) => entry.notification.method)).toEqual(
+          expectedMethods,
+        );
+      },
+    );
+
+    it("retries on schedule while new entries keep arriving during an outage", async () => {
+      vi.useFakeTimers();
+      try {
+        const sessionId = "s1";
+        logWriter.register(sessionId, { taskId: "t1", runId: sessionId });
+        mockAppendLog.mockRejectedValue(new Error("network error"));
+
+        logWriter.appendRawLine(sessionId, JSON.stringify({ method: "test" }));
+        await logWriter.flush(sessionId);
+        expect(mockAppendLog).toHaveBeenCalledTimes(1);
+
+        for (let i = 0; i < 5; i++) {
+          await vi.advanceTimersByTimeAsync(300);
+          logWriter.appendRawLine(
+            sessionId,
+            JSON.stringify({ method: "test" }),
+          );
+        }
+
+        expect(mockAppendLog).toHaveBeenCalledTimes(2);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("flush with retry re-sends the batch after a transient failure", async () => {
+      vi.useFakeTimers();
+      try {
+        const sessionId = "s1";
+        logWriter.register(sessionId, { taskId: "t1", runId: sessionId });
+        mockAppendLog
+          .mockRejectedValueOnce(new Error("network error"))
+          .mockResolvedValueOnce(undefined);
+
+        logWriter.appendRawLine(sessionId, JSON.stringify({ method: "test" }));
+        const flushed = logWriter.flush(sessionId, { retry: true });
+        await vi.advanceTimersByTimeAsync(1000);
+        await flushed;
+
+        expect(mockAppendLog).toHaveBeenCalledTimes(2);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("stops flushing once a retrying flush exhausts its attempts", async () => {
+      vi.useFakeTimers();
+      try {
+        const sessionId = "s1";
+        logWriter.register(sessionId, { taskId: "t1", runId: sessionId });
+        mockAppendLog.mockRejectedValue(new Error("network error"));
+
+        logWriter.appendRawLine(sessionId, JSON.stringify({ method: "test" }));
+        const flushed = logWriter.flush(sessionId, { retry: true });
+        await vi.advanceTimersByTimeAsync(5000);
+        await flushed;
+
+        mockAppendLog.mockClear();
+        await vi.advanceTimersByTimeAsync(60_000);
+
+        expect(mockAppendLog).not.toHaveBeenCalled();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it.each([
+      ["a small log", 10, 1],
+      ["a log past 4 MiB", 5 * 1024 * 1024, 0],
+    ])(
+      "flushes a burst 6s after the last flush for %s",
+      async (_label, textBytes, expectedFlushes) => {
+        vi.useFakeTimers();
+        try {
+          const sessionId = "s1";
+          logWriter.register(sessionId, { taskId: "t1", runId: sessionId });
+          logWriter.appendRawLine(
+            sessionId,
+            JSON.stringify({
+              method: "test",
+              params: { text: "x".repeat(textBytes) },
+            }),
+          );
+          await logWriter.flush(sessionId);
+          mockAppendLog.mockClear();
+
+          vi.advanceTimersByTime(6000);
+          logWriter.appendRawLine(
+            sessionId,
+            JSON.stringify({ method: "test" }),
+          );
+          await vi.advanceTimersByTimeAsync(0);
+
+          expect(mockAppendLog).toHaveBeenCalledTimes(expectedFlushes);
+        } finally {
+          vi.useRealTimers();
+        }
+      },
+    );
   });
 
   describe("sinks", () => {
@@ -190,7 +340,85 @@ describe("SessionLogWriter", () => {
   });
 
   describe("agent_message_chunk coalescing", () => {
-    it("coalesces consecutive chunks into a single agent_message", async () => {
+    it.each([
+      ["Hello ", "world", "Hello world"],
+      ["Token: sk-ant-", "oat01-fake-test-token", "Token: [REDACTED]"],
+    ])(
+      "coalesces and redacts message chunks",
+      async (first, second, expected) => {
+        const sessionId = "s1";
+        logWriter.register(sessionId, { taskId: "t1", runId: sessionId });
+
+        logWriter.appendRawLine(
+          sessionId,
+          makeSessionUpdate("agent_message_chunk", {
+            content: { type: "text", text: first },
+          }),
+        );
+        logWriter.appendRawLine(
+          sessionId,
+          makeSessionUpdate("agent_message_chunk", {
+            content: { type: "text", text: second },
+          }),
+        );
+        // Non-chunk event triggers flush of chunks
+        logWriter.appendRawLine(
+          sessionId,
+          makeSessionUpdate("tool_call", { toolCallId: "tc1" }),
+        );
+
+        await logWriter.flush(sessionId);
+
+        const entries: StoredNotification[] = mockAppendLog.mock.calls[0][2];
+        expect(entries).toHaveLength(2); // coalesced message + tool_call
+
+        const coalesced = entries[0].notification;
+        expect(coalesced.params?.update).toEqual({
+          sessionUpdate: "agent_message",
+          content: { type: "text", text: expected },
+        });
+        expect(logWriter.getLastAgentMessage(sessionId)).toBe(expected);
+      },
+    );
+
+    // The double-prefixed form is what extNotification puts on the wire.
+    it.each(["_posthog/console", "__posthog/usage_update"])(
+      "keeps a streamed message whole across an interleaved %s",
+      async (method) => {
+        const sessionId = "s1";
+        logWriter.register(sessionId, { taskId: "t1", runId: sessionId });
+
+        logWriter.appendRawLine(
+          sessionId,
+          makeSessionUpdate("agent_message_chunk", {
+            content: { type: "text", text: "dashboards still" },
+          }),
+        );
+        logWriter.appendRawLine(
+          sessionId,
+          JSON.stringify({ jsonrpc: "2.0", method, params: {} }),
+        );
+        logWriter.appendRawLine(
+          sessionId,
+          makeSessionUpdate("agent_message_chunk", {
+            content: { type: "text", text: " use that field filter" },
+          }),
+        );
+        logWriter.appendRawLine(
+          sessionId,
+          makeSessionUpdate("tool_call", { toolCallId: "tc1" }),
+        );
+
+        await logWriter.flush(sessionId);
+
+        // A split here would reach the Slack relay as only the second half.
+        expect(logWriter.getAgentResponseParts(sessionId)).toEqual([
+          "dashboards still use that field filter",
+        ]);
+      },
+    );
+
+    it("stamps the coalesced entry with the covered chunk id range", async () => {
       const sessionId = "s1";
       logWriter.register(sessionId, { taskId: "t1", runId: sessionId });
 
@@ -199,30 +427,28 @@ describe("SessionLogWriter", () => {
         makeSessionUpdate("agent_message_chunk", {
           content: { type: "text", text: "Hello " },
         }),
+        "boot-3",
       );
       logWriter.appendRawLine(
         sessionId,
         makeSessionUpdate("agent_message_chunk", {
           content: { type: "text", text: "world" },
         }),
+        "boot-4",
       );
-      // Non-chunk event triggers flush of chunks
       logWriter.appendRawLine(
         sessionId,
         makeSessionUpdate("tool_call", { toolCallId: "tc1" }),
+        "boot-5",
       );
 
       await logWriter.flush(sessionId);
 
       const entries: StoredNotification[] = mockAppendLog.mock.calls[0][2];
-      expect(entries).toHaveLength(2); // coalesced message + tool_call
-
-      const coalesced = entries[0].notification;
-      expect(coalesced.params?.update).toEqual({
-        sessionUpdate: "agent_message",
-        content: { type: "text", text: "Hello world" },
-      });
-      expect(logWriter.getLastAgentMessage(sessionId)).toBe("Hello world");
+      expect(entries[0].first_event_id).toBe("boot-3");
+      expect(entries[0].event_id).toBe("boot-4");
+      expect(entries[1].event_id).toBe("boot-5");
+      expect(entries[1].first_event_id).toBeUndefined();
     });
 
     it("tracks direct agent_message updates", async () => {
@@ -555,12 +781,14 @@ describe("SessionLogWriter", () => {
         makeSessionUpdate("agent_message_chunk", {
           content: { type: "text", text: "partial" },
         }),
+        "boot-1",
       );
       logWriter.appendRawLine(
         sessionId,
         makeSessionUpdate("agent_message", {
           content: { type: "text", text: "complete" },
         }),
+        "boot-2",
       );
 
       await logWriter.flush(sessionId);
@@ -574,6 +802,8 @@ describe("SessionLogWriter", () => {
         sessionUpdate: "agent_message",
         content: { type: "text", text: "complete" },
       });
+      expect(entries[0].first_event_id).toBe("boot-1");
+      expect(entries[0].event_id).toBe("boot-2");
     });
   });
 
@@ -895,6 +1125,25 @@ describe("SessionLogWriter — local-cache tool_call_update coalescing", () => {
     expect(log).toHaveLength(2);
     expect(sessionUpdateOf(log[0]).content).toBe("a3");
     expect(sessionUpdateOf(log[1]).sessionUpdate).toBe("agent_message");
+  });
+
+  it("redacts buffered updates before writing the local cache", async () => {
+    writer.appendRawLine(
+      RUN,
+      update({ rawInput: { token: "sk-ant-oat01-fake-test-token" } }),
+    );
+    writer.appendRawLine(
+      RUN,
+      update({
+        status: "completed",
+        rawOutput: [{ name: "Authorization", value: "fake-bearer" }],
+      }),
+    );
+    const log = await readLog();
+    expect(sessionUpdateOf(log[0])).toMatchObject({
+      rawInput: { token: "[REDACTED]" },
+      rawOutput: [{ name: "Authorization", value: "[REDACTED]" }],
+    });
   });
 
   it("a terminal update merges into buffered snapshots, later fields winning", async () => {

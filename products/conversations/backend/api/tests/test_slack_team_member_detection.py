@@ -245,7 +245,7 @@ class TestSlackEchoPreventionSignal(BaseTest):
             slack_thread_ts=PARENT_TS,
         )
 
-    @patch("products.conversations.backend.tasks.post_reply_to_slack.delay")
+    @patch("products.conversations.backend.tasks.slack.post_reply_to_slack.delay")
     def test_from_slack_team_message_does_not_echo_back(self, mock_delay, _on_commit):
         Comment.objects.create(
             team=self.team,
@@ -258,7 +258,7 @@ class TestSlackEchoPreventionSignal(BaseTest):
 
         mock_delay.assert_not_called()
 
-    @patch("products.conversations.backend.tasks.post_reply_to_slack.delay")
+    @patch("products.conversations.backend.tasks.slack.post_reply_to_slack.delay")
     def test_posthog_ui_team_message_does_echo_to_slack(self, mock_delay, _on_commit):
         Comment.objects.create(
             team=self.team,
@@ -273,7 +273,7 @@ class TestSlackEchoPreventionSignal(BaseTest):
         call_kwargs = mock_delay.call_args[1]
         assert call_kwargs["author_email"] == self.user.email
 
-    @patch("products.conversations.backend.tasks.post_reply_to_slack.delay")
+    @patch("products.conversations.backend.tasks.slack.post_reply_to_slack.delay")
     def test_from_slack_customer_message_does_not_echo(self, mock_delay, _on_commit):
         Comment.objects.create(
             team=self.team,
