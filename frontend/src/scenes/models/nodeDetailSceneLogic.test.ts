@@ -1,14 +1,18 @@
+import { cleanup, render, screen } from '@testing-library/react'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+import { createElement } from 'react'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { materializationJobsLogic } from 'scenes/data-warehouse/saved_queries/materializationJobsLogic'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { DataModelingNode, DataModelingNodeType, DataWarehouseSavedQuery } from '~/types'
 
+import { NodeDetailOverview } from './NodeDetailOverview'
 import { NodeDetailSceneTab, nodeDetailSceneLogic } from './nodeDetailSceneLogic'
 
 const NODE_ID = 'node-1'
@@ -61,9 +65,35 @@ describe('nodeDetailSceneLogic', () => {
     })
 
     afterEach(() => {
+        cleanup()
         logic?.unmount()
         flagsLogic.unmount()
     })
+
+    it.each([undefined, {}])(
+        'uses node suspension only until saved-query suspension is available (%s)',
+        async (savedSuspension) => {
+            node = buildNode('matview', {
+                suspended: {
+                    clickhouse: { at: '2026-09-13T12:00:00Z', reason: 'Source unavailable', job_id: 'job-1' },
+                },
+            })
+            savedQuery = { ...savedQuery, is_materialized: true, status: 'Failed', suspended: savedSuspension }
+            flagsLogic.actions.setFeatureFlags([FEATURE_FLAGS.DATA_MODELING_SUSPEND_FAILING_NODES], {
+                [FEATURE_FLAGS.DATA_MODELING_SUSPEND_FAILING_NODES]: true,
+            })
+            await mountScene(urls.nodeDetail(NODE_ID))
+            const jobs = materializationJobsLogic({ viewId: SAVED_QUERY_ID })
+            jobs.mount()
+            try {
+                await expectLogic(jobs).toDispatchActions(['loadSavedQuerySuccess'])
+                render(createElement(NodeDetailOverview, { id: NODE_ID }))
+                expect(screen.queryByText('Suspended') !== null).toBe(savedSuspension === undefined)
+            } finally {
+                jobs.unmount()
+            }
+        }
+    )
 
     // A model with no tab in the URL has to land somewhere useful for its kind, and the URL has to
     // say where it landed — otherwise a refresh or a shared link reopens a different tab.

@@ -27,6 +27,7 @@ export function MaterializationRunActions({
 }): JSX.Element | null {
     const {
         savedQuery,
+        deletingView,
         dataModelingJobs,
         startingMaterialization,
         resumingMaterialization,
@@ -43,6 +44,7 @@ export function MaterializationRunActions({
     } = useValues(materializationJobsLogic({ viewId, kind }))
     const {
         refreshMaterialization,
+        deleteView,
         setStartingMaterialization,
         resumeMaterialization,
         saveMaterializationChanges,
@@ -84,52 +86,89 @@ export function MaterializationRunActions({
         savedQuery.user_access_level
     )
     const refreshReason = materializationRefreshPending ? 'Refreshing materialization status' : undefined
+    const deleteLabel = savedQuery.is_materialized ? 'Delete materialized view' : 'Delete view'
+    const deleteItem = {
+        label: deleteLabel,
+        'data-attr': 'node-detail-delete-view',
+        status: 'danger' as const,
+        disabledReason:
+            accessReason ||
+            refreshReason ||
+            (deletingView ? 'Deleting view' : undefined) ||
+            (running || startingMaterialization ? 'Materialization is currently running' : undefined) ||
+            (updatingDataWarehouseSavedQuery || materializationActionLoading ? 'Updating materialization' : undefined),
+        onClick: () =>
+            LemonDialog.open({
+                title: `${deleteLabel} "${savedQuery.name}"?`,
+                description: savedQuery.is_materialized
+                    ? 'This deletes the saved view and its materialized data and stops scheduled refreshes. Queries that use this view will stop working. This cannot be undone.'
+                    : 'Queries that use this view will stop working. This cannot be undone.',
+                primaryButton: { children: deleteLabel, status: 'danger', onClick: deleteView },
+                secondaryButton: { children: 'Cancel' },
+            }),
+    }
     if (!savedQuery.is_materialized) {
         const draftError =
             incrementalDraft.enabled && (!incrementalDraft.incrementalKey || !incrementalDraft.uniqueKey.length)
                 ? 'Select the incremental column and unique key columns'
                 : undefined
         return (
-            <LemonButton
-                type="primary"
-                size="small"
-                loading={materializationActionLoading || materializationRefreshPending}
-                disabledReason={
-                    accessReason ||
-                    refreshReason ||
-                    (updatingDataWarehouseSavedQuery ? 'Saving materialization settings' : undefined) ||
-                    // Modes with a reason cannot be materialized at all: the endpoint refuses a
-                    // managed viewset, and a view with no node has nothing to schedule through.
-                    modeDisabledReason(savedQuery.sync_frequency_bounds) ||
-                    unsatisfiableReason(savedQuery.sync_frequency_bounds) ||
-                    draftError
-                }
-                data-attr="node-detail-materialize"
-                onClick={() =>
-                    materializeDataWarehouseSavedQuery(
-                        viewId,
-                        defaultCadenceWithin(savedQuery.sync_frequency_bounds, initialSyncFrequency),
-                        !incrementalDraftTouched ||
-                            kind === 'endpoint' ||
-                            !featureFlags[FEATURE_FLAGS.DATA_MODELING_INCREMENTAL_VIEWS]
-                            ? undefined
-                            : incrementalDraft.enabled && incrementalDraft.incrementalKey
-                              ? {
-                                    enabled: true,
-                                    incremental_key: incrementalDraft.incrementalKey,
-                                    unique_key: incrementalDraft.uniqueKey,
-                                    lookback_seconds: incrementalDraft.lookbackSeconds,
-                                }
-                              : null
-                    )
-                }
-            >
-                Materialize
-            </LemonButton>
+            <>
+                <LemonButton
+                    type="primary"
+                    size="small"
+                    loading={materializationActionLoading || materializationRefreshPending || deletingView}
+                    disabledReason={
+                        accessReason ||
+                        refreshReason ||
+                        (deletingView ? 'Deleting view' : undefined) ||
+                        (updatingDataWarehouseSavedQuery ? 'Saving materialization settings' : undefined) ||
+                        // Modes with a reason cannot be materialized at all: the endpoint refuses a
+                        // managed viewset, and a view with no node has nothing to schedule through.
+                        modeDisabledReason(savedQuery.sync_frequency_bounds) ||
+                        unsatisfiableReason(savedQuery.sync_frequency_bounds) ||
+                        draftError
+                    }
+                    data-attr="node-detail-materialize"
+                    onClick={() =>
+                        materializeDataWarehouseSavedQuery(
+                            viewId,
+                            defaultCadenceWithin(savedQuery.sync_frequency_bounds, initialSyncFrequency),
+                            !incrementalDraftTouched ||
+                                kind === 'endpoint' ||
+                                !featureFlags[FEATURE_FLAGS.DATA_MODELING_INCREMENTAL_VIEWS]
+                                ? undefined
+                                : incrementalDraft.enabled && incrementalDraft.incrementalKey
+                                  ? {
+                                        enabled: true,
+                                        incremental_key: incrementalDraft.incrementalKey,
+                                        unique_key: incrementalDraft.uniqueKey,
+                                        lookback_seconds: incrementalDraft.lookbackSeconds,
+                                    }
+                                  : null
+                        )
+                    }
+                >
+                    Materialize
+                </LemonButton>
+                {kind !== 'endpoint' && (
+                    <LemonMenu items={[deleteItem]}>
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            icon={<IconEllipsis />}
+                            loading={deletingView}
+                            aria-label="View actions"
+                            data-attr="node-detail-view-actions"
+                        />
+                    </LemonMenu>
+                )}
+            </>
         )
     }
     const busyReason =
         refreshReason ||
+        (deletingView ? 'Deleting view' : undefined) ||
         (updatingDataWarehouseSavedQuery
             ? 'Saving materialization settings'
             : materializationActionLoading
@@ -295,6 +334,7 @@ export function MaterializationRunActions({
                                               secondaryButton: { children: 'Cancel' },
                                           }),
                                   },
+                                  deleteItem,
                               ]
                             : []),
                     ]}
@@ -303,6 +343,7 @@ export function MaterializationRunActions({
                         type="secondary"
                         size="small"
                         icon={<IconEllipsis />}
+                        loading={deletingView}
                         aria-label="Materialization actions"
                         data-attr="node-detail-materialization-actions"
                     />

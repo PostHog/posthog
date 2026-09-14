@@ -1,4 +1,5 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 import { createElement } from 'react'
@@ -62,7 +63,7 @@ describe('materializationJobsLogic', () => {
                         query: { kind: 'HogQLQuery', query: 'SELECT timestamp, id FROM events' },
                     },
                 ],
-                '/api/environments/:team_id/data_modeling_jobs': { results: [], count: 0 },
+                '/api/projects/:team_id/data_modeling_jobs/': { results: [], count: 0 },
             },
             post: {
                 '/api/environments/:team_id/warehouse_saved_queries/check_incremental/': () => {
@@ -88,6 +89,79 @@ describe('materializationJobsLogic', () => {
         logic?.unmount()
         featureFlagLogic.unmount()
         jest.useRealTimers()
+    })
+
+    it('pages through older runs without changing the latest run or growing polling requests', async () => {
+        const mocks = apiMocks({ isMaterialized: true })
+        const requests: string[] = []
+        mocks.get!['/api/projects/:team_id/data_modeling_jobs/'] = (req) => {
+            const params = new URL(req.request.url).searchParams
+            requests.push(`${params.get('limit')}:${params.get('offset')}`)
+            const offset = Number(params.get('offset'))
+            return [
+                200,
+                {
+                    count: 21,
+                    next: offset < 20 ? '/next' : null,
+                    results: [{ id: `run-${offset}`, status: offset === 0 ? 'Running' : 'Failed' }],
+                },
+            ]
+        }
+        useMocks(mocks)
+        logic = materializationJobsLogic({ viewId: 'view-1' })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadDataModelingJobsSuccess'])
+        await expectLogic(logic, () => logic.actions.setJobsPage(2)).toDispatchActions(['loadOlderJobsPageSuccess'])
+        expect(logic.values.jobsPageResults?.results.map((job) => job.id)).toEqual(['run-10'])
+        expect(logic.values.dataModelingJobs?.results[0].status).toBe('Running')
+        await expectLogic(logic, () => logic.actions.loadDataModelingJobs()).toDispatchActions([
+            'loadDataModelingJobsSuccess',
+        ])
+        expect(logic.values.jobsPage).toBe(2)
+        expect(logic.values.jobsPageResults?.results.map((job) => job.id)).toEqual(['run-10'])
+        await expectLogic(logic, () => logic.actions.setJobsPage(1)).toDispatchActions(['loadDataModelingJobsSuccess'])
+        expect(logic.values.jobsPageResults?.results.map((job) => job.id)).toEqual(['run-0'])
+        expect(requests).toEqual(['10:0', '10:10', '10:0', '10:0'])
+    })
+
+    it.each([false, true])(
+        'offers deletion for a materialized=%s view and leaves after success',
+        async (isMaterialized) => {
+            const mocks = apiMocks({ isMaterialized })
+            mocks.delete = { '/api/environments/:team_id/warehouse_saved_queries/:id/': [204] }
+            useMocks(mocks)
+            logic = materializationJobsLogic({ viewId: 'view-1' })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadSavedQuerySuccess', 'loadDataModelingJobsSuccess'])
+            render(createElement(MaterializationRunActions, { viewId: 'view-1' }))
+            fireEvent.click(
+                buttonByAttr(isMaterialized ? 'node-detail-materialization-actions' : 'node-detail-view-actions')
+            )
+            const label = isMaterialized ? 'Delete materialized view' : 'Delete view'
+            fireEvent.click(screen.getByText(label))
+            await expectLogic(logic, () => {
+                fireEvent.click(screen.getAllByText(label).at(-1)!)
+            }).toDispatchActions(['deleteDataWarehouseSavedQuerySuccess'])
+            expect(router.values.location.pathname).toBe('/project/997/models')
+            expect(logic.values.deletingView).toBe(false)
+        }
+    )
+
+    it('keeps a view open and allows retry when deletion fails', async () => {
+        const mocks = apiMocks({ isMaterialized: true })
+        mocks.delete = {
+            '/api/environments/:team_id/warehouse_saved_queries/:id/': [500, { detail: 'Could not delete view' }],
+        }
+        useMocks(mocks)
+        logic = materializationJobsLogic({ viewId: 'view-1' })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadSavedQuerySuccess'])
+        const path = router.values.location.pathname
+        await expectLogic(logic, () => logic.actions.deleteView()).toDispatchActions([
+            'deleteDataWarehouseSavedQueryFailure',
+        ])
+        expect(logic.values.deletingView).toBe(false)
+        expect(router.values.location.pathname).toBe(path)
     })
 
     // Regression: the saved query reloads on every jobs poll. Without the once-per-mount guard the
@@ -258,7 +332,7 @@ describe('materializationJobsLogic', () => {
                     fetches += 1
                     return [200, { id: 'view-1' }]
                 },
-                '/api/environments/:team_id/data_modeling_jobs': () => {
+                '/api/projects/:team_id/data_modeling_jobs/': () => {
                     fetches += 1
                     return [200, { results: [], count: 0 }]
                 },
@@ -324,7 +398,7 @@ describe('materializationJobsLogic', () => {
             let jobsCalls = 0
             let fail = false
             const mocks = apiMocks({ isMaterialized: true })
-            mocks.get!['/api/environments/:team_id/data_modeling_jobs'] = () => {
+            mocks.get!['/api/projects/:team_id/data_modeling_jobs/'] = () => {
                 jobsCalls += 1
                 return fail ? [500, { detail: 'Unavailable' }] : [200, { results: [{ id: 'job-1', status }], count: 1 }]
             }
