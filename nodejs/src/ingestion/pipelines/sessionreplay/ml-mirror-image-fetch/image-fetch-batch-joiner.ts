@@ -33,6 +33,7 @@ export function assertImageFetchBatchTarget(targetBatchCount: number): void {
 
 export class ImageFetchBatchJoiner {
     private pendingGroup?: PendingBatchGroup
+    private readonly activeProcessing = new Set<Promise<void>>()
     private failed = false
     private failure: unknown
 
@@ -59,6 +60,10 @@ export class ImageFetchBatchJoiner {
                 this.dispatch(group)
             }
         })
+    }
+
+    public async waitForProcessing(): Promise<void> {
+        await Promise.allSettled(this.activeProcessing)
     }
 
     private createPendingGroup(): PendingBatchGroup {
@@ -91,7 +96,11 @@ export class ImageFetchBatchJoiner {
                 this.fail(error)
                 throw error
             }
-        })().finally(() => group.waiters.forEach(({ timer }) => timer.finish()))
+        })().finally(() => {
+            group.waiters.forEach(({ timer }) => timer.finish())
+            this.activeProcessing.delete(processing)
+        })
+        this.activeProcessing.add(processing)
         for (const { resolve } of group.waiters) {
             resolve({ backgroundTask: processing })
         }
