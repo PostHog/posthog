@@ -234,15 +234,23 @@ class TestSessionWhereClauseExtractorV3(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("between", "unrelated_field BETWEEN 1 AND 2"),
-            ("is_distinct_from", "unrelated_field IS DISTINCT FROM 1"),
+            (
+                "between_with_bound",
+                "min_timestamp > '2021-01-01' AND unrelated_field BETWEEN 1 AND 2",
+                "raw_sessions_v3.session_timestamp >= ('2021-01-01' - toIntervalDay(3))",
+            ),
+            (
+                "is_distinct_from_with_bound",
+                "min_timestamp > '2021-01-01' AND unrelated_field IS DISTINCT FROM 1",
+                "raw_sessions_v3.session_timestamp >= ('2021-01-01' - toIntervalDay(3))",
+            ),
+            ("between_alone", "unrelated_field BETWEEN 1 AND 2", None),
+            ("is_distinct_from_alone", "unrelated_field IS DISTINCT FROM 1", None),
         ]
     )
-    def test_unliftable_predicate_does_not_leak_tombstone(self, _name: str, predicate: str):
-        actual = self.inliner.get_inner_where(
-            parse(f"SELECT * FROM sessions WHERE min_timestamp > '2021-01-01' AND {predicate}")
-        )
-        assert actual is None
+    def test_unliftable_predicate_does_not_leak_tombstone(self, _name: str, where: str, expected: Optional[str]):
+        actual = f(self.inliner.get_inner_where(parse(f"SELECT * FROM sessions WHERE {where}")))
+        assert actual == f(expected)
 
     def test_ambiguous_or(self):
         actual = f(

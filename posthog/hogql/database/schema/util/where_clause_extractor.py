@@ -112,8 +112,17 @@ class WhereClauseExtractor(CloningVisitor):
         if isinstance(where, ast.Constant):
             return None
 
-        # Node types without an override clone through with the tombstone nested inside them,
-        # so check the whole expression, not just its top node.
+        # A node type with no override clones through with the tombstone nested inside it, so the top
+        # node alone does not prove the expression is clean. Every conjunct of the outermost AND is
+        # implied by the outer where clause, so dropping the ones that carry a tombstone only over-fetches
+        # and an independent bound such as a timestamp comparison survives. A tombstone in any other
+        # position carries no such guarantee, so fail safe there and pre-filter nothing.
+        if isinstance(where, ast.And):
+            liftable = [expr for expr in where.exprs if not has_tombstone(expr, self.tombstone_string)]
+            if not liftable:
+                return None
+            where = liftable[0] if len(liftable) == 1 else ast.And(exprs=liftable)
+
         if has_tombstone(where, self.tombstone_string):
             return None
 
