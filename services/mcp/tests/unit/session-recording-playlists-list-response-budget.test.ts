@@ -38,7 +38,7 @@ function createUser(id: number, firstName: string): Record<string, unknown> {
     }
 }
 
-/** A collection playlist carries one session ID per recording a person pinned to it. */
+/** A saved filter pinned to specific recordings keeps one session ID per recording in its filters. */
 function createPlaylist(index: number): Record<string, unknown> {
     return {
         id: 1000 + index,
@@ -66,15 +66,15 @@ function createPlaylist(index: number): Record<string, unknown> {
         last_modified_by: createUser(2, 'Grace'),
         recordings_counts: {
             saved_filters: {
-                count: null,
-                watched_count: null,
-                has_more: null,
-                increased: null,
-                last_refreshed_at: null,
+                count: SESSION_ID_COUNT,
+                watched_count: 3,
+                has_more: false,
+                increased: false,
+                last_refreshed_at: '2026-06-19T07:12:00.000000Z',
             },
-            collection: { count: SESSION_ID_COUNT, watched_count: 3 },
+            collection: { count: null, watched_count: null },
         },
-        type: 'collection',
+        type: 'filters',
         is_synthetic: false,
     }
 }
@@ -135,13 +135,13 @@ describe('session-recording-playlists-list response budget', () => {
         expect(rows[0]).toMatchObject({
             short_id: 'plist0',
             name: 'Onboarding drop-offs 0',
-            type: 'collection',
+            type: 'filters',
             pinned: true,
             is_synthetic: false,
             created_at: '2026-02-18T18:28:34.858807Z',
             last_modified_at: '2026-06-19T07:10:12.181366Z',
         })
-        expect((rows[0]!.recordings_counts as { collection: { count: number } }).collection.count).toBe(
+        expect((rows[0]!.recordings_counts as { saved_filters: { count: number } }).saved_filters.count).toBe(
             SESSION_ID_COUNT
         )
     })
