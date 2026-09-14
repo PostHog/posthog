@@ -37,7 +37,7 @@ const WEBHOOK_METRIC_KEYS = ['succeeded', 'failed', 'missing_credential'] as con
 const WEBHOOK_METRICS_INFO: Record<string, { name: string; description: string; color: string }> = {
     succeeded: {
         name: 'Received',
-        description: 'Total number of webhook events received and processed successfully',
+        description: 'Total number of webhook events received and answered, including any that were dropped',
         color: getColorVar('success'),
     },
     failed: {
