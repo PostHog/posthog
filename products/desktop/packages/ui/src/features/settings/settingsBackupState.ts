@@ -7,6 +7,10 @@ import { transactRendererStateWrite } from "@posthog/ui/shell/rendererStorage";
 import { useThemeStore } from "@posthog/ui/shell/themeStore";
 import { useSettingsStore } from "./settingsStore";
 
+// Bounds the rebase loop below: sustained, unrelated settings edits could
+// otherwise keep outrunning the import's own write indefinitely.
+const MAX_REBASE_ATTEMPTS = 5;
+
 export const settingsBackupState: SettingsBackupState = {
   read(): SettingsBackupSnapshot {
     const state = useSettingsStore.getState();
@@ -62,11 +66,13 @@ export const settingsBackupState: SettingsBackupState = {
       };
 
       let next = buildPersistedState();
-      while (true) {
+      for (let attempt = 1; ; attempt++) {
         await persist(next.value);
         const latest = buildPersistedState();
-        if (latest.value === next.value) {
-          useSettingsStore.setState(latest.patch);
+        // Publish exactly what was just persisted, even at the attempt cap,
+        // so live state never runs ahead of the durable copy on disk.
+        if (latest.value === next.value || attempt >= MAX_REBASE_ATTEMPTS) {
+          useSettingsStore.setState(next.patch);
           break;
         }
         next = latest;

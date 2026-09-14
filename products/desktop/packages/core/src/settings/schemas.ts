@@ -67,19 +67,13 @@ export type CompletionSound = z.infer<typeof completionSoundSchema>;
 const text = z.string().max(20_000);
 const nullableText = text.nullable();
 const messagingMode = z.enum(["queue", "steer"]);
-const spendPeriodSchema = z
-  .object({
-    warnUsd: z.number().positive().nullable(),
-    stopUsd: z.number().positive().nullable(),
-  })
-  .strict()
-  .refine(
-    ({ warnUsd, stopUsd }) =>
-      warnUsd === null || stopUsd === null || warnUsd <= stopUsd,
-  );
 
 // This allowlist is the portable contract. Account state, credentials, caches,
 // paths and preferences owned by the operating system must not cross machines.
+// Machine-local safety controls stay off it too, even though they are
+// preferences: allowBypassPermissions normally requires an explicit consent
+// dialog, and spendLimits guards against runaway spend, so a backup file must
+// not be able to change either without the user seeing it happen.
 export const portableSettingsSchema = z
   .object({
     theme: z.enum(["light", "dark", "system"]),
@@ -124,16 +118,12 @@ export const portableSettingsSchema = z
     customInstructions: text,
     ste100Enabled: z.boolean(),
     diffOpenMode: z.enum(["auto", "split", "same-pane", "last-active-pane"]),
-    spendLimits: z
-      .object({ day: spendPeriodSchema, month: spendPeriodSchema })
-      .strict(),
     warnOnMidSessionModelSwitch: z.boolean(),
     autoCompactPercent: z
       .number()
       .min(AUTO_COMPACT_MIN_PERCENT)
       .max(AUTO_COMPACT_MAX_PERCENT)
       .nullable(),
-    allowBypassPermissions: z.boolean(),
     debugLogsCloudRuns: z.boolean(),
     autoPublishCloudRuns: z.boolean(),
     rtkEnabledLocal: z.boolean(),

@@ -154,6 +154,36 @@ describe("settingsBackupState", () => {
     expect(useSettingsStore.getState()).toMatchObject(persisted);
   });
 
+  it("stops rebasing at the attempt cap instead of chasing sustained concurrent edits forever", async () => {
+    useSettingsStore.setState({
+      completionVolume: 80,
+      defaultMessagingMode: "queue",
+    });
+    await flushRendererStateWrites();
+    data.clear();
+    setItem.mockClear();
+
+    // A settings edit races every attempt, so the rebase can never converge
+    // on its own; it must stop at the cap instead of persisting forever. One
+    // extra call covers the transaction's own trailing flush of that edit.
+    for (let i = 0; i < 6; i++) {
+      setItem.mockImplementationOnce(async (key, value) => {
+        data.set(key, value);
+        useSettingsStore
+          .getState()
+          .setDefaultMessagingMode(i % 2 === 0 ? "steer" : "queue");
+      });
+    }
+
+    await settingsBackupState.apply({
+      settings: { completionVolume: 42 },
+      sounds: [],
+    });
+
+    expect(setItem.mock.calls.length).toBeLessThanOrEqual(6);
+    expect(useSettingsStore.getState().completionVolume).toBe(42);
+  });
+
   it("keeps concurrent edits live and pending when the import write fails", async () => {
     useSettingsStore.setState({
       completionSound: "none",
