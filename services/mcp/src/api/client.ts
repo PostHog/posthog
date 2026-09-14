@@ -1112,9 +1112,21 @@ export class ApiClient {
                     const insight = insights[0]
 
                     if (insights.length === 0 || !insight) {
+                        // The list endpoint answers 200 with an empty page for a short_id that
+                        // does not exist, so mint the 404 the retrieve endpoint would have
+                        // returned. A plain Error here reaches handleToolError untyped, which
+                        // captures an ordinary lookup miss as a per-tool error tracking issue.
+                        const message = `No insight found with short_id: ${insightId}`
                         return {
                             success: false,
-                            error: new Error(`No insight found with short_id: ${insightId}`),
+                            error: new PostHogApiError({
+                                status: 404,
+                                statusText: 'Not Found',
+                                body: message,
+                                url,
+                                method: 'GET',
+                                message,
+                            }),
                         }
                     }
 
