@@ -138,7 +138,7 @@ export function PurePlayer({ noMeta = false, noBorder = false }: PurePlayerProps
             if (isRecentAndInvalid) {
                 posthog.capture('session loaded recent and invalid', {
                     viewedSessionRecording: sessionRecordingId,
-                    recordingStartTime: sessionPlayerData?.start,
+                    recordingStartTime: sessionPlayerData?.start?.toISOString(),
                 })
             }
         },
@@ -151,7 +151,7 @@ export function PurePlayer({ noMeta = false, noBorder = false }: PurePlayerProps
             if (isOldAndInvalid) {
                 posthog.capture('session loaded old and invalid', {
                     viewedSessionRecording: sessionRecordingId,
-                    recordingStartTime: sessionPlayerData?.start,
+                    recordingStartTime: sessionPlayerData?.start?.toISOString(),
                 })
             }
         },
@@ -164,7 +164,8 @@ export function PurePlayer({ noMeta = false, noBorder = false }: PurePlayerProps
             if (hasLateFullSnapshot) {
                 posthog.capture('session loaded with late full snapshot', {
                     viewedSessionRecording: sessionRecordingId,
-                    recordingStartTime: sessionPlayerData?.start,
+                    recordingStartTime: sessionPlayerData?.start?.toISOString(),
+                    recordingDurationMs: sessionPlayerData?.durationMs,
                     leadingUnplayableMs,
                 })
             }
@@ -190,7 +191,8 @@ export function PurePlayer({ noMeta = false, noBorder = false }: PurePlayerProps
             reportedUnrenderableWindowFor.current = sessionRecordingId
             posthog.capture('session loaded with unrenderable window', {
                 viewedSessionRecording: sessionRecordingId,
-                recordingStartTime: sessionPlayerData?.start,
+                recordingStartTime: sessionPlayerData?.start?.toISOString(),
+                recordingDurationMs: sessionPlayerData?.durationMs,
                 unrenderableWindowMs,
             })
         },

@@ -641,10 +641,31 @@ describe('sessionRecordingPlayerLogic', () => {
             sessionRecordingDataCoordinatorLogic({ sessionRecordingId: '2' }).actions.setProcessedSnapshots(processed)
         }
 
-        beforeEach(async () => {
+        // `durationMs` caps the reported spans, and the default mock recording is only 11 seconds
+        // long, so each case states the metadata duration its fixture needs.
+        const mountWithRecordingDuration = async (recordingDurationSeconds: number): Promise<void> => {
+            logic.unmount()
+            overrideSessionRecordingMocks({
+                getMocks: {
+                    '/api/environments/:team_id/session_recordings/:id': {
+                        ...recordingMetaJson,
+                        recording_duration: recordingDurationSeconds,
+                    },
+                },
+            })
+            logic = sessionRecordingPlayerLogic({
+                sessionRecordingId: '2',
+                playerKey: 'test',
+                blobV2PollingDisabled: true,
+            })
+            logic.mount()
             await expectLogic(logic)
                 .toDispatchActions([snapshotDataLogic({ sessionRecordingId: '2' }).actionTypes.loadSnapshotSources])
                 .toFinishAllListeners()
+        }
+
+        beforeEach(async () => {
+            await mountWithRecordingDuration(360)
         })
 
         // assertions below run synchronously after the seek dispatch — kea listeners
@@ -1026,6 +1047,17 @@ describe('sessionRecordingPlayerLogic', () => {
                 expect(logic.values.hasLateFullSnapshot).toBe(expectedHasLate)
             }
         )
+
+        it('reports at most the recording length when the start is skewed before the recording', async () => {
+            // A skewed start drags `start` back but not the metadata duration the timeline is capped to,
+            // so the raw offset to the first full snapshot claims more time than the recording holds.
+            await mountWithRecordingDuration(60)
+            seedRecording([inc(START), inc(START + 1000)], [fs(LATE_FS_TS)])
+
+            expect(logic.values.leadingUnplayableMs).toBe(logic.values.sessionPlayerData.durationMs)
+            expect(logic.values.leadingUnplayableMs).toBeLessThan(LATE_FS_TS - START)
+            expect(logic.values.hasLateFullSnapshot).toBe(true)
+        })
 
         it.each([
             {
