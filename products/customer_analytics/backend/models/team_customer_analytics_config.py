@@ -59,7 +59,9 @@ class TeamCustomerAnalyticsConfig(models.Model):
         "project",
         "admin",
     )
-    ownership_claims_enabled = field_access_control(models.BooleanField(default=False), "project", "admin")
+    ownership_claims_enabled = field_access_control(
+        models.BooleanField(db_default=False, default=False), "project", "admin"
+    )
     # The warehouse view the claim reconciler reads Salesforce Task decisions from. The view maps the
     # Task's frozen fields onto the columns `logic/ownership_claims.py` documents, so Salesforce
     # field names stay out of this codebase.
