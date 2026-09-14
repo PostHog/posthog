@@ -28,7 +28,7 @@ def _create_source(team, host: str) -> ExternalDataSource:
         source_id=str(uuid.uuid4()),
         connection_id=str(uuid.uuid4()),
         source_type="MongoDB",
-        job_inputs={"connection_string": f"mongodb://user:pass@{host}/db", "database_name": "db"},
+        job_inputs={"connection_string": f"mongodb://user:pass@{host}/db?tls=true", "database_name": "db"},
     )
 
 

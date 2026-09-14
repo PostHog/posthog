@@ -928,7 +928,7 @@ class TestGetServerMetadata(SimpleTestCase):
         servers = [self._server(host, max_wire_version) for host, max_wire_version in nodes]
 
         with self._patched_client(server_version, servers):
-            metadata = get_server_metadata("mongodb://user:pass@a.example.com/db", team_id=1)
+            metadata = get_server_metadata("mongodb://user:pass@a.example.com/db?tls=true", team_id=1)
 
         assert metadata["engine"] == "mongodb"
         assert metadata["server_version"] == server_version
