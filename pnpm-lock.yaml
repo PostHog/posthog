@@ -5277,8 +5277,8 @@ importers:
         specifier: workspace:*
         version: link:../../packages/llm-normalizer
       '@posthog/mcp-analytics':
-        specifier: npm:@posthog/mcp@0.16.0
-        version: '@posthog/mcp@0.16.0(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.3.6))(posthog-node@5.51.8(rxjs@7.8.1))'
+        specifier: npm:@posthog/mcp@0.16.1
+        version: '@posthog/mcp@0.16.1(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.3.6))(posthog-node@5.51.8(rxjs@7.8.1))'
       '@posthog/quill':
         specifier: workspace:*
         version: link:../../packages/quill/packages/quill
@@ -10601,6 +10601,9 @@ packages:
   '@posthog/core@1.53.2':
     resolution: {integrity: sha512-Knx8442G2LyPVIzLvhcBX/TIdeHpZhrYrtZou3Uw8FWfbr9gQtQeOZDCog3MWcDxJ+4vAnMAAOzf5cYpc7Gxyw==}
 
+  '@posthog/core@1.53.3':
+    resolution: {integrity: sha512-ioBDeZtsFZej4vfX2bGGBud3DNCvSlmUUdk2KtQWOlpGytbdirMHVxG2iAFkxqemiukqcvf/Do6BtZb5hp9MYw==}
+
   '@posthog/hedgehog-mode@0.0.57':
     resolution: {integrity: sha512-50BR9KRFTkh4HszryGPZUdVdaSqbb4OuaxwmeONGEuI2TRFCyWgF6r7YdVg9ud7PVnp6R4L7O4oYhaARDHuP0g==}
     engines: {node: '>=18'}
@@ -10626,8 +10629,8 @@ packages:
       react: 18.3.1
       react-dom: 18.3.1
 
-  '@posthog/mcp@0.16.0':
-    resolution: {integrity: sha512-NW9w0Cc0Dk95vsQy0g5G3//n7cljeWgF//yIbUsRofu0wsZ23bV9pY4XvnvKtHVh+iK3dji8zxzOJr3lXgL1rA==}
+  '@posthog/mcp@0.16.1':
+    resolution: {integrity: sha512-ETvh9068pDP0c27oK7RKgwF136aP4Pi2dwopV8RXbpzu6NxXOSAMK7iPcqSZJbbDwPNCTB1Jr23NoV5abqETOw==}
     engines: {node: ^20.20.0 || >=22.22.0}
     peerDependencies:
       '@modelcontextprotocol/sdk': ^1.29.0
@@ -10667,6 +10670,9 @@ packages:
 
   '@posthog/types@1.411.1':
     resolution: {integrity: sha512-Gd7tnSYctcSXup3naVlAgavvenByRao6rsSYdMgWgP35KE9jFn+rMHNRJeI5LNjJuLzMXHEVcgzAN7xcATefdw==}
+
+  '@posthog/types@1.412.0':
+    resolution: {integrity: sha512-EP+lSTnEmftW/slhGXsuGcYAygO4oho3hjWqObP+GeceZ+6qcwK9qZwVRqJjsiZAl0xLPy5s0U0SZqGKayFyeQ==}
 
   '@protobufjs/aspromise@1.1.2':
     resolution: {integrity: sha512-j+gKExEuLmKwvz3OgROXtrJ2UG2x8Ch2YZUxahh+s1F2HZ+wAceUNLkvy6zKCPVRkU++ZWQrdxsUeQXmcg4uoQ==}
@@ -22821,8 +22827,8 @@ packages:
     resolution: {integrity: sha512-gptHNQghINnc/vTGIk0SOFGFNXw7JVrlRUtConJRlvaw6DuX0wO5Jeko9sWrMBhh+PsYAZ7oXAiOnf/UKogyiw==}
     engines: {node: '>= 10.0.0'}
 
-  unlayer-types@1.482.0:
-    resolution: {integrity: sha512-2Lr8dFxtMLIAAjSTIHDx6lZDKOBeyfRBZRPWGx3U91eq+X1oSEPBQbGltGHOM+21UVEbcAAW1ja/KlnAIOxO0A==}
+  unlayer-types@1.483.0:
+    resolution: {integrity: sha512-UZJhsKBpxZYz2R7gjM3Obm1PYXo9RLS6XJ25x7ZshhmBXeBcBqnE3p/0qSqRDNTikSzCeWXPUJFqHtQVSjf9Bw==}
 
   unpipe@1.0.0:
     resolution: {integrity: sha512-pjy2bYhSsufwWlKwPc+l3cN7+wuJlK6uz0YdJEOlQDbl6jo/YlPi4mb8agUkVC8BF7V8NuzeyPNqRksA3hztKQ==}
@@ -30201,6 +30207,10 @@ snapshots:
     dependencies:
       '@posthog/types': 1.411.1
 
+  '@posthog/core@1.53.3':
+    dependencies:
+      '@posthog/types': 1.412.0
+
   '@posthog/hedgehog-mode@0.0.57(prop-types@15.8.1)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)':
     dependencies:
       gsap: 3.14.2
@@ -30228,9 +30238,9 @@ snapshots:
       react: 18.3.1
       react-dom: 18.3.1(react@18.3.1)
 
-  '@posthog/mcp@0.16.0(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.3.6))(posthog-node@5.51.8(rxjs@7.8.1))':
+  '@posthog/mcp@0.16.1(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.3.6))(posthog-node@5.51.8(rxjs@7.8.1))':
     dependencies:
-      '@posthog/core': 1.53.2
+      '@posthog/core': 1.53.3
       posthog-node: 5.51.8(rxjs@7.8.1)
     optionalDependencies:
       '@modelcontextprotocol/sdk': 1.29.0(@cfworker/json-schema@4.1.1)(zod@4.3.6)
@@ -30254,6 +30264,8 @@ snapshots:
   '@posthog/types@1.409.2': {}
 
   '@posthog/types@1.411.1': {}
+
+  '@posthog/types@1.412.0': {}
 
   '@protobufjs/aspromise@1.1.2': {}
 
@@ -43307,7 +43319,7 @@ snapshots:
   react-email-editor@1.7.11(react@18.3.1):
     dependencies:
       react: 18.3.1
-      unlayer-types: 1.482.0
+      unlayer-types: 1.483.0
 
   react-grid-layout@2.2.4(react-dom@18.3.1(react@18.3.1))(react@18.3.1):
     dependencies:
@@ -45622,7 +45634,7 @@ snapshots:
 
   universalify@2.0.1: {}
 
-  unlayer-types@1.482.0: {}
+  unlayer-types@1.483.0: {}
 
   unpipe@1.0.0: {}
 
