@@ -212,9 +212,10 @@ def resolve_constant_data_type(constant: Any) -> ConstantType:
     raise ImpossibleASTError(f"Unsupported constant type: {type(constant)}")
 
 
-# ClickHouse's and/or/not accept numbers and booleans only. An expression of one of these types
-# reaches the database as "Illegal type ... of argument of function and", which tells the caller
-# nothing about which part of their query is wrong.
+# ClickHouse answers an argument of and/or/not that it cannot read as a condition with
+# "Illegal type ... of argument of function and", which names no part of the query. Float and
+# Decimal are rejected by ClickHouse too, and stay out of this list so that a numeric type can
+# never become a false positive here.
 CONDITION_INCOMPATIBLE_TYPES = (
     ast.StringType,
     ast.DateType,
