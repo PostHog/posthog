@@ -36,8 +36,8 @@ export function ToolTitle({
   children: React.ReactNode;
   className?: string;
 }) {
-  // New thread (ChatX marker chrome) uses the muted, truncating title; the legacy thread keeps its
-  // original styling so toggling the chat thread off leaves ConversationView pixel-identical.
+  // Chat-thread chrome uses the muted, truncating title. The standalone fallback retains its
+  // original styling when chat-thread chrome is unavailable.
   const chatChrome = useChatThreadChrome();
   const base = chatChrome
     ? "text-sm text-muted-foreground truncate min-w-0"
@@ -271,8 +271,8 @@ export function ExpandableIcon({
 }
 
 export function ContentPre({ children }: { children: React.ReactNode }) {
-  // New thread wraps output in a bordered, muted box (it sits inside a ChatMarker panel); the legacy
-  // thread keeps the original borderless scroll box so ConversationView is unchanged when toggled off.
+  // Chat-thread chrome wraps output in a bordered, muted box inside a ChatMarker panel. The
+  // standalone fallback retains the borderless scroll box when chat-thread chrome is unavailable.
   const chatChrome = useChatThreadChrome();
   if (chatChrome) {
     return (
