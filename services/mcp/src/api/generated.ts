@@ -49341,7 +49341,7 @@ export namespace Schemas {
          * @maxLength 500
          */
       compatibility?: string;
-      /** Tools the skill asks to use. Tool names cannot contain whitespace. A harness that reads the skill from a file (zip export, git marketplace, bundle install) treats the list as pre-approved. A harness that loads the skill over MCP ignores the list until the user approves that grant. */
+      /** Tools the skill asks to use. Tool names cannot contain whitespace. A harness that reads the skill from a file (zip export, git marketplace, a content=full bundle) treats the list as pre-approved. A harness that loads the skill over MCP, including the default content=stub bundle, ignores the list until the user approves that grant. */
       allowed_tools?: string[];
       /** Arbitrary key-value metadata. */
       metadata?: LLMSkillMetadata;
@@ -49423,7 +49423,7 @@ export namespace Schemas {
          * @maxLength 500
          */
       compatibility?: string;
-      /** Tools the skill asks to use. Tool names cannot contain whitespace. A harness that reads the skill from a file (zip export, git marketplace, bundle install) treats the list as pre-approved. A harness that loads the skill over MCP ignores the list until the user approves that grant. */
+      /** Tools the skill asks to use. Tool names cannot contain whitespace. A harness that reads the skill from a file (zip export, git marketplace, a content=full bundle) treats the list as pre-approved. A harness that loads the skill over MCP, including the default content=stub bundle, ignores the list until the user approves that grant. */
       allowed_tools?: string[];
       /** Arbitrary key-value metadata. */
       metadata?: LLMSkillCreateMetadata;
@@ -49560,7 +49560,7 @@ export namespace Schemas {
          * @maxLength 500
          */
       compatibility?: string;
-      /** Tools the skill asks to use. Tool names cannot contain whitespace. A harness that reads the skill from a file (zip export, git marketplace, bundle install) treats the list as pre-approved. A harness that loads the skill over MCP ignores the list until the user approves that grant. */
+      /** Tools the skill asks to use. Tool names cannot contain whitespace. A harness that reads the skill from a file (zip export, git marketplace, a content=full bundle) treats the list as pre-approved. A harness that loads the skill over MCP, including the default content=stub bundle, ignores the list until the user approves that grant. */
       allowed_tools?: string[];
       /** Arbitrary key-value metadata. */
       metadata?: LLMSkillListMetadata;
@@ -66795,7 +66795,7 @@ export namespace Schemas {
          * @maxLength 500
          */
       compatibility?: string;
-      /** Tools the skill asks to use. Tool names cannot contain whitespace. A harness that reads the skill from a file (zip export, git marketplace, bundle install) treats the list as pre-approved. A harness that loads the skill over MCP ignores the list until the user approves that grant. */
+      /** Tools the skill asks to use. Tool names cannot contain whitespace. A harness that reads the skill from a file (zip export, git marketplace, a content=full bundle) treats the list as pre-approved. A harness that loads the skill over MCP, including the default content=stub bundle, ignores the list until the user approves that grant. */
       allowed_tools?: string[];
       /** Arbitrary key-value metadata. */
       metadata?: PatchedLLMSkillPublishMetadata;
