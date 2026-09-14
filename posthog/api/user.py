@@ -412,7 +412,8 @@ class UserSerializer(serializers.ModelSerializer):
             value, exclude_user_id=self.instance.pk if self.instance else None
         ):
             raise serializers.ValidationError("There is already an account with this email address.", code="unique")
-        return value
+        # `email` is unique on the exact string, so a typed-case address twins an existing account.
+        return EmailNormalizer.normalize(value)
 
     def get_has_password(self, instance: User) -> bool:
         return bool(instance.password) and instance.has_usable_password()
@@ -1135,8 +1136,22 @@ class UserViewSet(
         # and in the verifier.
         if user.pending_email and user.is_email_verified is not False:
             old_email = user.email
+            # A change staged before this shipped still carries its typed case.
+            new_email = EmailNormalizer.normalize(user.pending_email)
+            # Anyone can claim the address while the change waits for this code.
+            if EmailValidationHelper.user_exists_with_stripped_alias(new_email, exclude_user_id=user.pk):
+                user.pending_email = None
+                user.save(update_fields=["pending_email"])
+                raise serializers.ValidationError(
+                    {
+                        "email": [
+                            "Another account now uses this email address. Start the change again with a different address."
+                        ]
+                    },
+                    code="email_taken",
+                )
             with transaction.atomic():
-                user.email = user.pending_email
+                user.email = new_email
                 user.pending_email = None
                 user.save(update_fields=["email", "pending_email"])
                 # Delete social auth so the old external identity can't keep logging in.

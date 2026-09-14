@@ -1012,6 +1012,30 @@ class TestUserAPI(APIBaseTest):
         assert self.user.email == "alpha@example.com"
         assert self.user.pending_email is None
 
+    @patch("posthog.api.user.is_email_available", return_value=True)
+    @patch("posthog.api.email_verification.send_email_verification_code")
+    def test_email_change_stages_the_normalized_address(self, mock_send_code, _mock_is_email_available):
+        self.user.email = "alpha@example.com"
+        self.user.save()
+
+        response = self.client.patch("/api/users/@me/", {"email": "Beta.Gamma@Example.COM"})
+
+        assert response.status_code == status.HTTP_200_OK
+        self.user.refresh_from_db()
+        assert self.user.pending_email == "beta.gamma@example.com"
+        assert mock_send_code.call_args[0][2] == "beta.gamma@example.com"
+
+    @patch("posthog.api.user.is_email_available", return_value=False)
+    def test_email_change_without_email_configured_writes_the_normalized_address(self, _mock_is_email_available):
+        self.user.email = "alpha@example.com"
+        self.user.save()
+
+        response = self.client.patch("/api/users/@me/", {"email": "Beta@Example.com"})
+
+        assert response.status_code == status.HTTP_200_OK
+        self.user.refresh_from_db()
+        assert self.user.email == "beta@example.com"
+
     @patch("posthog.api.user.is_email_available", return_value=False)
     def test_email_change_allowed_when_dropping_own_plus_alias(self, _mock_is_email_available):
         # The collision check must skip the editor's own row, or a legacy alias holder can never clean it up.
@@ -3269,10 +3293,18 @@ class TestEmailVerificationCodeAPI(APIBaseTest):
         self.assertEqual(response.json(), {"success": True, "requires_login": True})
         assert self.client.session.get("_auth_user_id") is None
 
-    @parameterized.expand([("verified", True), ("legacy_never_verified", None)])
-    def test_email_change_code_goes_to_the_pending_address_and_completes_the_swap(self, _name, is_email_verified):
+    @parameterized.expand(
+        [
+            ("verified", True, "new-address@posthog.com"),
+            ("legacy_never_verified", None, "new-address@posthog.com"),
+            ("staged_before_normalization", True, "New-Address@PostHog.com"),
+        ]
+    )
+    def test_email_change_code_goes_to_the_pending_address_and_completes_the_swap(
+        self, _name, is_email_verified, staged_email
+    ):
         self.user.is_email_verified = is_email_verified
-        self.user.pending_email = "new-address@posthog.com"
+        self.user.pending_email = staged_email
         self.user.save()
 
         with patch("posthog.api.email_verification.send_email_verification_code") as mock_send:
@@ -3280,12 +3312,34 @@ class TestEmailVerificationCodeAPI(APIBaseTest):
                 response = self.client.post("/api/users/request_email_verification/", {"uuid": self.user.uuid})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         code = mock_send.call_args[0][1]
-        assert mock_send.call_args[0][2] == "new-address@posthog.com"
+        assert mock_send.call_args[0][2] == staged_email
 
         response = self.client.post("/api/users/verify_email/", {"uuid": self.user.uuid, "code": code})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.user.refresh_from_db()
         assert self.user.email == "new-address@posthog.com"
+        assert self.user.pending_email is None
+
+    def test_pending_address_taken_while_the_change_waited_is_not_promoted(self):
+        self.user.is_email_verified = True
+        self.user.pending_email = "new-address@posthog.com"
+        self.user.save()
+        account_email = self.user.email
+
+        with patch("posthog.api.email_verification.send_email_verification_code") as mock_send:
+            with self.settings(CELERY_TASK_ALWAYS_EAGER=True):
+                self.client.post("/api/users/request_email_verification/", {"uuid": self.user.uuid})
+        code = mock_send.call_args[0][1]
+
+        # Another account claims the address under a case the unique index on `email` allows.
+        User.objects.create(email="New-Address@posthog.com", first_name="Other")
+
+        response = self.client.post("/api/users/verify_email/", {"uuid": self.user.uuid, "code": code})
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["code"], "email_taken")
+        self.user.refresh_from_db()
+        assert self.user.email == account_email
         assert self.user.pending_email is None
 
     def test_signup_code_does_not_authorize_an_email_change(self):
