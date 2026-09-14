@@ -4,13 +4,7 @@ import { Spinner } from 'lib/lemon-ui/Spinner'
 
 import type { ReportMetricApi } from 'products/signals/frontend/generated/api.schemas'
 
-import {
-    formatReportMetricParts,
-    formatReportMetricValue,
-    reportMetricDelta,
-    reportMetricWindowLabel,
-} from '../../utils/reportMetrics'
-import { ReportMetricDeltaBadge } from './ReportMetricDeltaBadge'
+import { formatReportMetricParts, reportMetricWindowLabel } from '../../utils/reportMetrics'
 
 export interface ReportSupportingMetricLiveState {
     value: number | null
@@ -29,11 +23,8 @@ export function ReportSupportingMetric({
     const liveParts = liveState ? formatReportMetricParts(metric, liveState.value) : null
     const snapshotParts = formatReportMetricParts(metric, metric.value)
     const parts = liveParts ?? snapshotParts
-    const shownValue = liveParts ? liveState?.value : metric.value
-    const formattedComparison = metric.comparison ? formatReportMetricValue(metric, metric.comparison.value) : null
     const usingSnapshot = !liveParts && !!snapshotParts
     const windowLabel = reportMetricWindowLabel(metric.query) ?? 'Current window'
-    const delta = metric.comparison ? reportMetricDelta(metric, shownValue, metric.comparison.value) : null
 
     return (
         <LemonCard
@@ -74,17 +65,6 @@ export function ReportSupportingMetric({
             ) : liveState ? (
                 <p className="m-0 text-[11px] text-tertiary">
                     No current value.{usingSnapshot ? ' Showing the latest saved value.' : null}
-                </p>
-            ) : null}
-            {parts && metric.comparison && formattedComparison ? (
-                <p className="m-0 font-mono text-[11px] break-words text-tertiary">
-                    {delta ? (
-                        <>
-                            <ReportMetricDeltaBadge delta={delta} />
-                            <span aria-hidden> · </span>
-                        </>
-                    ) : null}
-                    {metric.comparison.label}: {formattedComparison}
                 </p>
             ) : null}
             {metric.value_at && (!liveState || usingSnapshot) ? (

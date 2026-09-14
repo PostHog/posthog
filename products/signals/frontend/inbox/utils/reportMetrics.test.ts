@@ -13,7 +13,6 @@ import {
     reportMetricAggregate,
     reportMetricChartType,
     reportNeedsMetricRefresh,
-    reportMetricDelta,
     reportMetricFilterCount,
     reportMetricRowParts,
     reportMetricSeriesPoints,
@@ -35,7 +34,6 @@ const SNAPSHOT_METRIC: ReportMetricApi = {
     unit: 'users',
     query: { kind: 'InsightVizNode', source: { kind: 'TrendsQuery', series: [] } },
     caption: null,
-    comparison: { value: 12, label: 'Previous 14 days' },
 }
 
 describe('reportMetrics', () => {
@@ -274,96 +272,6 @@ describe('reportMetrics', () => {
         expect(reportMetricWindowLabel(query)).toBe(expected)
     })
 
-    test.each([
-        [
-            'a multiplied user count',
-            { kind: 'affected_users', value_format: 'count' } as const,
-            237,
-            72,
-            { direction: 'up', tone: 'bad', label: '3.3×' },
-        ],
-        [
-            'a growing user count',
-            { kind: 'affected_users', value_format: 'count' } as const,
-            1248,
-            832,
-            { direction: 'up', tone: 'bad', label: '+50%' },
-        ],
-        [
-            'a whole multiple',
-            { kind: 'affected_users', value_format: 'count' } as const,
-            4,
-            1,
-            { direction: 'up', tone: 'bad', label: '4×' },
-        ],
-        [
-            'a move too small to report',
-            { kind: 'occurrences', value_format: 'count' } as const,
-            3758,
-            3760,
-            { direction: 'flat', tone: 'neutral', label: 'No change' },
-        ],
-        [
-            'a scaled conversion rate',
-            { kind: 'conversion_rate', value_format: 'percentage_scaled' } as const,
-            0.051,
-            0.05,
-            { direction: 'up', tone: 'good', label: '+0.1 pts' },
-        ],
-        [
-            'a worsening error rate',
-            { kind: 'error_rate', value_format: 'percentage' } as const,
-            40,
-            34,
-            { direction: 'up', tone: 'bad', label: '+6 pts' },
-        ],
-        [
-            'an improving error rate',
-            { kind: 'error_rate', value_format: 'percentage' } as const,
-            34,
-            40,
-            { direction: 'down', tone: 'good', label: '-6 pts' },
-        ],
-        [
-            'a shorter duration',
-            { kind: 'duration', value_format: 'duration' } as const,
-            199,
-            287,
-            { direction: 'down', tone: 'good', label: '-31%' },
-        ],
-        [
-            'falling revenue',
-            { kind: 'revenue', value_format: 'currency' } as const,
-            900,
-            1000,
-            { direction: 'down', tone: 'bad', label: '-10%' },
-        ],
-        [
-            'a doubled custom metric',
-            { kind: 'custom', value_format: 'number' } as const,
-            10,
-            5,
-            { direction: 'up', tone: 'neutral', label: '2×' },
-        ],
-        [
-            'a rise from nothing',
-            { kind: 'affected_users', value_format: 'count' } as const,
-            37,
-            0,
-            { direction: 'up', tone: 'bad', label: 'Up from 0' },
-        ],
-        [
-            'two empty windows',
-            { kind: 'affected_users', value_format: 'count' } as const,
-            0,
-            0,
-            { direction: 'flat', tone: 'neutral', label: 'No change' },
-        ],
-        ['a missing current value', { kind: 'affected_users', value_format: 'count' } as const, null, 72, null],
-    ])('describes %s as a change a reader can act on', (_name, metric, current, previous, expected) => {
-        expect(reportMetricDelta(metric, current, previous)).toEqual(expected)
-    })
-
     describe('reportMetricSeriesPoints', () => {
         const bucket = { days: ['2026-09-07', '2026-09-08', '2026-09-09'], data: [3, null, 9] }
 
@@ -415,7 +323,7 @@ describe('reportMetrics', () => {
         expect(reportNeedsMetricRefresh(report as { metrics?: ReportMetricApi[] }, NOW)).toBe(expected)
     })
 
-    it('merges refreshed numbers by metric_id and keeps the query and comparison', () => {
+    it('merges refreshed numbers by metric_id and keeps the query', () => {
         const report = { id: 'r1', metrics: [{ ...SNAPSHOT_METRIC }] }
         const merged = mergeReportMetricSnapshots(report, [
             {
@@ -437,7 +345,6 @@ describe('reportMetrics', () => {
             value_at: '2026-09-09T12:00:00Z',
             series: [5, 9, 21],
             query: SNAPSHOT_METRIC.query,
-            comparison: SNAPSHOT_METRIC.comparison,
         })
         // The same numbers back, or another report's snapshot, leave the row object untouched.
         expect(mergeReportMetricSnapshots(report, [{ id: 'r1', metrics: [SNAPSHOT_METRIC] }])).toBe(report)

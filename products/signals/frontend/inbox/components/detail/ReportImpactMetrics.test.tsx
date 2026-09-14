@@ -44,8 +44,6 @@ const percentageQuery = {
     },
 }
 
-const comparison = { label: 'Previous window', value: 5 }
-
 function makeMetric(overrides: Partial<ReportMetricApi> = {}): ReportMetricApi {
     return {
         metric_id: 'affected-users',
@@ -58,7 +56,6 @@ function makeMetric(overrides: Partial<ReportMetricApi> = {}): ReportMetricApi {
         unit: 'users',
         query,
         caption: null,
-        comparison: null,
         ...overrides,
     }
 }
@@ -96,11 +93,10 @@ describe('ReportImpactMetrics', () => {
             },
         })
 
-        render(<ReportImpactMetrics reportId="live-supporting" metrics={[makeMetric({ comparison })]} />)
+        render(<ReportImpactMetrics reportId="live-supporting" metrics={[makeMetric()]} />)
 
         expect(await screen.findByText('42')).toBeInTheDocument()
         expect(screen.queryByText('9')).not.toBeInTheDocument()
-        expect(screen.getByText('Previous window: 5 users')).toBeInTheDocument()
         expect(screen.getByText('Last 7 days')).toBeInTheDocument()
         expect(screen.queryByText('Current window')).not.toBeInTheDocument()
         expect(requests).toBe(1)
@@ -124,47 +120,6 @@ describe('ReportImpactMetrics', () => {
         expect(screen.getByText('clicks')).toBeInTheDocument()
     })
 
-    test.each([
-        {
-            change: 'more affected users',
-            metric: makeMetric({ comparison: { label: 'Previous 14 days', value: 832 } }),
-            liveValue: 1248,
-            shownValue: '1,248',
-            label: '+50%',
-            tone: 'bad',
-        },
-        {
-            change: 'a higher conversion rate',
-            metric: makeMetric({
-                metric_id: 'conversion-rate',
-                title: 'Conversion rate',
-                kind: 'conversion_rate',
-                value: 0.12,
-                value_format: 'percentage_scaled',
-                unit: null,
-                query: percentageQuery,
-                comparison: { label: 'Before the observation', value: 0.12 },
-            }),
-            liveValue: 0.34,
-            shownValue: '34%',
-            label: '+22 pts',
-            tone: 'good',
-        },
-    ])('tones the change by harm for $change', async ({ metric, liveValue, shownValue, label, tone }) => {
-        useMocks({
-            post: {
-                '/api/environments/:team_id/query/:kind': [200, trendsResponse(liveValue)],
-            },
-        })
-
-        const { container } = render(<ReportImpactMetrics reportId={`delta-${tone}`} metrics={[metric]} />)
-
-        expect(await screen.findByText(shownValue)).toBeInTheDocument()
-        const delta = container.querySelector('[data-attr="report-metric-delta"]')
-        expect(delta).toHaveTextContent(label)
-        expect(delta).toHaveAttribute('data-tone', tone)
-    })
-
     it('uses the generated supporting role default when role is omitted', async () => {
         let requests = 0
         useMocks({
@@ -176,12 +131,7 @@ describe('ReportImpactMetrics', () => {
             },
         })
 
-        render(
-            <ReportImpactMetrics
-                reportId="default-supporting"
-                metrics={[makeMetric({ role: undefined, comparison })]}
-            />
-        )
+        render(<ReportImpactMetrics reportId="default-supporting" metrics={[makeMetric({ role: undefined })]} />)
 
         expect(await screen.findByText('42')).toBeInTheDocument()
         expect(screen.queryByText('9')).not.toBeInTheDocument()
@@ -199,11 +149,10 @@ describe('ReportImpactMetrics', () => {
             },
         })
 
-        render(<ReportImpactMetrics reportId="loading-supporting" metrics={[makeMetric({ comparison })]} />)
+        render(<ReportImpactMetrics reportId="loading-supporting" metrics={[makeMetric()]} />)
 
         expect(screen.getByText('9')).toBeInTheDocument()
         expect(screen.getByText('Refreshing current value')).toBeInTheDocument()
-        expect(screen.getByText('Previous window: 5 users')).toBeInTheDocument()
 
         await waitFor(() => expect(finishRequest).not.toBeUndefined())
         await act(async () => finishRequest?.([200, trendsResponse(10)]))
@@ -233,10 +182,7 @@ describe('ReportImpactMetrics', () => {
         }
 
         render(
-            <ReportImpactMetrics
-                reportId="unrunnable-supporting"
-                metrics={[makeMetric({ comparison, query: unrunnableQuery })]}
-            />
+            <ReportImpactMetrics reportId="unrunnable-supporting" metrics={[makeMetric({ query: unrunnableQuery })]} />
         )
 
         expect(await screen.findByText(/No current value/)).toHaveTextContent(
@@ -256,13 +202,12 @@ describe('ReportImpactMetrics', () => {
             },
         })
 
-        render(<ReportImpactMetrics reportId="failed-supporting" metrics={[makeMetric({ comparison })]} />)
+        render(<ReportImpactMetrics reportId="failed-supporting" metrics={[makeMetric()]} />)
 
         expect(await screen.findByText(/Couldn't refresh this metric/)).toHaveTextContent(
             "Couldn't refresh this metric. Showing the latest saved value. Refresh the page to try again."
         )
         expect(screen.getByText('9')).toBeInTheDocument()
-        expect(screen.getByText('Previous window: 5 users')).toBeInTheDocument()
     })
 
     it('renders a live zero instead of falling back to a nonzero snapshot', async () => {

@@ -35,8 +35,6 @@ const query = {
     },
 }
 
-const comparison = { label: 'Previous window', value: 5 }
-
 function makeMetric(overrides: Partial<ReportMetricApi> = {}): ReportMetricApi {
     return {
         metric_id: 'affected-users',
@@ -49,7 +47,6 @@ function makeMetric(overrides: Partial<ReportMetricApi> = {}): ReportMetricApi {
         unit: 'users',
         query,
         caption: null,
-        comparison: null,
         ...overrides,
     }
 }
@@ -101,7 +98,7 @@ describe('ReportPrimaryMetric', () => {
         })
 
         const { container } = render(
-            <ReportPrimaryMetric reportId="primary" metric={makeMetric({ role: 'primary', comparison })} />
+            <ReportPrimaryMetric reportId="primary" metric={makeMetric({ role: 'primary' })} />
         )
 
         const observation = within(primaryMetricElement(container))
@@ -124,7 +121,7 @@ describe('ReportPrimaryMetric', () => {
         expect(requestedDisplays).toHaveLength(2)
     })
 
-    it('reads the live figure against its comparison and names the window', async () => {
+    it('reads the live figure and names the window', async () => {
         useMocks({
             post: {
                 '/api/environments/:team_id/query/:kind': [200, trendsResponse(1248)],
@@ -132,23 +129,15 @@ describe('ReportPrimaryMetric', () => {
         })
 
         const { container } = render(
-            <ReportPrimaryMetric
-                reportId="live-meta"
-                metric={makeMetric({ role: 'primary', comparison: { label: 'Previous 14 days', value: 832 } })}
-            />
+            <ReportPrimaryMetric reportId="live-meta" metric={makeMetric({ role: 'primary' })} />
         )
 
         const observation = within(primaryMetricElement(container))
         expect(await observation.findByText('1,248')).toBeInTheDocument()
-        expect(observation.getByText('Previous 14 days: 832 users')).toBeInTheDocument()
         expect(observation.getByText('Last 7 days')).toBeInTheDocument()
-
-        const delta = container.querySelector('[data-attr="report-metric-delta"]')
-        expect(delta).toHaveTextContent('+50%')
-        expect(delta).toHaveAttribute('data-tone', 'bad')
     })
 
-    it('keeps the saved comparison when a primary metric falls back after a failed refresh', async () => {
+    it('keeps the saved value when a primary metric falls back after a failed refresh', async () => {
         jest.spyOn(console, 'error').mockImplementation()
         useMocks({
             post: {
@@ -156,11 +145,10 @@ describe('ReportPrimaryMetric', () => {
             },
         })
 
-        render(<ReportPrimaryMetric reportId="failed-primary" metric={makeMetric({ role: 'primary', comparison })} />)
+        render(<ReportPrimaryMetric reportId="failed-primary" metric={makeMetric({ role: 'primary' })} />)
 
         expect(await screen.findByText(/Couldn't refresh this metric/)).toBeInTheDocument()
         expect(screen.getByText('9')).toBeInTheDocument()
-        expect(screen.getByText('Previous window: 5 users')).toBeInTheDocument()
     })
 
     it('falls back to the saved primary value when the live query returns no series', async () => {
@@ -170,15 +158,12 @@ describe('ReportPrimaryMetric', () => {
             },
         })
 
-        render(
-            <ReportPrimaryMetric reportId="empty-series-primary" metric={makeMetric({ role: 'primary', comparison })} />
-        )
+        render(<ReportPrimaryMetric reportId="empty-series-primary" metric={makeMetric({ role: 'primary' })} />)
 
         expect(
             await screen.findByText(/No value for this window\. Showing the latest saved value\./)
         ).toBeInTheDocument()
         expect(screen.getByText('9')).toBeInTheDocument()
-        expect(screen.getByText('Previous window: 5 users')).toBeInTheDocument()
     })
 
     it('shows the saved primary value without a load error when the query is omitted', () => {

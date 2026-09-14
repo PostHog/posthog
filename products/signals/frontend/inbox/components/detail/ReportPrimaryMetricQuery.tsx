@@ -15,7 +15,7 @@ import {
     reportMetricChartType,
     reportMetricSeriesPoints,
 } from '../../utils/reportMetrics'
-import { comparisonMetaSegments, measuredMetaSegments, ReportMetricMetaLine } from './ReportMetricMetaLine'
+import { measuredMetaSegments, ReportMetricMetaLine } from './ReportMetricMetaLine'
 import { ReportObservationCard } from './ReportObservationCard'
 import { OBSERVATION_CHART_HEIGHT_CLASS, ReportObservationChart } from './ReportObservationChart'
 import { ReportObservationValue } from './ReportObservationValue'
@@ -58,12 +58,7 @@ export function ReportPrimaryMetricQuery({
     const seriesResolved = seriesResponse !== null && seriesResponse !== undefined
     const points = seriesResolved ? reportMetricSeriesPoints(seriesResponse) : null
 
-    const liveMeta = <ReportMetricMetaLine segments={comparisonMetaSegments(metric, aggregate)} />
-    const snapshotMeta = snapshot ? (
-        <ReportMetricMetaLine
-            segments={[...comparisonMetaSegments(metric, metric.value), ...measuredMetaSegments(metric)]}
-        />
-    ) : null
+    const snapshotMeta = snapshot ? <ReportMetricMetaLine segments={measuredMetaSegments(metric)} /> : null
 
     return (
         <ReportObservationCard metric={metric}>
@@ -83,10 +78,7 @@ export function ReportPrimaryMetricQuery({
                         {snapshotMeta}
                     </>
                 ) : hasAggregate ? (
-                    <>
-                        <ReportObservationValue metric={metric} value={aggregate} />
-                        {liveMeta}
-                    </>
+                    <ReportObservationValue metric={metric} value={aggregate} />
                 ) : snapshot ? (
                     <>
                         <ReportObservationValue metric={metric} value={metric.value} />

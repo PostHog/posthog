@@ -5,7 +5,7 @@ import {
     asReportMetricSeriesQuery,
     formatReportMetricValue,
 } from '../../utils/reportMetrics'
-import { comparisonMetaSegments, measuredMetaSegments, ReportMetricMetaLine } from './ReportMetricMetaLine'
+import { measuredMetaSegments, ReportMetricMetaLine } from './ReportMetricMetaLine'
 import { ReportObservationCard } from './ReportObservationCard'
 import { ReportObservationValue } from './ReportObservationValue'
 import { ReportPrimaryMetricQuery } from './ReportPrimaryMetricQuery'
@@ -20,9 +20,7 @@ export function ReportPrimaryMetric({ reportId, metric }: { reportId: string; me
         // failure the reader cannot fix by refreshing. A live query that fails is handled downstream in
         // ReportPrimaryMetricQuery.
         const snapshot = formatReportMetricValue(metric, metric.value)
-        const segments = snapshot
-            ? [...comparisonMetaSegments(metric, metric.value), ...measuredMetaSegments(metric)]
-            : []
+        const segments = snapshot ? measuredMetaSegments(metric) : []
 
         return (
             <ReportObservationCard metric={metric}>

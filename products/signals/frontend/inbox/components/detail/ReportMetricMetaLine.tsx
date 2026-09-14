@@ -4,36 +4,9 @@ import { TZLabel } from 'lib/components/TZLabel'
 
 import type { ReportMetricApi } from 'products/signals/frontend/generated/api.schemas'
 
-import { formatReportMetricValue, reportMetricDelta } from '../../utils/reportMetrics'
-import { ReportMetricDeltaBadge } from './ReportMetricDeltaBadge'
-
 export interface ReportMetricMetaSegment {
     key: string
     node: ReactNode
-}
-
-/** The change against the comparison, then the comparison itself, when the metric has one. */
-export function comparisonMetaSegments(
-    metric: ReportMetricApi,
-    current: number | null | undefined
-): ReportMetricMetaSegment[] {
-    const formattedComparison = metric.comparison ? formatReportMetricValue(metric, metric.comparison.value) : null
-    if (!metric.comparison || !formattedComparison) {
-        return []
-    }
-
-    const delta = reportMetricDelta(metric, current, metric.comparison.value)
-    return [
-        ...(delta ? [{ key: 'delta', node: <ReportMetricDeltaBadge delta={delta} /> }] : []),
-        {
-            key: 'comparison',
-            node: (
-                <span>
-                    {metric.comparison.label}: {formattedComparison}
-                </span>
-            ),
-        },
-    ]
 }
 
 /** When the saved snapshot was measured; empty when the metric has no snapshot time. */

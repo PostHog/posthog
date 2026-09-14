@@ -324,7 +324,9 @@ describe('ReportCard', () => {
         // The harness renders a card for every test; these assert against their own.
         cleanup()
         enableRedesign()
-        const { container } = render(<ReportCard report={makeReport('r-2', { metrics: [makeMetric({ series: [9] })] })} />)
+        const { container } = render(
+            <ReportCard report={makeReport('r-2', { metrics: [makeMetric({ series: [9] })] })} />
+        )
 
         expect(container.querySelector('[data-attr="report-card-impact-sparkline"]')).toBeNull()
         expect(screen.getByText('42')).toBeInTheDocument()

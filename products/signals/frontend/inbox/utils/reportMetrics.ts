@@ -357,92 +357,6 @@ export function reportMetricWindowLabel(query: unknown): string | null {
     return amount === 1 ? `Last ${noun}` : `Last ${amount} ${noun}s`
 }
 
-export type ReportMetricDeltaDirection = 'up' | 'down' | 'flat'
-export type ReportMetricDeltaTone = 'good' | 'bad' | 'neutral'
-
-export interface ReportMetricDelta {
-    direction: ReportMetricDeltaDirection
-    tone: ReportMetricDeltaTone
-    /** Short change label such as `3.3×`, `+44%`, `-12%`, `+6 pts`, `No change`, `Up from 0`. */
-    label: string
-}
-
-function compareDirection(current: number, previous: number): ReportMetricDeltaDirection {
-    if (current > previous) {
-        return 'up'
-    }
-    if (current < previous) {
-        return 'down'
-    }
-    return 'flat'
-}
-
-function deltaTone(kind: ReportMetricApi['kind'], direction: ReportMetricDeltaDirection): ReportMetricDeltaTone {
-    if (direction === 'flat' || kind === 'custom') {
-        return 'neutral'
-    }
-    // Tone follows harm, not the arithmetic sign. More affected users is worse, more revenue is better.
-    const goodDirection: ReportMetricDeltaDirection = kind === 'conversion_rate' || kind === 'revenue' ? 'up' : 'down'
-    return direction === goodDirection ? 'good' : 'bad'
-}
-
-/** Null means the change is too small to report, so the caller renders `No change`. */
-function pointsDeltaLabel(difference: number): string | null {
-    const magnitude = Math.abs(difference)
-    if (magnitude < 0.05) {
-        return null
-    }
-    return `${difference > 0 ? '+' : '-'}${humanFriendlyNumber(magnitude, magnitude < 10 ? 1 : 0)} pts`
-}
-
-/** Null means the change is too small to report, so the caller renders `No change`. */
-function ratioDeltaLabel(current: number, previous: number): string | null {
-    if (previous === 0) {
-        return current > 0 ? 'Up from 0' : null
-    }
-
-    const ratio = current / previous
-    // A percentage stops being readable once a value more than doubles, so switch to a multiplier.
-    if (ratio >= 2) {
-        return `${humanFriendlyNumber(ratio, 1)}×`
-    }
-
-    const change = (ratio - 1) * 100
-    if (Math.abs(change) < 0.5) {
-        return null
-    }
-    return `${change > 0 ? '+' : '-'}${humanFriendlyNumber(Math.abs(change), 0)}%`
-}
-
-export function reportMetricDelta(
-    metric: Pick<ReportMetricApi, 'kind' | 'value_format'>,
-    current: number | null | undefined,
-    previous: number | null | undefined
-): ReportMetricDelta | null {
-    const currentValue = finiteNumber(current)
-    const previousValue = finiteNumber(previous)
-    if (currentValue === null || previousValue === null) {
-        return null
-    }
-
-    const valueFormat = metric.value_format ?? 'number'
-    let label: string | null
-    if (valueFormat === 'percentage' || valueFormat === 'percentage_scaled') {
-        // A rate moves in percentage points, so a ratio between two rates would overstate the change.
-        const scale = valueFormat === 'percentage_scaled' ? 100 : 1
-        label = pointsDeltaLabel((currentValue - previousValue) * scale)
-    } else {
-        label = ratioDeltaLabel(currentValue, previousValue)
-    }
-
-    if (label === null) {
-        return { direction: 'flat', tone: 'neutral', label: 'No change' }
-    }
-
-    const direction = compareDirection(currentValue, previousValue)
-    return { direction, tone: deltaTone(metric.kind, direction), label }
-}
-
 function countPropertyFilters(properties: unknown): number {
     if (Array.isArray(properties)) {
         return properties.reduce<number>((count, item) => count + countPropertyFilters(item), 0)
@@ -499,8 +413,8 @@ function sameSeries(a: number[] | null | undefined, b: number[] | null | undefin
 
 /**
  * Copy refreshed `value`, `value_at`, and `series` onto the report's metrics by metric_id. The
- * query and comparison stay as loaded. Returns the same report object when nothing changed, so a
- * memoized row does not re-render for a refresh that measured the same number.
+ * query stays as loaded. Returns the same report object when nothing changed, so a memoized row
+ * does not re-render for a refresh that measured the same number.
  */
 export function mergeReportMetricSnapshots<T extends { id: string; metrics?: ReportMetricApi[] }>(
     report: T,

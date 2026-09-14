@@ -125,7 +125,6 @@ export const reportMetricsFixture: ReportMetricApi[] = [
         unit: 'users',
         query: eventMetricQuery('$autocapture', 'Create key click', BaseMathType.UniqueUsers),
         caption: 'Excludes internal users and test accounts.',
-        comparison: { value: 832, label: 'Previous 14 days' },
     },
     {
         metric_id: 'dead-clicks',
@@ -139,7 +138,6 @@ export const reportMetricsFixture: ReportMetricApi[] = [
         unit: 'clicks',
         query: eventMetricQuery('dead_click', 'Dead clicks'),
         caption: 'Median of 3 per affected user.',
-        comparison: null,
     },
     {
         metric_id: 'conversion',
@@ -153,7 +151,6 @@ export const reportMetricsFixture: ReportMetricApi[] = [
         unit: null,
         query: conversionQuery,
         caption: null,
-        comparison: { value: 0.71, label: 'Before the observation' },
     },
     {
         metric_id: 'errors',
@@ -167,7 +164,6 @@ export const reportMetricsFixture: ReportMetricApi[] = [
         unit: 'errors',
         query: eventMetricQuery('$exception', 'Errors'),
         caption: 'No matching exceptions were captured.',
-        comparison: null,
     },
 ]
 
@@ -184,7 +180,6 @@ export const reportSparseMetricFixture: ReportMetricApi = {
     unit: 'users',
     query: eventMetricQuery('upload_failed', 'Upload overwrite', BaseMathType.UniqueUsers, '-30d'),
     caption: 'Counted once per person, so the daily bars add up to more than the total.',
-    comparison: null,
 }
 
 /** A primary metric whose query the viewer cannot see, so only the saved snapshot is left to show. */
@@ -200,7 +195,6 @@ export const reportSavedValueMetricFixture: ReportMetricApi = {
     unit: 's',
     query: null,
     caption: 'Median across the people who hit this observation.',
-    comparison: { value: 199, label: 'Previous 14 days' },
 }
 
 /** Answers the query endpoint for every metric in `reportMetricsFixture`, keyed on the first series' event. */
