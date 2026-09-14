@@ -1,6 +1,4 @@
 import { PencilSimple } from "@phosphor-icons/react";
-import { Text } from "@radix-ui/themes";
-import { useChatThreadChrome } from "../chat-thread/chatThreadChrome";
 import { CodePreview } from "./CodePreview";
 import { FileMentionChip } from "./FileMentionChip";
 import { ToolRow } from "./ToolRow";
@@ -67,18 +65,12 @@ export function EditToolView({
   const hasDiff = diff && (oldText || newText);
   const diffStats = diff ? getDiffStats(oldText, newText) : null;
 
-  const isPlanFile = filePath.includes("claude/plans/");
-  const chatChrome = useChatThreadChrome();
-
   return (
     <ToolRow
       icon={PencilSimple}
       isLoading={isLoading}
       isFailed={isFailed}
       wasCancelled={wasCancelled}
-      // Keep the legacy thread's inline diff behavior, but make tool details
-      // opt-in in the experimental thread like every other tool result.
-      defaultOpen={chatChrome ? false : !isPlanFile}
       content={
         hasDiff ? (
           <CodePreview
@@ -93,10 +85,10 @@ export function EditToolView({
     >
       {filePath && <FileMentionChip filePath={filePath} />}
       {diffStats && (
-        <Text className="font-mono text-[13px]">
+        <span className="font-mono text-[13px]">
           <span className="text-green-11">+{diffStats.added}</span>{" "}
           <span className="text-red-11">-{diffStats.removed}</span>
-        </Text>
+        </span>
       )}
     </ToolRow>
   );
