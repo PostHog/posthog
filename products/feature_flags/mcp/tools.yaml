@@ -297,8 +297,9 @@ tools:
         enrich_url: '{id}'
         title: Roll feature flag out to everyone
         description: >
-            Serve a feature flag to every user. Requires the flag's numeric ID; use `feature-flag-get-definition-by-key`
-            to get it from a key, or `feature-flag-get-all` to search by key or name.
+            Serve a feature flag to its whole audience: every user, or every group of the configured type when the flag
+            aggregates by groups. Requires the flag's numeric ID; use `feature-flag-get-definition-by-key` to get it
+            from a key, or `feature-flag-get-all` to search by key or name.
 
 
             Adds a release condition with no property filters at 100% and keeps the existing conditions below it. This
@@ -311,6 +312,11 @@ tools:
             This tool changes targeting only. A disabled flag still serves nobody, so check `active` in the response and
             use `feature-flag-enable` if it is false. A holdout is evaluated before release conditions, so users in one
             keep getting the holdout variant instead of the rollout.
+
+
+            Check `filters.aggregation_group_type_index` in the definition you read. When it is set, the flag buckets
+            groups of that type instead of people. The new condition then serves every group of that type, and a user
+            evaluated without such a group is served nothing. Say groups when you report the change.
 
 
             A multivariate flag needs `variant_key`, and every other flag rejects it. A release condition decides who
@@ -364,6 +370,11 @@ tools:
             variants and the payloads cannot change.
 
 
+            Check `aggregation_group_type_index` on the condition, and on `filters` when the condition sets none. When
+            it is set, the flag buckets groups of that type instead of people, so 25 serves 25% of those groups rather
+            than 25% of users. Say groups when you report the change.
+
+
             Read the flag first. `condition_index` counts the conditions in `filters.groups` from 0, and only the
             definition you read says which condition is which, so never guess an index on a flag with more than one
             condition. Send the `version` that same read returned. Returns 409 when anyone changed the flag after that
@@ -373,9 +384,9 @@ tools:
             has writes nothing and returns the version unchanged.
 
 
-            On a multivariate flag this sets how many of the matching users get a variant at all. It does not change how
-            the variants are split between them. When the user asks for a bare percentage on a multivariate flag, ask
-            which of the two they mean. Use `update-feature-flag` to change the split between variants.
+            On a multivariate flag this sets how many of the matching users or groups get a variant at all. It does not
+            change how the variants are split between them. When the user asks for a bare percentage on a multivariate
+            flag, ask which of the two they mean. Use `update-feature-flag` to change the split between variants.
 
 
             Returns 400 when the flag has no release condition at that index, or when the percentage is outside 0
@@ -807,11 +818,11 @@ tools:
 
 
             `feature-flag-set-release-condition-rollout` changes one release condition's percentage and
-            `feature-flag-roll-out-to-everyone` serves the flag to every user. Both send no `filters` and both refuse
-            the write when the flag changed after the version you read, so a concurrent edit cannot be lost. This tool
-            has no such check on the agent path: it replaces the whole `filters` object with your copy of it. Use it for
-            a rollout change only when those two tools cannot express it, such as changing the split between variants
-            while leaving the audience alone.
+            `feature-flag-roll-out-to-everyone` serves the flag to its whole audience. Both send no `filters` and both
+            refuse the write when the flag changed after the version you read, so a concurrent edit cannot be lost. This
+            tool has no such check on the agent path: it replaces the whole `filters` object with your copy of it. Use
+            it for a rollout change only when those two tools cannot express it, such as changing the split between
+            variants while leaving the audience alone.
 
 
             Rollout conditions, variants, and payloads live in the structured `filters` param, and sending `filters`
