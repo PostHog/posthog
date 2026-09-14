@@ -387,6 +387,16 @@ describe('API helper', () => {
             fakeFetch.mockResolvedValue(fakeResponse({ text: () => Promise.reject(abortError) }))
             await expect(api.get('api/environments/2/insights')).rejects.toBe(abortError)
         })
+
+        it('propagates an abort reason that is not an AbortError instead of wrapping it in an ApiError', async () => {
+            const controller = new AbortController()
+            controller.abort('new query started')
+            fakeFetch.mockRejectedValue('new query started')
+
+            await expect(api.get('api/environments/2/insights', { signal: controller.signal })).rejects.toBe(
+                'new query started'
+            )
+        })
     })
 
     describe('requests that never reach the server', () => {
