@@ -34,6 +34,7 @@ const PARTITION: i32 = 0;
 const GROUP: &str = "reassigned-poll-test";
 
 /// Real consumer, batcher and transport; only the worker's ACK is controlled by the test.
+/// Triggers rebalances by unsubscribing/resubscribing, not by adding a competing consumer.
 /// Owns the broker and task guards so failed assertions also tear down the fixture.
 pub(super) struct ReplayHarness {
     process: AbortOnDrop,
@@ -82,7 +83,7 @@ impl ReplayHarness {
             IngestionConsumerOptions {
                 batch_size,
                 batch_size_bytes: 0,
-                // Leave collection open long enough to revoke and reassign through Kafka.
+                // Keep collection open across an unsubscribe/resubscribe cycle.
                 batch_timeout: Duration::from_secs(60),
                 max_in_flight_batches: 1,
                 group_id: GROUP.to_string(),
@@ -136,22 +137,22 @@ impl ReplayHarness {
         .await;
     }
 
-    pub(super) async fn revoke_partition(&self) {
+    pub(super) async fn unsubscribe_and_wait_until_unassigned(&self) {
         self.kafka.unsubscribe();
-        wait_for("the Kafka assignment to be revoked", || {
+        wait_for("unsubscribe to clear the Kafka assignment", || {
             self.kafka.assignment().unwrap().count() == 0
         })
         .await;
     }
 
-    pub(super) fn reassign_partition(&self) {
+    pub(super) fn resubscribe(&self) {
         self.kafka.subscribe(&[TOPIC]).unwrap();
     }
 
     pub(super) async fn expect_worker_batch(&mut self, offsets: &[i64]) -> WorkerBatch {
         let mut worker = tokio::time::timeout(Duration::from_secs(15), self.connections.recv())
             .await
-            .expect("reassigned poll reaches the worker")
+            .expect("consumer connects to the worker")
             .expect("worker connection channel stays open");
         let batch = tokio::time::timeout(Duration::from_secs(5), async {
             loop {

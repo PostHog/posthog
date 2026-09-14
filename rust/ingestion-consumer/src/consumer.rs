@@ -1329,13 +1329,13 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn historical_revoke_keeps_a_reassigned_poll_and_its_ledger_slice() {
+    async fn replay_after_resubscribe_commits_despite_an_earlier_revoke() {
         let mut consumer = ReplayHarness::start_with_batch_size(2).await;
         consumer.publish_one_record().await;
         consumer.wait_until_consumed(0).await;
 
-        consumer.revoke_partition().await;
-        consumer.reassign_partition();
+        consumer.unsubscribe_and_wait_until_unassigned().await;
+        consumer.resubscribe();
 
         let batch = consumer.expect_worker_batch(&[0, 0]).await;
         batch.accept_all();
