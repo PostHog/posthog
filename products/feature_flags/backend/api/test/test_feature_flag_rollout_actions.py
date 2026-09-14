@@ -102,14 +102,18 @@ class TestFeatureFlagRolloutActions(APIBaseTest):
             created_by=self.user,
         )
 
-    @parameterized.expand([("first", 0), ("second", 1)])
-    def test_indexed_rollout_changes_only_that_condition(self, _name, condition_index):
+    @parameterized.expand([("first", 0, 25), ("second", 1, 25), ("fractional_canary", 0, 0.5)])
+    def test_indexed_rollout_changes_only_that_condition(self, _name, condition_index, rollout_percentage):
         flag = self._flag()
 
         response = self._act(
             flag,
             "set_release_condition_rollout",
-            {"condition_index": condition_index, "rollout_percentage": 25, "version": flag.version},
+            {
+                "condition_index": condition_index,
+                "rollout_percentage": rollout_percentage,
+                "version": flag.version,
+            },
         )
 
         assert response.status_code == status.HTTP_200_OK, response.content
@@ -117,7 +121,7 @@ class TestFeatureFlagRolloutActions(APIBaseTest):
         expected = {
             **TARGETING,
             "groups": [
-                {**group, "rollout_percentage": 25} if index == condition_index else group
+                {**group, "rollout_percentage": rollout_percentage} if index == condition_index else group
                 for index, group in enumerate(TARGETING["groups"])
             ],
         }

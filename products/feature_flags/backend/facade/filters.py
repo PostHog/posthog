@@ -204,7 +204,7 @@ def group_cohort_restriction_blocker(current_filters: dict) -> CohortRestriction
     return None
 
 
-def set_release_condition_rollout(current_filters: dict, condition_index: int, rollout_percentage: int) -> dict:
+def set_release_condition_rollout(current_filters: dict, condition_index: int, rollout_percentage: int | float) -> dict:
     """Set ``groups[condition_index].rollout_percentage``, preserving everything else byte-for-byte.
 
     Raises IndexError when the flag has no condition at that index, including for a negative

@@ -1235,7 +1235,7 @@ export interface FeatureFlagSetReleaseConditionRolloutRequestApi {
      */
     condition_index: number
     /**
-     * Percentage of the users matching that condition who are served the flag, 0 through 100. On a multivariate flag this is how many matching users get a variant at all, not how the variants are split between them.
+     * Percentage of the users matching that condition who are served the flag, 0 through 100. On a multivariate flag this is how many matching users get a variant at all, not how the variants are split between them. Fractional percentages such as 0.5 are accepted, the same as a write that sends `filters`.
      * @minimum 0
      * @maximum 100
      */

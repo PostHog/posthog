@@ -104,6 +104,7 @@ from products.feature_flags.backend.api.filters_schema import (
     I64_MIN,
     PRESERVE_UNKNOWN_KEYS_CONTEXT_KEY,
     FeatureFlagFiltersSerializer,
+    FinitePercentageField,
 )
 from products.feature_flags.backend.api.remote_config_shadow import shadow_compare_remote_config
 from products.feature_flags.backend.encrypted_flag_payloads import (
@@ -3219,13 +3220,14 @@ class FeatureFlagSetReleaseConditionRolloutRequestSerializer(serializers.Seriali
             "produced `version`."
         ),
     )
-    rollout_percentage = serializers.IntegerField(
+    rollout_percentage = FinitePercentageField(
         min_value=0,
         max_value=100,
         help_text=(
             "Percentage of the users matching that condition who are served the flag, 0 through 100. On a "
             "multivariate flag this is how many matching users get a variant at all, not how the variants "
-            "are split between them."
+            "are split between them. Fractional percentages such as 0.5 are accepted, the same as a write "
+            "that sends `filters`."
         ),
     )
     version = serializers.IntegerField(min_value=0, help_text=FLAG_VERSION_PRECONDITION_HELP)
