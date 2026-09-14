@@ -136,18 +136,25 @@ export type NotebookTextSelectionRange = {
     end: number
 }
 
+export type NotebookNodeUpdateOptions = {
+    /** A write the person did not make, such as filling in an id the block never carried, passes
+     * false. Undo then does not step through a change nobody asked for, and it cannot strip the
+     * write and leave the block to be written again. */
+    addToHistory?: boolean
+}
+
 export type NotebookComponentRenderProps = {
     node: NotebookComponentBlockNode
     mode: NotebookMode
     notebookMode?: NotebookMode
-    updateProps: (props: Partial<NotebookComponentProps>) => void
+    updateProps: (props: Partial<NotebookComponentProps>, options?: NotebookNodeUpdateOptions) => void
     deleteNode: () => void
 }
 
 export type NotebookComponentToolbarProps = {
     node: NotebookComponentBlockNode
     notebookMode: NotebookMode
-    updateProps: (props: Partial<NotebookComponentProps>) => void
+    updateProps: (props: Partial<NotebookComponentProps>, options?: NotebookNodeUpdateOptions) => void
 }
 
 export type NotebookComponentInsertCommand = {

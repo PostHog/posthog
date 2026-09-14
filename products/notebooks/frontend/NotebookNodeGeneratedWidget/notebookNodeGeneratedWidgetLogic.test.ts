@@ -110,7 +110,7 @@ describe('notebookNodeGeneratedWidgetLogic', () => {
             .mockRejectedValueOnce(
                 new ApiError('Not found', 404, undefined, {
                     code: 'node_not_found',
-                    detail: 'This generated widget is no longer in the notebook.',
+                    detail: 'This widget is not in the saved notebook. Reload the page and try again.',
                 })
             )
             .mockResolvedValueOnce(status())
@@ -938,7 +938,7 @@ describe('notebookNodeGeneratedWidgetLogic', () => {
             .mockRejectedValueOnce(
                 new ApiError('Not found', 404, undefined, {
                     code: 'node_not_found',
-                    detail: 'This generated widget is no longer in the notebook.',
+                    detail: 'This widget is not in the saved notebook. Reload the page and try again.',
                 })
             )
             .mockResolvedValueOnce(queued)
