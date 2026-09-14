@@ -9,6 +9,7 @@ from django.test import override_settings
 from posthog.llm.gateway_client import (
     AIGatewayConfig,
     Product,
+    build_ai_gateway_anthropic_client,
     build_anthropic_client,
     build_async_anthropic_client,
     build_async_openai_client,
@@ -477,3 +478,41 @@ class TestBuildAnthropicClient:
         assert kwargs["default_headers"]["traceparent"].startswith("00-")
         assert kwargs["default_headers"]["x-posthog-property-source_product"] == "notebook_widget"
         assert result is mock_get_anthropic.return_value
+
+
+class TestBuildAIGatewayAnthropicClient:
+    @override_settings(AI_GATEWAY_URL=AI_GATEWAY_URL, AI_GATEWAY_API_KEY=AI_GATEWAY_KEY)
+    @patch("posthog.llm.gateway_client.httpx.Client")
+    @patch("posthog.llm.gateway_client.Anthropic")
+    def test_builds_the_go_gateway_client_with_attribution(self, mock_anthropic, mock_httpx):
+        result = build_ai_gateway_anthropic_client(
+            ai_product="aio_stamphog",
+            properties={"source_product": "stamphog_digest"},
+            distinct_id="team-42",
+            team_id=42,
+        )
+
+        kwargs = mock_anthropic.call_args.kwargs
+        assert kwargs["api_key"] == AI_GATEWAY_KEY
+        assert kwargs["base_url"] == "https://ai-gateway.example"
+        assert kwargs["http_client"] is mock_httpx.return_value
+        headers = kwargs["default_headers"]
+        assert headers["X-PostHog-Trace-Id"] == TEAM_42_TRACE_ID
+        assert headers["X-PostHog-Distinct-Id"] == "team-42"
+        assert json.loads(headers["X-PostHog-Properties"]) == {
+            "ai_product": "aio_stamphog",
+            "source_product": "stamphog_digest",
+            "team_id": "42",
+        }
+        assert result is mock_anthropic.return_value
+
+    @pytest.mark.parametrize(
+        ("url", "api_key"),
+        [("", ""), (AI_GATEWAY_URL, ""), ("https://ai-gateway.example", AI_GATEWAY_KEY)],
+    )
+    @patch("posthog.llm.gateway_client.get_anthropic_gateway_client")
+    def test_raises_instead_of_using_the_python_gateway(self, mock_get_anthropic, url, api_key):
+        with override_settings(AI_GATEWAY_URL=url, AI_GATEWAY_API_KEY=api_key):
+            with pytest.raises(ValueError, match="AI_GATEWAY_URL and AI_GATEWAY_API_KEY must be configured"):
+                build_ai_gateway_anthropic_client(ai_product="aio_stamphog")
+        mock_get_anthropic.assert_not_called()

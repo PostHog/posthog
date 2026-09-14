@@ -400,7 +400,6 @@ class TestCheckProductAccess:
         [
             "llma_labeling",
             "product_analytics",
-            "stamphog",
             "subscriptions",
             "warehouse_custom_source_builder",
             "warehouse_semantic_enrichment",
