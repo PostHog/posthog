@@ -66,9 +66,8 @@ class InvestigationRunResult:
 
 
 @frozen
-class _ToolCallHandling:
+class _ToolCallOutcome:
     result: InvestigationRunResult | None
-    tool_calls_used: int
     should_stop: bool
 
 
@@ -96,55 +95,6 @@ def _salvage_from_history(report_args_history: list[dict[str, Any]]) -> Investig
     return None
 
 
-async def _finalize_after_tool_budget(
-    *,
-    llm_with_final_report: Any,
-    messages: list[Any],
-    config: RunnableConfig,
-    heartbeat: Callable[[], None] | None,
-    report_args_history: list[dict[str, Any]],
-    tool_calls_used: int,
-) -> InvestigationRunResult | None:
-    messages.append(
-        HumanMessage(
-            content=(
-                "Tool call budget exhausted. Submit the final InvestigationReport "
-                "now using whatever evidence you have. Pass hypotheses as a JSON "
-                "array of objects (title, rationale, evidence) and recommendations "
-                "as a JSON array of strings, never as serialized strings."
-            )
-        )
-    )
-    # Sonnet 5 can corrupt nested report fields on this final turn. Let it correct them once.
-    for finalize_attempt in range(2):
-        if heartbeat is not None:
-            heartbeat()
-        try:
-            final = await llm_with_final_report.ainvoke(messages, config=config)
-        except Exception as err:
-            logger.warning("anomaly_investigation.llm_finalize_error", extra={"error": str(err)})
-            report = _salvage_from_history(report_args_history) or _fallback_report(f"LLM finalize call failed: {err}")
-            return _result(report, tool_calls_used)
-        messages.append(final)
-        final_tool_calls = getattr(final, "tool_calls", None) or []
-        report_args = _final_report_args(final_tool_calls)
-        if report_args is None:
-            return None
-        report_args_history.append(report_args)
-        try:
-            return _result(InvestigationReport.model_validate(report_args), tool_calls_used)
-        except ValidationError as err:
-            error_summary = _validation_error_summary(err)
-            logger.warning(
-                "anomaly_investigation.report_validation_error",
-                extra={"error": error_summary, "finalize_attempt": finalize_attempt},
-            )
-            if finalize_attempt == 0:
-                _add_report_correction_messages(messages, final_tool_calls, error_summary)
-                continue
-    return None
-
-
 def _add_report_correction_messages(messages: list[Any], tool_calls: list[dict[str, Any]], error_summary: str) -> None:
     for call in tool_calls:
         messages.append(
@@ -159,87 +109,6 @@ def _add_report_correction_messages(messages: list[Any], tool_calls: list[dict[s
         )
 
 
-async def _handle_tool_calls(
-    *,
-    tool_calls: list[dict[str, Any]],
-    handlers: dict[str, ToolHandler],
-    messages: list[Any],
-    report_args_history: list[dict[str, Any]],
-    tool_calls_used: int,
-) -> _ToolCallHandling:
-    report_error: str | None = None
-    report_args = _final_report_args(tool_calls)
-    if report_args is not None:
-        report_args_history.append(report_args)
-        try:
-            return _ToolCallHandling(
-                result=_result(InvestigationReport.model_validate(report_args), tool_calls_used),
-                tool_calls_used=tool_calls_used,
-                should_stop=False,
-            )
-        except ValidationError as err:
-            report_error = _validation_error_summary(err)
-            logger.warning("anomaly_investigation.report_validation_error", extra={"error": report_error})
-    if not tool_calls:
-        return _ToolCallHandling(result=None, tool_calls_used=tool_calls_used, should_stop=True)
-    return await _run_tool_calls(
-        tool_calls=tool_calls,
-        handlers=handlers,
-        messages=messages,
-        report_error=report_error,
-        tool_calls_used=tool_calls_used,
-    )
-
-
-async def _run_tool_calls(
-    *,
-    tool_calls: list[dict[str, Any]],
-    handlers: dict[str, ToolHandler],
-    messages: list[Any],
-    report_error: str | None,
-    tool_calls_used: int,
-) -> _ToolCallHandling:
-    for call in tool_calls:
-        content, tool_calls_used = await _run_tool_call(
-            call=call,
-            handlers=handlers,
-            report_error=report_error,
-            tool_calls_used=tool_calls_used,
-        )
-        if isinstance(content, str) and len(content) > MAX_TOOL_RESULT_CHARS:
-            content = content[:MAX_TOOL_RESULT_CHARS] + "\n[truncated — narrow the query for more]"
-        messages.append(ToolMessage(content=content, tool_call_id=call.get("id") or call.get("tool_call_id") or ""))
-    return _ToolCallHandling(result=None, tool_calls_used=tool_calls_used, should_stop=False)
-
-
-async def _run_tool_call(
-    *,
-    call: dict[str, Any],
-    handlers: dict[str, ToolHandler],
-    report_error: str | None,
-    tool_calls_used: int,
-) -> tuple[str, int]:
-    name = call.get("name")
-    if name == FINAL_REPORT_TOOL_NAME:
-        return (
-            f"Final report tool call was invalid ({report_error or 'missing required fields'}). "
-            "Submit it again: hypotheses must be a JSON array of objects with title, "
-            "rationale and evidence keys; recommendations must be a JSON array of strings.",
-            tool_calls_used,
-        )
-    if tool_calls_used >= MAX_TOOL_CALLS:
-        return "[skipped — tool call budget exhausted]", tool_calls_used
-    tool_calls_used += 1
-    handler = handlers.get(name) if isinstance(name, str) else None
-    if handler is None:
-        return f"Unknown tool: {name}", tool_calls_used
-    try:
-        return await handler(call.get("args") or {}), tool_calls_used
-    except Exception as err:
-        logger.warning("anomaly_investigation.tool_error", extra={"tool": name, "error": str(err)})
-        return f"Tool {name} failed: {err}", tool_calls_used
-
-
 def _fallback_report(reason: str) -> InvestigationReport:
     return InvestigationReport(
         verdict="inconclusive",
@@ -249,28 +118,182 @@ def _fallback_report(reason: str) -> InvestigationReport:
     )
 
 
-def _finish_investigation(
-    *, messages: list[Any], report_args_history: list[dict[str, Any]], tool_calls_used: int
-) -> InvestigationRunResult:
-    content = getattr(messages[-1], "content", "")
-    report = _parse_report_text(content)
-    if report is None:
-        report = _salvage_from_history(report_args_history)
-        if report is not None:
-            logger.warning(
-                "anomaly_investigation.report_salvaged",
-                extra={"hypotheses_kept": len(report.hypotheses), "recommendations_kept": len(report.recommendations)},
+class _InvestigationRunner:
+    """Owns the mutable state for one investigation loop: messages, tool budget, and report history."""
+
+    def __init__(
+        self,
+        *,
+        llm_with_tools: Any,
+        llm_with_final_report: Any,
+        handlers: dict[str, ToolHandler],
+        config: RunnableConfig,
+        heartbeat: Callable[[], None] | None,
+    ) -> None:
+        self._llm_with_tools = llm_with_tools
+        self._llm_with_final_report = llm_with_final_report
+        self._handlers = handlers
+        self._config = config
+        self._heartbeat = heartbeat
+        self.messages: list[Any] = []
+        self.tool_calls_used = 0
+        # Every set of submit_investigation_report args seen, valid or not, oldest first.
+        # When every parse path fails, salvage tries these newest-to-oldest so a corrective
+        # retry that came back worse cannot clobber an earlier salvageable attempt.
+        self.report_args_history: list[dict[str, Any]] = []
+
+    def _tick_heartbeat(self) -> None:
+        if self._heartbeat is not None:
+            self._heartbeat()
+
+    async def run(self, *, anomaly_context: Any) -> InvestigationRunResult:
+        self.messages = [
+            SystemMessage(content=SYSTEM_PROMPT),
+            HumanMessage(content=anomaly_context),
+        ]
+        for _ in range(MAX_TOOL_CALLS + 1):
+            self._tick_heartbeat()
+
+            if self.tool_calls_used >= MAX_TOOL_CALLS:
+                result = await self._finalize_after_tool_budget()
+                if result is not None:
+                    return result
+                break
+
+            try:
+                response = await self._llm_with_tools.ainvoke(self.messages, config=self._config)
+            except Exception as err:
+                logger.warning("anomaly_investigation.llm_invoke_error", extra={"error": str(err)})
+                return InvestigationRunResult(
+                    report=_fallback_report(f"LLM tool-calling loop failed: {err}"),
+                    tool_calls_used=self.tool_calls_used,
+                    model=AGENT_MODEL,
+                )
+            self.messages.append(response)
+
+            tool_calls = getattr(response, "tool_calls", None) or []
+            outcome = await self._handle_tool_calls(tool_calls)
+            if outcome.result is not None:
+                return outcome.result
+            if outcome.should_stop:
+                break
+
+        return self._finish_investigation()
+
+    async def _finalize_after_tool_budget(self) -> InvestigationRunResult | None:
+        self.messages.append(
+            HumanMessage(
+                content=(
+                    "Tool call budget exhausted. Submit the final InvestigationReport "
+                    "now using whatever evidence you have. Pass hypotheses as a JSON "
+                    "array of objects (title, rationale, evidence) and recommendations "
+                    "as a JSON array of strings, never as serialized strings."
+                )
             )
-    if report is None:
-        text = _stringify(content).strip()
-        # Log the length only because the message can contain tenant event data.
-        logger.warning("anomaly_investigation.no_parsable_report", extra={"content_length": len(text)})
-        report = _fallback_report(
-            "Agent returned no final message."
-            if not text
-            else "Agent final message was not valid InvestigationReport JSON."
         )
-    return _result(report, tool_calls_used)
+        # Sonnet 5 can corrupt nested report fields on this final turn. Let it correct them once.
+        for finalize_attempt in range(2):
+            self._tick_heartbeat()
+            try:
+                final = await self._llm_with_final_report.ainvoke(self.messages, config=self._config)
+            except Exception as err:
+                # Swallow final-turn failures and return the best report we can rather
+                # than bouncing off Temporal retries — MaxChatAnthropic already exhausted
+                # its built-in retry budget, so another activity attempt is unlikely to help.
+                logger.warning("anomaly_investigation.llm_finalize_error", extra={"error": str(err)})
+                report = _salvage_from_history(self.report_args_history) or _fallback_report(
+                    f"LLM finalize call failed: {err}"
+                )
+                return _result(report, self.tool_calls_used)
+            self.messages.append(final)
+            final_tool_calls = getattr(final, "tool_calls", None) or []
+            report_args = _final_report_args(final_tool_calls)
+            if report_args is None:
+                return None
+            self.report_args_history.append(report_args)
+            try:
+                return _result(InvestigationReport.model_validate(report_args), self.tool_calls_used)
+            except ValidationError as err:
+                error_summary = _validation_error_summary(err)
+                logger.warning(
+                    "anomaly_investigation.report_validation_error",
+                    extra={"error": error_summary, "finalize_attempt": finalize_attempt},
+                )
+                if finalize_attempt == 0:
+                    _add_report_correction_messages(self.messages, final_tool_calls, error_summary)
+                    continue
+        return None
+
+    async def _handle_tool_calls(self, tool_calls: list[dict[str, Any]]) -> _ToolCallOutcome:
+        report_error: str | None = None
+        report_args = _final_report_args(tool_calls)
+        if report_args is not None:
+            self.report_args_history.append(report_args)
+            try:
+                return _ToolCallOutcome(
+                    result=_result(InvestigationReport.model_validate(report_args), self.tool_calls_used),
+                    should_stop=False,
+                )
+            except ValidationError as err:
+                report_error = _validation_error_summary(err)
+                logger.warning("anomaly_investigation.report_validation_error", extra={"error": report_error})
+        if not tool_calls:
+            return _ToolCallOutcome(result=None, should_stop=True)
+        return await self._run_tool_calls(tool_calls=tool_calls, report_error=report_error)
+
+    async def _run_tool_calls(self, *, tool_calls: list[dict[str, Any]], report_error: str | None) -> _ToolCallOutcome:
+        for call in tool_calls:
+            content = await self._run_tool_call(call=call, report_error=report_error)
+            if isinstance(content, str) and len(content) > MAX_TOOL_RESULT_CHARS:
+                content = content[:MAX_TOOL_RESULT_CHARS] + "\n[truncated — narrow the query for more]"
+            self.messages.append(
+                ToolMessage(content=content, tool_call_id=call.get("id") or call.get("tool_call_id") or "")
+            )
+        return _ToolCallOutcome(result=None, should_stop=False)
+
+    async def _run_tool_call(self, *, call: dict[str, Any], report_error: str | None) -> str:
+        name = call.get("name")
+        if name == FINAL_REPORT_TOOL_NAME:
+            return (
+                f"Final report tool call was invalid ({report_error or 'missing required fields'}). "
+                "Submit it again: hypotheses must be a JSON array of objects with title, "
+                "rationale and evidence keys; recommendations must be a JSON array of strings."
+            )
+        if self.tool_calls_used >= MAX_TOOL_CALLS:
+            return "[skipped — tool call budget exhausted]"
+        self.tool_calls_used += 1
+        handler = self._handlers.get(name) if isinstance(name, str) else None
+        if handler is None:
+            return f"Unknown tool: {name}"
+        try:
+            return await handler(call.get("args") or {})
+        except Exception as err:
+            logger.warning("anomaly_investigation.tool_error", extra={"tool": name, "error": str(err)})
+            return f"Tool {name} failed: {err}"
+
+    def _finish_investigation(self) -> InvestigationRunResult:
+        content = getattr(self.messages[-1], "content", "")
+        report = _parse_report_text(content)
+        if report is None:
+            report = _salvage_from_history(self.report_args_history)
+            if report is not None:
+                logger.warning(
+                    "anomaly_investigation.report_salvaged",
+                    extra={
+                        "hypotheses_kept": len(report.hypotheses),
+                        "recommendations_kept": len(report.recommendations),
+                    },
+                )
+        if report is None:
+            text = _stringify(content).strip()
+            # Log the length only because the message can contain tenant event data.
+            logger.warning("anomaly_investigation.no_parsable_report", extra={"content_length": len(text)})
+            report = _fallback_report(
+                "Agent returned no final message."
+                if not text
+                else "Agent final message was not valid InvestigationReport JSON."
+            )
+        return _result(report, self.tool_calls_used)
 
 
 async def run_investigation(
@@ -389,64 +412,14 @@ async def run_investigation(
     # Temporal-driven agents (see llma_eval_reports/report_agent/graph.py).
     config: RunnableConfig = {"callbacks": _build_callbacks(team=team, alert=alert)}
 
-    messages: list[Any] = [
-        SystemMessage(content=SYSTEM_PROMPT),
-        HumanMessage(content=anomaly_context),
-    ]
-
-    tool_calls_used = 0
-    # Every set of submit_investigation_report args seen, valid or not, oldest first.
-    # When every parse path fails, salvage tries these newest-to-oldest so a corrective
-    # retry that came back worse cannot clobber an earlier salvageable attempt.
-    report_args_history: list[dict[str, Any]] = []
-
-    for _ in range(MAX_TOOL_CALLS + 1):
-        if heartbeat is not None:
-            heartbeat()
-
-        if tool_calls_used >= MAX_TOOL_CALLS:
-            result = await _finalize_after_tool_budget(
-                llm_with_final_report=llm_with_final_report,
-                messages=messages,
-                config=config,
-                heartbeat=heartbeat,
-                report_args_history=report_args_history,
-                tool_calls_used=tool_calls_used,
-            )
-            if result is not None:
-                return result
-            break
-
-        try:
-            response = await llm_with_tools.ainvoke(messages, config=config)
-        except Exception as err:
-            logger.warning("anomaly_investigation.llm_invoke_error", extra={"error": str(err)})
-            return InvestigationRunResult(
-                report=_fallback_report(f"LLM tool-calling loop failed: {err}"),
-                tool_calls_used=tool_calls_used,
-                model=AGENT_MODEL,
-            )
-        messages.append(response)
-
-        tool_calls = getattr(response, "tool_calls", None) or []
-        handling = await _handle_tool_calls(
-            tool_calls=tool_calls,
-            handlers=handlers,
-            messages=messages,
-            report_args_history=report_args_history,
-            tool_calls_used=tool_calls_used,
-        )
-        tool_calls_used = handling.tool_calls_used
-        if handling.result is not None:
-            return handling.result
-        if handling.should_stop:
-            break
-
-    return _finish_investigation(
-        messages=messages,
-        report_args_history=report_args_history,
-        tool_calls_used=tool_calls_used,
+    runner = _InvestigationRunner(
+        llm_with_tools=llm_with_tools,
+        llm_with_final_report=llm_with_final_report,
+        handlers=handlers,
+        config=config,
+        heartbeat=heartbeat,
     )
+    return await runner.run(anomaly_context=anomaly_context)
 
 
 def _build_callbacks(*, team: Team, alert: AlertConfiguration | None) -> list[BaseCallbackHandler]:
