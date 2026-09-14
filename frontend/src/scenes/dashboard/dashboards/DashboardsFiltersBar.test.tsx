@@ -67,4 +67,28 @@ describe('DashboardsFiltersBar', () => {
 
         expect(screen.getAllByText('Loading…')).toHaveLength(5)
     })
+
+    it('clears all selected tags from the tag picker', () => {
+        const setFilters = jest.fn()
+        ;(useActions as jest.Mock).mockReturnValue({
+            loadMoreTagResults: jest.fn(),
+            setFilters,
+            setTagSearch: jest.fn(),
+            setShowTagPopover: jest.fn(),
+            setSearch: jest.fn(),
+        })
+        ;(useValues as jest.Mock).mockReturnValue({
+            filters: { createdBy: 'All users', search: '', tags: ['growth', 'analytics'] },
+            currentTab: DashboardsTab.All,
+            tagPageLoading: false,
+            tagResults: ['growth', 'analytics'],
+            tagSearch: '',
+            showTagPopover: true,
+        })
+
+        render(<DashboardsFiltersBar />)
+        fireEvent.click(document.querySelector('[data-attr="dashboard-tags-clear-selection"]')!)
+
+        expect(setFilters).toHaveBeenCalledWith({ tags: [] })
+    })
 })

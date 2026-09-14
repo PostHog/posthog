@@ -1,4 +1,4 @@
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person
 from unittest.mock import patch
 
@@ -195,7 +195,7 @@ class TestWebStatsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
     def _job_count(self) -> int:
         return PreaggregationJob.objects.filter(team_id=self.team.pk).count()
 
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_round_trip_creates_precompute_job(self):
         self._seed()
         with self._enable_lazy():
@@ -204,7 +204,7 @@ class TestWebStatsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         assert self._job_count() > 0, "expected at least one precompute job to be created"
 
     @parameterized.expand(PARITY_BREAKDOWNS)
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_lazy_matches_raw(self, _name: str, breakdown_by: WebStatsBreakdown):
         self._seed()
 
@@ -222,7 +222,7 @@ class TestWebStatsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         assert lazy == raw, f"lazy/raw mismatch for {breakdown_by}: raw={raw}, lazy={lazy}"
 
     @parameterized.expand(PARITY_BREAKDOWNS)
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_lazy_matches_raw_with_compare(self, _name: str, breakdown_by: WebStatsBreakdown):
         self._seed()
         # Previous period: one extra session for u1 in the 7 days before Jan 1.
@@ -256,7 +256,7 @@ class TestWebStatsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
             ("device_type", WebStatsBreakdown.DEVICE_TYPE, "$device_type"),
         ]
     )
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_lazy_keeps_null_breakdown_rows(self, _name: str, breakdown_by: WebStatsBreakdown, null_prop: str):
         self._seed()
         # One extra session whose breakdown property is absent -> a genuine NULL that
@@ -298,7 +298,7 @@ class TestWebStatsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
             f"{breakdown_by}: lazy keeps_null={lazy_keeps_null} but raw keeps_null={live_keeps_null}"
         )
 
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_viewport_breakdown_lazy_runs(self):
         # The raw VIEWPORT query compares viewport tuple elements against 0,
         # which needs numeric properties the harness does not materialize — so
@@ -311,7 +311,7 @@ class TestWebStatsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         assert len(response.results) > 0
         assert all(isinstance(row[0], tuple) and len(row[0]) == 2 for row in response.results)
 
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_host_filter_gets_distinct_cache_entry(self):
         self._seed()
         host_filter = EventPropertyFilter(key="$host", value="example.com", operator=PropertyOperator.EXACT)
@@ -327,7 +327,7 @@ class TestWebStatsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         assert unfiltered and filtered
         assert unfiltered.isdisjoint(filtered), "host filter must produce a distinct cache key"
 
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_host_filter_lazy_matches_raw(self):
         self._seed()
         host_filter = EventPropertyFilter(key="$host", value="example.com", operator=PropertyOperator.EXACT)
@@ -338,7 +338,7 @@ class TestWebStatsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
 
         assert lazy == raw, f"host-filtered lazy/raw mismatch: raw={raw}, lazy={lazy}"
 
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_distinct_breakdowns_get_distinct_cache_entries(self):
         self._seed()
         with self._enable_lazy():
@@ -358,7 +358,7 @@ class TestWebStatsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
             ("scroll_depth", {"include_scroll_depth": True}),
         ]
     )
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_extra_metric_falls_through(self, _name: str, kwargs: dict):
         self._seed()
         with self._enable_lazy():
@@ -373,7 +373,7 @@ class TestWebStatsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
             ("exit_click", WebStatsBreakdown.EXIT_CLICK),
         ]
     )
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_high_cardinality_breakdown_falls_through(self, _name: str, breakdown_by: WebStatsBreakdown):
         # Page/path breakdowns are intentionally excluded — handled by the
         # dedicated paths lazy precompute. They fall through to raw here.
@@ -383,7 +383,7 @@ class TestWebStatsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
 
         assert self._job_count() == 0
 
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_language_breakdown_precomputes_and_groups_by_prefix(self):
         # LANGUAGE precomputes: the INSERT stores the full `$browser_language`
         # ("en-US"/"en-GB"); the read groups by the "en" prefix and labels it with
@@ -398,7 +398,7 @@ class TestWebStatsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         assert response.preComputeStrategy == WebAnalyticsPreComputeStrategy.LAZY_PRECOMPUTE
         assert self._metrics(response) == [("en-US", (2.0, None), (4.0, None))]
 
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_language_breakdown_keeps_missing_value(self):
         # The raw LANGUAGE query keeps rows with no `$browser_language`
         # (outer_where_breakdown is None for LANGUAGE) so the tile total stays
@@ -430,7 +430,7 @@ class TestWebStatsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         assert lazy_response.preComputeStrategy == WebAnalyticsPreComputeStrategy.LAZY_PRECOMPUTE
         assert self._metrics(lazy_response) == raw
 
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_language_breakdown_three_part_tag_matches_raw(self):
         # 3-component BCP-47 tags (e.g. `zh-Hans-CN`) must split the same way as the
         # raw query, which uses `splitByChar('-', ..., 2)`. Assert parity against the
@@ -462,7 +462,7 @@ class TestWebStatsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         assert lazy_response.preComputeStrategy == WebAnalyticsPreComputeStrategy.LAZY_PRECOMPUTE
         assert self._metrics(lazy_response) == raw, f"raw={raw} lazy={self._metrics(lazy_response)}"
 
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_conversion_goal_falls_through(self):
         self._seed()
         with self._enable_lazy():
@@ -472,7 +472,7 @@ class TestWebStatsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
 
         assert self._job_count() == 0
 
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_sampling_falls_through(self):
         self._seed()
         with self._enable_lazy():
@@ -480,7 +480,7 @@ class TestWebStatsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
 
         assert self._job_count() == 0
 
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_half_hour_offset_timezone_falls_through(self):
         self.team.timezone = "Asia/Kolkata"
         self.team.save()
@@ -490,7 +490,7 @@ class TestWebStatsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
 
         assert self._job_count() == 0
 
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_query_optin_alone_falls_through_when_org_flag_disabled(self):
         # Direct user-facing calculate (no warm pass): warming triggers bypass the
         # org flag by design, so the helper's warm pre-pass would create jobs here.
@@ -499,7 +499,7 @@ class TestWebStatsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
 
         assert self._job_count() == 0
 
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_org_flag_alone_falls_through_when_query_not_opted_in(self):
         self._seed()
         with self._enable_lazy():
@@ -508,7 +508,7 @@ class TestWebStatsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         assert self._job_count() == 0
 
     @parameterized.expand([("utc", "UTC"), ("pacific", "America/Los_Angeles"), ("tokyo", "Asia/Tokyo")])
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_lazy_matches_raw_for_whole_hour_timezones(self, _name: str, team_tz: str):
         self.team.timezone = team_tz
         self.team.save()
@@ -520,7 +520,7 @@ class TestWebStatsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
 
         assert lazy == raw, f"lazy/raw mismatch for {team_tz}: raw={raw}, lazy={lazy}"
 
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_pagination_lazy_matches_raw(self):
         self._seed()
         query = self._build_query(breakdown_by=WebStatsBreakdown.BROWSER)
@@ -536,7 +536,7 @@ class TestWebStatsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         assert lazy_response.limit == raw_response.limit
         assert lazy_response.offset == raw_response.offset
 
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_recomputation_picks_up_late_events(self):
         self._seed()
         with self._enable_lazy():
@@ -568,7 +568,7 @@ class TestWebStatsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         assert any(row[0] == "Safari" for row in second), "recomputed result should include the late pageview"
         assert first != second
 
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_session_crossing_midnight_lazy_matches_raw(self):
         # A session whose pageviews straddle a UTC day boundary. Session-start
         # bucketing attributes the whole session to its start hour; the forward
@@ -602,7 +602,7 @@ class TestWebStatsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         safari = next(r for r in raw if r[0] == "Safari")
         assert safari[2][0] == 2, f"expected 2 Safari views, got {safari}"
 
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_ui_fill_fraction_lazy_matches_raw(self):
         # Column index 3 is `context.columns.ui_fill_fraction` — recomputed in
         # Python on the lazy path, so assert parity with the raw SQL window fn.
@@ -617,7 +617,7 @@ class TestWebStatsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         for raw_value, lazy_value in zip(raw_fill, lazy_fill):
             assert abs(raw_value - lazy_value) < 1e-9, f"ui_fill_fraction mismatch: raw={raw_fill}, lazy={lazy_fill}"
 
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_views_desc_orderby_lazy_matches_raw(self):
         # Forwarding the user's orderBy through to ClickHouse: sorting by views
         # must beat the silent visitors fallback the original PR relied on.
@@ -640,7 +640,7 @@ class TestWebStatsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
             ("average_scroll", WebAnalyticsOrderByFields.AVERAGE_SCROLL_PERCENTAGE),
         ]
     )
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_unsupported_orderby_falls_through(self, _name: str, field: WebAnalyticsOrderByFields):
         # Fields the precompute schema can't serve must skip lazy entirely, not
         # silently rewrite the sort to visitors.
@@ -655,7 +655,7 @@ class TestWebStatsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         # we're guarding against is the lazy path silently serving with a rewritten sort.
         assert response.preComputeStrategy != WebAnalyticsPreComputeStrategy.LAZY_PRECOMPUTE
 
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_pagination_page_two_lazy_matches_raw(self):
         # The PR's original code sorted + sliced in Python from an arbitrary
         # `LIMIT 100` cut. With SQL pagination, page 2 must be a contiguous
@@ -681,7 +681,7 @@ class TestWebStatsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
             if offset < len(raw_full):
                 assert self._metrics(lazy_resp)[0] == raw_full[offset], "lazy page row must match unpaginated position"
 
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_high_cardinality_utm_source_orders_in_sql(self):
         # Veria's concern: with N>>page_size distinct UTM values, the read used
         # to materialize all rows + paginate in Python. With SQL pagination the
@@ -724,7 +724,7 @@ class TestWebStatsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         visitors = [row[1][0] for row in lazy_metrics]
         assert visitors == sorted(visitors, reverse=True), f"first page not ordered by visitors desc: {visitors}"
 
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_stale_served_enqueues_background_revalidation(self):
         # Without the `result.stale` hook this family would serve stale for the whole
         # 6h grace and never refresh (the revalidate half of stale-while-revalidate).

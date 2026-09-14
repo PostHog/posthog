@@ -52,6 +52,8 @@ pub struct KafkaMetricRow {
     /// ClickHouse (which never recomputes it). Links a sample to its series at read
     /// time. i64 carries the u64 hash bits to fit Avro's `long`.
     pub series_fingerprint: i64,
+    pub has_labels: bool,
+    pub retention_days: Option<i32>,
 }
 
 /// Flatten an OTEL Metric into one or more KafkaMetricRow records.
@@ -338,6 +340,8 @@ fn build_number_row(
         instrumentation_scope: instrumentation_scope.to_string(),
         attributes,
         series_fingerprint,
+        has_labels: true,
+        retention_days: None,
     };
 
     Ok((row, was_overridden))
@@ -620,6 +624,44 @@ mod tests {
         )
         .expect("build_number_row should succeed");
         row
+    }
+
+    #[test]
+    fn test_has_labels_and_retention_days_serialise_into_avro_payload() {
+        use crate::metrics_avro_schema::METRICS_AVRO_SCHEMA;
+        use apache_avro::types::Value;
+        use apache_avro::{Codec, Reader, Schema, Writer};
+
+        let mut row = build_test_row(&[]);
+        row.has_labels = false;
+        row.retention_days = Some(30);
+
+        let schema = Schema::parse_str(METRICS_AVRO_SCHEMA).expect("schema parses");
+        let mut writer = Writer::with_codec(&schema, Vec::new(), Codec::Null);
+        writer.append_ser(&row).expect("append_ser ok");
+        let payload = writer.into_inner().expect("flush ok");
+
+        let reader = Reader::new(payload.as_slice()).expect("reader ok");
+        let mut found_has_labels = None;
+        let mut found_retention_days = None;
+        for value in reader {
+            let Value::Record(fields) = value.expect("decode ok") else {
+                panic!("expected a record");
+            };
+            for (name, field_value) in fields {
+                match (name.as_str(), field_value) {
+                    ("has_labels", Value::Boolean(v)) => found_has_labels = Some(v),
+                    ("retention_days", Value::Union(_, inner)) => {
+                        if let Value::Int(v) = *inner {
+                            found_retention_days = Some(v);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+        assert_eq!(found_has_labels, Some(false));
+        assert_eq!(found_retention_days, Some(30));
     }
 
     #[test]

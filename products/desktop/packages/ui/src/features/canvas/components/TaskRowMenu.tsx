@@ -4,6 +4,7 @@ import {
   CaretRightIcon,
   DotsThreeIcon,
   FolderSimpleIcon,
+  LinkIcon,
   MagnifyingGlassIcon,
   PencilSimpleIcon,
   PushPinIcon,
@@ -34,6 +35,8 @@ import type { Task } from "@posthog/shared/domain-types";
 import { useOpenBrowserTab } from "@posthog/ui/features/browser-tabs/useOpenBrowserTab";
 import { useChannels } from "@posthog/ui/features/canvas/hooks/useChannels";
 import { useFileTaskToChannel } from "@posthog/ui/features/canvas/hooks/useFileTaskToChannel";
+import { copyCanvasLink } from "@posthog/ui/features/canvas/utils/copyCanvasLink";
+import { copyChannelLink } from "@posthog/ui/features/canvas/utils/copyChannelLink";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import { useSidebarPeekStore } from "@posthog/ui/features/sidebar/sidebarPeekStore";
 import { useHoldSidebarPeek } from "@posthog/ui/features/sidebar/useHoldSidebarPeek";
@@ -181,6 +184,20 @@ function TaskRowMenuItems({
       >
         <ArrowSquareOutIcon size={14} />
         Open in new tab
+      </Item>
+      <Item
+        disabled={!menu.channelId}
+        onClick={() => {
+          if (!menu.channelId) return;
+          if (isTask) {
+            void copyChannelLink(menu.channelId, "sidebar", menu.id);
+          } else {
+            void copyCanvasLink(menu.channelId, menu.id, "sidebar");
+          }
+        }}
+      >
+        <LinkIcon size={14} />
+        Copy link
       </Item>
       <Item onClick={menu.onTogglePin}>
         {menu.isPinned ? (

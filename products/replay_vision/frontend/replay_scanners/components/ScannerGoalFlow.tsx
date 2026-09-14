@@ -20,7 +20,7 @@ const MAX_SCAN_BUDGET = 100000000
  * and lands the user on the overview step to review it. */
 export function ScannerGoalFlow({ onManual }: { onManual: () => void }): JSX.Element {
     const logic = replayScannerLogic({ id: 'new' })
-    const { goalDraftInput, goalBudgetInput, goalDraftLoading } = useValues(logic)
+    const { goalDraftInput, goalBudgetInput, goalDraftLoading, experimentContext } = useValues(logic)
     const { draftScannerFromGoal, setGoalDraftInput, setGoalBudgetInput } = useActions(logic)
 
     // Drafting creates a scanner, so it needs the same editor access as the rest of the wizard.
@@ -67,6 +67,14 @@ export function ScannerGoalFlow({ onManual }: { onManual: () => void }): JSX.Ele
                         Say what to learn and which part of the product to watch. The agent maps it onto your real
                         pages.
                     </div>
+                    {/* A draft restored from an earlier experiment-scoped session keeps its targeting
+                        through this flow, so say whose sessions the scanner ends up watching. */}
+                    {experimentContext ? (
+                        <div className="text-xs text-muted">
+                            This scanner keeps watching people exposed to {experimentContext.experiment.name}. You don't
+                            have to mention the experiment.
+                        </div>
+                    ) : null}
                 </div>
 
                 <div className="flex flex-col gap-1">

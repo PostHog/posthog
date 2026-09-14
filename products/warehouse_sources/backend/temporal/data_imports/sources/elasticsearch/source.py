@@ -167,10 +167,7 @@ Enter the full cluster URL (e.g. `https://my-deployment.es.us-east-1.aws.found.i
         if not host_valid:
             return False, host_error
 
-        if validate_elasticsearch_credentials(config.host, _auth_from_config(config)):
-            return True, None
-
-        return False, "Could not connect to Elasticsearch with the provided credentials"
+        return validate_elasticsearch_credentials(config.host, _auth_from_config(config))
 
     def source_for_pipeline(self, config: ElasticsearchSourceConfig, inputs: SourceInputs) -> SourceResponse:
         # Re-check at sync time so a PATCHed host can't be retargeted at

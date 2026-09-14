@@ -3,8 +3,6 @@ import { MOCK_DEFAULT_TEAM, MOCK_DEFAULT_USER, MOCK_TEAM_ID } from 'lib/api.mock
 import { expectLogic } from 'kea-test-utils'
 
 import { ApiError } from 'lib/api-error'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -13,17 +11,19 @@ import type {
     MCPServiceAccountApi,
     MCPServiceAccountServerApi,
 } from 'products/mcp_store/frontend/generated/api.schemas'
-import { signalsScoutCreate } from 'products/signals/frontend/generated/api'
+import { signalsScoutConfigUpdate, signalsScoutCreate } from 'products/signals/frontend/generated/api'
 import type { SignalScoutCreateResponseApi } from 'products/signals/frontend/generated/api.schemas'
 
-import { SCOUT_DAILY_AT_SCHEDULE_MODE } from '../utils/scoutRunsWindow'
+import { SCOUT_DAILY_AT_SCHEDULE_MODE, SCOUT_WEEKLY_ON_SCHEDULE_MODE } from '../utils/scoutRunsWindow'
 import { ScoutCreateModalLogicProps, scoutCreateModalLogic, scoutCreateModalLogicKey } from './scoutCreateModalLogic'
 
 jest.mock('products/signals/frontend/generated/api', () => ({
+    signalsScoutConfigUpdate: jest.fn(),
     signalsScoutCreate: jest.fn(),
 }))
 
 const mockSignalsScoutCreate = signalsScoutCreate as jest.MockedFunction<typeof signalsScoutCreate>
+const mockSignalsScoutConfigUpdate = signalsScoutConfigUpdate as jest.MockedFunction<typeof signalsScoutConfigUpdate>
 
 const CREATED_SCOUT: SignalScoutCreateResponseApi = {
     created: true,
@@ -49,6 +49,7 @@ const CREATED_SCOUT: SignalScoutCreateResponseApi = {
         output_destinations: {},
         structured_output_schema: null,
         mcp_gateway_server_ids: [],
+        write_scopes: [],
         last_run_at: null,
         consecutive_failure_count: 0,
         status_changed_at: null,
@@ -98,13 +99,6 @@ function scoutAccountResponse(servers: MCPServiceAccountServerApi[]): [number, R
     return [200, { count: 1, next: null, previous: null, results: [account] }]
 }
 
-const setRedesignFlag = (enabled: boolean): void => {
-    featureFlagLogic.mount()
-    featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.INBOX_REDESIGN], {
-        [FEATURE_FLAGS.INBOX_REDESIGN]: enabled,
-    })
-}
-
 describe('scoutCreateModalLogic', () => {
     let logic: ReturnType<typeof scoutCreateModalLogic.build>
     let onClose: jest.MockedFunction<() => void>
@@ -114,8 +108,6 @@ describe('scoutCreateModalLogic', () => {
         // The draft is persisted to localStorage; clear it so one test's draft can't leak into another.
         localStorage.clear()
         initKeaTests()
-        // The prefix-in-the-field form is part of the inbox redesign; the legacy contract is pinned below.
-        setRedesignFlag(true)
         mockSignalsScoutCreate.mockReset()
         onClose = jest.fn()
         onCreated = jest.fn()
@@ -152,16 +144,18 @@ describe('scoutCreateModalLogic', () => {
         logic.mount()
 
         expect(logic.values.scoutCreateForm).toEqual({
-            name: 'checkout-failures',
+            name: 'signals-scout-checkout-failures',
             description: 'Investigates recurring checkout failures.',
             body: 'Inspect checkout failure signals and report meaningful regressions.',
             dailyTime: '09:00',
+            weeklyDay: '1',
             config: {
                 enabled: false,
                 emit: false,
                 run_interval_minutes: 60,
                 run_cron_schedule: null,
                 mcp_gateway_server_ids: [],
+                write_scopes: [],
                 output_destinations: {
                     slack: {
                         integration_id: 42,
@@ -184,6 +178,7 @@ describe('scoutCreateModalLogic', () => {
                 run_interval_minutes: 60,
                 run_cron_schedule: null,
                 mcp_gateway_server_ids: [],
+                write_scopes: [],
                 output_destinations: {
                     slack: {
                         integration_id: 42,
@@ -194,6 +189,43 @@ describe('scoutCreateModalLogic', () => {
             },
         })
         expect(onCreated).toHaveBeenCalledWith(CREATED_SCOUT)
+        expect(onClose).toHaveBeenCalledTimes(1)
+    })
+
+    // Opened on a scout that already exists, the form must not create a skill: the same name with the
+    // shown body would answer 200, but any edit would answer 409, and neither is what "Turn on" means.
+    it('turns an existing scout on with the run settings instead of creating it', async () => {
+        const onEnabled = jest.fn()
+        mockSignalsScoutConfigUpdate.mockResolvedValue({ ...CREATED_SCOUT.config, enabled: true })
+        logic = scoutCreateModalLogic({
+            logicKey: 'existing-scout',
+            initialValues: {
+                name: 'signals-scout-web-vitals',
+                description: 'Watches web vitals.',
+                body: '# Web vitals',
+                existingConfigId: 'config-1',
+                config: { emit: false, run_interval_minutes: 720, run_cron_schedule: null },
+            },
+            onClose,
+            onCreated,
+            onEnabled,
+        })
+        logic.mount()
+
+        await expectLogic(logic, () => logic.actions.submitScoutCreateForm()).toFinishAllListeners()
+
+        expect(mockSignalsScoutCreate).not.toHaveBeenCalled()
+        expect(mockSignalsScoutConfigUpdate).toHaveBeenCalledWith(String(MOCK_TEAM_ID), 'config-1', {
+            enabled: true,
+            emit: false,
+            run_interval_minutes: 720,
+            run_cron_schedule: null,
+            mcp_gateway_server_ids: [],
+            tags: [],
+            write_scopes: [],
+        })
+        expect(onEnabled).toHaveBeenCalledTimes(1)
+        expect(onCreated).not.toHaveBeenCalled()
         expect(onClose).toHaveBeenCalledTimes(1)
     })
 
@@ -289,6 +321,7 @@ describe('scoutCreateModalLogic', () => {
                     run_cron_schedule: '45 14 * * *',
                     tags: [],
                     mcp_gateway_server_ids: [],
+                    write_scopes: [],
                 },
             }),
         })
@@ -304,7 +337,43 @@ describe('scoutCreateModalLogic', () => {
                     run_cron_schedule: '45 14 * * *',
                     tags: [],
                     mcp_gateway_server_ids: [],
+                    write_scopes: [],
                 },
+            })
+        )
+    })
+
+    it('submits a weekly day and run time as a cron schedule', async () => {
+        mockSignalsScoutCreate.mockResolvedValue(CREATED_SCOUT)
+        logic = scoutCreateModalLogic({
+            logicKey: 'weekly-scout',
+            initialValues: {
+                name: 'signals-scout-checkout-failures',
+                description: 'Investigates recurring checkout failures.',
+                body: 'Inspect checkout failure signals and report meaningful regressions.',
+            },
+            onClose,
+            onCreated,
+        })
+        logic.mount()
+
+        logic.actions.setScoutCreateScheduleMode(SCOUT_WEEKLY_ON_SCHEDULE_MODE)
+        logic.actions.setScoutCreateWeeklyDay('4')
+        logic.actions.setScoutCreateDailyTime('14:45')
+
+        await expectLogic(logic).toMatchValues({
+            scoutCreateForm: expect.objectContaining({
+                weeklyDay: '4',
+                dailyTime: '14:45',
+                config: expect.objectContaining({ run_cron_schedule: '45 14 * * 4' }),
+            }),
+        })
+        await expectLogic(logic, () => logic.actions.submitScoutCreateForm()).toFinishAllListeners()
+
+        expect(mockSignalsScoutCreate).toHaveBeenCalledWith(
+            String(MOCK_TEAM_ID),
+            expect.objectContaining({
+                config: expect.objectContaining({ run_cron_schedule: '45 14 * * 4' }),
             })
         )
     })
@@ -362,7 +431,7 @@ describe('scoutCreateModalLogic', () => {
         expect(logic.values.scoutCreateFormManualErrors).toEqual({
             name: 'A scout with this name already exists with different instructions.',
         })
-        expect(logic.values.scoutCreateForm).toMatchObject({ ...initialValues, name: 'checkout-failures' })
+        expect(logic.values.scoutCreateForm).toMatchObject(initialValues)
         expect(onCreated).not.toHaveBeenCalled()
         expect(onClose).not.toHaveBeenCalled()
     })
@@ -371,6 +440,10 @@ describe('scoutCreateModalLogic', () => {
         ['', 'Name is required'],
         ['checkout failures', 'Name cannot contain spaces. Use hyphens between words.'],
         ['Checkout', 'Lowercase letters, numbers, and hyphens only'],
+        // The inbox routes these as sub-pages of /inbox/scouts/, so the backend refuses them too.
+        ['scratchpad', "'scratchpad' is reserved by the inbox. Pick another name."],
+        ['findings', "'findings' is reserved by the inbox. Pick another name."],
+        ['runs', "'runs' is reserved by the inbox. Pick another name."],
         ['checkout-failures', undefined],
         ['signals-scout-checkout-failures', undefined],
     ])('validates the typed name %p', async (name, expectedError) => {
@@ -384,10 +457,13 @@ describe('scoutCreateModalLogic', () => {
         })
     })
 
-    it('adds the prefix once, whether or not it was typed', async () => {
+    it.each([
+        [' checkout-failures ', 'checkout-failures'],
+        [' signals-scout-checkout-failures ', 'signals-scout-checkout-failures'],
+    ])('submits the typed name %p as it is', async (typedName, expectedName) => {
         mockSignalsScoutCreate.mockResolvedValue(CREATED_SCOUT)
         logic = scoutCreateModalLogic({
-            logicKey: 'pasted-prefix',
+            logicKey: `typed-name-${typedName}`,
             initialValues: {
                 description: 'Investigates recurring checkout failures.',
                 body: 'Inspect checkout failure signals and report meaningful regressions.',
@@ -397,12 +473,13 @@ describe('scoutCreateModalLogic', () => {
         })
         logic.mount()
 
-        logic.actions.setScoutCreateFormValue('name', ' signals-scout-checkout-failures ')
+        expect(logic.values.scoutCreateForm.name).toBe('')
+        logic.actions.setScoutCreateFormValue('name', typedName)
         await expectLogic(logic, () => logic.actions.submitScoutCreateForm()).toFinishAllListeners()
 
         expect(mockSignalsScoutCreate).toHaveBeenCalledWith(
             String(MOCK_TEAM_ID),
-            expect.objectContaining({ name: 'signals-scout-checkout-failures' })
+            expect.objectContaining({ name: expectedName })
         )
     })
 
@@ -422,6 +499,38 @@ describe('scoutCreateModalLogic', () => {
         // off and one backdrop click would silently discard the restored draft.
         expect(reopened.values.scoutCreateFormChanged).toBe(true)
         reopened.unmount()
+    })
+
+    it('picks a run day for a draft persisted before the weekly mode existed', async () => {
+        const logicKey = scoutCreateModalLogicKey(undefined)
+        const first = scoutCreateModalLogic({ logicKey, onClose })
+        first.mount()
+        first.actions.setScoutCreateFormValue('body', 'Watch checkout latency and report spikes.')
+        await expectLogic(first).toFinishAllListeners()
+        first.unmount()
+
+        // kea-localstorage restores the stored object over the whole reducer default instead of
+        // merging in fields added since, so a draft written before the weekly mode shipped comes
+        // back with no run day at all. Strip the key to reproduce that draft.
+        for (const key of Object.keys(localStorage)) {
+            const stored = localStorage.getItem(key)
+            if (stored?.includes('"weeklyDay"')) {
+                const draft = JSON.parse(stored)
+                delete draft.weeklyDay
+                localStorage.setItem(key, JSON.stringify(draft))
+            }
+        }
+
+        logic = scoutCreateModalLogic({ logicKey, onClose })
+        logic.mount()
+        logic.actions.setScoutCreateScheduleMode(SCOUT_WEEKLY_ON_SCHEDULE_MODE)
+
+        await expectLogic(logic).toMatchValues({
+            scoutCreateForm: expect.objectContaining({
+                weeklyDay: '1',
+                config: expect.objectContaining({ run_cron_schedule: '0 9 * * 1' }),
+            }),
+        })
     })
 
     it('does not restore a persisted draft after switching to another project', async () => {
@@ -463,6 +572,20 @@ describe('scoutCreateModalLogic', () => {
             body: 'Report signup latency spikes.',
         })
 
+        // A form opened on an existing scout keys on what it shows, so a draft persisted under one
+        // reading of the skill cannot come back over a newer reading.
+        const existing = {
+            name: 'signals-scout-web-vitals',
+            description: 'Watches web vitals.',
+            body: '# Web vitals',
+            existingConfigId: 'config-1',
+            config: { run_interval_minutes: 1440, run_cron_schedule: null },
+        }
+        const existingKey = scoutCreateModalLogicKey(existing)
+        expect(existingKey).not.toBe(scoutCreateModalLogicKey({ name: existing.name }))
+        expect(existingKey).not.toBe(scoutCreateModalLogicKey({ ...existing, body: '# Web vitals, revised' }))
+        expect(existingKey).toBe(scoutCreateModalLogicKey({ ...existing }))
+
         expect(templateKey).not.toBe(blankKey)
         expect(templateKey).not.toBe(otherTemplateKey)
         // The same payload keys the same slot, so a template keeps its own draft across a remount.
@@ -472,48 +595,5 @@ describe('scoutCreateModalLogic', () => {
                 body: 'Inspect checkout failure signals and report meaningful regressions.',
             })
         ).toBe(templateKey)
-    })
-
-    // With the redesign flag off the field holds the whole skill name, so the prefix must be typed.
-    describe('with the redesign flag off', () => {
-        beforeEach(() => setRedesignFlag(false))
-
-        it.each([
-            ['checkout-failures', 'Name must start with signals-scout-'],
-            ['signals-scout-checkout-failures', undefined],
-        ])('validates the full name %p', async (name, expectedError) => {
-            logic = scoutCreateModalLogic({ logicKey: `legacy-name-${name}`, onClose, onCreated })
-            logic.mount()
-
-            expect(logic.values.scoutCreateForm.name).toBe('signals-scout-')
-            logic.actions.setScoutCreateFormValue('name', name)
-
-            await expectLogic(logic).toMatchValues({
-                scoutCreateFormValidationErrors: expect.objectContaining({ name: expectedError }),
-            })
-        })
-
-        it('keeps a prefilled full name and submits it unchanged', async () => {
-            mockSignalsScoutCreate.mockResolvedValue(CREATED_SCOUT)
-            logic = scoutCreateModalLogic({
-                logicKey: 'legacy-prefilled',
-                initialValues: {
-                    name: 'signals-scout-checkout-failures',
-                    description: 'Investigates recurring checkout failures.',
-                    body: 'Inspect checkout failure signals and report meaningful regressions.',
-                },
-                onClose,
-                onCreated,
-            })
-            logic.mount()
-
-            expect(logic.values.scoutCreateForm.name).toBe('signals-scout-checkout-failures')
-            await expectLogic(logic, () => logic.actions.submitScoutCreateForm()).toFinishAllListeners()
-
-            expect(mockSignalsScoutCreate).toHaveBeenCalledWith(
-                String(MOCK_TEAM_ID),
-                expect.objectContaining({ name: 'signals-scout-checkout-failures' })
-            )
-        })
     })
 })

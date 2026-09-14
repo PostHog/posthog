@@ -3,6 +3,7 @@
 import uuid
 import secrets
 from email.utils import formataddr, make_msgid
+from enum import StrEnum
 from hashlib import sha256
 
 from django.core import exceptions, mail
@@ -29,6 +30,7 @@ from posthog.models.user import User
 from posthog.rate_limit import EmailForwardingChallengeThrottle, EmailSendTestThrottle, EmailVerifyDomainThrottle
 
 from products.conversations.backend.mailgun import (
+    MailgunDnsRecords,
     MailgunDomainConflict,
     MailgunDomainNotRegistered,
     MailgunError,
@@ -64,10 +66,29 @@ SHARED_EMAIL_DOMAIN_ERROR = (
     "We can't send support email from {domain}. Sending needs DNS records on a domain you own, "
     "so use an address like support@yourcompany.com."
 )
+MAILGUN_DOMAIN_REGISTERED_ELSEWHERE_ERROR = (
+    "{domain} is already registered with another Mailgun account. If that registration is no longer needed, "
+    "remove it and try again. If you cannot find it, contact Mailgun support."
+)
+MAILGUN_DOMAIN_CONFLICT_ERROR = (
+    "{domain} is already registered with Mailgun, but PostHog could not safely reuse it. Contact PostHog support."
+)
+MAILGUN_DOMAIN_CHECK_FAILED_ERROR = (
+    "PostHog could not check the existing Mailgun registration for {domain}. Try again. "
+    "If it keeps happening, contact PostHog support."
+)
 
 FORWARDING_CHALLENGE_BASE_COOLDOWN_SECONDS = 30
 FORWARDING_CHALLENGE_MAX_COOLDOWN_SECONDS = 60 * 60
 FORWARDING_CHALLENGE_MAX_SEND_ATTEMPTS = 8
+
+
+class MailgunDomainReclaimBlocker(StrEnum):
+    CHANNEL_CREATED = "channel_created"
+    REGISTERED_TO_ANOTHER_ACCOUNT = "registered_to_another_account"
+    REGISTRATION_NOT_RECLAIMABLE = "registration_not_reclaimable"
+    LOOKUP_FAILED = "lookup_failed"
+    REWRITE_FAILED = "rewrite_failed"
 
 
 @frozen
@@ -221,7 +242,7 @@ def _release_domain_if_unused(team: Team, domain: str) -> None:
         logger.exception("email_connect_release_domain_failed", team_id=team.id, domain=domain)
 
 
-def _try_reclaim_stranded_domain(team: Team, domain: str) -> dict | None:
+def _try_reclaim_stranded_domain(team: Team, domain: str) -> MailgunDnsRecords | MailgunDomainReclaimBlocker:
     """Recover a domain stranded in our Mailgun account with no support config referencing it.
 
     A connect that registered the domain but failed to persist a config, or a
@@ -232,11 +253,11 @@ def _try_reclaim_stranded_domain(team: Team, domain: str) -> dict | None:
     has to prove DNS control. Verified (or disabled) domains are left for
     operators to reconcile.
 
-    Returns fresh DNS records when the domain was reclaimed, None when the
-    conflict stands.
+    Returns fresh DNS records when the domain was reclaimed, or the reason the
+    conflict still stands.
     """
     if EmailChannel.objects.filter(domain=domain, kind=EmailChannelKind.SUPPORT).exists():
-        return None
+        return MailgunDomainReclaimBlocker.CHANNEL_CREATED
 
     # Decision phase (reads only). A lookup/verify failure here must leave the
     # original conflict standing, not delete anything.
@@ -244,7 +265,7 @@ def _try_reclaim_stranded_domain(team: Team, domain: str) -> dict | None:
         mg_domain = mailgun_get_domain(domain)
         if mg_domain is None:
             # Not in our account — the domain is claimed by another Mailgun account.
-            return None
+            return MailgunDomainReclaimBlocker.REGISTERED_TO_ANOTHER_ACCOUNT
 
         state = mg_domain.get("state")
         if state != "unverified":
@@ -253,10 +274,10 @@ def _try_reclaim_stranded_domain(team: Team, domain: str) -> dict | None:
             state = mailgun_verify_domain(domain).get("state")
     except Exception:
         logger.exception("email_connect_reclaim_lookup_failed", team_id=team.id, domain=domain)
-        return None
+        return MailgunDomainReclaimBlocker.LOOKUP_FAILED
 
     if state != "unverified":
-        return None
+        return MailgunDomainReclaimBlocker.REGISTRATION_NOT_RECLAIMABLE
 
     # Re-check immediately before the destructive delete. A concurrent connect for the
     # same brand-new domain may have registered it and be persisting a config since our
@@ -264,7 +285,7 @@ def _try_reclaim_stranded_domain(team: Team, domain: str) -> dict | None:
     # — does not close — that window, but the read-only decision phase above is where
     # most of the latency sits, so the remaining window is small.
     if EmailChannel.objects.filter(domain=domain, kind=EmailChannelKind.SUPPORT).exists():
-        return None
+        return MailgunDomainReclaimBlocker.CHANNEL_CREATED
 
     # Mutation phase. If the delete lands but the re-add fails, the stale registration
     # is already gone, so the next connect registers the now-absent domain cleanly. Emit
@@ -274,7 +295,7 @@ def _try_reclaim_stranded_domain(team: Team, domain: str) -> dict | None:
         dns_records = mailgun_add_domain(domain)
     except Exception:
         logger.exception("email_connect_reclaim_rewrite_failed", team_id=team.id, domain=domain)
-        return None
+        return MailgunDomainReclaimBlocker.REWRITE_FAILED
 
     logger.info("email_connect_reclaimed_stranded_domain", team_id=team.id, domain=domain)
     return dns_records
@@ -504,7 +525,7 @@ class EmailConnectView(APIView):
             )
 
         sibling: EmailChannel | None = None
-        dns_records: dict = {}
+        dns_records: MailgunDnsRecords = {}
         if kind == EmailChannelKind.SUPPORT:
             # A shared provider domain can never pass DNS verification, so Mailgun would reject it
             # later with a message about the domain being claimed by someone else. Customer
@@ -537,19 +558,34 @@ class EmailConnectView(APIView):
                     logger.info("email_connect_mailgun_not_configured", team_id=team.id, domain=domain)
                     return Response({"error": "Mailgun API key not configured"}, status=400)
                 except MailgunDomainConflict as e:
-                    reclaimed = _try_reclaim_stranded_domain(team, domain)
-                    if reclaimed is None:
+                    reclaim_result = _try_reclaim_stranded_domain(team, domain)
+                    if isinstance(reclaim_result, MailgunDomainReclaimBlocker):
                         logger.info(
-                            "email_connect_mailgun_domain_conflict", team_id=team.id, domain=domain, error=str(e)
+                            "email_connect_mailgun_domain_conflict",
+                            team_id=team.id,
+                            domain=domain,
+                            error=str(e),
+                            mailgun_status=e.status_code,
+                            mailgun_message=e.provider_message,
+                            conflict_reason=reclaim_result.value,
                         )
+                        if reclaim_result in {
+                            MailgunDomainReclaimBlocker.LOOKUP_FAILED,
+                            MailgunDomainReclaimBlocker.REWRITE_FAILED,
+                        }:
+                            error_message = MAILGUN_DOMAIN_CHECK_FAILED_ERROR
+                            response_status = 502
+                        elif reclaim_result == MailgunDomainReclaimBlocker.REGISTERED_TO_ANOTHER_ACCOUNT:
+                            error_message = MAILGUN_DOMAIN_REGISTERED_ELSEWHERE_ERROR
+                            response_status = 409
+                        else:
+                            error_message = MAILGUN_DOMAIN_CONFLICT_ERROR
+                            response_status = 409
                         return Response(
-                            {
-                                "error": "This domain cannot be registered for sending. "
-                                "It may already be claimed by another account."
-                            },
-                            status=400,
+                            {"error": error_message.format(domain=domain)},
+                            status=response_status,
                         )
-                    dns_records = reclaimed
+                    dns_records = reclaim_result
                 except Exception:
                     logger.exception("email_connect_mailgun_add_domain_failed", team_id=team.id, domain=domain)
                     return Response(

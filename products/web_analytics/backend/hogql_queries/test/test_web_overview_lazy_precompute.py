@@ -2,7 +2,7 @@ import uuid
 from datetime import UTC, datetime
 
 import unittest
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person
 from unittest.mock import patch
 
@@ -102,7 +102,7 @@ class TestWebOverviewLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
     def _run(self, query: WebOverviewQuery):
         return WebOverviewQueryRunner(team=self.team, query=query).calculate()
 
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_unfiltered_round_trip_creates_precompute_job(self):
         self._seed_two_sessions()
         with self._enable_lazy():
@@ -116,7 +116,7 @@ class TestWebOverviewLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         "Suspected read-after-write visibility on Distributed table, but global "
         "insert_distributed_sync=1 is already set in users-dev.xml. Root cause under investigation."
     )
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_lazy_result_matches_raw_result(self):
         """Run the same query with and without the lazy path enabled, assert results match."""
         self._seed_two_sessions()
@@ -145,7 +145,7 @@ class TestWebOverviewLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         assert lazy_views == raw_views, f"views mismatch: lazy={lazy_views}, raw={raw_views}"
         assert lazy_sessions == raw_sessions, f"sessions mismatch: lazy={lazy_sessions}, raw={raw_sessions}"
 
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_host_filter_gets_distinct_cache_entry(self):
         self._seed_two_sessions()
         host_filter = EventPropertyFilter(key="$host", value="example.com", operator=PropertyOperator.EXACT)
@@ -165,7 +165,7 @@ class TestWebOverviewLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
             f"got overlap: {unfiltered_jobs & filtered_jobs}"
         )
 
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_distinct_host_values_get_distinct_cache_entries(self):
         self._seed_two_sessions()
         with self._enable_lazy():
@@ -188,7 +188,7 @@ class TestWebOverviewLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
             f"different $host values must produce distinct cache keys, got overlap: {example_jobs & other_jobs}"
         )
 
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_session_property_falls_through(self):
         # Session and cohort filters fall through — precompute only serves event/person
         # filters, since the live path applies session/cohort filters differently.
@@ -203,7 +203,7 @@ class TestWebOverviewLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
 
         assert PreaggregationJob.objects.filter(team_id=self.team.pk).count() == 0
 
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_sampling_falls_through(self):
         self._seed_two_sessions()
         with self._enable_lazy():
@@ -211,7 +211,7 @@ class TestWebOverviewLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
 
         assert PreaggregationJob.objects.filter(team_id=self.team.pk).count() == 0
 
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_disabled_team_falls_through(self):
         # Both gates closed: org feature flag off AND query opt-in not set.
         self._seed_two_sessions()
@@ -219,7 +219,7 @@ class TestWebOverviewLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
 
         assert PreaggregationJob.objects.filter(team_id=self.team.pk).count() == 0
 
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_query_optin_alone_falls_through_when_org_flag_disabled(self):
         # `query.useWebAnalyticsPrecompute=True` BUT the
         # `web-analytics-precompute-toggle` feature flag is off. Should
@@ -229,7 +229,7 @@ class TestWebOverviewLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
 
         assert PreaggregationJob.objects.filter(team_id=self.team.pk).count() == 0
 
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_org_flag_alone_falls_through_when_query_not_opted_in(self):
         # Org feature flag is on BUT the query param is not set (the team hasn't
         # enabled the "Allow precompute" toggle in the ScenePanel). Should fall
@@ -240,7 +240,7 @@ class TestWebOverviewLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
 
         assert PreaggregationJob.objects.filter(team_id=self.team.pk).count() == 0
 
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_cache_hit_on_second_call(self):
         self._seed_two_sessions()
         with self._enable_lazy():
@@ -270,7 +270,7 @@ class TestWebOverviewLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
             f"second run dropped some first-run READY jobs. first: {first_run_summary}, second: {second_run_summary}"
         )
 
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_compare_to_period_reuses_cache(self):
         self._seed_two_sessions()
         with self._enable_lazy():
@@ -284,7 +284,7 @@ class TestWebOverviewLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         # it should reuse existing jobs and not multiply them.
         assert no_compare_jobs.issubset(after_compare_jobs)
 
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_compare_to_period_returns_real_previous_values(self):
         """Regression: ensure compare-period metrics come from real precomputed
         previous-period data, not 0/NaN. The bug surfaced when the lazy path
@@ -348,7 +348,7 @@ class TestWebOverviewLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         "above @parameterized.expand, so the parameterized variants kept running and failing. "
         "Root cause under investigation."
     )
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_lazy_result_matches_raw_for_whole_hour_timezones(self, _name: str, team_tz: str) -> None:
         """Whole-hour-offset teams must produce the same metrics through the lazy and raw paths."""
         self.team.timezone = team_tz
@@ -369,7 +369,7 @@ class TestWebOverviewLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         lazy_values = [(r.key, r.value) for r in lazy_response.results]
         assert lazy_values == raw_values, f"lazy/raw mismatch for {team_tz}: raw={raw_values}, lazy={lazy_values}"
 
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_half_hour_offset_timezone_falls_through(self):
         # IST is UTC+5:30 — hourly UTC buckets can't represent the team-local
         # midnight, so the gate must refuse.
@@ -383,7 +383,7 @@ class TestWebOverviewLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
 
     # --- Group B: gate strictness -------------------------------------------
 
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_uuid_session_mode_falls_through(self):
         # `events.$session_id_uuid` would produce `uniqState(UUID)` which the
         # `(uniq, String)` column rejects non-retryably. Gate must refuse.
@@ -395,7 +395,7 @@ class TestWebOverviewLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
 
         assert PreaggregationJob.objects.filter(team_id=self.team.pk).count() == 0
 
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_window_over_max_days_falls_through(self):
         # 365 days >> MAX_PRECOMPUTE_DAYS — gate refuses to avoid spawning
         # hundreds of daily INSERT jobs in one request.
@@ -411,7 +411,7 @@ class TestWebOverviewLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         "Flaky on CI since #59075 — same intermittent empty-result pattern as the other "
         "round-trip tests in this file. Missed by #59614. Root cause under investigation."
     )
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_session_just_after_window_start_attributed_correctly(self):
         # Forward-only pad regression: a session starting near the leading edge
         # of a daily UTC bucket must still aggregate its full set of events.
@@ -441,7 +441,7 @@ class TestWebOverviewLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
 
         assert lazy_values == raw_values, f"forward-only pad parity broken: raw={raw_values}, lazy={lazy_values}"
 
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_compare_period_falls_back_when_previous_not_ready(self):
         # If the previous-period precompute hasn't reached READY across all jobs,
         # we must not read — the read would silently return 0/NaN for `prev_*`
@@ -474,7 +474,7 @@ class TestWebOverviewLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         "Flaky on CI since #59075 — same intermittent empty-result pattern as the other "
         "round-trip tests in this file. Root cause under investigation."
     )
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_recomputation_picks_up_late_events_changing_bounce_and_duration(self):
         # After a late event arrives, the next precompute run (cache invalidated
         # via job deletion = simulated TTL expiry) must reflect the new
@@ -555,7 +555,7 @@ class TestWebOverviewLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
                 f"recomputed lazy != raw for {metric}: lazy={second_metrics[metric]}, raw={raw_metrics[metric]}"
             )
 
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_falls_back_when_current_period_not_ready(self):
         # Symmetric to the previous test: if the current-period precompute
         # hasn't reached READY, the read would scan empty buckets. Fall back.
@@ -577,7 +577,7 @@ class TestWebOverviewLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
 
     # --- Group D: enrolled teams (arbitrary filters) ----------------------------------------
 
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_enrolled_team_creates_job_for_multi_non_host_filter(self):
         # Filters the old restriction rejected (multiple, non-`$host`, non-`exact`)
         # precompute fine for any enrolled team.
@@ -590,7 +590,7 @@ class TestWebOverviewLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
             self._run(self._build_query(properties=props))
         assert PreaggregationJob.objects.filter(team_id=self.team.pk).count() > 0
 
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_enrolled_team_distinct_filters_get_distinct_cache_entries(self):
         self._seed_two_sessions()
         chrome = [EventPropertyFilter(key="$browser", value="Chrome", operator=PropertyOperator.EXACT)]
@@ -608,7 +608,7 @@ class TestWebOverviewLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
             f"distinct filter values must produce distinct cache keys, got overlap: {chrome_hashes & firefox_hashes}"
         )
 
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_enrolled_team_untouched_toggle_creates_job(self):
         # Enrolled teams default to opt-out: an untouched toggle (None) still
         # precomputes.
@@ -619,14 +619,14 @@ class TestWebOverviewLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
             self._run(query)
         assert PreaggregationJob.objects.filter(team_id=self.team.pk).count() > 0
 
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_enrolled_team_explicit_opt_out_falls_through(self):
         self._seed_two_sessions()
         with override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS=[self.team.pk]):
             self._run(self._build_query(opt_in_precompute=False))
         assert PreaggregationJob.objects.filter(team_id=self.team.pk).count() == 0
 
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_stale_served_enqueues_background_revalidation(self):
         # Without the `result.stale` hook this family would serve stale for the whole
         # 6h grace and never refresh (the revalidate half of stale-while-revalidate).
@@ -735,7 +735,7 @@ class TestWebOverviewSessionIdSetInsert(ClickhouseTestMixin, APIBaseTest):
             assert template is mod.JOIN_INSERT_QUERY_TEMPLATE
             assert modifiers is None
 
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_filtered_insert_matches_join_insert(self):
         """The id-set insert must store the same finalized metrics as the join insert
         for the same filtered key — the whole point of the shape swap. Compares the

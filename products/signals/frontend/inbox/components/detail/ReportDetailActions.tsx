@@ -14,6 +14,7 @@ import { inboxBulkActionsLogic } from '../../logics/inboxBulkActionsLogic'
 import { INBOX_REPORT_SECTION_LIST_PARAMS, reportListLogic } from '../../logics/reportListLogic'
 import { SignalReport, SignalReportStatus } from '../../types'
 import { canResolveReport } from '../../utils/reportActions'
+import { hasMergedReportPullRequest } from '../../utils/reportPullRequests'
 import { useReportDismiss } from '../cards/useReportDismiss'
 import { useReportRefund } from '../cards/useReportRefund'
 import { useReportResolve } from './useReportResolve'
@@ -36,13 +37,6 @@ export interface ReportDetailAction {
     primary?: boolean
 }
 
-/**
- * Detail-pane actions as data: Resolve, Dismiss/Restore, and Refund. Create PR and Discuss are each
- * rendered separately as a standalone dropdown button (`CreatePrButton`, `DiscussReportButton`)
- * since they open a note popover rather than firing on click; rating a report lives at the end of
- * the body (`ReportFeedbackFooter`). Dismissing and resolving reuse the shared `useReportDismiss` /
- * `useReportResolve` dialog flows. Callers render these inline or inside a menu.
- */
 export function useReportDetailActions(report: SignalReport): ReportDetailAction[] {
     const { reportStateChanged } = useActions(inboxBulkActionsLogic)
     const { activeTab } = useValues(inboxSceneLogic)
@@ -55,7 +49,7 @@ export function useReportDetailActions(report: SignalReport): ReportDetailAction
     // Refund leaves a report in place only when a merged PR resolved it; anything else it dismisses
     // (so the open PR gets closed), which means the view has to navigate away. Mirrors the
     // `resolved_via_merged_pr` branch in the refund endpoint.
-    const staysPutOnRefund = isResolved && report.implementation_pr_merged === true
+    const staysPutOnRefund = isResolved && hasMergedReportPullRequest(report)
 
     // Once a verdict persists, broadcast so every mounted list reconciles against the server (the
     // report leaves Needs decision / Review and merge and joins Resolved or Dismissed), then return to

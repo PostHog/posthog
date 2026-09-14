@@ -25,7 +25,7 @@ class FeatureRequestHistorySource(models.TextChoices):
 
 
 class FeatureRequestProductArea(TeamScopedRootMixin, UUIDModel):
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     name = models.CharField(max_length=200)
     display_order = models.PositiveIntegerField(default=0)
     is_active = models.BooleanField(default=True)
@@ -46,7 +46,7 @@ class FeatureRequestProductArea(TeamScopedRootMixin, UUIDModel):
 
 
 class FeatureRequest(TeamScopedRootMixin, UUIDModel):
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     title = models.CharField(max_length=400)
     description = models.TextField(blank=True, default="")
     status = models.CharField(
@@ -81,7 +81,7 @@ class FeatureRequest(TeamScopedRootMixin, UUIDModel):
 
 
 class FeatureRequestHistory(TeamScopedRootMixin, UUIDModel):
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     feature_request = models.ForeignKey(
         FeatureRequest,
         on_delete=models.CASCADE,
@@ -109,7 +109,7 @@ class FeatureRequestHistory(TeamScopedRootMixin, UUIDModel):
 
 
 class FeatureRequestAccountLink(TeamScopedRootMixin, UUIDModel):
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     feature_request = models.ForeignKey(
         FeatureRequest,
         on_delete=models.CASCADE,
@@ -143,7 +143,7 @@ class FeatureRequestAccountLink(TeamScopedRootMixin, UUIDModel):
 
 
 class FeatureRequestEvidence(TeamScopedRootMixin, UUIDModel):
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     account_link = models.ForeignKey(
         FeatureRequestAccountLink,
         on_delete=models.CASCADE,
@@ -181,7 +181,7 @@ class FeatureRequestEvidence(TeamScopedRootMixin, UUIDModel):
 
 
 class FeatureRequestProductAreaLink(TeamScopedRootMixin, UUIDModel):
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     feature_request = models.ForeignKey(
         FeatureRequest,
         on_delete=models.CASCADE,

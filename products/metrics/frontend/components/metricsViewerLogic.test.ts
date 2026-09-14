@@ -21,7 +21,7 @@ import {
     metricsAttributesRetrieve,
     metricsCharacterizeCreate,
     metricsQueryCreate,
-    metricsValuesRetrieve,
+    metricsNamesRetrieve,
 } from 'products/metrics/frontend/generated/api'
 
 import { metricNamePickerLogic } from './metricNamePickerLogic'
@@ -29,7 +29,7 @@ import { metricsViewerLogic } from './metricsViewerLogic'
 
 jest.mock('products/metrics/frontend/generated/api', () => ({
     ...jest.requireActual('products/metrics/frontend/generated/api'),
-    metricsValuesRetrieve: jest.fn(),
+    metricsNamesRetrieve: jest.fn(),
     metricsAttributesRetrieve: jest.fn(),
     metricsQueryCreate: jest.fn(),
     metricsCharacterizeCreate: jest.fn(),
@@ -78,7 +78,7 @@ describe('metricsViewerLogic', () => {
     beforeEach(() => {
         setResourceAccess({})
         initKeaTests()
-        jest.mocked(metricsValuesRetrieve).mockResolvedValue({ results: PICKER_ITEMS })
+        jest.mocked(metricsNamesRetrieve).mockResolvedValue({ results: PICKER_ITEMS })
         jest.mocked(metricsQueryCreate).mockReset().mockResolvedValue({ results: [] })
         jest.mocked(metricsAttributesRetrieve).mockReset()
         jest.mocked(metricsCharacterizeCreate).mockReset()
@@ -666,7 +666,7 @@ describe('metricsViewerLogic', () => {
 
     it('does not call metrics APIs without metrics viewer access', async () => {
         setResourceAccess({ [AccessControlResourceType.Metrics]: AccessControlLevel.None })
-        jest.mocked(metricsValuesRetrieve).mockClear()
+        jest.mocked(metricsNamesRetrieve).mockClear()
 
         await expectLogic(metricNamePickerLogic, () => {
             metricNamePickerLogic.actions.loadItems({ debounce: true })
@@ -680,7 +680,7 @@ describe('metricsViewerLogic', () => {
             logic.actions.setGroupBySearch('env')
         }).toDispatchActions(['loadAttributeKeyOptionsSuccess'])
 
-        expect(metricsValuesRetrieve).not.toHaveBeenCalled()
+        expect(metricsNamesRetrieve).not.toHaveBeenCalled()
         expect(metricsQueryCreate).not.toHaveBeenCalled()
         expect(metricsAttributesRetrieve).not.toHaveBeenCalled()
     })

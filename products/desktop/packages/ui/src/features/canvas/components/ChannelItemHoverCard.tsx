@@ -83,6 +83,7 @@ const ChannelItemPreviewHandleContext =
  * Sharing the handle is also what makes sliding down the list feel like one
  * card moving: Base UI skips the open delay when the pointer crosses to another
  * trigger of an already-open popup.
+
  */
 export function ChannelItemPreviewCardProvider({
   children,
@@ -141,9 +142,13 @@ export function ChannelItemPreviewCardProvider({
         {({ payload }) =>
           payload ? (
             <PreviewCard.Portal>
+              {/* Centred on the row rather than hung from its top edge. A card
+                  four hundred pixels tall aligned to a twenty-eight pixel row
+                  sits almost entirely below it, so the run to it is a run
+                  downwards whichever row you are on */}
               <PreviewCard.Positioner
                 side="right"
-                align="start"
+                align="center"
                 sideOffset={10}
                 className="z-50"
               >
@@ -216,40 +221,33 @@ function useKeyboardPreview(
 }
 
 /**
- * A row that shows the shared preview card while it is pointed at. Shared by
- * the channel sidebar's rows and the space tree's session rows so the two can't
- * drift into showing different facts or actions for one task.
- *
- * `children` is the row itself, handed to the trigger.
+ * A row that shows the shared card while it is pointed at, whatever the row is
+ * about: what a space and a session differ in is the payload they carry, and
+ * they are one popup being moved between them, so they are one trigger too.
+
  */
-export function ChannelItemHoverCard({
-  item,
-  menu,
-  highlighted = false,
+function PreviewTrigger({
+  payload,
+  highlighted,
   children,
 }: {
-  item: ChannelItemModel;
-  menu: TaskRowMenuProps;
+  payload: ChannelPreviewPayload;
   /** The keyboard is on this row, which opens the card as hovering does. */
-  highlighted?: boolean;
+  highlighted: boolean;
   children: ReactNode;
 }) {
   const card = useContext(ChannelItemPreviewHandleContext);
-  // The card reads the row it is over off the active trigger, so what the row
-  // has to say travels as the trigger's payload. Kept stable, because a new
-  // identity writes it to the card's store again.
-  const payload = useMemo(
-    () => ({ kind: "item" as const, item, menu }),
-    [item, menu],
-  );
   // Ours rather than Base UI's own, because opening from the keyboard means
   // naming the trigger to open.
   const triggerId = useId();
   useKeyboardPreview(card, triggerId, highlighted);
   const row = (
-    // Pointing at any row hands the card to the pointer, so the row the
-    // keyboard opened it on stops trying to close it.
-    <div className="flex min-w-0" onPointerEnter={card?.releaseKeyboard}>
+    <div
+      className="flex min-w-0"
+      // Pointing at any row hands the card to the pointer, so the row the
+      // keyboard opened it on stops trying to close it.
+      onPointerEnter={card?.releaseKeyboard}
+    >
       {children}
     </div>
   );
@@ -271,14 +269,41 @@ export function ChannelItemHoverCard({
 }
 
 /**
- * A space row that shows the shared preview card while it is pointed at, with
- * the space's own card in it rather than a session's.
- *
- * The same handle as the session rows on purpose: a space and the sessions
- * under it are one list to the pointer, so crossing between them swaps the
- * card's contents instead of closing one popup and opening another. It opens on
- * the keyboard's highlight the way they do, too — walking the tree shows the
- * same card whichever kind of row the highlight lands on.
+ * A session row's card. Shared by the channel sidebar's rows and the space
+ * tree's session rows so the two can't drift into showing different facts or
+ * actions for one task.
+ */
+export function ChannelItemHoverCard({
+  item,
+  menu,
+  highlighted = false,
+  children,
+}: {
+  item: ChannelItemModel;
+  menu: TaskRowMenuProps;
+  /** The keyboard is on this row, which opens the card as hovering does. */
+  highlighted?: boolean;
+  children: ReactNode;
+}) {
+  // The card reads the row it is over off the active trigger, so what the row
+  // has to say travels as the trigger's payload. Kept stable, because a new
+  // identity writes it to the card's store again.
+  const payload = useMemo(
+    () => ({ kind: "item" as const, item, menu }),
+    [item, menu],
+  );
+  return (
+    <PreviewTrigger payload={payload} highlighted={highlighted}>
+      {children}
+    </PreviewTrigger>
+  );
+}
+
+/**
+ * A space row's card, on the same handle as the session rows on purpose: a
+ * space and the sessions under it are one list to the pointer, so crossing
+ * between them swaps the card's contents instead of closing one popup and
+ * opening another.
  */
 export function SpaceHoverCard({
   space,
@@ -290,31 +315,15 @@ export function SpaceHoverCard({
   highlighted?: boolean;
   children: ReactNode;
 }) {
-  const card = useContext(ChannelItemPreviewHandleContext);
   // Stable for the reason a session row's is: a new identity writes the payload
   // to the card's store again. The caller memoizes what it passes.
   const payload = useMemo(
     () => ({ kind: "space" as const, ...space }),
     [space],
   );
-  const triggerId = useId();
-  useKeyboardPreview(card, triggerId, highlighted);
-  const row = (
-    <div className="flex min-w-0" onPointerEnter={card?.releaseKeyboard}>
-      {children}
-    </div>
-  );
-
-  if (!card) return row;
-
   return (
-    <PreviewCard.Trigger
-      handle={card.handle}
-      payload={payload}
-      id={triggerId}
-      delay={OPEN_DELAY_MS}
-      closeDelay={CLOSE_DELAY_MS}
-      render={row}
-    />
+    <PreviewTrigger payload={payload} highlighted={highlighted}>
+      {children}
+    </PreviewTrigger>
   );
 }

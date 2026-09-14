@@ -9,6 +9,7 @@ from products.tasks.backend.constants import (
     SNAPSHOT_KIND_DIRECTORY,
     SNAPSHOT_KIND_FILESYSTEM,
 )
+from products.tasks.backend.exceptions import SandboxExecutionError
 from products.tasks.backend.logic.services.modal_sandbox import (
     DEFAULT_MODAL_APP_NAME,
     LOCAL_MODAL_AGENT_SHADOW_DIR,
@@ -22,6 +23,7 @@ from products.tasks.backend.logic.services.modal_sandbox import (
 )
 from products.tasks.backend.logic.services.sandbox import (
     SELF_DRIVING_ORIGIN_PRODUCTS,
+    ExecutionResult,
     SandboxConfig,
     SandboxStatus,
     SandboxTemplate,
@@ -42,6 +44,124 @@ def test_destroy_updates_status_before_modal_termination_settles(mocker):
 
     assert sandbox.get_status() == SandboxStatus.SHUTDOWN
     handle.terminate.assert_called_once_with()
+
+
+class TestModalSandboxWriteFile:
+    def test_required_file_write_failure_raises(self, mocker):
+        handle = MagicMock(object_id="sb-test")
+        handle.poll.return_value = None
+        mocker.patch.object(ModalSandbox, "_get_app_for_config", return_value=MagicMock())
+        sandbox = ModalSandbox(handle, SandboxConfig(name="test"))
+        mocker.patch.object(
+            sandbox,
+            "write_file",
+            return_value=ExecutionResult(stdout="", stderr="", exit_code=1, error="atomic_move"),
+        )
+
+        with pytest.raises(SandboxExecutionError, match="Failed to write required sandbox file") as error:
+            sandbox._write_required_file("/etc/agentsh/config.yaml", b"config")
+
+        assert error.value.context["sandbox_id"] == "sb-test"
+        assert error.value.context["path"] == "/etc/agentsh/config.yaml"
+        assert error.value.context["exit_code"] == "1"
+        assert error.value.context["write_stage"] == "atomic_move"
+
+    def test_uses_exec_fallback_before_atomic_move(self, mocker):
+        handle = MagicMock(object_id="sb-test")
+        handle.poll.return_value = None
+        handle.filesystem.write_bytes.side_effect = RuntimeError("fs tool failed")
+        mocker.patch.object(ModalSandbox, "_get_app_for_config", return_value=MagicMock())
+        sandbox = ModalSandbox(handle, SandboxConfig(name="test"))
+        execute = mocker.patch.object(
+            sandbox,
+            "execute",
+            side_effect=[
+                ExecutionResult(stdout="", stderr="", exit_code=0),
+                ExecutionResult(stdout="", stderr="", exit_code=0),
+            ],
+        )
+
+        result = sandbox.write_file("/tmp/credentials", b"token=value\x00")
+
+        assert result.exit_code == 0
+        assert execute.call_count == 2
+        assert "base64 -d >" in execute.call_args_list[0].args[0]
+        assert "dG9rZW49dmFsdWUA" in execute.call_args_list[0].args[0]
+        assert execute.call_args_list[1].args[0].startswith("mv ")
+
+    def test_uses_bounded_exec_path_when_timeout_is_set(self, mocker):
+        handle = MagicMock(object_id="sb-test")
+        handle.poll.return_value = None
+        mocker.patch.object(ModalSandbox, "_get_app_for_config", return_value=MagicMock())
+        sandbox = ModalSandbox(handle, SandboxConfig(name="test"))
+        execute = mocker.patch.object(
+            sandbox,
+            "execute",
+            side_effect=[
+                ExecutionResult(stdout="", stderr="", exit_code=0),
+                ExecutionResult(stdout="", stderr="", exit_code=0),
+            ],
+        )
+
+        sandbox.write_file("/tmp/credentials", b"token=value\x00", timeout_seconds=15)
+
+        handle.filesystem.write_bytes.assert_not_called()
+        assert all(call.kwargs["timeout_seconds"] == 15 for call in execute.call_args_list)
+
+    def test_chunks_large_exec_fallback_payloads(self, mocker):
+        handle = MagicMock(object_id="sb-test")
+        handle.poll.return_value = None
+        handle.filesystem.write_bytes.side_effect = RuntimeError("fs tool failed")
+        mocker.patch.object(ModalSandbox, "_get_app_for_config", return_value=MagicMock())
+        sandbox = ModalSandbox(handle, SandboxConfig(name="test"))
+        execute = mocker.patch.object(
+            sandbox,
+            "execute",
+            return_value=ExecutionResult(stdout="", stderr="", exit_code=0),
+        )
+
+        sandbox.write_file("/tmp/output", b"x" * 100_000)
+
+        write_commands = [call.args[0] for call in execute.call_args_list[:-1]]
+        assert len(write_commands) == 3
+        assert all(len(command) < 51_000 for command in write_commands)
+        assert [len(command.splitlines()[1]) for command in write_commands] == [50_000, 50_000, 33_336]
+
+    def test_returns_exec_fallback_failure(self, mocker):
+        handle = MagicMock(object_id="sb-test")
+        handle.poll.return_value = None
+        handle.filesystem.write_bytes.side_effect = RuntimeError("fs tool failed")
+        mocker.patch.object(ModalSandbox, "_get_app_for_config", return_value=MagicMock())
+        sandbox = ModalSandbox(handle, SandboxConfig(name="test"))
+        mocker.patch.object(
+            sandbox,
+            "execute",
+            return_value=ExecutionResult(stdout="", stderr="write failed", exit_code=1),
+        )
+
+        result = sandbox.write_file("/tmp/credentials", b"token=value\x00")
+
+        assert result.exit_code == 1
+        assert result.error == "exec_write"
+
+    def test_returns_atomic_move_failure(self, mocker):
+        handle = MagicMock(object_id="sb-test")
+        handle.poll.return_value = None
+        mocker.patch.object(ModalSandbox, "_get_app_for_config", return_value=MagicMock())
+        sandbox = ModalSandbox(handle, SandboxConfig(name="test"))
+        mocker.patch.object(
+            sandbox,
+            "execute",
+            side_effect=[
+                ExecutionResult(stdout="", stderr="move failed", exit_code=1),
+                ExecutionResult(stdout="", stderr="", exit_code=0),
+            ],
+        )
+
+        result = sandbox.write_file("/tmp/credentials", b"token=value\x00")
+
+        assert result.exit_code == 1
+        assert result.error == "atomic_move"
 
 
 @pytest.fixture

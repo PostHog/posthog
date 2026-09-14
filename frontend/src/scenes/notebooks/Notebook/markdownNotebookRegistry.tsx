@@ -2,7 +2,6 @@ import '../Nodes/NotebookNodeCohort'
 import '../Nodes/NotebookNodeDashboard'
 import '../Nodes/NotebookNodeCustomerJourney/NotebookNodeCustomerJourney'
 import '../Nodes/NotebookNodeSQLV2'
-import '../Nodes/NotebookNodeDuckSQL'
 import '../Nodes/NotebookNodeEarlyAccessFeature'
 import '../Nodes/NotebookNodeEmbed'
 import '../Nodes/NotebookNodeExperiment'
@@ -11,7 +10,6 @@ import '../Nodes/NotebookNodeFlag'
 import '../Nodes/NotebookNodeFlagCodeExample'
 import '../Nodes/NotebookNodeGroup'
 import '../Nodes/NotebookNodeGroupProperties'
-import '../Nodes/NotebookNodeHogQL'
 import '../Nodes/NotebookNodeImage'
 import '../Nodes/NotebookNodeIssues'
 import '../Nodes/NotebookNodeLatex'
@@ -21,7 +19,6 @@ import '../Nodes/NotebookNodePerson'
 import '../Nodes/NotebookNodePersonFeed/NotebookNodePersonFeed'
 import '../Nodes/NotebookNodePersonProperties'
 import '../Nodes/NotebookNodePlaylist'
-import '../Nodes/NotebookNodePython'
 import '../Nodes/NotebookNodePythonV2'
 import '../Nodes/NotebookNodeQuery'
 import '../Nodes/NotebookNodeRecording'
@@ -170,10 +167,7 @@ export const MARKDOWN_TAG_TO_NOTEBOOK_NODE_TYPE: Partial<Record<string, Notebook
     Dashboard: NotebookNodeType.Dashboard,
     Action: NotebookNodeType.Action,
     Workflow: NotebookNodeType.Workflow,
-    Python: NotebookNodeType.Python,
     PythonV2: NotebookNodeType.PythonV2,
-    DuckSQL: NotebookNodeType.DuckSQL,
-    HogQLSQL: NotebookNodeType.HogQLSQL,
     SQLV2: NotebookNodeType.SQLV2,
     Widget: NotebookNodeType.GeneratedWidget,
     Recording: NotebookNodeType.Recording,
@@ -252,11 +246,7 @@ export const MARKDOWN_NODE_DEFINITIONS: {
     { tagName: 'Dashboard', category: 'Insight' },
     { tagName: 'Action', category: 'Data' },
     { tagName: 'Workflow', category: 'PostHog' },
-    // Legacy in-browser-kernel Python cell: still renders where it exists, but new cells
-    // are always the revamped PythonV2 below, so it has no insertCommand.
-    { tagName: 'Python', category: 'Code' },
-    // The revamped (sandbox-kernel) Python cell; insertion gated like SQLV2 in
-    // getMarkdownRegistryForFeatureFlags.
+    // The sandbox-kernel Python cell; insertion gated like SQLV2 in getMarkdownRegistryForFeatureFlags.
     {
         tagName: 'PythonV2',
         category: 'Code',
@@ -271,15 +261,11 @@ export const MARKDOWN_NODE_DEFINITIONS: {
             }),
         },
     },
-    { tagName: 'DuckSQL', category: 'SQL', label: 'SQL (DuckDB)' },
-    { tagName: 'HogQLSQL', category: 'SQL', label: 'SQL (HogQL)' },
     // insertCommand makes it show in the markdown insert menu; the feature-flag gate in
     // getMarkdownRegistryForFeatureFlags strips it when revamped-py-notebooks is off.
     {
         tagName: 'SQLV2',
         category: 'SQL',
-        // The single SQL node once the legacy SQL cells are deprecated (they render but
-        // are not insertable), so it reads as plain "SQL" in the insert menu.
         label: 'SQL',
         ToolbarComponent: NotebookCodeCellRunButton,
         insertCommand: {
@@ -464,13 +450,7 @@ export function getMarkdownNotebookNodeTitle(
             fallback
         )
     }
-    if (
-        nodeType === NotebookNodeType.Python ||
-        nodeType === NotebookNodeType.PythonV2 ||
-        nodeType === NotebookNodeType.SQLV2 ||
-        nodeType === NotebookNodeType.DuckSQL ||
-        nodeType === NotebookNodeType.HogQLSQL
-    ) {
+    if (nodeType === NotebookNodeType.PythonV2 || nodeType === NotebookNodeType.SQLV2) {
         // Never suggest the code/SQL body itself as a title — fall back to the language label
         return fallback
     }

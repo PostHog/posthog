@@ -22,6 +22,7 @@ from posthog.egress.observability.observability import (
     EgressObservability,
     RateLimitSnapshot,
     register_egress_observability,
+    unpack_requests_response,
 )
 
 GITHUB_DOMAIN = "github"
@@ -66,8 +67,7 @@ def _float_header(headers: Mapping[str, str] | None, name: str) -> float | None:
         return None
 
 
-def _parse_github_rate_limit(response: requests.Response) -> RateLimitSnapshot:
-    headers = response.headers if isinstance(response.headers, Mapping) else None
+def _parse_github_rate_limit(headers: Mapping[str, str] | None, _url: str | None) -> RateLimitSnapshot:
     return RateLimitSnapshot(
         resource=headers.get("X-RateLimit-Resource", "unknown") if headers is not None else "unknown",
         remaining=_float_header(headers, "X-RateLimit-Remaining"),
@@ -143,7 +143,17 @@ def record_github_api_response(
     """Record one GitHub API response. ``installation_id`` is the GitHub App installation — the shared
     rate-limit budget GitHub meters. Pass it when known so the rate-limit gauges are set; identity-blind
     callers (raw PATs) get request volume only. ``source`` attributes the call to a subsystem."""
-    github_egress.record_response(response, source=source, scope=installation_id, method=method, endpoint=endpoint)
+    primitives = unpack_requests_response(response)
+    github_egress.record_response(
+        primitives.status_code,
+        primitives.headers,
+        source=source,
+        scope=installation_id,
+        method=method,
+        endpoint=endpoint,
+        request_method=primitives.request_method,
+        request_url=primitives.request_url,
+    )
 
 
 def record_github_api_exception(

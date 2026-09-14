@@ -588,12 +588,51 @@ class TestEngineeringAnalyticsAPI(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "the maximum is 366" in response.json()["detail"]
 
-    def test_workflow_health_400_on_invalid_run_scope(self) -> None:
-        # A typo'd scope must 400, not silently return the all-runs population as a 200.
-        response = self.client.get(self._url("workflow_health"), {"run_scope": "bogus"})
+    @parameterized.expand(
+        [
+            ("workflow_health", {}),
+            ("workflow_runs", {"workflow_name": "CI", "repo": "PostHog/posthog"}),
+            ("workflow_run_activity", {"workflow_name": "CI", "repo": "PostHog/posthog"}),
+            ("workflow_runner_costs", {"workflow_name": "CI", "repo": "PostHog/posthog"}),
+            ("job_aggregates", {"workflow_name": "CI"}),
+        ]
+    )
+    def test_400_on_invalid_run_scope(self, action: str, params: dict[str, str]) -> None:
+        # A typo'd scope must 400 on every endpoint that accepts it, not silently return the
+        # all-runs population as a 200.
+        response = self.client.get(self._url(action), {**params, "run_scope": "bogus"})
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "run_scope must be one of" in response.json()["detail"]
+
+    @parameterized.expand(
+        [
+            ("workflow_runs", "list_workflow_runs", {"workflow_name": "CI", "repo": "PostHog/posthog"}, []),
+            (
+                "workflow_run_activity",
+                "get_workflow_run_activity",
+                {"workflow_name": "CI", "repo": "PostHog/posthog"},
+                contracts.WorkflowRunActivity(points=[], truncated=False, limit=2000),
+            ),
+            (
+                "workflow_runner_costs",
+                "get_workflow_runner_costs",
+                {"workflow_name": "CI", "repo": "PostHog/posthog"},
+                [],
+            ),
+            ("job_aggregates", "list_job_aggregates", {"workflow_name": "CI"}, []),
+        ]
+    )
+    def test_forwards_run_scope(
+        self, action: str, facade_function: str, params: dict[str, str], result: object
+    ) -> None:
+        # The detail page scopes on the same group as the workflow list, so each of its endpoints
+        # has to reach its facade function with the scope still attached.
+        with mock.patch(f"{_VIEWS}.{facade_function}", return_value=result) as call:
+            response = self.client.get(self._url(action), {**params, "run_scope": "merge_queue"})
+
+        assert response.status_code == status.HTTP_200_OK
+        assert call.call_args.kwargs["run_scope"] == "merge_queue"
 
     @parameterized.expand(["sources", "quarantine"])
     def test_requires_authentication(self, action: str) -> None:

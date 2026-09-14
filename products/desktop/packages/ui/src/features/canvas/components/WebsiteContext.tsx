@@ -1,8 +1,4 @@
-import {
-  FileTextIcon,
-  GitBranchIcon,
-  SparkleIcon,
-} from "@phosphor-icons/react";
+import { FileTextIcon, SparkleIcon } from "@phosphor-icons/react";
 import {
   ContextWikiUnavailableError,
   FolderInstructionsConflictError,
@@ -18,9 +14,6 @@ import {
   Button as QuillButton,
 } from "@posthog/quill";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
-import type { TaskChannel } from "@posthog/shared/domain-types";
-import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
-import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
 import { ChannelHeader } from "@posthog/ui/features/canvas/components/ChannelHeader";
 import { CreateChannelModal } from "@posthog/ui/features/canvas/components/CreateChannelModal";
 import { channelPageIcon } from "@posthog/ui/features/canvas/components/channelPages";
@@ -31,16 +24,12 @@ import {
   useFolderInstructionsMutations,
   useFolderInstructionsVersions,
 } from "@posthog/ui/features/canvas/hooks/useFolderInstructions";
-import {
-  useTaskChannels,
-  useUpdateTaskChannelRepositories,
-} from "@posthog/ui/features/canvas/hooks/useTaskChannels";
 import { ContextWikiPagePane } from "@posthog/ui/features/context-wiki/components/ContextWikiPagePane";
 import { useChannelContextWikiPage } from "@posthog/ui/features/context-wiki/hooks/useContextWiki";
 import { MarkdownRenderer } from "@posthog/ui/features/editor/components/MarkdownRenderer";
 import { useContextLayerFlag } from "@posthog/ui/features/feature-flags/useContextLayerFlag";
-import { RepositoriesField } from "@posthog/ui/features/integrations/components/RepositoriesField";
 import { useSetHeaderContent } from "@posthog/ui/hooks/useSetHeaderContent";
+import { LoadingState } from "@posthog/ui/primitives/LoadingState";
 import {
   PageHeader,
   PageHeaderActions,
@@ -50,6 +39,7 @@ import {
   PageHeaderTitle,
   PageHeaderTitleRow,
 } from "@posthog/ui/primitives/PageHeader";
+import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { navigateToSpacesContext } from "@posthog/ui/router/navigationBridge";
 import { track } from "@posthog/ui/shell/analytics";
 import {
@@ -60,7 +50,6 @@ import {
   ScrollArea,
   SegmentedControl,
   Select,
-  Spinner,
   Text,
   TextArea,
 } from "@radix-ui/themes";
@@ -81,11 +70,7 @@ export function WebsiteContext({ channelId }: WebsiteContextProps) {
   const wikiPage = useChannelContextWikiPage(channelId, contextLayerEnabled);
 
   if (contextLayerEnabled && wikiPage.isLoading) {
-    return (
-      <Flex align="center" justify="center" className="h-full">
-        <Spinner size="2" />
-      </Flex>
-    );
+    return <LoadingState />;
   }
 
   if (contextLayerEnabled && wikiPage.data) {
@@ -131,8 +116,6 @@ function WikiWebsiteContext({
   path: string;
 }) {
   const spacesLayout = useChannelsLayout();
-  const { channels: taskChannels } = useTaskChannels();
-  const taskChannel = taskChannels.find((channel) => channel.id === channelId);
   const headerContent = useMemo(
     () => <ChannelHeader channelId={channelId} page="context" />,
     [channelId],
@@ -166,9 +149,6 @@ function WikiWebsiteContext({
           </PageHeaderActions>
         </PageHeader>
       ) : null}
-      {spacesLayout && taskChannel ? (
-        <SpaceRepositories channel={taskChannel} />
-      ) : null}
       <ContextWikiPagePane key={path} path={path} />
     </div>
   );
@@ -183,8 +163,6 @@ function LegacyWebsiteContext({ channelId }: WebsiteContextProps) {
   const channelName =
     channels.find((c) => c.id === channelId)?.name ??
     (spacesLayout ? "Space" : "Channel");
-  const { channels: taskChannels } = useTaskChannels();
-  const taskChannel = taskChannels.find((channel) => channel.id === channelId);
 
   const {
     data: latest,
@@ -248,11 +226,7 @@ function LegacyWebsiteContext({ channelId }: WebsiteContextProps) {
   }, [selectedVersionNumber, versions]);
 
   if (isLoadingLatest) {
-    return (
-      <Flex align="center" justify="center" className="h-full">
-        <Spinner size="2" />
-      </Flex>
-    );
+    return <LoadingState />;
   }
 
   if (latestError) {
@@ -292,17 +266,7 @@ function LegacyWebsiteContext({ channelId }: WebsiteContextProps) {
           </PageHeaderHeading>
         </PageHeader>
       )}
-      {spacesLayout && taskChannel ? (
-        <SpaceRepositories channel={taskChannel} />
-      ) : null}
-      <Flex
-        align="center"
-        justify="between"
-        gap="3"
-        px="4"
-        py="2"
-        className="shrink-0 border-b border-b-(--gray-5)"
-      >
+      <div className="flex shrink-0 items-center justify-between gap-3 border-b border-b-(--gray-5) px-6 py-2">
         <Flex align="center" gap="3">
           <SegmentedControl.Root
             value={mode}
@@ -321,7 +285,7 @@ function LegacyWebsiteContext({ channelId }: WebsiteContextProps) {
               live and not just stale cache. */}
           {isFetchingLatest && !isLoadingLatest ? (
             <Flex align="center" gap="1">
-              <Spinner size="1" />
+              <Spinner size="sm" />
               <Text className="text-[12px] text-gray-10">Refreshing…</Text>
             </Flex>
           ) : null}
@@ -386,15 +350,15 @@ function LegacyWebsiteContext({ channelId }: WebsiteContextProps) {
                 (hasInstructions ? !hasDraft : draft.trim().length === 0)
               }
             >
-              {isPublishing ? <Spinner size="1" /> : null}
+              {isPublishing ? <Spinner size="sm" /> : null}
               Save new version
             </Button>
           </Flex>
         ) : null}
-      </Flex>
+      </div>
 
       {publishError ? (
-        <Box px="4" pt="3">
+        <div className="px-6 pt-3">
           <Callout.Root color={isConflict ? "amber" : "red"} size="1">
             <Callout.Text>
               {isConflict
@@ -402,11 +366,11 @@ function LegacyWebsiteContext({ channelId }: WebsiteContextProps) {
                 : `Save failed: ${publishError.message}`}
             </Callout.Text>
           </Callout.Root>
-        </Box>
+        </div>
       ) : null}
 
       {!selectedVersion && mode === "edit" ? (
-        <Box p="4" className="flex min-h-0 flex-1">
+        <div className="flex min-h-0 flex-1 px-6 py-4">
           <TextArea
             value={draft}
             onChange={(e) => {
@@ -421,14 +385,14 @@ function LegacyWebsiteContext({ channelId }: WebsiteContextProps) {
             }
             className="min-h-0 flex-1 font-[var(--code-font-family)]"
           />
-        </Box>
+        </div>
       ) : (
         <ScrollArea
           type="auto"
           scrollbars="vertical"
           className="scroll-area-constrain-width min-h-0 flex-1"
         >
-          <Box p="4">
+          <div className="px-6 py-4">
             {selectedVersion ? (
               <Callout.Root color="gray" size="1">
                 <Callout.Text>
@@ -452,45 +416,10 @@ function LegacyWebsiteContext({ channelId }: WebsiteContextProps) {
                 }}
               />
             )}
-          </Box>
+          </div>
         </ScrollArea>
       )}
     </Flex>
-  );
-}
-
-function SpaceRepositories({ channel }: { channel: TaskChannel }) {
-  const update = useUpdateTaskChannelRepositories();
-  const client = useOptionalAuthenticatedClient();
-  const { data: currentUser } = useCurrentUser({ client });
-  const canEdit = currentUser?.id === channel.created_by?.id;
-
-  return (
-    <div className="flex shrink-0 flex-col gap-2 border-b border-b-(--gray-5) px-4 py-3">
-      <div className="flex items-center gap-2">
-        <GitBranchIcon size={15} className="text-muted-foreground" />
-        <span className="font-medium text-[13px]">Repositories</span>
-        {update.isPending ? (
-          <Spinner size="1" />
-        ) : update.error ? (
-          <span className="text-[12px] text-red-11">
-            Couldn't save. Try again.
-          </span>
-        ) : null}
-      </div>
-      <RepositoriesField
-        selected={channel.repositories ?? []}
-        integrationId={channel.github_integration ?? null}
-        disabled={!canEdit || update.isPending}
-        onChange={(repositories, githubIntegration) =>
-          update.mutate({
-            channelId: channel.id,
-            githubIntegration,
-            repositories,
-          })
-        }
-      />
-    </div>
   );
 }
 

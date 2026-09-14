@@ -44,7 +44,7 @@ import { EvaluationReportsCallout } from './components/EvaluationReportsCallout'
 import { EvaluationReportsTab } from './components/EvaluationReportsTab'
 import { EvaluationRunsTable } from './components/EvaluationRunsTable'
 import { EvaluationTriggers } from './components/EvaluationTriggers'
-import { EVALUATION_PASSED_HOGQL, EVALUATION_RUNS_QUERY_LIMIT } from './constants'
+import { EVALUATION_RUNS_QUERY_LIMIT, evaluationPassedHogQL, evaluationPassRateHogQL } from './constants'
 import {
     evaluationOffersSessionTarget,
     evaluationSupportsReports,
@@ -91,6 +91,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
         setEvaluationDescription,
         setEvaluationEnabled,
         setAllowsNA,
+        setTrueIsFailure,
         saveEvaluation,
         resetEvaluation,
         setEvaluationType,
@@ -147,7 +148,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                   event: '$ai_evaluation',
                                   custom_name: `${evaluation.name} — Pass rate`,
                                   math: HogQLMathType.HogQL,
-                                  math_hogql: `if(countIf(properties.$ai_evaluation_result IS NOT NULL) > 0, countIf(${EVALUATION_PASSED_HOGQL}) / countIf(properties.$ai_evaluation_result IS NOT NULL) * 100, 0)`,
+                                  math_hogql: evaluationPassRateHogQL(evaluationPassedHogQL(evaluation)),
                                   properties: [
                                       {
                                           key: '$ai_evaluation_id',
@@ -723,6 +724,32 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                                                 : isHog
                                                                   ? 'Evaluation must return true or false'
                                                                   : 'Evaluation returns true or false'}
+                                                        </span>
+                                                    </div>
+                                                </LemonField.Pure>
+                                            )}
+
+                                            {isBooleanOutput && (
+                                                <LemonField.Pure
+                                                    label={
+                                                        <div className="flex items-center gap-1">
+                                                            <span>A true result flags a problem</span>
+                                                            <Tooltip title="Turn this on when the evaluation looks for something you don't want, like a struggling user or a hallucination. A true result then counts as a fail in reports and pass rates. The evaluation results themselves don't change.">
+                                                                <IconInfo className="text-muted text-base" />
+                                                            </Tooltip>
+                                                        </div>
+                                                    }
+                                                >
+                                                    <div className="flex items-center gap-2">
+                                                        <LemonSwitch
+                                                            checked={evaluation.output_config.true_is_failure ?? false}
+                                                            onChange={setTrueIsFailure}
+                                                            data-attr="llma-evaluation-true-is-failure-switch"
+                                                        />
+                                                        <span className="text-muted text-sm">
+                                                            {evaluation.output_config.true_is_failure
+                                                                ? 'A true result counts as a fail'
+                                                                : 'A true result counts as a pass'}
                                                         </span>
                                                     </div>
                                                 </LemonField.Pure>

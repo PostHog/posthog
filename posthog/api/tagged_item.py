@@ -1,6 +1,7 @@
 import dataclasses
 from collections.abc import Iterable, Sequence
 from typing import TYPE_CHECKING, Any, Optional, cast
+from uuid import UUID
 
 from django.db import models
 from django.db.models import Prefetch, Q, QuerySet, prefetch_related_objects
@@ -198,6 +199,11 @@ class TaggedItemSerializerMixin(serializers.Serializer):
 
 
 BULK_UPDATE_TAGS_MAX_IDS = 500
+BULK_UPDATE_TAGS_MAX_TAGS = 100
+# Tags are written with a get_or_create per (object, tag), so ids × distinct tags is the unit of
+# database work a single request can demand; bound the product, not just each list, or 500 ids
+# with 100 tags each still turns one request into 50k writes.
+BULK_UPDATE_TAGS_MAX_OPERATIONS = 10_000
 
 
 class BulkUpdateTagsAction(models.TextChoices):
@@ -218,13 +224,21 @@ class BulkUpdateTagsRequestSerializer(serializers.Serializer):
         help_text="'add' merges with existing tags, 'remove' deletes specific tags, 'set' replaces all tags.",
     )
     tags = serializers.ListField(
-        child=serializers.CharField(),
+        child=serializers.CharField(max_length=255),
+        max_length=BULK_UPDATE_TAGS_MAX_TAGS,
         help_text="Tag names to add, remove, or set.",
     )
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         if attrs["action"] in ("add", "remove") and not attrs.get("tags"):
             raise serializers.ValidationError({"tags": f"tags must not be empty for action '{attrs['action']}'."})
+        distinct_tags = {tagify(tag) for tag in attrs.get("tags", [])}
+        if len(attrs["ids"]) * len(distinct_tags) > BULK_UPDATE_TAGS_MAX_OPERATIONS:
+            raise serializers.ValidationError(
+                {
+                    "tags": f"Too many changes in one request: ids × distinct tags must not exceed {BULK_UPDATE_TAGS_MAX_OPERATIONS}."
+                }
+            )
         return attrs
 
 
@@ -302,6 +316,10 @@ class TaggedItemViewSetMixin(viewsets.GenericViewSet):
     # bulk tag edits, which leaves their behavior unchanged.
     bulk_tag_activity_scope: Optional[str] = None
 
+    # Request serializer for ``bulk_update_tags``. UUID-PK resources set the UUID variant and must
+    # also override the action's OpenAPI schema via ``@extend_schema_view`` on the viewset class.
+    bulk_update_tags_request_serializer_class: type[BulkUpdateTagsRequestSerializer] = BulkUpdateTagsRequestSerializer
+
     def _bulk_tag_activity_context(self) -> Optional[BulkTagActivityContext]:
         if not self.bulk_tag_activity_scope:
             return None
@@ -370,11 +388,11 @@ class TaggedItemViewSetMixin(viewsets.GenericViewSet):
         - "remove": Remove specific tags from each object
         - "set": Replace all tags on each object with the provided list
         """
-        serializer = BulkUpdateTagsRequestSerializer(data=request.data)
+        serializer = self.bulk_update_tags_request_serializer_class(data=request.data)
         serializer.is_valid(raise_exception=True)
         validated = serializer.validated_data
 
-        validated_ids: list[int] = validated["ids"]
+        validated_ids: list[int | UUID] = validated["ids"]
         tag_action: str = validated["action"]
         tags: list[str] = validated["tags"]
 

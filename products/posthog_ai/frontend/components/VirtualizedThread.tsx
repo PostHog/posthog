@@ -94,6 +94,9 @@ const HEADER_KEY = '__vt_header__'
 const FOOTER_KEY = '__vt_footer__'
 
 interface RootContextValue {
+    isFollowing: boolean
+    /** Inspecting expanded content should release automatic following, just like scrolling up. */
+    pauseFollowing: () => void
     /** The virtualizer's border-box `ResizeObserver` ref — attach to each measured row's outer element. */
     measureElement: (node: Element | null) => void
     /** Inter-row spacing (px), applied as bottom padding on the measured row so heights include it. */
@@ -218,14 +221,10 @@ function Root<T>({
 
     const scrollRef = useRef<HTMLDivElement>(null)
     const didInitialScrollRef = useRef(false)
-    // Bottom-pinning state (see `turnActive`). Explicit rather than position-derived: during fast
-    // streaming the scroll position transiently lags the growing content past any at-bottom threshold,
-    // so "is the user at the bottom right now" cannot distinguish "scrolled away" from "content briefly
-    // outran the follow scroll". Starts pinned: a thread that opens onto an active turn follows from the
-    // first frame, and it stays inert while no turn is active. A ref rather than state because every
-    // reader of it needs the value in the same tick as the gesture — the scroll listener, the per-commit
-    // follow effect, and the virtualizer options, which `useVirtualizer` re-reads on every render.
+    // Content growth can move the bottom before the next follow write. Track reader intent separately:
+    // the ref updates scroll handlers immediately; state publishes the same mode to activity lists.
     const pinnedRef = useRef(true)
+    const [pinned, setPinnedState] = useState(true)
     // Highest offset the reader has reached since the last pin — the yardstick the unpin test measures
     // against. A high-water mark rather than the previous event's offset because a slow drag (scrollbar,
     // touch, a trackpad crawl) moves a couple of px per scroll event and would walk hundreds of px away
@@ -429,6 +428,7 @@ function Root<T>({
                 return
             }
             pinnedRef.current = next
+            setPinnedState(next)
             virtualizer.options.scrollEndThreshold = next ? BOTTOM_THRESHOLD : NO_END_COMPENSATION
             virtualizer.options.anchorTo = next ? 'end' : 'start'
             if (next) {
@@ -676,6 +676,13 @@ function Root<T>({
         peakTopRef.current = el.scrollTop
         let touchStartY: number | null = null
         let touchStartX: number | null = null
+        const resumeAtBottom = (): void => {
+            bottomRepinBlockedUntilRef.current = 0
+            // At the end, a downward gesture cannot emit a scroll event. It must still resume following.
+            if (el.scrollHeight - el.clientHeight - el.scrollTop <= AT_BOTTOM_EPSILON) {
+                setPinned(true)
+            }
+        }
         const onWheel = (event: WheelEvent): void => {
             if (event.deltaY !== 0) {
                 lastUserScrollAtRef.current = performance.now()
@@ -685,7 +692,7 @@ function Root<T>({
             } else if (event.deltaY > 0) {
                 // An explicit downward gesture is unambiguous — the reader heading for the bottom must
                 // not be told "not yet" by the post-landing block.
-                bottomRepinBlockedUntilRef.current = 0
+                resumeAtBottom()
             }
         }
         const onTouchStart = (event: TouchEvent): void => {
@@ -708,7 +715,7 @@ function Root<T>({
                 } else if (deltaY < 0) {
                     // Finger moving up scrolls the content down — the same explicit "heading for the
                     // bottom" signal as a downward wheel, so it clears the post-landing block too.
-                    bottomRepinBlockedUntilRef.current = 0
+                    resumeAtBottom()
                 }
             }
         }
@@ -842,8 +849,15 @@ function Root<T>({
     }, [virtualized, stickToBottom, noteProgrammaticScroll])
 
     const rootValue = useMemo<RootContextValue>(
-        () => ({ measureElement: virtualizer.measureElement, gap, maxWidthClassName, virtualized }),
-        [virtualizer, gap, maxWidthClassName, virtualized]
+        () => ({
+            measureElement: virtualizer.measureElement,
+            gap,
+            maxWidthClassName,
+            virtualized,
+            isFollowing: stickToBottom && (!virtualized || pinned),
+            pauseFollowing: () => setPinned(false),
+        }),
+        [virtualizer, gap, maxWidthClassName, virtualized, stickToBottom, pinned, setPinned]
     )
 
     // Flow mode: render rows directly so an ancestor scroll container (and its auto-scroller) keeps working.
@@ -884,7 +898,7 @@ function Root<T>({
                 <div
                     ref={scrollRef}
                     className={cn(
-                        'flex-1 min-h-0 overflow-y-auto overflow-x-hidden overscroll-contain [overflow-anchor:none]',
+                        'flex-1 min-h-0 overflow-y-auto overflow-x-hidden overscroll-contain [overflow-anchor:none] [scrollbar-gutter:stable]',
                         listClassName
                     )}
                 >
@@ -951,4 +965,14 @@ function Row({ children, className }: { children: ReactNode; className?: string 
     )
 }
 
-export const VirtualizedThread = { Root, Row }
+const noop = (): void => {}
+
+function usePauseFollowing(): () => void {
+    return useContext(RootContext)?.pauseFollowing ?? noop
+}
+
+function useIsFollowing(): boolean {
+    return useContext(RootContext)?.isFollowing ?? false
+}
+
+export const VirtualizedThread = { Root, Row, usePauseFollowing, useIsFollowing }

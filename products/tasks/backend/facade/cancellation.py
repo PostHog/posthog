@@ -3,6 +3,7 @@ import logging
 from typing import Any, Literal
 from uuid import UUID
 
+from django.db import transaction
 from django.utils import timezone as django_timezone
 
 from temporalio.service import RPCError, RPCStatusCode
@@ -133,9 +134,25 @@ def cancel_task_run(
     if requested_by_user_id is not None:
         marker["cancel_requested_by_user_id"] = requested_by_user_id
     try:
-        TaskRun.update_state_atomic(run.id, updates=marker)
+        if only_if_awaiting_first_message:
+            with transaction.atomic():
+                run = TaskRun.objects.select_for_update().get(id=run.id, task_id=task_id, team_id=team_id)
+                can_release = (
+                    not run.is_terminal
+                    and bool((run.state or {}).get("await_user_message"))
+                    and not (run.state or {}).get("warm_activation_started")
+                )
+                if can_release:
+                    run.state = {**(run.state or {}), **marker}
+                    run.save(update_fields=["state", "updated_at"])
+            if not can_release:
+                return "already_activated", tasks_api._task_run_detail_to_dto(run)
+        else:
+            TaskRun.update_state_atomic(run.id, updates=marker)
     except Exception:
         logger.warning("Failed to record cancel request marker for task run %s", run.id, exc_info=True)
+        if only_if_awaiting_first_message:
+            return "unavailable", tasks_api._task_run_detail_to_dto(run)
 
     _interrupt_agent_turn(run, requested_by_user_id, requested_by_distinct_id)
 

@@ -1,27 +1,20 @@
 import { BindLogic, useActions, useValues } from 'kea'
-import { router } from 'kea-router'
+import { type MutableRefObject, useEffect, useRef } from 'react'
 
-import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
-import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { runInteractionLogic, type RunInteractionLogicProps } from 'products/posthog_ai/frontend/api/logics'
-import { Composer, QueuedMessageList } from 'products/posthog_ai/frontend/api/primitives'
 // Eager, NOT the lazy `api/readableRun` facade: the runner scene is already a route-split chunk and the run
 // surface is its primary content, so a second `lazy()` would only add a redundant chunk fetch + Suspense
 // flash. The inbox embeds keep the lazy `ReadonlyRunSurface`.
 import { RunSurface } from 'products/posthog_ai/frontend/api/runSurface'
-import { modelCatalogueLogic } from 'products/posthog_ai/frontend/logics/modelCatalogueLogic'
-import { getRuntimeAdapterForModel } from 'products/posthog_ai/frontend/utils/composerModels'
-import { cycleMode, getModesForRuntimeAdapter } from 'products/posthog_ai/frontend/utils/composerModes'
 
-import { AttachedContextBar } from '../../../components/composer/AttachedContextBar'
-import { ComposerModelEffortPickers } from '../../../components/composer/ComposerModelEffortPickers'
-import { ComposerModePicker } from '../../../components/composer/ComposerModePicker'
-import { ComposerModeShortcut } from '../../../components/composer/ComposerModeShortcut'
-import { useDebouncedDraft } from '../../../components/composer/useDebouncedDraft'
+import { RunEscapeBoundary, type RunEscapeBoundaryProps } from '../../../components/RunEscapeBoundary'
 import { useForegroundStream } from '../../../hooks/useForegroundStream'
+import { runCancellationLogic } from '../../../logics/runCancellationLogic'
+import type { RunContinuationHandoff } from '../../../logics/runInteractionLogic'
 import { taskDetailSceneLogic } from '../taskDetailSceneLogic'
+import { TaskRunComposer } from './TaskRunComposer'
 
 export interface TaskRunChatProps {
     taskId: string
@@ -32,8 +25,13 @@ export interface TaskRunChatProps {
      * fresh one. Passed to both `RunSurface.Root` and `runInteractionLogic` so they never diverge.
      */
     streamKey?: string
+    interactionKey?: string
     /** Called after a fresh run starts, in addition to the `taskDetailSceneLogic` re-pointing below. */
-    onRunStarted?: (runId: string) => void
+    onRunStarted?: (runId: string, handoff?: RunContinuationHandoff) => void
+    escapeScope?: RunEscapeBoundaryProps['scope']
+    initialDraft?: string
+    onDraftAdopted?: () => void
+    autoFocus?: boolean
 }
 
 /**
@@ -44,33 +42,74 @@ export interface TaskRunChatProps {
  * re-points scene selection to it. `RunSurface.Root` owns bootstrap: it reads the run status from the tasks
  * API and never opens SSE for an already-terminal run.
  */
-export function TaskRunChat({ taskId, runId, streamKey, onRunStarted }: TaskRunChatProps): JSX.Element {
-    const { setSelectedRunId, loadTaskRuns } = useActions(taskDetailSceneLogic({ taskId }))
+export function TaskRunChat({
+    taskId,
+    runId,
+    streamKey,
+    interactionKey,
+    onRunStarted,
+    escapeScope = 'chat',
+    initialDraft,
+    onDraftAdopted,
+    autoFocus,
+}: TaskRunChatProps): JSX.Element {
+    const { setSelectedRunId, loadTaskRuns, continueWithRun } = useActions(taskDetailSceneLogic({ taskId }))
     const { selectedRun, task } = useValues(taskDetailSceneLogic({ taskId }))
     const { user } = useValues(userLogic)
+    const flushDraftRef = useRef<() => void>(() => {})
     // Staff can view tasks they don't own (support/debugging); those are read-only — hide the composer so
     // they can't try to drive a run they can't control (the backend rejects the write anyway).
     const readOnly = !!user?.is_staff && !!task?.created_by && task.created_by.id !== user.id
+    // The scene logic is keyed by task, so `selectedRun` can name a different run than this surface renders
+    // — the side panel opens `task.latest_run` while the page follows a `?runId=` link or a newer run. Read
+    // the run's setup only when the two agree; a mismatch would launch the successor on another run's config.
+    const runConfig = selectedRun?.id === runId ? selectedRun : undefined
+    const pendingInteraction = interactionKey ? runInteractionLogic.findMounted(interactionKey) : undefined
     const logicProps: RunInteractionLogicProps = {
         taskId,
         runId,
         streamKey,
-        currentModel: selectedRun?.state?.model,
-        currentEffort: selectedRun?.state?.reasoning_effort,
-        currentMode: selectedRun?.state?.initial_permission_mode,
-        currentRuntimeAdapter: selectedRun?.runtime_adapter,
-        onRunStarted: (newRunId) => {
-            setSelectedRunId(newRunId, taskId)
-            loadTaskRuns()
+        interactionKey,
+        initialDraft,
+        onDraftAdopted,
+        flushDraft: () => flushDraftRef.current(),
+        currentModel:
+            runConfig?.model ??
+            (typeof runConfig?.state?.model === 'string'
+                ? runConfig.state.model
+                : pendingInteraction?.props.currentModel),
+        currentEffort:
+            runConfig?.reasoning_effort ??
+            (typeof runConfig?.state?.reasoning_effort === 'string'
+                ? runConfig.state.reasoning_effort
+                : pendingInteraction?.props.currentEffort),
+        currentMode:
+            typeof runConfig?.state?.initial_permission_mode === 'string'
+                ? runConfig.state.initial_permission_mode
+                : pendingInteraction?.props.currentMode,
+        currentRuntimeAdapter: runConfig?.runtime_adapter ?? pendingInteraction?.props.currentRuntimeAdapter,
+        onRunStarted: (newRunId, handoff) => {
+            if (handoff) {
+                continueWithRun(handoff)
+            } else {
+                setSelectedRunId(newRunId, taskId)
+                loadTaskRuns()
+            }
             // The embedded panel renders from its own creation state, so it must be re-pointed
             // when a fresh run starts.
-            onRunStarted?.(newRunId)
+            onRunStarted?.(newRunId, handoff)
         },
     }
 
     return (
         <BindLogic logic={runInteractionLogic} props={logicProps}>
-            <TaskRunChatContent logicProps={logicProps} readOnly={readOnly} />
+            <TaskRunChatContent
+                logicProps={logicProps}
+                readOnly={readOnly}
+                escapeScope={escapeScope}
+                autoFocus={autoFocus}
+                flushDraftRef={flushDraftRef}
+            />
         </BindLogic>
     )
 }
@@ -78,10 +117,23 @@ export function TaskRunChat({ taskId, runId, streamKey, onRunStarted }: TaskRunC
 function TaskRunChatContent({
     logicProps,
     readOnly,
+    escapeScope,
+    autoFocus,
+    flushDraftRef,
 }: {
     logicProps: RunInteractionLogicProps
     readOnly: boolean
+    escapeScope: RunEscapeBoundaryProps['scope']
+    autoFocus?: boolean
+    flushDraftRef: MutableRefObject<() => void>
 }): JSX.Element {
+    const textAreaRef = useRef<HTMLTextAreaElement>(null)
+    const { handleEscape } = useActions(runInteractionLogic(logicProps))
+    const { cancellationState } = useValues(runInteractionLogic(logicProps))
+    const { clearCancellation } = useActions(
+        runCancellationLogic({ streamKey: logicProps.streamKey ?? logicProps.runId })
+    )
+    useEffect(() => () => clearCancellation(), [clearCancellation])
     // This surface renders the approval card, so persist tools must prompt here — register as a
     // foreground stream (same key resolution as `RunSurface.Root`). A read-only staff view omits the
     // composer and could never answer a forced prompt, so it stays a background consumer.
@@ -96,119 +148,29 @@ function TaskRunChatContent({
             streamKey={logicProps.streamKey}
             interaction="live"
         >
-            <div className="@container/thread flex flex-col h-full -mx-4">
+            <RunEscapeBoundary
+                scope={escapeScope}
+                focusKey={logicProps.streamKey ?? logicProps.runId}
+                textAreaRef={textAreaRef}
+                onEscape={handleEscape}
+                disabled={readOnly}
+                className="@container/thread flex flex-col h-full -mx-4"
+            >
                 <RunSurface.Thread className="flex-1 min-h-0" listClassName="py-4" rowClassName="px-4" />
                 {/* Stay live (stream keeps flowing) but omit the composer entirely for a read-only viewer. */}
                 {!readOnly && (
-                    <RunSurface.Composer>
-                        <RunSurface.Resources />
+                    <RunSurface.Composer isStopping={!!cancellationState}>
                         {/* The composer owns the per-keystroke draft in an isolated child so typing never re-renders
                         the thread/virtualizer rendered as its sibling above — that cascade is what made the input lag. */}
-                        <LiveComposer logicProps={logicProps} />
+                        <TaskRunComposer
+                            logicProps={logicProps}
+                            textAreaRef={textAreaRef}
+                            autoFocus={autoFocus}
+                            flushDraftRef={flushDraftRef}
+                        />
                     </RunSurface.Composer>
                 )}
-            </div>
+            </RunEscapeBoundary>
         </RunSurface.Root>
-    )
-}
-
-function LiveComposer({ logicProps }: { logicProps: RunInteractionLogicProps }): JSX.Element {
-    const {
-        composerForm,
-        isSubmitting,
-        isBusy,
-        queuedMessages,
-        isTerminal,
-        selectedModel,
-        selectedEffort,
-        consentBlocked,
-        selectedMode,
-    } = useValues(runInteractionLogic(logicProps))
-    const { catalogue } = useValues(modelCatalogueLogic)
-    // A live run's harness is whatever it booted on; once terminal the next run follows the picked model.
-    const composerAdapter = logicProps.currentRuntimeAdapter ?? getRuntimeAdapterForModel(catalogue, selectedModel)
-    const {
-        setComposerFormValues,
-        submitComposerForm,
-        cancelRun,
-        updateQueuedMessage,
-        removeQueuedMessage,
-        setModel,
-        setEffort,
-        clearConsentBlock,
-        setMode,
-    } = useActions(runInteractionLogic(logicProps))
-
-    const draft = useDebouncedDraft(composerForm.draft, (value) => setComposerFormValues({ draft: value }))
-
-    return (
-        <>
-            {/* Inside the slot children: detaches while a pending approval replaces the composer. */}
-            <ComposerModeShortcut onCycle={() => setMode(cycleMode(composerAdapter, selectedMode))} />
-            <Composer.Root
-                value={draft.value}
-                onChange={draft.onChange}
-                onSubmit={() => draft.submit(submitComposerForm)}
-                loading={isSubmitting}
-                isTurnActive={isBusy}
-                onStop={() => cancelRun()}
-            >
-                {queuedMessages.length > 0 && (
-                    <Composer.Banner>
-                        <QueuedMessageList
-                            messages={queuedMessages}
-                            onUpdate={updateQueuedMessage}
-                            onRemove={removeQueuedMessage}
-                        />
-                    </Composer.Banner>
-                )}
-                <Composer.Frame>
-                    <Composer.Header>
-                        <AttachedContextBar />
-                    </Composer.Header>
-                    <Composer.Field>
-                        <Composer.Placeholder>
-                            {isTerminal ? 'Send a message to start a new run…' : 'Send a follow-up message…'}
-                        </Composer.Placeholder>
-                        <Composer.Textarea data-attr="sandbox-composer-input" />
-                    </Composer.Field>
-                    <Composer.Footer className="flex flex-wrap items-center gap-1 pl-2">
-                        {/* Mode + model/effort pickers: selection lives in the bound runInteractionLogic and is
-                        applied when the message is sent — synced to the running agent on a follow-up,
-                        or used to seed the next run once terminal. */}
-                        <ComposerModePicker
-                            selectedMode={selectedMode}
-                            onModeChange={setMode}
-                            modes={getModesForRuntimeAdapter(composerAdapter)}
-                        />
-                        <ComposerModelEffortPickers
-                            models={catalogue}
-                            selectedModel={selectedModel}
-                            selectedEffort={selectedEffort}
-                            onModelChange={setModel}
-                            onEffortChange={setEffort}
-                            // While the run is live its harness is fixed to whatever the sandbox booted; once
-                            // terminal the next send starts a fresh run, which may pick any harness.
-                            lockedRuntimeAdapter={isTerminal ? null : logicProps.currentRuntimeAdapter}
-                            onOpenDefaultSettings={() =>
-                                router.actions.push(
-                                    urls.settings('environment-task-agents', 'task-agent-my-preference')
-                                )
-                            }
-                        />
-                    </Composer.Footer>
-                </Composer.Frame>
-                <AIConsentPopoverWrapper
-                    placement="top-end"
-                    showArrow
-                    ignoreDismissal
-                    hidden={!consentBlocked}
-                    onApprove={() => submitComposerForm()}
-                    onDismiss={() => clearConsentBlock()}
-                >
-                    <Composer.Submit data-attr="sandbox-composer-send" />
-                </AIConsentPopoverWrapper>
-            </Composer.Root>
-        </>
     )
 }

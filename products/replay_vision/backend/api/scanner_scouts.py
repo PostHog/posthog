@@ -29,6 +29,9 @@ class ScannerScoutCreateSerializer(SignalScoutCreateSerializer):
         # Bundling files with a prompt is the generic endpoint's affordance; this one creates a scout
         # from a template in the Vision UI.
         fields.pop("files", None)
+        # Scout suggestions are a Signals surface; a scanner scout never comes from one, so the
+        # field would only be accepted here to be ignored.
+        fields.pop("suggestion_id", None)
         return fields
 
 

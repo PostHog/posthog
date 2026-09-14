@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            DELETE FROM lifecycle_op\n            WHERE op_id IN (\n                SELECT op_id FROM lifecycle_op\n                WHERE completed_at IS NOT NULL\n                  AND completed_at < now() - make_interval(secs => $1)\n                LIMIT $2\n            )\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Float8",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "1cab216d81775fa045fb1a9d8bd50ff9b3b0a014c35ebc97c07eff5577541a6b"
+}

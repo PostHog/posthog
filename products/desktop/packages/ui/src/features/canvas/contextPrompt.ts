@@ -47,15 +47,15 @@ then verify and fill it out against the sources below.\n`
     : "";
   const publishInstructions = contextLayerEnabled
     ? `Then PUBLISH the document yourself — don't stop to ask for approval first:
-1. Call the PostHog MCP tool \`context-wiki-channel-resolve\` with channel_id
+1. Call the PostHog MCP tool \`task-context-wiki-channel-resolve\` with channel_id
    "${channelId}". Use the returned path exactly; never derive it from the space name.
-2. If \`exists\` is true, read the page with \`context-wiki-page-retrieve\` and
+2. If \`exists\` is true, read the page with \`task-context-wiki-page-retrieve\` and
    preserve its frontmatter plus anything still true. Use its \`head_sha\` as
    \`base_head\`. If \`exists\` is false, create the page at the returned path,
    omit \`base_head\`, and include frontmatter with \`summary\`, \`status: active\`,
    \`team_id\` from the returned project path, \`channel_id: ${channelId}\`, and
    \`sources: initial-context-generation\`.
-3. Call \`context-wiki-page-update\` exactly once with the complete Markdown.
+3. Call \`task-context-wiki-page-update\` exactly once with the complete Markdown.
 
 Do not call any \`loop-*\` context tool. Those tools are only for loop runs.`
     : `Then PUBLISH the document yourself — don't stop to ask for approval first — by

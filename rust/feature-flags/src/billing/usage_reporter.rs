@@ -22,7 +22,9 @@ use uuid::Uuid;
 
 use crate::config::TeamIdCollection;
 use crate::flags::flag_request::FlagRequestType;
-use crate::metrics::consts::{FLAGS_USAGE_RECORDS_FAILED, FLAGS_USAGE_RECORDS_SENT};
+use crate::metrics::consts::{
+    FLAGS_USAGE_RECORDS_FAILED, FLAGS_USAGE_RECORDS_SENT, FLAGS_USAGE_RETRIES,
+};
 
 use super::AggregationKey;
 
@@ -95,7 +97,11 @@ impl UsageReporter {
             None => false,
         };
         if !queued {
-            inc(FLAGS_USAGE_RECORDS_FAILED, &[], record_count);
+            inc(
+                FLAGS_USAGE_RECORDS_FAILED,
+                &error_code("queue_full"),
+                record_count,
+            );
             tracing::warn!(
                 records = record_count,
                 "usage-ingestion send queue is full or closed; dropped usage records"
@@ -129,11 +135,51 @@ impl UsageReporter {
 /// A code the service returns for a condition that clears on its own: an unreachable
 /// or draining pod, a timeout, a full queue. The rest, `invalid_argument` above all,
 /// describe the records themselves and would fail the same way forever.
+///
+/// The last three are how a connection that went away underneath the call reaches us
+/// rather than anything the service decided. The service ends every connection with
+/// GOAWAY at max_connection_age, and tonic maps that h2 NO_ERROR to `internal`, an
+/// RST_STREAM CANCEL to `cancelled`, and a transport error it does not recognise to
+/// `unknown`. Retrying is safe because the service deduplicates on `record_id`.
 fn is_retryable(code: Code) -> bool {
     matches!(
         code,
-        Code::Unavailable | Code::DeadlineExceeded | Code::ResourceExhausted | Code::Aborted
+        Code::Unavailable
+            | Code::DeadlineExceeded
+            | Code::ResourceExhausted
+            | Code::Aborted
+            | Code::Internal
+            | Code::Cancelled
+            | Code::Unknown
     )
+}
+
+/// A stable label value for `code`. `Display` gives a human sentence, which makes a
+/// useless metric label.
+fn code_label(code: Code) -> &'static str {
+    match code {
+        Code::Cancelled => "cancelled",
+        Code::Unknown => "unknown",
+        Code::InvalidArgument => "invalid_argument",
+        Code::DeadlineExceeded => "deadline_exceeded",
+        Code::NotFound => "not_found",
+        Code::AlreadyExists => "already_exists",
+        Code::PermissionDenied => "permission_denied",
+        Code::ResourceExhausted => "resource_exhausted",
+        Code::FailedPrecondition => "failed_precondition",
+        Code::Aborted => "aborted",
+        Code::OutOfRange => "out_of_range",
+        Code::Unimplemented => "unimplemented",
+        Code::Internal => "internal",
+        Code::Unavailable => "unavailable",
+        Code::DataLoss => "data_loss",
+        Code::Unauthenticated => "unauthenticated",
+        Code::Ok => "ok",
+    }
+}
+
+fn error_code(value: &'static str) -> [(String, String); 1] {
+    [("error_code".to_string(), value.to_string())]
 }
 
 async fn run_sender(
@@ -167,7 +213,7 @@ async fn send_chunk(client: &UsageIngestionClient<Channel>, chunk: &[BillingUsag
                 if accepted.len() < chunk.len() {
                     inc(
                         FLAGS_USAGE_RECORDS_FAILED,
-                        &[],
+                        &error_code("rejected"),
                         count - accepted.len() as u64,
                     );
                     tracing::warn!(
@@ -179,9 +225,10 @@ async fn send_chunk(client: &UsageIngestionClient<Channel>, chunk: &[BillingUsag
                 return;
             }
             Err(status) => {
+                let label = code_label(status.code());
                 let retryable = is_retryable(status.code());
                 if !retryable || attempt == SEND_ATTEMPTS {
-                    inc(FLAGS_USAGE_RECORDS_FAILED, &[], count);
+                    inc(FLAGS_USAGE_RECORDS_FAILED, &error_code(label), count);
                     tracing::warn!(
                         records = count,
                         attempts = attempt,
@@ -191,6 +238,8 @@ async fn send_chunk(client: &UsageIngestionClient<Channel>, chunk: &[BillingUsag
                     );
                     return;
                 }
+                // A retry that lands drops nothing, so it reads on its own counter.
+                inc(FLAGS_USAGE_RETRIES, &error_code(label), 1);
                 tokio::time::sleep(RETRY_BACKOFF * attempt).await;
             }
         }
@@ -266,6 +315,7 @@ mod tests {
     use super::*;
     use crate::billing::usage_test_support::{serve, RecordingIngestion};
     use crate::handler::types::Library;
+    use rstest::rstest;
 
     fn key(team_id: i32, library: Option<Library>) -> AggregationKey {
         AggregationKey {
@@ -408,20 +458,29 @@ mod tests {
         assert_eq!(service.client_names(), vec![Some(PRODUCER_ID.to_string())]);
     }
 
+    // The last three are how a connection that went away underneath the call reaches us,
+    // not something the service decided. Dropping them loses usage the service never saw.
+    // Each case fails twice, so the whole budget runs rather than one attempt of it.
+    #[rstest]
+    #[case::draining_pod(Code::Unavailable)]
+    #[case::goaway_at_max_connection_age(Code::Internal)]
+    #[case::reset_stream(Code::Cancelled)]
+    #[case::unrecognised_transport_error(Code::Unknown)]
     #[tokio::test]
-    async fn retries_a_transient_failure_with_the_same_record_id() {
+    async fn retries_a_transient_failure_with_the_same_record_id(#[case] code: Code) {
         let service = RecordingIngestion::default();
-        service.fail_next(Code::Unavailable);
+        service.fail_next(code);
+        service.fail_next(code);
         let reporter = reporter_for(serve(service.clone()).await).await;
 
         reporter.report(&[(key(7, None), 1)], 1_700_000_000_000);
         reporter.shutdown(std::time::Duration::from_secs(5)).await;
 
         let requests = service.requests();
-        assert_eq!(requests.len(), 2);
+        assert_eq!(requests.len(), SEND_ATTEMPTS as usize);
         // Reusing the ID is what makes the retry safe: the service deduplicates on it, so a
         // batch Kafka took only part of does not bill twice.
-        assert_eq!(requests[0][0].record_id, requests[1][0].record_id);
+        assert_eq!(requests[0][0].record_id, requests[2][0].record_id);
     }
 
     /// Counter totals by name, captured while the reporter ran. The recorder is
@@ -491,6 +550,34 @@ mod tests {
         });
 
         assert_eq!(totals, vec![(FLAGS_USAGE_RECORDS_SENT.to_string(), 2)]);
+    }
+
+    // A chunk the budget could not save is lost, so it has to read as one drop on the failed
+    // counter and not once per attempt.
+    #[test]
+    fn a_chunk_that_exhausts_its_attempts_counts_as_failed_once() {
+        let totals = counted(|runtime| {
+            runtime.block_on(async {
+                let service = RecordingIngestion::default();
+                for _ in 0..SEND_ATTEMPTS {
+                    service.fail_next(Code::Internal);
+                }
+                let reporter = reporter_for(serve(service.clone()).await).await;
+
+                reporter.report(&[(key(7, None), 1)], 1_700_000_000_000);
+                reporter.shutdown(std::time::Duration::from_secs(5)).await;
+
+                assert_eq!(service.requests().len(), SEND_ATTEMPTS as usize);
+            });
+        });
+
+        assert_eq!(
+            totals,
+            vec![
+                (FLAGS_USAGE_RECORDS_FAILED.to_string(), 1),
+                (FLAGS_USAGE_RETRIES.to_string(), 2),
+            ]
+        );
     }
 
     #[tokio::test]

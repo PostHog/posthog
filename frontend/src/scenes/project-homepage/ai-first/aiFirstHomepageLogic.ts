@@ -3,6 +3,7 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
 import { tabUiStateLogic } from 'lib/logic/tabUiStateLogic'
+import { navigateToHref } from 'lib/utils/navigateToHref'
 import { handsFreeLogic } from 'scenes/max/handsFreeLogic'
 import { type PhaiViewMode, maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { maxLogic, parseCommandString } from 'scenes/max/maxLogic'
@@ -526,7 +527,7 @@ export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
                     }
                 }, 'suggestionTyping')
             } else if (item.href) {
-                router.actions.push(item.href)
+                navigateToHref(item.href)
             }
         },
         setQuery: ({ query }) => {

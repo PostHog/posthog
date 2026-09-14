@@ -53,7 +53,16 @@ class TestMetricRunExecution(ClickhouseTestMixin, APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.json()
 
         body = response.json()
-        assert set(body) >= {"status", "is_drifted", "unit", "kind", "results", "compiled_query", "query_status"}
+        assert set(body) >= {
+            "status",
+            "is_drifted",
+            "unit",
+            "kind",
+            "results",
+            "columns",
+            "compiled_query",
+            "query_status",
+        }
         assert body["kind"] == "HogQLQuery"
         assert body["is_drifted"] is False
         assert "/sql?open_query=" in body["posthog_url"]
@@ -65,6 +74,7 @@ class TestMetricRunExecution(ClickhouseTestMixin, APIBaseTest):
         direct_json = direct.model_dump(mode="json") if hasattr(direct, "model_dump") else direct
         assert body["results"] == direct_json["results"]
         assert body["results"] == [[3]]
+        assert body["columns"] == ["c"]
 
     def test_run_events_node_executes_as_trends(self) -> None:
         # A bare EventsNode has no query runner; the run must still return the number by executing
@@ -76,6 +86,7 @@ class TestMetricRunExecution(ClickhouseTestMixin, APIBaseTest):
         body = response.json()
         assert body["kind"] == "EventsNode"
         assert body["results"][0]["count"] == 3
+        assert body["columns"] is None
 
 
 class TestMetricRunPreparation(APIBaseTest):

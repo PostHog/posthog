@@ -25,7 +25,7 @@ import { GitHub, Linear, Slack } from 'scenes/integrations/definitions'
 import { BounceRateDurationSetting } from 'scenes/settings/environment/BounceRateDuration'
 import { BounceRatePageViewModeSetting } from 'scenes/settings/environment/BounceRatePageViewMode'
 import { CookielessServerHashModeSetting } from 'scenes/settings/environment/CookielessServerHashMode'
-import { CustomBotDefinitions } from 'scenes/settings/environment/CustomBotDefinitions'
+import { CustomBotRules } from 'scenes/settings/environment/CustomBotRules'
 import { CustomChannelTypes } from 'scenes/settings/environment/CustomChannelTypes'
 import { DeadClicksAutocaptureSettings } from 'scenes/settings/environment/DeadClicksAutocaptureSettings'
 import { MaxChangelogSettings } from 'scenes/settings/environment/MaxChangelogSettings'
@@ -50,8 +50,9 @@ import {
     DefaultRoleSelector,
     RolesAccessControls,
 } from '~/layout/navigation-3000/sidepanel/panels/access_control/RolesAccessControls'
-import { AccessControlLevel, AccessControlResourceType, Realm } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, AvailableFeature, Realm } from '~/types'
 
+import { LearnFromSupportSetting } from 'products/business_knowledge/frontend/settings/LearnFromSupportSetting'
 import { AISection } from 'products/conversations/frontend/scenes/settings/AISection'
 import { GeneralSection } from 'products/conversations/frontend/scenes/settings/GeneralSection'
 import { NotificationsSection } from 'products/conversations/frontend/scenes/settings/NotificationsSection'
@@ -75,6 +76,7 @@ import { LogsSamplingSection } from 'products/logs/frontend/components/LogsSampl
 import { LogsFeatureFlagKeys } from 'products/logs/frontend/logsFeatureFlagKeys'
 import { WorkflowsEmailTrackingConsentSettings } from 'products/workflows/frontend/scenes/settings/WorkflowsEmailTrackingConsentSettings'
 import { WorkflowsEngagementEventsSettings } from 'products/workflows/frontend/scenes/settings/WorkflowsEngagementEventsSettings'
+import { WorkflowsTaskLimitsSettings } from 'products/workflows/frontend/scenes/settings/WorkflowsTaskLimitsSettings'
 
 import { IntegrationsList } from '../../lib/integrations/IntegrationsList'
 import {
@@ -121,6 +123,7 @@ import {
     LogsRetentionSettings,
 } from './environment/LogsCaptureSettings'
 import { LogsDistinctIdAttributeKeys } from './environment/LogsDistinctIdAttributeKeys'
+import { LogsPatternMessageKeys } from './environment/LogsPatternMessageKeys'
 import { LogsSessionIdAttributeKeys } from './environment/LogsSessionIdAttributeKeys'
 import { ManagedReverseProxy } from './environment/ManagedReverseProxy'
 import { MarketingAnalyticsSettingsWrapper } from './environment/MarketingAnalyticsSettingsWrapper'
@@ -143,6 +146,8 @@ import { SurveyDefaultAppearance, SurveyEnableToggle } from './environment/Surve
 import { TeamAccessControl } from './environment/TeamAccessControl'
 import { TeamAuthorizedURLs, TeamBusinessModel, TeamTimezone, TeamVariables } from './environment/TeamSettings'
 import { ProjectAccountFiltersSetting } from './environment/TestAccountFiltersConfig'
+import { TracingDistinctIdAttributeKeys } from './environment/TracingDistinctIdAttributeKeys'
+import { TracingSessionIdAttributeKeys } from './environment/TracingSessionIdAttributeKeys'
 import { UsageMetricsConfig } from './environment/UsageMetricsConfig'
 import { WebAnalyticsEnablePreAggregatedTables } from './environment/WebAnalyticsAPISetting'
 import { AIHipaaDisclaimer, getExternalAIProvidersTooltipTitle } from './organization/aiConsentCopy'
@@ -208,9 +213,18 @@ export const SETTINGS_MAP: SettingSection[] = [
             {
                 id: 'variables',
                 title: 'Project token & ID',
-                description: 'Your project token and ID used to connect SDKs and APIs to this environment.',
+                description:
+                    'Your project token and ID used to connect SDKs and APIs to this environment. Integrations often call the token your project API key.',
                 component: <TeamVariables />,
-                keywords: ['api key', 'token', 'project id'],
+                keywords: [
+                    'api key',
+                    'project api key',
+                    'client api key',
+                    'public api key',
+                    'write key',
+                    'token',
+                    'project id',
+                ],
             },
             {
                 id: 'snippet',
@@ -317,7 +331,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 description:
                     'Add your own crawlers and scripts to the bots PostHog already detects, so you can tell them apart from real visitors.',
                 docsUrl: 'https://posthog.com/docs/web-analytics/bot-detection',
-                component: <CustomBotDefinitions />,
+                component: <CustomBotRules />,
                 keywords: ['bot', 'crawler', 'spider', 'scraper', 'user agent', 'ai'],
             },
             {
@@ -904,6 +918,14 @@ export const SETTINGS_MAP: SettingSection[] = [
                 keywords: ['log', 'person', 'distinct', 'attribute', 'pivot', 'profile', 'link'],
             },
             {
+                id: 'logs-pattern-message-keys',
+                title: 'Pattern message extraction',
+                description:
+                    'Choose which JSON keys provide the message used to group logs into patterns. Keys are matched literally at the top level, in order. This does not change the stored log body.',
+                component: <LogsPatternMessageKeys />,
+                keywords: ['log', 'pattern', 'message', 'extract', 'json', 'group'],
+            },
+            {
                 id: 'logs-session-id-attribute-keys',
                 title: 'Link to session',
                 description: (
@@ -1308,6 +1330,24 @@ export const SETTINGS_MAP: SettingSection[] = [
     },
     {
         level: 'environment',
+        id: 'environment-business-knowledge',
+        title: 'Business knowledge',
+        group: 'Products',
+        flag: 'PRODUCT_BUSINESS_KNOWLEDGE',
+        settings: [
+            {
+                id: 'business-knowledge-learn-from-support',
+                title: 'Self-learning',
+                description:
+                    'When on, PostHog learns reusable answers from public human replies on resolved support tickets.',
+                component: <LearnFromSupportSetting />,
+                docsUrl: 'https://posthog.com/docs/business-knowledge/learn-from-support',
+                keywords: ['business', 'knowledge', 'support', 'learn', 'ticket', 'resolved'],
+            },
+        ],
+    },
+    {
+        level: 'environment',
         id: 'environment-surveys',
         title: 'Surveys',
         group: 'Products',
@@ -1330,6 +1370,47 @@ export const SETTINGS_MAP: SettingSection[] = [
                 docsUrl: 'https://posthog.com/docs/surveys/creating-surveys#customizing-the-look-and-feel',
                 component: <SurveyDefaultAppearance />,
                 keywords: ['appearance', 'style', 'theme', 'customization', 'popup'],
+            },
+        ],
+    },
+    {
+        level: 'environment',
+        id: 'environment-tracing',
+        title: 'Tracing',
+        group: 'Products',
+        flag: ['TRACING', 'TRACING_SESSION_PERSON_LINKS'],
+        settings: [
+            {
+                id: 'tracing-distinct-id-attribute-keys',
+                title: 'Link to person',
+                description: (
+                    <>
+                        The span attributes PostHog reads to identify which person a trace belongs to. A span is linked
+                        when any of these attributes holds one of the person&apos;s distinct IDs. Defaults to{' '}
+                        <code>posthogDistinctId</code>. Add keys only if your pipeline emits the person identifier under
+                        different attributes.
+                    </>
+                ),
+                searchDescription:
+                    "The span attributes PostHog reads to identify which person a trace belongs to. A span is linked when any of these attributes holds one of the person's distinct IDs. Defaults to posthogDistinctId. Add keys only if your pipeline emits the person identifier under different attributes.",
+                component: <TracingDistinctIdAttributeKeys />,
+                keywords: ['trace', 'span', 'person', 'distinct', 'attribute', 'pivot', 'profile', 'link'],
+            },
+            {
+                id: 'tracing-session-id-attribute-keys',
+                title: 'Link to session',
+                description: (
+                    <>
+                        The span attributes PostHog reads to identify which session a trace belongs to, checked in order
+                        with the first match winning, followed by other common session ID attributes. Defaults to{' '}
+                        <code>sessionId</code>. Add keys only if your pipeline emits the session ID under different
+                        attributes.
+                    </>
+                ),
+                searchDescription:
+                    'The span attributes PostHog reads to identify which session a trace belongs to, checked in order with the first match winning, followed by other common session ID attributes. Defaults to sessionId. Add keys only if your pipeline emits the session ID under different attributes.',
+                component: <TracingSessionIdAttributeKeys />,
+                keywords: ['trace', 'span', 'session', 'replay', 'attribute', 'link'],
             },
         ],
     },
@@ -1466,6 +1547,15 @@ export const SETTINGS_MAP: SettingSection[] = [
                     'opt-out',
                 ],
             },
+            {
+                id: 'workflows-ai-task-limits',
+                title: 'AI task limits',
+                description:
+                    'How many AI tasks your workflows can create in a rolling 24 hours. One limit applies to each workflow on its own, the other to every workflow in the project together. Leave a limit empty to use the default. Set it to zero to pause task creation. Contact support to raise a limit above 500 per workflow or 2,500 per project.',
+                component: <WorkflowsTaskLimitsSettings />,
+                flag: 'WORKFLOW_AI_TASK_ACTION',
+                keywords: ['workflows', 'ai', 'task', 'agent', 'limit', 'rate', 'cap', 'daily', 'spend', 'pause'],
+            },
         ],
     },
     {
@@ -1487,6 +1577,12 @@ export const SETTINGS_MAP: SettingSection[] = [
         level: 'environment',
         id: 'environment-activity-logs',
         title: 'Activity logs',
+        payGate: {
+            feature: AvailableFeature.AUDIT_LOGS,
+            // pinned: `pay gate shown` property value, so renaming it breaks existing insights
+            featureDetail: 'activity-log-retention',
+            bypassForImpersonation: true,
+        },
         settings: [
             {
                 id: 'activity-log-settings',
@@ -1783,7 +1879,17 @@ export const SETTINGS_MAP: SettingSection[] = [
                     </>
                 ),
                 component: <OrganizationAI />,
-                keywords: ['llm', 'consent', 'opt-in', 'data sharing'],
+                keywords: [
+                    'ai',
+                    'max',
+                    'llm',
+                    'artificial intelligence',
+                    'consent',
+                    'approve',
+                    'enable',
+                    'opt-in',
+                    'data sharing',
+                ],
                 searchDescription:
                     'PostHog AI features use external AI services for data analysis. This can involve transfer of identifying user data.',
             },
@@ -1817,7 +1923,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'organization-ai-training-opt-out',
                 title: 'Internal AI training',
                 component: <OrganizationAITrainingOptOut />,
-                flag: 'AI_TRAINING',
                 hideOn: [Realm.SelfHostedClickHouse, Realm.SelfHostedPostgres],
                 keywords: ['ai', 'training', 'opt-out', 'opt-in', 'model', 'max'],
                 searchDescription:
@@ -1889,6 +1994,7 @@ export const SETTINGS_MAP: SettingSection[] = [
         title: 'Billing',
         to: urls.organizationBilling(),
         settings: [],
+        keywords: ['usage', 'subscription', 'invoice', 'plan', 'payment', 'spend', 'quota', 'credits', 'card'],
     },
     {
         level: 'organization',

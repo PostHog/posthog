@@ -58,7 +58,7 @@ class TestScannerScoutCreate(_VisionAPITestCase):
         with team_scope(self.team.id):
             config = SignalScoutConfig.objects.get(skill_name="signals-scout-daily-digest")
         assert config.output_destinations == {
-            "slack": {"integration_id": integration.id, "channel": "CSCOUTS|#scout-findings", "thread_reports": False}
+            "slack": {"integration_id": integration.id, "channel": "CSCOUTS|#scout-findings", "thread_reports": True}
         }
 
     def test_a_scout_can_be_created_with_a_model_pin(self) -> None:
@@ -148,7 +148,7 @@ class TestScannerScoutCreate(_VisionAPITestCase):
     @parameterized.expand(
         [
             ("oversized_body", {"body": "x" * 1_000_001}),
-            ("name_without_the_scout_prefix", {"name": "not-a-scout"}),
+            ("name_the_inbox_reserves", {"name": "scratchpad"}),
         ]
     )
     def test_the_scanner_route_applies_the_same_definition_bars_as_the_generic_endpoint(

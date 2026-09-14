@@ -3,7 +3,11 @@ from unittest.mock import MagicMock
 
 from products.growth.backend.enrichment.fields import EnrichmentFields
 from products.growth.backend.enrichment.fit_score import IcpFitResult
-from products.growth.backend.enrichment.writer import record_signup_work_email, write_organization_enrichment
+from products.growth.backend.enrichment.writer import (
+    record_signup_work_email,
+    write_harmonic_enrichment_status,
+    write_organization_enrichment,
+)
 from products.growth.backend.models import OrganizationEnrichment
 
 
@@ -98,7 +102,7 @@ class TestEnrichmentWriter(BaseTest):
         # The two families never share a key.
         assert record.data["icp_score"] == 9
         assert record.data["icp_fit_score"] == 72
-        assert record.data["icp_fit_version"] == "v0.5"
+        assert record.data["icp_fit_version"] == "v0.6"
         assert record.data["icp_fit_status"] == "scored"
         assert record.data["icp_fit_lists_version"] == "lists-1"
         assert record.data["icp_fit_components"]["capital"] == 30
@@ -112,8 +116,24 @@ class TestEnrichmentWriter(BaseTest):
         properties = pha_client.group_identify.call_args.kwargs["properties"]
         assert properties["icp_score"] == 9
         assert properties["icp_fit_score"] == 72
-        assert properties["icp_fit_version"] == "v0.5"
+        assert properties["icp_fit_version"] == "v0.6"
         assert properties["icp_fit_status"] == "scored"
+
+    def test_fit_flags_record_wizard_evidence_and_ai_pilled_source(self):
+        pha_client = MagicMock()
+        write_organization_enrichment(
+            organization_id=str(self.organization.id),
+            fields=None,
+            pha_client=pha_client,
+            fit=_fit(wizard_ai_sdk=True, ai_pilled_source="both"),
+        )
+
+        record = OrganizationEnrichment.objects.get(organization=self.organization)
+        assert record.data["icp_fit_flags"]["wizard_ai_sdk"] is True
+        assert record.data["icp_fit_flags"]["ai_pilled_source"] == "both"
+        properties = pha_client.group_identify.call_args.kwargs["properties"]
+        assert "wizard_ai_sdk" not in properties
+        assert "ai_pilled_source" not in properties
 
     def test_fit_only_write_carries_no_field_or_clay_keys(self):
         # The fit backfill passes fields=None and no clay score: only icp_fit_* keys move.
@@ -156,7 +176,7 @@ class TestEnrichmentWriter(BaseTest):
             "work_email": True,
             "icp_score": 6,
             "icp_fit_status": "insufficient_data",
-            "icp_fit_version": "v0.5",
+            "icp_fit_version": "v0.6",
             "icp_fit_lists_version": "lists-1",
         }
         # Group properties cannot be deleted, so only the status key is projected: pairing
@@ -212,7 +232,7 @@ class TestEnrichmentWriter(BaseTest):
         )
         pha_client.set.assert_called_once_with(
             distinct_id="signer",
-            properties={"icp_fit_score": 55, "icp_fit_version": "v0.5", "icp_fit_status": "scored"},
+            properties={"icp_fit_score": 55, "icp_fit_version": "v0.6", "icp_fit_status": "scored"},
         )
 
         pha_client.reset_mock()
@@ -248,6 +268,39 @@ class TestEnrichmentWriter(BaseTest):
         record_signup_work_email(organization_id=str(self.organization.id), work_email=True, signup_role="  ")
         record.refresh_from_db()
         assert record.data["signup_role"] == "founder"  # blank role never clobbers a recorded one
+
+    def test_write_harmonic_enrichment_status_merges_without_clobbering_and_returns_the_previous_status(self):
+        OrganizationEnrichment.objects.create(
+            organization=self.organization,
+            data={"company_type_deterministic": "yc", "harmonic_enrichment_status": "QUEUED"},
+        )
+        pha_client = MagicMock()
+
+        previous = write_harmonic_enrichment_status(
+            str(self.organization.id),
+            status="COMPLETE",
+            observed_at="2026-09-01T00:00:00+00:00",
+            urn="urn:harmonic:enrichment:abc",
+            pha_client=pha_client,
+        )
+
+        assert previous == "QUEUED"
+        record = OrganizationEnrichment.objects.get(organization=self.organization)
+        assert record.data == {
+            "company_type_deterministic": "yc",
+            "harmonic_enrichment_status": "COMPLETE",
+            "harmonic_enrichment_status_at": "2026-09-01T00:00:00+00:00",
+            "harmonic_enrichment_urn": "urn:harmonic:enrichment:abc",
+        }
+        pha_client.group_identify.assert_called_once_with(
+            "organization",
+            str(self.organization.id),
+            properties={
+                "harmonic_enrichment_status": "COMPLETE",
+                "harmonic_enrichment_status_at": "2026-09-01T00:00:00+00:00",
+                "harmonic_enrichment_urn": "urn:harmonic:enrichment:abc",
+            },
+        )
 
     def test_no_op_when_no_fields_and_no_scores(self):
         pha_client = MagicMock()

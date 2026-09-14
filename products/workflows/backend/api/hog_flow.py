@@ -159,17 +159,32 @@ from products.workflows.backend.services.account_audience import (
     is_account_audience,
     parse_account_audience_filters,
 )
+from products.workflows.backend.services.audience_v2 import (
+    bounded_memory_settings,
+    get_dedupe_audience_count_v2,
+    get_person_audience_count_v2,
+    use_audience_query_v2,
+)
 from products.workflows.backend.services.batch_audience import (
     PERSON_BATCH_SIZE as WORKFLOWS_PERSON_BATCH_SIZE,
     SUPPORTED_DEDUPE_KEYS,
     get_batch_audience_count,
     get_batch_audience_person_ids,
 )
+from products.workflows.backend.services.email_sending_attribution import (
+    EMAIL_HEALTH_METRIC_NAMES,
+    fold_email_totals_by_flow,
+)
 from products.workflows.backend.services.timing_reschedule import (
     get_all_timing_action_ids,
     get_timing_reschedule_action_ids,
 )
 from products.workflows.backend.services.wait_clock_conditions import find_clock_function
+from products.workflows.backend.services.workflow_email_health import (
+    StaffPausedError,
+    pause_requires_staff,
+    resume_workflow_email_sending,
+)
 from products.workflows.backend.tasks.hog_flows import reschedule_hog_flow_timing
 from products.workflows.backend.utils.batch_trigger_limit import get_hogflow_batch_trigger_limit
 from products.workflows.backend.utils.email_sending_tiers import max_email_sending_tier, resolve_team_email_sending_tier
@@ -1206,7 +1221,9 @@ class HogFlowActionSerializer(serializers.Serializer):
             "batch triggers may set filters.audience_type: 'persons' (default) or 'accounts'. An accounts "
             "audience fans out one run per customer analytics account and takes account filters instead: "
             "properties entries of type 'account_custom_property' (key = definition id), plus "
-            "tag_names: [<str>], assigned_to_user_ids: [<int>], all_roles_unassigned: <bool>. "
+            "tag_names: [<str>], assignment_status: 'all'|'assigned'|'unassigned', and "
+            "assigned_to_user_ids: [<int>] when assignment_status is 'assigned'. "
+            "all_roles_unassigned remains accepted for workflows saved before assignment_status was added. "
             "function*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable "
             "hog templating ({person.x}, {event.x}); flat strings won't interpolate. "
             "function_email also accepts tracking_enabled?: <bool> (default true) - when false, no open "
@@ -2481,6 +2498,22 @@ class WorkflowEmailSendingRatesSerializer(EmailSendingRatesSerializer):
     hog_flow_name = serializers.CharField(
         read_only=True, allow_blank=True, help_text="Display name of the workflow; empty for unnamed workflows."
     )
+    email_sending_paused = serializers.BooleanField(
+        read_only=True,
+        help_text=(
+            "True when PostHog paused this workflow's email automatically because its complaint or "
+            "hard bounce rate crossed a threshold. Independent of the AWS tenant verdict and of the "
+            "project-wide suspension."
+        ),
+    )
+    email_sending_paused_at = serializers.DateTimeField(
+        read_only=True, allow_null=True, help_text="When the pause started; null when not paused."
+    )
+    email_sending_paused_reason = serializers.CharField(
+        read_only=True,
+        allow_blank=True,
+        help_text="Plain-language reason for the pause, naming the signal and the window. Empty when not paused.",
+    )
 
 
 class AwsTenantFindingSerializer(serializers.Serializer):
@@ -2720,6 +2753,34 @@ class EmailSendingSuspensionStatusSerializer(serializers.Serializer):
     )
 
 
+class WorkflowEmailPauseStatusSerializer(serializers.Serializer):
+    """Whether PostHog paused this one workflow's email sending, and why."""
+
+    email_sending_paused = serializers.BooleanField(
+        read_only=True,
+        help_text=(
+            "True while this workflow's email is paused because its spam complaint or hard bounce rate "
+            "crossed a threshold. Other workflows in the project keep sending."
+        ),
+    )
+    email_sending_paused_at = serializers.DateTimeField(
+        read_only=True, allow_null=True, help_text="When the pause started; null when not paused."
+    )
+    email_sending_paused_reason = serializers.CharField(
+        read_only=True,
+        allow_blank=True,
+        help_text="Plain-language reason for the pause, naming the signal and the window. Empty when not paused.",
+    )
+    email_sending_resumed_at = serializers.DateTimeField(
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "When sending was last resumed. Detector windows start after this, so resuming does not "
+            "immediately re-trip on older feedback. Null if never paused."
+        ),
+    )
+
+
 class HogFlowMinimalSerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
 
@@ -2916,6 +2977,52 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             "continue at its surviving successor instead of exiting. Null when no live deletions have occurred."
         ),
     )
+    email_sending_paused_at = serializers.DateTimeField(
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "When PostHog paused this workflow's email automatically because its spam complaint or hard "
+            "bounce rate crossed a threshold. Null when sending is not paused. Read-only: only the "
+            "resume_email_sending endpoint clears a pause, so a normal update or publish can't lift it."
+        ),
+    )
+    email_sending_paused_reason = serializers.CharField(
+        read_only=True,
+        allow_blank=True,
+        help_text="Plain-language reason for the pause, naming the signal and the window. Empty when not paused.",
+    )
+    email_sending_paused_by = serializers.CharField(
+        read_only=True,
+        allow_blank=True,
+        help_text=(
+            'Who paused it: "auto" for the deliverability detector, "staff" for PostHog staff. A staff '
+            "pause can only be resumed by staff, so the resume endpoint refuses it. Empty when not paused."
+        ),
+    )
+    email_sending_pause_requires_support = serializers.SerializerMethodField(
+        help_text=(
+            "True when only PostHog staff can lift the current pause: staff placed it, or it landed "
+            "shortly after a resume, so another self-serve resume is not offered. False when not "
+            "paused or when the resume endpoint would accept the caller."
+        ),
+    )
+
+    @extend_schema_field(serializers.BooleanField())
+    def get_email_sending_pause_requires_support(self, hog_flow: HogFlow) -> bool:
+        return pause_requires_staff(
+            paused_at=hog_flow.email_sending_paused_at,
+            paused_by=hog_flow.email_sending_paused_by,
+            resumed_at=hog_flow.email_sending_resumed_at,
+        )
+
+    email_sending_resumed_at = serializers.DateTimeField(
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "When sending was last resumed. Every detector window starts after this, so resuming does not "
+            "immediately re-trip on the feedback that caused the pause. Null if never paused."
+        ),
+    )
 
     def _stages_draft(self) -> bool:
         # stage_draft rides the raw request body rather than being a serializer field, mirroring
@@ -3033,6 +3140,11 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             "draft",
             "draft_updated_at",
             "action_redirects",
+            "email_sending_paused_at",
+            "email_sending_paused_reason",
+            "email_sending_paused_by",
+            "email_sending_pause_requires_support",
+            "email_sending_resumed_at",
         ]
         read_only_fields = [
             "id",
@@ -3048,6 +3160,13 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             "draft",  # Written by draft routing (see perform_update / graph), never directly
             "draft_updated_at",
             "action_redirects",  # Computed from graph diffs at save time (see _refresh_action_redirects)
+            # Set by the deliverability detector; only resume_email_sending clears a pause, so a
+            # workflow update, publish or draft promotion can't be used to lift one.
+            "email_sending_paused_at",
+            "email_sending_paused_reason",
+            "email_sending_paused_by",
+            "email_sending_pause_requires_support",
+            "email_sending_resumed_at",
         ]
 
     def validate(self, data):
@@ -3790,6 +3909,7 @@ class HogFlowViewSet(
         "publish",
         "discard_draft",
         "restore_revision",
+        "resume_email_sending",
     ]
     queryset = HogFlow.objects.all()
     pagination_class = HogFlowPagination
@@ -4916,11 +5036,17 @@ class HogFlowViewSet(
         # echoed back so the frontend labels the count from the response instead of
         # guessing whether the dedup actually ran.
         applied_dedupe_key = None
+        audience_v2 = group_type_index is None and use_audience_query_v2(self.team)
         if dedupe_key is not None and group_type_index is None:
-            total = self.team.persons_seen_so_far
-            affected = min(get_batch_audience_count(self.team, filters, dedupe_key), total)
-            blast_radius = BlastRadiusResult(affected=affected, total=total)
+            if audience_v2:
+                blast_radius = get_dedupe_audience_count_v2(self.team, filters, dedupe_key)
+            else:
+                total = self.team.persons_seen_so_far
+                affected = min(get_batch_audience_count(self.team, filters, dedupe_key), total)
+                blast_radius = BlastRadiusResult(affected=affected, total=total)
             applied_dedupe_key = dedupe_key
+        elif audience_v2:
+            blast_radius = get_person_audience_count_v2(self.team, filters)
         else:
             blast_radius = get_user_blast_radius(self.team, filters, group_type_index)
 
@@ -5245,7 +5371,7 @@ class HogFlowViewSet(
                 team_id=self.team_id,
                 app_source="hog_flow",
                 after=after,
-                name=["email_sent", "email_bounced_hard", "email_blocked"],
+                name=EMAIL_HEALTH_METRIC_NAMES,
             )
             cache.set(totals_cache_key, totals_by_source, 60)
 
@@ -5260,43 +5386,15 @@ class HogFlowViewSet(
             else None
         )
 
-        # Attribute sources to workflows: metrics are recorded under the workflow id for
-        # event-triggered runs and under the batch job id for batch runs — resolve both and fold
-        # batch-job counts into the parent workflow. Sources matching neither (deleted workflows,
-        # non-UUID ids) still count toward the team aggregate above.
-        source_ids = [source_id for source_id in totals_by_source if _looks_like_uuid(source_id)]
+        # Sources matching neither a workflow nor a batch job (deleted workflows, non-UUID ids)
+        # still count toward the team aggregate above. Unnamed flows come back as "" to keep
+        # hog_flow_name a plain string in the generated types.
         team_queryset = self.get_queryset()
-        # Only names are needed and HogFlow rows are wide (full step graphs in edges/actions/draft),
-        # so don't hydrate model instances for an uncapped id list. Unnamed flows serialize as "" to
-        # keep hog_flow_name a plain string in the generated types.
-        names_by_flow_id = {
-            str(flow_id): name or ""
-            for flow_id, name in team_queryset.filter(id__in=source_ids).values_list("id", "name")
-        }
-        unmatched_ids = [source_id for source_id in source_ids if source_id not in names_by_flow_id]
-        batch_job_to_flow = {
-            str(batch_job_id): str(flow_id)
-            for batch_job_id, flow_id in HogFlowBatchJob.objects.filter(
-                team_id=self.team_id, id__in=unmatched_ids
-            ).values_list("id", "hog_flow_id")
-        }
-        missing_flow_ids = set(batch_job_to_flow.values()) - set(names_by_flow_id)
-        names_by_flow_id.update(
-            {
-                str(flow_id): name or ""
-                for flow_id, name in team_queryset.filter(id__in=missing_flow_ids).values_list("id", "name")
-            }
+        folded_totals = fold_email_totals_by_flow(
+            team_id=self.team_id, totals_by_source=totals_by_source, flows=team_queryset
         )
-
-        counts_by_flow: dict[str, dict[str, int]] = {}
-        for source_id, counts in totals_by_source.items():
-            flow_id = source_id if source_id in names_by_flow_id else batch_job_to_flow.get(source_id)
-            if flow_id is None or flow_id not in names_by_flow_id:
-                continue
-            folded = counts_by_flow.setdefault(flow_id, {"sent": 0, "bounced": 0, "complained": 0})
-            folded["sent"] += counts.get("email_sent", 0)
-            folded["bounced"] += counts.get("email_bounced_hard", 0)
-            folded["complained"] += counts.get("email_blocked", 0)
+        counts_by_flow = folded_totals.counts_by_flow
+        names_by_flow_id = folded_totals.names_by_flow_id
 
         # Mirror metrics_global: only surface workflows the caller can see, so reputation doesn't
         # leak names/volumes of access-controlled workflows the list endpoint hides.
@@ -5313,17 +5411,33 @@ class HogFlowViewSet(
             {
                 "hog_flow_id": flow_id,
                 "hog_flow_name": names_by_flow_id[flow_id],
-                **_email_sending_rates(counts["sent"], counts["bounced"], counts["complained"]),
+                **_email_sending_rates(counts.sent, counts.bounced_hard, counts.complained),
             }
             for flow_id, counts in counts_by_flow.items()
             if flow_id in accessible_ids
-            and counts["sent"] > 0
+            and counts.sent > 0
             and (not search or search in names_by_flow_id[flow_id].lower())
         ]
         # Complaint rate breaks ties first: it's the more dangerous SES signal, with thresholds
         # ~20x lower than bounce.
         workflow_rows.sort(key=lambda row: (-row["complaint_rate"], -row["bounce_rate"], -row["emails_sent"]))
         workflow_rows = workflow_rows[: self.WORKFLOW_REPUTATION_LIMIT]
+
+        # Whether we paused each row's sending ourselves. Without it this tab reports only AWS's
+        # verdict, so a workflow we paused for complaints can read as healthy here, which is the
+        # wrong thing to show while someone is working out why their email stopped. Read after the
+        # cap so it stays one small lookup.
+        pause_state = {
+            str(flow_id): (paused_at, reason)
+            for flow_id, paused_at, reason in team_queryset.filter(
+                id__in=[row["hog_flow_id"] for row in workflow_rows]
+            ).values_list("id", "email_sending_paused_at", "email_sending_paused_reason")
+        }
+        for row in workflow_rows:
+            paused_at, reason = pause_state.get(row["hog_flow_id"], (None, ""))
+            row["email_sending_paused"] = paused_at is not None
+            row["email_sending_paused_at"] = paused_at
+            row["email_sending_paused_reason"] = reason if paused_at is not None else ""
 
         # Shown to every project member regardless of per-object grants: a suspension stops
         # everyone's email, so hiding it would just leave silent send failures unexplained.
@@ -5399,6 +5513,44 @@ class HogFlowViewSet(
                     "email_sending_suspension_reason": (
                         suspension["email_sending_suspension_reason"] if suspension and suspended_at is not None else ""
                     ),
+                }
+            ).data
+        )
+
+    @extend_schema(
+        operation_id="hog_flows_resume_email_sending",
+        request=None,
+        responses={200: WorkflowEmailPauseStatusSerializer},
+    )
+    @action(detail=True, methods=["POST"], pagination_class=None, filter_backends=[], url_path="resume_email_sending")
+    def resume_email_sending(self, request: Request, **kwargs) -> Response:
+        """
+        Resume email sending for a workflow PostHog paused automatically.
+
+        Self-serve on purpose. Resuming re-arms the detector rather than exempting the workflow, so
+        a workflow that is still generating complaints or hard bounces pauses again within minutes,
+        while a customer who has cleaned up their audience does not have to wait on support.
+        """
+        hog_flow = self.get_object()
+        before_update = HogFlow.objects.get(id=hog_flow.id)
+        try:
+            resumed = resume_workflow_email_sending(hog_flow)
+        except StaffPausedError:
+            raise exceptions.PermissionDenied(
+                "This pause can only be lifted by PostHog. Contact support to get sending re-enabled."
+            )
+        if not resumed:
+            raise exceptions.ValidationError({"detail": "Email sending is not paused for this workflow."})
+        log_activity_from_viewset(
+            self, hog_flow, activity="email_sending_resumed", name=hog_flow.name, previous=before_update
+        )
+        return Response(
+            WorkflowEmailPauseStatusSerializer(
+                {
+                    "email_sending_paused": False,
+                    "email_sending_paused_at": None,
+                    "email_sending_paused_reason": "",
+                    "email_sending_resumed_at": hog_flow.email_sending_resumed_at,
                 }
             ).data
         )
@@ -5714,7 +5866,10 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
 
         try:
             reject_flag_conditions_in_audience(team, filters)
-            result = get_user_blast_radius(team, filters, group_type_index)
+            if group_type_index is None and use_audience_query_v2(team):
+                result = get_person_audience_count_v2(team, filters)
+            else:
+                result = get_user_blast_radius(team, filters, group_type_index)
             return Response(
                 BlastRadiusSerializer(
                     {
@@ -5759,8 +5914,11 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
 
         try:
             reject_flag_conditions_in_audience(team, filters)
+            enumeration_settings = (
+                bounded_memory_settings() if group_type_index is None and use_audience_query_v2(team) else None
+            )
             users_affected = get_batch_audience_person_ids(
-                team, filters, group_type_index, cursor, dedupe_key=dedupe_key
+                team, filters, group_type_index, cursor, dedupe_key=dedupe_key, settings=enumeration_settings
             )
             return Response(
                 InternalBlastRadiusPersonsSerializer(

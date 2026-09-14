@@ -81,12 +81,22 @@ const ladderCases = (["claude", "codex"] as const).flatMap((adapter) =>
 );
 
 describe("getCapabilityLadder", () => {
-  it.each([["claude"], ["codex"]] as const)(
-    "returns five notches for %s",
-    (adapter) => {
-      expect(getCapabilityLadder(adapter)).toHaveLength(5);
+  it.each([
+    ["claude", 5],
+    ["codex", 6],
+  ] as const)(
+    "returns the expected notches for %s",
+    (adapter, expectedLength) => {
+      expect(getCapabilityLadder(adapter)).toHaveLength(expectedLength);
     },
   );
+
+  it("uses GPT-6 Astra at Max as the smartest Codex notch", () => {
+    expect(getCapabilityLadder("codex").at(-1)).toEqual({
+      model: "gpt-6-astra",
+      effort: "max",
+    });
+  });
 
   it.each(ladderCases)(
     "pairs a supported effort at every notch (%s %s %s)",

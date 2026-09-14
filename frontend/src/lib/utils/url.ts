@@ -165,6 +165,14 @@ export function isExternalLink(input: any): boolean {
     return !!input.trim().match(regexp)
 }
 
+/** True for a target the browser runs as script, so it must never become an href or a navigation. */
+export function hasDangerousScheme(url: string): boolean {
+    // Browsers ignore leading control chars/whitespace and any tabs/newlines embedded in the scheme,
+    // so strip them all before matching.
+    const normalized = url.replace(/[\u0000-\u0020]/g, '').toLowerCase()
+    return /^(javascript|vbscript):/.test(normalized)
+}
+
 /**
  * True for a value that parses as an `https://` URL. Whitespace around the value is ignored,
  * because `new URL()` ignores it too. A caller that needs a host allowlist, or that wants to

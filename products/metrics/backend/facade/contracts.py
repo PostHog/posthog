@@ -36,6 +36,12 @@ METRICS_FEATURE_FLAG = "metrics"
 # Staff-only while it is a proof of concept.
 METRICS_ERROR_OVERLAYS_FEATURE_FLAG = "metrics-error-overlays"
 
+# Fundamentals recomputes a chart point from its raw samples so the viewer's own
+# reductions can be checked. That makes it a tool for the people who build the
+# viewer, not a feature for the teams on the alpha, so it needs a gate of its own
+# on top of METRICS_FEATURE_FLAG.
+METRICS_FUNDAMENTALS_FEATURE_FLAG = "metrics-fundamentals"
+
 
 @dataclass(frozen=True, slots=True)
 class MetricFilter:
@@ -173,7 +179,7 @@ class MetricAnomalyReport:
 
 @dataclass(frozen=True, slots=True)
 class MetricEventSample:
-    """A single raw metric emission: one `metric_samples` row enriched with its
+    """A single raw metric emission: one `metrics` row enriched with its
     `metric_series` labels. Backs the Samples view and the metric->trace pivot.
     Distinct from `MetricSeries`, which is aggregated at query time.
     """

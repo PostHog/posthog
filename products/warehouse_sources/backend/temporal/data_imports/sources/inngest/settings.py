@@ -4,11 +4,10 @@ from typing import Literal, Optional
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
 # Vendor API versions. Inngest serves its REST API under URL-path-versioned prefixes
-# (`/v1/...`, `/v2/...`) and the per-environment signing key authenticates both. Most resources
-# live under a single version — the events walk and cancellations are v1-only, while environments
-# and the key inventories are v2-only — so their paths are fixed regardless of a source's pin.
-# Webhooks is served under both, so a source's pin selects which inventory it reads (see
-# `version_paths` below). New sources default to v2.
+# (`/v1/...`, `/v2/...`) and the per-environment signing key authenticates both. Every resource
+# this source reads lives under a single version — the events walk, cancellations and webhooks are
+# v1-only, while environments and the key inventories are v2-only — so their paths are fixed
+# regardless of a source's pin. New sources default to v2.
 INNGEST_API_VERSION_V1 = "v1"
 INNGEST_API_VERSION_V2 = "v2"
 INNGEST_SUPPORTED_VERSIONS = (INNGEST_API_VERSION_V1, INNGEST_API_VERSION_V2)
@@ -124,14 +123,6 @@ INNGEST_ENDPOINTS: dict[str, InngestEndpointConfig] = {
         primary_keys=["id"],
         pagination="none",
         redacted_fields=("url",),
-        # Webhooks is the one resource this source reads that Inngest serves under both versions.
-        # A v2-pinned source reads the v2 inventory (cursor envelope) to stay consistent with its
-        # other v2-native reads; v1 pins keep the original `/v1/webhooks` list path. The v2
-        # envelope could not be curl-verified without credentials, but `_get_v2_list_rows`
-        # degrades to a single page when the response carries no `page` object.
-        version_paths={
-            INNGEST_API_VERSION_V2: InngestVersionPath(path="/v2/webhooks", pagination="v2_cursor"),
-        },
     ),
     "event_keys": InngestEndpointConfig(
         name="event_keys",

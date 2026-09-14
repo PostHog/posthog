@@ -1,6 +1,7 @@
 import '../../panel-layout/ProjectTree/defaultTree'
 
 import { useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
 import { useEffect, useRef, useState } from 'react'
 import { useDebouncedCallback } from 'use-debounce'
 
@@ -27,6 +28,7 @@ import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/Wrapping
 import { cn } from 'lib/utils/css-classes'
 import { AnimatedSparkles } from 'scenes/max/components/AnimatedSparkles'
 import { UseMaxToolOptions, useMaxTool } from 'scenes/max/useMaxTool'
+import { sceneLogic } from 'scenes/sceneLogic'
 
 import { navigation3000Logic } from '~/layout/navigation-3000/navigationLogic'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
@@ -37,6 +39,19 @@ import { Breadcrumb, FileSystemIconColor, SidePanelTab } from '~/types'
 import { ProductIconWrapper, iconForType } from '../../panel-layout/ProjectTree/defaultTree'
 import { sceneLayoutLogic } from '../sceneLayoutLogic'
 import { SceneBreadcrumbBackButton } from './SceneBreadcrumbs'
+
+/**
+ * The click on the PostHog AI button is the only proof the handler ran. Every route into the
+ * panel captures `sidebar opened` afterwards, so a click without that follow-up event marks a
+ * click that never reached `openSidePanel`. Scene id is read off `sceneLogic` without
+ * subscribing so capture never triggers a re-render.
+ */
+function captureSceneAiButtonClicked(tool: string | null): void {
+    posthog.capture('scene ai button clicked', {
+        scene: sceneLogic.findMounted()?.values.activeSceneId ?? null,
+        tool,
+    })
+}
 
 export function SceneTitlePanelButton({
     maxToolProps,
@@ -72,6 +87,7 @@ export function SceneTitlePanelButton({
                     onClick={(e) => {
                         e.stopPropagation()
                         e.preventDefault()
+                        captureSceneAiButtonClicked(maxToolProps?.identifier ?? null)
                         if (openMax) {
                             openMax()
                         } else {
@@ -201,6 +217,7 @@ type SceneMainTitleProps = {
      * @default false
      */
     actions?: JSX.Element
+    hideProductSetupButton?: boolean
     /**
      * If provided, the back button will be forced to this breadcrumb
      * @default undefined
@@ -246,6 +263,7 @@ export function SceneTitleSection({
     noBorder = false,
     noPadding = false,
     actions,
+    hideProductSetupButton = false,
     forceBackTo,
     className,
     onGenerateMetadata,
@@ -267,7 +285,7 @@ export function SceneTitleSection({
     // Product auto-selection is handled by SceneContent via globalSetupLogic
     const effectiveActions = (
         <>
-            <ProductSetupButton />
+            {!hideProductSetupButton && <ProductSetupButton />}
             {actions}
         </>
     )
@@ -469,7 +487,6 @@ export function SceneName({
 
     const [isEditing, setIsEditing] = useState(forceEdit)
     const containerRef = useRef<HTMLDivElement>(null)
-    const nameInputRef = useRef<HTMLTextAreaElement>(null)
 
     const textClasses =
         'text-lg font-semibold my-0 pl-[var(--button-padding-x-sm)] min-h-[var(--button-height-sm)] leading-[1.4] select-auto'
@@ -520,21 +537,8 @@ export function SceneName({
         onChange && canEdit ? (
             <>
                 {isEditing ? (
-                    <div
-                        ref={containerRef}
-                        className="flex items-center gap-1 w-full"
-                        data-attr="scene-name-edit-row"
-                        onMouseDown={(e) => {
-                            // A press on the row around the field leaves the gesture unclaimed by the page,
-                            // which some browsers read as a window drag instead of a text selection.
-                            if (e.target === e.currentTarget) {
-                                e.preventDefault()
-                                nameInputRef.current?.focus()
-                            }
-                        }}
-                    >
+                    <div ref={containerRef} className="flex items-center gap-1 w-full" data-attr="scene-name-edit-row">
                         <TextareaPrimitive
-                            ref={nameInputRef}
                             variant="default"
                             name="name"
                             value={name || ''}

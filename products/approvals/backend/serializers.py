@@ -127,10 +127,14 @@ class ChangeRequestSerializer(serializers.ModelSerializer):
                 # but RoleMembership.role_id is a UUID, so a raw set intersection always misses.
                 user_role_ids = {
                     str(rid)
-                    for rid in RoleMembership.objects.filter(
-                        user=user,
-                        role__organization=obj.organization,
-                    ).values_list("role_id", flat=True)
+                    for rid in (
+                        RoleMembership.objects.filter(
+                            user=user,
+                            role__organization=obj.organization,
+                        )
+                        .valid_for_authorization()
+                        .values_list("role_id", flat=True)
+                    )
                 }
 
                 if user_role_ids & {str(r) for r in approver_roles}:

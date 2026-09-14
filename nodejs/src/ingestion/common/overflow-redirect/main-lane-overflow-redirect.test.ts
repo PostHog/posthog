@@ -19,7 +19,7 @@ const createGroup = (
     eventCount: number = 1,
     firstTimestamp: number = Date.now()
 ): OverflowEventGroup => ({
-    key: { token, distinctId },
+    key: `${token}:${distinctId}`,
     headersPerEvent: Array.from({ length: eventCount }, () =>
         createTestEventHeaders({ token, distinct_id: distinctId })
     ),
@@ -69,7 +69,7 @@ describe('MainLaneOverflowRedirect', () => {
 
             await service.handleEventBatch(batch)
 
-            expect(mockRepository.batchFlag).toHaveBeenCalledWith('events', [{ token: 'token1', distinctId: 'user1' }])
+            expect(mockRepository.batchFlag).toHaveBeenCalledWith('events', ['token1:user1'])
         })
 
         it('checks Redis for keys not in local cache', async () => {
@@ -77,7 +77,7 @@ describe('MainLaneOverflowRedirect', () => {
 
             await service.handleEventBatch(batch)
 
-            expect(mockRepository.batchCheck).toHaveBeenCalledWith('events', [{ token: 'token1', distinctId: 'user1' }])
+            expect(mockRepository.batchCheck).toHaveBeenCalledWith('events', ['token1:user1'])
         })
 
         it('returns keys that are already flagged in Redis', async () => {
@@ -159,9 +159,9 @@ describe('MainLaneOverflowRedirect', () => {
 
             expect(mockRepository.batchCheck).toHaveBeenCalledTimes(1)
             expect(mockRepository.batchCheck).toHaveBeenCalledWith('events', [
-                { token: 'token1', distinctId: 'user1' },
-                { token: 'token1', distinctId: 'user2' },
-                { token: 'token2', distinctId: 'user1' },
+                'token1:user1',
+                'token1:user2',
+                'token2:user1',
             ])
         })
     })
@@ -232,7 +232,7 @@ describe('MainLaneOverflowRedirect', () => {
             distinctId: string,
             eventNames: (string | undefined)[]
         ): OverflowEventGroup => ({
-            key: { token, distinctId },
+            key: `${token}:${distinctId}`,
             headersPerEvent: eventNames.map((event) =>
                 createTestEventHeaders({ token, distinct_id: distinctId, event })
             ),

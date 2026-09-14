@@ -1,8 +1,8 @@
 import {
     ActivityLogItem,
+    ActivityLogUserName,
     HumanizedChange,
     defaultDescriber,
-    userNameForLogItem,
 } from 'lib/components/ActivityLog/humanizeActivity'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { Link } from 'lib/lemon-ui/Link'
@@ -107,7 +107,7 @@ export function tagActivityDescriber(logItem: ActivityLogItem, asNotification?: 
         return {
             description: (
                 <>
-                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> created the tag{' '}
+                    <ActivityLogUserName logItem={logItem} /> created the tag{' '}
                     <strong>{nameOrId(logItem?.detail?.name, logItem?.item_id)}</strong>
                 </>
             ),
@@ -118,7 +118,7 @@ export function tagActivityDescriber(logItem: ActivityLogItem, asNotification?: 
         return {
             description: (
                 <>
-                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> deleted the tag{' '}
+                    <ActivityLogUserName logItem={logItem} /> deleted the tag{' '}
                     <strong>{nameOrId(logItem?.detail?.name, logItem?.item_id)}</strong>
                 </>
             ),
@@ -129,7 +129,7 @@ export function tagActivityDescriber(logItem: ActivityLogItem, asNotification?: 
         return {
             description: (
                 <>
-                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> updated the tag{' '}
+                    <ActivityLogUserName logItem={logItem} /> updated the tag{' '}
                     <strong>{nameOrId(logItem?.detail?.name, logItem?.item_id)}</strong>
                 </>
             ),
@@ -149,8 +149,8 @@ function taggedItemActivityDescriber(logItem: ActivityLogItem, asNotification?: 
         return {
             description: (
                 <>
-                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> tagged {relatedObjectDesc}{' '}
-                    with tag <strong>{tagName}</strong>
+                    <ActivityLogUserName logItem={logItem} /> tagged {relatedObjectDesc} with tag{' '}
+                    <strong>{tagName}</strong>
                 </>
             ),
         }
@@ -160,8 +160,8 @@ function taggedItemActivityDescriber(logItem: ActivityLogItem, asNotification?: 
         return {
             description: (
                 <>
-                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> removed tag{' '}
-                    <strong>{tagName}</strong> {relatedObjectDescFrom}
+                    <ActivityLogUserName logItem={logItem} /> removed tag <strong>{tagName}</strong>{' '}
+                    {relatedObjectDescFrom}
                 </>
             ),
         }

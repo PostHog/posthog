@@ -71,7 +71,7 @@ function queryInput(overrides: Partial<BuildAccountsTableQueryPlanInput> = {}): 
         visibleColumnNames: ['name', 'tag_names', 'notebook_count', 'csm'],
         searchQuery: '',
         tagsFilter: [],
-        allRolesUnassigned: false,
+        assignmentStatus: 'all',
         assignedToFilter: [],
         accountIdFilter: null,
         tileFilter: null,
@@ -93,6 +93,7 @@ describe('accountsTableQuery', () => {
             queryInput({
                 searchQuery: ' acme ',
                 tagsFilter: ['enterprise'],
+                assignmentStatus: 'assigned',
                 assignedToFilter: [7, 9],
                 accountFilters: [relationshipFilter(), customFilter()],
                 sortOrder: { column: 'csm', direction: 'desc' },
@@ -147,7 +148,6 @@ describe('accountsTableQuery', () => {
         )
 
         expect(plan.query.filters).toEqual([
-            { kind: 'assigned' },
             {
                 kind: 'account_field',
                 field: AccountsTableAccountField.IgnoredAt,
@@ -176,13 +176,29 @@ describe('accountsTableQuery', () => {
             })
         )
 
-        expect(plan.query.filters).toEqual([{ kind: 'assigned' }])
+        expect(plan.query.filters).toEqual([])
     })
 
-    it('filters the default account list to accounts assigned to someone', () => {
-        const plan = buildAccountsTableQueryPlan(queryInput())
+    it.each([
+        ['all', undefined],
+        ['assigned', { kind: 'assigned' }],
+        ['unassigned', { kind: 'unassigned' }],
+    ] as const)('maps the %s assignment status to its query filter', (assignmentStatus, expected) => {
+        const plan = buildAccountsTableQueryPlan(queryInput({ assignmentStatus }))
 
-        expect(plan.query.filters).toEqual([{ kind: 'assigned' }])
+        expect(plan.query.filters).toEqual(expected ? [expected] : [])
+    })
+
+    it('narrows the assigned status to specific users when any are selected', () => {
+        const plan = buildAccountsTableQueryPlan(queryInput({ assignmentStatus: 'assigned', assignedToFilter: [7] }))
+
+        expect(plan.query.filters).toEqual([{ kind: 'assigned_to', userIds: [7] }])
+    })
+
+    it('ignores selected users outside the assigned status', () => {
+        const plan = buildAccountsTableQueryPlan(queryInput({ assignmentStatus: 'all', assignedToFilter: [7] }))
+
+        expect(plan.query.filters).toEqual([])
     })
 
     it('translates saved custom-property history display configuration', () => {
@@ -216,7 +232,7 @@ describe('accountsTableQuery', () => {
                 accountIdFilter: RELATIONSHIP_ID,
                 searchQuery: 'ignored',
                 tagsFilter: ['ignored'],
-                allRolesUnassigned: true,
+                assignmentStatus: 'unassigned',
             })
         )
 
@@ -253,7 +269,6 @@ describe('accountsTableQuery', () => {
         )
 
         expect(plan.query.filters).toEqual([
-            { kind: 'assigned' },
             {
                 kind: 'custom_property',
                 definitionId: CUSTOM_PROPERTY_ID,
@@ -279,7 +294,6 @@ describe('accountsTableQuery', () => {
         )
 
         expect(plan.query.filters).toEqual([
-            { kind: 'assigned' },
             {
                 kind: 'custom_property',
                 definitionId: CUSTOM_PROPERTY_ID,
@@ -309,7 +323,7 @@ describe('accountsTableQuery', () => {
             })
         )
 
-        expect(plan.query.filters).toEqual([{ kind: 'assigned' }])
+        expect(plan.query.filters).toEqual([])
     })
 
     it('keeps contains filters for link properties', () => {
@@ -322,7 +336,6 @@ describe('accountsTableQuery', () => {
         )
 
         expect(plan.query.filters).toEqual([
-            { kind: 'assigned' },
             {
                 kind: 'custom_property',
                 definitionId: CUSTOM_PROPERTY_ID,

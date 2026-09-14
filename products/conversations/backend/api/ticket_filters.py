@@ -187,8 +187,9 @@ class TicketViewFiltersSerializer(serializers.Serializer):
     assignee = TicketViewAssigneeFilterField(
         required=False,
         help_text="Assignees to match (any of): 'unassigned', 'me' (resolved to the requesting user), "
-        "or an object with type ('user' or 'role') and id. The legacy single-value shape is accepted "
-        "and normalized to a list.",
+        "or an object with type ('user' or 'role') and id. Send a list. Views saved earlier can hold a "
+        "single value instead of a list, or the value 'all'. Wrap a single value in a list, and replace "
+        "'all' with an empty list to apply no assignee filter.",
     )
     tags = serializers.ListField(
         child=serializers.CharField(),
