@@ -20,10 +20,6 @@ class Migration(migrations.Migration):
     Only the two user keys go here. The team keys stay under the helper until the tables drop.
     """
 
-    # Atomic, unlike the ducklake and code home migrations in this branch: both constraints
-    # here point at posthog_user, so one transaction cannot hold a lock on one parent while it
-    # waits for another.
-
     dependencies = [
         ("replay", "0003_drop_exception_event_ids_gin_index"),
     ]
