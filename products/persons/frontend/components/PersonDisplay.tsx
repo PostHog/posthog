@@ -18,7 +18,7 @@ import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
 
 import { ComposeTicketButton } from 'products/conversations/frontend/components/ComposeTicket'
 
-import { PersonPropType, asDisplay, asLink, getPersonColorIndex } from './person-utils'
+import { PersonPropType, asDisplay, asLink, getPersonColorIndex } from '../person-utils'
 import { PersonPreview } from './PersonPreview'
 
 export interface PersonDisplayProps {
