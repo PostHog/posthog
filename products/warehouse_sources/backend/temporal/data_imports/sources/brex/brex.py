@@ -4,7 +4,6 @@ from typing import Any, Optional
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.brex.settings import (
     BREX_ENDPOINTS,
-    CASH_ACCOUNTS_PATH,
     BrexEndpointConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
@@ -36,6 +35,7 @@ BREX_API_VERSION_V2 = "v2"
 # Expenses caps `limit` at 100; other endpoints don't document a max, so 100 is used uniformly.
 PAGE_SIZE = 100
 
+CASH_ACCOUNTS_PATH = "/v2/accounts/cash"
 # Injected into cash transaction rows so rows from different cash accounts stay distinguishable.
 CASH_ACCOUNT_ID_KEY = "account_id"
 # Parent resource name in the cash-transactions fan-out config — also the name of the

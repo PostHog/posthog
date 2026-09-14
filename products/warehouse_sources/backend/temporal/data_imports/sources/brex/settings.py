@@ -3,11 +3,8 @@ from typing import Optional
 
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
-# Listed as its own table, and paged as the parent of the cash transactions fan-out.
-CASH_ACCOUNTS_PATH = "/v2/accounts/cash"
 
-
-@dataclass
+@dataclass(frozen=True)
 class BrexEndpointConfig:
     name: str
     path: str
@@ -85,7 +82,8 @@ BREX_ENDPOINTS: dict[str, BrexEndpointConfig] = {
     ),
     "cash_accounts": BrexEndpointConfig(
         name="cash_accounts",
-        path=CASH_ACCOUNTS_PATH,
+        # Listed as its own table, and paged as the parent of the cash transactions fan-out.
+        path="/v2/accounts/cash",
     ),
     "expenses": BrexEndpointConfig(
         name="expenses",
