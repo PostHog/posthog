@@ -15,13 +15,38 @@ class PaginationType(Enum):
     # The usage_report/cost_report endpoints page with an opaque `page` token echoed back as
     # `next_page`, alongside has_more.
     PAGE = "page"
+    # The RBAC group and role endpoints are entity lists, but page with the same opaque
+    # `page`/`next_page` token the reports use instead of an `after_id` cursor.
+    PAGE_TOKEN = "page_token"
 
 
 class AnalyticsWindowKind(Enum):
-    # `/organizations/analytics/users` answers for one `date`.
+    # `/organizations/analytics/users` and the connector/plugin/skill breakdowns answer for one `date`.
     DATE = "date"
     # The per-user cost and token usage reports answer for a `starting_at`/`ending_at` range.
     RANGE = "range"
+    # `/organizations/analytics/summaries` answers for a `starting_date`/`ending_date` calendar-date
+    # range, returning one entry per day in it.
+    DATE_RANGE = "date_range"
+
+
+class AccessFamily(Enum):
+    """Credential a group of endpoints needs beyond the Claude Console Admin API key.
+
+    `get_endpoint_permissions` probes one endpoint per family and reports the result against every
+    table in that family, so the customer deselects the tables their key cannot reach instead of
+    watching them fail to sync.
+    """
+
+    # Claude Enterprise Analytics API: a claude.ai Analytics key carrying `read:analytics`.
+    ANALYTICS = "analytics"
+    # Claude Enterprise group reads: an Admin API key created in claude.ai for every linked
+    # organization, carrying `read:rbac_groups`. Groups are owned by the enterprise as a whole, which
+    # is why the key has to cover all linked organizations.
+    RBAC_GROUPS = "rbac_groups"
+    # Claude Enterprise custom-role reads: an Admin API key created in claude.ai carrying
+    # `read:members`. Anthropic exposes no separate role scope.
+    RBAC_ROLES = "rbac_roles"
 
 
 def _datetime_incremental_field(name: str) -> IncrementalField:
@@ -31,6 +56,23 @@ def _datetime_incremental_field(name: str) -> IncrementalField:
         "field": name,
         "field_type": IncrementalFieldType.DateTime,
     }
+
+
+@frozen
+class FanOutConfig:
+    """Single-hop fan-out over a parent endpoint in this same catalog.
+
+    Anthropic serves no org-wide list for these sub-resources, so the source enumerates the parent
+    endpoint and requests the sub-resource once per parent row.
+    """
+
+    # Catalog name of the parent endpoint.
+    parent: str
+    # Placeholder in the child `path` that the parent's id fills.
+    path_param: str
+    # Column the parent's id is stamped onto. The member rows already carry their parent id, but the
+    # role permission rows carry none of their own, so without the stamp their key is unpopulated.
+    id_column: str
 
 
 @frozen
@@ -57,8 +99,8 @@ class AnthropicEndpointConfig:
     # Re-read window (seconds) applied to the incremental watermark by the pipeline before it reaches
     # the source, so each run re-pulls recently-restated buckets. Merge dedupes them on the primary key.
     default_incremental_lookback_seconds: Optional[int] = None
-    # workspace_members has no org-wide list endpoint, so it fans out one request per workspace.
-    fan_out_over_workspaces: bool = False
+    # Set where the endpoint has no org-wide list and has to be reached one parent at a time.
+    fan_out: Optional[FanOutConfig] = None
     # Claude Code analytics takes a single `starting_at` day per request, so it fans out one windowed
     # request per calendar day from the watermark (or launch floor) to today.
     fan_out_over_days: bool = False
@@ -72,6 +114,10 @@ class AnthropicEndpointConfig:
     analytics_lag_days: int = 0
     # Oldest `starting_at` the endpoint accepts, in days before today. None means no such limit.
     analytics_max_history_days: Optional[int] = None
+    # Response key the rows sit under. Every endpoint uses `data` except the summaries endpoint.
+    data_selector: str = "data"
+    # Set where the endpoint needs a credential the Claude Console Admin API key is not.
+    access_family: Optional[AccessFamily] = None
     should_sync_default: bool = True
 
 
@@ -137,6 +183,12 @@ _ANALYTICS_ENGAGEMENT_LOOKBACK_SECONDS = 60 * 60 * 24 * 3
 # tail accurate at a bounded request cost; run a full refresh for invoicing-grade totals.
 _ANALYTICS_REPORT_LOOKBACK_SECONDS = 60 * 60 * 24 * 7
 
+# Path prefixes for the Claude Enterprise user management reads. A denial from one of these means
+# the key lacks that family's scope, or the organization is not on Claude Enterprise at all, so the
+# source maps them to their own messages in `get_non_retryable_errors`.
+RBAC_GROUPS_PATH = "/v1/organizations/rbac_groups"
+RBAC_ROLES_PATH = "/v1/organizations/rbac_roles"
+
 ANTHROPIC_ENDPOINTS: dict[str, AnthropicEndpointConfig] = {
     "users": AnthropicEndpointConfig(
         name="users",
@@ -176,7 +228,52 @@ ANTHROPIC_ENDPOINTS: dict[str, AnthropicEndpointConfig] = {
         path="/v1/organizations/workspaces/{workspace_id}/members",
         pagination=PaginationType.CURSOR,
         primary_keys=["workspace_id", "user_id"],
-        fan_out_over_workspaces=True,
+        fan_out=FanOutConfig(parent="workspaces", path_param="workspace_id", id_column="workspace_id"),
+    ),
+    # Claude Enterprise user management: the groups a member can hold, the membership join onto the
+    # users above, and the custom roles a group's `roles` field points at. These need an Admin API
+    # key created in claude.ai for a Claude Enterprise organization, which a Claude Console Admin API
+    # key is not, so they stay off by default and `get_endpoint_permissions` reports whether the
+    # configured key can reach them.
+    "rbac_groups": AnthropicEndpointConfig(
+        name="rbac_groups",
+        path=RBAC_GROUPS_PATH,
+        pagination=PaginationType.PAGE_TOKEN,
+        primary_keys=["id"],
+        partition_key="created_at",
+        access_family=AccessFamily.RBAC_GROUPS,
+        should_sync_default=False,
+    ),
+    "rbac_group_members": AnthropicEndpointConfig(
+        name="rbac_group_members",
+        path=f"{RBAC_GROUPS_PATH}/{{group_id}}/members",
+        pagination=PaginationType.PAGE_TOKEN,
+        # One user can hold many groups, so the key carries the group id.
+        primary_keys=["group_id", "user_id"],
+        partition_key="created_at",
+        fan_out=FanOutConfig(parent="rbac_groups", path_param="group_id", id_column="group_id"),
+        access_family=AccessFamily.RBAC_GROUPS,
+        should_sync_default=False,
+    ),
+    "rbac_roles": AnthropicEndpointConfig(
+        name="rbac_roles",
+        path=RBAC_ROLES_PATH,
+        pagination=PaginationType.PAGE_TOKEN,
+        primary_keys=["id"],
+        partition_key="created_at",
+        access_family=AccessFamily.RBAC_ROLES,
+        should_sync_default=False,
+    ),
+    # A permission row carries neither an id nor a timestamp, so `id` is synthesized from the role
+    # plus the action and resource the row grants (see anthropic.py) and the table is not partitioned.
+    "rbac_role_permissions": AnthropicEndpointConfig(
+        name="rbac_role_permissions",
+        path=f"{RBAC_ROLES_PATH}/{{role_id}}/permissions",
+        pagination=PaginationType.PAGE_TOKEN,
+        primary_keys=["id"],
+        fan_out=FanOutConfig(parent="rbac_roles", path_param="role_id", id_column="role_id"),
+        access_family=AccessFamily.RBAC_ROLES,
+        should_sync_default=False,
     ),
     # No service_accounts endpoint: Anthropic serves service accounts only to an org:admin OAuth
     # token and rejects the Admin API key this source authenticates with, so the table can never
@@ -258,6 +355,7 @@ ANTHROPIC_ENDPOINTS: dict[str, AnthropicEndpointConfig] = {
         analytics_lag_days=ANALYTICS_ENGAGEMENT_LAG_DAYS,
         limit=ANALYTICS_PAGE_SIZE,
         default_incremental_lookback_seconds=_ANALYTICS_ENGAGEMENT_LOOKBACK_SECONDS,
+        access_family=AccessFamily.ANALYTICS,
         should_sync_default=False,
     ),
     "analytics_user_cost": AnthropicEndpointConfig(
@@ -276,6 +374,7 @@ ANTHROPIC_ENDPOINTS: dict[str, AnthropicEndpointConfig] = {
         bucket_width="1d",
         limit=ANALYTICS_PAGE_SIZE,
         default_incremental_lookback_seconds=_ANALYTICS_REPORT_LOOKBACK_SECONDS,
+        access_family=AccessFamily.ANALYTICS,
         should_sync_default=False,
     ),
     "analytics_user_usage": AnthropicEndpointConfig(
@@ -291,6 +390,78 @@ ANTHROPIC_ENDPOINTS: dict[str, AnthropicEndpointConfig] = {
         bucket_width="1d",
         limit=ANALYTICS_PAGE_SIZE,
         default_incremental_lookback_seconds=_ANALYTICS_REPORT_LOOKBACK_SECONDS,
+        access_family=AccessFamily.ANALYTICS,
+        should_sync_default=False,
+    ),
+    # Adoption breakdowns from the same Claude Enterprise Analytics export as the per-seat tables
+    # above: one row per (day, connector), (day, plugin) and (day, skill). Each answers for one
+    # `date` and page-cursors within it, so they take the same day-by-day fan-out as the per-seat
+    # activity table. No `group_by` is requested, so the row grain is the entity alone.
+    "analytics_connector_usage": AnthropicEndpointConfig(
+        name="analytics_connector_usage",
+        path="/v1/organizations/analytics/connectors",
+        pagination=PaginationType.PAGE,
+        # `id` is synthesized from the requested day and the entity name (see anthropic.py). The
+        # response carries no day of its own, so the source stamps the day it asked for onto every row.
+        primary_keys=["id"],
+        partition_key="date",
+        supports_incremental=True,
+        incremental_fields=[_datetime_incremental_field("date")],
+        analytics_window=AnalyticsWindowKind.DATE,
+        analytics_lag_days=ANALYTICS_ENGAGEMENT_LAG_DAYS,
+        limit=ANALYTICS_PAGE_SIZE,
+        default_incremental_lookback_seconds=_ANALYTICS_ENGAGEMENT_LOOKBACK_SECONDS,
+        access_family=AccessFamily.ANALYTICS,
+        should_sync_default=False,
+    ),
+    "analytics_plugin_usage": AnthropicEndpointConfig(
+        name="analytics_plugin_usage",
+        path="/v1/organizations/analytics/plugins",
+        pagination=PaginationType.PAGE,
+        primary_keys=["id"],
+        partition_key="date",
+        supports_incremental=True,
+        incremental_fields=[_datetime_incremental_field("date")],
+        analytics_window=AnalyticsWindowKind.DATE,
+        analytics_lag_days=ANALYTICS_ENGAGEMENT_LAG_DAYS,
+        limit=ANALYTICS_PAGE_SIZE,
+        default_incremental_lookback_seconds=_ANALYTICS_ENGAGEMENT_LOOKBACK_SECONDS,
+        access_family=AccessFamily.ANALYTICS,
+        should_sync_default=False,
+    ),
+    "analytics_skill_usage": AnthropicEndpointConfig(
+        name="analytics_skill_usage",
+        path="/v1/organizations/analytics/skills",
+        pagination=PaginationType.PAGE,
+        primary_keys=["id"],
+        partition_key="date",
+        supports_incremental=True,
+        incremental_fields=[_datetime_incremental_field("date")],
+        analytics_window=AnalyticsWindowKind.DATE,
+        analytics_lag_days=ANALYTICS_ENGAGEMENT_LAG_DAYS,
+        limit=ANALYTICS_PAGE_SIZE,
+        default_incremental_lookback_seconds=_ANALYTICS_ENGAGEMENT_LOOKBACK_SECONDS,
+        access_family=AccessFamily.ANALYTICS,
+        should_sync_default=False,
+    ),
+    # Org-wide rolled-up activity as Anthropic reports it: active users over the day plus the 7- and
+    # 30-day rolling windows, assigned seats, and the adoption rates derived from them. One row per
+    # UTC day, each carrying its own `starting_at`, so the day is the grain and the key.
+    "analytics_summaries": AnthropicEndpointConfig(
+        name="analytics_summaries",
+        path="/v1/organizations/analytics/summaries",
+        pagination=PaginationType.PAGE,
+        primary_keys=["starting_at"],
+        partition_key="starting_at",
+        supports_incremental=True,
+        incremental_fields=[_datetime_incremental_field("starting_at")],
+        analytics_window=AnalyticsWindowKind.DATE_RANGE,
+        analytics_lag_days=ANALYTICS_ENGAGEMENT_LAG_DAYS,
+        # The endpoint answers a whole range in one response and takes no pagination parameters, so
+        # it gets no `limit` and its rows sit under `summaries` rather than `data`.
+        data_selector="summaries",
+        default_incremental_lookback_seconds=_ANALYTICS_ENGAGEMENT_LOOKBACK_SECONDS,
+        access_family=AccessFamily.ANALYTICS,
         should_sync_default=False,
     ),
 }

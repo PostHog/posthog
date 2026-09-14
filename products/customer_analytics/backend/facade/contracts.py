@@ -1084,9 +1084,8 @@ class CreateAccountNotebookInput:
     """Validated body for creating an account notebook.
 
     ``content`` is the ProseMirror document the caller supplied (or ``None``);
-    ``synthesized_content`` is the markdown-derived document the view built when the
-    caller passed only ``text_content`` — the view owns that normalization so the
-    ``ee.hogai`` tiptap helper stays off the facade import path.
+    ``synthesized_content`` is the markdown notebook document the view built when the
+    caller passed only ``text_content``.
     """
 
     title: str | None

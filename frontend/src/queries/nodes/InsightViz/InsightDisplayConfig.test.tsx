@@ -69,8 +69,31 @@ function makeLifecycleQuery(): LifecycleQuery {
     }
 }
 
+function normalizeText(text: string | null | undefined): string {
+    return text?.replace(/\s+/g, ' ').trim() ?? ''
+}
+
+function getPanel(): HTMLElement {
+    return screen.getByTestId('insight-display-options-panel')
+}
+
+function getTabLabels(): string[] {
+    return within(getPanel())
+        .queryAllByRole('tab')
+        .map((tab) => normalizeText(tab.textContent))
+}
+
+async function openTab(label: string): Promise<void> {
+    const tab = within(getPanel())
+        .getAllByRole('tab')
+        .find((el) => normalizeText(el.textContent).startsWith(label))!
+    await userEvent.click(tab)
+}
+
 function getSectionTitles(): string[] {
-    return screen.getAllByRole('heading', { level: 5 }).map((h) => h.textContent?.replace(/\s+/g, ' ').trim() ?? '')
+    return within(getPanel())
+        .queryAllByRole('heading', { level: 5 })
+        .map((h) => normalizeText(h.textContent))
 }
 
 async function openOptionsMenu(): Promise<void> {
@@ -78,10 +101,16 @@ async function openOptionsMenu(): Promise<void> {
     await userEvent.click(optionsButtons[0])
 }
 
+function getSectionItems(dataAttr: string): string[] {
+    const section = screen.getByTestId(dataAttr).closest('section')!
+    return within(section)
+        .queryAllByRole('listitem')
+        .map((li) => normalizeText(li.textContent))
+        .filter(Boolean)
+}
+
 function getDisplaySectionItems(): string[] {
-    const displaySection = screen.getByTestId('options-display-section').closest('section')!
-    const listItems = within(displaySection).queryAllByRole('listitem')
-    return listItems.map((li) => li.textContent?.trim() || '').filter(Boolean)
+    return getSectionItems('options-display-section')
 }
 
 describe('InsightDisplayConfig', () => {
@@ -116,78 +145,82 @@ describe('InsightDisplayConfig', () => {
         )
     }
 
-    describe('Options menu sections per insight/chart type', () => {
-        const cases: [string, InsightQueryNode, { sections: string[]; displayItems?: string[] }][] = [
+    describe('Options panel tabs and sections per insight/chart type', () => {
+        type Expected = {
+            tabs: string[]
+            sections: Partial<Record<string, string[]>>
+            displayItems?: string[]
+            overlayItems?: string[]
+        }
+        const lineOverlays = [
+            'Show trend lines',
+            'Show moving average',
+            'Show confidence intervals',
+            'Show alert threshold lines',
+        ]
+        const cases: [string, InsightQueryNode, Expected][] = [
             [
                 'trends line graph',
                 makeTrendsQuery(ChartDisplayType.ActionsLineGraph),
                 {
-                    sections: [
-                        'Display',
-                        'Color customization by',
-                        'Y-axis unit',
-                        'Y-axis scale',
-                        'Y-axis range',
-                        'Line style',
-                        'Statistical analysis',
-                        'Axis labels',
-                    ],
-                    displayItems: [
-                        'Show values on series',
-                        'Show alert threshold lines',
-                        'Show multiple Y-axes',
-                        'Show trend lines',
-                        'Show annotations',
-                        'Show legendBottom',
-                    ],
+                    tabs: ['General', 'Axes', 'Lines'],
+                    sections: {
+                        General: ['Unit', 'Color customization by'],
+                        Axes: ['X-axis', 'Y-axis'],
+                        Lines: ['Style', 'Overlays'],
+                    },
+                    displayItems: ['Show values on series', 'Show annotations', 'Show legendBottom'],
+                    overlayItems: lineOverlays,
                 },
             ],
             [
                 'trends bar chart',
                 makeTrendsQuery(ChartDisplayType.ActionsBar),
                 {
-                    sections: ['Display', 'Y-axis unit', 'Y-axis scale', 'Statistical analysis', 'Axis labels'],
+                    tabs: ['General', 'Axes', 'Lines'],
+                    sections: {
+                        General: ['Unit'],
+                        Axes: ['X-axis', 'Y-axis'],
+                        Lines: ['Overlays'],
+                    },
                     displayItems: [
                         'Show values on series',
                         'Show as % of total',
-                        'Show alert threshold lines',
-                        'Show multiple Y-axes',
-                        'Show trend lines',
                         'Show annotations',
                         'Show legendBottom',
                     ],
+                    overlayItems: lineOverlays,
                 },
             ],
             [
                 'trends area graph',
                 makeTrendsQuery(ChartDisplayType.ActionsAreaGraph),
                 {
-                    sections: [
-                        'Display',
-                        'Y-axis unit',
-                        'Y-axis scale',
-                        'Y-axis range',
-                        'Line style',
-                        'Statistical analysis',
-                        'Axis labels',
-                    ],
+                    tabs: ['General', 'Axes', 'Lines'],
+                    sections: {
+                        General: ['Unit'],
+                        Axes: ['X-axis', 'Y-axis'],
+                        Lines: ['Style', 'Overlays'],
+                    },
                     displayItems: [
                         'Show values on series',
                         'Show as % of total',
-                        'Show alert threshold lines',
-                        'Show multiple Y-axes',
-                        'Show trend lines',
                         'Show annotations',
                         'Show legendBottom',
                     ],
                 },
             ],
-            ['trends number', makeTrendsQuery(ChartDisplayType.BoldNumber), { sections: ['Unit'] }],
+            [
+                'trends number',
+                makeTrendsQuery(ChartDisplayType.BoldNumber),
+                { tabs: [], sections: { General: ['Unit'] } },
+            ],
             [
                 'trends pie',
                 makeTrendsQuery(ChartDisplayType.ActionsPie),
                 {
-                    sections: ['Display', 'Unit'],
+                    tabs: [],
+                    sections: { General: ['Unit'] },
                     displayItems: [
                         'Show values on series',
                         'Show as % of total',
@@ -202,7 +235,8 @@ describe('InsightDisplayConfig', () => {
                 'trends donut',
                 makeTrendsQuery(ChartDisplayType.ActionsDonut),
                 {
-                    sections: ['Display', 'Unit'],
+                    tabs: [],
+                    sections: { General: ['Unit'] },
                     displayItems: [
                         'Show values on series',
                         'Show as % of total',
@@ -212,45 +246,64 @@ describe('InsightDisplayConfig', () => {
                     ],
                 },
             ],
-            ['trends table', makeTrendsQuery(ChartDisplayType.ActionsTable), { sections: ['Unit'] }],
+            [
+                'trends table',
+                makeTrendsQuery(ChartDisplayType.ActionsTable),
+                { tabs: [], sections: { General: ['Unit'] } },
+            ],
             [
                 'trends bar value (horizontal)',
                 makeTrendsQuery(ChartDisplayType.ActionsBarValue),
-                { sections: ['Display', 'X-axis unit', 'Axis labels'], displayItems: ['Show values on series'] },
+                {
+                    tabs: ['General', 'Axes'],
+                    sections: { General: ['Unit'], Axes: ['X-axis', 'Y-axis'] },
+                    displayItems: ['Show values on series'],
+                },
             ],
-            ['trends world map', makeTrendsQuery(ChartDisplayType.WorldMap), { sections: ['Unit'] }],
+            [
+                'trends world map',
+                makeTrendsQuery(ChartDisplayType.WorldMap),
+                { tabs: [], sections: { General: ['Unit'] } },
+            ],
             [
                 'box plot',
                 makeTrendsQuery(ChartDisplayType.BoxPlot),
-                { sections: ['Display', 'Unit', 'Y-axis scale'], displayItems: ['Show legend', 'Exclude outliers'] },
+                {
+                    tabs: ['General', 'Axes'],
+                    sections: { General: ['Unit'], Axes: ['Y-axis'] },
+                    displayItems: ['Show legend', 'Exclude outliers'],
+                },
             ],
             [
                 'slope graph',
                 makeTrendsQuery(ChartDisplayType.SlopeGraph),
-                { sections: ['Display', 'Unit'], displayItems: ['Show legend'] },
+                { tabs: [], sections: { General: ['Unit'] }, displayItems: ['Show legend'] },
             ],
             [
                 'retention',
                 makeRetentionQuery(),
                 {
-                    sections: ['Display', 'Line style', 'On dashboards', 'Cohort labels start at'],
-                    displayItems: ['Show trend lines'],
+                    tabs: [],
+                    sections: { General: ['On dashboards', 'Cohort labels start at', 'Style', 'Overlays'] },
+                    overlayItems: ['Show trend lines'],
                 },
             ],
             [
                 'stickiness',
                 makeStickinessQuery(),
                 {
-                    sections: ['Display', 'Line style'],
-                    displayItems: ['Show values on series', 'Show multiple Y-axes', 'Show legendBottom'],
+                    tabs: [],
+                    sections: { General: ['Y-axis', 'Style'] },
+                    displayItems: ['Show values on series', 'Show legendBottom'],
                 },
             ],
-            ['stickiness table', makeStickinessQuery(ChartDisplayType.ActionsTable), { sections: [] }],
+            ['stickiness table', makeStickinessQuery(ChartDisplayType.ActionsTable), { tabs: [], sections: {} }],
             [
                 'lifecycle',
                 makeLifecycleQuery(),
                 {
-                    sections: ['Display'],
+                    tabs: [],
+                    sections: { General: [] },
                     displayItems: [
                         'Stack bars',
                         'Show values on series',
@@ -261,22 +314,72 @@ describe('InsightDisplayConfig', () => {
             ],
         ]
 
-        it.each(cases)('%s shows the expected sections and display options', async (_name, query, expected) => {
+        it.each(cases)('%s shows the expected tabs, sections and items', async (_name, query, expected) => {
             setupAndRender(query)
 
-            if (expected.sections.length === 0) {
+            if (Object.keys(expected.sections).length === 0) {
                 expect(screen.queryByLabelText('Options')).not.toBeInTheDocument()
                 return
             }
 
             await openOptionsMenu()
+            expect(getTabLabels()).toEqual(expected.tabs)
 
-            expect(getSectionTitles()).toEqual(expected.sections)
-            if (!expected.displayItems) {
-                expect(screen.queryByTestId('options-display-section')).not.toBeInTheDocument()
-            } else {
-                expect(getDisplaySectionItems()).toEqual(expected.displayItems)
+            for (const [tab, titles] of Object.entries(expected.sections)) {
+                if (expected.tabs.length > 0) {
+                    await openTab(tab)
+                }
+                expect(getSectionTitles()).toEqual(titles)
+                if (tab === 'General') {
+                    if (!expected.displayItems) {
+                        expect(screen.queryByTestId('options-display-section')).not.toBeInTheDocument()
+                    } else {
+                        expect(getDisplaySectionItems()).toEqual(expected.displayItems)
+                    }
+                }
+                if ((tab === 'Lines' || expected.tabs.length === 0) && expected.overlayItems) {
+                    expect(getSectionItems('options-overlays-section')).toEqual(expected.overlayItems)
+                }
             }
+        })
+    })
+
+    describe('options count', () => {
+        it('sums non-default options across every tab, but keeps tab labels fixed', async () => {
+            setupAndRender(
+                makeTrendsQuery(ChartDisplayType.ActionsLineGraph, {
+                    showValuesOnSeries: true,
+                    showAnnotations: false,
+                    yAxisScaleType: 'log10',
+                    showTrendLines: true,
+                })
+            )
+            expect(screen.getAllByLabelText('Options')[0]).toHaveTextContent(/\(4\)/)
+
+            await openOptionsMenu()
+            expect(getTabLabels()).toEqual(['General', 'Axes', 'Lines'])
+        })
+    })
+
+    describe('overlays tab', () => {
+        it('shows the moving average window and confidence level inputs only while their overlay is on', async () => {
+            setupAndRender(
+                makeTrendsQuery(ChartDisplayType.ActionsLineGraph, {
+                    showMovingAverage: true,
+                    showConfidenceIntervals: true,
+                })
+            )
+            await openOptionsMenu()
+            await openTab('Lines')
+
+            expect(getSectionItems('options-overlays-section')).toEqual([
+                'Show trend lines',
+                'Show moving average',
+                'Intervalsdays',
+                'Show confidence intervals',
+                'Confidence level%',
+                'Show alert threshold lines',
+            ])
         })
     })
 
@@ -293,80 +396,10 @@ describe('InsightDisplayConfig', () => {
         })
     })
 
-    describe('box plot display options', () => {
-        it('only shows "Show legend" in the Display section', async () => {
-            setupAndRender(makeTrendsQuery(ChartDisplayType.BoxPlot))
-            await openOptionsMenu()
-
-            const items = getDisplaySectionItems()
-            expect(items).toEqual(['Show legend', 'Exclude outliers'])
-        })
-
-        it('shows unit picker and Y-axis scale but not statistical analysis', async () => {
-            setupAndRender(makeTrendsQuery(ChartDisplayType.BoxPlot))
-            await openOptionsMenu()
-
-            expect(screen.getByText('Y-axis scale')).toBeInTheDocument()
-            expect(screen.queryByText('Statistical analysis')).not.toBeInTheDocument()
-        })
-    })
-
-    describe('slope graph display options', () => {
-        it('shows the "group by time period" interval picker — grouping defines the slope', async () => {
-            setupAndRender(makeTrendsQuery(ChartDisplayType.SlopeGraph))
-            expect(screen.getByText(/grouped/i)).toBeInTheDocument()
-        })
-
-        it('hides the compare picker', async () => {
-            setupAndRender(makeTrendsQuery(ChartDisplayType.SlopeGraph))
-            expect(screen.queryByText(/Compare to|Previous period/i)).not.toBeInTheDocument()
-        })
-
-        it('shows only the legend in the Display section', async () => {
-            setupAndRender(makeTrendsQuery(ChartDisplayType.SlopeGraph))
-            await openOptionsMenu()
-
-            const items = getDisplaySectionItems()
-            expect(items).toEqual(['Show legend'])
-            // None of the time-series-only options should leak in.
-            expect(items).not.toContain('Show values on series')
-            expect(items).not.toContain('Show trend lines')
-            expect(items).not.toContain('Show alert threshold lines')
-            expect(items).not.toContain('Show multiple Y-axes')
-            expect(items).not.toContain('Show annotations')
-        })
-
-        it('hides the Y-axis scale and statistical analysis sections', async () => {
-            setupAndRender(makeTrendsQuery(ChartDisplayType.SlopeGraph))
-            await openOptionsMenu()
-
-            expect(screen.queryByText('Y-axis scale')).not.toBeInTheDocument()
-            expect(screen.queryByText('Statistical analysis')).not.toBeInTheDocument()
-        })
-    })
-
     describe('line graph display options', () => {
         it('shows the "group by time period" interval picker (control for the slope graph)', async () => {
             setupAndRender(makeTrendsQuery(ChartDisplayType.ActionsLineGraph))
             expect(screen.getByText(/grouped/i)).toBeInTheDocument()
-        })
-
-        it('shows multiple options in the Display section', async () => {
-            setupAndRender(makeTrendsQuery(ChartDisplayType.ActionsLineGraph))
-            await openOptionsMenu()
-
-            const items = getDisplaySectionItems()
-            expect(items.some((item) => item.includes('Show legend'))).toBe(true)
-            expect(items).toContain('Show values on series')
-            expect(items).toContain('Show alert threshold lines')
-            expect(items).toContain('Show trend lines')
-        })
-
-        it('shows Y-axis scale section', async () => {
-            setupAndRender(makeTrendsQuery(ChartDisplayType.ActionsLineGraph))
-            await openOptionsMenu()
-
-            expect(screen.getByText('Y-axis scale')).toBeInTheDocument()
         })
 
         it('removes axis label option count after clearing a committed label', async () => {
@@ -376,7 +409,8 @@ describe('InsightDisplayConfig', () => {
             expect(optionsButton).toHaveTextContent(/\(1\)/)
 
             await openOptionsMenu()
-            const input = await screen.findByPlaceholderText('X-axis label')
+            await openTab('Axes')
+            const input = await screen.findByTestId('trends-x-axis-label-input')
             await userEvent.clear(input)
             expect(optionsButton).toHaveTextContent(/\(1\)/)
 

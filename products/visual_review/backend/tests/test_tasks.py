@@ -2,10 +2,14 @@
 
 import io
 from contextlib import contextmanager
+from datetime import UTC, datetime
 
 import pytest
+import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import patch
+
+from django.core.cache import cache
 
 from parameterized import parameterized
 from PIL import Image
@@ -21,9 +25,15 @@ from products.visual_review.backend.facade.enums import (
     RunType,
     SnapshotResult,
 )
-from products.visual_review.backend.logic import artifact_store, runs
-from products.visual_review.backend.models import RunSnapshot, ToleratedHash
-from products.visual_review.backend.tasks.tasks import post_approval_comment, process_run_diffs
+from products.visual_review.backend.logic import artifact_store, debt_digest, runs
+from products.visual_review.backend.models import Repo, RunSnapshot, ToleratedHash
+from products.visual_review.backend.tasks import tasks
+from products.visual_review.backend.tasks.tasks import (
+    post_approval_comment,
+    process_run_diffs,
+    send_visual_review_debt_digest,
+    send_visual_review_debt_digests,
+)
 from products.visual_review.backend.tests.conftest import (
     PRODUCT_DATABASES,
     VisualReviewTeamScopedTestMixin,
@@ -543,3 +553,62 @@ class TestPostApprovalCommentTask:
 
         retry_mock.assert_called_once()
         assert retry_mock.call_args.kwargs["countdown"] == 42
+
+
+class TestDebtDigestTask(VisualReviewTeamScopedTestMixin, BaseTest):
+    databases = PRODUCT_DATABASES
+
+    def test_a_held_lock_skips_the_run(self) -> None:
+        repo = Repo.objects.create(team_id=self.team.id, repo_external_id=55511, repo_full_name="org/locked")
+        cache.set(f"visual_review_debt_digest:{repo.id}", "locked", timeout=60)
+        try:
+            with patch("products.visual_review.backend.logic.debt_digest.send_debt_digest") as send:
+                send_visual_review_debt_digest(self.team.id, str(repo.id))
+        finally:
+            cache.delete(f"visual_review_debt_digest:{repo.id}")
+
+        # Nothing records what was sent, so an overlapping run would post every reminder twice.
+        assert send.call_count == 0
+
+    def test_the_fan_out_gives_each_child_a_deadline_and_skips_a_switched_off_repo(self) -> None:
+        repo = Repo.objects.create(
+            team_id=self.team.id, repo_external_id=55513, repo_full_name="org/fanned-out", debt_digest_enabled=True
+        )
+        switched_off = Repo.objects.create(
+            team_id=self.team.id, repo_external_id=55514, repo_full_name="org/switched-off"
+        )
+
+        with patch("products.visual_review.backend.tasks.tasks.send_visual_review_debt_digest.apply_async") as enqueue:
+            send_visual_review_debt_digests()
+
+        # A child without a deadline lets a drained backlog post yesterday's digest next to today's.
+        enqueued = {(call.kwargs["args"], call.kwargs["expires"]) for call in enqueue.call_args_list}
+        assert ((repo.team_id, str(repo.id)), tasks._DEBT_DIGEST_EXPIRY_SECONDS) in enqueued
+        assert str(switched_off.id) not in {args[1] for args, _ in enqueued}
+
+    @parameterized.expand(
+        [
+            ("monday_morning", datetime(2026, 9, 14, 7, 30, tzinfo=UTC), True),
+            # The evening run of a posting day only warms, or a team gets the same digest twice.
+            ("monday_evening", datetime(2026, 9, 14, 19, 30, tzinfo=UTC), False),
+            ("friday_morning", datetime(2026, 9, 18, 7, 30, tzinfo=UTC), False),
+        ]
+    )
+    def test_only_the_monday_morning_run_posts_and_the_others_warm_the_index(
+        self, _name: str, moment: datetime, posts: bool
+    ) -> None:
+        repo = Repo.objects.create(team_id=self.team.id, repo_external_id=55512, repo_full_name="org/scheduled")
+        try:
+            with (
+                time_machine.travel(moment, tick=False),
+                patch("products.visual_review.backend.logic.debt_digest.send_debt_digest") as send,
+                patch("products.visual_review.backend.logic.debt_digest.warm_story_index") as warm,
+            ):
+                send_visual_review_debt_digest(self.team.id, str(repo.id))
+        finally:
+            cache.delete(f"visual_review_debt_digest:{repo.id}")
+
+        assert (send.call_count == 1) is posts
+        assert (warm.call_count == 1) is not posts
+        if posts:
+            assert send.call_args.kwargs["mode"] == debt_digest.MODE_LIVE

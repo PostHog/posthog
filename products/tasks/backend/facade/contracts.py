@@ -23,6 +23,10 @@ from uuid import UUID
 from pydantic import Field
 from pydantic.dataclasses import dataclass
 
+# Re-exported: the exception is defined in an import-light module so ``storage.py`` can raise it
+# without dragging this module onto the ``django.setup()`` path.
+from products.tasks.backend.storage_errors import TaskRunLogAppendUnserialized as TaskRunLogAppendUnserialized
+
 
 class DesktopAccessReason(StrEnum):
     STARTUP_PLAN = "startup_plan"
@@ -859,3 +863,9 @@ class ComputeQuotaDenialReason(StrEnum):
 
     COMPUTE_QUOTA_EXHAUSTED = "posthog_code_billing_limit_exceeded"
     ORGANIZATION_DEACTIVATED = "organization_deactivated"
+
+
+@dataclass(frozen=True, kw_only=True)
+class TaskPullRequest:
+    url: str
+    state: str

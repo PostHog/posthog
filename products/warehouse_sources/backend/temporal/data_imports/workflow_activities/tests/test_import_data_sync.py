@@ -29,6 +29,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arr
     SchemaColumnTypeChangedException,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import SimpleSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import TemporaryHostResolutionError
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
     RESTClientNonRetryableError,
     RESTClientRetryableError,
@@ -286,6 +287,33 @@ async def test_source_classified_retryable_error_logged_as_warning_not_exception
             await module._handle_import_error(mock.MagicMock(), logger, error)
 
     assert exc_info.value.__cause__ is error
+    logger.awarning.assert_awaited_once()
+    logger.aexception.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_temporary_host_resolution_error_reraised_as_non_reportable():
+    # The host policy's own lookup answered "try again" rather than a verdict on the host, so the
+    # source is fine and a fresh attempt recovers. The message carries the host, so no source could
+    # list it in get_retryable_errors, and the activity interceptor captures whatever escapes unless
+    # it is a NonReportableError — without this branch a resolver outage mints one captured
+    # exception per attempt, across every direct SQL source at once.
+    error = TemporaryHostResolutionError("db.example.com")
+    source = mock.MagicMock(spec=SimpleSource)
+    source.get_non_retryable_errors.return_value = {}
+    source.get_retryable_errors.return_value = set()
+
+    logger = mock.MagicMock()
+    logger.awarning = mock.AsyncMock()
+    logger.aexception = mock.AsyncMock()
+    logger.adebug = mock.AsyncMock()
+
+    with mock.patch.object(module.SourceRegistry, "get_source", return_value=source):
+        with pytest.raises(NonReportableError) as exc_info:
+            await module._handle_import_error(mock.MagicMock(), logger, error)
+
+    assert exc_info.value.__cause__ is error
+    assert "db.example.com" in str(exc_info.value)
     logger.awarning.assert_awaited_once()
     logger.aexception.assert_not_awaited()
 

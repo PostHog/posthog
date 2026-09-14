@@ -239,6 +239,36 @@ class TestEEAuthenticationAPI(APILicensedTest):
         )
         self.assertEqual(len(mail.outbox), 0)
 
+    def test_sso_enforcement_follows_the_account_the_typed_address_resolves_to(self):
+        self.client.logout()
+        member = User.objects.create_and_join(self.organization, "member@victim.example", self.CONFIG_PASSWORD)
+        member.is_email_verified = True
+        member.save(update_fields=["is_email_verified"])
+        self.create_enforced_domain(domain="victim.example")
+
+        # Postgres lowercases `İ` (U+0130) to `i`, so the second address resolves to the member's account
+        # while its typed domain does not match the enforced one.
+        for typed_email in ("member@victim.example", "member@vİctim.example"):
+            with self.subTest(email=typed_email), self.settings(**GOOGLE_MOCK_SETTINGS):
+                precheck = self.client.post("/api/login/precheck", {"email": typed_email})
+                response = self.client.post("/api/login", {"email": typed_email, "password": self.CONFIG_PASSWORD})
+
+                self.assertEqual(precheck.json()["sso_enforcement"], "google-oauth2")
+                self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
+                self.assertEqual(response.json()["code"], "sso_enforced")
+                self.assertNotIn("_auth_user_id", self.client.session)
+
+    def test_cannot_reset_password_through_a_typed_domain_that_resolves_to_an_enforced_account(self):
+        User.objects.create_and_join(self.organization, "member@victim.example", self.CONFIG_PASSWORD)
+        self.create_enforced_domain(domain="victim.example")
+
+        with self.settings(**GOOGLE_MOCK_SETTINGS, EMAIL_HOST="localhost", SITE_URL="https://my.posthog.net"):
+            response = self.client.post("/api/reset/", {"email": "member@vİctim.example"})
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["code"], "sso_enforced")
+        self.assertEqual(len(mail.outbox), 0)
+
     @patch("posthog.models.organization_domain.logger.warning")
     def test_cannot_enforce_sso_without_a_license(self, mock_warning):
         self.client.logout()

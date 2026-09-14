@@ -267,8 +267,6 @@ _TEAM_ID_RE = re.compile(r"^/api/(?:environments|projects)/(\d+)/")
 
 _COALESCE_PATH_PATTERNS = [
     re.compile(r"^/api/(?:environments|projects)/\d+/query/$"),
-    re.compile(r"^/api/(?:environments|projects)/\d+/insights/trend/$"),  # legacy endpoint
-    re.compile(r"^/api/(?:environments|projects)/\d+/insights/funnel/$"),  # legacy endpoint
     re.compile(r"^/api/(?:environments|projects)/\d+/insights/\d+/$"),
 ]
 

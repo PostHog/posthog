@@ -65,10 +65,9 @@ export function deriveSessionLifecycleState(
     isInitializing = effectiveIsCloud;
     if (!effectiveIsCloud) {
       isInitializing =
-        !session ||
-        (sessionMatchesActiveRun &&
-          (session.status === "connecting" ||
-            (session.status === "connected" && expectsInitialPrompt)));
+        sessionMatchesActiveRun &&
+        (session.status === "connecting" ||
+          (session.status === "connected" && expectsInitialPrompt));
     }
   }
 
@@ -127,7 +126,7 @@ export function deriveSessionViewState(
     events,
     isPromptPending,
     promptStartedAt,
-    isInitializing,
+    isInitializing: isInitializing || (!effectiveIsCloud && !session),
     cloudBranch,
     errorTitle: session?.errorTitle,
     errorMessage:

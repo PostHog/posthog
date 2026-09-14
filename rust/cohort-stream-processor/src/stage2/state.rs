@@ -24,8 +24,9 @@ use serde::{Deserialize, Serialize};
 /// Every other writer (the live event path, the sweep, the merge apply, the cascade apply,
 /// reconcile) writes the bit as **recomputed stage-1 truth**. A seed apply trusts such a row even
 /// when its writer committed before a failed produce. This also applies to legacy seed writers
-/// that stored truth before producing; reconcile repairs those deliveries. See `handle_sweep` for
-/// why the sweep must derive retractions from transitions even over an agreeing register.
+/// that stored truth before producing; reconcile repairs those deliveries. See
+/// `workers::sweep_path::PreparedSweep::absorb` for why the sweep must derive retractions from
+/// transitions even over an agreeing register.
 ///
 /// When a row commits is a separate axis from what it records. The live event path and the merge
 /// apply commit with stage 1 and produce after. The single-leaf sweep commits after its produce

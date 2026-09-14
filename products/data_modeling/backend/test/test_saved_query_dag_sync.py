@@ -33,20 +33,22 @@ class TestGetDagId(BaseTest):
 
 @pytest.mark.django_db
 class TestSyncSavedQueryToDag(BaseTest):
-    def test_saved_query_resolution_requires_explicit_data_modeling_system_allowlist(self) -> None:
+    @parameterized.expand(
+        [
+            (
+                "account_summary",
+                "SELECT id, feature_requests.count, email_threads.count FROM system.accounts",
+            ),
+            ("customer_tasks", "SELECT id, name, account_id FROM system.customer_tasks"),
+        ]
+    )
+    def test_saved_query_resolution_requires_explicit_data_modeling_system_allowlist(
+        self, name: str, query: str
+    ) -> None:
         saved_query = DataWarehouseSavedQuery(
-            name="account_summary",
+            name=name,
             team=self.team,
-            query={
-                "kind": "HogQLQuery",
-                "query": """
-                    SELECT
-                        id,
-                        feature_requests.count,
-                        email_threads.count
-                    FROM system.accounts
-                """,
-            },
+            query={"kind": "HogQLQuery", "query": query},
         )
 
         with self.assertRaises(TableAccessDeniedError):

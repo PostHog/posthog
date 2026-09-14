@@ -19,12 +19,14 @@ from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.event_usage import report_user_action
 from posthog.exceptions import QuotaLimitExceeded
 from posthog.models import User
 from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.search_attributes import POSTHOG_TEAM_ID_KEY
 
+from products.replay_vision.backend.api.scanners import scanner_lifecycle_properties
 from products.replay_vision.backend.billing import observation_credits_for_model
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerType
@@ -56,6 +58,29 @@ from products.replay_vision.backend.temporal.evaluation_types import EvaluatePro
 from products.replay_vision.backend.temporal.metrics import record_scanner_limit_reached
 
 logger = structlog.get_logger(__name__)
+
+
+def _suggestion_properties(suggestion: ReplayScannerPromptSuggestion) -> dict[str, Any]:
+    """Shared shape for the calibration-loop events, so one funnel spans generate to apply.
+
+    Config values stay out: a rewritten prompt is customer content, and the changed field names
+    already say what the recommendation touched."""
+    return {
+        "suggestion_id": str(suggestion.id),
+        "scanner_id": str(suggestion.scanner_id),
+        "suggestion_status": suggestion.status,
+        "based_on_up": suggestion.based_on_up,
+        "based_on_down": suggestion.based_on_down,
+        "changed_fields": sorted(
+            {
+                str(change["field"])
+                for change in suggestion.changes or []
+                if isinstance(change, dict) and "field" in change
+            }
+        ),
+        # Was this recommendation tested against rated results before the user acted on it?
+        "was_evaluated": bool(suggestion.evaluation),
+    }
 
 
 class PromptEvaluationResultSerializer(serializers.Serializer):
@@ -323,6 +348,17 @@ class ReplayScannerPromptSuggestionViewSet(
             if str(e) == "no rated observations":
                 raise ValidationError("Rate some results first, then generate a suggestion from them.")
             raise ValidationError("Couldn't generate a suggestion right now. Try again in a moment.")
+        report_user_action(
+            user,
+            "replay_vision_prompt_suggestion_generated",
+            {
+                **_suggestion_properties(suggestion),
+                "scanner_type": scanner.scanner_type,
+                "rated_count": self._rated_count(scanner),
+            },
+            team=self.team,
+            request=request,
+        )
         return Response(ReplayScannerPromptSuggestionSerializer(suggestion).data)
 
     @extend_schema(
@@ -369,12 +405,47 @@ class ReplayScannerPromptSuggestionViewSet(
             message = scanner_config_error(ScannerType(scanner.scanner_type), config)
             if message:
                 raise ValidationError(f"This recommendation can't be applied: {message}")
+            # Which config keys the applied version actually moves. The user can edit the recommendation
+            # before applying, so this is not always the same as the suggestion's own changed_fields.
+            before_config = scanner.scanner_config or {}
+            applied_fields = sorted(
+                key
+                for key in {*before_config, *config}
+                # Matching proposers.set_change: a key the config only materializes with its own
+                # default (absent to False or "") moves nothing, so it is not an applied change.
+                if before_config.get(key) != config.get(key) and (key in before_config or config.get(key))
+            )
             scanner.scanner_config = config
             scanner.save(update_fields=["scanner_config"])
             suggestion.status = PromptSuggestionStatus.APPLIED
             suggestion.applied_at = timezone.now()
             suggestion.applied_by = cast(User, request.user)
             suggestion.save(update_fields=["status", "applied_at", "applied_by"])
+        user = cast(User, request.user)
+        properties = {
+            **_suggestion_properties(suggestion),
+            "scanner_type": scanner.scanner_type,
+            "applied_fields": applied_fields,
+            "was_edited": edited_config is not None,
+        }
+        report_user_action(user, "replay_vision_prompt_suggestion_applied", properties, team=self.team, request=request)
+        # This endpoint writes the config directly rather than through the scanner serializer, so it has to
+        # report the edit itself. Without it, an applied recommendation is invisible to every analysis of
+        # scanner edits, and calibration looks like it changes nothing.
+        # Only when the config moved, matching the serializer: a caller can apply a recommendation it
+        # edited back to the current config, and counting that as an edit inflates the edit metrics.
+        if applied_fields:
+            report_user_action(
+                user,
+                "replay_vision_scanner_edited",
+                {
+                    **scanner_lifecycle_properties(scanner),
+                    "edited_fields": ["scanner_config"],
+                    "edit_source": "prompt_suggestion",
+                },
+                team=self.team,
+                request=request,
+            )
         return Response(ReplayScannerPromptSuggestionSerializer(suggestion).data)
 
     @extend_schema(
@@ -492,6 +563,21 @@ class ReplayScannerPromptSuggestionViewSet(
             suggestion.evaluation = previous_evaluation
             suggestion.save(update_fields=["evaluation"])
             raise
+        # Reported after the workflow starts, so the count only covers tests that really ran.
+        report_user_action(
+            cast(User, request.user),
+            "replay_vision_prompt_suggestion_evaluated",
+            {
+                **_suggestion_properties(suggestion),
+                "scanner_type": scanner.scanner_type,
+                "session_count": planned,
+                "credits": planned_credits,
+                # A repeat test means the user edited the recommendation and is checking it again.
+                "is_retest": previous_evaluation is not None,
+            },
+            team=self.team,
+            request=request,
+        )
         return Response(ReplayScannerPromptSuggestionSerializer(suggestion).data)
 
     @extend_schema(
@@ -516,4 +602,11 @@ class ReplayScannerPromptSuggestionViewSet(
                 raise ValidationError("Only the current recommendation can be dismissed.")
             suggestion.status = PromptSuggestionStatus.DISMISSED
             suggestion.save(update_fields=["status"])
+        report_user_action(
+            cast(User, request.user),
+            "replay_vision_prompt_suggestion_dismissed",
+            {**_suggestion_properties(suggestion), "scanner_type": scanner.scanner_type},
+            team=self.team,
+            request=request,
+        )
         return Response(ReplayScannerPromptSuggestionSerializer(suggestion).data)

@@ -14,6 +14,7 @@ from temporalio import activity
 from posthog.dataclasses import frozen
 from posthog.temporal.common.logger import get_logger
 
+from products.data_catalog.backend.facade import api as data_catalog_facade
 from products.data_modeling.backend.facade import api as data_modeling_facade
 from products.warehouse_sources.backend.facade import api as warehouse_facade
 
@@ -128,13 +129,18 @@ class _LiveSubjects:
 
     table_ids: frozenset[UUID]
     view_ids: frozenset[UUID]
+    metric_ids: frozenset[UUID] = frozenset()
 
-    def alive_q(self, table_field: str = "subject_uuid", view_field: str = "subject_uuid") -> Q:
+    def alive_q(
+        self, table_field: str = "subject_uuid", view_field: str = "subject_uuid", metric_field: str = "subject_uuid"
+    ) -> Q:
         # An explicit predicate per known kind, so a row of a kind this sweep does not know reads as
         # dead rather than as alive by default. Runs and suites denormalize the subject into one
         # column; a check carries it as whichever of its two foreign keys is set.
-        return Q(**{"subject_type": SubjectType.TABLE, f"{table_field}__in": self.table_ids}) | Q(
-            **{"subject_type": SubjectType.VIEW, f"{view_field}__in": self.view_ids}
+        return (
+            Q(**{"subject_type": SubjectType.TABLE, f"{table_field}__in": self.table_ids})
+            | Q(**{"subject_type": SubjectType.VIEW, f"{view_field}__in": self.view_ids})
+            | Q(**{"subject_type": SubjectType.METRIC, f"{metric_field}__in": self.metric_ids})
         )
 
 
@@ -171,11 +177,12 @@ def _live_subjects(team_id: int) -> _LiveSubjects:
     return _LiveSubjects(
         table_ids=frozenset(warehouse_facade.all_queryable_table_names(team_id)),
         view_ids=frozenset(UUID(view_id) for view_id in data_modeling_facade.all_saved_query_names(team_id)),
+        metric_ids=frozenset(data_catalog_facade.live_metric_ids(team_id)),
     )
 
 
 def _delete_dead_checks(team_id: int, live: _LiveSubjects, grace: datetime) -> int:
-    alive = live.alive_q(table_field="table_id", view_field="saved_query_id")
+    alive = live.alive_q(table_field="table_id", view_field="saved_query_id", metric_field="metric_id")
     dead = DataQualityCheck.objects.for_team(team_id).filter(created_at__lt=grace).exclude(alive)
     return _delete_in_batches(dead).get(DataQualityCheck._meta.label, 0)
 

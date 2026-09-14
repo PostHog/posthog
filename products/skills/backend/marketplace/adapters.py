@@ -27,7 +27,6 @@ from .packaging import (
     MAX_BUNDLE_SKILLS,
     SPEC_DESCRIPTION_MAX_LENGTH,
     SkillExport,
-    SkillFileExport,
     SkillStub,
     archive_entry_bytes,
     build_marketplace_tree,
@@ -89,23 +88,9 @@ def sandbox_skills_flag_distinct_id(user: User) -> str:
 _SKIPPED_LOG_SAMPLE_SIZE = 20
 
 
-def skill_to_export(skill: LLMSkill, files: list[LLMSkillFile]) -> SkillExport:
-    return SkillExport(
-        name=skill.name,
-        description=skill.description,
-        body=skill.body,
-        version=skill.version,
-        license=skill.license or "",
-        compatibility=skill.compatibility or "",
-        allowed_tools=list(skill.allowed_tools or []),
-        metadata=dict(skill.metadata or {}),
-        files=[SkillFileExport(path=f.path, content=f.content, content_type=f.content_type) for f in files],
-    )
-
-
 def load_skill_export(skill: LLMSkill) -> SkillExport:
     files = list(LLMSkillFile.objects.filter(skill=skill).order_by("path"))
-    return skill_to_export(skill, files)
+    return skill.to_export(files)
 
 
 def synthesize_team_marketplace_repo(team: Team) -> SynthesizedRepo:
@@ -163,7 +148,7 @@ def build_team_marketplace_tree(team: Team, version: str | None = None) -> FileT
             skipped_oversize.append(skill.name)
             continue
         total_bytes += skill_bytes
-        exports.append(skill_to_export(skill, files))
+        exports.append(skill.to_export(files))
     if skipped_unsafe:
         logger.warning("skills_marketplace_skipped_unsafe_skills", team_id=team.id, skills=skipped_unsafe)
     if skipped_oversize:
@@ -424,7 +409,7 @@ def _name_and_description_are_valid(name: str, description: str) -> bool:
 _GENERATED_ENTRIES = ("SKILL.md", CODEX_METADATA_PATH)
 
 
-def _bundle_paths_are_safe(paths: list[str]) -> bool:
+def bundle_paths_are_safe(paths: list[str]) -> bool:
     """True when a skill's archive entries unpack cleanly into a home directory on any filesystem.
 
     Every stored path must already be canonical (a legacy ``refs\\guide.md`` would be archived
@@ -485,7 +470,7 @@ def _walk_full(candidates: QuerySet[LLMSkill], limit: int) -> _BundleWalk:
             .annotate(content_bytes=_octet_length(F("content")))
             .values_list("path", "content_bytes")
         )
-        if not _bundle_paths_are_safe([path for path, _ in sized_files]):
+        if not bundle_paths_are_safe([path for path, _ in sized_files]):
             skipped_count = _record_skip(skipped_count, skipped_sample, name)
             continue
         # The stored bytes are a floor for the rendered tree, so a skill that fails here would fail
@@ -502,7 +487,7 @@ def _walk_full(candidates: QuerySet[LLMSkill], limit: int) -> _BundleWalk:
             # it either, so it is neither included, skipped nor dropped.
             continue
         files = list(LLMSkillFile.objects.filter(skill=skill).order_by("path"))
-        export = skill_to_export(skill, files)
+        export = skill.to_export(files)
         if validate_for_export(export):
             skipped_count = _record_skip(skipped_count, skipped_sample, name)
             continue

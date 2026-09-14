@@ -463,8 +463,7 @@ class DataWarehouseSavedQuerySerializerMixin:
             return jobs[0] if jobs else None
         except AttributeError:
             return (
-                DataModelingJob.objects.filter(saved_query_id=view.id)
-                .exclude(engine=DataModelingJobEngine.DUCKGRES)
+                DataModelingJob.objects.filter(saved_query_id=view.id, engine=DataModelingJobEngine.CLICKHOUSE)
                 .order_by("-last_run_at")
                 .first()
             )
@@ -520,22 +519,18 @@ class DataWarehouseSavedQuerySerializerMixin:
 
     @extend_schema_field(serializers.ListField(child=serializers.DictField()))
     def get_columns(self, view: DataWarehouseSavedQuery) -> list[SerializedField]:
-        query = view.query or {}
-        if not isinstance(query, dict) or "query" not in query:
+        # `hogql_fields` rather than `hogql_definition`, which would read the SQL body the list
+        # page defers.
+        hogql_fields = view.hogql_fields()
+        if not hogql_fields:
             return []
 
-        team_id = self.context["team_id"]  # type: ignore[attr-defined]
-        database = self.context.get("database", None)  # type: ignore[attr-defined]
-        if not database:
-            database = Database.create_for(
-                team_id=team_id,
-                user=cast(User, self.context["request"].user),  # type: ignore[attr-defined]
-            )
-
-        context = HogQLContext(team_id=team_id, database=database)
+        # `hogql_fields` holds concrete `DatabaseField` subclasses only, and `serialize_fields`
+        # reads the context database for none of those, so this needs no HogQL database build.
+        context = HogQLContext(team_id=self.context["team_id"])  # type: ignore[attr-defined]
 
         descriptions = view_annotation_map(view)
-        fields = serialize_fields(view.hogql_definition().fields, context, view.name_chain, table_type="external")
+        fields = serialize_fields(hogql_fields, context, view.name_chain, table_type="external")
         return [
             SerializedField(
                 key=field.name,
@@ -764,6 +759,7 @@ class DataWarehouseSavedQuerySerializer(
             "incremental_state",
             "created_by",
             "created_at",
+            "updated_at",
             "description",
             "sync_frequency",
             "sync_frequency_bounds",
@@ -789,6 +785,7 @@ class DataWarehouseSavedQuerySerializer(
             "id",
             "created_by",
             "created_at",
+            "updated_at",
             "columns",
             "incremental_state",
             "status",
@@ -1449,12 +1446,6 @@ class IncrementalEligibilitySerializer(serializers.Serializer):
     )
 
 
-# Same bound other SQL-accepting endpoints put on caller-supplied queries (see
-# `posthog/api/query_performance_proxy.py`): parsing runs synchronously on an API worker, so the
-# body has to be capped before it reaches the parser.
-CHECK_INCREMENTAL_MAX_QUERY_LENGTH = 64 * 1024
-
-
 class CheckIncrementalThrottle(PersonalApiKeyOrUserRateThrottle):
     """check_incremental parses caller-supplied SQL synchronously on a read scope. The editor calls
     it on a debounce, so a per-caller budget far above typing speed only stops scripted floods of
@@ -1462,6 +1453,11 @@ class CheckIncrementalThrottle(PersonalApiKeyOrUserRateThrottle):
 
     scope = "check_incremental"
     rate = "120/minute"
+
+
+# The check parses synchronously on an API worker. The bound keeps a scripted flood of large bodies
+# from tying up workers while sitting well above any view the editor produces.
+CHECK_INCREMENTAL_MAX_QUERY_LENGTH = 256 * 1024
 
 
 class CheckIncrementalSerializer(serializers.Serializer):
@@ -1530,7 +1526,10 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
     def get_serializer_context(self) -> dict[str, Any]:
         context = super().get_serializer_context()
         request_data = getattr(self.request, "data", {})
-        should_include_database = self.action in {"create", "list", "retrieve"} or (
+        # Read actions stay out: building a database selects every view in the team, SQL body
+        # included, and neither serializer reads it. Only the write paths below do, to check a
+        # name collision and to resolve a query's source tables.
+        should_include_database = self.action == "create" or (
             self.action in {"update", "partial_update"} and ("name" in request_data or "query" in request_data)
         )
 
@@ -1551,12 +1550,15 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
                 "column_annotations",
                 Prefetch(
                     "datamodelingjob_set",
-                    queryset=DataModelingJob.objects.exclude(engine=DataModelingJobEngine.DUCKGRES).order_by(
+                    queryset=DataModelingJob.objects.filter(engine=DataModelingJobEngine.CLICKHOUSE).order_by(
                         "-last_run_at"
                     )[:1],
                     to_attr="jobs",
                 ),
             )
+            # Both serializers read `folder.id` and `folder.name`, so without the join Django
+            # fetches the folder once per foldered view.
+            .select_related("folder")
             .exclude(deleted=True)
             .order_by(self.ordering)
         )
@@ -1564,7 +1566,11 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
         # Hide endpoint-origin saved queries from the list view — they belong to the endpoints UI.
         # Allow retrieve so the Node detail page can fetch them by ID.
         if self.action == "list":
-            base_queryset = base_queryset.exclude(origin=DataWarehouseSavedQuery.Origin.ENDPOINT)
+            # The list serializer reads none of these large JSONB columns. Left in the SELECT,
+            # Postgres detoasts each one per view, and a page holds up to a thousand views.
+            base_queryset = base_queryset.exclude(origin=DataWarehouseSavedQuery.Origin.ENDPOINT).defer(
+                "query", "external_tables", "incremental_state"
+            )
 
         # Detect whether we should include managed views in the queryset
         is_managed_viewset_enabled = posthoganalytics.feature_enabled(
@@ -1588,12 +1594,11 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
         if not is_managed_viewset_enabled:
             base_queryset = base_queryset.filter(managed_viewset__isnull=True)
 
-        # Only annotate with latest activity ID for list operations, not for single object retrieves
-        # This avoids the annotation when we're getting a single object for update/create/etc.
-        action = self.action if hasattr(self, "action") else None
-        if action == "list" or action == "retrieve":
-            # Add latest query-changing activity id annotation to avoid N+1 queries. Scoped to query
-            # edits (see QUERY_CHANGE_ACTIVITY_FILTER) so materialization syncs don't advance the head.
+        # Only the detail serializer returns `latest_history_id`, and the subquery costs a jsonb
+        # key-path filter the GIN index on `detail` cannot serve, so keep it off the list page.
+        if getattr(self, "action", None) == "retrieve":
+            # Scoped to query edits (see QUERY_CHANGE_ACTIVITY_FILTER) so materialization syncs
+            # don't advance the head.
             latest_activity = (
                 ActivityLog.objects.filter(
                     scope="DataWarehouseSavedQuery",
@@ -1682,7 +1687,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
             clear_incremental_state(saved_query)
 
         try:
-            materialize_saved_query(saved_query)
+            materialize_saved_query(saved_query, triggered_by_id=request.user.pk)
         except MissingDagNodeError:
             raise exceptions.ValidationError(
                 detail="This view isn't fully set up to materialize. Save the query again, then try syncing."
@@ -1857,7 +1862,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
         # Enable materialization - this handles model path setup and schedule creation
         # If this fails, it will set is_materialized = False
         try:
-            saved_query.schedule_materialization(trigger_immediate_run=True)
+            saved_query.schedule_materialization(trigger_immediate_run=True, triggered_by_id=request.user.pk)
         except (UnsatisfiableFrequencyError, UnsupportedFrequencyTargetError):
             # The check above already refused every cadence the lineage forbids, so reaching here
             # means the lineage moved mid-request. Say so plainly rather than forwarding a message
