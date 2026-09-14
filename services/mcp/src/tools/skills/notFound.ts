@@ -105,9 +105,10 @@ export function formatSkillLookupMiss(
         }
     }
 
-    // A `version` or a `file_path` proves the caller already holds a store skill,
-    // so only the bare name lookup can be a built-in skill asked for in the wrong
-    // place.
+    // A pinned `version` proves the caller already holds a store skill, so the
+    // version message above stands. A `file_path` proves nothing: the store
+    // answers a file read on an unknown name with the same skill-level 404, so
+    // that read lands here too.
     if (hint?.isBuiltIn(skillName)) {
         return {
             kind: 'builtin',
@@ -118,7 +119,7 @@ export function formatSkillLookupMiss(
                   ].join('\n')
                 : [
                       `"${skillName}" is a built-in PostHog skill, not a skill in this project's skills store, and this connection cannot load built-in skills.`,
-                      'Use it from your installed PostHog skills if you have them. Otherwise continue with the tool description, which carries the essential steps.',
+                      `Read it from your installed PostHog skills (\`.agents/skills/${skillName}/SKILL.md\`) if you have them. Otherwise continue with the tool description.`,
                   ].join('\n'),
         }
     }
