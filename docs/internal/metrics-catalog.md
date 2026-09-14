@@ -18,3 +18,9 @@ The catalog shows the empty state only after a successful request returns no usa
 
 Each sparkline needs an explicit width and height.
 The card gives the shared `Sparkline` component `w-full h-full` inside a fixed-height container.
+
+## Tests
+
+The component tests check the POST batch after the queue delay.
+The Storybook tests use an explicit container width and wait for a visible chart.
+They do not wait for every loading placeholder to disappear: offscreen cards stay unloaded until they enter view.

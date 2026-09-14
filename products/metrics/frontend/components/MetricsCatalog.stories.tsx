@@ -48,10 +48,14 @@ const meta: Meta<typeof MetricsCatalog> = {
         }),
     ],
     parameters: {
-        testOptions: { snapshotBrowsers: ['chromium'], waitForSelector: 'canvas[aria-label]' },
+        testOptions: {
+            snapshotBrowsers: ['chromium'],
+            waitForLoadersToDisappear: false,
+            waitForSelector: 'canvas[aria-label]',
+        },
     },
     render: () => (
-        <div className="h-[600px] overflow-auto">
+        <div className="h-[600px] w-[1200px] max-w-full overflow-auto">
             <MetricsCatalog />
         </div>
     ),
