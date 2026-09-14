@@ -99,6 +99,14 @@
   animation: quill-section-loading-swoop 1.5s linear infinite;
 }
 
+/* No swoop when the user prefers reduced motion; keep a static filled track. */
+@media (prefers-reduced-motion: reduce) {
+  .quill-section-loading--active::after {
+    animation: none;
+    opacity: 0.6;
+  }
+}
+
 /* Transform only: animating `left`/`width` forced a layout on every frame. */
 @keyframes quill-section-loading-swoop {
   from {
