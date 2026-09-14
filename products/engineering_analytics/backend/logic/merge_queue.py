@@ -41,8 +41,7 @@ from datetime import timedelta
 # keeps the pattern backslash-free, so it survives embedding in a HogQL string literal unescaped.
 _SOURCE_PR_PATTERN = "^(?:trunk-merge/|gh-readonly-queue/[^/]+/)pr-([0-9]+)[/-]"
 
-# The branch namespaces the two queues push into, which is a wider net than the shapes above: a
-# batched or otherwise unresolvable gate branch still sits in one of them.
+# Wider than _SOURCE_PR_PATTERN: a batched or otherwise unresolvable gate branch still sits here.
 _GATE_BRANCH_PREFIXES = ("trunk-merge/", "gh-readonly-queue/")
 
 # The identities a real merge queue acts as. GitHub's native queue pushes gate branches without
@@ -83,13 +82,10 @@ def looks_like_merge_queue_branch_expr(branch_column: str) -> str:
 
 
 def in_merge_queue_namespace_expr(branch_column: str) -> str:
-    """HogQL predicate on the queue's branch namespace, wider than either shape above.
+    """HogQL predicate on the queue's branch namespace, for spend totals only.
 
-    A spend total wants every branch the queue pushed, including one whose exact shape
-    ``_SOURCE_PR_PATTERN`` cannot resolve to a single PR (Trunk's batched ``trunk-merge/gr-*``, a
-    base branch containing a slash). Splitting a sum is the worst a false positive can do here, so
-    the shape needs no corroboration; anything that decides what a row *is* must use
-    ``merge_queue_branch_expr``.
+    A false positive can only misplace a sum, so the shape needs no corroboration. Anything that
+    decides what a row *is* must use ``merge_queue_branch_expr``.
     """
     tests = " OR ".join(f"startsWith(ifNull({branch_column}, ''), '{prefix}')" for prefix in _GATE_BRANCH_PREFIXES)
     return f"({tests})"

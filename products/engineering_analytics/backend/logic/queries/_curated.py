@@ -369,9 +369,7 @@ class CuratedGitHubSource:
                     -- s IS NULL: run_started_at parses to NULL on a bad/missing timestamp, and argMax
                     -- over an all-NULL group returns NULL — count those as pending, not vanished.
                     countIf(s IS NULL OR s != 'completed') AS pending,
-                    -- The fourth branch completes the partition. Without it a PR whose runs were all
-                    -- cancelled has passing = failing = pending = 0, which reads as "nothing failed,
-                    -- nothing pending" and therefore as passing.
+                    -- Completes the partition, so an all-cancelled PR is not read as passing.
                     countIf(
                         s = 'completed'
                         AND ifNull(c, '') NOT IN ('success', {DECISIVE_FAILURE_CONCLUSIONS_SQL})

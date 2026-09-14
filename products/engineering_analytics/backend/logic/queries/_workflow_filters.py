@@ -39,9 +39,7 @@ def success_rate_expr(scope: str | None = None) -> str:
 
 
 def failure_rate_expr(scope: str | None = None) -> str:
-    """The complement of ``success_rate_expr``, over the same denominator. Surfaces that report how
-    often something fails read this rather than rolling their own, so a fail rate and a pass rate on
-    one screen always partition the same population."""
+    """The complement of ``success_rate_expr`` over the same denominator."""
     guard = f" AND {scope}" if scope else ""
     decisive = f"status = 'completed' AND conclusion IN ({DECISIVE_FAILURE_CONCLUSIONS_SQL})"
     return f"countIf({decisive}{guard}) / nullIf(countIf({CONCLUSIVE_RUN_CONDITION}{guard}), 0)"

@@ -32,12 +32,8 @@ from products.engineering_analytics.backend.logic.queries._workflow_filters impo
 
 _LIMIT = 200
 
-# A job GitHub lists but never ran (skipped by a condition) carries started_at = created_at, so it is
-# not a sample of anything the queue did. ifNull is load-bearing per SPEC §6: `conclusion` is a
-# passed-through Nullable(String), and a bare `!=` against NULL yields NULL, which quantileIf drops.
-# That would take every still-running job out of the percentile, and a job waiting on a busy runner
-# pool is exactly the sample this measure exists to show. A job that never started needs no clause of
-# its own: the builder leaves its queue_seconds NULL, which the aggregate already ignores.
+# A skipped job is stamped started_at = created_at, so it never queued. `conclusion` is Nullable and
+# NULL != 'skipped' is NULL, which quantileIf drops; the ifNull keeps still-running jobs in the sample.
 _EXECUTED_JOB_CONDITION = "ifNull(conclusion, '') != 'skipped'"
 
 # De-shard + de-template in SQL so grouping happens server-side over millions of job rows.
@@ -61,15 +57,10 @@ _AGGREGATE_SELECT = f"""
         count() AS job_count,
         uniq(name) AS shard_count,
         uniq(run_id) AS runs_in,
-        -- Over jobs that actually queued. A skipped job is stamped started_at = created_at, so
-        -- leaving those in drags the median toward zero for every conditional job.
         quantileIf(0.5)(queue_seconds, {_EXECUTED_JOB_CONDITION}) AS queue_p50_seconds,
         quantileIf(0.5)(duration_seconds, {DURATION_PERCENTILE_CONDITION}) AS p50_seconds,
         quantileIf(0.95)(duration_seconds, {DURATION_PERCENTILE_CONDITION}) AS p95_seconds,
-        -- The same verdict rule the workflow pass rate uses (SPEC §6): skipped, cancelled, neutral
-        -- and action-required jobs reached no pass-or-fail verdict, so they stay in job_count but
-        -- not in the rate. Counting them made a conditional job that fails half the time it runs
-        -- read as a few percent.
+        -- Jobs without a verdict (skipped, cancelled, neutral) stay in job_count but not in the rate.
         {failure_rate_expr()} AS failure_rate,
         countIf(run_attempt > 1) AS retry_job_count
     FROM __JOBS_SOURCE__ AS j
