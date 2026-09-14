@@ -452,6 +452,14 @@ class EmailChannelOperationResponseSerializer(serializers.Serializer):
     ok = serializers.BooleanField(read_only=True, help_text="Whether the operation succeeded.")
 
 
+# The failure half of the @extend_schema responses map, shared so a new channel-settings
+# endpoint declares the same error shape without copying the block.
+CHANNEL_ERROR_RESPONSES = {
+    400: OpenApiResponse(response=EmailChannelErrorSerializer),
+    404: OpenApiResponse(response=EmailChannelErrorSerializer),
+}
+
+
 class EmailConfirmForwardingResponseSerializer(EmailChannelOperationResponseSerializer):
     confirmation_url = serializers.URLField(
         read_only=True,
@@ -888,11 +896,7 @@ class EmailSetRelaySenderView(APIView):
 
     @extend_schema(
         request=EmailRelaySenderSerializer,
-        responses={
-            200: EmailChannelOperationResponseSerializer,
-            400: OpenApiResponse(response=EmailChannelErrorSerializer),
-            404: OpenApiResponse(response=EmailChannelErrorSerializer),
-        },
+        responses={200: EmailChannelOperationResponseSerializer, **CHANNEL_ERROR_RESPONSES},
     )
     def post(self, request: Request, *args, **kwargs) -> Response:
         result = _get_team_from_request(request)
