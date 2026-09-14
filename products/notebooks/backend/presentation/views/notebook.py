@@ -71,6 +71,7 @@ from products.notebooks.backend.facade.compute_pricing import (
     get_compute_rates,
 )
 from products.notebooks.backend.facade.contracts import NotebookRunBusy, TeamRunCapacityFull
+from products.notebooks.backend.facade.kernel_sandbox_usage import record_sandbox_ended
 from products.notebooks.backend.facade.sql_v2 import acquire_run_slots, release_run_slots
 from products.notebooks.backend.facade.widgets import (
     WidgetConflictError,
@@ -88,7 +89,6 @@ from products.notebooks.backend.facade.widgets import (
     start_widget_generation,
 )
 from products.notebooks.backend.kernel_runtime import build_notebook_sandbox_config, get_kernel_runtime
-from products.notebooks.backend.kernel_sandbox_usage import record_sandbox_ended
 from products.notebooks.backend.models import KernelRuntime, Notebook, NotebookNodeRun
 from products.notebooks.backend.presentation.widget_serializers import (
     WidgetCancelRequestSerializer,
