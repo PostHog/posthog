@@ -392,18 +392,22 @@ describe('HogFunctionHandler', () => {
     })
 
     describe('push subscription freshness', () => {
-        const pushTemplate = {
-            key: 'device',
-            type: 'push_subscription',
-            required: true,
-        }
+        let pushHandler: HogFunctionHandler
+
+        beforeEach(() => {
+            // The executor gives the push step its own handler instance, and that channel is what
+            // marks a send as irreversible. A template input type does not: template-native-push
+            // declares none.
+            pushHandler = new HogFunctionHandler(
+                mockHogFlowFunctionsService as any,
+                mockRecipientPreferencesService as any,
+                mockEmailValidationService as any,
+                'push'
+            )
+        })
 
         it('re-reads the person before resolving a push subscription so an opt-out during a wait is seen', async () => {
             const buildHogFunctionInvocationSpy = jest.spyOn(mockHogFlowFunctionsService, 'buildHogFunctionInvocation')
-            jest.spyOn(mockHogFlowFunctionsService, 'buildHogFunction').mockReturnValue({
-                ...template,
-                inputs_schema: [pushTemplate],
-            } as any)
 
             const optedOutPerson = { id: 'p1', name: 'p1', url: '', properties: {} }
             invocation.refreshPerson = jest.fn().mockResolvedValue({
@@ -416,18 +420,13 @@ describe('HogFunctionHandler', () => {
                 queuePriority: 0,
             })
 
-            await hogFunctionHandler.execute({ invocation, action, result: invocationResult })
+            await pushHandler.execute({ invocation, action, result: invocationResult })
 
             expect(invocation.refreshPerson).toHaveBeenCalled()
             expect(buildHogFunctionInvocationSpy.mock.calls[0][2].person).toEqual(optedOutPerson)
         })
 
         it('carries the refreshed person onto the result so the next action in this dequeue sees it', async () => {
-            jest.spyOn(mockHogFlowFunctionsService, 'buildHogFunction').mockReturnValue({
-                ...template,
-                inputs_schema: [pushTemplate],
-            } as any)
-
             const optedOutPerson = { id: 'p1', name: 'p1', url: '', properties: {} }
             invocation.refreshPerson = jest.fn().mockResolvedValue({
                 person: optedOutPerson,
@@ -439,17 +438,13 @@ describe('HogFunctionHandler', () => {
                 queuePriority: 0,
             })
 
-            await hogFunctionHandler.execute({ invocation, action, result: invocationResult })
+            await pushHandler.execute({ invocation, action, result: invocationResult })
 
             expect(invocationResult.invocation.person).toEqual(optedOutPerson)
         })
 
         it('keeps the dequeue read when the refresh finds no person, so a transient miss is not read as an opt-out', async () => {
             const buildHogFunctionInvocationSpy = jest.spyOn(mockHogFlowFunctionsService, 'buildHogFunctionInvocation')
-            jest.spyOn(mockHogFlowFunctionsService, 'buildHogFunction').mockReturnValue({
-                ...template,
-                inputs_schema: [pushTemplate],
-            } as any)
 
             const dequeuedPerson = invocation.person
             invocation.refreshPerson = jest.fn().mockResolvedValue({ person: undefined, filterGlobals: {} as any })
@@ -459,12 +454,27 @@ describe('HogFunctionHandler', () => {
                 queuePriority: 0,
             })
 
-            await hogFunctionHandler.execute({ invocation, action, result: invocationResult })
+            await pushHandler.execute({ invocation, action, result: invocationResult })
 
             expect(buildHogFunctionInvocationSpy.mock.calls[0][2].person).toEqual(dequeuedPerson)
         })
 
-        it('does not re-read the person for a function with no push subscription input', async () => {
+        it('keeps the dequeue read and does not fail the step when the refresh throws', async () => {
+            const buildHogFunctionInvocationSpy = jest.spyOn(mockHogFlowFunctionsService, 'buildHogFunctionInvocation')
+
+            const dequeuedPerson = invocation.person
+            invocation.refreshPerson = jest.fn().mockRejectedValue(new Error('personhog unavailable'))
+
+            const invocationResult = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
+                queue: 'hog',
+                queuePriority: 0,
+            })
+
+            await expect(pushHandler.execute({ invocation, action, result: invocationResult })).resolves.toBeDefined()
+            expect(buildHogFunctionInvocationSpy.mock.calls[0][2].person).toEqual(dequeuedPerson)
+        })
+
+        it('does not re-read the person for a non-push channel', async () => {
             invocation.refreshPerson = jest.fn()
 
             const invocationResult = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {

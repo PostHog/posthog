@@ -8,6 +8,7 @@ import {
 } from '~/cdp/utils/workflow-step-dispatch-key'
 import { capWorkflowStepResult } from '~/cdp/utils/workflow-step-result'
 import { instrumentFn } from '~/common/tracing/tracing-utils'
+import { logger } from '~/common/utils/logger'
 
 import {
     CyclotronJobInvocationHogFlow,
@@ -316,8 +317,18 @@ export class HogFunctionHandler implements ActionHandler {
         // A push subscription is resolved from person properties, and a delivered notification cannot
         // be recalled. The person read at dequeue can predate an opt-out that landed while the flow
         // waited, so re-read before resolving the token rather than sending to a revoked device.
-        if (hogFunction.inputs_schema?.some((schema) => schema.type === 'push_subscription')) {
-            const refreshed = await invocation.refreshPerson?.()
+        if (this.hogFlowActionBillingType === 'push') {
+            // A failed read is treated like an empty one rather than allowed to throw. Letting it
+            // propagate fails the whole step, so the send neither happens nor is cleanly skipped, and
+            // every retry repeats it.
+            const refreshed = await invocation.refreshPerson?.().catch((error) => {
+                logger.warn('⚠️', '[HogFunctionHandler] Could not refresh person before a push send', {
+                    hogFlowId: invocation.hogFlow.id,
+                    actionId: action.id,
+                    error,
+                })
+                return undefined
+            })
             // An empty refresh keeps the dequeue's read: a transient miss must not be read as an
             // opt-out, which would drop a send the recipient still wants.
             if (refreshed?.person) {
