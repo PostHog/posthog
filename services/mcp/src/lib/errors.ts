@@ -482,11 +482,16 @@ export function handleToolError(error: any, tool?: string, distinctId?: string, 
             recoverableApiError instanceof PostHogValidationError ||
             (recoverableApiError.status >= 400 && recoverableApiError.status < 500)
         if (isFourXx) {
+            // Prefer the wrapper's message where it already carries the typed error's message,
+            // because a wrapper also names the id the call failed on. A bare API code leaves the
+            // agent nothing to act on.
+            const wrapped = error instanceof Error ? error.message : ''
+            const text = wrapped.includes(recoverableApiError.message) ? wrapped : recoverableApiError.message
             return {
                 content: [
                     {
                         type: 'text',
-                        text: `Error: [${toolName}]: ${recoverableApiError.message}`,
+                        text: `Error: [${toolName}]: ${text}`,
                     },
                 ],
                 isError: true,
