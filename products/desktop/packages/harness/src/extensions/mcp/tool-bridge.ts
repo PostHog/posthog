@@ -224,6 +224,56 @@ export interface McpResultMeta {
   _meta?: Record<string, unknown>;
 }
 
+/**
+ * The envelope a tool result's `details` carries so a host can classify an
+ * MCP call and render its UI app: `{ posthog: { mcp: { server, tool,
+ * result? } } }`. Both write sites (the bridge's registered tools and the
+ * `mcp` proxy tool) and the read side (a host translator, which validates
+ * with a schema derived from this type) go through this one declaration, so
+ * the sides cannot drift apart.
+ */
+export interface McpCallDetails {
+  posthog: {
+    mcp: {
+      server: string;
+      tool: string;
+      result?: McpResultMeta;
+    };
+  };
+}
+
+/**
+ * Build the `details.posthog` fragment for an MCP tool call: the descriptor
+ * a host classifies the call by, plus the structured result fields a UI app
+ * renders from, when the tool returned any. Optional fields are spread in
+ * only when present, so an absent field stays absent rather than explicit
+ * undefined.
+ */
+export function mcpCallDetails(
+  server: string,
+  tool: string,
+  result: McpResultMeta,
+): McpCallDetails["posthog"] {
+  const hasResult =
+    result.structuredContent !== undefined || result._meta !== undefined;
+  return {
+    mcp: {
+      server,
+      tool,
+      ...(hasResult
+        ? {
+            result: {
+              ...(result.structuredContent !== undefined && {
+                structuredContent: result.structuredContent,
+              }),
+              ...(result._meta !== undefined && { _meta: result._meta }),
+            },
+          }
+        : {}),
+    },
+  };
+}
+
 export async function invokeTool(
   client: Client,
   serverName: string,
@@ -571,22 +621,10 @@ export class ToolBridge {
         return {
           content,
           details: {
-            posthog: {
-              mcp: {
-                server: serverName,
-                tool: tool.name,
-                ...(structuredContent !== undefined || _meta !== undefined
-                  ? {
-                      result: {
-                        ...(structuredContent !== undefined && {
-                          structuredContent,
-                        }),
-                        ...(_meta !== undefined && { _meta }),
-                      },
-                    }
-                  : {}),
-              },
-            },
+            posthog: mcpCallDetails(serverName, tool.name, {
+              structuredContent,
+              _meta,
+            }),
           },
         };
       },

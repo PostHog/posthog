@@ -360,11 +360,7 @@ export class McpAppsService extends TypedEventEmitter<McpAppsServiceEvents> {
       // switch rewrites X-PostHog-Project-Id), reuse would send requests to
       // the previous project, so drop the connection and let the fetch
       // reconnect with the new config.
-      if (
-        current &&
-        existing.config &&
-        configMatches(current, existing.config)
-      ) {
+      if (current && configMatches(current, existing.config)) {
         this.log.debug("Reusing existing MCP connection", { serverName });
         return existing;
       }
