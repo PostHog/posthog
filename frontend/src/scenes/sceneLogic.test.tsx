@@ -195,7 +195,8 @@ describe('sceneLogic', () => {
         }
     })
 
-    test.each(['12345', 'phc_12345'])(
+    // The third case is a legacy project token, which matches no route on its own.
+    test.each(['12345', 'phc_12345', 'aBcDeFgHiJkLmN'])(
         'renders the project access denied scene while the address names the refused project %s',
         async (refusedProject) => {
             const priorAppContext = window.POSTHOG_APP_CONTEXT

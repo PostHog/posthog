@@ -439,23 +439,15 @@ class TestAutoProjectMiddleware(APIBaseTest):
             == f"/project/{self.third_team.pk}/replay/018f5c3e-1a17-7f2b-ac83-32d06be3269b?t=2601"
         )
 
-    def test_project_access_denied_when_accessing_missing_project_by_token(
-        self,
-    ):
-        res = self.client.get(f"/project/phc_123/home")
+    @parameterized.expand([("missing", None), ("inaccessible", "no_access_team")])
+    def test_project_access_denied_when_accessing_unreachable_project_by_token(self, _name, team_attribute):
+        token = getattr(self, team_attribute).api_token if team_attribute else "phc_123"
+
+        res = self.client.get(f"/project/{token}/home")
         assert res.status_code == 200
         response_users_api = self.client.get(f"/api/users/@me/")
         assert response_users_api.json().get("team", {}).get("id") == self.team.id
-        assert self.app_context(res)["project_access_denied"] == "phc_123"
-
-    def test_project_access_denied_when_accessing_inaccessible_project_by_token(
-        self,
-    ):
-        res = self.client.get(f"/project/{self.no_access_team.api_token}/home", follow=True)
-        assert res.redirect_chain == [(f"/project/{self.no_access_team.pk}/home", 302)]
-        response_users_api = self.client.get(f"/api/users/@me/")
-        assert response_users_api.json().get("team", {}).get("id") == self.team.id
-        assert self.app_context(res)["project_access_denied"] == str(self.no_access_team.pk)
+        assert self.app_context(res)["project_access_denied"] == token
 
     def test_project_redirects_including_query_params(self):
         res = self.client.get(f"/project/{self.second_team.api_token}?t=1")

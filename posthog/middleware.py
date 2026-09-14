@@ -249,22 +249,18 @@ class AutoProjectMiddleware:
                 and path_parts[0] == "project"
                 and (path_parts[1].startswith("phc_") or path_parts[1] in self.token_allowlist)
             ):
+                new_team = Team.objects.filter(api_token=path_parts[1]).first()
 
-                try:
-                    new_team = Team.objects.get(api_token=path_parts[1])
-                    # The address moves to the project id even when the switch is refused, so the
-                    # branch below speaks for the refusal on the request that the redirect makes.
-                    self.switch_team_if_allowed(new_team, request)
-
+                if new_team is not None and self.switch_team_if_allowed(new_team, request):
                     path_parts[1] = str(new_team.pk)
                     new_path = "/".join(path_parts)
                     search_params = request.GET.urlencode()
                     return redirect(f"/{new_path}?{search_params}" if search_params else f"/{new_path}")
 
-                except Team.DoesNotExist:
-                    # No project has this token, so there is no id to move the address to.
-                    if user.team:
-                        request.project_access_denied = path_parts[1]  # type: ignore
+                # The token names no project the person can open. The address keeps the token,
+                # which tells them nothing about the project behind it.
+                if user.team:
+                    request.project_access_denied = path_parts[1]  # type: ignore
 
             if len(path_parts) >= 2 and path_parts[0] == "project" and path_parts[1].isdigit():
                 project_id_in_url = int(path_parts[1])

@@ -1,6 +1,6 @@
 import { TeamType } from '~/types'
 
-import { getCurrentTeamId } from './getAppContext'
+import { getAppContext, getCurrentTeamId } from './getAppContext'
 
 const pathsWithoutProjectId = [
     'api',
@@ -38,6 +38,16 @@ const projectIdentifierInUrlRegex = /^\/project\/(\d+|phc_)/
 // and `/project/settings` out, because they have their own entries in the redirects map.
 const projectRootWithoutIdentifierInUrlRegex = /^\/project\/?(?=$|[?#])/
 
+// A refused project keeps in the address whatever identifier the link carried, which can be a
+// legacy project token that the pattern above does not know.
+function hasProjectIdentifier(path: string): boolean {
+    if (path.match(projectIdentifierInUrlRegex)) {
+        return true
+    }
+    const refusedProject = getAppContext()?.project_access_denied
+    return !!refusedProject && getProjectIdentifierInPath(path) === refusedProject
+}
+
 function isPathWithoutProjectId(path: string): boolean {
     const pathname = path.split(/[?#]/)[0]
     if (
@@ -55,7 +65,7 @@ function normalizeRelativePath(path: string): string {
 }
 
 function addProjectIdUnlessPresent(path: string, teamId?: TeamType['id']): string {
-    if (path.match(projectIdentifierInUrlRegex)) {
+    if (hasProjectIdentifier(path)) {
         return path
     }
 
@@ -87,7 +97,7 @@ export function getProjectIdentifierInPath(path: string): string | null {
 }
 
 export function removeProjectIdIfPresent(path: string): string {
-    const withoutProjectId = path.match(projectIdentifierInUrlRegex) ? '/' + path.split('/').splice(3).join('/') : path
+    const withoutProjectId = hasProjectIdentifier(path) ? '/' + path.split('/').splice(3).join('/') : path
     return withoutProjectId.replace(projectRootWithoutIdentifierInUrlRegex, '/')
 }
 
