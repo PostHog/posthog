@@ -264,6 +264,30 @@ def test_completed_report_closes_tracker_issue_as_completed(team):
 
 
 @pytest.mark.django_db
+def test_reopened_report_does_not_complete_its_tracker_issue(team):
+    integration = _connect_tracker(team, "github")
+    report = _make_report(team)
+    tracker = SignalReportTrackerIssue.all_teams.create(
+        team=team,
+        report=report,
+        integration=integration,
+        provider="github",
+        status=SignalReportTrackerIssue.Status.CREATED,
+        external_context={"repository": "web", "number": 12},
+    )
+
+    with patch.object(GitHubIntegration, "close_issue") as close_issue:
+        close_report_tracker_issue.apply(
+            kwargs={"report_id": str(report.id), "team_id": team.id, "completed": True},
+            throw=True,
+        )
+
+    close_issue.assert_not_called()
+    tracker.refresh_from_db()
+    assert tracker.closed_at is None
+
+
+@pytest.mark.django_db
 @pytest.mark.parametrize("status", [SignalReportTrackerIssue.Status.PENDING, SignalReportTrackerIssue.Status.CREATED])
 def test_close_tracker_issue_task_retries_pending_or_failed_provider_close(team, status):
     integration = _connect_tracker(team, "github")

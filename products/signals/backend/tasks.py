@@ -111,6 +111,13 @@ def close_dismissed_report_pr(report_id: str, team_id: int, reason: PrCloseReaso
 )
 @with_team_scope()
 def close_report_tracker_issue(self, report_id: str, team_id: int, completed: bool = False) -> None:
+    if (
+        completed
+        and not SignalReport.objects.filter(team_id=team_id, id=report_id, status=SignalReport.Status.RESOLVED).exists()
+    ):
+        # A retry can land after a merge GitHub contradicted returned the report to ready, and the
+        # work item is not done then.
+        return
     if close_tracker_issue_for_report(team_id=team_id, report_id=report_id, completed=completed):
         return
     retry_needed = (
