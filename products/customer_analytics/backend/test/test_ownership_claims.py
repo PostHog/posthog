@@ -1,5 +1,7 @@
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 from posthog.test.base import BaseTest
@@ -64,16 +66,15 @@ class TestOwnershipClaims(BaseTest):
         self.human = relationships.Actor.human(self.user)
 
     def _decision(self, **overrides) -> contracts.OwnershipClaimDecision:
-        fields = {
-            "source_ref": TASK,
-            "organization_id": "org-1",
-            "region": "us",
-            "assignee_user_id": self.user.id,
-            "source_assignee_id": "example-salesforce-user-17",
-            "allocated_at": datetime(2026, 1, 2, tzinfo=UTC),
-        }
-        fields.update(overrides)
-        return contracts.OwnershipClaimDecision(**fields)
+        base = contracts.OwnershipClaimDecision(
+            source_ref=TASK,
+            organization_id="org-1",
+            region="us",
+            assignee_user_id=self.user.id,
+            source_assignee_id="example-salesforce-user-17",
+            allocated_at=datetime(2026, 1, 2, tzinfo=UTC),
+        )
+        return replace(base, **overrides)
 
     def _release(self, **overrides) -> contracts.OwnershipClaimDecision:
         return self._decision(
@@ -113,6 +114,7 @@ class TestOwnershipClaims(BaseTest):
         assert fence is not None and fence > FENCE and result.controlled_at == fence
         activity = ActivityLog.objects.get(team_id=self.team.id, scope="Account", activity="role_claimed")
         assert activity.is_system
+        assert activity.detail is not None
         assert activity.detail["context"]["source_ref"] == TASK
         assert activity.detail["context"]["source_actor_id"] == "example-salesforce-user-17"
 
@@ -146,7 +148,7 @@ class TestOwnershipClaims(BaseTest):
         ]
     )
     def test_claim_decision_outcome(self, case, outcome, reason):
-        overrides = {}
+        overrides: dict[str, Any] = {}
         if case == "occupied_by_another_user":
             self._assign_by_human(self._create_user("other@posthog.com"))
         elif case == "occupied_by_the_same_user":
@@ -197,6 +199,7 @@ class TestOwnershipClaims(BaseTest):
         fence = self._fence()
         assert fence is not None and fence_after_claim is not None and fence > fence_after_claim
         activity = ActivityLog.objects.get(team_id=self.team.id, activity="role_released")
+        assert activity.detail is not None
         assert activity.detail["context"]["source_actor_id"] == "example-salesforce-user-99"
         assert activity.detail["context"]["source_decided_at"] == "2026-01-03T00:00:00+00:00"
 
@@ -412,6 +415,7 @@ async def test_schedule_update_keeps_an_operator_pause() -> None:
     ):
         await create_ownership_claims_coordinator_schedule(client)
 
+    assert update_schedule.await_args is not None
     _, schedule_id, schedule = update_schedule.await_args.args
     assert schedule_id == OWNERSHIP_CLAIMS_COORDINATOR_SCHEDULE_ID
     assert schedule.state == paused

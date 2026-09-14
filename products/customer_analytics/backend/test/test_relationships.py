@@ -445,6 +445,7 @@ class TestCommercialRolePolicy(BaseTest):
         (row,) = self._activity_rows()
         assert row.activity == "relationship_assigned"
         assert row.is_system is True
+        assert row.detail is not None
         assert row.detail["context"]["source"] == "workflow"
         assert row.detail["context"]["workflow_id"] == "wf-1"
         assert row.detail["context"]["role"] == "ae"
@@ -468,7 +469,9 @@ class TestCommercialRolePolicy(BaseTest):
 
         advanced = self._fence()
         assert advanced is not None and advanced > fence
-        assert self._activity_rows()[-1].detail["context"]["controlled_at"] == advanced.isoformat()
+        last = self._activity_rows()[-1]
+        assert last.detail is not None
+        assert last.detail["context"]["controlled_at"] == advanced.isoformat()
 
     def test_confirming_an_empty_managed_role_is_recorded_as_a_decision(self):
         self._manage_ae()
@@ -481,6 +484,7 @@ class TestCommercialRolePolicy(BaseTest):
         (row,) = self._activity_rows()
         assert row.activity == "role_confirmed_empty"
         assert row.user_id == self.user.id
+        assert row.detail is not None
         assert row.detail["changes"] == [
             {"type": "Account", "action": "changed", "field": "Account executive", "before": None, "after": None}
         ]
