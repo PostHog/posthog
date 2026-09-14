@@ -1465,11 +1465,21 @@ impl FeatureFlagMatcher {
             if aggregation.is_none() {
                 use crate::flags::flag_models::BucketingIdentifier;
 
-                if flag.get_bucketing_identifier() == BucketingIdentifier::DeviceId
-                    && self
-                        .device_id
-                        .as_ref()
-                        .is_none_or(|device_id| device_id.is_empty())
+                let buckets_on_device_id =
+                    flag.get_bucketing_identifier() == BucketingIdentifier::DeviceId;
+                let has_device_id = self
+                    .device_id
+                    .as_ref()
+                    .is_some_and(|device_id| !device_id.is_empty());
+
+                // Without a device_id there is nothing to bucket on, so the condition is
+                // withheld rather than bucketed on the wrong identifier. That only matters
+                // when the hash decides the outcome: a condition at 100% rollout gives
+                // every matching person the same answer, so withholding it would disable
+                // the flag for all of them over a bound that excludes nobody.
+                if buckets_on_device_id
+                    && !has_device_id
+                    && flag.condition_needs_bucketing_hash(condition)
                 {
                     inc(
                         FLAG_CONDITION_SKIPPED_COUNTER,
@@ -1497,7 +1507,7 @@ impl FeatureFlagMatcher {
                     highest_index = new_highest_index;
                     continue;
                 }
-                if flag.get_bucketing_identifier() == BucketingIdentifier::DeviceId {
+                if buckets_on_device_id && has_device_id {
                     with_canonical_log(|log| log.eval.flags_device_id_bucketing += 1);
                 }
             }

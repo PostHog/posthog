@@ -104,6 +104,16 @@ impl FeatureFlag {
             .any(|group| group.rollout_percentage_unwrapped() < 100.0)
     }
 
+    /// Returns true if the bucketing hash decides the outcome of this condition.
+    ///
+    /// The hash matters for a partial rollout, which needs a stable bucket per identifier,
+    /// and for hash-dependent variants, which need a stable variant per identifier. A
+    /// condition at 100% rollout on a flag without such variants gives every person that
+    /// matches its property filters the same result, so the identifier changes nothing.
+    pub fn condition_needs_bucketing_hash(&self, condition: &FlagPropertyGroup) -> bool {
+        condition.rollout_percentage_unwrapped() < 100.0 || self.has_hash_dependent_variants()
+    }
+
     /// Returns true if this flag requires a hash key override lookup for experience continuity.
     ///
     /// Experience continuity lookups are only meaningful when the hash affects the result:
