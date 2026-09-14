@@ -51,10 +51,10 @@ stays fixed by the URL. An edit that duplicates another check's assertion is rej
 
 ## Resolve the subject
 
-Every create, run, and check-type call needs the subject's UUID. The two queries above return names
-and columns, not IDs. Resolve the ID by exact name, and exclude deleted rows. A substring match can
-select a neighboring subject. A soft-deleted row keeps its original name, so a replacement can share
-that name.
+Create and run calls need the subject's UUID. The two queries above return names and columns, not
+IDs. Resolve the ID by exact name, and exclude deleted rows. A substring match can select a
+neighboring subject. A soft-deleted row keeps its original name, so a replacement can share that
+name.
 
 - **Saved query (view).** The `id` is the `saved_query_id`.
 
@@ -74,10 +74,11 @@ that name.
   schema row there. A schema row's own `id` is the sync configuration, not the table; the table ID is
   nested under `table.id`.
 
-`posthog:data-quality-check-types` also takes a `saved_query_id`. Its catalog is static, so pass any
-view's `id`; the returned schemas apply to tables too. A project with no view has nothing to pass, so
-that reader can skip the call: the same per-type config is in the
-`data-quality-check-create-on-table` tool description and under "Choosing checks" below.
+`posthog:data-quality-check-types` is different: it takes a `saved_query_id`, but never the
+subject's. Its catalog is static, so pass any view's `id`; the returned schemas apply to tables too.
+A project with no view has nothing to pass, so that reader can skip the call: the same per-type
+config is in the `data-quality-check-create-on-table` tool description and under "Choosing checks"
+below.
 
 ## Choosing checks
 
