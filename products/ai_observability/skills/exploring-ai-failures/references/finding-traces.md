@@ -17,7 +17,8 @@ So measure what this project sets before you group by it.
 (`$ai_trace_name` is the older name for the same thing, kept for older data.)
 
 ```sql
-SELECT coalesce(nullIf(toString(properties.$ai_span_name), ''), '(not set)') AS kind, count() AS n
+SELECT coalesce(nullIf(toString(properties.$ai_span_name), ''),
+                nullIf(toString(properties.$ai_trace_name), ''), '(not set)') AS kind, count() AS n
 FROM events
 WHERE event = '$ai_trace' AND timestamp >= now() - INTERVAL 7 DAY
 GROUP BY kind ORDER BY n DESC
