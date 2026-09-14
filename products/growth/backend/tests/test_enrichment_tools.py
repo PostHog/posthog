@@ -155,18 +155,18 @@ class TestRunToolFetchPage(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("not_configured", FirecrawlNotConfigured, "not_configured"),
-            ("scrape_failed", FirecrawlScrapeFailed, "busy"),
-            ("connect_timeout", ConnectTimeout, "busy"),
-            ("budget_exhausted", FirecrawlEgressBudgetExhausted, "busy"),
+            ("not_configured", FirecrawlNotConfigured, "not_configured", "page fetching is not configured"),
+            ("scrape_failed", FirecrawlScrapeFailed, "busy", "page fetching is busy"),
+            ("connect_timeout", ConnectTimeout, "busy", "page fetching is busy"),
+            ("budget_exhausted", FirecrawlEgressBudgetExhausted, "busy", "page fetching is busy"),
         ]
     )
-    def test_every_firecrawl_failure_kind_maps_to_the_right_error(self, _name, error, expected_error):
+    def test_every_firecrawl_failure_kind_maps_to_the_right_error(self, _name, error, expected_error, expected_message):
         with patch(f"{_TOOLS_MODULE}.scrape", side_effect=error("boom")):
             outcome = run_tool("fetch_page", {"url": "https://acme.example"})
 
         assert outcome.error == expected_error
-        assert outcome.result == {"error": outcome.result["error"]}
+        assert outcome.result == {"error": expected_message}
         assert outcome.urls == ()
 
 
