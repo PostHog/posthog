@@ -151,10 +151,14 @@ class Ticket(UUIDTModel):
                 fields=["team", "teams_channel_id", "teams_conversation_id"],
                 name="posthog_con_teams_thread_idx",
             ),
-            # Dashboard ordering optimization
-            models.Index(fields=["team", "-updated_at"], name="posthog_con_team_updated_idx"),
+            # Dashboard ordering. The sort is "updated_at DESC, ticket_number DESC", so the
+            # tiebreaker belongs in the index: without it a page is a sort of every matching row.
+            models.Index(fields=["team", "-updated_at", "-ticket_number"], name="posthog_con_team_upd_num_idx"),
             # Dashboard filtered + ordered queries
-            models.Index(fields=["team", "status", "-updated_at"], name="posthog_con_status_upd_idx"),
+            models.Index(
+                fields=["team", "status", "-updated_at", "-ticket_number"],
+                name="posthog_con_status_upd_num_idx",
+            ),
             # SLA sort + filter. The dashboard sorts by "sla_due_at <dir> NULLS LAST, ticket_number
             # DESC"; one expression index per direction makes each page a top-N index scan instead
             # of a full sort of the mostly-NULL table (a plain ascending index can't serve DESC
