@@ -1473,10 +1473,9 @@ impl FeatureFlagMatcher {
                     .is_some_and(|device_id| !device_id.is_empty());
 
                 // Without a device_id there is nothing to bucket on, so the condition is
-                // withheld rather than bucketed on the wrong identifier. That only matters
-                // when the hash decides the outcome: a condition at 100% rollout gives
-                // every matching person the same answer, so withholding it would disable
-                // the flag for all of them over a bound that excludes nobody.
+                // withheld rather than bucketed on the wrong identifier. Withholding a
+                // condition whose outcome the hash cannot change would instead disable the
+                // flag for everyone it targets, so the guard asks whether it can.
                 if buckets_on_device_id
                     && !has_device_id
                     && flag.condition_needs_bucketing_hash(condition)
@@ -1616,7 +1615,6 @@ impl FeatureFlagMatcher {
             highest_index = new_highest_index;
 
             if is_match {
-                // A pinned variant wins; anything else is computed from the hash.
                 let variant = match flag.pinned_variant(condition) {
                     Some(pinned) => Some(pinned.to_string()),
                     None => self.get_matching_variant(
