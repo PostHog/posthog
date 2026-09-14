@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
+import { IconWarning } from '@posthog/icons'
 import { LemonTag } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
@@ -25,8 +26,14 @@ function issueExplanation(issue: EventHealthIssue): JSX.Element {
     )
 }
 
+interface EventHealthWarningProps {
+    event?: string | null
+    /** Drop the label and keep the icon, for a row too narrow to spend 60px on a tag. */
+    iconOnly?: boolean
+}
+
 /** Warns that the event something points at stopped arriving, so it quietly matches nothing new. */
-export function EventHealthWarning({ event }: { event?: string | null }): JSX.Element | null {
+export function EventHealthWarning({ event, iconOnly = false }: EventHealthWarningProps): JSX.Element | null {
     const { eventHealthIssues } = useValues(eventHealthLogic)
     const { requestEventNames } = useActions(eventHealthLogic)
 
@@ -39,12 +46,20 @@ export function EventHealthWarning({ event }: { event?: string | null }): JSX.El
         return null
     }
 
+    const label = issue.status === 'stale' ? 'Stale' : 'Not seen'
+
     return (
         <Tooltip title={issueExplanation(issue)}>
             {/* pinned: autocapture/Playwright selector — this tag shipped on actions first */}
-            <LemonTag type="warning" data-attr="action-event-health-warning">
-                {issue.status === 'stale' ? 'Stale' : 'Not seen'}
-            </LemonTag>
+            {iconOnly ? (
+                <span className="flex text-warning" aria-label={label} data-attr="action-event-health-warning">
+                    <IconWarning />
+                </span>
+            ) : (
+                <LemonTag type="warning" data-attr="action-event-health-warning">
+                    {label}
+                </LemonTag>
+            )}
         </Tooltip>
     )
 }

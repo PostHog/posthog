@@ -118,8 +118,8 @@ describe('EntityFilterInfo', () => {
                 />
             </>
         )
-        expect(await screen.findByText('Stale')).toBeInTheDocument()
-        expect(screen.queryByText('Not seen')).not.toBeInTheDocument()
+        expect(await screen.findByLabelText('Stale')).toBeInTheDocument()
+        expect(screen.queryByLabelText('Not seen')).not.toBeInTheDocument()
     })
 
     // Formula series carry `action: null`, so callers pass a null filter. That must render

@@ -211,7 +211,7 @@ export function EntityFilterInfo({
                 </span>
                 {healthEvent && (
                     <span className="shrink-0">
-                        <EventHealthWarning event={healthEvent} />
+                        <EventHealthWarning event={healthEvent} iconOnly />
                     </span>
                 )}
             </span>

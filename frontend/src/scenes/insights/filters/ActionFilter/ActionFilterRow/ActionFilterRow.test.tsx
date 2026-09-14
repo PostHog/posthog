@@ -193,7 +193,7 @@ describe('ActionFilterRow', () => {
             })
             const { logic } = setup()
             renderRow(logic, { filter: { ...DEFAULT_FILTER, id: 'user signed up', name: 'user signed up' } })
-            expect(await screen.findByText('Stale')).toBeInTheDocument()
+            expect(await screen.findByLabelText('Stale')).toBeInTheDocument()
         })
 
         it('opens the picker with the renamed selection first, labelled by the series name', async () => {

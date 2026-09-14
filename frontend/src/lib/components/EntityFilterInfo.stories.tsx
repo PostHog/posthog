@@ -109,7 +109,7 @@ export const EventHealthOnSeries: Story = {
         mockDate: '2023-02-15',
         docs: {
             description: {
-                story: 'With `showEventHealth`, a series whose event stopped arriving carries a tag, so an insight charting a flat zero says why. Healthy events and action series stay plain.',
+                story: 'With `showEventHealth`, a series whose event stopped arriving carries a warning icon, so an insight charting a flat zero says why. Hovering the icon says when PostHog last saw the event. Healthy events and action series stay plain.',
             },
         },
     },
