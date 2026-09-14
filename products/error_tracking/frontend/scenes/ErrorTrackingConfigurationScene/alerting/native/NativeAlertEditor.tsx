@@ -12,9 +12,9 @@ import {
     Tooltip,
 } from '@posthog/lemon-ui'
 
+import { SlackDestinationPicker } from 'lib/components/Comments/SlackDestinationPicker'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { SlackDestinationPicker } from 'scenes/comments/SlackDestinationPicker'
 
 import { AnyPropertyFilter } from '~/types'
 
