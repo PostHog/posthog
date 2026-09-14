@@ -101,9 +101,9 @@ _RESERVED_LABEL_SUFFIXES: tuple[str, ...] = tuple(s for s in REGION_NAME_SUFFIXE
 
 # Per-user Coder secret holding the SSH public key used to sign commits inside
 # workspaces. Injected as the POSTHOG_GIT_SIGNING_KEY env var on every workspace
-# start; the workspace template reads it to populate user.signingkey. The matching private key never leaves 1Password. The `GIT_`
-# prefix is reserved by Coder, so the workspace-side env name cannot start with
-# it.
+# start; the workspace template reads it to populate user.signingkey. The
+# matching private key never leaves 1Password. The `GIT_` prefix is reserved by
+# Coder, so the workspace-side env name cannot start with it.
 GIT_SIGNING_KEY_SECRET = "POSTHOG_GIT_SIGNING_KEY"
 
 
