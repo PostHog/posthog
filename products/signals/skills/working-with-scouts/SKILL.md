@@ -119,7 +119,8 @@ To reconstruct one run's changes:
 2. **Bracket the window** (`posthog:advanced-activity-logs-list`) with `start_date` and `end_date` around the run, `clients: ["mcp"]`, and `scopes` for the objects the grant covers.
    Raise `page_size`: the tool defaults to 10 rows and the endpoint takes up to 1000, so the default can hide most of a run behind one page.
    A non-null `next` means rows are missing, and the tool cannot send that cursor back, so page through with `page` instead, which also returns the total `count`.
-3. **Read the actor off the returned rows** instead of filtering by it up front. `users` takes user UUIDs, and the acting user is derived rather than configured (the scout skill's earliest known version author, then the config's `enabled_by`, then its `created_by`), so it is easier to confirm than to predict. Add `users` once you know it, to drop other people's rows.
+3. **Read the actor off the returned rows** instead of filtering by it up front. `users` takes user UUIDs, and the acting user is derived rather than configured (the scout skill's earliest known version author, then the config's `enabled_by`, then its `created_by`), so it is easier to confirm than to predict.
+   The rows name the actor but carry no UUID, so resolve one from the email they show (`posthog:org-members-list`, which searches on name and email and needs `organization_member:read`), then add `users` to drop other people's rows.
 4. **Cross-check against the close-out.** A row the summary does not mention, or a change the summary claims with no row behind it, is the thing to look at.
 
 Which `scopes` value each granted scope writes under:
