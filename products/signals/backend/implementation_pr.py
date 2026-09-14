@@ -118,6 +118,9 @@ class ImplementationPr:
     attached_at: datetime | None = None
     attached_by_user: "User | None" = None
     agent_name: str | None = None
+    # True only when GitHub reported this state. A state a task run or an agent reported is a claim,
+    # so it must never finish a report on its own.
+    confirmed: bool = False
 
 
 def fetch_implementation_prs_for_reports(report_ids: list[str], *, team_id: int) -> dict[str, list[ImplementationPr]]:
@@ -160,6 +163,7 @@ def fetch_implementation_prs_for_reports(report_ids: list[str], *, team_id: int)
                 attached_at=link.created_at,
                 attached_by_user=link.created_by,
                 agent_name=link.actor_agent,
+                confirmed=linked_pr.checked_at is not None,
             )
         )
     assignments = list(

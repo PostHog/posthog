@@ -1,10 +1,15 @@
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from enum import StrEnum
 from functools import partial
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from django.db import transaction
 from django.utils import timezone
+
+import structlog
+
+from posthog.egress.limiter.policies import Priority
+from posthog.models.github_integration_base import GitHubIntegrationBase
 
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import PullRequestLink
@@ -12,13 +17,35 @@ from products.signals.backend.claim_display_name import claim_display_name
 from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportPullRequest
 
 if TYPE_CHECKING:
+    from products.signals.backend.implementation_pr import ImplementationPr
     from products.signals.backend.report_assignments import PullRequestDetails
+
+logger = structlog.get_logger(__name__)
+
+# The states that finish a report: merged resolves it, closed suppresses it.
+TERMINAL_PR_STATES = frozenset({SignalReportPullRequest.State.MERGED, SignalReportPullRequest.State.CLOSED})
 
 
 class PullRequestStateSource(StrEnum):
     GITHUB = "github"
     TASK_OUTPUT = "task_output"
     LEGACY_ASSIGNMENT = "legacy_assignment"
+
+
+def pull_request_state_from_status(status: Mapping[str, Any]) -> str:
+    """Map a GitHub pull request payload onto a stored state.
+
+    GitHub reports a merged pull request as closed, so the merge flag is read first.
+    """
+    if status.get("merged"):
+        return SignalReportPullRequest.State.MERGED
+    if status.get("state") == "closed":
+        return SignalReportPullRequest.State.CLOSED
+    if status.get("draft"):
+        return SignalReportPullRequest.State.DRAFT
+    if status.get("state") == "open":
+        return SignalReportPullRequest.State.OPEN
+    return SignalReportPullRequest.State.UNKNOWN
 
 
 def reconcile_reports_for_pull_request(*, team_id: int, pr_id: str) -> None:
@@ -32,10 +59,20 @@ def reconcile_reports_for_pull_request(*, team_id: int, pr_id: str) -> None:
             apply_report_completion(report)
 
 
-def completion_state(states: Sequence[str]) -> str | None:
-    if not states or any(state not in {"closed", "merged"} for state in states):
+def completion_state(prs: Sequence["ImplementationPr"]) -> str | None:
+    """The state that finishes the report, or None while any pull request could still be live.
+
+    Only GitHub can end a report. A task run writes its own `pr_merged` into its output, and that
+    claim is wrong whenever the pull request was closed unmerged or is still open, so a state
+    nobody read back from GitHub holds the report open until the verification job reads it.
+    """
+    if not prs or any(pr.state not in TERMINAL_PR_STATES or not pr.confirmed for pr in prs):
         return None
-    return "merged" if "merged" in states else "closed"
+    return (
+        SignalReportPullRequest.State.MERGED
+        if any(pr.state == SignalReportPullRequest.State.MERGED for pr in prs)
+        else SignalReportPullRequest.State.CLOSED
+    )
 
 
 def link_pull_request(
@@ -64,7 +101,10 @@ def link_pull_request(
         defaults={"url": details.url},
     )
     pr = SignalReportPullRequest.objects.for_team(report.team_id).select_for_update().get(id=pr.id)
-    if pr.state != SignalReportPullRequest.State.MERGED and details.state != SignalReportPullRequest.State.UNKNOWN:
+    # Only a merge GitHub confirmed is terminal. A merge a task run claimed stays correctable, or a
+    # wrong claim would outlive every later event that contradicts it.
+    confirmed_merge = pr.state == SignalReportPullRequest.State.MERGED and pr.checked_at is not None
+    if not confirmed_merge and details.state != SignalReportPullRequest.State.UNKNOWN:
         # Imported/task snapshots must not overwrite a state already verified with GitHub.
         if state_source == PullRequestStateSource.GITHUB or pr.checked_at is None:
             pr.state = details.state
@@ -93,7 +133,7 @@ def link_pull_request(
         if (
             state_source != PullRequestStateSource.LEGACY_ASSIGNMENT
             and report.status == SignalReport.Status.RESOLVED
-            and pr.state not in {SignalReportPullRequest.State.MERGED, SignalReportPullRequest.State.CLOSED}
+            and pr.state not in TERMINAL_PR_STATES
         ):
             report.save(update_fields=report.transition_to(SignalReport.Status.READY))
         if (
@@ -120,18 +160,117 @@ def apply_report_completion(report: SignalReport) -> None:
     from products.signals.backend.implementation_pr import fetch_implementation_prs_for_reports
     from products.signals.backend.report_assignments import _apply_pr_report_state
 
-    states = [
-        pr.state
-        for pr in fetch_implementation_prs_for_reports([str(report.id)], team_id=report.team_id).get(str(report.id), [])
-    ]
-    state = completion_state(states)
+    prs = fetch_implementation_prs_for_reports([str(report.id)], team_id=report.team_id).get(str(report.id), [])
+    state = completion_state(prs)
     if state is not None:
         _apply_pr_report_state(report, state)
+        return
+    schedule_pull_request_verification(team_id=report.team_id, prs=prs)
+
+
+def schedule_pull_request_verification(*, team_id: int, prs: Sequence["ImplementationPr"]) -> None:
+    """Queue a GitHub read for every pull request that claims a terminal state nobody verified.
+
+    Queued on commit so the GitHub calls run on a worker rather than inside the transaction that
+    holds the report locks. `robust=True` keeps a broker outage from failing the write that
+    committed: the next pull request event queues the read again.
+    """
+    from products.signals.backend.tasks import verify_implementation_pr_state
+
+    for pr in prs:
+        if pr.confirmed or pr.state not in TERMINAL_PR_STATES:
+            continue
+        transaction.on_commit(
+            partial(verify_implementation_pr_state.delay, team_id=team_id, pr_url=pr.url),
+            robust=True,
+        )
+
+
+def pull_request_state_confirmed(*, team_id: int, pr_url: str) -> bool:
+    """True when a GitHub read already stored a state for this pull request."""
+    parsed = GitHubIntegrationBase.parse_pull_request_url(pr_url)
+    if parsed is None:
+        return False
+    return (
+        SignalReportPullRequest.objects.for_team(team_id)
+        .filter(repository=parsed.repository.lower(), number=parsed.number, checked_at__isnull=False)
+        .exists()
+    )
+
+
+def _stored_merge_exists(*, team_id: int, repository: str, pr_number: int, confirmed: bool) -> bool:
+    return (
+        SignalReportPullRequest.objects.for_team(team_id)
+        .filter(
+            repository=repository,
+            number=pr_number,
+            state=SignalReportPullRequest.State.MERGED,
+            checked_at__isnull=not confirmed,
+        )
+        .exists()
+    )
+
+
+def verify_pull_request_state(
+    *, team_id: int, pr_url: str, source: str | None = None, priority: Priority | None = None
+) -> str | None:
+    """Read a pull request state from GitHub and store it as confirmed. Returns the stored state.
+
+    Returns None when the state could not be read, which leaves every report holding this pull
+    request open. A report resolved on a merge GitHub then contradicts is reopened here, because no
+    later event reaches a resolved report to correct it. A report suppressed on an unconfirmed close
+    is left alone: suppression is also what a person does by hand, and undoing theirs is worse than
+    leaving a stale one.
+    """
+    from products.signals.backend.report_assignments import _pull_request_details, update_assignments_for_pull_request
+
+    parsed = GitHubIntegrationBase.parse_pull_request_url(pr_url)
+    if parsed is None:
+        return None
+    repository, pr_number = parsed.repository.lower(), parsed.number
+    state = _pull_request_details(team_id, pr_url, source=source, priority=priority).state
+    if state == SignalReportPullRequest.State.UNKNOWN:
+        return None
+    claimed_merge = state not in TERMINAL_PR_STATES and _stored_merge_exists(
+        team_id=team_id, repository=repository, pr_number=pr_number, confirmed=False
+    )
+    update_assignments_for_pull_request(team_ids=[team_id], repository=repository, pr_number=pr_number, pr_state=state)
+    if claimed_merge:
+        reopen_reports_resolved_without_merge(team_id=team_id, repository=repository, pr_number=pr_number)
+    return state
+
+
+def reopen_reports_resolved_without_merge(*, team_id: int, repository: str, pr_number: int) -> int:
+    """Move every report this pull request resolved back to ready. Returns how many moved.
+
+    A merge webhook can land while the caller reads GitHub, and `update_pull_request_state` keeps a
+    merge it confirmed. The stored state is read again here, under the report locks that webhook
+    path takes first, so a reopen never undoes a merge GitHub confirmed.
+    """
+    from products.signals.backend.implementation_pr import report_ids_for_implementation_pr
+
+    report_ids = report_ids_for_implementation_pr(team_id=team_id, repository=repository, pr_number=pr_number)
+    with transaction.atomic():
+        reports = list(
+            SignalReport.objects.select_for_update()
+            .filter(team_id=team_id, id__in=report_ids, status=SignalReport.Status.RESOLVED)
+            .order_by("id")
+        )
+        if _stored_merge_exists(team_id=team_id, repository=repository, pr_number=pr_number, confirmed=True):
+            return 0
+        for report in reports:
+            logger.info(
+                "signals.pr_verification.reopened_report",
+                team_id=team_id,
+                report_id=str(report.id),
+                repository=repository,
+                pr_number=pr_number,
+            )
+            report.save(update_fields=report.transition_to(SignalReport.Status.READY))
+        return len(reports)
 
 
 def import_report_pull_requests(report: SignalReport, *, notify_reviewers: bool = False) -> None:
-    from posthog.models.github_integration_base import GitHubIntegrationBase
-
     from products.signals.backend.artefact_schemas import WorkClaim
     from products.signals.backend.models import SignalReportAssignment
     from products.signals.backend.report_assignments import PullRequestDetails, assignment_actor
@@ -227,7 +366,7 @@ def update_pull_request_state(*, team_id: int, repository: str, number: int, sta
         )
         if pr is None:
             return 0
-        if pr.state != SignalReportPullRequest.State.MERGED:
+        if pr.state != SignalReportPullRequest.State.MERGED or pr.checked_at is None:
             pr.state = state
         pr.checked_at = timezone.now()
         pr.save(update_fields=["state", "checked_at", "updated_at"])

@@ -9,6 +9,7 @@ from django.db import transaction
 import structlog
 
 from posthog.dataclasses import frozen
+from posthog.egress.limiter.policies import Priority
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.github_integration_base import GitHubIntegrationBase
 from posthog.models.integration import GitHubIntegration
@@ -28,6 +29,7 @@ from products.signals.backend.pull_requests import (
     apply_report_completion,
     import_report_pull_requests,
     link_pull_request,
+    pull_request_state_from_status,
     update_pull_request_state,
 )
 from products.signals.backend.report_claims import ReportClaim, actor_owns_claim, claim_from_artefact, get_active_claim
@@ -178,7 +180,9 @@ def claim_report_for_task(*, team_id: int, report_id: str, task_id: str) -> Repo
         return claim or create_claim(report, actor)
 
 
-def _pull_request_details(team_id: int, pr_url: str) -> PullRequestDetails:
+def _pull_request_details(
+    team_id: int, pr_url: str, *, source: str | None = None, priority: Priority | None = None
+) -> PullRequestDetails:
     parsed = GitHubIntegrationBase.parse_pull_request_url(pr_url)
     if parsed is None:
         raise InvalidPullRequestUrl("pr_url must be a GitHub pull request URL.")
@@ -196,7 +200,9 @@ def _pull_request_details(team_id: int, pr_url: str) -> PullRequestDetails:
         merged=False,
     )
     try:
-        github = GitHubIntegration.first_for_team_repository(team_id, parsed.repository)
+        github = GitHubIntegration.first_for_team_repository(
+            team_id, parsed.repository, source=source, priority=priority
+        )
     except Exception:
         logger.exception(
             "signals.assignment.integration_lookup_failed",
@@ -227,17 +233,8 @@ def _pull_request_details(team_id: int, pr_url: str) -> PullRequestDetails:
         )
         return details
 
-    merged = bool(status.get("merged"))
-    if merged:
-        pr_state = SignalReportAssignment.PrState.MERGED
-    elif status.get("state") == "closed":
-        pr_state = SignalReportAssignment.PrState.CLOSED
-    elif status.get("draft"):
-        pr_state = SignalReportAssignment.PrState.DRAFT
-    elif status.get("state") == "open":
-        pr_state = SignalReportAssignment.PrState.OPEN
-    else:
-        pr_state = SignalReportAssignment.PrState.UNKNOWN
+    pr_state = pull_request_state_from_status(status)
+    merged = pr_state == SignalReportAssignment.PrState.MERGED
     return PullRequestDetails(
         url=status.get("url") or pr_url,
         repository=details.repository,

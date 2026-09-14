@@ -152,6 +152,13 @@ class TestBackfillReportPullRequests(BaseTest):
             team_ids=[self.team.id], repository="example/sdk", pr_number=2, pr_state="closed"
         )
         report.refresh_from_db()
+        # The merge on the first PR came from the legacy assignment, so GitHub has not confirmed it
+        # yet and the report stays open until its own webhook arrives.
+        assert report.status == "ready"
+        update_assignments_for_pull_request(
+            team_ids=[self.team.id], repository="example/app", pr_number=1, pr_state="merged"
+        )
+        report.refresh_from_db()
         assert report.status == "resolved"
         assert view._resolve_report_pr_reference(report) == ("example/sdk", 2)
         assert len(fetch_implementation_prs_for_reports([str(report.id)], team_id=self.team.id)[str(report.id)]) == 2

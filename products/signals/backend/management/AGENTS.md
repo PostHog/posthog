@@ -183,6 +183,11 @@ records. `--batch-size` bounds each page; the printed `--after` cursor resumes i
 The command is idempotent and does not call GitHub, change report state, or enqueue
 reviewers. See `docs/internal/signals-pr-lifecycle.md` for rollout and cleanup.
 
+`uv run manage.py reconcile_report_pull_requests --team-id <id>` then reads back from GitHub
+each stored close or merge that GitHub never confirmed, and returns a report resolved on a
+merge that never happened to ready. It scans `SignalReportPullRequest` rows only, so run the
+backfill first: a legacy assignment PR link has no row until the backfill imports it.
+
 ## Tips
 
 - Compare runs by saving output: `list_signal_reports --json > run_baseline.json`
