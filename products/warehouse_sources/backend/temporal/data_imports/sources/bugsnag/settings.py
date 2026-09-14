@@ -20,9 +20,15 @@ class BugsnagScope(Enum):
     PER_ORG = "per_org"
     # Fan out over every project in every organization (GET /projects/{project_id}/...).
     PER_PROJECT = "per_project"
+    # Fan out over every (project, release stage) pair. Release-stage-scoped endpoints require the
+    # stage as a query parameter; the stages a project has seen come back on the project itself.
+    PER_PROJECT_RELEASE_STAGE = "per_project_release_stage"
+    # Fan out over every (project, pivot) pair, where the pivots are the ones the `pivots` endpoint
+    # lists for that project.
+    PER_PROJECT_PIVOT = "per_project_pivot"
 
 
-@dataclass
+@dataclass(frozen=True)
 class BugsnagEndpointConfig:
     name: str
     scope: BugsnagScope
@@ -38,8 +44,23 @@ class BugsnagEndpointConfig:
     partition_key: Optional[str] = None
     # per_page value used when paginating this endpoint. Most list endpoints accept up to 100, but
     # a few cap lower and hard-reject an over-max value with a 400 instead of clamping, so those
-    # need their own limit.
-    page_size: int = 100
+    # need their own limit. None omits the parameter, for endpoints that return a fixed-size result.
+    page_size: Optional[int] = 100
+    # Static query parameters every request to this endpoint carries.
+    params: dict[str, str] = field(default_factory=dict)
+    # When set, the endpoint returns a single JSON object instead of a list, and each item of the
+    # named nested array becomes a row carrying the object's own scalar fields.
+    object_row_field: Optional[str] = None
+    # Statuses meaning "this parent has no data here" rather than "the sync is broken". Fanning out
+    # over every project reaches projects the endpoint has nothing for, so those are skipped.
+    missing_data_statuses: tuple[int, ...] = ()
+    # Hard page cap per fan-out parent. Guards endpoints whose result size follows the cardinality
+    # of user-supplied data rather than anything the API bounds.
+    max_pages: Optional[int] = None
+    # Cap on how many fan-out parents a single project contributes. Release stages and pivots are
+    # both derived from client-reported event data, so nothing in the API bounds how many a project
+    # accumulates — a misconfigured reporter alone can add one per build.
+    max_parents_per_project: Optional[int] = None
     # The menu of incremental cursor candidates advertised to the user. Empty = full refresh only.
     incremental_fields: list[IncrementalField] = field(default_factory=list)
     # Whether the table is selected for sync by default in the connection wizard.
@@ -129,6 +150,55 @@ BUGSNAG_ENDPOINTS: dict[str, BugsnagEndpointConfig] = {
         scope=BugsnagScope.PER_PROJECT,
         path="/projects/{project_id}/saved_searches",
         primary_keys=["id", "project_id"],
+    ),
+    # One row per UTC day per project for the last 30 days, flattened out of the single object the
+    # endpoint returns. Projects with no sessions answer 204 or 404 and are skipped.
+    "stability_trend": BugsnagEndpointConfig(
+        name="stability_trend",
+        scope=BugsnagScope.PER_PROJECT,
+        path="/projects/{project_id}/stability_trend",
+        primary_keys=["project_id", "bucket_start"],
+        partition_key="bucket_start",
+        page_size=None,
+        object_row_field="timeline_points",
+        missing_data_statuses=(404,),
+    ),
+    # Bucketed event counts for the project as a whole. `resolution` gives fixed-width buckets, so
+    # re-syncs merge onto the same boundaries instead of accumulating shifted ones; 12h keeps the
+    # point count far below the endpoint's 2000-point ceiling.
+    "trend": BugsnagEndpointConfig(
+        name="trend",
+        scope=BugsnagScope.PER_PROJECT,
+        path="/projects/{project_id}/trend",
+        primary_keys=["project_id", "from"],
+        partition_key="from",
+        page_size=None,
+        params={"resolution": "12h"},
+    ),
+    "release_groups": BugsnagEndpointConfig(
+        name="release_groups",
+        scope=BugsnagScope.PER_PROJECT_RELEASE_STAGE,
+        path="/projects/{project_id}/release_groups",
+        primary_keys=["id", "project_id"],
+        partition_key="first_released_at",
+        # The endpoint documents 30 per page and no maximum, so stay on the documented value.
+        page_size=30,
+        max_parents_per_project=25,
+    ),
+    # The breakdown values behind each pivot. Cardinality follows the underlying event field — a
+    # user-id pivot has a value per user — so it is off by default and capped per pivot.
+    "pivot_values": BugsnagEndpointConfig(
+        name="pivot_values",
+        scope=BugsnagScope.PER_PROJECT_PIVOT,
+        path="/projects/{project_id}/pivots/{event_field_display_id}/values",
+        primary_keys=["project_id", "event_field_display_id", "event_field_value"],
+        page_size=30,
+        # Sorted results are truncated with error code 60000 once there are too many of them, and
+        # the API documents `unsorted` as the way to read a pivot's values in full.
+        params={"sort": "unsorted"},
+        max_pages=100,
+        max_parents_per_project=25,
+        should_sync_default=False,
     ),
 }
 

@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            DELETE FROM lifecycle_op_person_tmp\n            WHERE op_id = $1 AND person_id = ANY($2) AND status IN ('marked', 'sealed')\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Int8Array"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "ea96e264833f90d30dfcdb26f5fb4e57f6977ea28b18c9a9e892a29358b5a430"
+}

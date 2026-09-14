@@ -21,6 +21,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aws_ses.se
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.transport import BoundedRetry
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.url_utils import scrub_url
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
@@ -42,6 +43,18 @@ _CAMEL_BOUNDARY = re.compile(r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])")
 
 _IAM_ACTION_PATTERN = re.compile(r"ses:[A-Za-z0-9]+")
 
+# SESv2 declares BadRequestException with zero members, so the response carries no `message`.
+_BAD_REQUEST_EXPLANATION = (
+    "Amazon SES rejected the request and gave no reason. "
+    "This table might not be available in the AWS region this source is connected to."
+)
+
+# Codes AWS can answer with when a saved pagination token is no longer accepted. Only
+# ListSuppressedDestinations models InvalidNextTokenException; the other list operations report
+# a rejected NextToken as BadRequestException, the same code a region that cannot serve the
+# table returns.
+_STALE_TOKEN_ERROR_CODES = ("InvalidNextTokenException", "BadRequestException")
+
 # Codes that mean the key itself is bad, as opposed to a valid key missing an IAM permission.
 _CREDENTIAL_ERROR_CODES = (
     "UnrecognizedClientException",
@@ -53,7 +66,13 @@ _CREDENTIAL_ERROR_CODES = (
 
 
 class AwsSesError(Exception):
-    pass
+    def __init__(self, code: str, message: str, endpoint: str, path: str) -> None:
+        # A verified SES identity can be an email address, and the fan-out puts it in the detail
+        # path. This message reaches the job log and the stored error, so mask the address the
+        # same way the tracked transport masks a recorded URL.
+        super().__init__(f"Amazon SES request failed: {code} - {message} (table {endpoint}, GET {scrub_url(path)})")
+        self.code = code
+        self.message = message
 
 
 @dataclasses.dataclass(frozen=True)
@@ -129,29 +148,37 @@ def normalize_row(endpoint_config: AwsSesEndpointConfig, obj: dict[str, Any]) ->
     return row
 
 
-def _error_code(response: requests.Response) -> str:
+def _error_code(response: requests.Response, body: dict[str, Any]) -> str:
     header = response.headers.get("x-amzn-ErrorType") or ""
     if header:
         return header.split(":")[0].split("#")[-1]
-    try:
-        body = response.json()
-    except ValueError:
-        return f"HTTP {response.status_code}"
     raw = body.get("__type") or body.get("code") or f"HTTP {response.status_code}"
     return str(raw).split("#")[-1]
 
 
-def _error_message(response: requests.Response) -> str:
-    try:
-        body = response.json()
-    except ValueError:
-        return response.text[:500]
+def _error_message(response: requests.Response, body: dict[str, Any], code: str) -> str:
     message = body.get("message") or body.get("Message") or ""
-    return str(message)[:500]
+    if message:
+        return str(message)[:500]
+    if code == "BadRequestException":
+        return _BAD_REQUEST_EXPLANATION
+    return f"Amazon SES returned HTTP {response.status_code} with no message."
 
 
-def error_for_response(response: requests.Response) -> AwsSesError:
-    return AwsSesError(f"Amazon SES request failed: {_error_code(response)} - {_error_message(response)}")
+def error_for_response(response: requests.Response, endpoint: str, path: str) -> AwsSesError:
+    try:
+        parsed = response.json()
+    except ValueError:
+        parsed = None
+    body = parsed if isinstance(parsed, dict) else {}
+    code = _error_code(response, body)
+    # A body that is not JSON carries the message as text, unless there is no text at all. A
+    # zero-member exception model constrains the members, not the wire body, so a bodyless
+    # response has to reach the explanation rather than trail off after the dash.
+    text = "" if isinstance(parsed, dict) else response.text.strip()
+    if text:
+        return AwsSesError(code, text[:500], endpoint, path)
+    return AwsSesError(code, _error_message(response, body, code), endpoint, path)
 
 
 def make_session(secret_access_key: str, session_token: Optional[str]) -> requests.Session:
@@ -163,6 +190,7 @@ def send_request(
     session: requests.Session,
     credentials: Credentials,
     region: str,
+    endpoint: str,
     path: str,
     params: Optional[dict[str, Any]] = None,
 ) -> dict[str, Any]:
@@ -178,7 +206,7 @@ def send_request(
 
     response = session.get(url, headers=dict(aws_request.headers.items()), timeout=REQUEST_TIMEOUT_SECONDS)
     if response.status_code >= 400:
-        raise error_for_response(response)
+        raise error_for_response(response, endpoint, path)
     return response.json()
 
 
@@ -212,10 +240,14 @@ def _fanout_page_rows(
 
         try:
             detail = send_request(
-                session, credentials, region, endpoint_config.detail_path.format(name=quote(name, safe=""))
+                session,
+                credentials,
+                region,
+                endpoint_config.name,
+                endpoint_config.detail_path.format(name=quote(name, safe="")),
             )
         except AwsSesError as error:
-            if "NotFoundException" in str(error):
+            if error.code == "NotFoundException":
                 logger.debug(f"Skipping {endpoint_config.name} item deleted mid-sync. name={name}")
                 continue
             raise
@@ -250,11 +282,13 @@ def _walk_pages(
             page_params["NextToken"] = next_token
 
         try:
-            body = send_request(session, credentials, region, endpoint_config.path, page_params)
+            body = send_request(session, credentials, region, endpoint_config.name, endpoint_config.path, page_params)
         except AwsSesError as error:
             # A token saved by a previous attempt can expire; restart the walk instead of
-            # failing the job. Merge on the primary key absorbs the re-read rows.
-            if resumed_token and "InvalidNextTokenException" in str(error):
+            # failing the job. Merge on the primary key absorbs the re-read rows. The restart
+            # runs once per walk, so a table the region really cannot serve fails on the
+            # retry from page 1 and still reaches the non-retryable classification.
+            if resumed_token and error.code in _STALE_TOKEN_ERROR_CODES:
                 logger.debug(f"Saved page token no longer valid; restarting. endpoint={endpoint_config.name}")
                 next_token = None
                 resumed_token = False
@@ -294,7 +328,12 @@ def get_rows(
     credentials = Credentials(aws_access_key_id, aws_secret_access_key, aws_session_token or None)
 
     if endpoint_config.page_size is None:
-        yield [normalize_row(endpoint_config, send_request(session, credentials, region, endpoint_config.path))]
+        yield [
+            normalize_row(
+                endpoint_config,
+                send_request(session, credentials, region, endpoint_config.name, endpoint_config.path),
+            )
+        ]
         return
 
     params: dict[str, Any] = {"PageSize": endpoint_config.page_size}
@@ -314,14 +353,17 @@ def get_rows(
 
 
 def _permission_reason(error: AwsSesError) -> Optional[str]:
-    text = str(error)
-    if "AccessDeniedException" in text:
-        match = _IAM_ACTION_PATTERN.search(text)
+    if error.code == "AccessDeniedException":
+        match = _IAM_ACTION_PATTERN.search(error.message)
         if match:
             return f"Missing IAM permission {match.group(0)}"
         return "The connected IAM user or role is not allowed to read this table"
-    if any(code in text for code in _CREDENTIAL_ERROR_CODES):
+    if error.code in _CREDENTIAL_ERROR_CODES:
         return "AWS rejected the access key. Please check the access key ID and secret access key."
+    if error.code == "BadRequestException":
+        # A 400 on the probe is deterministic, not a blip, so reporting it keeps the table out of
+        # the picker in a region that can never load it.
+        return _BAD_REQUEST_EXPLANATION
     return None
 
 
@@ -338,16 +380,20 @@ def endpoint_permission_reason(
     """
     try:
         if endpoint_config.page_size is None:
-            send_request(session, credentials, region, endpoint_config.path)
+            send_request(session, credentials, region, endpoint_config.name, endpoint_config.path)
             return None
 
-        body = send_request(session, credentials, region, endpoint_config.path, {"PageSize": 1})
+        body = send_request(session, credentials, region, endpoint_config.name, endpoint_config.path, {"PageSize": 1})
         if endpoint_config.detail_path:
             for item in (body.get(endpoint_config.result_key or "") or [])[:1]:
                 name = item.get(endpoint_config.item_name_key) if isinstance(item, dict) else item
                 if isinstance(name, str) and name:
                     send_request(
-                        session, credentials, region, endpoint_config.detail_path.format(name=quote(name, safe=""))
+                        session,
+                        credentials,
+                        region,
+                        endpoint_config.name,
+                        endpoint_config.detail_path.format(name=quote(name, safe="")),
                     )
     except AwsSesError as error:
         return _permission_reason(error)
@@ -405,11 +451,12 @@ def validate_credentials(
         return reason is None, reason
 
     try:
-        send_request(session, credentials, region, AWS_SES_ENDPOINTS["account"].path)
+        account = AWS_SES_ENDPOINTS["account"]
+        send_request(session, credentials, region, account.name, account.path)
     except AwsSesError as error:
         # A denied GetAccount still proves the key is genuine; per-table access is reported in
         # the schema picker instead of blocking source creation.
-        if "AccessDeniedException" in str(error):
+        if error.code == "AccessDeniedException":
             return True, None
         return False, str(error)
     except Exception:

@@ -35,6 +35,31 @@ export function isSubDailyAlertInterval(interval: AlertCalculationInterval): boo
     return SUB_DAILY_INTERVALS.includes(interval)
 }
 
+export function canSetAlertScheduleStartTime(interval: AlertCalculationInterval): boolean {
+    return interval === AlertCalculationInterval.HOURLY
+}
+
+export function scheduleStartTimeForInterval(
+    interval: AlertCalculationInterval,
+    scheduleStartTime: string | null | undefined
+): string | null {
+    return canSetAlertScheduleStartTime(interval) ? (scheduleStartTime ?? null) : null
+}
+
+export function getAlertScheduleStartMinute(scheduleStartTime: string | null | undefined): number | undefined {
+    if (!scheduleStartTime) {
+        return undefined
+    }
+    return Number(scheduleStartTime.split(':')[1])
+}
+
+export function scheduleStartTimeForMinute(minute: number | null | undefined): string | null {
+    if (minute === null || minute === undefined || !Number.isInteger(minute) || minute < 0 || minute > 59) {
+        return null
+    }
+    return `00:${String(minute).padStart(2, '0')}`
+}
+
 const INTERVAL_DISPLAY_LABELS: Record<AlertCalculationInterval, string> = {
     [AlertCalculationInterval.REAL_TIME]: 'Real time',
     [AlertCalculationInterval.EVERY_15_MINUTES]: 'Every 15 minutes',

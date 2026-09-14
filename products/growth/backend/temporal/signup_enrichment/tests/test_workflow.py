@@ -28,6 +28,7 @@ pytestmark = pytest.mark.asyncio
 _MODULE = "products.growth.backend.temporal.signup_enrichment.workflow"
 _INPUTS = SignupEnrichmentInputs(organization_id="org-1", distinct_id="d1", domain="stripe.com")
 _TASK_QUEUE = "signup-enrichment-test-queue"
+_EVALUATED_AT = dt.datetime(2026, 9, 14, 12, 0, tzinfo=dt.UTC)
 _RECHECK_ID = f"signup-enrichment-recheck-{_INPUTS.organization_id}"
 _TEST_RECHECK_DELAY = dt.timedelta(milliseconds=100)
 # An execution that took the un-patched path, where the recheck is a timer and a second activity
@@ -102,7 +103,10 @@ async def test_miss_then_recheck_upgrades_without_a_second_completed_event():
     fields = EnrichmentFields(company_type="STARTUP", headcount=130, industry="Fintech")
     miss = EnrichmentOutcome(provider_fields=None, fit=IcpFitResult(status="not_found"))
     match = EnrichmentOutcome(
-        provider_fields=fields, fit=IcpFitResult(status="scored", score=61), enrichment_status="COMPLETE"
+        provider_fields=fields,
+        fit=IcpFitResult(status="scored", score=61),
+        fit_evaluated_at=_EVALUATED_AT,
+        enrichment_status="COMPLETE",
     )
     run = await _run([miss, match])
 
@@ -139,6 +143,8 @@ async def test_miss_then_recheck_upgrades_without_a_second_completed_event():
         "fields_filled": 3,
         "organization_id": "org-1",
         "icp_fit_status": "scored",
+        "icp_fit_evaluated_at": _EVALUATED_AT.isoformat(),
+        "icp_fit_evaluation_kind": "recheck",
         "harmonic_enrichment_status": "COMPLETE",
     }
     # The launch signal fires exactly once, on the first attempt, unchanged.
