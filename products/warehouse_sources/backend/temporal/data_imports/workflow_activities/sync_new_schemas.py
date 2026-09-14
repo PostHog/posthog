@@ -16,6 +16,7 @@ from products.warehouse_sources.backend.models.external_data_schema import (
     sync_old_schemas_with_new_schemas,
 )
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.temporal.data_imports.external_data_job import Any_Source_Errors
 from products.warehouse_sources.backend.temporal.data_imports.sources import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.types import ExternalDataSourceType
@@ -94,7 +95,12 @@ def sync_new_schemas_activity(inputs: SyncNewSchemasActivityInputs) -> None:
                 logger.warning(f"Skipping schema discovery due to non-retryable source error: {e}")
                 return
             error_msg = str(e)
-            non_retryable_errors = new_source.get_non_retryable_errors()
+            # Cross-source non-retryable errors (an unresolvable/private database host, bad SSH
+            # tunnel auth, a widened column type) are raised from shared connection/pipeline code,
+            # not any one source, so they never make it into a source's own get_non_retryable_errors.
+            # Without merging this in, discovery retries the activity's whole budget and reports on
+            # every attempt for a failure that will never recover on its own.
+            non_retryable_errors = {**Any_Source_Errors, **new_source.get_non_retryable_errors()}
             if error_message_matches(error_msg, non_retryable_errors):
                 logger.warning(f"Skipping schema discovery due to non-retryable source error: {error_msg}")
                 return

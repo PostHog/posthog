@@ -93,6 +93,19 @@ def test_retryable_error_is_reraised_for_temporal_retry():
         _run_activity(source_mock)
 
 
+def test_all_source_non_retryable_error_is_skipped():
+    # "Database host not allowed" (and the rest of Any_Source_Errors) is raised from shared
+    # connection code, not any one source, so it's never in a source's own
+    # get_non_retryable_errors. Without merging it in here, discovery retries forever and spams
+    # error tracking on a host that will never resolve.
+    source_mock = mock.MagicMock()
+    source_mock.parse_config.return_value = {}
+    source_mock.get_schemas.side_effect = Exception("Database host not allowed: could not resolve host")
+    source_mock.get_non_retryable_errors.return_value = {}
+
+    _run_activity(source_mock)
+
+
 def test_undecrypted_integration_secret_error_is_skipped():
     # Checked by type, not message, so it must be skipped even when get_non_retryable_errors
     # has no matching entry — otherwise discovery retries forever on an unrecoverable decryption
