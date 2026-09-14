@@ -675,6 +675,7 @@ const tasksList = (): ToolBase<
                 basic: params.basic,
                 channel: params.channel,
                 ci_status: params.ci_status,
+                client_provenance: params.client_provenance,
                 commented_by: params.commented_by,
                 created_by: params.created_by,
                 exclude_origin_product: params.exclude_origin_product,

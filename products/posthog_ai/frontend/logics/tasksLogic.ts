@@ -379,6 +379,12 @@ export const tasksLogic = kea<tasksLogicType>([
                 if (assigneeFilter === 'my_scouts') {
                     return { ...base, origin_product: OriginProduct.SIGNALS_SCOUT, created_by: user?.id }
                 }
+                if (assigneeFilter === 'posthog_ai' || assigneeFilter === 'slack') {
+                    return { ...base, origin_product: assigneeFilter, created_by: user?.id }
+                }
+                if (assigneeFilter === 'desktop') {
+                    return { ...base, client_provenance: 'posthog_desktop', created_by: user?.id }
+                }
                 return { ...base, created_by: user?.id, exclude_origin_product: OriginProduct.SIGNALS_SCOUT }
             },
         ],

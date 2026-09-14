@@ -899,6 +899,10 @@ export const TasksListQueryParams = () => zod.object({
         .describe(
             "Filter tasks by the CI check rollup on their most recent run's pull request, as last observed from GitHub. 'none' means the PR has no checks.\n\n\* `passing` - passing\n\* `failing` - failing\n\* `pending` - pending\n\* `none` - none"
         ),
+    client_provenance: zod
+        .enum(['posthog_desktop'])
+        .optional()
+        .describe('Filter by the client that created the task\n\n\* `posthog_desktop` - PostHog Desktop'),
     commented_by: zod
         .number()
         .optional()

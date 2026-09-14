@@ -22,7 +22,7 @@ import type { Conversation } from '~/types'
 
 import { tasksLogic } from 'products/posthog_ai/frontend/api/logics'
 import { TaskAssigneeFilterMenu, TaskListItem } from 'products/posthog_ai/frontend/api/primitives'
-import type { Task } from 'products/posthog_ai/frontend/api/types'
+import type { Task, TaskAssigneeFilter } from 'products/posthog_ai/frontend/api/types'
 
 const DATE_GROUP_ORDER = ['Today', 'Yesterday', 'Last 7 days', 'Last 30 days', 'Older'] as const
 
@@ -76,10 +76,15 @@ export interface AiHistoryGroup {
     items: AiHistoryItem[]
 }
 
-export function groupAiHistory(conversationHistory: Conversation[], tasks: Task[]): AiHistoryGroup[] {
+export function groupAiHistory(
+    conversationHistory: Conversation[],
+    tasks: Task[],
+    filter: TaskAssigneeFilter = 'for_you'
+): AiHistoryGroup[] {
     const items: AiHistoryItem[] = []
 
-    for (const conversation of conversationHistory) {
+    const showConversations = filter === 'for_you' || filter === 'posthog_ai' || filter === 'all_team'
+    for (const conversation of showConversations ? conversationHistory : []) {
         if (!conversation) {
             continue
         }
@@ -274,6 +279,7 @@ export function NavTabChat({
         tasksSearchPending,
         searchQuery,
         taskListParams,
+        assigneeFilter,
     } = useValues(tasksLogic)
     const { loadTasks, loadMoreTasks, setSearchQuery } = useActions(tasksLogic)
     const { location, searchParams } = useValues(router)
@@ -286,8 +292,8 @@ export function NavTabChat({
             : (location.pathname.match(/\/tasks\/([^/]+)/)?.[1] ?? null)
 
     const historyGroups = useMemo(
-        () => groupAiHistory(conversationHistory, tasksEnabled ? tasks : []),
-        [conversationHistory, tasks, tasksEnabled]
+        () => groupAiHistory(conversationHistory, tasksEnabled ? tasks : [], tasksEnabled ? assigneeFilter : 'for_you'),
+        [conversationHistory, tasks, tasksEnabled, assigneeFilter]
     )
     const initialLoading = historyGroups.length === 0 && (conversationHistoryLoading || (tasksEnabled && tasksLoading))
     // Typing moves the client-side filter at once, but the matching tasks are a debounce plus a round

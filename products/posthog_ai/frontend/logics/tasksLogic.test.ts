@@ -105,6 +105,9 @@ describe('tasksLogic', () => {
             ],
             ['my_scouts' as const, { created_by: MOCK_DEFAULT_USER.id, origin_product: OriginProduct.SIGNALS_SCOUT }],
             ['team_scouts' as const, { origin_product: OriginProduct.SIGNALS_SCOUT }],
+            ['posthog_ai' as const, { created_by: MOCK_DEFAULT_USER.id, origin_product: OriginProduct.POSTHOG_AI }],
+            ['slack' as const, { created_by: MOCK_DEFAULT_USER.id, origin_product: OriginProduct.SLACK }],
+            ['desktop' as const, { created_by: MOCK_DEFAULT_USER.id, client_provenance: 'posthog_desktop' }],
         ])('maps the %s filter to its query params', (assigneeFilter, expected) => {
             logic.actions.setAssigneeFilter(assigneeFilter)
 
