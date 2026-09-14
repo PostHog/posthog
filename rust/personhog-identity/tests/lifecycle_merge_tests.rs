@@ -146,8 +146,8 @@ impl MergeHarness {
         .expect("insert foreign op");
         sqlx::query(&format!(
             r#"
-            INSERT INTO {} (op_id, team_id, person_id, person_uuid, role, status)
-            VALUES ($1, $2, $3, $4, 'victim', 'marked')
+            INSERT INTO {} (op_id, team_id, person_id, person_uuid, role, status, mark_active)
+            VALUES ($1, $2, $3, $4, 'victim', 'marked', true)
             "#,
             self.ctx.tables.lifecycle_op_person
         ))
