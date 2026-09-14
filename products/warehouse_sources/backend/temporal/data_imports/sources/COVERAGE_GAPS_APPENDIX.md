@@ -917,14 +917,14 @@ Note: Source uses the Braintree GraphQL API (payments.braintree-api.com/graphql)
 
 ## Braze — gaps
 
-Today (6): `campaigns`, `canvases`, `content_blocks`, `email_templates`, `events`, `segments`
+Today (13): `campaign_analytics`, `campaigns`, `canvas_analytics`, `canvases`, `content_blocks`, `email_templates`, `event_analytics`, `events`, `kpi_dau`, `kpi_mau`, `kpi_new_users`, `kpi_uninstalls`, `segments`
 
 Diffed against: <https://www.braze.com/docs/sitemap.xml>
 
-- [ ] `/campaigns/data_series` — per-campaign per-day sends, opens, clicks, conversions — Braze's headline metric (high)
-- [ ] `/canvas/data_series` — per-canvas per-step time series; the canvases table is unusable analytically without it (high)
-- [ ] `/events/data_series` — custom event occurrence time series for the event names already synced (high)
-- [ ] `/kpi/dau/data_series, /kpi/mau/data_series, /kpi/new_users/data_series, /kpi/uninstalls/data_series` — workspace-level DAU/MAU/new users/uninstalls trends (high)
+- [x] `/campaigns/data_series` — per-campaign per-day sends, opens, clicks, conversions — Braze's headline metric (high)
+- [x] `/canvas/data_series` — per-canvas per-step time series; the canvases table is unusable analytically without it (high)
+- [x] `/events/data_series` — custom event occurrence time series for the event names already synced (high)
+- [x] `/kpi/dau/data_series, /kpi/mau/data_series, /kpi/new_users/data_series, /kpi/uninstalls/data_series` — workspace-level DAU/MAU/new users/uninstalls trends (high)
 - [ ] `/segments/data_series` — segment size over time, the only way to trend audience growth (high)
 - [ ] `/campaigns/details` — enriches the campaign list with message variants, channels, tags and conversion behaviors (high)
 - [ ] `/canvas/details` — canvas step and variant structure needed to attribute canvas analytics (high)
@@ -934,7 +934,7 @@ Diffed against: <https://www.braze.com/docs/sitemap.xml>
 - [ ] `/email/unsubscribes and /email/hard_bounces` — deliverability events joinable to campaigns (medium)
 - [ ] `/catalogs and /catalogs/{catalog_name}/items` — lookup tables resolving catalog item ids referenced in personalization and purchases (medium)
 
-Note: Braze has no OpenAPI/llms.txt (llms.txt 404s), so I enumerated every /docs/api/endpoints/\* page from the docs sitemap and then opened the individual pages to read the literal REST paths (confirmed /campaigns/data_series, /canvas/data_series, /segments/data_series, /events/data_series, /sends/data_series, /kpi/dau/data_series, /sessions/data_series, /purchases/revenue_series, /email/unsubscribes, /canvas/details, /catalogs, /custom_attributes). Today the connector syncs only the six `list` endpoints — every analytics (`data\_series`) endpoint, which is what Braze users actually report on, is missing.
+Note: Braze has no OpenAPI/llms.txt (llms.txt 404s), so I enumerated every /docs/api/endpoints/\* page from the docs sitemap and then opened the individual pages to read the literal REST paths (confirmed /campaigns/data_series, /canvas/data_series, /segments/data_series, /events/data_series, /sends/data_series, /kpi/dau/data_series, /sessions/data_series, /purchases/revenue_series, /email/unsubscribes, /canvas/details, /catalogs, /custom_attributes). The connector now syncs the campaign, Canvas, custom event and workspace KPI `data\_series` endpoints alongside the six `list` endpoints; the remaining analytics gaps are listed above.
 
 ## Breezometer — adequate
 
