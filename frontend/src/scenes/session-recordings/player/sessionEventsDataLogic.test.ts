@@ -2,6 +2,7 @@ import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
+import { ApiError } from 'lib/api-error'
 
 import { initKeaTests } from '~/test/init'
 import { RecordingEventType } from '~/types'
@@ -63,21 +64,24 @@ describe('sessionEventsDataLogic', () => {
         expect(logic.values.sessionEventsData?.find((e) => e.id === 'event-2')?.fullyLoaded).toBe(true)
     })
 
-    // The property-expansion query can fail transiently (e.g. a 503 from the query gateway).
-    // That is already handled gracefully — the events are marked loaded and the player keeps
-    // working — so it must not be reported to error tracking, where it fragments into noisy
-    // per-environment issues.
-    it('degrades gracefully without reporting when loadFullEventData query fails', async () => {
+    // The property expansion is best-effort either way: the events are marked loaded and the
+    // player keeps working. What differs is reporting. The catch reapplies the gate `initKea`
+    // applies to loader failures, so a gateway blip stays out of error tracking while a backend
+    // fault still reaches it instead of reading as success.
+    it.each<[string, ApiError, number]>([
+        ['a transient gateway failure', new ApiError('Service Unavailable', 503), 0],
+        ['a backend fault', new ApiError('Internal Server Error', 500), 1],
+    ])('degrades gracefully when the loadFullEventData query fails with %s', async (_name, error, reportCalls) => {
         const event = makeEvent('event-1')
         logic.actions.loadEventsSuccess([event])
 
-        jest.spyOn(api, 'queryHogQL').mockRejectedValueOnce(new Error('Non-OK response (status 503)'))
+        jest.spyOn(api, 'queryHogQL').mockRejectedValueOnce(error)
 
         logic.actions.loadFullEventData(event)
 
         await expectLogic(logic).toDispatchActions(['loadFullEventDataSuccess'])
 
-        expect(posthog.captureException).not.toHaveBeenCalled()
+        expect(posthog.captureException).toHaveBeenCalledTimes(reportCalls)
         expect(logic.values.sessionEventsData?.find((e) => e.id === 'event-1')?.fullyLoaded).toBe(true)
     })
 })

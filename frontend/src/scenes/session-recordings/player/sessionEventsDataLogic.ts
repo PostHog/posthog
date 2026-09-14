@@ -15,10 +15,12 @@ import {
 } from 'kea'
 import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
+import posthog from 'posthog-js'
 
 import { ViewportResolution } from '@posthog/replay-shared'
 
 import api from 'lib/api'
+import { shouldReportApiFailure } from 'lib/api-error'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { chainToElements } from 'lib/utils/elements-chain'
 import { getEventsWithPrimaryProperty } from 'lib/utils/events'
@@ -269,11 +271,15 @@ AND properties.$lib != 'web'`
                         if (isBreakpoint(e)) {
                             throw e
                         }
-                        // The events query can fail transiently (e.g. the query gateway returns a
-                        // 5xx). The player still works without the events list, so degrade to no
-                        // events rather than letting the rejection reach the global handler, which
-                        // would file it as a new error-tracking issue.
+                        // The player still works without the events list, so degrade to no events
+                        // instead of failing the loader. Catching here skips the gate `initKea`
+                        // applies to loader failures, so reapply it: a transient gateway failure is
+                        // expected, but a backend fault or a bug in the mapping above must still
+                        // reach error tracking.
                         console.warn('Failed to load session events for recording', e)
+                        if (shouldReportApiFailure(e)) {
+                            posthog.captureException(e)
+                        }
                         return null
                     }
                 },
@@ -341,11 +347,16 @@ AND properties.$lib != 'web'`
                         if (isBreakpoint(e)) {
                             throw e
                         }
-                        // The property expansion is best-effort: the player keeps working with
-                        // properties left unexpanded. Mark the events loaded and move on without
-                        // reporting — this is an already-handled transient failure, not a crash.
+                        // The property expansion is best-effort, because the player keeps working
+                        // with properties left unexpanded. Mark the events loaded and move on.
+                        // Catching here skips the gate `initKea` applies to loader failures, so
+                        // reapply it: a transient gateway failure is expected, but a backend fault
+                        // or a malformed property payload must still reach error tracking.
                         existingEvents.forEach((e) => (e.fullyLoaded = true))
                         console.warn('Failed to load full event data for recording events', e)
+                        if (shouldReportApiFailure(e)) {
+                            posthog.captureException(e)
+                        }
                     }
 
                     // here we map the events list because we want the result to be a new instance to trigger downstream recalculation
