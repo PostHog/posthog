@@ -1009,7 +1009,7 @@ describe('Tool Filtering - Feature Flags', () => {
                 'warehouse-multi-destination',
             ])
         )
-        expect(flags).toHaveLength(35)
+        expect(flags).toHaveLength(36)
     })
 
     it('every loops tool is gated on the loops flag', () => {
