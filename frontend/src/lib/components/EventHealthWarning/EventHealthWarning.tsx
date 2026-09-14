@@ -21,7 +21,7 @@ function issueExplanation(issue: EventHealthIssue): JSX.Element {
     return (
         <>
             PostHog has no definition for this event. Either it was never sent, or someone deleted the definition in
-            data management. Anything that uses it matches nothing new.
+            data management. If it was never sent, anything that uses it matches nothing.
         </>
     )
 }
