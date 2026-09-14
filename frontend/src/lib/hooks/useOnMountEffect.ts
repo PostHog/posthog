@@ -1,5 +1,6 @@
 import React, { useEffect } from 'react'
 
+/** Runs an effect that intentionally uses values from the initial render only. */
 export function useOnMountEffect(effect: React.EffectCallback): void {
     useEffect(effect, []) // oxlint-disable-line react-hooks/exhaustive-deps
 }
