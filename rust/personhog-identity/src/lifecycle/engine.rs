@@ -189,7 +189,6 @@ pub struct OpRow {
 #[async_trait]
 pub trait OpDriver: Send + Sync {
     fn op_type(&self) -> &'static str;
-    /// The table set the driver's steps write to; must match the engine's.
     fn tables(&self) -> &IdentityTables;
     /// The step a freshly created op row starts on.
     fn initial_step(&self) -> &'static str;
@@ -236,9 +235,7 @@ impl Engine {
         &self.tables
     }
 
-    /// A driver on the other table set would advance steps in one
-    /// namespace while the engine leases in the other, and the saga would
-    /// never complete. Refuse before the first write.
+    /// A driver leasing in one namespace and stepping in the other never completes.
     fn check_driver(&self, driver: &dyn OpDriver) -> Result<(), SagaError> {
         if driver.tables() != &self.tables {
             return Err(SagaError::CorruptState(format!(

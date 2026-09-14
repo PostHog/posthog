@@ -26,9 +26,7 @@ impl PgFallback {
 
 /// The saga tables paired with a person table. Identity writes marks to
 /// the pair matching its person table, so the fence checks must read the
-/// same pair or every committed release fails closed. Only the two known
-/// person tables pair: a near-miss name must not silently read the real
-/// saga tables.
+/// same pair or every committed release fails closed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct LifecycleTables {
     pub op: &'static str,
