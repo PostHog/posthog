@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 41 enabled ops
+ * PostHog API - MCP 42 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -2241,7 +2241,7 @@ export const SignalsScoutEmitSignalBody = () => zod
  * Load one page in a real browser and return what makes it slow — most usefully the element the browser chose as the Largest Contentful Paint, and where the LCP time went. Field data says a route is slow; this says which element and why, so a finding can name it instead of guessing from source. Restricted to public PostHog pages: the browser signs in to nothing, so a page behind a login would report the login screen's numbers. One throttled cold load is not a p75 over real users — corroborate a field finding with it, never replace one. Capped at 5 audits per run.
  * @summary Run a Lighthouse audit for a run
  */
-export const SignalsScoutLighthouseAuditParams = /* @__PURE__ */ zod.object({
+export const SignalsScoutLighthouseAuditParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -2254,7 +2254,7 @@ export const signalsScoutLighthouseAuditBodyUrlMax = 2000
 
 export const signalsScoutLighthouseAuditBodyFormFactorDefault = `desktop`
 
-export const SignalsScoutLighthouseAuditBody = /* @__PURE__ */ zod
+export const SignalsScoutLighthouseAuditBody = () => zod
     .object({
         url: zod
             .url()
