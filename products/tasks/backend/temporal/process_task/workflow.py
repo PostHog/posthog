@@ -3290,7 +3290,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
     async def agent_state_changed(self, agent_active: bool) -> None:
         self._agent_active = agent_active
         self._end_of_turn_received = not agent_active
-        if not agent_active:
+        if not agent_active and _turn_opens_on_dispatch():
             self._turn_ended_received = True
 
     @temporalio.workflow.signal
