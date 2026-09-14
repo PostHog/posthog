@@ -179,6 +179,8 @@ export const LinkPrimitive: React.FC<LinkPrimitiveProps & React.RefAttributes<HT
                     onClick={onClick}
                     type="button"
                     disabled={disabled}
+                    role={role}
+                    tabIndex={tabIndex}
                     {...props}
                 >
                     {children}
@@ -296,13 +298,16 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
         }
 
         if (!to) {
+            const isDisabled = disabled || !!disabledReason
             element = (
                 <Tooltip
                     title={disabledReason ? <span className="italic">{disabledReason}</span> : tooltip || undefined}
                     placement={tooltipPlacement}
                     closeDelayMs={tooltipCloseDelayMs}
                 >
-                    <span>{element}</span>
+                    {/* A disabled button fires no mouse events, so the tooltip needs a wrapper to hover.
+                        An enabled one does not, and the extra inline box would break a flex layout. */}
+                    {isDisabled ? <span>{element}</span> : element}
                 </Tooltip>
             )
         }
