@@ -49,7 +49,7 @@ function KnowledgeSourceFiltersOverlay(): JSX.Element {
                     type="tertiary"
                     size="small"
                     fullWidth
-                    icon={<LemonCheckbox checked={learnedOnly} className="pointer-events-none" />}
+                    icon={<LemonCheckbox checked={learnedOnly} className="pointer-events-none" decorative />}
                     onClick={() => setLearnedOnly(!learnedOnly)}
                     // pinned: autocapture / Playwright key. Do not rename.
                     data-attr="business-knowledge-filter-learned"
@@ -80,7 +80,7 @@ function FilterCheckboxList<T extends string>({
                         type="tertiary"
                         size="small"
                         fullWidth
-                        icon={<LemonCheckbox checked={checked} className="pointer-events-none" />}
+                        icon={<LemonCheckbox checked={checked} className="pointer-events-none" decorative />}
                         onClick={() =>
                             onChange(checked ? value.filter((item) => item !== option.key) : [...value, option.key])
                         }
