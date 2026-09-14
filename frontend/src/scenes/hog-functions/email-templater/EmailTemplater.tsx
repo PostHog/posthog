@@ -229,7 +229,7 @@ function DestinationEmailTemplaterForm({
                                     <div className="absolute inset-0 opacity-50 bg-surface-primary" />
                                     {/* A plain-text-only email has no html, so content is judged on every shape */}
                                     <EmailPreviewOverlayButtons
-                                        hasContent={!!value || !!emailTemplate.text || !!emailTemplate.design}
+                                        hasContent={!!value || !!emailTemplate?.text || !!emailTemplate?.design}
                                     />
                                 </div>
 
@@ -748,7 +748,7 @@ function NativeEmailTemplaterForm({
                                     <div className="absolute inset-0 opacity-50 bg-surface-primary" />
                                     {/* A plain-text-only email has no html, so content is judged on every shape */}
                                     <EmailPreviewOverlayButtons
-                                        hasContent={!!value || !!emailTemplate.text || !!emailTemplate.design}
+                                        hasContent={!!value || !!emailTemplate?.text || !!emailTemplate?.design}
                                     />
                                 </div>
 
