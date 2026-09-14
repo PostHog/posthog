@@ -128,6 +128,7 @@ export function ActionFilterRow({
     inlineEventsDocLink,
     definitionPopoverRenderer,
     operatorAllowlist,
+    showEventHealth = false,
 }: ActionFilterRowProps &
     Pick<TaxonomicPopoverProps, 'excludedProperties' | 'includeHiddenEvents' | 'allowNonCapturedEvents'>): JSX.Element {
     const effectiveActionsTaxonomicGroupTypes = [
@@ -406,7 +407,7 @@ export function ActionFilterRow({
             onChange={(changedValue, taxonomicGroupType, item) =>
                 applyTaxonomicSelection(taxonomicGroupType, changedValue, item)
             }
-            renderValue={() => <EntityFilterInfo filter={filter} showIcon />}
+            renderValue={() => <EntityFilterInfo filter={filter} showIcon showEventHealth={showEventHealth} />}
             groupTypes={effectiveActionsTaxonomicGroupTypes}
             placeholder="All events"
             placeholderClass=""

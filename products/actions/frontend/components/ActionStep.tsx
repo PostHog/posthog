@@ -6,6 +6,7 @@ import { LemonButton, LemonInput, LemonInputSelect, LemonSegmentedButton, Link }
 
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
 import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
+import { EventHealthWarning } from 'lib/components/EventHealthWarning/EventHealthWarning'
 import { OperandTag } from 'lib/components/PropertyFilters/components/OperandTag'
 import { DEFAULT_TAXONOMIC_GROUP_TYPES } from 'lib/components/PropertyFilters/components/TaxonomicPropertyFilter'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
@@ -29,7 +30,6 @@ import {
     type ScreenNameMatching,
     isScreenNameFilter,
 } from '../utils/screenName'
-import { EventHealthWarning } from './EventHealthWarning'
 import { EventName } from './EventName'
 
 const learnMoreLink = 'https://posthog.com/docs/data/actions?utm_medium=in-product&utm_campaign=action-page'

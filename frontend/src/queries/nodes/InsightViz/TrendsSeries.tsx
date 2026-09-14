@@ -113,6 +113,7 @@ export function TrendsSeries(): JSX.Element | null {
                 typeKey={keyForInsightLogicProps('new')(insightProps)}
                 buttonCopy={hasFormula ? 'Variable' : 'Series'}
                 showSeriesIndicator
+                showEventHealth
                 showNestedArrow
                 entitiesLimit={
                     (display && SINGLE_SERIES_DISPLAY_TYPES.includes(display) && !hasFormula) || isLifecycle

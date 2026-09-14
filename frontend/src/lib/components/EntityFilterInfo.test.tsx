@@ -3,6 +3,9 @@ import '@testing-library/jest-dom'
 import { cleanup, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
+import { dayjs } from 'lib/dayjs'
+
+import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { ActionFilter, EntityFilter, EntityTypes } from '~/types'
 
@@ -10,6 +13,17 @@ import { EntityFilterInfo } from './EntityFilterInfo'
 
 describe('EntityFilterInfo', () => {
     beforeEach(() => {
+        useMocks({
+            get: {
+                '/api/projects/:team/event_definitions/': ({ request }) => {
+                    const names = new URL(request.url).searchParams.getAll('names')
+                    const results = [
+                        { id: '1', name: 'user signed up', last_seen_at: dayjs().subtract(90, 'day').toISOString() },
+                    ].filter((definition) => names.includes(definition.name))
+                    return [200, { count: results.length, results }]
+                },
+            },
+        })
         initKeaTests()
     })
 
@@ -87,6 +101,25 @@ describe('EntityFilterInfo', () => {
         )
         userEvent.hover(screen.getByText('Signed up'))
         expect(await screen.findByText(/Event sent as/, {}, { timeout: 3000 })).toBeInTheDocument()
+    })
+
+    // A series pointing at an event that stopped arriving charts a flat zero, which reads as a real
+    // zero. An action series names an action, not an event, so asking about it draws a bogus tag.
+    it('tags only the series whose event PostHog has no fresh data for', async () => {
+        render(
+            <>
+                <EntityFilterInfo
+                    filter={{ type: EntityTypes.EVENTS, id: 'user signed up', name: 'user signed up' }}
+                    showEventHealth
+                />
+                <EntityFilterInfo
+                    filter={{ type: EntityTypes.ACTIONS, id: 5, name: 'Completed purchase' }}
+                    showEventHealth
+                />
+            </>
+        )
+        expect(await screen.findByLabelText('Stale')).toBeInTheDocument()
+        expect(screen.queryByLabelText('Not seen')).not.toBeInTheDocument()
     })
 
     // Formula series carry `action: null`, so callers pass a null filter. That must render

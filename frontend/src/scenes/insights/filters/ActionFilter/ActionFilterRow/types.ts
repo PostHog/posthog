@@ -89,6 +89,8 @@ export interface ActionFilterRowProps {
     hogQLGlobals?: Record<string, any>
     definitionPopoverRenderer?: DefinitionPopoverRenderer
     operatorAllowlist?: PropertyOperator[]
+    /** Warn when the row's event stopped arriving. Off where picking an uninstrumented event is intended. */
+    showEventHealth?: boolean
 }
 
 export interface MathSelectorProps {

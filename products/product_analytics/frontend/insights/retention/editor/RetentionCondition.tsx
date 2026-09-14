@@ -186,6 +186,7 @@ export function RetentionCondition({ insightProps }: EditorFilterProps): JSX.Ele
                     updateInsightFilter({ targetEntity: filterToRetentionEntity(newFilters) })
                 }}
                 typeKey={`${keyForInsightLogicProps('new')(insightProps)}-targetEntity`}
+                showEventHealth
                 propertiesTaxonomicGroupTypes={getRetentionPropertyFilterGroupTypes()}
                 actionsTaxonomicGroupTypes={actionsTaxonomicGroupTypes}
                 dataWarehousePopoverFields={retentionDataWarehousePopoverFields}
@@ -224,6 +225,7 @@ export function RetentionCondition({ insightProps }: EditorFilterProps): JSX.Ele
                     updateInsightFilter({ returningEntity: filterToRetentionEntity(newFilters) })
                 }}
                 typeKey={`${keyForInsightLogicProps('new')(insightProps)}-returningEntity`}
+                showEventHealth
                 propertiesTaxonomicGroupTypes={getRetentionPropertyFilterGroupTypes()}
                 actionsTaxonomicGroupTypes={actionsTaxonomicGroupTypes}
                 dataWarehousePopoverFields={retentionDataWarehousePopoverFields}
