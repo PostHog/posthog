@@ -338,12 +338,15 @@ function tokenScore(entry: SettingsSearchEntry, token: string): number {
 export function searchSettings(
   query: string,
   hiddenCategories: ReadonlySet<SettingsCategory>,
+  backupAvailable = true,
 ): SettingsSearchEntry[] {
   const tokens = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
   if (tokens.length === 0) return [];
 
   return SETTINGS_SEARCH_INDEX.filter(
-    (entry) => !hiddenCategories.has(entry.category),
+    (entry) =>
+      !hiddenCategories.has(entry.category) &&
+      (backupAvailable || entry.label !== "Back up settings and sounds"),
   )
     .map((entry) => {
       let score = 0;

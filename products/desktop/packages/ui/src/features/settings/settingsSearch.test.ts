@@ -33,4 +33,8 @@ describe("searchSettings", () => {
     const results = searchSettings("terminal", hidden);
     expect(results.every((r) => r.category !== "terminal")).toBe(true);
   });
+
+  it("hides backup search when the host does not provide file access", () => {
+    expect(searchSettings("backup", NO_HIDDEN, false)).toEqual([]);
+  });
 });

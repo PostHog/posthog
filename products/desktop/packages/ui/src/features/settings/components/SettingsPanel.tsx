@@ -23,6 +23,8 @@ import {
   TreeStructure,
   Wrench,
 } from "@phosphor-icons/react";
+import { useServiceOptional } from "@posthog/di/react";
+import { SETTINGS_BACKUP_FILES } from "@posthog/platform/settings-backup-files";
 import { Input, MenuLabel } from "@posthog/quill";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { useAuthStateValue } from "@posthog/ui/features/auth/store";
@@ -149,6 +151,7 @@ export function SettingsPanel({
   const { data: user } = useCurrentUser({ client });
   const { localWorkspaces } = useHostCapabilities();
   const quickAskAvailable = useQuickAskAvailable();
+  const settingsBackupFiles = useServiceOptional(SETTINGS_BACKUP_FILES);
 
   const hiddenCategories = getHiddenSettingsCategories({
     localWorkspaces,
@@ -158,7 +161,11 @@ export function SettingsPanel({
     ...group,
     items: group.items.filter((item) => !hiddenCategories.has(item.id)),
   })).filter((group) => group.items.length > 0);
-  const searchResults = searchSettings(searchQuery, hiddenCategories);
+  const searchResults = searchSettings(
+    searchQuery,
+    hiddenCategories,
+    settingsBackupFiles !== null,
+  );
 
   // Guard direct navigation (URL, deep link, programmatic openSettings) to a
   // category hidden on this host. Fall back to General so a hidden section is
