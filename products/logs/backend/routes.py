@@ -2,11 +2,13 @@ from posthog.api.routing import RouterRegistry
 
 import products.logs.backend.presentation.views.api as logs
 from products.logs.backend.presentation.views.anomalies_api import LogsAnomalyScanViewSet
+from products.logs.backend.presentation.views.loki_api import LokiQueryViewSet
 
 
 def register_routes(routers: RouterRegistry) -> None:
     routers.projects.register(r"logs", logs.LogsViewSet, "project_logs", ["team_id"])
     routers.projects.register(r"logs/anomalies", LogsAnomalyScanViewSet, "project_logs_anomalies", ["team_id"])
+    routers.projects.register(r"logs/loki", LokiQueryViewSet, "project_logs_loki", ["team_id"])
     routers.projects.register(r"logs/alerts", logs.LogsAlertViewSet, "project_logs_alerts", ["team_id"])
     routers.projects.register(
         r"logs/sampling_rules", logs.LogsSamplingRuleViewSet, "project_logs_sampling_rules", ["team_id"]
