@@ -27,7 +27,6 @@ if TYPE_CHECKING:
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, ProjectSecretAPIKeyAuthentication
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
-from posthog.llm.wizard_gateway_token import wizard_product_node
 from posthog.metrics import LABEL_PATH, LABEL_ROUTE, LABEL_TEAM_ID
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.team.team import Team
@@ -1186,7 +1185,15 @@ class SetupWizardGatewayTokenRateThrottle(SimpleRateThrottle):
         return True
 
     def get_cache_key(self, request, view):
-        """The per-user, per-program bucket identity. Read by the view's reservation."""
+        """The per-user bucket identity. Read by the view's reservation.
+
+        Keyed on the user alone, not (user, program): caps do not pool across a
+        run's tokens, so a per-program key hands each program its own quota and
+        the per-account ceiling becomes the tier times the program count. One
+        bucket per account is the only aggregate bound. Spray is unaffected:
+        program_unknown is refused before the reservation, so invented names
+        never reach this counter.
+        """
         # request.user is anonymous here: the viewset authenticates sessions only and
         # the bearer is checked in the action body, after throttling. get_ident would
         # then key on the caller-chosen X-Forwarded-For, so resolve the token and fall
@@ -1203,15 +1210,6 @@ class SetupWizardGatewayTokenRateThrottle(SimpleRateThrottle):
                 ident = f"user:{user.pk}"
         if ident is None:
             ident = f"ip:{get_trusted_client_ip(request) or 'unknown'}"
-        # Bucket per program, on the resolved node rather than the raw field: keying
-        # on what the caller sent would hand out a fresh quota per invented name.
-        try:
-            program = request.data.get("program") if isinstance(request.data, dict) else None
-        except Exception:
-            program = None
-        # One shared bucket for anything unrecognized: a per-name bucket would hand
-        # out a fresh quota for every invented program, even though each is refused.
-        ident = f"{ident}|{wizard_product_node(program) or 'unknown-program'}"
         # nosemgrep: python.flask.security.audit.directly-returned-format-string.directly-returned-format-string
         return f"throttle_wizard_gateway_token_{hashlib.sha256(ident.encode()).hexdigest()}"
 
