@@ -1723,13 +1723,7 @@ class SourceSetupSerializer(serializers.Serializer):
 
 
 class SourceSetupWebhookSerializer(serializers.Serializer):
-    success = serializers.BooleanField(
-        help_text=(
-            "Whether the webhook was registered with the external service. When true, webhook-capable tables "
-            "(including webhook-only ones) sync via real-time webhooks; when false, tables fall back to the "
-            "polling sync defaults and webhook-only tables stay disabled."
-        )
-    )
+    success = serializers.BooleanField(help_text="Whether the webhook was registered with the external service.")
     webhook_url = serializers.CharField(
         allow_null=True, help_text="The PostHog endpoint the external service delivers events to."
     )
@@ -1769,7 +1763,9 @@ class SourceSetupResponseSerializer(serializers.Serializer):
         required=False,
         help_text=(
             "Outcome of automatic webhook registration. Only present for sources that support webhooks "
-            "(e.g. Stripe) and have webhook-capable tables."
+            "(e.g. Stripe) and have webhook-capable tables. On success, webhook-capable tables (including "
+            "webhook-only ones) switch to real-time webhook sync; on failure, they keep the polling sync "
+            "defaults and webhook-only tables stay disabled."
         ),
     )
 

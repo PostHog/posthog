@@ -4921,7 +4921,7 @@ export interface PatchedExternalDataSourceBulkUpdateSchemasApi {
 }
 
 export interface SourceSetupWebhookApi {
-    /** Whether the webhook was registered with the external service. When true, webhook-capable tables (including webhook-only ones) sync via real-time webhooks; when false, tables fall back to the polling sync defaults and webhook-only tables stay disabled. */
+    /** Whether the webhook was registered with the external service. */
     success: boolean
     /**
      * The PostHog endpoint the external service delivers events to.
@@ -11900,7 +11900,7 @@ export interface SourceSetupApi {
 export interface SourceSetupResponseApi {
     /** ID of the created external data source. */
     id: string
-    /** Outcome of automatic webhook registration. Only present for sources that support webhooks (e.g. Stripe) and have webhook-capable tables. */
+    /** Outcome of automatic webhook registration. Only present for sources that support webhooks (e.g. Stripe) and have webhook-capable tables. On success, webhook-capable tables (including webhook-only ones) switch to real-time webhook sync; on failure, they keep the polling sync defaults and webhook-only tables stay disabled. */
     webhook?: SourceSetupWebhookApi
 }
 
