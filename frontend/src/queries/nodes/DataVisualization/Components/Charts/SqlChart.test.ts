@@ -1,7 +1,12 @@
+import schema from '~/queries/schema.json'
 import { ChartDisplayType } from '~/types'
 
 import { AxisSeries, AxisSeriesSettings } from '../../dataVisualizationLogic'
 import { SqlChartProps, isSqlChartVisualizationType, sqlChartComponentFor } from './SqlChart'
+
+// The assistant's display union is a type, erased at runtime, so read its values from the
+// generated schema.json.
+const assistantDisplayTypes: string[] = schema.definitions.AssistantDataVisualizationDisplayType.enum
 
 const baseProps = (visualizationType: ChartDisplayType): SqlChartProps => ({
     xData: null,
@@ -22,7 +27,7 @@ const mixedYData: AxisSeries<number | null>[] = [
     ySeries('b', { display: { displayType: 'bar' } }),
 ]
 
-describe('sqlChartComponentFor', () => {
+describe('SqlChart', () => {
     it.each([
         ChartDisplayType.ActionsLineGraph,
         ChartDisplayType.ActionsBar,
@@ -32,6 +37,15 @@ describe('sqlChartComponentFor', () => {
     ])('routes %s through SqlChart', (visualizationType) => {
         expect(isSqlChartVisualizationType(visualizationType)).toBe(true)
     })
+
+    // Max can only ask for a chart it can name. Anything this file routes but the union omits is
+    // a tool call the assistant cannot make.
+    it.each(Object.values(ChartDisplayType).filter(isSqlChartVisualizationType))(
+        'is nameable as %s in the assistant display union',
+        (visualizationType) => {
+            expect(assistantDisplayTypes).toContain(visualizationType)
+        }
+    )
 
     it.each([
         ['line', ChartDisplayType.ActionsLineGraph, 'SqlLineGraph'],

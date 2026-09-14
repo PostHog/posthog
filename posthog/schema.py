@@ -9423,11 +9423,12 @@ class AssistantDataVisualizationNode(BaseModel):
     display: AssistantDataVisualizationDisplayType | None = Field(
         default=None,
         description=(
-            "Visualization type. Defaults to `ActionsTable` when"
-            " omitted.\n\nGuidance:\n- Single-value result (one numeric column, one"
-            " row) → `BoldNumber`.\n- Time series → `ActionsLineGraph` or"
+            "Visualization type. Omit it for the default, `ActionsTable`. There is no"
+            " `Auto` value.\n\nGuidance:\n- Single-value result (one numeric column,"
+            " one row) → `BoldNumber`.\n- Time series → `ActionsLineGraph` or"
             " `ActionsAreaGraph`.\n- Categorical proportions → `ActionsPie`.\n-"
-            " Categorical comparison → `ActionsBar` or `ActionsStackedBar`.\n-"
+            " Categorical comparison → `ActionsBar` or `ActionsStackedBar`, or"
+            " `ActionsBarValue` to rank categories on a horizontal axis.\n-"
             " Two-dimensional aggregation → `TwoDimensionalHeatmap`.\n- Relationship"
             " between two numeric measures, one point per row → `ScatterPlot`.\n-"
             " Distribution summaries from pre-aggregated SQL rows → `BoxPlot` with"

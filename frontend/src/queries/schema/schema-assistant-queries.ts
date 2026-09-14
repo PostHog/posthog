@@ -1805,6 +1805,7 @@ export interface AssistantInsightVizNode {
  * - `BoldNumber` — big-number display for single-value results (first numeric column of the first row).
  * - `ActionsLineGraph` — line chart. Requires at least two columns, including one numeric column.
  * - `ActionsBar` — bar chart with one bar per X-axis value.
+ * - `ActionsBarValue` — horizontal bar chart, one bar per category. Requires a category column and a numeric column.
  * - `ActionsPie` — pie chart for categorical proportions. Requires one label column and one numeric column.
  * - `ActionsStackedBar` — bar chart stacked by a series breakdown column.
  * - `ActionsAreaGraph` — area chart. Requires at least two columns, including one numeric column.
@@ -1817,6 +1818,7 @@ export type AssistantDataVisualizationDisplayType =
     | ChartDisplayType.BoldNumber
     | ChartDisplayType.ActionsLineGraph
     | ChartDisplayType.ActionsBar
+    | ChartDisplayType.ActionsBarValue
     | ChartDisplayType.ActionsPie
     | ChartDisplayType.ActionsStackedBar
     | ChartDisplayType.ActionsAreaGraph
@@ -1971,13 +1973,13 @@ export interface AssistantDataVisualizationNode {
     /** HogQL query object that produces the rows to visualize. */
     source: Record<string, any>
     /**
-     * Visualization type. Defaults to `ActionsTable` when omitted.
+     * Visualization type. Omit it for the default, `ActionsTable`. There is no `Auto` value.
      *
      * Guidance:
      * - Single-value result (one numeric column, one row) → `BoldNumber`.
      * - Time series → `ActionsLineGraph` or `ActionsAreaGraph`.
      * - Categorical proportions → `ActionsPie`.
-     * - Categorical comparison → `ActionsBar` or `ActionsStackedBar`.
+     * - Categorical comparison → `ActionsBar` or `ActionsStackedBar`, or `ActionsBarValue` to rank categories on a horizontal axis.
      * - Two-dimensional aggregation → `TwoDimensionalHeatmap`.
      * - Relationship between two numeric measures, one point per row → `ScatterPlot`.
      * - Distribution summaries from pre-aggregated SQL rows → `BoxPlot` with `chartSettings.boxPlot`.
