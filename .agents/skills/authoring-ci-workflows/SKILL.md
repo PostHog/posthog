@@ -43,6 +43,7 @@ hogli test:workflows                                       # the pinned expectat
 ```
 
 `tools/workflow-plan/tests/workflows.test.ts` pins the rules in this file as `runs` / `skipped` rows per scenario: drafts skip the product matrix, the queue takes the full one, forks skip telemetry, a `no-ci` draft still reports its gate, the hourly run takes the matrices and skips the PR-only checks, and a superseded run records the gate as `cancelled`.
+Every job in those two workflows that carries an `if:` must be named by at least one row, which a coverage test enforces: add a conditional job and the suite fails until a row says what it should do.
 When you change a condition in `ci-backend.yml` or `ci-frontend.yml`, run the suite and update the row that describes the behavior you changed; when you add a lever to another heavy suite, add rows for it.
 The planner stubs the paths filter as "everything changed" and knows nothing a `run:` body produces, so a scenario stubs selector outputs by step id.
 It does not model trigger `paths:`, concurrency, or matrix expansion beyond a cell count; see [the README](../../../tools/workflow-plan/README.md).

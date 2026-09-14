@@ -25,7 +25,7 @@ hogli test:workflows
 
 `tests/workflows.test.ts` holds one row per workflow and scenario, naming the jobs that must run and the jobs that must skip.
 The rows encode the rules in [the authoring skill](../../.agents/skills/authoring-ci-workflows/SKILL.md): drafts skip the product matrix, the merge queue takes the full one, forks skip telemetry, a `no-ci` draft still reports its gate, the hourly schedule runs the matrices and skips the PR-only checks, and a superseded run records its gate as `cancelled` rather than `failure`.
-The same file pins the whole `ci:plan` table of `ci-backend.yml` and `ci-frontend.yml` as an inline snapshot, with the selector scripts stubbed as selecting one group, so a changed condition on any job fails it even when no row names that job. Update the snapshot with `pnpm --filter @posthog/workflow-plan exec vitest run -u` and review the diff.
+A coverage test keeps those rows exhaustive: every job in `ci-backend.yml` and `ci-frontend.yml` that carries an `if:` must be named by at least one row, so a new conditional job fails the suite until someone states what it should do.
 A smoke test also feeds every workflow through the built-in scenarios and fails on any condition the evaluator rejects.
 
 Add a row when you add or change a condition.

@@ -14,7 +14,6 @@ import {
     planWorkflow,
     runningJobs,
 } from '../src/plan.ts'
-import { renderPlanTable } from '../src/render.ts'
 import {
     REPO_ROOT,
     allFiltersChanged,
@@ -44,7 +43,7 @@ type Stubs = Record<string, Record<string, StepStub>>
 // What the selector scripts emit on a run where every filter matched and one product group was selected.
 const backendSelectors: Stubs = {
     'detect-snapshot-mode': { detect: { outputs: { mode: 'normal' } } },
-    'turbo-discover': { discover: { outputs: { run_legacy: 'true', matrix: '[{"group":"a"}]' } } },
+    'turbo-discover': { discover: { outputs: { run_legacy: 'true', matrix: '[{"group":"a"}]', mode: 'full' } } },
     'build-product-test-matrix': { build: { outputs: { include: '[{"group":"a"}]' } } },
     build_django_matrix: { build: { outputs: { include: '[{"group":"a"}]' } } },
 }
@@ -77,6 +76,7 @@ const suite = (file: string, selectors: Stubs): ExpectationBuilder => {
 }
 const backend = suite('ci-backend.yml', backendSelectors)
 const frontend = suite('ci-frontend.yml', frontendSelectors)
+const PINNED_WORKFLOWS = ['ci-backend.yml', 'ci-frontend.yml']
 
 const frontendOnlyFilters: Stubs = {
     changes: {
@@ -121,7 +121,18 @@ const EXPECTATIONS: Expectation[] = [
     backend(
         { name: 'ready PR' },
         {
-            runs: ['turbo-tests', 'django', 'backend-coverage-report', 'django_tests'],
+            runs: [
+                'turbo-tests',
+                'django',
+                'backend-coverage-report',
+                'django_tests',
+                'get_clickhouse_versions',
+                'build-product-test-matrix',
+                'build_django_matrix',
+                'test-selection-verdict',
+                'capture-test-selection',
+            ],
+            skipped: ['handle-snapshots', 'cancel-backend-on-openapi-check-failure'],
         }
     ),
     backend(
@@ -142,21 +153,41 @@ const EXPECTATIONS: Expectation[] = [
         { name: 'fork PR', github: pullRequest({ fork: true }) },
         {
             runs: ['changes', 'django', 'django_tests'],
-            skipped: ['validate-product-yamls', 'calculate-running-time', 'report-test-timings'],
+            skipped: [
+                'validate-product-yamls',
+                'calculate-running-time',
+                'report-test-timings',
+                'capture-test-selection',
+                'handle-snapshots',
+            ],
         }
     ),
     backend(
         { name: 'frontend-only PR', steps: frontendOnlyFilters },
         {
             runs: ['changes', 'django_tests'],
-            skipped: ['detect-snapshot-mode', 'turbo-tests', 'django'],
+            skipped: [
+                'detect-snapshot-mode',
+                'turbo-tests',
+                'django',
+                'get_clickhouse_versions',
+                'build_django_matrix',
+            ],
         }
     ),
     backend(
         { name: 'master push', github: push() },
         {
             runs: ['changes', 'repo-checks', 'check-migrations', 'mirror-schema-cache', 'django_tests'],
-            skipped: ['detect-snapshot-mode', 'turbo-tests', 'django'],
+            skipped: [
+                'detect-snapshot-mode',
+                'turbo-tests',
+                'django',
+                'get_clickhouse_versions',
+                'build-product-test-matrix',
+                'build_django_matrix',
+                'test-selection-verdict',
+            ],
         }
     ),
     backend(
@@ -184,7 +215,10 @@ const EXPECTATIONS: Expectation[] = [
                 },
             },
         },
-        { runs: ['django_tests'], results: { 'repo-checks': 'failure' } }
+        {
+            runs: ['django_tests', 'cancel-backend-on-repo-check-failure'],
+            results: { 'repo-checks': 'failure' },
+        }
     ),
     backend(
         {
@@ -264,7 +298,7 @@ interface StepExpectation {
     runs: boolean
 }
 
-const STEP_EXPECTATIONS: StepExpectation[] = ['ci-backend.yml', 'ci-frontend.yml'].flatMap((file) => [
+const STEP_EXPECTATIONS: StepExpectation[] = PINNED_WORKFLOWS.flatMap((file) => [
     { file, job: 'changes', step: 'filter', scenario: { name: 'ready PR', github: pullRequest() }, runs: true },
     { file, job: 'changes', step: 'filter', scenario: { name: 'master push', github: push() }, runs: false },
     { file, job: 'changes', step: 'filter', scenario: { name: 'hourly schedule', github: schedule() }, runs: false },
@@ -278,63 +312,21 @@ const STEP_EXPECTATIONS: StepExpectation[] = ['ci-backend.yml', 'ci-frontend.yml
     },
 ])
 
-const planTable = (file: string, selectors: Stubs): string => {
-    const wf = workflow(file)
-    const scenarioPlans = defaultScenarios(wf, path.join(WORKFLOWS_DIR, file)).map((scenario) => {
-        const stubbed = { ...scenario, steps: { ...scenario.steps, ...selectors } }
-        return { scenario: stubbed, plan: planWorkflow(wf, stubbed) }
-    })
-    return renderPlanTable(scenarioPlans)
-}
+const namedJobs = (file: string): Set<string> =>
+    new Set(
+        EXPECTATIONS.filter((expectation) => expectation.file === file).flatMap((expectation) => [
+            ...(expectation.runs ?? []),
+            ...(expectation.skipped ?? []),
+            ...Object.keys(expectation.results ?? {}),
+        ])
+    )
 
 describe('.github/workflows run plans', () => {
-    it('ci-backend.yml plans every job under the built-in scenarios as pinned', () => {
-        expect(planTable('ci-backend.yml', backendSelectors)).toMatchInlineSnapshot(`
-          "job                                     draft ready fork queued merged scheduled dispatched
-          changes                                   ▶     ▶    ▶     ▶      ▶        ▶         ▶
-          detect-snapshot-mode                      ▶     ▶    ▶     ▶      .        ▶         ▶
-          turbo-discover                            ▶     ▶    ▶     ▶      .        ▶         ▶
-          build-product-test-matrix                 ▶     ▶    ▶     ▶      .        ▶         ▶
-          get_clickhouse_versions                   ▶     ▶    ▶     ▶      .        ▶         ▶
-          turbo-tests                               .     ▶    ▶     ▶      .        ▶         ▶
-          repo-checks                               ▶     ▶    ▶     ▶      ▶        .         ▶
-          cancel-backend-on-repo-check-failure      .     .    .     .      .        .         .
-          validate-product-yamls                    ▶     ▶    .     ▶      .        .         .
-          check-migrations                          ▶     ▶    ▶     ▶      ▶        .         ▶
-          mirror-schema-cache                       .     .    .     .      ▶        .         .
-          check-openapi-types                       ▶     ▶    ▶     ▶      ▶        .         ▶
-          cancel-backend-on-openapi-check-failure   .     .    .     .      .        .         .
-          build_django_matrix                       ▶     ▶    ▶     ▶      .        ▶         ▶
-          django                                    ▶     ▶    ▶     ▶      .        ▶         ▶
-          handle-snapshots                          .     .    .     .      .        .         .
-          django_tests                              ▶     ▶    ▶     ▶      ▶        ▶         ▶
-          test-selection-verdict                    ▶     ▶    ▶     ▶      .        .         .
-          calculate-running-time                    ▶     ▶    .     ▶      ▶        ▶         ▶
-          capture-test-selection                    .     .    .     .      .        .         .
-          report-test-timings                       ▶     ▶    .     ▶      .        ▶         ▶
-          backend-coverage-report                   .     ▶    .     .      .        .         .
-
-          ▶ = runs   ✗ = fails   ⊘ = cancelled   . = skipped   0 = no matrix expansion"
-        `)
-    })
-
-    it('ci-frontend.yml plans every job under the built-in scenarios as pinned', () => {
-        expect(planTable('ci-frontend.yml', frontendSelectors)).toMatchInlineSnapshot(`
-          "job                        draft ready fork queued merged scheduled dispatched
-          changes                      ▶     ▶    ▶     ▶      ▶        ▶         ▶
-          select-jest-tests            ▶     ▶    ▶     .      .        .         .
-          frontend-format              ▶     ▶    ▶     ▶      ▶        .         ▶
-          frontend-bundle-size         ▶     ▶    ▶     ▶      ▶        .         ▶
-          frontend-typescript-checks   ▶     ▶    ▶     ▶      ▶        .         ▶
-          jest                         ▶     ▶    ▶     ▶      .        ▶         ▶
-          jest-replay-shared           ▶     ▶    ▶     ▶      ▶        ▶         ▶
-          report-test-signals          ▶     ▶    .     ▶      .        ▶         ▶
-          frontend_tests               ▶     ▶    ▶     ▶      ▶        ▶         ▶
-          calculate-running-time       ▶     ▶    .     ▶      ▶        ▶         ▶
-          capture-jest-selection       ▶     ▶    .     ▶      .        .         .
-
-          ▶ = runs   ✗ = fails   ⊘ = cancelled   . = skipped   0 = no matrix expansion"
-        `)
+    it.each(PINNED_WORKFLOWS)('%s names every conditional job in an expectation row', (file) => {
+        const unnamed = Object.entries(workflow(file).jobs)
+            .filter(([id, job]) => job.if !== undefined && !namedJobs(file).has(id))
+            .map(([id]) => id)
+        expect(unnamed).toEqual([])
     })
 
     it.each(workflowFiles)('%s evaluates every job and step condition under the built-in scenarios', (file) => {
