@@ -55,11 +55,12 @@ const MAX_SESSION_LIFETIME_MS = 60 * 60 * 1000
 // failing closed costs every new team its onboarding.
 const MAX_CONSECUTIVE_POLL_FAILURES = 3
 
-// How many polls in a row may find the route unserved (404/405) before we stop asking. That is what
-// a rolling deploy looks like from an old bundle, so it has to survive a deploy window — but a route
-// that never comes back would otherwise be polled for the lifetime of the tab. At the 60s cadence
-// this retries for about five minutes. Exported so the test can't hardcode a stale copy.
-export const MAX_CONSECUTIVE_UNAVAILABLE_POLLS = 5
+// How long the route may stay unserved (404/405) before we stop asking. That is what a rolling
+// deploy looks like from an old bundle, so it has to survive a deploy window — but a route that
+// never comes back would otherwise be polled for the lifetime of the tab. Wall-clock rather than a
+// count of polls: a project switch or a tab resume can ask for a check every few seconds, and a
+// budget of five polls would be gone in half a minute, long before a deploy finishes.
+export const UNAVAILABLE_ROUTE_GRACE_MS = 5 * 60 * 1000
 
 // Minimum gap between polls triggered by a project-id change. Nothing rate-limits how often
 // `currentProjectId` moves, and each move both clears the verdict and asks for a fresh poll, so an
@@ -428,19 +429,19 @@ export const wizardActiveSessionDetectorLogic = kea<wizardActiveSessionDetectorL
             }
 
             // The route itself is unserved (404/405), which is also what a rolling deploy looks like
-            // from an old bundle. Retry, but only up to the ceiling. An unserved poll route says
+            // from an old bundle. Retry until the grace window closes. An unserved poll route says
             // nothing about a run the stream is already reporting, so the session survives the
             // shutdown — otherwise a user installing through the window the retries exist to ride
             // out would lose the widget for that run until they reload the page.
             const unavailable = sharedFailure(isUnavailableEndpointError)
             if (unavailable) {
-                cache.unavailablePolls = (cache.unavailablePolls ?? 0) + 1
-                if (cache.unavailablePolls >= MAX_CONSECUTIVE_UNAVAILABLE_POLLS) {
+                cache.unavailableSince = cache.unavailableSince ?? Date.now()
+                if (Date.now() - cache.unavailableSince >= UNAVAILABLE_ROUTE_GRACE_MS) {
                     disablePolling(unavailable, actions.markRouteUnavailable)
                     return
                 }
             } else {
-                cache.unavailablePolls = 0
+                cache.unavailableSince = undefined
             }
 
             for (const err of errors) {
