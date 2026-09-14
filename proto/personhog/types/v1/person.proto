@@ -199,16 +199,25 @@ message DeletePersonsResponse {
 // DeletePersonsBatchForTeamRequest deletes up to batch_size persons for a team.
 // Also deletes associated posthog_persondistinctid rows (FK is NO ACTION).
 // posthog_featureflaghashkeyoverride rows cascade automatically at the DB level.
-// Callers should loop until deleted_count is 0.
+// Callers loop until deleted_count is less than batch_size, and pass the previous
+// response's last_id as after_id so each call resumes where the last one stopped.
 message DeletePersonsBatchForTeamRequest {
   int64 team_id = 1;
   // Max persons to delete per call. Must be > 0 and <= 50000.
   int64 batch_size = 2;
+  // Keyset cursor: only persons with a larger id are selected. 0 starts at the
+  // beginning of the team's range. Without it every call rescans the ids the
+  // previous calls deleted, which makes a large teardown quadratic.
+  int64 after_id = 3;
 }
 
 message DeletePersonsBatchForTeamResponse {
-  // Number of persons deleted. 0 means no more persons to delete.
+  // Number of persons deleted. Less than batch_size means the team has no more
+  // persons after last_id.
   int64 deleted_count = 1;
+  // Largest person id this call selected, to pass as the next call's after_id.
+  // 0 when the call selected nothing.
+  int64 last_id = 2;
 }
 
 // SplitPersonRequest splits specific distinct_ids off of a person onto new persons.

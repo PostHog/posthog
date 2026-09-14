@@ -2,7 +2,7 @@ use async_trait::async_trait;
 use uuid::Uuid;
 
 use crate::storage::error::StorageResult;
-use crate::storage::types::{Person, SplitResult};
+use crate::storage::types::{DeletedPersonBatch, Person, SplitResult};
 
 /// Person lookup operations by ID, UUID, and distinct ID
 #[async_trait]
@@ -58,17 +58,19 @@ pub trait PersonLookup: Send + Sync {
     /// deleting already-removed UUIDs is a no-op.
     async fn delete_persons(&self, team_id: i64, uuids: &[Uuid]) -> StorageResult<i64>;
 
-    /// Delete up to `batch_size` persons for a team. Selects person IDs with
-    /// FOR UPDATE SKIP LOCKED, then splits them into fixed-size chunks and
-    /// deletes concurrently. Each chunk deletes distinct_ids first (FK is
-    /// NO ACTION) then persons (feature flag hash key overrides cascade at
-    /// the DB level). Returns the number of deleted person records; 0 means
-    /// no more persons to delete.
+    /// Delete up to `batch_size` persons for a team, starting after person id
+    /// `after_id` (0 for the start of the team's range). Selects person IDs in
+    /// id order, then splits them into fixed-size chunks and deletes
+    /// concurrently. Each chunk deletes distinct_ids first (FK is NO ACTION)
+    /// then persons (feature flag hash key overrides cascade at the DB level).
+    /// Callers pass the returned `last_id` as the next call's `after_id`, and
+    /// stop when `deleted_count` is below `batch_size`.
     async fn delete_persons_batch_for_team(
         &self,
         team_id: i64,
         batch_size: i64,
-    ) -> StorageResult<i64>;
+        after_id: i64,
+    ) -> StorageResult<DeletedPersonBatch>;
 
     /// Atomically split distinct_ids off a person onto new persons.
     ///

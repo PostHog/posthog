@@ -419,13 +419,13 @@ async fn test_delete_persons_batch_for_team_leaves_cohort_memberships() {
         1
     );
 
-    let deleted = ctx
+    let batch = ctx
         .storage
-        .delete_persons_batch_for_team(ctx.team_id, 1000)
+        .delete_persons_batch_for_team(ctx.team_id, 1000, 0)
         .await
         .expect("delete persons batch for team");
 
-    assert_eq!(deleted, 1);
+    assert_eq!(batch.deleted_count, 1);
     // Intentionally still present — the batch path leaves cohortpeople for the
     // by-cohort sweep in the team-teardown orchestration.
     assert_eq!(
@@ -1146,31 +1146,37 @@ async fn test_delete_persons_batch_for_team() {
     let p3 = ctx.insert_person("batch_del_3", None).await.unwrap();
 
     // Delete batch_size=2 — should delete 2 of the 3 persons
-    let deleted = ctx
+    let first = ctx
         .storage
-        .delete_persons_batch_for_team(ctx.team_id, 2)
+        .delete_persons_batch_for_team(ctx.team_id, 2, 0)
         .await
         .expect("Failed to delete persons batch");
 
-    assert_eq!(deleted, 2);
+    let mut ids = [p1.id, p2.id, p3.id];
+    ids.sort_unstable();
 
-    // Second call — should delete the remaining 1
-    let deleted = ctx
+    assert_eq!(first.deleted_count, 2);
+    assert_eq!(first.last_id, ids[1]);
+
+    // Second call, resuming after the first batch — deletes the remaining 1
+    let second = ctx
         .storage
-        .delete_persons_batch_for_team(ctx.team_id, 2)
+        .delete_persons_batch_for_team(ctx.team_id, 2, first.last_id)
         .await
         .expect("Failed to delete persons batch");
 
-    assert_eq!(deleted, 1);
+    assert_eq!(second.deleted_count, 1);
+    assert_eq!(second.last_id, ids[2]);
 
     // Third call — nothing left
-    let deleted = ctx
+    let third = ctx
         .storage
-        .delete_persons_batch_for_team(ctx.team_id, 2)
+        .delete_persons_batch_for_team(ctx.team_id, 2, second.last_id)
         .await
         .expect("Failed to delete persons batch");
 
-    assert_eq!(deleted, 0);
+    assert_eq!(third.deleted_count, 0);
+    assert_eq!(third.last_id, 0);
 
     // Verify all persons are gone
     assert!(ctx
@@ -1219,13 +1225,41 @@ async fn test_delete_persons_batch_for_team() {
 async fn test_delete_persons_batch_for_team_empty() {
     let ctx = TestContext::new().await;
 
-    let deleted = ctx
+    let batch = ctx
         .storage
-        .delete_persons_batch_for_team(ctx.team_id, 1000)
+        .delete_persons_batch_for_team(ctx.team_id, 1000, 0)
         .await
         .expect("Failed to delete persons batch");
 
-    assert_eq!(deleted, 0);
+    assert_eq!(batch.deleted_count, 0);
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_delete_persons_batch_for_team_skips_ids_at_or_below_cursor() {
+    let ctx = TestContext::new().await;
+
+    let p1 = ctx.insert_person("cursor_del_1", None).await.unwrap();
+    let p2 = ctx.insert_person("cursor_del_2", None).await.unwrap();
+    let mut ids = [p1.id, p2.id];
+    ids.sort_unstable();
+
+    // A cursor at the lower id must leave that person alone.
+    let batch = ctx
+        .storage
+        .delete_persons_batch_for_team(ctx.team_id, 1000, ids[0])
+        .await
+        .expect("Failed to delete persons batch");
+
+    assert_eq!(batch.deleted_count, 1);
+    assert_eq!(batch.last_id, ids[1]);
+    assert!(ctx
+        .storage
+        .get_person_by_id(ctx.team_id, ids[0])
+        .await
+        .unwrap()
+        .is_some());
 
     ctx.cleanup().await.ok();
 }
@@ -1254,13 +1288,13 @@ async fn test_delete_persons_batch_for_team_cross_team_isolation() {
     .unwrap();
 
     // Delete only ctx.team_id persons
-    let deleted = ctx
+    let batch = ctx
         .storage
-        .delete_persons_batch_for_team(ctx.team_id, 1000)
+        .delete_persons_batch_for_team(ctx.team_id, 1000, 0)
         .await
         .expect("Failed to delete persons batch");
 
-    assert_eq!(deleted, 1);
+    assert_eq!(batch.deleted_count, 1);
 
     // Other team's person should still exist
     let other_person = ctx
@@ -1314,7 +1348,7 @@ async fn test_delete_persons_batch_for_team_rolls_back_on_partial_failure() {
 
     let result = ctx
         .storage
-        .delete_persons_batch_for_team(ctx.team_id, 100)
+        .delete_persons_batch_for_team(ctx.team_id, 100, 0)
         .await;
 
     assert!(result.is_err());
@@ -1552,28 +1586,28 @@ async fn test_delete_persons_batch_for_team_large_batch() {
     }
 
     // First call: selects and deletes 100 of 150
-    let deleted = ctx
+    let first = ctx
         .storage
-        .delete_persons_batch_for_team(ctx.team_id, 100)
+        .delete_persons_batch_for_team(ctx.team_id, 100, 0)
         .await
         .expect("Failed to delete persons batch");
-    assert_eq!(deleted, 100);
+    assert_eq!(first.deleted_count, 100);
 
     // Second call: deletes the remaining 50
-    let deleted = ctx
+    let second = ctx
         .storage
-        .delete_persons_batch_for_team(ctx.team_id, 100)
+        .delete_persons_batch_for_team(ctx.team_id, 100, first.last_id)
         .await
         .expect("Failed to delete persons batch");
-    assert_eq!(deleted, 50);
+    assert_eq!(second.deleted_count, 50);
 
     // Third call: nothing left
-    let remaining = ctx
+    let third = ctx
         .storage
-        .delete_persons_batch_for_team(ctx.team_id, 100)
+        .delete_persons_batch_for_team(ctx.team_id, 100, second.last_id)
         .await
         .expect("Failed to delete persons batch");
-    assert_eq!(remaining, 0);
+    assert_eq!(third.deleted_count, 0);
 
     ctx.cleanup().await.ok();
 }

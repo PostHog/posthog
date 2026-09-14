@@ -15,6 +15,15 @@ pub struct DistinctIdWithVersion {
     pub version: Option<i64>,
 }
 
+/// Outcome of one `delete_persons_batch_for_team` call.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct DeletedPersonBatch {
+    pub deleted_count: i64,
+    /// Largest person id the call selected, for the next call's keyset cursor.
+    /// 0 when the call selected nothing.
+    pub last_id: i64,
+}
+
 #[derive(Debug, Clone)]
 pub struct SplitResult {
     pub distinct_id: String,

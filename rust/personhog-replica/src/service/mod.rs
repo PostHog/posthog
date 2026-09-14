@@ -421,14 +421,19 @@ impl PersonHogReplica for PersonHogReplicaService {
             )));
         }
 
-        let deleted_count = self
+        if req.after_id < 0 {
+            return Err(Status::invalid_argument("after_id must be >= 0"));
+        }
+
+        let batch = self
             .storage
-            .delete_persons_batch_for_team(req.team_id, req.batch_size)
+            .delete_persons_batch_for_team(req.team_id, req.batch_size, req.after_id)
             .await
             .map_err(|e| log_and_convert_error(e, "delete_persons_batch_for_team"))?;
 
         Ok(Response::new(DeletePersonsBatchForTeamResponse {
-            deleted_count,
+            deleted_count: batch.deleted_count,
+            last_id: batch.last_id,
         }))
     }
 
