@@ -6,6 +6,7 @@ import { urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { getRelativeNextPath } from 'lib/utils/url'
+import { readPendingOAuthConnection } from 'scenes/authentication/shared/pendingOAuthConnectionLogic'
 
 export interface ConfirmOrganizationFormValues {
     organization_name?: string
@@ -85,7 +86,6 @@ export type confirmOrganizationLogicType = MakeLogicType<
 
 export const confirmOrganizationLogic = kea<confirmOrganizationLogicType>([
     path(['scenes', 'organization', 'confirmOrganizationLogic']),
-
     actions({
         setEmail: (email: string) => ({
             email,
@@ -110,7 +110,10 @@ export const confirmOrganizationLogic = kea<confirmOrganizationLogicType>([
 
     forms(() => ({
         confirmOrganization: {
-            defaults: {} as ConfirmOrganizationFormValues,
+            defaults: {
+                // The partner that started the OAuth connection is where this person heard about PostHog
+                referral_source: readPendingOAuthConnection()?.clientName ?? '',
+            } as ConfirmOrganizationFormValues,
             errors: ({ organization_name, first_name }) => ({
                 first_name: !first_name ? 'Please enter your name' : undefined,
                 organization_name: !organization_name ? 'Please enter your organization name' : undefined,

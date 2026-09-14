@@ -45,7 +45,10 @@ jest.mock('./MarkdownNotebookEntityPicker', () => ({
 // Mirrors how MarkdownNotebook composes its menu, so the assertions cover the list a user sees
 // rather than the registry alone: built-in commands are not registry entries, so a node hidden
 // from the registry can still reach the menu through a built-in that inserts the same tag.
-function getInsertCommandsByLabel(featureFlags: FeatureFlagsSet, label: string): { key: string; category: string }[] {
+function getInsertCommandsByLabel(
+    featureFlags: FeatureFlagsSet,
+    label: string
+): { key: string; category: string; badge?: string }[] {
     const noop = (): void => {}
     const commands = omitInsertCommands(
         buildInsertCommands(
@@ -64,20 +67,22 @@ function getInsertCommandsByLabel(featureFlags: FeatureFlagsSet, label: string):
 
     return commands
         .filter((command) => command.label === label)
-        .map((command) => ({ key: command.key, category: command.category }))
+        .map((command) => ({ key: command.key, category: command.category, badge: command.badge }))
 }
 
 describe('markdownNotebookRegistry', () => {
     describe('getMarkdownRegistryForFeatureFlags', () => {
         it('offers a single SQL and Python cell, gated by the revamped notebooks flag', () => {
             // The unified insert surface: SQLV2 ("SQL") and PythonV2 ("Python") are the only
-            // insertable code cells with the flag on; the legacy SQL/Python cells and the
-            // legacy query node render but must never be insertable in markdown notebooks.
+            // insertable code cells with the flag on. The legacy query node renders but must never
+            // be insertable, and the removed legacy code cells are not registered at all: the
+            // content migration rewrites them to SQLV2/PythonV2 before the registry sees them.
             const flagOn = getMarkdownRegistryForFeatureFlags({ [FEATURE_FLAGS.REVAMPED_PY_NOTEBOOKS]: true })
             expect(flagOn.components.SQLV2.insertCommand).toBeTruthy()
             expect(flagOn.components.PythonV2.insertCommand).toBeTruthy()
-            for (const legacyTag of ['Query', 'Python', 'DuckSQL', 'HogQLSQL']) {
-                expect(flagOn.components[legacyTag].insertCommand).toBeUndefined()
+            expect(flagOn.components.Query.insertCommand).toBeUndefined()
+            for (const legacyTag of ['Python', 'DuckSQL', 'HogQLSQL']) {
+                expect(flagOn.components).not.toHaveProperty(legacyTag)
             }
 
             const flagOff = getMarkdownRegistryForFeatureFlags({})
@@ -189,6 +194,14 @@ describe('markdownNotebookRegistry', () => {
             expect(getInsertCommandsByLabel({ [FEATURE_FLAGS.REVAMPED_PY_NOTEBOOKS]: isFlagOn }, 'SQL')).toEqual(
                 expectedCommands
             )
+        })
+
+        // Both the group and the badge come from the node's insertCommand override, so this also
+        // covers the badge surviving buildInsertCommands.
+        it('puts Python beside SQL in the top group, badged as new', () => {
+            expect(getInsertCommandsByLabel({ [FEATURE_FLAGS.REVAMPED_PY_NOTEBOOKS]: true }, 'Python')).toEqual([
+                { key: 'component-PythonV2', category: 'Common', badge: 'New' },
+            ])
         })
     })
 

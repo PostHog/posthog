@@ -70,6 +70,16 @@ export function experimentUrl(
   );
 }
 
+/** The project's date and time settings, where its timezone is set. */
+export function projectTimezoneSettingsUrl(
+  overrides?: LinkOverrides,
+): string | null {
+  return withProjectId(
+    (pid) => `/project/${pid}/settings/environment-customization#date-and-time`,
+    overrides,
+  );
+}
+
 export function skillUrl(
   skillName: string,
   overrides?: LinkOverrides,
@@ -87,6 +97,18 @@ export function inboxReportUrl(
 ): string | null {
   return withProjectId(
     (pid) => `/project/${pid}/inbox/${encodeURIComponent(reportId)}`,
+    overrides,
+  );
+}
+
+/** The browser-accessible URL for a support ticket, by ticket number or by ticket uuid. */
+export function supportTicketUrl(
+  ticketRef: string | number,
+  overrides?: LinkOverrides,
+): string | null {
+  return withProjectId(
+    (pid) =>
+      `/project/${pid}/support/tickets/${encodeURIComponent(String(ticketRef))}`,
     overrides,
   );
 }
@@ -146,17 +168,17 @@ export type ShareLinkTarget =
   | { kind: "canvas"; channelId: string; dashboardId: string }
   | { kind: "channel"; channelId: string; taskId?: string };
 
-const POSTHOG_HOSTS = new Set(
-  (Object.keys(REGION_LABELS) as CloudRegion[])
-    .map((region) => {
+function posthogHosts(): Set<string> {
+  return new Set(
+    (Object.keys(REGION_LABELS) as CloudRegion[]).flatMap((region) => {
       try {
-        return new URL(getCloudUrlFromRegion(region)).host;
+        return [new URL(getCloudUrlFromRegion(region)).host];
       } catch {
-        return "";
+        return [];
       }
-    })
-    .filter(Boolean),
-);
+    }),
+  );
+}
 
 interface ShareLinkRoute {
   pattern: string[];
@@ -219,7 +241,7 @@ export function parseShareLink(href: string): ShareLinkTarget | null {
   } catch {
     return null;
   }
-  if (!POSTHOG_HOSTS.has(url.host)) return null;
+  if (!posthogHosts().has(url.host)) return null;
 
   const segments = decodePathSegments(url.pathname);
   for (const route of SHARE_LINK_ROUTES) {

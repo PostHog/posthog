@@ -2,20 +2,24 @@ from __future__ import annotations
 
 import sys
 import json
+import asyncio
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
 import pytest
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 from products.posthog_ai.eval_harness import base
 from products.posthog_ai.eval_harness.acp_log import GenerationDescriptor, ParsedLog
+from products.posthog_ai.eval_harness.config import AgentArtifacts, SandboxedEvalCase
 from products.posthog_ai.eval_harness.engines.types import AggregateScore, EvalSummary, NullCaseHooks
+from products.posthog_ai.eval_harness.harness.cli import SkillDelivery
 from products.posthog_ai.eval_harness.harness.reporting import ProgressReporter, SuiteRunResult
 from products.posthog_ai.eval_harness.harness.transcript import RunTranscript
 from products.posthog_ai.eval_harness.scorers import ExitCodeZero
+from products.tasks.backend.facade.agents import CustomPromptSandboxContext
 
 
 def test_run_transcript_captures_both_streams_and_prints_its_path_last(
@@ -228,3 +232,64 @@ def test_sandboxed_eval_run_adds_exit_code_scorer(monkeypatch: pytest.MonkeyPatc
             is_public=False,
             no_send_logs=True,
         )
+
+
+@pytest.mark.parametrize(
+    "delivery,origin,has_original,expected_origin",
+    [
+        ("exec", None, True, "eval"),
+        ("exec", None, False, "eval"),
+        ("bundled", None, True, None),
+        ("bundled", None, False, None),
+        ("exec", "eval", True, "eval"),
+        ("exec", "slack", True, "slack"),
+        ("exec", "posthog_ai", True, "posthog_ai"),
+        ("exec", "posthog-code", True, "posthog-code"),
+        ("bundled", "slack", True, "slack"),
+    ],
+)
+@pytest.mark.asyncio
+async def test_sandboxed_eval_skill_delivery_sets_the_agent_origin(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    delivery: SkillDelivery,
+    origin: str | None,
+    has_original: bool,
+    expected_origin: str | None,
+) -> None:
+    monkeypatch.setattr(base, "build_case_dir", MagicMock(return_value=tmp_path))
+    sandbox_context = CustomPromptSandboxContext(team_id=1, user_id=2)
+    ctx = MagicMock(
+        posthog_client=None,
+        case_filter=None,
+        skill_delivery=delivery,
+        sandbox_slots=asyncio.Semaphore(1),
+        team_setup_slots=asyncio.Semaphore(1),
+        per_case_timeout_seconds=30,
+    )
+    ctx.demo_data.make_context.return_value = sandbox_context
+    ctx.provider_strategy.keeps_sandboxes.return_value = False
+    setup = MagicMock(return_value={"seeded": True})
+    case = SandboxedEvalCase(name="ordinary-case", prompt="Run the task", interaction_origin=origin, setup=setup)
+    run = base._SandboxedEvalRun(
+        experiment_name="skill-delivery-test",
+        cases=[case] if has_original else [],
+        scorers=[],
+        ctx=ctx,
+        is_public=False,
+        no_send_logs=True,
+    )
+    launch = AsyncMock(return_value=base.EvalCaseResult(artifacts=AgentArtifacts(exit_code=0)))
+    monkeypatch.setattr(base, "run_eval_case", launch)
+    monkeypatch.setattr(base, "reclaim_kernels", AsyncMock())
+
+    _, seed = await run._run_sandbox_window(case, case if has_original else None)
+
+    launched_context = launch.call_args.args[1]
+    assert launched_context.interaction_origin == expected_origin
+    assert ctx.demo_data.make_context.call_args.kwargs["disable_bundled_skills"] == (delivery == "exec")
+    if has_original:
+        assert setup.call_args.args[0].interaction_origin == expected_origin
+        assert seed == {"seeded": True}
+    else:
+        assert seed == {}

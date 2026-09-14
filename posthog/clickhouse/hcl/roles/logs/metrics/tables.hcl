@@ -647,9 +647,6 @@ SQL
       index_granularity_bytes = "104857600"
       ttl_only_drop_parts     = "1"
     }
-    column "uuid" {
-      type = "String"
-    }
     column "team_id" {
       type = "Int32"
     }
@@ -763,27 +760,6 @@ SQL
       type        = "minmax"
       granularity = 1
     }
-    projection "projection_series_minute" {
-      query = <<SQL
-SELECT
-  team_id,
-  metric_name,
-  service_name,
-  metric_type,
-  resource_fingerprint,
-  series_fingerprint,
-  toStartOfMinute(timestamp) AS minute,
-  count() AS sample_count,
-  sum(value) AS total_value,
-  min(value) AS min_value,
-  max(value) AS max_value,
-  argMin(value, timestamp) AS first_value,
-  argMax(value, timestamp) AS last_value
-GROUP BY
-  team_id, metric_name, service_name, metric_type, resource_fingerprint, series_fingerprint, minute
-SQL
-
-    }
     projection "projection_series_activity" {
       query = <<SQL
 SELECT
@@ -877,6 +853,11 @@ SQL
       type        = "bloom_filter(0.01)"
       granularity = 1
     }
+    index "idx_last_seen_minmax" {
+      expr        = "last_seen"
+      type        = "minmax"
+      granularity = 1
+    }
     engine "replicated_replacing_merge_tree" {
       zoo_path       = "/clickhouse/tables/noshard/posthog.metric_series2"
       replica_name   = "{replica}-{shard}"
@@ -941,9 +922,6 @@ SQL
     }
   }
   table "metrics_distributed" {
-    column "uuid" {
-      type = "String"
-    }
     column "team_id" {
       type = "Int32"
     }
@@ -1124,9 +1102,6 @@ SQL
   materialized_view "metrics2_input_to_metrics" {
     to_table = "posthog.metrics2"
     query    = file("sql/metrics2_input_to_metrics.sql")
-    column "uuid" {
-      type = "String"
-    }
     column "team_id" {
       type = "Int32"
     }

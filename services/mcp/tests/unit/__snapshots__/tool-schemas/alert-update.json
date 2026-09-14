@@ -2285,6 +2285,17 @@
             ],
             "description": "Blocked local time windows (HH:MM in the project timezone). Interval is half-open [start, end): start inclusive, end exclusive. Use blocked_windows array of {start, end}. Null disables."
         },
+        "schedule_start_time": {
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Local time that starts alert checks in HH:MM format. Updating this value changes checks after the already scheduled next_check_at. Set null to remove the custom start time. The current next_check_at stays unchanged. Future checks use the alert interval's existing scheduling behavior."
+        },
         "skip_weekend": {
             "anyOf": [
                 {

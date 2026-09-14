@@ -1,3 +1,4 @@
+from posthog.settings.base_variables import TEST
 from posthog.settings.utils import get_from_env, str_to_bool
 
 CONSTANCE_DATABASE_PREFIX = "constance:posthog:"
@@ -56,7 +57,14 @@ CONSTANCE_CONFIG = {
         str,
     ),
     "PERSON_ON_EVENTS_V2_ENABLED": (
-        get_from_env("PERSON_ON_EVENTS_V2_ENABLED", False, type_cast=str_to_bool),
+        # Person-on-events v2 reads are the production default for every project created
+        # since 2024-06-14, and both CI lanes set this variable so their runs match it. A
+        # test run that leaves it unset, such as `hogli test products/<name>`, reads the
+        # legacy joined mode instead and fails against snapshots that CI recorded under
+        # v2. The test-mode default carries the same value so a local run matches CI.
+        # Production and self-hosted keep the off default. A test that needs the legacy
+        # mode pins it with override_settings or override_instance_config.
+        get_from_env("PERSON_ON_EVENTS_V2_ENABLED", TEST, type_cast=str_to_bool),
         "Whether to use query path using person_id and person_properties on events or the old query",
         bool,
     ),

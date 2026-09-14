@@ -4,6 +4,7 @@ import {
   describeGithubConnectError,
   describeIntegrationDisconnectError,
   isAlreadyDisconnectedError,
+  isGithubConnectAlreadyLinked,
   isGithubConnectPendingApproval,
 } from "./connectErrors";
 
@@ -88,6 +89,18 @@ describe("describeGithubConnectError", () => {
     expect(
       describeGithubConnectError({ message: "raw message", code: "unknown" }),
     ).toBe("raw message");
+  });
+
+  it("replaces the already-linked API detail with concise copy", () => {
+    const error = {
+      message:
+        "All GitHub App installations accessible to your account are already linked.",
+      code: "invalid_input",
+    };
+    expect(isGithubConnectAlreadyLinked(error)).toBe(true);
+    expect(describeGithubConnectError(error)).toBe(
+      "All GitHub organizations available to your account are already connected.",
+    );
   });
 });
 

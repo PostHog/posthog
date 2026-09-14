@@ -22,7 +22,9 @@
 
             <allow_nondeterministic_mutations>1</allow_nondeterministic_mutations>
 
-            <compatibility>26.3</compatibility>
+            <compatibility>26.6</compatibility>
+            <!-- Preserve skip indexes in distributed queries with transform_null_in=1. -->
+            <optimize_rewrite_has_to_in>0</optimize_rewrite_has_to_in>
             <!-- The funnel correlation query intentionally uses a materialized CTE
                  to avoid re-running the actor subquery across UNION branches. -->
             <enable_materialized_cte>1</enable_materialized_cte>

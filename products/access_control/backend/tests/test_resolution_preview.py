@@ -1,5 +1,8 @@
 import pytest
 
+from django.apps import apps
+
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models.organization import OrganizationMembership
@@ -8,6 +11,7 @@ from posthog.models.team.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.access_control.backend.facade.resolution_preview import build_resolution_preview
+from products.access_control.backend.facade.user_access_control import RESOURCE_INHERITANCE_MAP
 from products.access_control.backend.models.access_control import AccessControl
 from products.access_control.backend.tests.test_user_access_control import BaseUserAccessControlTest
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -119,6 +123,38 @@ class TestBuildResolutionPreview(BaseUserAccessControlTest):
         member_changes = [change for change in changes if change.subject.type == "member"]
         assert [(change.scope, change.object_id) for change in member_changes] == [("object", str(playlist.id))]
         assert (member_changes[0].current.access_level, member_changes[0].proposed.access_level) == ("editor", "none")
+
+    @parameterized.expand(
+        [
+            ("export", "exports", "exportedasset", {"export_format": "text/csv"}),
+            ("llm_analytics", "ai_observability", "scoredefinition", {"name": "Helpfulness", "kind": "numeric"}),
+            # warehouse_view has a display model (saved queries) and other route models beside it
+            (
+                "warehouse_view",
+                "data_tools",
+                "datawarehouseexpression",
+                {"table_name": "events", "field_name": "amount", "expression": "1"},
+            ),
+        ]
+    )
+    def test_object_rules_on_models_the_settings_ui_cannot_name_are_compared(
+        self, resource, app_label, model_name, fields
+    ):
+        # The settings UI cannot name these objects, but a route model still backs the
+        # resource and the rule resolves like any other object rule
+        model = apps.get_model(app_label, model_name)
+        manager = model.objects.for_team(self.team.id) if hasattr(model.objects, "for_team") else model.objects
+        obj = manager.create(team=self.team, created_by=self.other_user, **fields)
+        self._create_access_control(resource=resource, resource_id=str(obj.id), access_level="viewer")
+        # An inheriting resource takes its resource-level rules from its parent
+        self._create_access_control(resource=RESOURCE_INHERITANCE_MAP.get(resource, resource), access_level="editor")
+
+        changes = self._changes()
+
+        assert [(change.scope, change.object_id, change.object_name) for change in changes] == [
+            ("object", str(obj.id), None)
+        ]
+        assert (changes[0].current.access_level, changes[0].proposed.access_level) == ("editor", "viewer")
 
     def test_creator_pairs_are_skipped(self):
         # Creators keep the highest level under both ladders, so their override never applies

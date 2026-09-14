@@ -126,3 +126,45 @@ export const SettingsEnvironmentActivityLogs: Story = {
 }
 
 export const SettingsEnvironmentDangerZone: Story = { args: { sectionId: 'environment-danger-zone' } }
+
+export const SettingsEnvironmentBusinessKnowledge: Story = {
+    args: { sectionId: 'environment-business-knowledge' },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:id/business_knowledge/settings/': {
+                    learn_from_support_enabled: false,
+                    support_enabled: true,
+                },
+            },
+        }),
+    ],
+}
+
+export const SettingsEnvironmentBusinessKnowledgeSupportOff: Story = {
+    args: { sectionId: 'environment-business-knowledge' },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:id/business_knowledge/settings/': {
+                    learn_from_support_enabled: false,
+                    support_enabled: false,
+                },
+            },
+        }),
+    ],
+}
+
+export const SettingsEnvironmentBusinessKnowledgeLearningOnSupportOff: Story = {
+    args: { sectionId: 'environment-business-knowledge' },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:id/business_knowledge/settings/': {
+                    learn_from_support_enabled: true,
+                    support_enabled: false,
+                },
+            },
+        }),
+    ],
+}

@@ -25,6 +25,9 @@ import {
     type MCPSessionContext,
 } from './mcp-context'
 
+// A session's gate markers only need to outlive the session itself.
+const SESSION_CACHE_TTL_SECONDS = 24 * 60 * 60
+
 export class RequestContext {
     private tokenCacheInstance: RedisCache<State> | undefined
     private userCacheInstance: RedisCache<State> | undefined
@@ -64,6 +67,11 @@ export class RequestContext {
             this.userCacheInstance = new RedisCache<State>(hash(distinctId), this.redis, 'user')
         }
         return this.userCacheInstance
+    }
+
+    /** State scoped to one MCP session, such as the skills-first gate markers. */
+    getSessionCache(mcpSessionId: string): RedisCache<State> {
+        return new RedisCache<State>(hash(mcpSessionId), this.redis, 'session', SESSION_CACHE_TTL_SECONDS)
     }
 
     get cache(): RedisCache<State> {

@@ -387,6 +387,28 @@ describe('mcpDashboardOverviewLogic', () => {
         })
     })
 
+    describe('model visibility', () => {
+        beforeEach(() => {
+            jest.clearAllMocks()
+            initKeaTests()
+            jest.spyOn(mockApi, 'query').mockResolvedValue({ results: [] } as any)
+        })
+
+        it.each([
+            { rows: [], visible: false },
+            { rows: [{ model: 'Unknown', total_calls: 12 }], visible: true },
+            { rows: [{ model: 'gpt-5.6-sol', total_calls: 1 }], visible: true },
+            { rows: [{ model: 'claude-sonnet-5', total_calls: 0 }], visible: false },
+        ])('shows model coverage when calls exist: $rows', async ({ rows, visible }) => {
+            const logic = mcpDashboardOverviewLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            logic.actions.loadModelRowsSuccess(rows)
+            expect(logic.values.hasModelData).toBe(visible)
+        })
+    })
+
     describe('filter wiring', () => {
         beforeEach(() => {
             jest.clearAllMocks()
@@ -399,8 +421,8 @@ describe('mcpDashboardOverviewLogic', () => {
         }
 
         // HogQL query nodes carry filters under `.filters`; the typed
-        // MCPHarnessBreakdownQuery node carries dateRange/properties/filterTestAccounts
-        // at the top level. This reads whichever shape a reload used.
+        // Typed MCP breakdown nodes carry dateRange/properties/filterTestAccounts at the
+        // top level. This reads whichever shape a reload used.
         const filtersOf = (call: any): Record<string, any> => call.filters ?? call
 
         // The users query returns a single [current_users, prior_users] row; loadUsers maps
@@ -454,11 +476,11 @@ describe('mcpDashboardOverviewLogic', () => {
             }).toFinishAllListeners()
 
             const reloads = reloadCallsSince(callsBefore)
-            // Seven tiles: KPI + users + the five breakdown queries.
-            expect(reloads.length).toBe(7)
-            // The five breakdowns pass the raw selected range straight through.
+            // Eight tiles: KPI + users + the six breakdown queries.
+            expect(reloads.length).toBe(8)
+            // The six breakdowns pass the raw selected range straight through.
             const breakdowns = reloads.filter((call) => filtersOf(call).dateRange?.date_from === '-30d')
-            expect(breakdowns).toHaveLength(5)
+            expect(breakdowns).toHaveLength(6)
             // The KPI and users tiles widen to an absolute doubled window so they can compare against the prior period.
             const kpi = reloads.find((call) => call.query?.includes('AS bucket'))
             expect(kpi?.filters.dateRange.date_from).not.toBe('-30d')
@@ -482,7 +504,7 @@ describe('mcpDashboardOverviewLogic', () => {
             }
 
             const reloads = reloadCallsSince(callsBefore)
-            expect(reloads.length).toBe(7)
+            expect(reloads.length).toBe(8)
             expect(reloads.every((call) => filtersOf(call).filterTestAccounts === enabled)).toBe(true)
         })
 
@@ -495,7 +517,7 @@ describe('mcpDashboardOverviewLogic', () => {
 
             // No explicit toggle, yet every tile filters internal users because the team default is on.
             const reloads = mockApi.query.mock.calls.map((call) => call[0] as any)
-            expect(reloads.length).toBeGreaterThanOrEqual(7)
+            expect(reloads.length).toBeGreaterThanOrEqual(8)
             expect(reloads.every((call) => filtersOf(call).filterTestAccounts === true)).toBe(true)
         })
 
@@ -527,7 +549,7 @@ describe('mcpDashboardOverviewLogic', () => {
             }).toFinishAllListeners()
 
             const reloads = reloadCallsSince(callsBefore)
-            expect(reloads.length).toBe(7)
+            expect(reloads.length).toBe(8)
             expect(
                 reloads.every((call) => JSON.stringify(filtersOf(call).properties) === JSON.stringify([filter]))
             ).toBe(true)

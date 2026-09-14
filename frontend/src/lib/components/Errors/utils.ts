@@ -10,6 +10,7 @@ import {
     ErrorTrackingRelease,
     ErrorTrackingRuntime,
     ErrorTrackingStackFrame,
+    ErrorTrackingStackFrameRecord,
     ExceptionAttributes,
     FingerprintRecordPart,
 } from './types'
@@ -261,6 +262,41 @@ export function getExceptionRelease(properties: ErrorEventProperties): ErrorTrac
         project: typeof candidate.project === 'string' ? candidate.project : undefined,
         metadata,
     }
+}
+
+// Only posthog-js (`web`) and posthog-node (`posthog-node`, `posthog-edge`) report `$release_id`.
+// Other libraries that share their runtime, such as analytics-node, never send it.
+const LIBS_REPORTING_RELEASE_ID: ReadonlySet<string> = new Set(['web', 'posthog-node', 'posthog-edge'])
+
+// Uploaded symbol sets without a release leave the SDK's `$release_id` as the only source of a release.
+// A symbol set fetched by URL never carries one, so it cannot signal a missing `$release_id`.
+// A frame with no loaded record still could, so the answer stays unknown until every frame has one.
+export function isReleaseIdMissingFromSDK(
+    properties: ErrorEventProperties,
+    frames: ErrorTrackingStackFrame[],
+    stackFrameRecords: Record<string, ErrorTrackingStackFrameRecord>
+): boolean {
+    if (!properties || properties['$release_id'] || getExceptionRelease(properties)) {
+        return false
+    }
+    if (!LIBS_REPORTING_RELEASE_ID.has(String(properties['$lib'] ?? '').toLowerCase())) {
+        return false
+    }
+
+    const records = frames.map((frame) => stackFrameRecords[frame.raw_id])
+    if (records.some((record) => !record)) {
+        return false
+    }
+
+    const uploadedSymbolSets = records.filter(
+        (record) => !!record.symbol_set_ref && !isFetchedSymbolSetRef(record.symbol_set_ref)
+    )
+
+    return uploadedSymbolSets.length > 0 && uploadedSymbolSets.every((record) => !record.release)
+}
+
+function isFetchedSymbolSetRef(ref: string): boolean {
+    return ref.startsWith('http://') || ref.startsWith('https://')
 }
 
 // we had a bug where SDK was sending non-string values for exception value

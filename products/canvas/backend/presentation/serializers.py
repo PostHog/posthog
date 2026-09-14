@@ -21,6 +21,8 @@ from products.canvas.backend.facade.api import (
     PLACEMENT_ID_RE,
     PLACEMENT_STATUSES,
     RESERVED_TEMPLATE_IDS,
+    ConnectorCallStatus,
+    ConnectorKind,
 )
 from products.canvas.backend.models import Canvas, CanvasState
 
@@ -128,7 +130,6 @@ class CanvasSerializer(serializers.ModelSerializer):
             "description",
             "channel",
             "template_id",
-            "context",
             "generation_task_id",
             "pinned",
             "pinned_at",
@@ -205,11 +206,6 @@ class CanvasUpdateSerializer(serializers.Serializer):
         max_length=400,
         help_text="Updated display name.",
     )
-    # The field name shadows BaseSerializer.context; the metaclass moves declared fields into
-    # _declared_fields, so self.context still resolves to the serializer context at runtime.
-    context = serializers.CharField(  # type: ignore[assignment]
-        required=False, allow_blank=True, trim_whitespace=False, help_text="Updated author context markdown."
-    )
     description = serializers.CharField(
         required=False,
         allow_blank=True,
@@ -277,9 +273,38 @@ class CanvasNetworkCapabilitiesSerializer(serializers.Serializer):
     origins = serializers.ListField(child=serializers.URLField(max_length=2048), max_length=20)
 
 
+class CanvasConnectorDeclarationSerializer(serializers.Serializer):
+    """One provider a canvas may call through ph.connectors, with the tools it may use."""
+
+    provider = serializers.CharField(
+        max_length=300,
+        help_text=(
+            "Connector provider id: a native provider such as 'github', or 'mcp:<server host>' "
+            "(e.g. 'mcp:mcp.calendly.com') for a server the viewer connected in the MCP store."
+        ),
+    )
+    tools = serializers.ListField(
+        child=serializers.CharField(max_length=200),
+        min_length=1,
+        max_length=64,
+        help_text="Tool names the canvas may call on this provider. Read-only tools only.",
+    )
+
+
 class CanvasCapabilitiesSerializer(serializers.Serializer):
     posthog = CanvasPostHogCapabilitiesSerializer()
     network = CanvasNetworkCapabilitiesSerializer()
+    # Optional so projects published before connectors exist unchanged.
+    connectors = serializers.ListField(
+        child=CanvasConnectorDeclarationSerializer(),
+        required=False,
+        default=list,
+        max_length=20,
+        help_text=(
+            "Third-party providers the canvas reads through ph.connectors, each with the tools it may call. "
+            "Every call runs with the viewer's own connection; declaring one shows it in the promote review."
+        ),
+    )
 
 
 class CanvasSourceProjectSerializer(serializers.Serializer):
@@ -331,6 +356,7 @@ class CanvasSourceProjectSerializer(serializers.Serializer):
                 "agentRequests": False,
             },
             "network": {"origins": []},
+            "connectors": [],
         },
         help_text=(
             "Bounded capabilities frozen into the built artifact. Declare every insight short id the "
@@ -871,6 +897,87 @@ class CanvasBuildsResponseSerializer(serializers.Serializer):
     )
 
 
+class CanvasComponentLifecycleSerializer(serializers.Serializer):
+    """The renderable build of one component referenced by a grid layout, shaped
+    like the builds endpoint's response so clients reuse one lifecycle reader."""
+
+    canvas_id = serializers.CharField(help_text="Id of the component canvas.")
+    requested_version_id = serializers.CharField(
+        allow_null=True,
+        help_text="The source version the placement pins, or null when it follows the latest.",
+    )
+    published_build_id = serializers.CharField(
+        allow_null=True,
+        help_text="Id of the component's live build. Null until a build completes.",
+    )
+    current_version_id = serializers.CharField(
+        allow_null=True,
+        help_text="Id of the source version the component's head points at.",
+    )
+    builds = CanvasBuildSerializer(
+        many=True,
+        help_text="The build the placement renders (live, or the pinned version's retained build). Empty when none is renderable.",
+    )
+
+
+class CanvasViewResponseSerializer(serializers.Serializer):
+    """Everything a client needs to open a canvas, in one round trip.
+
+    Replaces the record → builds → source waterfall: the record, the live
+    build (with its signed artifact URL), and — only when there is nothing
+    built to render — the head source project (freeform/component) or the
+    layout document (grid)."""
+
+    canvas = CanvasSerializer(help_text="The canvas record.")
+    published_build = CanvasBuildSerializer(
+        allow_null=True,
+        help_text="The live build with its signed artifact URL. Null until a build completes.",
+    )
+    current_version_id = serializers.CharField(
+        allow_null=True,
+        help_text="Id of the source version the canvas's head points at. Null before the first publish.",
+    )
+    has_active_build = serializers.BooleanField(
+        help_text="True while a build is queued or running — poll the builds endpoint until it settles.",
+    )
+    source = CanvasSourceProjectSerializer(  # type: ignore[assignment]  # field named `source` shadows DRF Field.source
+        allow_null=True,
+        required=False,
+        help_text=(
+            "The head source project, present only when the canvas has no live build to render "
+            "(the client-side fallback tier). Null otherwise, and always null for grid canvases."
+        ),
+    )
+    layout = CanvasLayoutSerializer(
+        allow_null=True,
+        required=False,
+        help_text="For grid canvases: the head layout document. Null for other kinds.",
+    )
+    component_lifecycles = CanvasComponentLifecycleSerializer(
+        many=True,
+        required=False,
+        help_text=(
+            "For grid canvases: the renderable build of every component the layout's live placements "
+            "reference, so the grid renders from this one call. Absent for other kinds."
+        ),
+    )
+
+
+class CanvasLayoutWithComponentsResponseSerializer(CanvasLayoutResponseSerializer):
+    """The layout response, plus (when requested) the renderable build of every
+    component the layout places — so a grid opens on one round trip instead of
+    one builds fetch per placement."""
+
+    component_lifecycles = CanvasComponentLifecycleSerializer(
+        many=True,
+        required=False,
+        help_text=(
+            "One entry per distinct (component, pinned version) the layout's live placements reference, "
+            "present only when the request passes include_components. Components the caller may not see are omitted."
+        ),
+    )
+
+
 class CanvasBuildActionSerializer(serializers.Serializer):
     action = serializers.ChoiceField(choices=["retry", "pin", "unpin", "cancel"])
     build_id = serializers.UUIDField()
@@ -930,6 +1037,10 @@ class CanvasCapabilityWideningSerializer(serializers.Serializer):
         child=serializers.CharField(),
         help_text="Action verbs the draft newly declares it may invoke via ph.actions.",
     )
+    connectors_added = CanvasConnectorDeclarationSerializer(
+        many=True,
+        help_text="Connector providers and tools the draft newly declares it may call via ph.connectors.",
+    )
 
 
 class CanvasActionDefinitionSerializer(serializers.Serializer):
@@ -968,6 +1079,91 @@ class CanvasActionResultSerializer(serializers.Serializer):
     verb = serializers.CharField(help_text="The verb that executed.")
     result = serializers.DictField(
         help_text="Verb-specific result, e.g. {'task_id': ...} for tasks.create.",
+    )
+
+
+class CanvasConnectorToolSerializer(serializers.Serializer):
+    """One tool a connector provider exposes to canvases."""
+
+    name = serializers.CharField(help_text="Tool name, as passed to ph.connectors.call.")
+    summary = serializers.CharField(help_text="One line naming what the tool reads.")
+    is_read_only = serializers.BooleanField(
+        source="read_only", help_text="True when the tool only reads. Canvases may call read-only tools."
+    )
+    input_schema = serializers.DictField(help_text="JSON Schema of the tool's arguments object.")
+    usage = serializers.CharField(help_text="Authoring docs: argument and result shape, limits, and behavior.")
+
+
+class CanvasConnectorSerializer(serializers.Serializer):
+    """One connector provider, with the caller's connection state and the tools it exposes."""
+
+    provider = serializers.CharField(
+        help_text="Provider id to declare and call, e.g. 'github' or 'mcp:mcp.calendly.com'."
+    )
+    display_name = serializers.CharField(source="label", help_text="Display name of the provider.")
+    kind = serializers.ChoiceField(
+        choices=ConnectorKind.choices,
+        help_text="'native' runs through a PostHog personal integration; 'mcp' through an MCP store installation.",
+    )
+    connected = serializers.BooleanField(
+        allow_null=True,
+        help_text="True when the caller has a usable connection. Null in the static catalog returned to sandbox authors.",
+    )
+    connect_path = serializers.CharField(help_text="In-app path where the caller connects this provider.")
+    tools = CanvasConnectorToolSerializer(many=True, help_text="Tools the caller's connection exposes, sorted by name.")
+
+
+class CanvasConnectorsResponseSerializer(serializers.Serializer):
+    """The connector catalog: every provider a canvas may declare and call."""
+
+    connectors = CanvasConnectorSerializer(many=True, help_text="Native providers first, then the requested MCP hosts.")
+
+
+class CanvasConnectorCallSerializer(serializers.Serializer):
+    """Payload for calling one connector tool as the viewer."""
+
+    approval_token = serializers.CharField(
+        required=False,
+        default=None,
+        max_length=200,
+        help_text="Single-use token from a needs_approval response. Submit only after the viewer approves this exact call. Expires after 15 minutes.",
+    )
+    provider = serializers.CharField(max_length=300, help_text="Declared provider id, e.g. 'github'.")
+    tool = serializers.CharField(max_length=200, help_text="Declared tool name, e.g. 'list_pull_requests'.")
+    arguments = serializers.DictField(
+        required=False,
+        default=dict,
+        help_text="Tool arguments, validated against the tool's input schema.",
+    )
+
+
+class CanvasConnectorCallResultSerializer(serializers.Serializer):
+    """Result of one connector call. `status` is 'ok' when `result` holds the tool's output."""
+
+    approval_token = serializers.CharField(
+        allow_null=True,
+        help_text="Host-only, single-use approval token bound to this viewer, connection, canvas version, tool, and arguments. Never forward it to the canvas iframe.",
+    )
+
+    status = serializers.ChoiceField(
+        choices=ConnectorCallStatus.choices,
+        help_text=(
+            "'ok' carries a result. 'not_connected' and 'needs_reauth' mean the viewer must connect the provider "
+            "at connect_path. 'blocked' is team policy. 'write_blocked' is a tool that may write. "
+            "'needs_approval' requires the viewer to approve this call in the host. "
+            "'upstream_error' is a failure at the provider."
+        ),
+    )
+    result = serializers.DictField(
+        allow_null=True,
+        help_text="Tool output. Native tools return their documented shape; MCP tools return {content, structured_content, is_error}.",
+    )
+    detail = serializers.CharField(allow_blank=True, help_text="Human-readable explanation for a non-ok status.")
+    truncated = serializers.BooleanField(
+        help_text="True when the result exceeded the size cap and was cut to a preview."
+    )
+    connect_path = serializers.CharField(
+        allow_null=True, help_text="In-app path where the viewer can connect the provider, when that would help."
     )
 
 

@@ -106,6 +106,27 @@ describe("useInboxReportDismissAction", () => {
     );
   });
 
+  it("closes the dialog before the request settles", async () => {
+    let settle: (updated: SignalReport) => void = () => {};
+    mocks.updateState.mockReturnValue(
+      new Promise<SignalReport>((resolve) => {
+        settle = resolve;
+      }),
+    );
+    const user = userEvent.setup();
+    render(<DismissActionHarness />, { wrapper: createWrapper() });
+
+    await enterDismissal(user);
+
+    expect(
+      screen.queryByPlaceholderText("Optional: add detail"),
+    ).not.toBeInTheDocument();
+
+    await act(async () => {
+      settle({ ...report, status: "suppressed" });
+    });
+  });
+
   it("keeps the dialog closed once the dismissal lands", async () => {
     mocks.updateState.mockResolvedValue({ ...report, status: "suppressed" });
     const user = userEvent.setup();

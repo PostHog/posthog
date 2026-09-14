@@ -1,4 +1,5 @@
 import { BindLogic, useActions, useValues } from 'kea'
+import type { ReactNode } from 'react'
 
 import { LemonBanner, LemonButton, LemonTag, Spinner } from '@posthog/lemon-ui'
 
@@ -16,14 +17,16 @@ import { SuiteRunsHistory } from './SuiteRunsHistory'
 interface DataQualityChecksPanelProps extends DataQualityChecksLogicProps {
     columns: DatabaseSchemaField[]
     dataLastSyncedAt?: string | null
-    /** Drops the "Data quality" heading where the surface already names the panel, such as a tab. */
+    /** Uses "Checks" where the surrounding surface already names Data quality. */
     hideTitle?: boolean
+    notice?: ReactNode
 }
 
 export function DataQualityChecksPanel({
     columns,
     dataLastSyncedAt,
     hideTitle,
+    notice,
     ...logicProps
 }: DataQualityChecksPanelProps): JSX.Element | null {
     const logic = dataQualityChecksLogic(logicProps)
@@ -57,10 +60,10 @@ export function DataQualityChecksPanel({
 
     return (
         <BindLogic logic={dataQualityCheckEditorLogic} props={editorProps}>
-            <div className="flex flex-col gap-2 mt-4">
+            <div className="flex flex-col gap-3">
                 <div className="flex items-center justify-between gap-2 flex-wrap">
                     <div className="flex items-center gap-2">
-                        {!hideTitle && <h3 className="mb-0 text-lg font-semibold">Data quality</h3>}
+                        <h3 className="mb-0 text-lg font-semibold">{hideTitle ? 'Checks' : 'Data quality'}</h3>
                         {health && (
                             <LemonTag type={HEALTH_TAG_TYPES[health.health] ?? 'default'}>
                                 {HEALTH_LABELS[health.health] ?? health.health}
@@ -97,6 +100,8 @@ export function DataQualityChecksPanel({
                         </LemonButton>
                     </div>
                 </div>
+
+                {notice}
 
                 {dataLastSyncedAt && (
                     <p className="mb-0 text-secondary text-sm">

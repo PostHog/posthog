@@ -148,6 +148,15 @@ REPLAY_VISION_ENQUEUE_CLAIM_FAILURES = Counter(
     ["operation"],
 )
 
+REPLAY_VISION_ESTIMATE_OUTCOMES = Counter(
+    "replay_vision_estimate_outcomes_total",
+    "Estimate outcomes, recorded by scanner saves and the hourly refresher: refreshed, or skipped "
+    "because the scanner's experiment targeting can't resolve an exposed population. Most skips "
+    "are drafts that heal at launch; a rising unresolved count means scanners are stuck with no "
+    "estimate. Failures of the scanner's own query stay on the error path and are not counted",
+    ["outcome"],
+)
+
 REPLAY_VISION_GEMINI_CLEANUP_BACKLOG = Gauge(
     "replay_vision_gemini_cleanup_backlog",
     "Tracked Gemini files awaiting cleanup (a growing backlog means the sweep is losing)",
@@ -217,6 +226,11 @@ def record_sweep_outcome(outcome: str, candidates: int = 0) -> None:
     if candidates > 0:
         REPLAY_VISION_SWEEP_CANDIDATES.inc(candidates)
         _otel.record_counter_twin(REPLAY_VISION_SWEEP_CANDIDATES, candidates, {})
+
+
+def record_estimate_outcome(outcome: str) -> None:
+    REPLAY_VISION_ESTIMATE_OUTCOMES.labels(outcome=outcome).inc()
+    _otel.record_counter_twin(REPLAY_VISION_ESTIMATE_OUTCOMES, 1, {"outcome": outcome})
 
 
 def record_deep_candidates(count: int) -> None:

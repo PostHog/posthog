@@ -45,6 +45,7 @@ const MOCK_SUBSCRIPTIONS: SubscriptionApi[] = [
         next_delivery_date: '2026-04-07T17:00:00Z',
         deleted: false,
         enabled: true,
+        ai_query_plan_status: null,
     },
     {
         id: 2,
@@ -67,6 +68,7 @@ const MOCK_SUBSCRIPTIONS: SubscriptionApi[] = [
         deleted: false,
         enabled: true,
         integration_id: 1,
+        ai_query_plan_status: null,
     },
     {
         id: 3,
@@ -88,6 +90,7 @@ const MOCK_SUBSCRIPTIONS: SubscriptionApi[] = [
         next_delivery_date: null,
         deleted: false,
         enabled: true,
+        ai_query_plan_status: null,
     },
     {
         id: 4,
@@ -109,6 +112,7 @@ const MOCK_SUBSCRIPTIONS: SubscriptionApi[] = [
         next_delivery_date: '2026-04-14T12:00:00Z',
         deleted: false,
         enabled: true,
+        ai_query_plan_status: null,
     },
     {
         id: 5,
@@ -131,6 +135,7 @@ const MOCK_SUBSCRIPTIONS: SubscriptionApi[] = [
         deleted: false,
         enabled: false,
         integration_id: 1,
+        ai_query_plan_status: null,
     },
     {
         id: 6,
@@ -153,6 +158,7 @@ const MOCK_SUBSCRIPTIONS: SubscriptionApi[] = [
         next_delivery_date: '2026-04-09T08:00:00Z',
         deleted: false,
         enabled: true,
+        ai_query_plan_status: null,
     },
 ]
 
@@ -195,6 +201,7 @@ function buildMockSubscriptions(total: number): SubscriptionApi[] {
             next_delivery_date: '2026-04-07T17:00:00Z',
             deleted: false,
             enabled: true,
+            ai_query_plan_status: null,
             ...(isSlack ? { integration_id: 1 } : {}),
         }
     })

@@ -1,8 +1,10 @@
 import { Decorator, Meta, StoryObj } from '@storybook/react'
+import { waitFor } from '@testing-library/dom'
 import { router } from 'kea-router'
 import { useEffect, useRef } from 'react'
 
 import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { API_SCOPES } from 'lib/scopes'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
@@ -26,6 +28,18 @@ function withOAuthApplication(overrides: Record<string, unknown>): Decorator {
         )
         return <Story />
     }
+}
+
+// The visual-regression runner lets a fullscreen scene grow to its full content height, which
+// would leave the scrolling permission column and the pinned action row out of the snapshot.
+// Pin the app shell to a window-sized box so the snapshot shows what a person actually sees.
+const withPinnedSceneHeight: Decorator = function PinnedSceneHeightDecorator(Story): JSX.Element {
+    return (
+        <>
+            <style>{'.Navigation3000 { height: 640px !important; min-height: 0 !important; }'}</style>
+            <Story />
+        </>
+    )
 }
 
 const pushAuthorize = (scope?: string): void => {
@@ -178,5 +192,38 @@ export const ManyOptionalScopes: Story = {
             )
         )
         return <App />
+    },
+}
+
+const everyScopeRequest = ['openid', 'profile', 'email', ...API_SCOPES.map(({ key }) => `${key}:write`)].join(' ')
+
+// The worst case for the layout: a client that asks for every scope PostHog has, which is one
+// permission row per scope object. The rows scroll inside the card, and the action row keeps
+// Cancel and Authorize on screen the whole way down.
+export const EveryScopeRequested: Story = {
+    decorators: [withPinnedSceneHeight, withOAuthApplication({ required_scopes: [] })],
+    render: () => {
+        useDelayedOnMountEffect(() => pushAuthorize(everyScopeRequest))
+        return <App />
+    },
+}
+
+// The same request, scrolled to the end of the permission list. This is what a person sees after
+// reading the whole list: the action row and the Permissions header both held in place.
+export const EveryScopeRequestedScrolledToEnd: Story = {
+    decorators: [withPinnedSceneHeight, withOAuthApplication({ required_scopes: [] })],
+    render: () => {
+        useDelayedOnMountEffect(() => pushAuthorize(everyScopeRequest))
+        return <App />
+    },
+    play: async () => {
+        const scrollArea = await waitFor(() => {
+            const element = document.querySelector<HTMLElement>('[data-attr="oauth-permissions-scroll"]')
+            if (!element) {
+                throw new Error('Permission list did not render')
+            }
+            return element
+        })
+        scrollArea.scrollTop = scrollArea.scrollHeight
     },
 }
