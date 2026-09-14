@@ -614,6 +614,7 @@ export function buildAccountHogFlowInvocation(params: {
             event: invocationGlobals.event,
             accountAudience: true,
             actionStepCount: 0,
+            customerTaskIdempotencyVersion: 1,
             variables: params.defaultVariables,
             // Same reason as createHogFlowInvocation: a broadcast's conversions arrive long after
             // the send, so they attribute to the version that sent, not the one live by then.
@@ -658,6 +659,7 @@ function buildHogFlowInvocation(params: {
             event: invocationGlobals.event,
             personId: params.personId,
             actionStepCount: 0,
+            customerTaskIdempotencyVersion: 1,
             variables: params.defaultVariables,
             // Same reason as createHogFlowInvocation: a broadcast's conversions arrive days after
             // the send, so they have to attribute to the version that sent, not the one live then.

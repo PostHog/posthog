@@ -90,9 +90,10 @@ cr auth status                   # confirms the session and the organization
 
 ## After the PR opens
 
-`auto_review` is on in `.coderabbit.yaml`, so a review posts once when the PR opens, drafts included.
+`auto_review` is on in `.coderabbit.yaml`, so a review posts when the PR opens, drafts included.
 `base_branches` is set to every branch, so a stacked layer gets one too, not only a PR into master.
-It does not re-review a later push, so comment `@coderabbitai review` when you want a second pass over the fixes.
+`auto_incremental_review` is on, so each later push gets a review of the commits since the last one.
+To force a full re-review of the whole pull request, comment `@coderabbitai full review`.
 
 Handle the posted threads like CLI findings:
 
