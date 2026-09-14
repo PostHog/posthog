@@ -494,7 +494,7 @@ impl PersonHogLeaderService {
                 };
                 let lifecycle_db = self.lifecycle_db()?;
                 let verify_started = Instant::now();
-                let mark = mark_status(&lifecycle_db.pool, op_id, req.team_id, req.person_id).await;
+                let mark = mark_status(lifecycle_db, op_id, req.team_id, req.person_id).await;
                 record_release_phase("verify_mark", verify_started);
                 let mark = mark.map_err(mark_lookup_failed)?;
                 self.release_committed(partition, req.team_id, op_id, &release, mark.as_deref())
@@ -565,7 +565,7 @@ impl PersonHogLeaderService {
                 let lifecycle_db = self.lifecycle_db()?;
                 let person_ids: Vec<i64> = releases.iter().map(|r| r.person_id).collect();
                 let verify_started = Instant::now();
-                let marks = mark_statuses(&lifecycle_db.pool, op_id, team_id, &person_ids).await;
+                let marks = mark_statuses(lifecycle_db, op_id, team_id, &person_ids).await;
                 record_release_phase("verify_mark", verify_started);
                 let marks = marks.map_err(mark_lookup_failed)?;
                 // The releases run together so their death documents share

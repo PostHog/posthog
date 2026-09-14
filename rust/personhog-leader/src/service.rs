@@ -214,7 +214,7 @@ impl PersonHogLeaderService {
             changelog_topic,
             fence_healer: fallback
                 .as_ref()
-                .map(|f| Arc::new(FenceHealer::new(f.pool.clone(), Arc::clone(&fences)))),
+                .map(|f| Arc::new(FenceHealer::new(f.clone(), Arc::clone(&fences)))),
             fallback,
             inflight,
             num_partitions,
@@ -1381,7 +1381,7 @@ impl PersonHogLeader for PersonHogLeaderService {
                 "no-lifecycle-db",
             ));
         };
-        match target_mark_status(&fallback.pool, op_id, req.team_id, req.person_id).await {
+        match target_mark_status(fallback, op_id, req.team_id, req.person_id).await {
             Ok(Some(status)) if status == "marked" => {}
             Ok(_) => {
                 counter!("personhog_leader_fences_total", "action" => "fold_unverified")

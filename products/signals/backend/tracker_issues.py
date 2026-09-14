@@ -31,6 +31,7 @@ from posthog.models.integration import (
     external_issue_url,
 )
 
+from products.signals.backend.github_actor import github_mention_for_user
 from products.signals.backend.models import SignalReport, SignalReportTrackerIssue, SignalTeamConfig
 
 logger = structlog.get_logger(__name__)
@@ -354,6 +355,39 @@ def link_pull_request_to_tracker_issue(*, team_id: int, report_id: str, pr_url: 
         return False
 
 
+def _close_notice(*, report_link: str, actor_mention: str | None) -> str:
+    """What the issue says about its own close.
+
+    One wording covers every close, because the ``completed`` flag alone cannot name the verb: an
+    uncompleted close is a dismissal, a delete, or a resolve that needed no pull request. The
+    report page holds the detail, and the mention names the person GitHub cannot — the close goes
+    out under the team's GitHub App.
+    """
+    if actor_mention:
+        return f"🔕 {actor_mention} closed the {report_link} in PostHog, so this issue is closed too."
+    return f"🔕 The {report_link} was closed in PostHog, so this issue is closed too."
+
+
+def _comment_before_close(tracker: SignalReportTrackerIssue, *, report_link: str, actor_mention: str | None) -> None:
+    """Best-effort note on the issue naming who closed the report. Only GitHub takes one today.
+
+    Explain first, close second, as the implementation pull request does. A failed comment must
+    not stop the close: an issue left open would grow the backlog this close exists to prevent,
+    while a missing comment costs only the attribution.
+    """
+    if tracker.provider != Integration.IntegrationKind.GITHUB or tracker.integration is None:
+        return
+    context = tracker.external_context or {}
+    try:
+        GitHubIntegration(tracker.integration).comment_on_issue(
+            context["repository"],
+            int(context["number"]),
+            _close_notice(report_link=report_link, actor_mention=actor_mention),
+        )
+    except Exception:
+        logger.warning("signals.tracker_issue_close_comment_failed", tracker_id=str(tracker.id), exc_info=True)
+
+
 def _close_provider_issue(tracker: SignalReportTrackerIssue, *, completed: bool) -> None:
     integration = tracker.integration
     if integration is None:
@@ -372,7 +406,9 @@ def _close_provider_issue(tracker: SignalReportTrackerIssue, *, completed: bool)
         raise ValueError(f"Unsupported tracker provider {tracker.provider}")
 
 
-def close_tracker_issue_for_report(*, team_id: int, report_id: str, completed: bool = False) -> bool:
+def close_tracker_issue_for_report(
+    *, team_id: int, report_id: str, completed: bool = False, actor_user_id: int | None = None
+) -> bool:
     """Close the report's tracker issue once the report is dismissed or completed. Never raises.
 
     A dismissed report will not produce a pull request, so its work item is finished. Leaving it
@@ -388,6 +424,12 @@ def close_tracker_issue_for_report(*, team_id: int, report_id: str, completed: b
         if tracker is None or tracker.closed_at is not None:
             return False
 
+        report_url = f"{settings.SITE_URL}/project/{team_id}/inbox/reports/{report_id}"
+        _comment_before_close(
+            tracker,
+            report_link=f"[linked PostHog report]({report_url})",
+            actor_mention=github_mention_for_user(actor_user_id),
+        )
         _close_provider_issue(tracker, completed=completed)
         tracker.closed_at = timezone.now()
         tracker.save(update_fields=["closed_at", "updated_at"])

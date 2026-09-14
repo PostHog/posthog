@@ -23,6 +23,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use common_sqlx_macros::{mirrored_query, mirrored_query_as, mirrored_query_scalar};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sqlx::postgres::PgPool;
@@ -140,6 +141,11 @@ fn record_outcomes(outcome: &Value) {
     }
 }
 
+struct PersonStatus {
+    person_id: i64,
+    status: String,
+}
+
 pub struct DeleteDriver {
     leader: Arc<dyn LifecycleLeader>,
     tables: IdentityTables,
@@ -194,10 +200,10 @@ impl OpDriver for DeleteDriver {
             ))
         })?;
         match step {
-            DeleteStep::Started => mark(pool, &self.tables.person, op).await,
-            DeleteStep::Marked => seal(pool, self.leader_calls(), op).await,
+            DeleteStep::Started => mark(pool, &self.tables, op).await,
+            DeleteStep::Marked => seal(pool, self.leader_calls(), &self.tables, op).await,
             DeleteStep::Sealed => unmap(pool, &self.tables, op).await,
-            DeleteStep::Unmapped => complete(pool, self.leader_calls(), op).await,
+            DeleteStep::Unmapped => complete(pool, self.leader_calls(), &self.tables, op).await,
         }
     }
 }
@@ -217,19 +223,20 @@ fn parse_request(op: &OpRow) -> Result<DeleteRequest, SagaError> {
 /// `skipped_conflict`. Requested ids with no live person row get no row at
 /// all — they surface as `not_found` in the outcome. If nothing was claimed
 /// the op aborts here, before anything was mutated.
-async fn mark(pool: &PgPool, person_table: &str, op: &OpRow) -> Result<(), SagaError> {
+async fn mark(pool: &PgPool, tables: &IdentityTables, op: &OpRow) -> Result<(), SagaError> {
     let request = parse_request(op)?;
     let team_id = op.team_id as i32;
+    let person_table = &tables.person;
     let mut tx = begin_timed(pool).await?;
 
     // Rows from a previous attempt of this op (crash between the insert and
     // the advance): whatever they claimed stays claimed.
-    let existing: Vec<i64> = sqlx::query_scalar!(
-        "SELECT person_id FROM lifecycle_op_person WHERE op_id = $1",
+    let existing: Vec<i64> = mirrored_query_scalar!(
+        tables.is_validation(),
+        "SELECT person_id FROM {lifecycle_op_person} WHERE op_id = $1",
         op.op_id
-    )
-    .fetch_all(&mut *tx)
-    .await?;
+        => fetch_all(&mut *tx)
+    )?;
 
     // Sorted + deduped by the mark's conflict key so concurrent ops touching
     // the same persons take row locks in the same order.
@@ -259,9 +266,10 @@ async fn mark(pool: &PgPool, person_table: &str, op: &OpRow) -> Result<(), SagaE
 
     // The mark: inserting the row is claiming the person; a unique violation
     // on the partial mark index IS the conflict with another live op.
-    let marked: Vec<i64> = sqlx::query_scalar!(
+    let marked: Vec<i64> = mirrored_query_scalar!(
+        tables.is_validation(),
         r#"
-        INSERT INTO lifecycle_op_person (op_id, team_id, person_id, person_uuid, role, status)
+        INSERT INTO {lifecycle_op_person} (op_id, team_id, person_id, person_uuid, role, status)
         SELECT $1, $2, u.person_id, u.person_uuid, 'victim', $5
         FROM unnest($3::bigint[], $4::uuid[]) AS u(person_id, person_uuid)
         ON CONFLICT (team_id, person_id) WHERE status IN ('marked', 'sealed') DO NOTHING
@@ -271,10 +279,9 @@ async fn mark(pool: &PgPool, person_table: &str, op: &OpRow) -> Result<(), SagaE
         team_id,
         &live_ids,
         &live_uuids,
-        STATUS_MARKED,
-    )
-    .fetch_all(&mut *tx)
-    .await?;
+        STATUS_MARKED
+        => fetch_all(&mut *tx)
+    )?;
 
     // Victims another live op holds: record the skip (the status keeps the
     // row outside the mark index). ON CONFLICT on the primary key covers a
@@ -290,9 +297,10 @@ async fn mark(pool: &PgPool, person_table: &str, op: &OpRow) -> Result<(), SagaE
         .map(|(_, uuid)| *uuid)
         .collect();
     if !conflicted_ids.is_empty() {
-        sqlx::query!(
+        mirrored_query!(
+            tables.is_validation(),
             r#"
-            INSERT INTO lifecycle_op_person (op_id, team_id, person_id, person_uuid, role, status)
+            INSERT INTO {lifecycle_op_person} (op_id, team_id, person_id, person_uuid, role, status)
             SELECT $1, $2, u.person_id, u.person_uuid, 'victim', $5
             FROM unnest($3::bigint[], $4::uuid[]) AS u(person_id, person_uuid)
             ON CONFLICT (op_id, person_id) DO NOTHING
@@ -301,10 +309,9 @@ async fn mark(pool: &PgPool, person_table: &str, op: &OpRow) -> Result<(), SagaE
             team_id,
             &conflicted_ids,
             &conflicted_uuids,
-            STATUS_SKIPPED_CONFLICT,
-        )
-        .execute(&mut *tx)
-        .await?;
+            STATUS_SKIPPED_CONFLICT
+            => execute(&mut *tx)
+        )?;
     }
 
     // The live filter above and the mark insert run in different
@@ -314,13 +321,14 @@ async fn mark(pool: &PgPool, person_table: &str, op: &OpRow) -> Result<(), SagaE
     // touched again. From here on the mark keeps every held person alive.
     let corpse_sql = format!(
         r#"
-        DELETE FROM lifecycle_op_person lop
+        DELETE FROM {lop_table} lop
         WHERE lop.op_id = $1 AND lop.status = 'marked'
           AND NOT EXISTS (
               SELECT 1 FROM {person_table} p
               WHERE p.team_id = $2 AND p.id = lop.person_id AND p.is_deleted = false
           )
-        "#
+        "#,
+        lop_table = tables.lifecycle_op_person,
     );
     sqlx::query(&corpse_sql)
         .bind(op.op_id)
@@ -328,23 +336,24 @@ async fn mark(pool: &PgPool, person_table: &str, op: &OpRow) -> Result<(), SagaE
         .execute(&mut *tx)
         .await?;
 
-    let claims: i64 = sqlx::query_scalar!(
+    let claims: i64 = mirrored_query_scalar!(
+        tables.is_validation(),
         r#"
-        SELECT count(*) as "count!" FROM lifecycle_op_person
+        SELECT count(*) as "count!" FROM {lifecycle_op_person}
         WHERE op_id = $1 AND status IN ('marked', 'sealed')
         "#,
         op.op_id
-    )
-    .fetch_one(&mut *tx)
-    .await?;
+        => fetch_one(&mut *tx)
+    )?;
 
     let mut abort_outcome: Option<Value> = None;
     let advanced = if claims == 0 {
         // Every requested person was conflicted or missing: nothing was (or
         // will be) mutated, so the op ends here as aborted.
-        let outcome = build_outcome(&mut tx, op.op_id, &request.person_ids).await?;
+        let outcome = build_outcome(&mut tx, tables, op.op_id, &request.person_ids).await?;
         let advanced = complete_op_in_tx(
             &mut tx,
+            tables,
             op.op_id,
             DeleteStep::Started.as_str(),
             STEP_ABORTED,
@@ -356,6 +365,7 @@ async fn mark(pool: &PgPool, person_table: &str, op: &OpRow) -> Result<(), SagaE
     } else {
         advance_step_in_tx(
             &mut tx,
+            tables,
             op.op_id,
             DeleteStep::Started.as_str(),
             DeleteStep::Marked.as_str(),
@@ -392,17 +402,22 @@ async fn mark(pool: &PgPool, person_table: &str, op: &OpRow) -> Result<(), SagaE
 /// op; unlike the merge driver's pre-flip abort, delete has no abort path
 /// past `started`, and a parked delete is an operator signal, not a stuck
 /// customer flow.
-async fn seal(pool: &PgPool, calls: LeaderCalls<'_>, op: &OpRow) -> Result<(), SagaError> {
-    let victims: Vec<i64> = sqlx::query_scalar!(
+async fn seal(
+    pool: &PgPool,
+    calls: LeaderCalls<'_>,
+    tables: &IdentityTables,
+    op: &OpRow,
+) -> Result<(), SagaError> {
+    let victims: Vec<i64> = mirrored_query_scalar!(
+        tables.is_validation(),
         r#"
-        SELECT person_id FROM lifecycle_op_person
+        SELECT person_id FROM {lifecycle_op_person}
         WHERE op_id = $1 AND status IN ('marked', 'sealed')
         ORDER BY person_id
         "#,
         op.op_id
-    )
-    .fetch_all(pool)
-    .await?;
+        => fetch_all(pool)
+    )?;
     let fenced = fence_victims(calls, op, &victims).await?;
 
     let mut sealed_ids: Vec<i64> = Vec::with_capacity(fenced.len());
@@ -432,9 +447,10 @@ async fn seal(pool: &PgPool, calls: LeaderCalls<'_>, op: &OpRow) -> Result<(), S
     }
 
     let mut tx = begin_timed(pool).await?;
-    sqlx::query!(
+    mirrored_query!(
+        tables.is_validation(),
         r#"
-        UPDATE lifecycle_op_person lop
+        UPDATE {lifecycle_op_person} lop
         SET status = $2, sealed = jsonb_build_object('version', u.version, 'created_at', u.created_at)
         FROM unnest($3::bigint[], $4::bigint[], $5::bigint[]) AS u(person_id, version, created_at)
         WHERE lop.op_id = $1 AND lop.person_id = u.person_id
@@ -444,25 +460,25 @@ async fn seal(pool: &PgPool, calls: LeaderCalls<'_>, op: &OpRow) -> Result<(), S
         STATUS_SEALED,
         &sealed_ids,
         &sealed_versions,
-        &sealed_created_ats,
-    )
-    .execute(&mut *tx)
-    .await?;
+        &sealed_created_ats
+        => execute(&mut *tx)
+    )?;
     if !vanished.is_empty() {
-        sqlx::query!(
+        mirrored_query!(
+            tables.is_validation(),
             r#"
-            DELETE FROM lifecycle_op_person
+            DELETE FROM {lifecycle_op_person}
             WHERE op_id = $1 AND person_id = ANY($2) AND status IN ('marked', 'sealed')
             "#,
             op.op_id,
-            &vanished,
-        )
-        .execute(&mut *tx)
-        .await?;
+            &vanished
+            => execute(&mut *tx)
+        )?;
     }
 
     if !advance_step_in_tx(
         &mut tx,
+        tables,
         op.op_id,
         DeleteStep::Marked.as_str(),
         DeleteStep::Sealed.as_str(),
@@ -489,15 +505,15 @@ async fn unmap(pool: &PgPool, tables: &IdentityTables, op: &OpRow) -> Result<(),
     let team_id = op.team_id as i32;
     let mut tx = begin_timed(pool).await?;
 
-    let mut victims: Vec<i64> = sqlx::query_scalar!(
+    let mut victims: Vec<i64> = mirrored_query_scalar!(
+        tables.is_validation(),
         r#"
-        SELECT person_id FROM lifecycle_op_person
+        SELECT person_id FROM {lifecycle_op_person}
         WHERE op_id = $1 AND status = 'sealed'
         "#,
         op.op_id
-    )
-    .fetch_all(&mut *tx)
-    .await?;
+        => fetch_all(&mut *tx)
+    )?;
     victims.sort_unstable();
 
     // Take every row lock this transaction will need up front, in id order,
@@ -559,19 +575,19 @@ async fn unmap(pool: &PgPool, tables: &IdentityTables, op: &OpRow) -> Result<(),
         }
     }
     if !moved_ids.is_empty() {
-        sqlx::query!(
+        mirrored_query!(
+            tables.is_validation(),
             r#"
-            UPDATE lifecycle_op_person lop
+            UPDATE {lifecycle_op_person} lop
             SET moved = u.moved
             FROM unnest($2::bigint[], $3::jsonb[]) AS u(person_id, moved)
             WHERE lop.op_id = $1 AND lop.person_id = u.person_id
             "#,
             op.op_id,
             &moved_ids,
-            &moved_json,
-        )
-        .execute(&mut *tx)
-        .await?;
+            &moved_json
+            => execute(&mut *tx)
+        )?;
     }
 
     // posthog_cohortpeople has no shadow mirror and no team_id column, so it
@@ -605,11 +621,12 @@ async fn unmap(pool: &PgPool, tables: &IdentityTables, op: &OpRow) -> Result<(),
             properties_last_updated_at = '{{}}'::jsonb,
             properties_last_operation = '{{}}'::jsonb,
             version = (lop.sealed->>'version')::bigint + 1
-        FROM lifecycle_op_person lop
+        FROM {lop_table} lop
         WHERE lop.op_id = $1 AND lop.status = 'sealed'
           AND p.team_id = $2 AND p.id = lop.person_id
         "#,
         person_table = tables.person,
+        lop_table = tables.lifecycle_op_person,
     );
     sqlx::query(&tombstone_sql)
         .bind(op.op_id)
@@ -619,6 +636,7 @@ async fn unmap(pool: &PgPool, tables: &IdentityTables, op: &OpRow) -> Result<(),
 
     if !advance_step_in_tx(
         &mut tx,
+        tables,
         op.op_id,
         DeleteStep::Sealed.as_str(),
         DeleteStep::Unmapped.as_str(),
@@ -645,46 +663,44 @@ async fn unmap(pool: &PgPool, tables: &IdentityTables, op: &OpRow) -> Result<(),
 /// whose sealed jsonb carries `created_at` are released: that key exists
 /// exactly when `FencePerson` sealed them, so an op sealed pre-fence (or
 /// across a kill-switch flip) completes without phantom release calls.
-async fn complete(pool: &PgPool, calls: LeaderCalls<'_>, op: &OpRow) -> Result<(), SagaError> {
+async fn complete(
+    pool: &PgPool,
+    calls: LeaderCalls<'_>,
+    tables: &IdentityTables,
+    op: &OpRow,
+) -> Result<(), SagaError> {
     let request = parse_request(op)?;
 
-    let fenced = sqlx::query!(
+    let fenced = mirrored_query_as!(
+        FencedVictim,
+        tables.is_validation(),
         r#"
         SELECT person_id, person_uuid,
                (sealed->>'version')::bigint AS "sealed_version!",
                (sealed->>'created_at')::bigint AS "sealed_created_at!"
-        FROM lifecycle_op_person
+        FROM {lifecycle_op_person}
         WHERE op_id = $1 AND status = 'sealed' AND sealed ? 'created_at'
         ORDER BY person_id
         "#,
         op.op_id
-    )
-    .fetch_all(pool)
-    .await?;
-    let victims: Vec<FencedVictim> = fenced
-        .into_iter()
-        .map(|row| FencedVictim {
-            person_id: row.person_id,
-            person_uuid: row.person_uuid,
-            sealed_version: row.sealed_version,
-            sealed_created_at: row.sealed_created_at,
-        })
-        .collect();
-    release_fenced(calls, op, &victims).await?;
+        => fetch_all(pool)
+    )?;
+    release_fenced(calls, op, &fenced).await?;
 
     let mut tx = begin_timed(pool).await?;
 
-    sqlx::query!(
-        "UPDATE lifecycle_op_person SET status = $2 WHERE op_id = $1 AND status = 'sealed'",
+    mirrored_query!(
+        tables.is_validation(),
+        "UPDATE {lifecycle_op_person} SET status = $2 WHERE op_id = $1 AND status = 'sealed'",
         op.op_id,
-        STATUS_DELETED,
-    )
-    .execute(&mut *tx)
-    .await?;
+        STATUS_DELETED
+        => execute(&mut *tx)
+    )?;
 
-    let outcome = build_outcome(&mut tx, op.op_id, &request.person_ids).await?;
+    let outcome = build_outcome(&mut tx, tables, op.op_id, &request.person_ids).await?;
     if !complete_op_in_tx(
         &mut tx,
+        tables,
         op.op_id,
         DeleteStep::Unmapped.as_str(),
         STEP_COMPLETED,
@@ -708,15 +724,17 @@ async fn complete(pool: &PgPool, calls: LeaderCalls<'_>, op: &OpRow) -> Result<(
 /// reports `not_found`.
 async fn build_outcome(
     tx: &mut Tx<'_>,
+    tables: &IdentityTables,
     op_id: Uuid,
     requested: &[i64],
 ) -> Result<Value, SagaError> {
-    let rows = sqlx::query!(
-        "SELECT person_id, status FROM lifecycle_op_person WHERE op_id = $1",
+    let rows = mirrored_query_as!(
+        PersonStatus,
+        tables.is_validation(),
+        "SELECT person_id, status FROM {lifecycle_op_person} WHERE op_id = $1",
         op_id
-    )
-    .fetch_all(&mut **tx)
-    .await?;
+        => fetch_all(&mut **tx)
+    )?;
 
     let results = requested
         .iter()
