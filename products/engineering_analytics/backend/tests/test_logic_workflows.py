@@ -62,8 +62,7 @@ class TestWorkflowEndpointMapping(BaseTest):
             if query_type == "engineering_analytics.default_branch":
                 return _resp([(0, 12)])
             assert query_type == "engineering_analytics.current_branch_health"
-            # HogQL caps a query naming no LIMIT at 100 rows, so an absent limit is a cap, not the
-            # lack of one. The named limit has to clear the workflow set this test feeds.
+            # HogQL caps a query with no LIMIT at 100 rows, so the query must name one that clears the fixture.
             limit = re.search(r"LIMIT\s+(\d+)", sql)
             assert limit is not None and int(limit.group(1)) > len(workflow_rows)
             return _resp(workflow_rows)

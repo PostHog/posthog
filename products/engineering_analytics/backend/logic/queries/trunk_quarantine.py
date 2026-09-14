@@ -18,8 +18,7 @@ from products.engineering_analytics.backend.facade.contracts import (
 from products.engineering_analytics.backend.logic.ownership import QuarantinedTestFile, resolve_test_ownership
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
 
-# The board is a standing work queue, so the cap is generous rather than a page. Oldest first, so a
-# repo that somehow exceeds it loses the newest debt and keeps the debt that has aged past its TTL.
+# Oldest first, so a repo past the cap keeps the debt that has aged past its TTL.
 _LIMIT = 5000
 
 _QUARANTINED_SELECT = """
