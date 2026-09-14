@@ -2,7 +2,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event
+from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, _create_person
 from unittest import mock
 
 from parameterized import parameterized
@@ -17,6 +17,7 @@ from posthog.errors import InternalCHQueryError
 from posthog.query_scan import slot
 from posthog.query_scan.flag import QueryScanFlag
 from posthog.query_scan.job import Execution, QueryScanJob, run_query_scan
+from posthog.query_scan.stub import stub_in_subqueries
 
 FIXTURES = Path(__file__).parent / "fixtures"
 FLAG = QueryScanFlag(mode=QueryScanMode.SHOW, floor_ms=1000, event_ratio=0.1, persons_ratio=0.5)
@@ -36,12 +37,12 @@ def _plan(name: str) -> str:
     return (FIXTURES / f"{name}.json").read_text()
 
 
-def _fake_job_boundaries(test: BaseTest, stored: dict[str, Any]) -> mock.Mock:
+def _fake_job_boundaries(test: BaseTest, stored: dict[str, Any], flag: QueryScanFlag = FLAG) -> mock.Mock:
     redis = mock.Mock()
     redis.get.side_effect = lambda key: stored.get(key)
     redis.set.side_effect = lambda key, value, ex=None, nx=False: stored.__setitem__(key, value)
     redis_patcher = mock.patch("posthog.query_scan.slot.query_cache_raw_client", return_value=redis)
-    flag_patcher = mock.patch("posthog.query_scan.job.get_query_scan_flag", return_value=FLAG)
+    flag_patcher = mock.patch("posthog.query_scan.job.get_query_scan_flag", return_value=flag)
     capture_patcher = mock.patch("posthog.query_scan.job.ph_scoped_capture")
     for patcher in (redis_patcher, flag_patcher):
         patcher.start()
@@ -177,31 +178,42 @@ class TestQueryScanJob(BaseTest):
 class TestQueryScanJobOnClickhouse(ClickhouseTestMixin, BaseTest):
     def setUp(self) -> None:
         super().setUp()
-        self.capture = _fake_job_boundaries(self, {})
+        # Any persons read fires the gate, so the test checks that the plan names the table, not the
+        # row arithmetic the fixture tests cover.
+        self.flag = QueryScanFlag(mode=QueryScanMode.SHOW, floor_ms=1000, event_ratio=0.1, persons_ratio=0.0)
+        self.capture = _fake_job_boundaries(self, {}, flag=self.flag)
 
-    def test_a_hogql_date_range_is_read_from_the_real_plan(self) -> None:
-        # The bounds are parsed from ClickHouse's rendering of the constants HogQL prints, and a
-        # fixture freezes both sides, so only a real plan catches either side changing its format.
+    def test_the_real_plan_carries_everything_the_analysis_reads(self) -> None:
+        # A saved plan freezes both the printer's and ClickHouse's format, so only a real EXPLAIN of
+        # a printed query catches either side changing what the parser reads: the read nodes and
+        # their table names, the Min-Max bounds, the primary key's columns and the granule counts.
+        _create_person(team=self.team, distinct_ids=["user_1"])
         _create_event(
             team=self.team, event="$pageview", distinct_id="user_1", timestamp=datetime.now(UTC) - timedelta(days=1)
         )
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
         tree = prepare_ast_for_printing(
             parse_select(
-                "SELECT count() FROM events WHERE event = '$pageview' "
-                "AND timestamp >= now() - interval 7 day AND timestamp < now()"
+                "SELECT count() FROM events AS e JOIN persons AS p ON e.person_id = p.id "
+                "WHERE e.event = '$pageview' AND e.timestamp >= now() - interval 7 day AND e.timestamp < now() "
+                "AND e.distinct_id IN (SELECT distinct_id FROM events "
+                "WHERE event = '$pageview' AND timestamp >= now() - interval 7 day)"
             ),
             context,
             dialect="clickhouse",
         )
         assert tree is not None
+        stub = stub_in_subqueries(tree)
         job = QueryScanJob(
             team=self.team,
             cache_key="cache_key_1",
             executions=(
                 Execution(
-                    stubbed_sql=print_prepared_ast(tree, context, dialect="clickhouse"),
-                    subqueries=(),
+                    stubbed_sql=print_prepared_ast(stub.stubbed, context, dialect="clickhouse"),
+                    subqueries=tuple(
+                        print_prepared_ast(stub_in_subqueries(subquery).stubbed, context, dialect="clickhouse")
+                        for subquery in stub.subqueries
+                    ),
                     values=context.values,
                     rows_read=500_000,
                 ),
@@ -215,9 +227,10 @@ class TestQueryScanJobOnClickhouse(ClickhouseTestMixin, BaseTest):
 
         run_query_scan(job)
 
-        stored = slot.get(self.team.pk, "cache_key_1", thresholds=FLAG.thresholds_fingerprint)
+        stored = slot.get(self.team.pk, "cache_key_1", thresholds=self.flag.thresholds_fingerprint)
         assert stored is not None and stored.status == "done"
         assert self.capture.call_args.kwargs["properties"]["explain_ok"] is True
-        # A share proves the plan's events read was found; no finding proves its bounds were read.
+        # A share proves the events read and its bounds were found. The only finding is the persons
+        # join: the outer read has a start date and an event filter, and so does the subquery.
         assert stored.range_share is not None
-        assert [str(finding.kind) for finding in stored.findings] == []
+        assert [str(finding.kind) for finding in stored.findings] == ["persons_join"]
