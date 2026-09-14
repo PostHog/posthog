@@ -225,6 +225,9 @@ class TestAutoProjectMiddleware(APIBaseTest):
         self.user.current_team = self.team
         self.user.current_organization = self.organization
 
+    def app_context(self, response) -> dict:
+        return json.loads(response.context["posthog_app_context"])
+
     @override_settings(PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_project_switched_when_accessing_dashboard_of_another_accessible_team(self):
         dashboard = Dashboard.objects.create(team=self.second_team)
@@ -401,11 +404,13 @@ class TestAutoProjectMiddleware(APIBaseTest):
         response_users_api = self.client.get(f"/api/users/@me/")
         assert project_1_request.status_code == 200
         assert response_users_api.json().get("team", {}).get("id") == self.team.id
+        assert self.app_context(project_1_request)["project_access_denied"] is None
 
         project_2_request = self.client.get(f"/project/{self.no_access_team.pk}/home")
         response_users_api = self.client.get(f"/api/users/@me/")
         assert project_2_request.status_code == 200
         assert response_users_api.json().get("team", {}).get("id") == self.team.id
+        assert self.app_context(project_2_request)["project_access_denied"] == self.no_access_team.pk
 
     def test_project_unchanged_when_accessing_missing_project_by_id(self):
         project_1_request = self.client.get(f"/project/{self.team.pk}/home")
@@ -417,6 +422,7 @@ class TestAutoProjectMiddleware(APIBaseTest):
         response_users_api = self.client.get(f"/api/users/@me/")
         assert project_2_request.status_code == 200
         assert response_users_api.json().get("team", {}).get("id") == self.team.id
+        assert self.app_context(project_2_request)["project_access_denied"] == 999999
 
     def test_project_redirects_to_new_team_when_accessing_project_by_token(self):
         res = self.client.get(f"/project/{self.second_team.api_token}/home")

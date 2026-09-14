@@ -80,6 +80,11 @@ function addProjectIdUnlessPresent(path: string, teamId?: TeamType['id']): strin
     return `${prefix}/${path.startsWith('/') ? path.slice(1) : path}`
 }
 
+export function getProjectIdInPath(path: string): number | null {
+    const match = path.split(/[?#]/)[0].match(/^\/project\/(\d+)(?:\/|$)/)
+    return match ? parseInt(match[1], 10) : null
+}
+
 export function removeProjectIdIfPresent(path: string): string {
     const withoutProjectId = path.match(projectIdentifierInUrlRegex) ? '/' + path.split('/').splice(3).join('/') : path
     return withoutProjectId.replace(projectRootWithoutIdentifierInUrlRegex, '/')

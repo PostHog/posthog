@@ -282,11 +282,16 @@ class AutoProjectMiddleware:
                 project_id_in_url = int(path_parts[2])
 
             if project_id_in_url and user.team and user.team.pk != project_id_in_url:
+                switched = False
                 try:
                     new_team = Team.objects.get(pk=project_id_in_url)
-                    self.switch_team_if_allowed(new_team, request)
+                    switched = self.switch_team_if_allowed(new_team, request)
                 except Team.DoesNotExist:
                     pass
+                if not switched and path_parts[0] == "project":
+                    # We keep serving the user's own team here, so the app must say so instead of
+                    # rendering that team under another project's address.
+                    request.project_access_denied = project_id_in_url  # type: ignore
                 return self.get_response(request)
 
             target_queryset = self.get_target_queryset(request)
@@ -336,11 +341,11 @@ class AutoProjectMiddleware:
             if actual_item is not None:
                 self.switch_team_if_allowed(actual_item.team, request)
 
-    def switch_team_if_allowed(self, new_team: Team, request: HttpRequest):
+    def switch_team_if_allowed(self, new_team: Team, request: HttpRequest) -> bool:
         user = cast(User, request.user)
 
         if not self.can_switch_to_team(new_team, request):
-            return
+            return False
 
         old_team_id = user.current_team_id
         user.team = new_team
@@ -349,6 +354,7 @@ class AutoProjectMiddleware:
         user.save()
         # Information for POSTHOG_APP_CONTEXT
         request.switched_team = old_team_id  # type: ignore
+        return True
 
     def can_switch_to_team(self, new_team: Team, request: HttpRequest):
         user = cast(User, request.user)
