@@ -185,13 +185,11 @@ class BatchExportRun(UUIDTModel):
             )
         ]
         indexes = [
-            # Serves the lookup of a parent's latest completed run, which every run does to
-            # estimate its partition count. `status` and `records_completed` are deliberately
-            # not in this index although the query filters on both. Postgres blocks HOT updates
-            # when an UPDATE writes any indexed column, index predicate columns included, and
-            # both of those columns are written on every run transition. Indexing either one
-            # would make those updates insert new entries into every index on this table.
-            # Filtering them from the heap costs a few extra fetches per lookup instead.
+            # `status` and `records_completed` are deliberately absent although
+            # `afetch_last_run_records_completed` filters on both. Postgres blocks HOT updates
+            # when an UPDATE writes an indexed column, predicate columns included, and every run
+            # transition writes both. Indexing either would push those updates into every index
+            # on this table.
             models.Index(
                 fields=["batch_export", "-data_interval_end"],
                 name="be_run_export_interval_idx",

@@ -6,10 +6,10 @@ from posthog.migration_helpers import SafeAddIndexConcurrently
 class Migration(migrations.Migration):
     """Index the lookup of a batch export's latest completed run.
 
-    Every batch export run reads the newest completed run of its parent to estimate how many
-    staging files to write. `posthog_batchexportrun` carries only its primary key and its foreign
-    key indexes, so that lookup reads the parent's whole run history and sorts it to find one row,
-    and the cost grows with the history.
+    Every scheduled batch export run reads the newest completed run of its export to estimate how
+    many staging files to write. `posthog_batchexportrun` carries only its primary key and its
+    foreign key indexes, so that lookup reads the export's whole run history and sorts it to find
+    one row, and the cost grows with the history.
 
     The index leads with the parent and ends with `data_interval_end`, so the planner seeks to the
     parent and reads the newest run first, with no sort step. `posthog_batchexportrun` is large and

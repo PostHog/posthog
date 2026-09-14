@@ -1358,7 +1358,7 @@ async def aupdate_records_total_count(
 
 
 async def afetch_last_run_records_completed(
-    parent_id: UUID,
+    batch_export_id: UUID,
     *,
     matching_interval_duration: dt.timedelta | None,
     before_or_at_interval_end: dt.datetime | None = None,
@@ -1366,9 +1366,9 @@ async def afetch_last_run_records_completed(
 ) -> int | None:
     """Async fetch the `records_completed` of the most recent completed run for a batch export.
 
-    Used as a rough estimate to pick how many staging files to write. A run belongs to exactly one of
-    a `BatchExport` (scheduled) or a `BatchExportOnDemand`, and their ids are globally unique UUIDs, so
-    we match `parent_id` against either parent.
+    Used as a rough estimate to pick how many staging files to write. Only scheduled `BatchExport`
+    runs are matched. A `BatchExportOnDemand` is created for each request and runs once, so it has no
+    earlier run to estimate from, and `compute_num_partitions` does not call this for one.
 
     The `before_or_at_interval_end` and `not_older_than` filters are relative to the interval being
     processed (which improves accuracy for backfills):
@@ -1383,25 +1383,21 @@ async def afetch_last_run_records_completed(
 
     Returns None when no usable run exists (e.g. the first ever run, or a frequency change).
     """
-    candidates = BatchExportRun.objects.filter(
+    queryset = BatchExportRun.objects.filter(
+        batch_export_id=batch_export_id,
         status=BatchExportRun.Status.COMPLETED,
         records_completed__isnull=False,
     )
     if before_or_at_interval_end is not None:
-        candidates = candidates.filter(data_interval_end__lte=before_or_at_interval_end)
+        queryset = queryset.filter(data_interval_end__lte=before_or_at_interval_end)
     if not_older_than is not None:
-        candidates = candidates.filter(data_interval_end__gte=not_older_than)
-    newest_first = candidates.order_by("-data_interval_end").values(
-        "records_completed", "data_interval_start", "data_interval_end"
-    )
+        queryset = queryset.filter(data_interval_end__gte=not_older_than)
 
-    # One indexed lookup per parent kind. Matching both parents with an `OR` stops Postgres from
-    # seeking to a single parent, so it reads every run of the export and sorts them to find the
-    # newest. A scheduled export still makes one query, because the second lookup only runs when
-    # the first finds nothing.
-    run = await newest_first.filter(batch_export_id=parent_id).afirst()
-    if run is None:
-        run = await newest_first.filter(batch_export_on_demand_id=parent_id).afirst()
+    run = (
+        await queryset.order_by("-data_interval_end")
+        .values("records_completed", "data_interval_start", "data_interval_end")
+        .afirst()
+    )
     if run is None:
         return None
     if matching_interval_duration is not None:
