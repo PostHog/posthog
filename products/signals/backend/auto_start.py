@@ -520,7 +520,7 @@ def _create_implementation_task_if_absent(
         # The gate reads the unified task↔report view (`associated_task_runs` merges the legacy
         # `SignalReportTask` rows with the `task_run` artefact log). Unifying only *adds* sources,
         # so it can never under-detect a started implementation — and `record_implementation_task`
-        # below always writes the `SignalReportTask` row, so deleting the (API-mutable) artefact
+        # below always writes the `SignalReportTask` row, so a missing historical artefact
         # can't reopen the gate. Both writes happen under this lock, so a racing evaluation that
         # blocks here observes them and returns False.
         already_implemented = bool(

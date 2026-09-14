@@ -280,11 +280,6 @@ def handle_pull_request_event(payload: dict) -> HttpResponse:
     if analytics_event is not None:
         _capture_task_pr_event(payload, task_run, analytics_event)
 
-    # Read after the backstop, so a URL it just persisted counts. The run has to carry the URL
-    # before the handover closes anything: a report surfaces its PR from `output`, and
-    # `_record_run_pr_url` swallows a failed write, so closing the older PR on a run that never
-    # recorded this one would leave the report linked to the closed PR while its replacement sits
-    # open and unlinked. Both PRs staying open is the recoverable side of that choice.
     if action == "closed" and merged:
         # Only trust the merge for the run that actually claims this PR URL. The pr_url backstop
         # above already covers branch-matched internal PRs, so requiring equality here keeps a
