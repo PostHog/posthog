@@ -76,6 +76,9 @@ struct KeyState {
     /// The epoch of the outstanding run, so its failed messages requeue
     /// under the epoch they were polled in.
     outstanding_epoch: u64,
+    /// Remember revocations until this send settles: its messages live in
+    /// the transport, not the queue. New assignments must remain retryable.
+    revoked_while_outstanding: Vec<(String, i32)>,
     /// The key waits for the parked-retry deadline. A parked key is never
     /// outstanding: it parks only when nothing of its is in flight.
     parked: bool,
@@ -91,6 +94,7 @@ impl KeyState {
             queue: VecDeque::new(),
             outstanding: false,
             outstanding_epoch: 0,
+            revoked_while_outstanding: Vec::new(),
             parked: false,
             redelivering: false,
         }
@@ -164,14 +168,28 @@ impl KeyTable {
 
     /// Return a failed run to the front of its queue, ahead of anything that
     /// arrived while the run was in flight, so the redelivery keeps offset order.
-    /// The messages keep the outstanding run's epoch.
-    fn requeue_front(&mut self, key: &str, messages: Vec<SerializedKafkaMessage>) {
-        self.queued_messages += messages.len();
-        self.queued_bytes += payload_bytes(&messages);
+    /// The messages keep the outstanding run's epoch, except those revoked
+    /// while the send was in flight, which the new owner will replay.
+    fn requeue_front(&mut self, key: &str, mut messages: Vec<SerializedKafkaMessage>) {
         let state = self
             .keys
             .entry(key.to_string())
             .or_insert_with(KeyState::new);
+        if !state.revoked_while_outstanding.is_empty() {
+            messages.retain(|message| {
+                !state
+                    .revoked_while_outstanding
+                    .iter()
+                    .any(|(topic, partition)| {
+                        *topic == message.topic && *partition == message.partition
+                    })
+            });
+        }
+        if messages.is_empty() {
+            return;
+        }
+        self.queued_messages += messages.len();
+        self.queued_bytes += payload_bytes(&messages);
         state.redelivering = true;
         let epoch = state.outstanding_epoch;
         let enqueued_at = Instant::now();
@@ -264,6 +282,7 @@ impl KeyTable {
         match self.keys.get_mut(key) {
             Some(state) if state.outstanding => {
                 state.outstanding = false;
+                state.revoked_while_outstanding.clear();
                 self.outstanding_keys = self.outstanding_keys.saturating_sub(1);
                 true
             }
@@ -282,6 +301,19 @@ impl KeyTable {
         let mut purged = 0usize;
         let mut purged_bytes = 0usize;
         for state in self.keys.values_mut() {
+            if state.outstanding {
+                for &(topic, partition) in &revoked {
+                    if !state.revoked_while_outstanding.iter().any(
+                        |(revoked_topic, revoked_partition)| {
+                            revoked_topic == topic && *revoked_partition == partition
+                        },
+                    ) {
+                        state
+                            .revoked_while_outstanding
+                            .push((topic.to_string(), partition));
+                    }
+                }
+            }
             let before = state.queue.len();
             state.queue.retain(|queued| {
                 let keep =
@@ -1073,6 +1105,92 @@ mod tests {
         let effects = sched.on_settled(&snapshot(&[A], &[]), delivered(A, &["t:a"]));
         assert!(effects.dispatches.is_empty());
         assert_eq!(sched.table().key_count(), 0);
+    }
+
+    #[test]
+    fn test_revoked_outstanding_failure_is_not_retried() {
+        let mut sched = scheduler();
+        let live = snapshot(&[A], &[]);
+        let sent = sched.on_groups(&live, "b1", 5, vec![run("t:a", &[1])]);
+        assert_eq!(sent.dispatches.len(), 1);
+
+        // No queued messages exist to identify the outstanding run during purge.
+        let _ = sched.on_partitions_revoked(&[("test".to_string(), 0)]);
+        let settled = sched.on_settled(&live, failed(A, vec![run("t:a", &[1])]));
+        assert!(settled.dispatches.is_empty());
+
+        let retry = sched.on_deadline(&live, Deadline::ParkedRetry);
+        assert!(
+            retry.dispatches.is_empty(),
+            "a failed send must not resurrect revoked work"
+        );
+        assert_eq!(sched.table().key_count(), 0);
+        assert_eq!(sched.table().queued_messages(), 0);
+        assert_eq!(sched.table().queued_bytes(), 0);
+        assert_eq!(sched.table().outstanding_keys(), 0);
+        assert_eq!(sched.table().parked_keys(), 0);
+    }
+
+    #[test]
+    fn test_revoked_outstanding_failure_preserves_kept_partitions() {
+        let mut sched = scheduler();
+        let live = snapshot(&[A], &[]);
+        let mixed_run = || {
+            let mut mixed = run("t:a", &[1, 2, 3, 4]);
+            mixed.messages[1].partition = 1;
+            mixed.messages[2].topic = "other".to_string();
+            mixed.messages[3].partition = 2;
+            mixed
+        };
+        let sent = sched.on_groups(&live, "b1", 5, vec![mixed_run()]);
+        assert_eq!(sent.dispatches.len(), 1);
+
+        let _ = sched.on_partitions_revoked(&[("test".to_string(), 0)]);
+        let _ = sched.on_partitions_revoked(&[("test".to_string(), 2)]);
+        let _ = sched.on_settled(&live, failed(A, vec![mixed_run()]));
+
+        let retry = sched.on_deadline(&live, Deadline::ParkedRetry);
+        assert_eq!(retry.dispatches.len(), 1);
+        assert_eq!(
+            offsets_of(&retry.dispatches[0]),
+            vec![2, 3],
+            "only revoked topic-partitions may be discarded"
+        );
+        assert_eq!(retry.dispatches[0].assignment_epoch, Some(5));
+        let _ = sched.on_settled(&live, delivered(A, &["t:a"]));
+        assert_eq!(sched.table().key_count(), 0);
+        assert_eq!(sched.table().queued_bytes(), 0);
+    }
+
+    #[test]
+    fn test_revoked_outstanding_failure_preserves_reassigned_work() {
+        let mut sched = scheduler();
+        let live = snapshot(&[A], &[]);
+        let sent = sched.on_groups(&live, "b1", 5, vec![run("t:a", &[1])]);
+        assert_eq!(sent.dispatches.len(), 1);
+        let _ = sched.on_partitions_revoked(&[("test".to_string(), 0)]);
+
+        // The same offset is polled again before the old send settles.
+        let queued = sched.on_groups(&live, "b2", 6, vec![run("t:a", &[1, 2])]);
+        assert!(queued.dispatches.is_empty());
+        let _ = sched.on_settled(&live, failed(A, vec![run("t:a", &[1])]));
+
+        let retry = sched.on_deadline(&live, Deadline::ParkedRetry);
+        assert_eq!(retry.dispatches.len(), 1);
+        assert_eq!(offsets_of(&retry.dispatches[0]), vec![1, 2]);
+        assert_eq!(retry.dispatches[0].assignment_epoch, Some(6));
+        assert_eq!(retry.dispatches[0].kind, SendKind::Fresh);
+
+        // Revocation of the old assignment must not suppress this run's retries.
+        let _ = sched.on_settled(&live, failed(A, vec![run("t:a", &[1, 2])]));
+        let retry = sched.on_deadline(&live, Deadline::ParkedRetry);
+        assert_eq!(retry.dispatches.len(), 1);
+        assert_eq!(offsets_of(&retry.dispatches[0]), vec![1, 2]);
+        assert_eq!(retry.dispatches[0].assignment_epoch, Some(6));
+        assert_eq!(retry.dispatches[0].kind, SendKind::Resend);
+        let _ = sched.on_settled(&live, delivered(A, &["t:a"]));
+        assert_eq!(sched.table().key_count(), 0);
+        assert_eq!(sched.table().queued_bytes(), 0);
     }
 
     // ---- lifecycle ----
