@@ -2010,8 +2010,9 @@ class ExperimentWatchVariantSerializer(serializers.Serializer):
     )
     sessions = serializers.IntegerField(
         help_text=(
-            f"Sessions those people had within {FIRST_SESSION_HORIZON_HOURS} hours of being exposed, which is "
-            "more than the comparison reads: it says how much recorded material sits behind the variant."
+            f"Sessions those people had within {FIRST_SESSION_HORIZON_HOURS} hours of being exposed, and before "
+            "the experiment ended or this request was made, which is more than the comparison reads: it says how "
+            "much recorded material sits behind the variant."
         )
     )
 

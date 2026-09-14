@@ -36953,7 +36953,7 @@ export namespace Schemas {
       key: string;
       /** Exposed people the comparison covered for this variant: the most recently exposed people, each read from their first session after being exposed. People rather than sessions because a variant can change how often the flag is evaluated again later, which moves a variant's session count without anyone behaving differently. One session each, from the moment of exposure on, so every variant gets the same amount of behavior per person. */
       persons: number;
-      /** Sessions those people had within 24 hours of being exposed, which is more than the comparison reads: it says how much recorded material sits behind the variant. */
+      /** Sessions those people had within 24 hours of being exposed, and before the experiment ended or this request was made, which is more than the comparison reads: it says how much recorded material sits behind the variant. */
       sessions: number;
     }
 
