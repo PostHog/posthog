@@ -177,6 +177,25 @@ describe('ActionFilterRow', () => {
             expect(row.textContent).toContain('user signed up')
         })
 
+        // The series charts a flat zero once the event stops arriving, and the chart alone reads
+        // like a real zero.
+        it('tags a series whose event PostHog has no fresh data for', async () => {
+            useMocks({
+                get: {
+                    '/api/projects/:team/event_definitions/': () => [
+                        200,
+                        {
+                            count: 1,
+                            results: [{ id: '1', name: 'user signed up', last_seen_at: '2020-01-01T00:00:00Z' }],
+                        },
+                    ],
+                },
+            })
+            const { logic } = setup()
+            renderRow(logic, { filter: { ...DEFAULT_FILTER, id: 'user signed up', name: 'user signed up' } })
+            expect(await screen.findByText('Stale')).toBeInTheDocument()
+        })
+
         it('opens the picker with the renamed selection first, labelled by the series name', async () => {
             const { logic } = setup()
             renderRow(logic, {

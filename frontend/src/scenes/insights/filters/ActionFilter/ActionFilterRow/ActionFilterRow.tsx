@@ -402,7 +402,7 @@ export function ActionFilterRow({
             onChange={(changedValue, taxonomicGroupType, item) =>
                 applyTaxonomicSelection(taxonomicGroupType, changedValue, item)
             }
-            renderValue={() => <EntityFilterInfo filter={filter} showIcon />}
+            renderValue={() => <EntityFilterInfo filter={filter} showIcon showEventHealth />}
             groupTypes={effectiveActionsTaxonomicGroupTypes}
             placeholder="All events"
             placeholderClass=""

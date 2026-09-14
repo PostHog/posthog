@@ -5,10 +5,10 @@ import { dayjs } from 'lib/dayjs'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { actionEventHealthLogic } from './actionEventHealthLogic'
+import { eventHealthLogic } from './eventHealthLogic'
 
-describe('actionEventHealthLogic', () => {
-    let logic: ReturnType<typeof actionEventHealthLogic.build>
+describe('eventHealthLogic', () => {
+    let logic: ReturnType<typeof eventHealthLogic.build>
     let requestedSearches: URLSearchParams[]
 
     beforeEach(() => {
@@ -32,12 +32,12 @@ describe('actionEventHealthLogic', () => {
         })
 
         initKeaTests()
-        logic = actionEventHealthLogic()
+        logic = eventHealthLogic()
         logic.mount()
     })
 
     // The whole point of the warning: an event nobody sends any more, and an event with no
-    // definition at all, are both actions that silently match nothing.
+    // definition at all, are both references that silently match nothing.
     it.each([
         ['fresh_event', undefined],
         ['stale_event', 'stale'],
@@ -48,7 +48,7 @@ describe('actionEventHealthLogic', () => {
         expect(logic.values.eventHealthIssues[event]?.status).toEqual(status)
     })
 
-    // A page of actions asks row by row. Without batching that is one request per row.
+    // A page asks row by row. Without batching that is one request per row.
     it('asks for a burst of event names in a single request', async () => {
         logic.actions.requestEventNames(['fresh_event'])
         logic.actions.requestEventNames(['stale_event'])
@@ -59,7 +59,7 @@ describe('actionEventHealthLogic', () => {
         expect(requestedSearches[0].getAll('names')).toEqual(['fresh_event', 'stale_event'])
     })
 
-    // A page of many actions, or of long event names, used to go out as one oversized URL that a
+    // A page of many rows, or of long event names, used to go out as one oversized URL that a
     // proxy rejects whole. Nothing wrote to `definitions` on failure, so every tag on the page
     // stayed absent and the same URL went out again on the next burst.
     it('splits a burst too long for one URL across requests', async () => {
@@ -86,7 +86,7 @@ describe('actionEventHealthLogic', () => {
 
     // The endpoint splits each `names` value on commas, so it answers about `purchase` and
     // `completed` instead. The full name then looks like it has no definition, which drew a
-    // "Not seen" tag on a step that matches fine.
+    // "Not seen" tag on a reference that matches fine.
     it('stays quiet about an event name containing a comma', async () => {
         logic.actions.requestEventNames(['purchase,completed'])
         await expectLogic(logic).toFinishAllListeners()

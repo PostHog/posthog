@@ -4,6 +4,7 @@ import { IconPin, IconPinFilled } from '@posthog/icons'
 import { LemonInput } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { EventHealthWarning } from 'lib/components/EventHealthWarning/EventHealthWarning'
 import { MemberSelectMultiplePopover } from 'lib/components/MemberSelectMultiplePopover'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { TagSelect } from 'lib/components/TagSelect'
@@ -35,7 +36,6 @@ import {
 import { ACTIONS_PER_PAGE, actionsLogic } from '../logics/actionsLogic'
 import { ActionStepConditions, ActionStepSummary } from '../utils/actionStepDescription'
 import { deleteActionWithWarning } from '../utils/deleteAction'
-import { EventHealthWarning } from './EventHealthWarning'
 
 export function ActionsTable(): JSX.Element {
     const { actionsList, actionCount, actionsResponseLoading, page, filters, searchTerm } = useValues(actionsLogic)
