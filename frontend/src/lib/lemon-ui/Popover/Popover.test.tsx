@@ -55,7 +55,7 @@ describe('Popover', () => {
     it('does not dismiss when clicking a survey posthog-js rendered', async () => {
         const { onClickOutside } = renderPopover()
         const host = document.createElement('div')
-        host.className = 'PostHogSurvey-019dd469-3e39-0000-1ce1-0dfeae47ce47'
+        host.className = 'PostHogSurvey-0000abcd'
         const rating = document.createElement('button')
         host.attachShadow({ mode: 'open' }).appendChild(rating)
         document.body.appendChild(host)
