@@ -62,9 +62,9 @@ A change reaches log ingestion within a few minutes. Records ingested in that wi
 
 The project API stores the selected JSON attribute key in `logs_settings.json_parse_logs_attribute_key`, separately from the `logs_config` endpoint above. Only project admins can update this setting.
 
-- The value must be a string of at most 200 characters. Leading and trailing whitespace is trimmed.
+- The value must be a string. Leading and trailing whitespace is trimmed, and the trimmed key can be at most 200 characters.
 - The key is matched literally, including dots.
 - The default is off. An empty string disables parsing.
-- Preserve the other `logs_settings` fields when updating it.
+- A `PATCH` replaces the whole `logs_settings` object, so send the other fields back with it.
 
-The UI and ingestion processor consume this configuration separately. Updating the configuration does not reprocess historical logs.
+Nothing reads this setting yet, so storing a key does not change how logs are parsed. Changing it never reprocesses historical logs.

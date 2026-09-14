@@ -2010,6 +2010,7 @@ def team_api_test_factory():
                 ("", ""),
                 (" " * 2, ""),
                 ("a" * 200, "a" * 200),
+                (" " + "a" * 200 + " ", "a" * 200),
             ]
         )
         def test_logs_settings_json_attribute_key(self, key, expected):
@@ -2029,6 +2030,14 @@ def team_api_test_factory():
             )
             assert response.status_code == status.HTTP_400_BAD_REQUEST
             assert "json_parse_logs_attribute_key must be a string" in response.json()["detail"]
+
+        def test_logs_settings_must_be_an_object(self):
+            response = self.client.patch(
+                "/api/environments/@current/",
+                {"logs_settings": "json_parse_logs_attribute_key"},
+            )
+            assert response.status_code == status.HTTP_400_BAD_REQUEST
+            assert "logs_settings must be an object" in response.json()["detail"]
 
         def test_logs_settings_retention_requires_matching_feature(self):
             response = self.client.patch(
