@@ -197,19 +197,19 @@ _TIER_FLOORS: dict[str, WizardTierLimits] = {
     "new": WizardTierLimits(
         cap_usd=Decimal("6").quantize(_CAP_QUANTUM),
         max_cap_usd=Decimal("6").quantize(_CAP_QUANTUM),
-        mints_per_week=5,
+        mints_per_week=2,
         ttl_seconds=_MAX_TTL_SECONDS,
     ),
     "active": WizardTierLimits(
         cap_usd=Decimal("7").quantize(_CAP_QUANTUM),
         max_cap_usd=Decimal("12").quantize(_CAP_QUANTUM),
-        mints_per_week=15,
+        mints_per_week=4,
         ttl_seconds=_MAX_TTL_SECONDS,
     ),
     "paid": WizardTierLimits(
         cap_usd=Decimal("10").quantize(_CAP_QUANTUM),
         max_cap_usd=Decimal("12").quantize(_CAP_QUANTUM),
-        mints_per_week=30,
+        mints_per_week=7,
         ttl_seconds=_MAX_TTL_SECONDS,
     ),
 }
