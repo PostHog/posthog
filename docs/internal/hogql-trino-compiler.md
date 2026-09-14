@@ -39,6 +39,10 @@ Warehouse callers can obtain curated definitions from `resolve_external_table_fi
 using the source resource name and the columns actually present in the import.
 Supplying raw column metadata alone omits these semantic mappings.
 
+When a logical field maps to a different physical column, Trino keeps the source qualifier after rewriting the field.
+This lets a query join tables that share the physical column name while selecting the intended logical field.
+`JOIN ... USING` becomes an `ON` condition with both sources qualified, including joins between CTEs and subqueries.
+
 Trino lowering supports keyed `JSONExtractArrayRaw` as an array of serialized JSON
 values, numeric epoch arguments to `toDateTime`, array literal membership, and shared
 CTEs across UNION branches. Day-time intervals use native interval arithmetic.

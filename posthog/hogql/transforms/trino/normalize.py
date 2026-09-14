@@ -126,12 +126,30 @@ class TrinoPhysicalFieldLowerer(CloningVisitor):
     def __init__(self, context: HogQLContext) -> None:
         super().__init__(clear_types=False)
         self.context = context
+        self.scopes: list[ast.SelectQueryType] = []
+
+    def visit_select_query(self, node: ast.SelectQuery) -> ast.SelectQuery:
+        if not isinstance(node.type, ast.SelectQueryType):
+            return super().visit_select_query(node)
+        self.scopes.append(node.type)
+        try:
+            return super().visit_select_query(node)
+        finally:
+            self.scopes.pop()
+
+    def _source_alias(self, table_type: ast.TableOrSelectType) -> str | None:
+        for scope in reversed(self.scopes):
+            for alias, source_type in scope.tables.items():
+                if source_type is table_type:
+                    return alias
+        return None
 
     def visit_field(self, node: ast.Field) -> ast.Expr:
         field_type = node.type
         while isinstance(field_type, ast.FieldAliasType):
             field_type = field_type.type
-        table_type = field_type.table_type if isinstance(field_type, ast.FieldType) else None
+        source_type = field_type.table_type if isinstance(field_type, ast.FieldType) else None
+        table_type = source_type
         while isinstance(table_type, (ast.TableAliasType, ast.ColumnAliasedTableType)):
             table_type = table_type.table_type
         is_events_field = (
@@ -171,6 +189,11 @@ class TrinoPhysicalFieldLowerer(CloningVisitor):
             if isinstance(database_field, DatabaseField) and database_field.name != field_type.name:
                 lowered = super().visit_field(node)
                 lowered.chain[-1] = database_field.name
+                if len(lowered.chain) == 1 and source_type is not None:
+                    # The second resolver pass cannot recover the source of a renamed bare field.
+                    source_alias = self._source_alias(source_type)
+                    if source_alias is not None:
+                        lowered.chain.insert(0, source_alias)
                 return lowered
         return super().visit_field(node)
 

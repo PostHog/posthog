@@ -1781,6 +1781,21 @@ class Resolver(CloningVisitor):
             return self._desugar_using_constraint(node, using_column_names)
         return self.visit_join_constraint(node.constraint)
 
+    def _qualify_using_field(self, expr: ast.Expr) -> None:
+        while isinstance(expr, ast.Alias):
+            expr = expr.expr
+        if not isinstance(expr, ast.Field):
+            return
+        field_type = expr.type
+        while isinstance(field_type, ast.FieldAliasType):
+            field_type = field_type.type
+        if not isinstance(field_type, ast.FieldType):
+            return
+        for alias, table_type in self._get_scope().tables.items():
+            if table_type is field_type.table_type:
+                expr.chain = [alias, expr.chain[-1]]
+                return
+
     def _desugar_using_constraint(
         self, node: ast.JoinExpr, using_column_names: Optional[list[str]]
     ) -> ast.JoinConstraint:
@@ -1796,15 +1811,21 @@ class Resolver(CloningVisitor):
         left_exprs = constraint.expr.exprs if isinstance(constraint.expr, ast.Tuple) else [constraint.expr]
         if using_column_names is None or len(using_column_names) != len(left_exprs):
             raise ImpossibleASTError("USING constraint columns are out of sync with its resolved expressions")
-        compare_exprs: list[ast.Expr] = [
-            ast.CompareOperation(
-                op=ast.CompareOperationOp.Eq,
-                left=left_expr,
-                right=self._resolve_using_column_on_joined_table(node, column_name),
-                type=ast.BooleanType(nullable=False),
+        compare_exprs: list[ast.Expr] = []
+        for left_expr, column_name in zip(left_exprs, using_column_names):
+            right_expr = self._resolve_using_column_on_joined_table(node, column_name)
+            if self.dialect == "trino":
+                # Trino clears resolved types before a second pass, so both ON fields need source qualifiers.
+                self._qualify_using_field(left_expr)
+                self._qualify_using_field(right_expr)
+            compare_exprs.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.Eq,
+                    left=left_expr,
+                    right=right_expr,
+                    type=ast.BooleanType(nullable=False),
+                )
             )
-            for left_expr, column_name in zip(left_exprs, using_column_names)
-        ]
         expr: ast.Expr = (
             compare_exprs[0]
             if len(compare_exprs) == 1

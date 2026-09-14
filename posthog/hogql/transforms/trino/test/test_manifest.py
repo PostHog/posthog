@@ -201,3 +201,69 @@ def test_manifest_preserves_curated_physical_names_and_computed_fields() -> None
     assert '"billing__subscriptions"."customer" AS "customer_id"' in result.sql
     assert 'from_unixtime(CAST("billing__subscriptions"."created" AS DOUBLE))' in result.sql
     assert isinstance(created_at_field.expr, ast.Call)
+
+
+def test_manifest_qualifies_renamed_physical_field_across_join() -> None:
+    subscriptions = TrinoManifestTable(
+        logical_name="billing.subscriptions",
+        locator=("catalog", "imports", "subscriptions"),
+        columns=(
+            TrinoManifestColumn(name="id", type=DatabaseSerializedFieldType.STRING),
+            TrinoManifestColumn(name="customer", type=DatabaseSerializedFieldType.STRING),
+        ),
+        field_overrides={"customer_id": StringDatabaseField(name="customer")},
+    )
+    payments = TrinoManifestTable(
+        logical_name="billing.payments",
+        locator=("catalog", "imports", "payments"),
+        columns=(
+            TrinoManifestColumn(name="id", type=DatabaseSerializedFieldType.STRING),
+            TrinoManifestColumn(name="customer", type=DatabaseSerializedFieldType.STRING),
+        ),
+    )
+    result = transpile_hogql_to_trino(
+        "SELECT customer_id FROM billing.subscriptions AS s JOIN billing.payments AS p ON s.id = p.id",
+        manifest=_manifest(subscriptions, payments),
+    )
+
+    assert 'SELECT "s"."customer" AS "customer_id"' in result.sql
+
+
+@pytest.mark.parametrize(
+    ("query", "expected_fields"),
+    [
+        (
+            "SELECT l.id FROM left_table AS l JOIN right_table AS r USING (id)",
+            ('"l"."id" = "r"."id"',),
+        ),
+        (
+            "WITH l AS (SELECT id FROM left_table), r AS (SELECT id FROM right_table) "
+            "SELECT l.id FROM l JOIN r USING (id)",
+            ('"l"."id" = "r"."id"',),
+        ),
+        (
+            "SELECT 1 FROM (SELECT id, value FROM left_table) "
+            "JOIN (SELECT id, value FROM right_table) USING (id, value)",
+            (
+                '"__using_join_1"."id" = "__using_join_2"."id"',
+                '"__using_join_1"."value" = "__using_join_2"."value"',
+            ),
+        ),
+    ],
+)
+def test_manifest_preserves_using_join_sources_through_trino_lowering(
+    query: str, expected_fields: tuple[str, ...]
+) -> None:
+    columns = (
+        TrinoManifestColumn(name="id", type=DatabaseSerializedFieldType.STRING),
+        TrinoManifestColumn(name="value", type=DatabaseSerializedFieldType.STRING),
+    )
+    manifest = _manifest(
+        TrinoManifestTable(logical_name="left_table", locator=("catalog", "imports", "left_table"), columns=columns),
+        TrinoManifestTable(logical_name="right_table", locator=("catalog", "imports", "right_table"), columns=columns),
+    )
+
+    result = transpile_hogql_to_trino(query, manifest=manifest)
+
+    assert " USING " not in result.sql
+    assert all(field_comparison in result.sql for field_comparison in expected_fields)
