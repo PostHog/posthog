@@ -1,8 +1,9 @@
 import type { ReactNode } from 'react'
 
 import { IconInfo } from '@posthog/icons'
-import { Link, Tooltip } from '@posthog/lemon-ui'
+import { Tooltip } from '@posthog/lemon-ui'
 
+import { ModelDownstreamSummary } from './ModelDownstreamSummary'
 import { ModelSummaryCard } from './ModelSummaryCard'
 
 export function ModelViewSummary({
@@ -30,22 +31,7 @@ export function ModelViewSummary({
                     </Tooltip>
                 </div>
                 <dl className="flex flex-wrap gap-x-10 gap-y-3 mb-0 text-sm">
-                    <div>
-                        <dt className="text-secondary mb-1">
-                            <Tooltip title="Models that depend on this model's results. Open lineage to see how they are connected.">
-                                <span className="border-b border-dashed border-secondary cursor-help">Downstream</span>
-                            </Tooltip>
-                        </dt>
-                        <dd className="mb-0">
-                            {downstreamCount ? (
-                                <Link to={lineageUrl}>
-                                    <span>{`${downstreamCount} ${downstreamCount === 1 ? 'model' : 'models'}`}</span>
-                                </Link>
-                            ) : (
-                                'No dependent models'
-                            )}
-                        </dd>
-                    </div>
+                    <ModelDownstreamSummary downstreamCount={downstreamCount} lineageUrl={lineageUrl} />
                 </dl>
             </div>
         </ModelSummaryCard>

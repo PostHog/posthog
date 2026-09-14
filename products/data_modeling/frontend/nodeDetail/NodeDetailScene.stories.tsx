@@ -9,7 +9,7 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 const grantWarehouseAccess: Decorator = function GrantWarehouseAccess(Story): JSX.Element {
     const appContext = window.POSTHOG_APP_CONTEXT
-    const original = useRef(appContext?.resource_access_control)
+    const original = useRef(appContext ? { appContext, access: appContext.resource_access_control } : null)
     if (appContext) {
         appContext.resource_access_control = {
             ...appContext.resource_access_control,
@@ -18,8 +18,8 @@ const grantWarehouseAccess: Decorator = function GrantWarehouseAccess(Story): JS
     }
     useEffect(
         () => () => {
-            if (appContext) {
-                appContext.resource_access_control = original.current
+            if (original.current) {
+                original.current.appContext.resource_access_control = original.current.access
             }
         },
         [appContext]

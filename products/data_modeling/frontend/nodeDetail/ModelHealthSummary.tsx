@@ -1,10 +1,11 @@
 import type { ReactNode } from 'react'
 
-import { LemonButton, LemonTag, LemonTagType, Link, Tooltip, LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonButton, LemonTag, LemonTagType, Tooltip, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 
 import { STATUS_TOOLTIPS } from '../lineage/nodeStyles'
+import { ModelDownstreamSummary } from './ModelDownstreamSummary'
 import { ModelSummaryCard } from './ModelSummaryCard'
 
 export interface ModelHealthSummaryProps {
@@ -125,24 +126,11 @@ export function ModelHealthSummary({
                         </dt>
                         <dd className="mb-0">{schedule ?? <LemonSkeleton className="h-4 w-32" />}</dd>
                     </div>
-                    <div>
-                        <dt className="text-secondary mb-1">
-                            <Tooltip title="Models that depend on this model's results. Open lineage to see how they are connected.">
-                                <span className="border-b border-dashed border-secondary cursor-help">Downstream</span>
-                            </Tooltip>
-                        </dt>
-                        <dd className="mb-0">
-                            {schedule === null || (!historyLoaded && !historyError) ? (
-                                <LemonSkeleton className="h-4 w-32" />
-                            ) : downstreamCount ? (
-                                <Link to={lineageUrl}>
-                                    <span>{`${downstreamCount} ${downstreamCount === 1 ? 'model' : 'models'}`}</span>
-                                </Link>
-                            ) : (
-                                'No dependent models'
-                            )}
-                        </dd>
-                    </div>
+                    <ModelDownstreamSummary
+                        downstreamCount={downstreamCount}
+                        lineageUrl={lineageUrl}
+                        loading={schedule === null || (!historyLoaded && !historyError)}
+                    />
                 </dl>
             </div>
         </ModelSummaryCard>
