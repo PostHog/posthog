@@ -44,6 +44,7 @@ async fn test_rate_limit_basic() -> Result<()> {
     insert_config_in_hypercache(redis_client.clone(), &token, remote_config).await?;
 
     let server = ServerHandle::for_config(config).await;
+    server.wait_until_ready().await;
     let client = reqwest::Client::new();
 
     // Prepare request payload with valid token
@@ -120,6 +121,7 @@ async fn test_rate_limit_disabled() -> Result<()> {
     insert_config_in_hypercache(redis_client.clone(), &token, remote_config).await?;
 
     let server = ServerHandle::for_config(config).await;
+    server.wait_until_ready().await;
     let client = reqwest::Client::new();
 
     let payload = json!({
@@ -188,6 +190,7 @@ async fn test_rate_limit_per_token_isolation() -> Result<()> {
     insert_config_in_hypercache(redis_client.clone(), &token2, remote_config).await?;
 
     let server = ServerHandle::for_config(config).await;
+    server.wait_until_ready().await;
     let client = reqwest::Client::new();
 
     let payload1 = json!({
@@ -253,6 +256,7 @@ async fn test_rate_limit_with_invalid_tokens() -> Result<()> {
     config.flags_bucket_replenish_rate = 0.01;
 
     let server = ServerHandle::for_config(config).await;
+    server.wait_until_ready().await;
     let client = reqwest::Client::new();
 
     let payload = json!({
@@ -308,6 +312,7 @@ async fn test_rate_limit_ip_fallback_on_malformed_body() -> Result<()> {
     config.flags_bucket_replenish_rate = 0.1;
 
     let server = ServerHandle::for_config(config).await;
+    server.wait_until_ready().await;
     let client = reqwest::Client::new();
 
     // Send malformed JSON body
@@ -376,6 +381,7 @@ async fn test_rate_limit_replenishment() -> Result<()> {
 
     let clock = FakeRelativeClock::default();
     let server = ServerHandle::for_config_with_rate_limiter_clock(config, clock.clone()).await;
+    server.wait_until_ready().await;
     let client = reqwest::Client::new();
 
     let payload = json!({
@@ -454,6 +460,7 @@ async fn test_ip_rate_limit_basic() -> Result<()> {
     insert_config_in_hypercache(redis_client.clone(), &token, remote_config).await?;
 
     let server = ServerHandle::for_config(config).await;
+    server.wait_until_ready().await;
     let client = reqwest::Client::new();
 
     let payload = json!({
@@ -510,6 +517,7 @@ async fn test_ip_rate_limit_with_rotating_tokens() -> Result<()> {
     config.flags_ip_replenish_rate = 0.1;
 
     let server = ServerHandle::for_config(config).await;
+    server.wait_until_ready().await;
     let client = reqwest::Client::new();
 
     // Send 5 requests with different fake tokens (all from same IP)
@@ -591,6 +599,7 @@ async fn test_both_rate_limiters_together() -> Result<()> {
     insert_config_in_hypercache(redis_client.clone(), &token, remote_config).await?;
 
     let server = ServerHandle::for_config(config).await;
+    server.wait_until_ready().await;
     let client = reqwest::Client::new();
 
     let payload = json!({
@@ -664,6 +673,7 @@ async fn test_ip_rate_limit_disabled() -> Result<()> {
     insert_config_in_hypercache(redis_client.clone(), &token, remote_config).await?;
 
     let server = ServerHandle::for_config(config).await;
+    server.wait_until_ready().await;
     let client = reqwest::Client::new();
 
     let payload = json!({
@@ -721,6 +731,7 @@ async fn test_ip_rate_limit_respects_x_forwarded_for() -> Result<()> {
     insert_config_in_hypercache(redis_client.clone(), &token, remote_config).await?;
 
     let server = ServerHandle::for_config(config).await;
+    server.wait_until_ready().await;
     let client = reqwest::Client::new();
 
     let payload = json!({
@@ -830,6 +841,7 @@ async fn test_token_rate_limit_log_only_mode() -> Result<()> {
     insert_config_in_hypercache(redis_client.clone(), &token, remote_config).await?;
 
     let server = ServerHandle::for_config(config).await;
+    server.wait_until_ready().await;
     let client = reqwest::Client::new();
 
     let payload = json!({
@@ -903,6 +915,7 @@ async fn test_ip_rate_limit_log_only_mode() -> Result<()> {
     insert_config_in_hypercache(redis_client.clone(), &token, remote_config).await?;
 
     let server = ServerHandle::for_config(config).await;
+    server.wait_until_ready().await;
     let client = reqwest::Client::new();
 
     let payload = json!({
@@ -980,6 +993,7 @@ async fn test_mixed_log_only_modes() -> Result<()> {
     insert_config_in_hypercache(redis_client.clone(), &token, remote_config).await?;
 
     let server = ServerHandle::for_config(config).await;
+    server.wait_until_ready().await;
     let client = reqwest::Client::new();
 
     let payload = json!({
@@ -1051,6 +1065,7 @@ async fn test_rate_limit_warn_then_enforce() -> Result<()> {
     insert_config_in_hypercache(redis_client.clone(), &token, remote_config).await?;
 
     let server = ServerHandle::for_config(config).await;
+    server.wait_until_ready().await;
     let client = reqwest::Client::new();
 
     let payload = json!({
@@ -1153,6 +1168,7 @@ async fn test_rate_limit_warn_header_absent_below_threshold() -> Result<()> {
     insert_config_in_hypercache(redis_client.clone(), &token, remote_config).await?;
 
     let server = ServerHandle::for_config(config).await;
+    server.wait_until_ready().await;
     let client = reqwest::Client::new();
 
     let payload = json!({
@@ -1216,6 +1232,7 @@ async fn test_ip_rate_limit_warn_then_enforce() -> Result<()> {
     insert_config_in_hypercache(redis_client.clone(), &token, remote_config).await?;
 
     let server = ServerHandle::for_config(config).await;
+    server.wait_until_ready().await;
     let client = reqwest::Client::new();
 
     let payload = json!({
@@ -1309,6 +1326,7 @@ async fn test_rate_limit_backwards_compat_log_only() -> Result<()> {
     insert_config_in_hypercache(redis_client.clone(), &token, remote_config).await?;
 
     let server = ServerHandle::for_config(config).await;
+    server.wait_until_ready().await;
     let client = reqwest::Client::new();
 
     let payload = json!({
@@ -1395,6 +1413,7 @@ async fn test_rate_limit_backwards_compat_enforce() -> Result<()> {
     insert_config_in_hypercache(redis_client.clone(), &token, remote_config).await?;
 
     let server = ServerHandle::for_config(config).await;
+    server.wait_until_ready().await;
     let client = reqwest::Client::new();
 
     let payload = json!({
@@ -1471,6 +1490,7 @@ async fn test_rate_limit_per_team_override() -> Result<()> {
     insert_config_in_hypercache(redis_client.clone(), &token, remote_config).await?;
 
     let server = ServerHandle::for_config(config).await;
+    server.wait_until_ready().await;
     let client = reqwest::Client::new();
 
     let payload = json!({
