@@ -22,8 +22,7 @@ const AUTOSCROLL_SLACK_PX = 48;
 
 /**
  * The shared reference chip with its live hover preview. The chip's own
- * click-out is suppressed: in the panel the hover card is the destination,
- * and its "open" affordance still links out.
+ * click-out is suppressed except for reports, which open in the main window.
  */
 function PanelChip({
   target,
@@ -34,8 +33,9 @@ function PanelChip({
 }): React.JSX.Element {
   return (
     <span
-      className="qa-ref"
+      className={target.kind === "report" ? undefined : "qa-ref"}
       onClickCapture={(event) => {
+        if (target.kind === "report") return;
         event.preventDefault();
         event.stopPropagation();
       }}
