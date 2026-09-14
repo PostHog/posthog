@@ -623,14 +623,14 @@ Note: The live docs URL now 301s to docs.apilayer.com and lands in an auth-gated
 
 ## Aviator — gaps
 
-Today (5): `config_history`, `merge_queue_analytics`, `queue_stats`, `queued_pull_requests`, `repositories`
+Today (8): `bot_pull_requests`, `branches`, `config_history`, `merge_queue_analytics`, `queue_stats`, `queued_pull_requests`, `repositories`, `user_actions`
 
 Diffed against: <https://docs.aviator.co/api/reference/json-api.md>
 
-- [ ] `GET /api/v1/branches` — base branches with pause/active status - the lookup that resolves the base_branch carried on queued PRs and queue stats (high)
-- [ ] `GET /api/v1/user_actions` — paginated action/audit history (actor, action, entity, target, timestamp) - the only transition history Aviator exposes (medium)
-- [ ] `GET /api/v1/bot_pull_request` — the batch/draft PR Aviator creates in parallel mode, linking queued PRs to the batch that actually merged them (medium)
-- [ ] `GET /api/v1/pull_request` — full per-PR merge state (status, blocked reason) for PRs not currently in the queued list (medium)
+- [x] `GET /api/v1/branches` — base branches with pause/active status - the lookup that resolves the base_branch carried on queued PRs and queue stats (high)
+- [x] `GET /api/v1/user_actions` — paginated action/audit history (actor, action, entity, target, timestamp) - the only transition history Aviator exposes (medium)
+- [x] `GET /api/v1/bot_pull_request` — the batch/draft PR Aviator creates in parallel mode, linking queued PRs to the batch that actually merged them (medium)
+- [ ] `GET /api/v1/pull_request` — full per-PR merge state (status, blocked reason) for PRs not currently in the queued list (medium) — **not listable.** It is a point lookup requiring `org`, `repo` and one of `branch`/`number`; the API exposes no way to enumerate PRs outside the queue, so the stated premise cannot be met. The PRs we can enumerate come from `GET /pull_request/queued`, which already returns the same per-PR fields, and its one extra field (`bot_pull_request`) is now covered by the `bot_pull_requests` table.
 - [ ] `GET /api/releases/{project}/environments/{env}/deployments` — deployment history per environment from the Releases product - complements merge-queue data with what shipped (medium)
 - [ ] `GET /api/v1/config` — current YAML config per repo; we sync config_history but not the current state it diffs against (low)
 
