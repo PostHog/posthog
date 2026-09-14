@@ -65,7 +65,7 @@ class ToolRelevance(ScorerWithPartial):
             similarity = AnswerSimilarity(model="text-embedding-3-small").eval(
                 output=actual_value, expected=expected_value
             )
-            return similarity.score
+            return float(similarity.score or 0.0)
         return float(actual_value == expected_value)
 
 
