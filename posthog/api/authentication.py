@@ -1226,11 +1226,7 @@ class PasswordResetCompleteSerializer(serializers.Serializer):
             # The reset token proves address ownership. Treat the new password as the
             # trusted credential when clearing credentials from an unverified account.
             if was_unverified:
-                user = reconcile_email_claim_credentials(
-                    user,
-                    trusted_password=True,
-                    preserve_second_factors=True,
-                )
+                user = reconcile_email_claim_credentials(user, trusted_password=True)
             else:
                 user = User.objects.select_for_update().get(pk=user.pk)
             # nosemgrep: python.django.security.audit.unvalidated-password.unvalidated-password (validated above)

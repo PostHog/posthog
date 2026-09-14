@@ -2110,8 +2110,8 @@ class TestPasswordResetAPI(APIBaseTest):
         self.assertFalse(WebauthnCredential.objects.filter(user=self.user).exists())
         self.assertFalse(UserSocialAuth.objects.filter(id=social_auth.id).exists())
         self.assertFalse(self.user.passkeys_enabled_for_2fa)
-        self.assertTrue(TOTPDevice.objects.filter(id=totp_device.id).exists())
-        self.assertTrue(StaticDevice.objects.filter(id=static_device.id).exists())
+        self.assertFalse(TOTPDevice.objects.filter(id=totp_device.id).exists())
+        self.assertFalse(StaticDevice.objects.filter(id=static_device.id).exists())
         self.assertTrue(PersonalAPIKey.objects.filter(id=personal_api_key.id).exists())
         self.assertIsNone(self.user.credentials_reviewed_at)
 
