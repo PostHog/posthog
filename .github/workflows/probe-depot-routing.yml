@@ -1,0 +1,58 @@
+name: Probe depot routing
+
+# Throwaway probe for the ci-backend routing design. Answers one question: can an
+# existing GitHub App installation read a repository variable through the API?
+# 200 or 404 means the permission is granted; 403 means it is not.
+
+on:
+    pull_request:
+        paths:
+            - .github/workflows/probe-depot-routing.yml
+    workflow_dispatch:
+
+permissions:
+    contents: read
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+    probe-variable-read:
+        name: Probe variable read
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+        steps:
+            - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              id: paths-filter
+              with:
+                  client-id: ${{ vars.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
+            - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              id: devex-general
+              with:
+                  client-id: ${{ vars.GH_APP_POSTHOG_DEVEX_GENERAL_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_DEVEX_GENERAL_PRIVATE_KEY }}
+            - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              id: product-tests
+              with:
+                  client-id: ${{ vars.GH_APP_POSTHOG_PRODUCT_TESTS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_PRODUCT_TESTS_PRIVATE_KEY }}
+            - name: Read a repository variable with each token
+              env:
+                  PATHS_FILTER: ${{ steps.paths-filter.outputs.token }}
+                  DEVEX_GENERAL: ${{ steps.devex-general.outputs.token }}
+                  PRODUCT_TESTS: ${{ steps.product-tests.outputs.token }}
+                  AMBIENT: ${{ github.token }}
+                  REPO: ${{ github.repository }}
+              run: |
+                  set -uo pipefail
+                  for name in PATHS_FILTER DEVEX_GENERAL PRODUCT_TESTS AMBIENT; do
+                      token="${!name}"
+                      one=$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $token" \
+                          "https://api.github.com/repos/$REPO/actions/variables/CD_DEPLOY_ENABLED")
+                      list=$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $token" \
+                          "https://api.github.com/repos/$REPO/actions/variables?per_page=1")
+                      echo "::notice::$name: get-one=$one list=$list"
+                  done

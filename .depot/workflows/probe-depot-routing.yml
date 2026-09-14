@@ -1,0 +1,31 @@
+name: Probe depot routing
+
+# Throwaway probe for the ci-backend routing design. Answers two questions:
+# when does Depot create the gate's check run (at queue time or at job start),
+# and what conclusion does a superseded run's gate check carry after
+# cancel-in-progress. Observed from outside with the check-runs API.
+
+on:
+    pull_request:
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+    cancel-in-progress: true
+
+jobs:
+    sleeper:
+        name: Probe sleeper
+        runs-on: depot-ubuntu-24.04
+        timeout-minutes: 15
+        steps:
+            - run: sleep 600
+    gate:
+        name: Probe gate
+        needs: [sleeper]
+        if: ${{ !cancelled() }}
+        runs-on: depot-ubuntu-24.04
+        timeout-minutes: 5
+        steps:
+            - run: |
+                  if [[ "${{ needs.sleeper.result }}" != "success" && "${{ needs.sleeper.result }}" != "skipped" ]]; then exit 1; fi
+                  echo ok
