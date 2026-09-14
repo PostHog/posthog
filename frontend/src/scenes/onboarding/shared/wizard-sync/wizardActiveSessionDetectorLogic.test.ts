@@ -1,13 +1,19 @@
 import { expectLogic } from 'kea-test-utils'
 
 import { ApiError } from 'lib/api-error'
+import { projectLogic } from 'scenes/projectLogic'
 
 import { initKeaTests } from '~/test/init'
+import type { ProjectType } from '~/types'
 
 import { wizardSessionsLatestRetrieve } from 'products/wizard/frontend/generated/api'
 import type { WizardSessionDTOApi } from 'products/wizard/frontend/generated/api.schemas'
 
-import { isSessionActive, wizardActiveSessionDetectorLogic } from './wizardActiveSessionDetectorLogic'
+import {
+    MAX_CONSECUTIVE_UNAVAILABLE_POLLS,
+    isSessionActive,
+    wizardActiveSessionDetectorLogic,
+} from './wizardActiveSessionDetectorLogic'
 
 jest.mock('products/wizard/frontend/generated/api', () => ({
     wizardSessionsLatestRetrieve: jest.fn(),
@@ -121,15 +127,89 @@ describe('wizardActiveSessionDetectorLogic', () => {
             .toMatchValues({ permanentlyDisabled: true })
     })
 
-    it('does NOT permanently disable on a 404 (transient deploy-window route gap)', async () => {
+    // The loop this guards: a project scope the user lost access to answers 404 forever, and the
+    // detector used to retry it once a minute for the lifetime of the tab, filing an exception each
+    // time. A dead scope is knowable from the first answer, so it stops there.
+    it('stops polling on the first 404 from a scope that no longer resolves', async () => {
+        mockLatestRetrieve.mockRejectedValue(
+            new ApiError('not found', 404, undefined, { detail: 'Project not found.' })
+        )
+
+        await expectLogic(logic, () => {
+            logic.actions.check()
+        })
+            .toDispatchActions(['markPermanentlyDisabled'])
+            .toMatchValues({ permanentlyDisabled: true })
+
+        const callsAfterDisable = mockLatestRetrieve.mock.calls.length
+        await expectLogic(logic, () => {
+            logic.actions.check()
+        }).toFinishAllListeners()
+        expect(mockLatestRetrieve.mock.calls.length).toBe(callsAfterDisable)
+    })
+
+    // A route missing on an old pod mid-rollout looks the same but does come back, so it keeps its
+    // retries — bounded, because a route that never returns must not poll forever either.
+    it('retries an unserved route for a few polls, then stops polling for good', async () => {
         mockLatestRetrieve.mockRejectedValue(new ApiError('not found', 404))
 
+        for (let poll = 0; poll < MAX_CONSECUTIVE_UNAVAILABLE_POLLS - 1; poll++) {
+            await expectLogic(logic, () => {
+                logic.actions.check()
+            })
+                .toDispatchActions(['setLastError'])
+                .toNotHaveDispatchedActions(['markPermanentlyDisabled'])
+        }
+        expect(logic.values.permanentlyDisabled).toBe(false)
+
+        await expectLogic(logic, () => {
+            logic.actions.check()
+        }).toDispatchActions(['markPermanentlyDisabled'])
+    })
+
+    it('gives an unserved route its retries again once a poll in between answers', async () => {
+        mockLatestRetrieve.mockRejectedValue(new ApiError('not found', 404))
+        for (let poll = 0; poll < MAX_CONSECUTIVE_UNAVAILABLE_POLLS - 1; poll++) {
+            await expectLogic(logic, () => {
+                logic.actions.check()
+            }).toFinishAllListeners()
+        }
+
+        mockLatestRetrieve.mockResolvedValue(null)
+        await expectLogic(logic, () => {
+            logic.actions.check()
+        }).toDispatchActions(['markInactive'])
+
+        mockLatestRetrieve.mockRejectedValue(new ApiError('not found', 404))
         await expectLogic(logic, () => {
             logic.actions.check()
         })
             .toDispatchActions(['setLastError'])
             .toNotHaveDispatchedActions(['markPermanentlyDisabled'])
-            .toMatchValues({ permanentlyDisabled: false })
+    })
+
+    // Every project-id change asks for a poll, and nothing upstream limits how fast the id can
+    // move — so an id that flaps turned into one request per change.
+    describe('project-change polling', () => {
+        beforeEach(() => {
+            jest.useFakeTimers()
+        })
+
+        afterEach(() => {
+            jest.useRealTimers()
+        })
+
+        it('collapses a flapping project id into one poll', () => {
+            mockLatestRetrieve.mockResolvedValue(null)
+
+            projectLogic.actions.loadCurrentProjectSuccess({ id: 1 } as ProjectType)
+            projectLogic.actions.loadCurrentProjectSuccess({ id: 2 } as ProjectType)
+            projectLogic.actions.loadCurrentProjectSuccess({ id: 3 } as ProjectType)
+            expect(mockLatestRetrieve).not.toHaveBeenCalled()
+
+            jest.advanceTimersByTime(5_000)
+            expect(mockLatestRetrieve).toHaveBeenCalledTimes(1)
+        })
     })
 
     // With two programs watched, a failure on the live one plus an empty answer from the other is
