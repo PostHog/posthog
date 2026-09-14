@@ -53,8 +53,9 @@ function labelForItem(item: AttachedContextItem): string {
  * The composer's context affordance: an @-button (TaxonomicPopover) that attaches entity refs to
  * `contextPickerLogic`, plus removable chips for everything currently in
  * `attachedContextLogic.contextItems` — picked items and auto-registered providers (e.g. the scene
- * bridge) alike. Closing a picked chip removes it from the picker; closing any other provider's chip
- * dismisses its key, which sticks even when the provider re-registers the item.
+ * bridge) alike. Closing a dismissible picked chip removes it from the picker; closing any other
+ * dismissible provider's chip dismisses its key, which sticks even when the provider re-registers
+ * the item. Providers can keep mandatory context visible with `dismissible: false`.
  */
 export function AttachedContextBar(): JSX.Element {
     const { contextItems, hasContext } = useValues(attachedContextLogic)
@@ -90,15 +91,21 @@ export function AttachedContextBar(): JSX.Element {
                 .map((item) => {
                     const key = attachedContextItemKey(item)
                     const label = labelForItem(item)
+                    const dismissible = item.dismissible !== false
                     return (
                         <Tooltip key={key} title={label}>
                             <LemonTag
                                 icon={iconForType(item.type)}
-                                onClose={() =>
-                                    pickedKeys.has(key) ? removePickedItem(key) : dismissContext(key, item.dismissGroup)
+                                onClose={
+                                    dismissible
+                                        ? () =>
+                                              pickedKeys.has(key)
+                                                  ? removePickedItem(key)
+                                                  : dismissContext(key, item.dismissGroup)
+                                        : undefined
                                 }
-                                closable
-                                closeOnClick
+                                closable={dismissible}
+                                closeOnClick={dismissible}
                                 className="flex items-center text-secondary max-w-48"
                             >
                                 <span className="truncate min-w-0 flex-1">{label}</span>

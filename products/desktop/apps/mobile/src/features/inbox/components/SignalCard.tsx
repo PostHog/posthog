@@ -34,7 +34,12 @@ import { MarkdownText } from "@/features/chat/components/MarkdownText";
 import { formatRelativeTime } from "@/lib/format";
 import { openExternalUrl } from "@/lib/openExternalUrl";
 import { getPostHogApiClient } from "@/lib/posthogApiClient";
-import { useThemeColors } from "@/lib/theme";
+import { type ThemeColors, useThemeColors } from "@/lib/theme";
+import {
+  type ConversationsTicketExtra,
+  conversationsTicketRef,
+  supportTicketUrl,
+} from "../conversationsTicket";
 import {
   colonOffsetFromSeconds,
   colonOffsetToSeconds,
@@ -62,6 +67,7 @@ function SourceIcon({
       return <ChatCircle size={size} color={color} />;
     case "llm_analytics":
       return <Robot size={size} color={color} />;
+    case "conversations":
     case "zendesk":
       return <ChatCircle size={size} color={color} />;
     case "linear":
@@ -334,6 +340,56 @@ function WatchRecordingAction({ evidence }: { evidence: RecordingEvidence }) {
   );
 }
 
+function ConversationsTicketFooter({
+  signal,
+  extra,
+  themeColors,
+}: {
+  signal: Signal;
+  extra: ConversationsTicketExtra;
+  themeColors: ThemeColors;
+}) {
+  const { projectId, cloudRegion } = useAuthStore();
+  const ticketRef = conversationsTicketRef(signal, extra);
+  const ticketUrl =
+    ticketRef !== null
+      ? supportTicketUrl(ticketRef, { projectId, cloudRegion })
+      : null;
+
+  return (
+    <View className="mt-2 flex-row flex-wrap items-center gap-x-3 gap-y-1">
+      {extra.ticket_number != null && (
+        <Text className="font-mono text-[11px] text-gray-10">
+          #{extra.ticket_number}
+        </Text>
+      )}
+      {extra.status && (
+        <Text className="text-[11px] text-gray-10">Status: {extra.status}</Text>
+      )}
+      {extra.priority && (
+        <Text className="text-[11px] text-gray-10">
+          Priority: {extra.priority}
+        </Text>
+      )}
+      <View className="flex-1" />
+      {ticketUrl ? (
+        <Pressable
+          onPress={() => openExternalUrl(ticketUrl)}
+          hitSlop={6}
+          className="flex-row items-center gap-1 active:opacity-60"
+        >
+          <Text className="text-[11px] text-gray-10">Open ticket</Text>
+          <ArrowSquareOut size={12} color={themeColors.gray[10]} />
+        </Pressable>
+      ) : (
+        <Text className="text-[11px] text-gray-10">
+          Source ticket unavailable
+        </Text>
+      )}
+    </View>
+  );
+}
+
 interface SignalCardProps {
   signal: Signal;
   finding?: SignalFindingContent;
@@ -351,6 +407,11 @@ export function SignalCard({ signal, finding }: SignalCardProps) {
     typeof extra.number === "number" ? (extra.number as number) : null;
   const ticketUrl =
     typeof extra.url === "string" ? (extra.url as string) : null;
+
+  const conversationsExtra =
+    signal.source_product === "conversations" && signal.source_type === "ticket"
+      ? (extra as ConversationsTicketExtra)
+      : null;
 
   const externalUrl = issueUrl ?? ticketUrl ?? null;
   const recordingEvidence = extractRecordingEvidence(signal);
@@ -381,6 +442,15 @@ export function SignalCard({ signal, finding }: SignalCardProps) {
         {verified !== undefined && <VerifiedBadge verified={verified} />}
       </View>
 
+      {conversationsExtra?.email_subject && (
+        <Text
+          className="mb-1 font-medium text-[13px] text-gray-12"
+          numberOfLines={2}
+        >
+          {conversationsExtra.email_subject}
+        </Text>
+      )}
+
       {/* Body */}
       <CollapsibleBody body={signal.content} />
 
@@ -388,26 +458,33 @@ export function SignalCard({ signal, finding }: SignalCardProps) {
         <WatchRecordingAction evidence={recordingEvidence} />
       )}
 
-      {/* Footer meta (lightweight, no source-specific extras for v1) */}
-      {(issueNumber !== null || externalUrl) && (
-        <View className="mt-2 flex-row items-center gap-3">
-          {issueNumber !== null && (
-            <Text className="font-medium text-[11px] text-gray-10">
-              #{issueNumber}
-            </Text>
-          )}
-          <View className="flex-1" />
-          {externalUrl && (
-            <Pressable
-              onPress={() => openExternalUrl(externalUrl)}
-              hitSlop={6}
-              className="flex-row items-center gap-1 active:opacity-60"
-            >
-              <Text className="text-[11px] text-gray-10">Open</Text>
-              <ArrowSquareOut size={12} color={themeColors.gray[10]} />
-            </Pressable>
-          )}
-        </View>
+      {conversationsExtra ? (
+        <ConversationsTicketFooter
+          signal={signal}
+          extra={conversationsExtra}
+          themeColors={themeColors}
+        />
+      ) : (
+        (issueNumber !== null || externalUrl) && (
+          <View className="mt-2 flex-row items-center gap-3">
+            {issueNumber !== null && (
+              <Text className="font-medium text-[11px] text-gray-10">
+                #{issueNumber}
+              </Text>
+            )}
+            <View className="flex-1" />
+            {externalUrl && (
+              <Pressable
+                onPress={() => openExternalUrl(externalUrl)}
+                hitSlop={6}
+                className="flex-row items-center gap-1 active:opacity-60"
+              >
+                <Text className="text-[11px] text-gray-10">Open</Text>
+                <ArrowSquareOut size={12} color={themeColors.gray[10]} />
+              </Pressable>
+            )}
+          </View>
+        )
       )}
 
       <CodePathsDisclosure paths={codePaths} />

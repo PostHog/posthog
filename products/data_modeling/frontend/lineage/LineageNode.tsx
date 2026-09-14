@@ -149,7 +149,7 @@ function MetadataBar({ node }: { node: LineageNodeShape }): JSX.Element {
                 </Tooltip>
                 <IconActivity />
                 {node.last_run_at ? (
-                    <Tooltip title="Last successful run. A failed run does not move this.">
+                    <Tooltip title="Last successful run.">
                         <TZLabel
                             className="text-[10px]"
                             time={node.last_run_at}

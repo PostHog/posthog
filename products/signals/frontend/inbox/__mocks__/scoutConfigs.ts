@@ -109,6 +109,34 @@ export function mockScoutRuns(configs: SignalScoutConfigApi[]): SignalScoutRunSu
     )
 }
 
+/**
+ * One scout's runs a day apart, all quiet, none of them from the last two days. A folded group of
+ * these carries the long date form at both ends of its header, because `humanFriendlyDetailedTime`
+ * keeps the short "Today" and "Yesterday" forms for the last two days only. That is the widest
+ * that header ever gets.
+ */
+export function mockDailyQuietRuns(config: SignalScoutConfigApi): SignalScoutRunSummaryApi[] {
+    return Array.from({ length: 6 }, (_, runIndex) => {
+        const startedAt = MOCK_NOW_MS - (runIndex + 2) * 24 * HOUR_MS
+        return {
+            run_id: `${config.skill_name}-daily-run-${runIndex}`,
+            skill_name: config.skill_name,
+            skill_version: 1,
+            status: 'completed' as const,
+            created_at: new Date(startedAt).toISOString(),
+            started_at: new Date(startedAt).toISOString(),
+            completed_at: new Date(startedAt + 12 * 60000).toISOString(),
+            task_url: null,
+            summary: 'Swept the window and found nothing worth filing.',
+            emitted_count: 0,
+            emitted_finding_ids: [],
+            emitted_report_ids: [],
+            edited_report_ids: [],
+            metadata: {},
+        }
+    })
+}
+
 export const mockLargeScoutFleet: SignalScoutConfigApi[] = [
     makeMockScout({
         id: 'scout-error-tracking',

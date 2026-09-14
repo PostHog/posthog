@@ -861,6 +861,9 @@ quality:
     lint:feature-flags:fix:
         cmd: node bin/lint-feature-flag-sorting.mjs --fix
         description: Auto-sort FEATURE_FLAGS in constants.tsx alphabetically
+    lint:duplication:
+        cmd: python3 bin/lint_duplication.py
+        description: Gate the branch on new Python and TypeScript code duplication via jscpd (test files get a relaxed limit)
     lint:complexity:
         click: hogli_commands.complexity_lint:cmd_lint_complexity
         description: Check cyclomatic complexity of changed Python/TypeScript files (warn-only; test files get a relaxed limit)
@@ -1250,4 +1253,8 @@ environment:
     profile_migrations:
         bin_script: profile_migrations
         description: 'Profile Django migrations on fresh DBs and render a per-op timing report'
+        hidden: true
+    docker:worker:ai:training:privacy:
+        bin_script: docker-worker-ai-training-privacy
+        description: 'Start the dedicated AI training privacy worker'
         hidden: true
