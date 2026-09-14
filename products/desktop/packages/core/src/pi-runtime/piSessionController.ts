@@ -1557,6 +1557,14 @@ export class PiSessionController {
   }
 
   private applySessionError(taskId: string, error: unknown): void {
+    const currentSession = this.getSession(taskId);
+    if (currentSession.error?.kind === "provider_credentials") {
+      this.updateSession(taskId, {
+        connectionState: "error",
+        error: { ...currentSession.error, scope: "connection" },
+      });
+      return;
+    }
     const failure = normalizeSessionError(error);
     const classified = classifyPromptFailure(error);
     const retryable =

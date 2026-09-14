@@ -101,26 +101,8 @@ const ORG_LIMIT_PATTERNS = [
   "user sustained rate limit exceeded",
 ] as const;
 
-const PROVIDER_CREDENTIAL_STATUS_REGEX = /API Error:\s*(?:400|401|403)\b/i;
-const PROVIDER_AUTH_STATUS_REGEX = /API Error:\s*(?:401|403)\b/i;
 const PROVIDER_CREDENTIAL_ERROR_FIELD_REGEX =
-  /"(?:type|code)"\s*:\s*"(?:provider_credentials_rejected|invalid_organization|invalid_api_key|unrecognizedclientexception)"/i;
-const PROVIDER_CREDENTIAL_MESSAGE_REGEX =
-  /^PostHog's [a-z0-9_-]+ credentials were rejected\./i;
-
-// Older gateways return provider-specific errors. Trust their text only with a
-// 401 or 403 status because a request-controlled 400 can echo it.
-const LEGACY_PROVIDER_CREDENTIAL_PATTERNS = [
-  "invalid_organization",
-  "invalid_api_key",
-  "authentication_error",
-  "invalid x-api-key",
-  "unrecognizedclientexception",
-  "security token included in the request is invalid",
-  "organization tied to the api key",
-  "no such organization",
-  "incorrect api key provided",
-] as const;
+  /"(?:type|code)"\s*:\s*"provider_credentials_rejected"/i;
 
 const FATAL_SESSION_ERROR_PATTERNS = [
   "internal error",
@@ -181,13 +163,7 @@ export function isProviderCredentialError(
   errorDetails?: string,
 ): boolean {
   const value = [errorMessage, errorDetails].filter(Boolean).join(" ");
-  return (
-    PROVIDER_CREDENTIAL_MESSAGE_REGEX.test(value) ||
-    (PROVIDER_CREDENTIAL_STATUS_REGEX.test(value) &&
-      PROVIDER_CREDENTIAL_ERROR_FIELD_REGEX.test(value)) ||
-    (PROVIDER_AUTH_STATUS_REGEX.test(value) &&
-      includesAny(value, LEGACY_PROVIDER_CREDENTIAL_PATTERNS))
-  );
+  return PROVIDER_CREDENTIAL_ERROR_FIELD_REGEX.test(value);
 }
 
 export function classifyGatewayLimitError(
