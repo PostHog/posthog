@@ -19,6 +19,12 @@ import { execGh } from "@posthog/git/gh";
 import { getCurrentBranch, getRemoteUrl } from "@posthog/git/queries";
 import { ghTokenEnv } from "@posthog/git/signed-commit";
 import {
+  appendBenjaminGuidance,
+  appendSte100Guidance,
+  BENJAMIN_UPSTREAM_COMMIT,
+  isBenjaminEnabled,
+} from "@posthog/harness/extensions/benjamin-guidance";
+import {
   type AcpMcpServer,
   type Adapter,
   buildPrOutput,
@@ -54,11 +60,6 @@ import {
   createAcpConnection,
   type InProcessAcpConnection,
 } from "../adapters/acp-connection";
-import { BENJAMIN_UPSTREAM_COMMIT } from "../adapters/benjamin/instruction";
-import {
-  appendBenjaminGuidance,
-  isBenjaminEnabled,
-} from "../adapters/benjamin-guidance";
 import { setAlwaysAskMcpServers } from "../adapters/claude/mcp/tool-metadata";
 import {
   getSessionJsonlPath,
@@ -83,7 +84,6 @@ import {
   SIGNED_MERGE_QUALIFIED_TOOL_NAME,
   SIGNED_REWRITE_QUALIFIED_TOOL_NAME,
 } from "../adapters/signed-commit-shared";
-import { appendSte100Guidance } from "../adapters/ste100-guidance";
 import type { PermissionMode } from "../execution-mode";
 import { DEFAULT_CODEX_MODEL, fetchGatewayModels } from "../gateway-models";
 import { OtelRunTelemetry } from "../otel-telemetry";

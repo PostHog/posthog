@@ -6,6 +6,18 @@ import {
 } from "./instructions";
 
 describe("buildAppendedInstructions", () => {
+  it("appends Benjamin guidance when enabled", () => {
+    vi.stubEnv("POSTHOG_BENJAMIN", "1");
+
+    try {
+      expect(buildAppendedInstructions({ spokenNarration: false })).toContain(
+        "BENJAMIN-PLUS MODE ACTIVE",
+      );
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
   it("includes the spoken-narration block when narration is on", () => {
     const instructions = buildAppendedInstructions({ spokenNarration: true });
     expect(instructions).toContain("# Spoken Narration");

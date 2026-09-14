@@ -4,6 +4,7 @@ import { createHash } from "node:crypto";
 import { readFile, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { assertMitLicense } from "../packages/harness/src/extensions/benjamin-guidance/validation.ts";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -17,9 +18,10 @@ const VENDOR_DIR = resolve(
   __dirname,
   "..",
   "packages",
-  "agent",
+  "harness",
   "src",
-  "adapters",
+  "extensions",
+  "benjamin-guidance",
   "benjamin",
 );
 const INSTRUCTION_PATH = join(VENDOR_DIR, "instruction.ts");
@@ -77,26 +79,6 @@ function toTemplateLiteral(text: string): string {
     .replace(/`/g, "\\`")
     .replace(/\$\{/g, "\\${");
   return `\`${escaped}\``;
-}
-
-export function assertMitLicense(license: string): void {
-  const required = [
-    "MIT License",
-    "Permission is hereby granted, free of charge",
-    'THE SOFTWARE IS PROVIDED "AS IS"',
-  ];
-  for (const marker of required) {
-    if (!license.includes(marker)) {
-      throw new Error(
-        `Upstream ${LICENSE_FILE} no longer looks like the expected MIT license (missing "${marker}") - review it before syncing`,
-      );
-    }
-  }
-  if (license.includes("*/")) {
-    throw new Error(
-      `Upstream ${LICENSE_FILE} contains a block-comment terminator ("*/"), which would escape the generated banner and execute as code - review it before syncing`,
-    );
-  }
 }
 
 function renderInstructionModule(
