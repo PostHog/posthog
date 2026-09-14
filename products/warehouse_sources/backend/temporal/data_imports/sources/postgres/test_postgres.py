@@ -105,6 +105,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.p
     _connect_to_postgres,
     _connect_with_dropped_retry,
     _fetch_rows_for,
+    _full_table_timeout_error,
     _get_estimated_row_count_for_partitioned_table,
     _get_partition_settings,
     _get_partition_settings_for_partitioned_table,
@@ -1528,6 +1529,13 @@ class TestPostgresSourceNonRetryableErrors:
         # dedicated message fragment is what recognises it at the activity layer.
         assert "QueryTimeoutException" not in matching_keys
         assert "has an appropriate index" in matching_keys
+
+    def test_full_table_timeout_message_stays_retryable(self, source):
+        # A full-table read restarts from scratch, so it keeps retrying. Wording it like the
+        # incremental message would collide with a non-retryable key and disable the sync.
+        error_msg = str(_full_table_timeout_error())
+        non_retryable = source.get_non_retryable_errors()
+        assert not any(pattern in error_msg for pattern in non_retryable)
 
     def test_pk_uniqueness_probe_timeout_is_non_retryable_and_points_at_primary_key(self, source):
         # A statement_timeout in the fallback `id` uniqueness probe used to surface the generic
@@ -3163,8 +3171,8 @@ class TestStatementTimeoutAsNonRetryable:
         [
             # Incremental syncs map the timeout to a non-retryable QueryTimeoutException.
             (True, "updated_at", "updated_at"),
-            # Full-table syncs must re-raise the raw QueryCanceled so a fresh re-sync can
-            # reorder rows; we only short-circuit incremental reads.
+            # Full-table syncs stay retryable so a fresh re-sync can reorder rows; we only
+            # short-circuit incremental reads.
             (False, None, None),
         ],
     )
@@ -3204,8 +3212,9 @@ class TestServerCursorStatementTimeout:
     """The main server-cursor streaming path in `get_rows` must not leak a raw,
     retryable QueryCanceled when a FETCH hits the statement_timeout — it must map
     to a non-retryable QueryTimeoutException for incremental syncs (mirroring the
-    offset-chunking and windowed paths), and re-raise the raw error for full-table
-    syncs so a fresh re-sync can reorder rows safely.
+    offset-chunking and windowed paths). A full-table read stays retryable so a fresh
+    re-sync can reorder rows safely, but must still carry a message the customer can act
+    on rather than psycopg's raw text.
     """
 
     class _Cursor:
@@ -3306,9 +3315,9 @@ class TestServerCursorStatementTimeout:
         [
             # Incremental syncs map the FETCH timeout to a non-retryable QueryTimeoutException.
             (True, QueryTimeoutException, "updated_at"),
-            # Full-table syncs have no stable ORDER BY, so we re-raise the raw QueryCanceled
-            # to let a fresh re-sync reorder rows rather than giving up.
-            (False, psycopg.errors.QueryCanceled, None),
+            # Full-table syncs have no stable ORDER BY, so they stay retryable to let a fresh
+            # re-sync reorder rows rather than giving up — with a message that names the fix.
+            (False, Exception, "incremental replication"),
         ],
     )
     def test_statement_timeout_handling(self, should_use_incremental_field, expected_exception, expected_substr):
