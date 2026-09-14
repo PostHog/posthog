@@ -3,6 +3,7 @@ import { ClickHouseClient } from '@clickhouse/client'
 import snappy from 'snappy'
 
 import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
+import { parseJSON } from '~/common/utils/json-parse'
 import { logger, serializeError } from '~/common/utils/logger'
 import { ValidRetentionPeriods } from '~/ingestion/pipelines/sessionreplay/shared/constants'
 import { SessionFeatureStore } from '~/ingestion/pipelines/sessionreplay/shared/features/session-feature-store'
@@ -36,6 +37,26 @@ interface BlockListingRow {
     block_first_timestamps: string[]
     block_last_timestamps: string[]
     block_urls: string[]
+}
+
+// The ClickHouse client parses every newline-delimited slice with a bare JSON.parse, so one blank
+// line in the body makes it throw an anonymous SyntaxError.
+function parseJsonEachRow<T>(body: string, queryId: string): T[] {
+    const rows: T[] = []
+    for (const line of body.split('\n')) {
+        const row = line.trim()
+        if (row.length === 0) {
+            continue
+        }
+        try {
+            rows.push(parseJSON(row) as T)
+        } catch (error) {
+            throw new Error(`Failed to parse ClickHouse JSONEachRow response (query_id: ${queryId})`, {
+                cause: error,
+            })
+        }
+    }
+    return rows
 }
 
 export class RecordingService {
@@ -212,7 +233,7 @@ export class RecordingService {
                 },
             })
 
-            const rows = await result.json<BlockListingRow>()
+            const rows = parseJsonEachRow<BlockListingRow>(await result.text(), result.query_id)
             if (rows.length === 0) {
                 RecordingApiMetrics.observeListBlocks('empty', (performance.now() - startTime) / 1000)
                 return []
