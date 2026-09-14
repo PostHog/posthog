@@ -1,4 +1,4 @@
-import { Button } from "@posthog/quill";
+import { Button, cn } from "@posthog/quill";
 import type { SignalReport } from "@posthog/shared/types";
 import {
   ANONYMOUS_AUTH_STATE,
@@ -10,6 +10,7 @@ import { InboxPanePresentation } from "@posthog/ui/features/inbox/components/Inb
 import { InboxPaneRow } from "@posthog/ui/features/inbox/components/InboxPaneRow";
 import { inboxStoryReport } from "@posthog/ui/features/inbox/components/inboxStoryFixtures";
 import { useInboxReportReadStore } from "@posthog/ui/features/inbox/stores/inboxReportReadStore";
+import { RAIL_CONTAINER_CLASS } from "@posthog/ui/features/sidebar/components/RailListItem";
 import { CHANNELS_SIDEBAR_MIN_WIDTH } from "@posthog/ui/features/sidebar/constants";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useQueryClient } from "@tanstack/react-query";
@@ -51,12 +52,16 @@ const reports = [
   inboxStoryReport({
     id: "review-1",
     title: "fix(cohorts): keep recurring calculations within their budget",
+    summary:
+      "Recurring cohort calculations can overlap after a delayed run, which increases queue time for later updates. The next scheduled run can start before the first has finished. This leaves users with stale cohort membership until the queue catches up.",
     implementation_pr_url: "https://github.com/PostHog/posthog/pull/12345",
+    implementation_pr_state: "draft",
   }),
   inboxStoryReport({
     id: "needs-1",
     title: "feat(replay): expose buffer health in the player controls",
     priority: "P2",
+    implementation_pr_url: null,
   }),
   inboxStoryReport({
     id: "needs-2",
@@ -75,6 +80,7 @@ const reports = [
     title: "fix(webhooks): retry delivery after a transient timeout",
     priority: "P2",
     implementation_pr_url: "https://github.com/PostHog/posthog/pull/12346",
+    implementation_pr_merged: true,
   }),
 ];
 
@@ -94,16 +100,25 @@ const meta: Meta<typeof InboxPanePresentation> = {
   component: InboxPanePresentation,
   parameters: { layout: "fullscreen" },
   decorators: [
-    (Story) => (
-      <div
-        className="h-[760px] border-border border-r bg-chrome"
-        style={{ width: CHANNELS_SIDEBAR_MIN_WIDTH }}
-      >
-        <WithReadState>
-          <Story />
-        </WithReadState>
-      </div>
-    ),
+    (Story, context) => {
+      const railWidth =
+        typeof context.parameters.railWidth === "number"
+          ? context.parameters.railWidth
+          : CHANNELS_SIDEBAR_MIN_WIDTH;
+      return (
+        <div
+          className={cn(
+            RAIL_CONTAINER_CLASS,
+            "h-[760px] border-border border-r bg-chrome",
+          )}
+          style={{ width: railWidth }}
+        >
+          <WithReadState>
+            <Story />
+          </WithReadState>
+        </div>
+      );
+    },
   ],
   args: {
     reports,
@@ -133,6 +148,14 @@ export default meta;
 type Story = StoryObj<typeof InboxPanePresentation>;
 
 export const ReportList: Story = {};
+
+export const ReportListAt400px: Story = {
+  parameters: { railWidth: 400 },
+};
+
+export const ReportListAt560px: Story = {
+  parameters: { railWidth: 560 },
+};
 
 export const NothingToReview: Story = {
   args: { reports: [] },

@@ -96,7 +96,7 @@ describe("activityPresentation", () => {
       null,
     ],
   ])("presents a %s", (_name, activity, metadata, agentIcon) => {
-    expect(activityPresentation(activity, "me@posthog.com")).toEqual({
+    expect(activityPresentation(activity, "me@posthog.com")).toMatchObject({
       metadata,
       agentIcon,
       spaceLabel: null,
@@ -152,4 +152,47 @@ describe("activityPresentation", () => {
       spaceLabel: "#engineering",
     });
   });
+});
+
+describe("activityPresentation last turn", () => {
+  it.each<
+    [
+      string,
+      TaskActivityItem,
+      string | null,
+      { speaker: string; text: string } | null,
+    ]
+  >([
+    [
+      "agent message",
+      item({ author: null, snippet: "Done." }),
+      null,
+      { speaker: "Agent", text: "Done." },
+    ],
+    [
+      "own message",
+      item({ author: AUTHOR, snippet: "Please retry" }),
+      AUTHOR.email,
+      { speaker: "You", text: "Please retry" },
+    ],
+    [
+      "other person's message",
+      item({ author: AUTHOR, snippet: "Looks good" }),
+      "someone@posthog.com",
+      { speaker: "Ann", text: "Looks good" },
+    ],
+    [
+      "created row without a message",
+      item({ activityKind: "created", snippet: "  " }),
+      null,
+      null,
+    ],
+  ])(
+    "attributes the %s",
+    (_label, activityItem, currentUserEmail, expected) => {
+      expect(
+        activityPresentation(activityItem, currentUserEmail).lastTurn,
+      ).toEqual(expected);
+    },
+  );
 });

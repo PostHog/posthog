@@ -33,6 +33,7 @@ import { InboxPane } from "@posthog/ui/features/inbox/components/InboxPane";
 import { useOnboardingStore } from "@posthog/ui/features/onboarding/onboardingStore";
 import { NavResizeTooltip } from "@posthog/ui/features/sidebar/components/NavResizeTooltip";
 import { ProjectSwitcher } from "@posthog/ui/features/sidebar/components/ProjectSwitcher";
+import { RAIL_CONTAINER_CLASS } from "@posthog/ui/features/sidebar/components/RailListItem";
 import { SidebarMenu } from "@posthog/ui/features/sidebar/components/SidebarMenu";
 import { SidebarNavSection } from "@posthog/ui/features/sidebar/components/SidebarNavSection";
 import { TasksHeader } from "@posthog/ui/features/sidebar/components/TasksHeader";
@@ -326,6 +327,7 @@ function ChannelsSidebarImpl() {
         <div
           className={cn(
             "flex h-full flex-col bg-chrome",
+            RAIL_CONTAINER_CLASS,
             // This column starts the framed inset, so it owns the whole
             // outline: a second owner of any edge doubles that line.
             channelsLayout &&

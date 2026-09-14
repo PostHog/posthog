@@ -5,6 +5,7 @@ import type {
 import { describe, expect, it } from "vitest";
 import {
   deriveHeadline,
+  describeReportPr,
   displayConventionalCommitTitle,
   formatSignalReportSummaryMarkdown,
   humanizeReportTitle,
@@ -263,5 +264,62 @@ describe("splitReportSummary", () => {
     const split = splitReportSummary("## Problem\n\nIt broke.");
     expect(split.lede).toBe("");
     expect(split.sections).toEqual([{ title: "Problem", body: "It broke." }]);
+  });
+});
+
+describe("describeReportPr", () => {
+  const PR_URL = "https://github.com/PostHog/posthog/pull/12";
+
+  it.each<[string, Parameters<typeof describeReportPr>[0], string | null]>([
+    ["no PR", { status: "ready", implementation_pr_url: null }, null],
+    [
+      "PR on another host",
+      {
+        status: "ready",
+        implementation_pr_url: "https://example.com/PostHog/posthog/pull/12",
+      },
+      null,
+    ],
+    ["open PR", { status: "ready", implementation_pr_url: PR_URL }, "open"],
+    [
+      "draft PR",
+      {
+        status: "ready",
+        implementation_pr_url: PR_URL,
+        implementation_pr_state: "draft",
+      },
+      "draft",
+    ],
+    [
+      "draft flag on a resolved report",
+      {
+        status: "resolved",
+        implementation_pr_url: PR_URL,
+        implementation_pr_state: "draft",
+      },
+      "open",
+    ],
+    [
+      "merged while evidence keeps arriving",
+      {
+        status: "ready",
+        implementation_pr_url: PR_URL,
+        implementation_pr_merged: true,
+      },
+      "merged",
+    ],
+    [
+      "merged and resolved",
+      {
+        status: "resolved",
+        implementation_pr_url: PR_URL,
+        dismissal_reason: "pr_merged",
+      },
+      "shipped",
+    ],
+  ])("classifies %s", (_label, report, state) => {
+    const described = describeReportPr(report);
+    expect(described?.state ?? null).toBe(state);
+    if (state) expect(described?.pr.repoSlug).toBe("PostHog/posthog");
   });
 });

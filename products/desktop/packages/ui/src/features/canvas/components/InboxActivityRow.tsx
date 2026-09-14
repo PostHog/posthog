@@ -1,8 +1,7 @@
-import { humanizeReportTitle } from "@posthog/core/inbox/reportPresentation";
-import { Avatar, AvatarFallback } from "@posthog/quill";
-import { formatRelativeAge } from "@posthog/shared";
 import type { SignalReport } from "@posthog/shared/types";
-import { ActivityRowSurface } from "@posthog/ui/features/canvas/components/ActivityRowSurface";
+import { InboxReportReadButton } from "@posthog/ui/features/inbox/components/InboxReportReadButton";
+import { SelfDrivingReportListItem } from "@posthog/ui/features/inbox/components/SelfDrivingReportListItem";
+import { useInboxReportReadState } from "@posthog/ui/features/inbox/hooks/useInboxReportReadState";
 import { useOpenInboxReport } from "@posthog/ui/features/inbox/hooks/useOpenInboxReport";
 import { type ReactElement, useState } from "react";
 
@@ -26,8 +25,8 @@ export function InboxActivityRow({
   isSelected = false,
 }: InboxActivityRowProps): ReactElement {
   const openInboxReport = useOpenInboxReport();
+  const { isUnread } = useInboxReportReadState(report.id);
   const [isOpening, setIsOpening] = useState(false);
-  const title = humanizeReportTitle(report.title, "Untitled report");
 
   const openReport = async (): Promise<void> => {
     if (isOpening) return;
@@ -50,39 +49,21 @@ export function InboxActivityRow({
   };
 
   return (
-    <ActivityRowSurface
-      type="button"
+    <SelfDrivingReportListItem
+      report={report}
+      showKind
+      ageFrom="updated_at"
+      isSelected={isSelected}
+      compact={compact}
       asOption={asOption}
       optionValue={optionValue}
+      emphasized={isUnread}
+      actions={<InboxReportReadButton reportId={report.id} />}
+      actionCount={1}
+      actionsVisibility="always"
       onClick={activate}
       loading={!onActivate && isOpening}
       disabled={!onActivate && isOpening}
-      aria-label={
-        report.priority
-          ? `${title} ${report.priority} Self-driving report`
-          : `${title} Self-driving report`
-      }
-      left
-      className={`${compact ? "py-1.5" : "py-2"} ${isSelected ? "bg-fill-selected" : ""}`}
-    >
-      <span className="mt-0.5 shrink-0">
-        <Avatar
-          size="xs"
-          className={`bg-(--orange-3) text-(--orange-11) ring-(--orange-5) ring-1 ring-inset ${compact ? "size-4" : ""}`}
-        >
-          <AvatarFallback>
-            <span className="font-bold text-[7px]">
-              {report.priority ?? "–"}
-            </span>
-          </AvatarFallback>
-        </Avatar>
-      </span>
-      <span className="min-w-0 flex-1">
-        <span className="block truncate font-medium text-[13px]">{title}</span>
-        <span className="block truncate text-muted-foreground text-xxs">
-          {formatRelativeAge(report.updated_at)} · Self-driving
-        </span>
-      </span>
-    </ActivityRowSurface>
+    />
   );
 }

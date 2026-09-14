@@ -2,9 +2,9 @@ import { ArrowRightIcon } from "@phosphor-icons/react";
 import { useActivityFilterStore } from "@posthog/ui/features/canvas/stores/activityFilterStore";
 import { useInboxReviewerScopeStore } from "@posthog/ui/features/inbox/stores/inboxReviewerScopeStore";
 import { useInboxSignalsFilterStore } from "@posthog/ui/features/inbox/stores/inboxSignalsFilterStore";
+import { RailListItem } from "@posthog/ui/features/sidebar/components/RailListItem";
 import { navigateToInboxReports } from "@posthog/ui/router/navigationBridge";
 import type { ReactElement } from "react";
-import { ActivityRowSurface } from "./ActivityRowSurface";
 
 interface InboxActivityOverflowRowProps {
   count: number;
@@ -52,19 +52,17 @@ export function InboxActivityOverflowRow({
   };
 
   return (
-    <ActivityRowSurface
-      type="button"
+    <RailListItem
+      leading={<span className="block w-4" />}
+      title={`View ${count} more reports`}
+      titleAccessory={
+        <ArrowRightIcon size={13} className="shrink-0 self-center" />
+      }
+      className="text-muted-foreground"
       asOption={asOption}
       optionValue={optionValue}
-      left
-      className="py-1.5 text-muted-foreground"
+      compact
       onClick={viewMore}
-    >
-      <span className="w-4 shrink-0" />
-      <span className="min-w-0 flex-1 truncate text-[13px]">
-        View {count} more reports
-      </span>
-      <ArrowRightIcon size={13} className="shrink-0" />
-    </ActivityRowSurface>
+    />
   );
 }

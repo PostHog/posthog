@@ -112,11 +112,39 @@ describe("ActivityRow", () => {
     expect(row?.querySelector(".quill-avatar")).toHaveClass(
       "bg-primary",
       "text-primary-foreground",
-      "size-4",
     );
     expect(row).not.toHaveClass("bg-primary/10");
     expect(row).not.toHaveClass("outline-primary/20");
     expect(screen.queryByTitle("New activity")).not.toBeInTheDocument();
+  });
+
+  it("shows the attributed last turn in compact and full-page rows", () => {
+    const { rerender } = render(
+      <ActivityRow
+        item={item({ author: null, snippet: "Added the tests." })}
+        menu={taskMenu()}
+        onMarkRead={vi.fn()}
+        onActivate={vi.fn()}
+        blockedTaskIds={NO_BLOCKED_TASKS}
+        compact
+      />,
+    );
+
+    const compactRow = screen.getByText("Say hello").closest("button");
+    expect(compactRow).toContainElement(screen.getByText("Agent:"));
+    expect(compactRow).toContainElement(screen.getByText("Added the tests."));
+
+    rerender(
+      <ActivityRow
+        item={item({ author: null, snippet: "Added the tests." })}
+        menu={taskMenu()}
+        onMarkRead={vi.fn()}
+        onActivate={vi.fn()}
+        blockedTaskIds={NO_BLOCKED_TASKS}
+      />,
+    );
+
+    expect(screen.getByText("Added the tests.")).toBeInTheDocument();
   });
 
   it.each([
