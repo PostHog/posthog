@@ -34,7 +34,12 @@ from posthog.user_permissions import UserPermissions
 
 from products.slack_app.backend.analytics import capture_slack_event
 from products.slack_app.backend.feature_flags import is_slack_app_oauth_enabled
-from products.slack_app.backend.models import SlackSettings, SlackUserProfileCache, UntaggedFollowupMode
+from products.slack_app.backend.models import (
+    SlackSettings,
+    SlackUserProfileCache,
+    StreamVerbosity,
+    UntaggedFollowupMode,
+)
 from products.slack_app.backend.services.integration_resolver import load_integrations, resolve_from_candidates
 from products.slack_app.backend.services.model_catalogue import (
     REASONING_EFFORT_DISPLAY_NAMES,
@@ -59,7 +64,11 @@ from products.slack_app.backend.services.slack_app_home_stats import (
     build_stats_state,
     coerce_window_days,
 )
-from products.slack_app.backend.services.slack_settings import AIPreferences, resolve_untagged_followup_mode
+from products.slack_app.backend.services.slack_settings import (
+    AIPreferences,
+    resolve_stream_verbosity,
+    resolve_untagged_followup_mode,
+)
 from products.slack_app.backend.services.slack_user_info import is_slack_workspace_admin
 from products.slack_app.backend.services.slack_user_oauth import build_invite_url, find_linked_posthog_user
 
@@ -85,6 +94,7 @@ ACTION_TASKS_PAGE_NEXT = "slack_app_home:tasks_page_next"
 ACTION_STATS_WINDOW = "slack_app_home:stats_window"
 ACTION_STATS_REFRESH = "slack_app_home:stats_refresh"
 ACTION_SET_UNTAGGED_FOLLOWUP_MODE = "slack_app_home:set_untagged_followup_mode"
+ACTION_SET_STREAM_VERBOSITY = "slack_app_home:set_stream_verbosity"
 # URL buttons: Slack opens the link itself and posts a block_actions payload we
 # only ack — the ids exist so the clicks still reach the usage-analytics capture.
 ACTION_GITHUB_SETTINGS = "slack_app_home:github_settings"
@@ -110,6 +120,7 @@ HOME_ACTION_IDS: frozenset[str] = frozenset(
         ACTION_STATS_WINDOW,
         ACTION_STATS_REFRESH,
         ACTION_SET_UNTAGGED_FOLLOWUP_MODE,
+        ACTION_SET_STREAM_VERBOSITY,
         ACTION_GITHUB_SETTINGS,
         ACTION_CONNECT_ACCOUNT,
     }
@@ -396,6 +407,7 @@ def render_home_view(
     tasks_state: TasksState | None = None,
     stats_state: StatsState | None = None,
     untagged_followup_mode: UntaggedFollowupMode | None = None,
+    stream_verbosity: StreamVerbosity = StreamVerbosity.FULL,
     has_project_access: bool = True,
 ) -> dict:
     """Render the Block Kit payload for `views.publish` on the App Home tab."""
@@ -440,14 +452,20 @@ def render_home_view(
         blocks.append({"type": "divider"})
         blocks.extend(_untagged_followups_section_blocks(untagged_followup_mode))
 
-    # Section 5 — linked accounts: PostHog and GitHub side by side, shown
+    # Section 5 — run progress: how much of a run streams into the thread
+    # while the agent works. Always shown — it's a per-user choice with no
+    # workspace-level gate to inherit from.
+    blocks.append({"type": "divider"})
+    blocks.extend(_stream_verbosity_section_blocks(stream_verbosity))
+
+    # Section 6 — linked accounts: PostHog and GitHub side by side, shown
     # before Tasks so the connect prompts are visible while the Tasks list
     # is still empty. The PostHog half is flag-gated.
     if (account_state and account_state.enabled) or github_state is not None:
         blocks.append({"type": "divider"})
         blocks.extend(_linked_accounts_section_blocks(account_state, github_state))
 
-    # Section 6 — your tasks: a quiet list of tasks the calling user
+    # Section 7 — your tasks: a quiet list of tasks the calling user
     # started via @PostHog mentions, so they can see status without
     # the bot pinging the activity feed for every transition.
     if tasks_state is not None:
@@ -865,6 +883,42 @@ def _untagged_followups_section_blocks(mode: UntaggedFollowupMode) -> list[dict]
         {
             "type": "context",
             "elements": [{"type": "mrkdwn", "text": "Applies to every reply in those threads, yours included."}],
+        },
+    ]
+
+
+STREAM_VERBOSITY_LABELS: dict[str, str] = {
+    StreamVerbosity.FULL: "Stream progress live",
+    StreamVerbosity.FINAL_ONLY: "Only post the final answer",
+}
+
+
+def _stream_verbosity_section_blocks(verbosity: StreamVerbosity) -> list[dict]:
+    """Picker for how much of a run streams into the thread while the agent works."""
+    options = [
+        {"text": {"type": "plain_text", "text": label, "emoji": True}, "value": value}
+        for value, label in STREAM_VERBOSITY_LABELS.items()
+    ]
+    select: dict[str, Any] = {
+        "type": "static_select",
+        "action_id": ACTION_SET_STREAM_VERBOSITY,
+        "options": options,
+        "initial_option": next(o for o in options if o["value"] == verbosity.value),
+    }
+    return [
+        _section_title(
+            "📡 Run progress",
+            "What a thread shows while I work on something you asked for.",
+        ),
+        {"type": "actions", "elements": [select]},
+        {
+            "type": "context",
+            "elements": [
+                {
+                    "type": "mrkdwn",
+                    "text": "Live streaming shows my steps as they happen. Final answer only keeps the thread quiet until I'm done.",
+                }
+            ],
         },
     ]
 
@@ -1549,6 +1603,11 @@ def handle_ai_preferences_block_action(payload: dict, action: dict) -> HttpRespo
         republish()
         return HttpResponse(status=200)
 
+    if action_id == ACTION_SET_STREAM_VERBOSITY:
+        _apply_stream_verbosity_pick(integration, slack_user_id, action)
+        republish()
+        return HttpResponse(status=200)
+
     if action_id == ACTION_UNLINK_ACCOUNT:
         # Only act when the OAuth-link feature is available for this install —
         # otherwise the button shouldn't have been rendered, and a stale
@@ -1907,6 +1966,19 @@ def _apply_untagged_followup_mode_pick(integration: Integration, slack_user_id: 
     )
 
 
+def _apply_stream_verbosity_pick(integration: Integration, slack_user_id: str, action: dict) -> None:
+    """Persist the picked verbosity. An unrecognised value is ignored rather than stored."""
+
+    picked = (action.get("selected_option") or {}).get("value")
+    if picked not in StreamVerbosity.values:
+        return
+    SlackSettings.objects.update_or_create(
+        slack_workspace_id=integration.integration_id,
+        slack_user_id=slack_user_id,
+        defaults={"stream_verbosity": picked},
+    )
+
+
 def _clear_project_personal(integration: Integration, slack_user_id: str) -> None:
     """Clear the personal routing override; drop the row once it holds nothing else."""
 
@@ -1916,7 +1988,7 @@ def _clear_project_personal(integration: Integration, slack_user_id: str) -> Non
     ).first()
     if row is None:
         return
-    if not row.untagged_followup_mode:
+    if not row.untagged_followup_mode and not row.stream_verbosity:
         row.delete()
         return
     row.default_integration = None
@@ -1977,6 +2049,7 @@ def _build_home_view(
         tasks_state=tasks_state,
         stats_state=stats_state,
         untagged_followup_mode=resolve_untagged_followup_mode(integration, slack_user_id),
+        stream_verbosity=resolve_stream_verbosity(integration, slack_user_id),
         has_project_access=bool(accessible),
     )
     return _HomeRender(

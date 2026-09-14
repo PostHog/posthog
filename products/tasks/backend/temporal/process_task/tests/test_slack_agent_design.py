@@ -8,8 +8,16 @@ from posthog.models.integration import Integration
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 
+from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.temporal.process_task.activities.slack_agent_design import (
+    SLACK_STREAM_TS_STATE_KEY,
+    AppendSlackAgentDesignStepsInput,
+    StartSlackAgentDesignStreamInput,
     StopSlackAgentDesignStreamInput,
+    StreamChunk,
+    TaskUpdateChunk,
+    append_slack_agent_design_steps,
+    start_slack_agent_design_stream,
     stop_slack_agent_design_stream,
 )
 
@@ -58,3 +66,65 @@ class TestSlackAgentDesignStream(TestCase):
         )
 
         assert mock_stop.call_args.args[0].turn_trace_id == trace_id
+
+    def _slack_thread_context(self) -> dict:
+        return {"integration_id": self.integration.id, "channel": "C1", "thread_ts": "1.0"}
+
+    def _create_run(self) -> TaskRun:
+        task = Task.objects.create(
+            team=self.team,
+            title="Stream task",
+            description="",
+            origin_product=Task.OriginProduct.SLACK,
+        )
+        return TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+
+    @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.stop_status_stream")
+    @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.start_status_stream")
+    def test_start_registers_the_open_stream_ts_and_stop_clears_it(self, mock_start, _mock_stop) -> None:
+        # Artifact delivery reads this state key to append into the streamed message;
+        # a start that doesn't register or a stop that doesn't clear strands it.
+        run = self._create_run()
+        mock_start.return_value = "42.1"
+
+        ts = start_slack_agent_design_stream(
+            StartSlackAgentDesignStreamInput(
+                slack_thread_context=self._slack_thread_context(),
+                first_markdown_text="Hello",
+                run_id=str(run.id),
+            )
+        )
+        assert ts == "42.1"
+        run.refresh_from_db()
+        assert run.state[SLACK_STREAM_TS_STATE_KEY] == "42.1"
+
+        stop_slack_agent_design_stream(
+            StopSlackAgentDesignStreamInput(
+                slack_thread_context=self._slack_thread_context(),
+                ts="42.1",
+                run_id=str(run.id),
+            )
+        )
+        run.refresh_from_db()
+        assert SLACK_STREAM_TS_STATE_KEY not in run.state
+
+    @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.append_stream_chunks")
+    def test_ordered_chunks_keep_arrival_order_and_rewrite_object_tags(self, mock_append) -> None:
+        append_slack_agent_design_steps(
+            AppendSlackAgentDesignStepsInput(
+                slack_thread_context=self._slack_thread_context(),
+                ts="2.0",
+                ordered_chunks=[
+                    StreamChunk(markdown_text='See <insight id="9pQx3">the funnel</insight>.'),
+                    StreamChunk(task_update=TaskUpdateChunk(id="t1", title="Read", status="in_progress")),
+                    StreamChunk(markdown_text="Done."),
+                ],
+            )
+        )
+
+        chunks = mock_append.call_args.kwargs["chunks"]
+        assert [c["type"] for c in chunks] == ["markdown_text", "task_update", "markdown_text"]
+        assert chunks[0]["text"] == (
+            f"See [the funnel](https://us.posthog.com/project/{self.team.id}/insights/9pQx3?unfurl=false)."
+        )
+        assert chunks[1]["title"] == "Read"

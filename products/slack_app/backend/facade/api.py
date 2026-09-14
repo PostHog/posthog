@@ -60,3 +60,26 @@ def slack_artifact_delivery_state_updates(integration: Integration) -> dict[str,
     """State that tells a task agent which Slack artifact adapters can deliver."""
     mode = "canvas_file" if has_scopes(integration, _SLACK_CANVAS_FILE_ADAPTER_SCOPES) else "message"
     return {"slack_artifact_delivery": mode, "slack_chart_delivery": True}
+
+
+def slack_stream_verbosity(integration_id: int, slack_user_id: str | None) -> str:
+    """The stream-verbosity preference of one Slack user, as its stored value.
+
+    Read by the tasks product when a run turn starts, keyed on the person whose
+    mention started the run. Returns ``"full"`` when the integration is gone or
+    nothing is stored — live streaming is the default.
+    """
+    from products.slack_app.backend.services.slack_settings import (  # noqa: PLC0415 — keeps service imports off the facade import path
+        resolve_stream_verbosity,
+    )
+
+    integration = Integration.objects.filter(
+        id=integration_id, kind="slack"
+    ).first()  # nosemgrep: idor-lookup-without-team — id comes from the run's recorded Slack thread context, not user input; only the preference row keyed on it is read
+    if integration is None:
+        from products.slack_app.backend.models import (
+            StreamVerbosity,  # noqa: PLC0415 — matches the deferred-import pattern above
+        )
+
+        return StreamVerbosity.FULL.value
+    return resolve_stream_verbosity(integration, slack_user_id).value

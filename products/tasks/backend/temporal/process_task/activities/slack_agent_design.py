@@ -21,9 +21,20 @@ from products.tasks.backend.temporal.slack_relay.object_tags import rewrite_obje
 logger = get_logger(__name__)
 
 
+# Stream surfaces a relay can run. Values double as Slack's task_display_mode where
+# one applies ("timeline"); "final_only" posts nothing until the turn completes.
+STREAM_MODE_TIMELINE = "timeline"
+STREAM_MODE_FINAL_ONLY = "final_only"
+
+# TaskRun.state key holding the ts of the currently open agent-design stream, so
+# out-of-workflow writers (living-artifact delivery) can append into it. Written on
+# stream start, cleared on stop.
+SLACK_STREAM_TS_STATE_KEY = "slack_stream_ts"
+
+
 @dataclass
 class TaskUpdateChunk:
-    """One plan-block step. Flat so Temporal can serialize it."""
+    """One task-card step. Flat so Temporal can serialize it."""
 
     id: str
     title: str
@@ -32,13 +43,31 @@ class TaskUpdateChunk:
 
 
 @dataclass
+class StreamChunk:
+    """One ordered chunk for the timeline surface: exactly one of markdown prose
+    or a task-card update. Ordered lists of these preserve the interleaving of
+    narrative and tool calls that the flat ``task_updates`` + ``markdown_text``
+    pair cannot express."""
+
+    markdown_text: Optional[str] = None
+    task_update: Optional[TaskUpdateChunk] = None
+
+
+@dataclass
 class StartSlackAgentDesignStreamInput:
     slack_thread_context: dict[str, Any]
-    # Seed with EITHER a task_update step OR a markdown_text chunk.
+    # Seed with EITHER a task_update step OR a markdown_text chunk (plan surface),
+    # OR an ordered chunk list (timeline surface).
     first_task_id: Optional[str] = None
     first_task_title: Optional[str] = None
     first_task_details: Optional[str] = None
     first_markdown_text: Optional[str] = None
+    ordered_chunks: list[StreamChunk] = field(default_factory=list)
+    # None resolves to Slack's "plan" display, matching relays recorded before the field existed.
+    task_display_mode: Optional[str] = None
+    # Registers the open stream ts on TaskRun.state so artifact delivery can append
+    # into it. None on relays recorded before the field existed.
+    run_id: Optional[str] = None
 
 
 @dataclass
@@ -47,6 +76,7 @@ class AppendSlackAgentDesignStepsInput:
     ts: str
     task_updates: list[TaskUpdateChunk] = field(default_factory=list)
     markdown_text: Optional[str] = None
+    ordered_chunks: list[StreamChunk] = field(default_factory=list)
 
 
 @frozen
@@ -80,6 +110,40 @@ def _rewrite_object_tags(text: Optional[str], integration_id: int) -> Optional[s
     return rewrite_object_tags_for_slack(text, project_url=project_web_url(team_id))
 
 
+def _ordered_chunk_dicts(chunks: list[StreamChunk], integration_id: int) -> list[dict[str, Any]]:
+    """Ordered chunks as the dicts the handler streams, with object tags rewritten in prose."""
+    out: list[dict[str, Any]] = []
+    for chunk in chunks:
+        if chunk.task_update is not None:
+            t = chunk.task_update
+            out.append({"type": "task_update", "id": t.id, "title": t.title, "status": t.status, "details": t.details})
+        elif chunk.markdown_text:
+            out.append({"type": "markdown_text", "text": _rewrite_object_tags(chunk.markdown_text, integration_id)})
+    return out
+
+
+def _register_open_stream(run_id: Optional[str], ts: Optional[str]) -> None:
+    """Record the open stream's ts on TaskRun.state, or clear it when ``ts`` is None.
+
+    Best-effort: artifact delivery treats a missing key as "no stream open" and
+    falls back to a separate thread message.
+    """
+    if not run_id:
+        return
+    from products.tasks.backend.models import TaskRun
+
+    def _mutate(state: dict[str, Any]) -> None:
+        if ts is None:
+            state.pop(SLACK_STREAM_TS_STATE_KEY, None)
+        else:
+            state[SLACK_STREAM_TS_STATE_KEY] = ts
+
+    try:
+        TaskRun.mutate_state_atomic(run_id, _mutate)
+    except Exception:
+        logger.warning("slack_app_stream_ts_state_write_failed", run_id=run_id)
+
+
 @activity.defn
 @close_db_connections
 def start_slack_agent_design_stream(input: StartSlackAgentDesignStreamInput) -> Optional[str]:
@@ -89,12 +153,17 @@ def start_slack_agent_design_stream(input: StartSlackAgentDesignStreamInput) -> 
 
     try:
         context = SlackThreadContext.from_dict(input.slack_thread_context)
-        return SlackThreadHandler(context).start_status_stream(
+        ts = SlackThreadHandler(context).start_status_stream(
             first_task_id=input.first_task_id,
             first_task_title=input.first_task_title,
             first_task_details=input.first_task_details,
             first_markdown_text=_rewrite_object_tags(input.first_markdown_text, context.integration_id),
+            ordered_chunks=_ordered_chunk_dicts(input.ordered_chunks, context.integration_id),
+            task_display_mode=input.task_display_mode or "plan",
         )
+        if ts is not None:
+            _register_open_stream(input.run_id, ts)
+        return ts
     except Exception as e:
         logger.warning("slack_app_start_agent_design_stream_failed", error=str(e))
         return None
@@ -108,7 +177,14 @@ def append_slack_agent_design_steps(input: AppendSlackAgentDesignStepsInput) -> 
 
     try:
         context = SlackThreadContext.from_dict(input.slack_thread_context)
-        SlackThreadHandler(context).append_status_chunks(
+        handler = SlackThreadHandler(context)
+        if input.ordered_chunks:
+            handler.append_stream_chunks(
+                ts=input.ts,
+                chunks=_ordered_chunk_dicts(input.ordered_chunks, context.integration_id),
+            )
+            return
+        handler.append_status_chunks(
             ts=input.ts,
             task_updates=[
                 {"id": t.id, "title": t.title, "status": t.status, "details": t.details} for t in input.task_updates
@@ -127,6 +203,9 @@ def stop_slack_agent_design_stream(input: StopSlackAgentDesignStreamInput) -> No
     from products.slack_app.backend.slack_thread import SlackThreadContext, SlackThreadHandler
 
     try:
+        # Cleared before the Slack close so artifact delivery stops appending to a
+        # stream that is about to stop.
+        _register_open_stream(input.run_id, None)
         context = SlackThreadContext.from_dict(input.slack_thread_context)
         handler = SlackThreadHandler(context, turn_trace_id=input.trace_id)
         handler.run_footer = load_run_footer(input.run_id)

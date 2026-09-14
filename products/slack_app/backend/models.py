@@ -125,6 +125,18 @@ class UntaggedFollowupMode(models.TextChoices):
     NEVER = "never", "Never pick it up"
 
 
+class StreamVerbosity(models.TextChoices):
+    """How much of a run's progress streams into the Slack thread while the agent works.
+
+    Read from the settings row of the person whose mention started the run, so it
+    governs every reply in that run's thread. ``FULL`` is what an unset row resolves
+    to — live progress stays the default.
+    """
+
+    FULL = "full", "Stream progress live"
+    FINAL_ONLY = "final_only", "Only post the final answer"
+
+
 class SlackSettings(UUIDModel):
     """Per-(Slack workspace, Slack user) settings for inbound Slack events.
     Currently stores the routing default — which PostHog integration a mention
@@ -170,6 +182,15 @@ class SlackSettings(UUIDModel):
         blank=True,
         choices=UntaggedFollowupMode.choices,
         help_text="What PostHog does with untagged replies in threads this user started.",
+    )
+    # NULL means the user has never picked, which resolves to ``FULL``: runs keep
+    # streaming live progress until they switch it off from the Home tab.
+    stream_verbosity = models.CharField(
+        max_length=16,
+        null=True,
+        blank=True,
+        choices=StreamVerbosity.choices,
+        help_text="How much of a run's progress streams into Slack threads this user's mentions start.",
     )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

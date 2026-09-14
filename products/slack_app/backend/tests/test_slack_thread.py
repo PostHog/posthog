@@ -61,6 +61,67 @@ class TestSlackThreadHandler(SimpleTestCase):
         assert "<@U094TR1E59V>" in streamed
         assert "Radu Raicea" not in streamed
 
+    @patch("products.slack_app.backend.slack_thread.slack_message_exists", return_value=True)
+    @patch.object(SlackThreadHandler, "_get_integration")
+    @patch.object(SlackThreadHandler, "_get_client")
+    def test_start_status_stream_seeds_ordered_chunks_under_the_given_display_mode(
+        self, mock_get_client, mock_get_integration, _mock_exists
+    ):
+        # The timeline surface interleaves prose and task cards, so the seed must keep
+        # arrival order and open the stream in timeline display mode.
+        mock_client = MagicMock()
+        mock_client.chat_startStream.return_value = {"ts": "42.1"}
+        mock_get_client.return_value = mock_client
+        mock_get_integration.return_value = MagicMock(integration_id="T1")
+
+        context = SlackThreadContext(
+            integration_id=1,
+            channel="C001",
+            thread_ts="1234.5678",
+            mentioning_slack_user_id="U123",
+        )
+        ts = SlackThreadHandler(context).start_status_stream(
+            ordered_chunks=[
+                {"type": "markdown_text", "text": "Checking <@U094TR1E59V|Radu Raicea> first."},
+                {"type": "task_update", "id": "t1", "title": "Read", "status": "in_progress"},
+                {"type": "markdown_text", "text": "Found it."},
+            ],
+            task_display_mode="timeline",
+        )
+
+        assert ts == "42.1"
+        call_kwargs = mock_client.chat_startStream.call_args.kwargs
+        assert call_kwargs["task_display_mode"] == "timeline"
+        chunks = call_kwargs["chunks"]
+        assert [c["type"] for c in chunks] == ["markdown_text", "task_update", "markdown_text"]
+        assert "<@U094TR1E59V>" in chunks[0]["text"]
+        assert "Radu Raicea" not in chunks[0]["text"]
+
+    @patch.object(SlackThreadHandler, "_get_client")
+    def test_append_stream_chunks_preserves_interleaved_order(self, mock_get_client):
+        mock_client = MagicMock()
+        mock_get_client.return_value = mock_client
+
+        context = SlackThreadContext(
+            integration_id=1,
+            channel="C001",
+            thread_ts="1234.5678",
+            mentioning_slack_user_id="U123",
+        )
+        SlackThreadHandler(context).append_stream_chunks(
+            ts="42.1",
+            chunks=[
+                {"type": "task_update", "id": "t1", "title": "Read", "status": "complete"},
+                {"type": "markdown_text", "text": "Next up."},
+                {"type": "task_update", "id": "t2", "title": "Grep", "status": "in_progress"},
+            ],
+        )
+
+        chunks = mock_client.chat_appendStream.call_args.kwargs["chunks"]
+        assert [c["type"] for c in chunks] == ["task_update", "markdown_text", "task_update"]
+        assert chunks[0]["status"] == "complete"
+        assert chunks[2]["status"] == "in_progress"
+
     @patch.object(SlackThreadHandler, "_find_progress_message_ts", return_value=None)
     @patch.object(SlackThreadHandler, "_get_client")
     def test_progress_message_carries_only_the_logs_button(self, mock_get_client, _mock_find_progress):

@@ -331,18 +331,23 @@ class SlackThreadHandler:
         first_task_title: str | None = None,
         first_task_details: str | None = None,
         first_markdown_text: str | None = None,
+        ordered_chunks: list[dict[str, Any]] | None = None,
+        task_display_mode: str = "plan",
     ) -> str | None:
-        """chat.startStream in plan-block mode. Seed with EITHER a task_update
-        (starts with a plan-block step) OR a markdown_text chunk (starts as
-        prose; a plan block appears later when a task_update arrives)."""
+        """chat.startStream. Seed with EITHER a task_update (starts with a task-card
+        step) OR a markdown_text chunk (starts as prose), OR an ordered chunk list
+        (timeline surface, where prose and task cards interleave in arrival order)."""
         if not self.context.mentioning_slack_user_id:
             return None
         chunks: list[dict[str, Any]] = []
-        if first_task_id and first_task_title:
-            chunks.append(_task_update_chunk(first_task_id, first_task_title, "in_progress", first_task_details))
-        if first_markdown_text:
-            for piece in _split_markdown_text(normalize_labeled_mentions_to_bare(first_markdown_text)):
-                chunks.append({"type": "markdown_text", "text": piece})
+        if ordered_chunks:
+            chunks = self._normalized_stream_chunks(ordered_chunks)
+        else:
+            if first_task_id and first_task_title:
+                chunks.append(_task_update_chunk(first_task_id, first_task_title, "in_progress", first_task_details))
+            if first_markdown_text:
+                for piece in _split_markdown_text(normalize_labeled_mentions_to_bare(first_markdown_text)):
+                    chunks.append({"type": "markdown_text", "text": piece})
         if not chunks:
             return None
         try:
@@ -356,7 +361,7 @@ class SlackThreadHandler:
                 thread_ts=self.context.thread_ts,
                 recipient_user_id=self.context.mentioning_slack_user_id,
                 recipient_team_id=integration.integration_id,
-                task_display_mode="plan",
+                task_display_mode=task_display_mode,
                 chunks=chunks,
             )
             ts = response.get("ts") if isinstance(response, dict) else response["ts"]
@@ -364,6 +369,37 @@ class SlackThreadHandler:
         except Exception as e:
             logger.warning("slack_app_status_stream_start_failed", error=str(e))
             return None
+
+    def _normalized_stream_chunks(self, ordered_chunks: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Ordered chunk dicts made stream-ready: task updates validated and prose
+        normalized and split, with arrival order preserved."""
+        chunks: list[dict[str, Any]] = []
+        for chunk in ordered_chunks:
+            if chunk.get("type") == "task_update":
+                task_id = chunk.get("id")
+                title = chunk.get("title")
+                status = chunk.get("status")
+                if not task_id or not title or not status:
+                    continue
+                chunks.append(_task_update_chunk(str(task_id), str(title), str(status), chunk.get("details")))
+            elif chunk.get("type") == "markdown_text" and chunk.get("text"):
+                for piece in _split_markdown_text(normalize_labeled_mentions_to_bare(str(chunk["text"]))):
+                    chunks.append({"type": "markdown_text", "text": piece})
+        return chunks
+
+    def append_stream_chunks(self, ts: str, chunks: list[dict[str, Any]]) -> None:
+        """Append an ordered mix of task_update and markdown_text chunks."""
+        normalized = self._normalized_stream_chunks(chunks)
+        if not normalized:
+            return
+        try:
+            self._get_client().chat_appendStream(
+                channel=self.context.channel,
+                ts=ts,
+                chunks=normalized,
+            )
+        except Exception as e:
+            logger.warning("slack_app_status_stream_append_failed", error=str(e))
 
     def append_status_chunks(
         self,

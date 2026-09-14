@@ -4,8 +4,8 @@ from posthog.models.integration import Integration
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 
-from products.slack_app.backend.models import SlackSettings, UntaggedFollowupMode
-from products.slack_app.backend.services.slack_settings import resolve_untagged_followup_mode
+from products.slack_app.backend.models import SlackSettings, StreamVerbosity, UntaggedFollowupMode
+from products.slack_app.backend.services.slack_settings import resolve_stream_verbosity, resolve_untagged_followup_mode
 
 
 @pytest.fixture
@@ -56,3 +56,39 @@ class TestResolveUntaggedFollowupMode:
             untagged_followup_mode=UntaggedFollowupMode.AUTO,
         )
         assert resolve_untagged_followup_mode(integration, "U001") == UntaggedFollowupMode.NEVER
+
+
+class TestResolveStreamVerbosity:
+    @pytest.mark.parametrize(
+        "stored,expected",
+        [
+            (StreamVerbosity.FULL, StreamVerbosity.FULL),
+            (StreamVerbosity.FINAL_ONLY, StreamVerbosity.FINAL_ONLY),
+            # A row that predates the column, and a value retired since it was written,
+            # both keep live streaming on rather than silencing runs by accident.
+            (None, StreamVerbosity.FULL),
+            ("retired-value", StreamVerbosity.FULL),
+        ],
+    )
+    def test_stored_value_governs_with_full_as_the_floor(self, slack_setup, stored, expected):
+        integration = slack_setup
+        SlackSettings.objects.create(
+            slack_workspace_id="T_WS",
+            slack_user_id="U001",
+            stream_verbosity=stored,
+        )
+        assert resolve_stream_verbosity(integration, "U001") == expected
+
+    def test_no_row_at_all_resolves_full(self, slack_setup):
+        assert resolve_stream_verbosity(slack_setup, "U001") == StreamVerbosity.FULL
+
+    def test_another_users_choice_does_not_leak(self, slack_setup):
+        # The verbosity is read per run creator, so one person quieting their threads
+        # must not quiet everybody else's.
+        integration = slack_setup
+        SlackSettings.objects.create(
+            slack_workspace_id="T_WS",
+            slack_user_id="U002",
+            stream_verbosity=StreamVerbosity.FINAL_ONLY,
+        )
+        assert resolve_stream_verbosity(integration, "U001") == StreamVerbosity.FULL

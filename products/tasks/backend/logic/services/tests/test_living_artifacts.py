@@ -33,6 +33,7 @@ from products.tasks.backend.logic.services.living_artifacts import (
     get_task_artifacts_for_run,
 )
 from products.tasks.backend.models import Task, TaskArtifact, TaskRun
+from products.tasks.backend.temporal.process_task.activities.slack_agent_design import SLACK_STREAM_TS_STATE_KEY
 
 
 def _xlsx_bytes() -> bytes:
@@ -690,6 +691,146 @@ class TestLivingArtifacts(TestCase):
 
 
 @override_settings(SITE_URL="http://localhost:8010")
+class TestStreamDelivery(TestCase):
+    organization: ClassVar[Organization]
+    team: ClassVar[Team]
+    user: ClassVar[User]
+    task: ClassVar[Task]
+    task_run: ClassVar[TaskRun]
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.organization = Organization.objects.create(name="Test Org")
+        cls.team = Team.objects.create(organization=cls.organization, name="Test Team")
+        cls.user = User.objects.create(email="stream@example.com", distinct_id="stream-user")
+        cls.task = Task.objects.create(
+            team=cls.team,
+            title="Stream task",
+            description="Chart a metric",
+            origin_product=Task.OriginProduct.SLACK,
+            created_by=cls.user,
+        )
+        cls.task_run = TaskRun.objects.create(task=cls.task, team=cls.team, status=TaskRun.Status.IN_PROGRESS)
+
+    def _create_mapping(self, mock_integration_for_mapping, *, scopes: set[str] | None = None) -> MagicMock:
+        integration = Integration.objects.create(team=self.team, kind="slack", integration_id="T123", config={})
+        SlackThreadTaskMapping.objects.create(
+            team=self.team,
+            integration=integration,
+            slack_workspace_id="T123",
+            channel="C123",
+            thread_ts="1111.1",
+            task=self.task,
+            task_run=self.task_run,
+            mentioning_slack_user_id="U123",
+        )
+        slack = MagicMock()
+        slack_integration = MagicMock()
+        slack_integration.client = slack
+        slack_integration.missing_scopes.return_value = scopes if scopes is not None else set()
+        mock_integration_for_mapping.return_value = slack_integration
+        return slack
+
+    def _open_stream(self, ts: str = "999.100") -> None:
+        TaskRun.objects.filter(id=self.task_run.id).update(state={SLACK_STREAM_TS_STATE_KEY: ts})
+
+    @patch("products.tasks.backend.logic.services.living_artifacts._slack_integration_for_mapping")
+    def test_canvas_notice_rides_the_open_stream(self, mock_integration_for_mapping):
+        slack = self._create_mapping(mock_integration_for_mapping)
+        slack.api_call.return_value = {"canvas_id": "F123", "url": "https://app.slack.com/docs/T123/F123"}
+        self._open_stream()
+
+        create_living_artifact(
+            run=self.task_run,
+            name="Report canvas",
+            artifact_type=TaskArtifact.ArtifactType.SLACK_CANVAS,
+            content="# Report",
+        )
+
+        slack.chat_appendStream.assert_called_once()
+        append_kwargs = slack.chat_appendStream.call_args.kwargs
+        self.assertEqual(append_kwargs["ts"], "999.100")
+        (chunk,) = append_kwargs["chunks"]
+        self.assertEqual(chunk["type"], "blocks")
+        self.assertIn("Report canvas", chunk["blocks"][0]["text"]["text"])
+        slack.chat_postMessage.assert_not_called()
+
+    @patch("products.tasks.backend.logic.services.living_artifacts.slack_message_exists", return_value=True)
+    @patch("products.tasks.backend.logic.services.living_artifacts.get_delivery_image_url")
+    @patch("posthog.storage.object_storage.tag")
+    @patch("posthog.storage.object_storage.write")
+    @patch("products.tasks.backend.logic.services.living_artifacts._slack_integration_for_mapping")
+    def test_chart_created_while_streaming_lands_in_the_stream(
+        self,
+        mock_integration_for_mapping,
+        _mock_write,
+        _mock_tag,
+        mock_image_url,
+        _mock_message_exists,
+    ):
+        slack = self._create_mapping(mock_integration_for_mapping, scopes={"files:write"})
+        asset = ExportedAsset.objects.create(team=self.team, export_format=ExportedAsset.ExportFormat.PNG)
+        mock_image_url.return_value = "http://localhost:8010/exporter/export-1.png?token=abc"
+        self._open_stream()
+
+        artifact = create_living_artifact(
+            run=self.task_run,
+            name="Signups by week.png",
+            artifact_type=TaskArtifact.ArtifactType.FILE,
+            adapter=TaskArtifact.Adapter.SLACK_FILE,
+            content_bytes=b"png-bytes",
+            content_type="image/png",
+            export_asset_id=asset.id,
+        )
+
+        slack.chat_appendStream.assert_called_once()
+        (chunk,) = slack.chat_appendStream.call_args.kwargs["chunks"]
+        self.assertEqual(chunk["type"], "blocks")
+        image_block = chunk["blocks"][1]
+        self.assertEqual(image_block["type"], "image")
+        self.assertEqual(image_block["image_url"], "http://localhost:8010/exporter/export-1.png?token=abc")
+        slack.chat_postMessage.assert_not_called()
+
+        artifact.refresh_from_db()
+        self.assertEqual(artifact.location["delivery_status"], "delivered")
+
+    @patch("products.tasks.backend.logic.services.living_artifacts.slack_message_exists", return_value=True)
+    @patch("products.tasks.backend.logic.services.living_artifacts.get_delivery_image_url")
+    @patch("posthog.storage.object_storage.tag")
+    @patch("posthog.storage.object_storage.write")
+    @patch("products.tasks.backend.logic.services.living_artifacts._slack_integration_for_mapping")
+    def test_stream_append_failure_falls_back_to_a_thread_message(
+        self,
+        mock_integration_for_mapping,
+        _mock_write,
+        _mock_tag,
+        mock_image_url,
+        _mock_message_exists,
+    ):
+        slack = self._create_mapping(mock_integration_for_mapping, scopes={"files:write"})
+        slack.chat_appendStream.side_effect = RuntimeError("stream already stopped")
+        slack.chat_postMessage.return_value = {"ok": True, "ts": "1111.2"}
+        asset = ExportedAsset.objects.create(team=self.team, export_format=ExportedAsset.ExportFormat.PNG)
+        mock_image_url.return_value = "http://localhost:8010/exporter/export-1.png?token=abc"
+        self._open_stream()
+
+        artifact = create_living_artifact(
+            run=self.task_run,
+            name="Signups by week.png",
+            artifact_type=TaskArtifact.ArtifactType.FILE,
+            adapter=TaskArtifact.Adapter.SLACK_FILE,
+            content_bytes=b"png-bytes",
+            content_type="image/png",
+            export_asset_id=asset.id,
+        )
+
+        slack.chat_postMessage.assert_called_once()
+        blocks = slack.chat_postMessage.call_args.kwargs["blocks"]
+        self.assertEqual(blocks[1]["type"], "image")
+        artifact.refresh_from_db()
+        self.assertEqual(artifact.location["delivery_status"], "delivered")
+
+
 class TestChartCardBlockBuilders(SimpleTestCase):
     @parameterized.expand(
         [

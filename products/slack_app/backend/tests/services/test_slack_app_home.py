@@ -31,6 +31,7 @@ from products.slack_app.backend.models import (
     SlackSettings,
     SlackThreadTaskMapping,
     SlackUserProfileCache,
+    StreamVerbosity,
     UntaggedFollowupMode,
 )
 from products.slack_app.backend.services import slack_app_home
@@ -38,6 +39,7 @@ from products.slack_app.backend.services.slack_app_home import (
     ACTION_EDIT_PERSONAL,
     ACTION_RESET_PERSONAL,
     ACTION_RESET_PROJECT_PERSONAL,
+    ACTION_SET_STREAM_VERBOSITY,
     ACTION_SET_UNTAGGED_FOLLOWUP_MODE,
     ACTION_TASKS_FILTER_REPO,
     ACTION_TASKS_PAGE_NEXT,
@@ -513,6 +515,61 @@ class TestThreadFollowupsPicker:
 
         row = SlackSettings.objects.filter(slack_workspace_id=SLACK_WORKSPACE_ID, slack_user_id="U001").first()
         assert (row.untagged_followup_mode if row else None) == expected
+        assert mock_slack_client.views_publish.called
+
+
+class TestStreamVerbosityCard:
+    def _view(self, verbosity: StreamVerbosity) -> dict:
+        return render_home_view(
+            is_admin=False,
+            stream_verbosity=verbosity,
+        )
+
+    @pytest.mark.parametrize("verbosity", list(StreamVerbosity))
+    def test_picker_preselects_the_stored_verbosity(self, verbosity):
+        # Without the right initial option the tab misreports the setting, and picking
+        # the value already stored is a no-op click that looks broken.
+        view = self._view(verbosity)
+        select = next(
+            el
+            for block in view["blocks"]
+            for el in block.get("elements", []) or []
+            if el.get("action_id") == ACTION_SET_STREAM_VERBOSITY
+        )
+        assert select["initial_option"]["value"] == verbosity.value
+        assert {o["value"] for o in select["options"]} == set(StreamVerbosity.values)
+
+
+class TestStreamVerbosityPicker:
+    def _pick(self, value: str) -> dict:
+        return {
+            "type": "block_actions",
+            "team": {"id": SLACK_WORKSPACE_ID},
+            "user": {"id": "U001"},
+            "actions": [
+                {"action_id": ACTION_SET_STREAM_VERBOSITY, "selected_option": {"value": value}},
+            ],
+        }
+
+    @pytest.mark.parametrize(
+        "picked,expected",
+        [
+            (StreamVerbosity.FULL.value, StreamVerbosity.FULL.value),
+            (StreamVerbosity.FINAL_ONLY.value, StreamVerbosity.FINAL_ONLY.value),
+            # A value the tab never rendered isn't worth persisting — it would resolve
+            # back to full anyway, but only after a round trip through the DB.
+            ("something-else", None),
+        ],
+    )
+    def test_pick_is_persisted_against_the_clicking_user(
+        self, slack_integration, mock_slack_client, flag_on, picked, expected
+    ):
+        payload = self._pick(picked)
+        with patch("products.slack_app.backend.services.slack_app_home.is_slack_workspace_admin", return_value=False):
+            handle_ai_preferences_block_action(payload, payload["actions"][0])
+
+        row = SlackSettings.objects.filter(slack_workspace_id=SLACK_WORKSPACE_ID, slack_user_id="U001").first()
+        assert (row.stream_verbosity if row else None) == expected
         assert mock_slack_client.views_publish.called
 
 

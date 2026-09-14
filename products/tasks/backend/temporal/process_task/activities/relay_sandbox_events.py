@@ -567,7 +567,7 @@ async def _relay_loop(
                                     await _signal_safely(
                                         workflow_handle,
                                         "turn_started",
-                                        arg={"slack_thread_context": slack_thread_context or {}},
+                                        arg=await _turn_started_payload(slack_thread_context),
                                     )
                                 if slack_turn_active[0]:
                                     step_payload = _extract_tool_call_step(event_data, emitted_tool_call_ids)
@@ -898,6 +898,40 @@ async def _flush_pending_text(
     if workflow_handle is not None and text:
         await _signal_safely(workflow_handle, "agent_text_delta", arg=text)
     pending_text_parts.clear()
+
+
+async def _resolve_stream_mode(slack_thread_context: dict[str, Any] | None) -> str:
+    """Which stream surface this turn should use, from the mentioning user's preference.
+
+    Resolved per turn so a preference change mid-run applies from the next turn.
+    Fails open to the timeline surface — live streaming is the default.
+    """
+    from products.slack_app.backend.facade.api import slack_stream_verbosity
+
+    from .slack_agent_design import STREAM_MODE_FINAL_ONLY, STREAM_MODE_TIMELINE
+
+    context = slack_thread_context or {}
+    integration_id = context.get("integration_id")
+    slack_user_id = context.get("mentioning_slack_user_id")
+    if not isinstance(integration_id, int):
+        return STREAM_MODE_TIMELINE
+    try:
+        verbosity = await asyncio.to_thread(
+            slack_stream_verbosity,
+            integration_id,
+            slack_user_id if isinstance(slack_user_id, str) else None,
+        )
+    except Exception as e:
+        logger.warning("slack_app_stream_mode_resolution_failed", integration_id=integration_id, error=str(e))
+        return STREAM_MODE_TIMELINE
+    return STREAM_MODE_FINAL_ONLY if verbosity == STREAM_MODE_FINAL_ONLY else STREAM_MODE_TIMELINE
+
+
+async def _turn_started_payload(slack_thread_context: dict[str, Any] | None) -> dict[str, Any]:
+    return {
+        "slack_thread_context": slack_thread_context or {},
+        "stream_mode": await _resolve_stream_mode(slack_thread_context),
+    }
 
 
 async def _signal_safely(
