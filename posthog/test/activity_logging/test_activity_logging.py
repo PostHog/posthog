@@ -113,6 +113,72 @@ class TestActivityLogModel(BaseTest):
         log: ActivityLog = ActivityLog.objects.latest("id")
         self.assertIsNone(log.client)
 
+    def test_agent_intent_and_run_id_fill_the_trigger(self) -> None:
+        run_id = "019f4c2a-0000-7000-8000-0000000000aa"
+        activity_storage.set_agent_intent("Repairing a tile that hit the query row limit")
+        activity_storage.set_agent_run_id(run_id)
+        try:
+            log_activity(
+                organization_id=self.organization.id,
+                team_id=self.team.id,
+                user=self.user,
+                was_impersonated=False,
+                item_id=20,
+                scope="Dashboard",
+                activity="created",
+                detail=Detail(),
+            )
+        finally:
+            activity_storage.clear_agent_intent()
+            activity_storage.clear_agent_run_id()
+
+        log: ActivityLog = ActivityLog.objects.latest("id")
+        assert log.detail is not None
+        self.assertEqual(
+            log.detail["trigger"],
+            {
+                "job_type": "agent",
+                "job_id": run_id,
+                "payload": {"intent": "Repairing a tile that hit the query row limit"},
+            },
+        )
+
+    def test_agent_intent_does_not_clobber_a_product_trigger(self) -> None:
+        product_trigger = Trigger(job_type="hog_flow", job_id="4321", payload={})
+        activity_storage.set_agent_intent("Renaming the tile the user pointed at")
+        try:
+            log_activity(
+                organization_id=self.organization.id,
+                team_id=self.team.id,
+                user=self.user,
+                was_impersonated=False,
+                item_id=21,
+                scope="Dashboard",
+                activity="created",
+                detail=Detail(trigger=product_trigger),
+            )
+        finally:
+            activity_storage.clear_agent_intent()
+
+        log: ActivityLog = ActivityLog.objects.latest("id")
+        assert log.detail is not None
+        self.assertEqual(log.detail["trigger"]["job_type"], "hog_flow")
+
+    def test_trigger_stays_unset_without_agent_context(self) -> None:
+        log_activity(
+            organization_id=self.organization.id,
+            team_id=self.team.id,
+            user=self.user,
+            was_impersonated=False,
+            item_id=22,
+            scope="Dashboard",
+            activity="created",
+            detail=Detail(),
+        )
+        log: ActivityLog = ActivityLog.objects.latest("id")
+        assert log.detail is not None
+        self.assertIsNone(log.detail["trigger"])
+
     def test_ip_address_is_populated_from_activity_storage(self) -> None:
         activity_storage.set_ip_address("203.0.113.42")
         try:

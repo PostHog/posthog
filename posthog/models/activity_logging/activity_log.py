@@ -1125,6 +1125,30 @@ def _handle_activity_log_transaction(create_fn, error_context: dict, *, using: s
         return None
 
 
+# Names the one `Trigger.job_type` whose `job_id` is an agent run, so a reader can tell it from
+# the product triggers (`hog_flow`, `canvas_action`) whose job ids point somewhere else entirely.
+AGENT_TRIGGER_JOB_TYPE = "agent"
+
+
+def agent_trigger() -> Optional[Trigger]:
+    """The ambient agent attribution for this request, or None when no agent context reached it.
+
+    Agents state a reason on nearly every MCP call and the sandbox names the run, but until this
+    fills `Detail.trigger` neither reached the audit trail, so an auditor could see that an agent
+    made a change and not why. The intent is the agent's own claim, so every surface that shows it
+    has to say so.
+    """
+    intent = activity_storage.get_agent_intent()
+    run_id = activity_storage.get_agent_run_id()
+    if not intent and not run_id:
+        return None
+    return Trigger(
+        job_type=AGENT_TRIGGER_JOB_TYPE,
+        job_id=run_id or "",
+        payload={"intent": intent} if intent else {},
+    )
+
+
 def log_activity(
     *,
     organization_id: Optional[UUID],
@@ -1147,6 +1171,12 @@ def log_activity(
         client = activity_storage.get_client()
     if ip_address is None:
         ip_address = activity_storage.get_ip_address()
+    if detail.trigger is None:
+        # Products that set their own trigger (canvas, feature flags, conversations) already say
+        # what drove the write, so agent attribution only fills the gap they leave.
+        trigger = agent_trigger()
+        if trigger is not None:
+            detail = dataclasses.replace(detail, trigger=trigger)
     if was_impersonated and user is None:
         logger.warn(
             "activity_log.failed_to_write_to_activity_log",

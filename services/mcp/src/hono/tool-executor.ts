@@ -184,6 +184,9 @@ export class ToolExecutor {
                 ? (rawRequestMeta as Record<string, unknown>)
                 : undefined
         const { analyticsMeta, args } = this.extractAnalyticsMetadata(toolName, rawArgs, originalTool, requestMeta)
+        // Stamped onto the live client, the way StateManager stamps the OAuth client name, because
+        // the intent belongs to this call rather than to the connection the client was built for.
+        state.context.api.config.intent = analyticsMeta.intent
         const callParams = { ...params, arguments: args }
 
         if (toolName === 'exec') {

@@ -153,7 +153,17 @@ export interface ApiConfig {
      * the agent's task; the API validates it against the token's team.
      */
     taskId?: string | undefined
+    /**
+     * The agent's stated intent for the tool call in flight, forwarded as `x-posthog-intent` so
+     * API writes record why the agent made the change. Set per call by the tool executor, which is
+     * where the intent is parsed off the tool arguments.
+     */
+    intent?: string | undefined
 }
+
+// The intent reaches the audit trail of every write a call makes, so it is capped well below the
+// generic header cap.
+const MAX_INTENT_HEADER_LENGTH = 500
 
 type Endpoint = Record<string, any>
 
@@ -214,6 +224,8 @@ export class ApiClient {
                 'x-posthog-mcp-conversation-id': this.config.mcpConversationId,
                 // Forward the sandbox task id so API writes are attributed to the agent's task.
                 'X-PostHog-Task-Id': this.config.taskId,
+                // Forward the agent's stated intent so the activity log records why, not just who.
+                'x-posthog-intent': this.config.intent?.slice(0, MAX_INTENT_HEADER_LENGTH),
             }),
             'X-PostHog-Client': 'mcp',
         }

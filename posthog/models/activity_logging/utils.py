@@ -16,6 +16,13 @@ logger = structlog.get_logger(__name__)
 
 ACTIVITY_LOG_CLIENT_HEADER = "x-posthog-client"
 ACTIVITY_LOG_CLIENT_MAX_LENGTH = 32
+# What the agent says it is doing, forwarded by the MCP server from the intent it already sends
+# to analytics as `$mcp_intent`.
+ACTIVITY_LOG_INTENT_HEADER = "x-posthog-intent"
+ACTIVITY_LOG_INTENT_MAX_LENGTH = 500
+# The sandbox bakes the agent's task id into this header on its MCP config and its direct API
+# calls. That task is the run an auditor opens to read why the agent made a change.
+ACTIVITY_LOG_RUN_HEADER = "x-posthog-task-id"
 
 
 @frozen
@@ -77,6 +84,26 @@ class ActivityLoggingStorage:
         if hasattr(self._local, "client"):
             delattr(self._local, "client")
 
+    def set_agent_intent(self, intent: Optional[str]) -> None:
+        self._local.agent_intent = intent
+
+    def get_agent_intent(self) -> Optional[str]:
+        return getattr(self._local, "agent_intent", None)
+
+    def clear_agent_intent(self) -> None:
+        if hasattr(self._local, "agent_intent"):
+            delattr(self._local, "agent_intent")
+
+    def set_agent_run_id(self, run_id: Optional[str]) -> None:
+        self._local.agent_run_id = run_id
+
+    def get_agent_run_id(self) -> Optional[str]:
+        return getattr(self._local, "agent_run_id", None)
+
+    def clear_agent_run_id(self) -> None:
+        if hasattr(self._local, "agent_run_id"):
+            delattr(self._local, "agent_run_id")
+
     def set_ip_address(self, ip_address: Optional[str]) -> None:
         self._local.ip_address = ip_address
 
@@ -102,6 +129,8 @@ class ActivityLoggingStorage:
         self.clear_user()
         self.clear_was_impersonated()
         self.clear_client()
+        self.clear_agent_intent()
+        self.clear_agent_run_id()
         self.clear_ip_address()
         self.clear_trigger()
 

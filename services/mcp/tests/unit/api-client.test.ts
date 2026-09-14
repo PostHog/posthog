@@ -200,6 +200,34 @@ describe('ApiClient', () => {
         vi.unstubAllGlobals()
     })
 
+    it('forwards the stated intent to the PostHog API, capped', async () => {
+        const mockFetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({}), { status: 200 }))
+        vi.stubGlobal('fetch', mockFetch)
+        const client = new ApiClient({
+            apiToken: 'test-token-123',
+            baseUrl: 'https://example.com',
+            intent: 'i'.repeat(900),
+        })
+
+        await client.request({ method: 'GET', path: '/api/projects/1/dashboards/' })
+
+        const [, options] = mockFetch.mock.calls[0]!
+        expect(options.headers['x-posthog-intent']).toBe('i'.repeat(500))
+        vi.unstubAllGlobals()
+    })
+
+    it('omits the intent header when the agent stated none', async () => {
+        const mockFetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({}), { status: 200 }))
+        vi.stubGlobal('fetch', mockFetch)
+        const client = new ApiClient({ apiToken: 'test-token-123', baseUrl: 'https://example.com' })
+
+        await client.request({ method: 'GET', path: '/api/projects/1/dashboards/' })
+
+        const [, options] = mockFetch.mock.calls[0]!
+        expect(options.headers).not.toHaveProperty('x-posthog-intent')
+        vi.unstubAllGlobals()
+    })
+
     it.each([
         [
             'both ids set',

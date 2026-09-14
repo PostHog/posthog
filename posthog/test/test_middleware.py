@@ -1835,6 +1835,8 @@ class TestActivityLoggingMiddleware(APIBaseTest):
             self.captured["client"] = activity_storage.get_client()
             self.captured["user"] = activity_storage.get_user()
             self.captured["ip_address"] = activity_storage.get_ip_address()
+            self.captured["agent_intent"] = activity_storage.get_agent_intent()
+            self.captured["agent_run_id"] = activity_storage.get_agent_run_id()
             from django.http import HttpResponse
 
             return HttpResponse()
@@ -1863,6 +1865,35 @@ class TestActivityLoggingMiddleware(APIBaseTest):
         request.user = self.user
         self.middleware(request)
         self.assertEqual(self.captured["client"], "x" * ACTIVITY_LOG_CLIENT_MAX_LENGTH)
+
+    def test_captures_agent_intent_and_run_id(self):
+        run_id = "019f4c2a-0000-7000-8000-0000000000aa"
+        request = self.factory.get(
+            "/",
+            HTTP_X_POSTHOG_INTENT="  Repairing a tile that hit the query row limit  ",
+            HTTP_X_POSTHOG_TASK_ID=run_id,
+        )
+        request.user = self.user
+        self.middleware(request)
+        self.assertEqual(self.captured["agent_intent"], "Repairing a tile that hit the query row limit")
+        self.assertEqual(self.captured["agent_run_id"], run_id)
+        self.assertIsNone(self.activity_storage.get_agent_intent())
+        self.assertIsNone(self.activity_storage.get_agent_run_id())
+
+    def test_long_intent_is_truncated(self):
+        from posthog.models.activity_logging.utils import ACTIVITY_LOG_INTENT_MAX_LENGTH
+
+        request = self.factory.get("/", HTTP_X_POSTHOG_INTENT="x" * (ACTIVITY_LOG_INTENT_MAX_LENGTH * 4))
+        request.user = self.user
+        self.middleware(request)
+        self.assertEqual(self.captured["agent_intent"], "x" * ACTIVITY_LOG_INTENT_MAX_LENGTH)
+
+    @parameterized.expand([("not-a-uuid",), ("",), ("   ",)])
+    def test_unparseable_run_id_is_dropped(self, raw):
+        request = self.factory.get("/", HTTP_X_POSTHOG_TASK_ID=raw)
+        request.user = self.user
+        self.middleware(request)
+        self.assertIsNone(self.captured["agent_run_id"])
 
     def test_captures_ip_address_from_remote_addr(self):
         request = self.factory.get("/", REMOTE_ADDR="203.0.113.42")

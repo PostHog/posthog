@@ -46,7 +46,7 @@ function makeState(tools: { name: string }[], overrides: Partial<ResolvedState> 
             getEffectiveSessionUuid: vi.fn().mockResolvedValue(undefined),
         } as any,
         context: {
-            api: {},
+            api: { config: {} },
             cache: {},
             env: {},
             stateManager: {},
@@ -206,6 +206,25 @@ describe('ToolExecutor analytics capture', () => {
             expect(arg.properties?.$mcp_llm_model_missing_reason).toBe(expectedMissingReason)
 
             captureSpy.mockRestore()
+        }
+    )
+
+    it.each([
+        [
+            'states an intent',
+            { command: 'tools', context: 'auditing the dashboard tiles' },
+            'auditing the dashboard tiles',
+        ],
+        ['states none', { command: 'tools' }, undefined],
+    ] as const)(
+        'stamps the intent onto the API client so writes carry it — the agent %s',
+        async (_label, args, expected) => {
+            vi.spyOn(getPostHogClient(), 'captureToolCall').mockImplementation(() => {})
+            const state = makeState([], { useSingleExec: true })
+
+            await executor.handleToolCall({ name: 'exec', arguments: args }, state)
+
+            expect(state.context.api.config.intent).toBe(expected)
         }
     )
 

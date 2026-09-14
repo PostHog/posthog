@@ -51,6 +51,9 @@ from posthog.models import Team, User
 from posthog.models.activity_logging.utils import (
     ACTIVITY_LOG_CLIENT_HEADER,
     ACTIVITY_LOG_CLIENT_MAX_LENGTH,
+    ACTIVITY_LOG_INTENT_HEADER,
+    ACTIVITY_LOG_INTENT_MAX_LENGTH,
+    ACTIVITY_LOG_RUN_HEADER,
     activity_storage,
 )
 from posthog.models.utils import generate_random_token
@@ -1104,6 +1107,26 @@ class OAuthCoopMiddleware:
         return response
 
 
+def _agent_intent(request: HttpRequest) -> str | None:
+    return request.headers.get(ACTIVITY_LOG_INTENT_HEADER, "").strip()[:ACTIVITY_LOG_INTENT_MAX_LENGTH] or None
+
+
+def _agent_run_id(request: HttpRequest) -> str | None:
+    """The agent run this request belongs to, from the sandbox task header.
+
+    Parsed rather than passed through so a malformed value cannot reach the audit trail, where it
+    renders as a link. The value is caller-supplied attribution, not an authorization boundary:
+    the bearer token is already team-scoped, so a caller can only name a run it could already see.
+    """
+    raw = request.headers.get(ACTIVITY_LOG_RUN_HEADER, "").strip()
+    if not raw:
+        return None
+    try:
+        return str(uuid.UUID(raw))
+    except ValueError:
+        return None
+
+
 class ActivityLoggingMiddleware:
     """
     Middleware that sets the current user and impersonation status in activity storage
@@ -1126,6 +1149,9 @@ class ActivityLoggingMiddleware:
         client_header = request.headers.get(ACTIVITY_LOG_CLIENT_HEADER)
         if client_header:
             activity_storage.set_client(client_header[:ACTIVITY_LOG_CLIENT_MAX_LENGTH])
+
+        activity_storage.set_agent_intent(_agent_intent(request))
+        activity_storage.set_agent_run_id(_agent_run_id(request))
 
         activity_storage.set_ip_address(get_ip_address(request) or None)
 

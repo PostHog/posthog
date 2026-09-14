@@ -2,6 +2,7 @@ import { useState } from 'react'
 
 import { LemonTag, LemonTabs, Tooltip } from '@posthog/lemon-ui'
 
+import { AgentAttribution } from 'lib/components/ActivityLog/AgentAttribution'
 import { HumanizedActivityLogItem, humanizeActivity, humanizeScope } from 'lib/components/ActivityLog/humanizeActivity'
 import MonacoDiffEditor from 'lib/components/MonacoDiffEditor'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -195,6 +196,7 @@ function ExpandedRowContent({ logItem }: { logItem: HumanizedActivityLogItem }):
                             <div className="text-[13px] text-default">{unprocessed.item_id}</div>
                         </div>
                     )}
+                    <AgentAttribution logItem={logItem} />
                 </div>
             </div>
 
