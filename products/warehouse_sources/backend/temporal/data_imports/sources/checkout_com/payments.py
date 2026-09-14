@@ -10,10 +10,14 @@ coverage is roughly the previous 90 days, which sets how far back a first sync
 reaches; the endpoint serves older payments too, so a configured ``start_date``
 reaching further back is honoured rather than clamped forward.
 
-A sync bounds its own API usage with per-run call budgets. Hitting one leaves the
-range incomplete, so it raises: returning would report the schema ``Completed``
-over months holding no rows. Each fully-drained window is checkpointed, so the
-retry resumes where the budget ran out.
+A sync bounds its own API usage with per-run call budgets. An incremental run that
+landed a row newer than its watermark before hitting one ends cleanly: the pipeline
+commits those rows, promotes the watermark, and the next scheduled sync continues
+from there, so a backlog converges run over run. A run that cannot advance the
+watermark (a full refresh, or no row newer than it) raises instead: returning would
+report the schema ``Completed`` while the table stayed where it was. Each fully-drained
+window is also checkpointed in Redis, so a retry within the same job resumes where
+the budget ran out.
 
 ``payment_actions``, ``customers`` and ``instruments`` have no listing
 endpoints at all, so their syncs walk the same payment windows and fan out per
@@ -101,19 +105,30 @@ PAYMENTS_PARTITION_COUNT = 200
 CUSTOMER_ID_PREFIX = "cus_"
 INSTRUMENT_ID_PREFIX = "src_"
 
+# The incremental field each schema advances its watermark on. `source` declares these to
+# the pipeline; `_get_rows` reads the same field off a yielded row to tell whether the run
+# actually moved the watermark, so both sides share these names.
+PAYMENTS_INCREMENTAL_FIELD = "requested_on"
+FANOUT_INCREMENTAL_FIELD = "payment_requested_on"
+
 # Stable marker so the source can classify a budget stop as retryable rather than a bug.
-SYNC_BUDGET_EXCEEDED_MARKER = "Checkout.com sync hit its per-run API budget"
+# The text reaches the operator as `latest_error` when a job exhausts its retries, so it
+# describes the effect (the table fell behind) rather than the internal budget.
+SYNC_BUDGET_EXCEEDED_MARKER = "Checkout.com sync fell behind"
 # Stable marker so the source can map an id-less run to a customer-facing error.
 UNRESOLVED_REFERENCES_MARKER = "Checkout.com payments reference records without a usable identifier"
 
 
 class CheckoutComSyncBudgetExceeded(Exception):
-    """A sync stopped at its per-run API call budget before covering its whole range.
+    """A sync stopped at its per-run API call budget without advancing the watermark.
 
-    Raised rather than returned. Returning cleanly reported the schema `Completed` with no
-    error while the range past the cut-off held no rows at all, so the gap was invisible:
-    `last_synced_at` moved, the table did not. Every window completed before the budget ran
-    out is checkpointed, so the retry resumes there instead of redoing the run.
+    Raised only when ending cleanly would hide the gap: a full refresh (a partial commit
+    would replace the whole table with a slice), or a run holding no row newer than the
+    watermark (there is nothing to promote it to, so `last_synced_at` would move while the
+    table did not). An incremental run that carries the watermark forward returns cleanly
+    instead, which commits the rows, so the next scheduled sync resumes from what was covered.
+    Every window completed before the budget ran out is also checkpointed in Redis, so a
+    retry within the same job resumes there instead of redoing the run.
     """
 
 
@@ -599,6 +614,28 @@ def _instrument_row(
     return _instrument_record_row(session, auth, api_base, record_id, payment, logger)
 
 
+def _latest_incremental_value(
+    schema_name: str, rows: list[dict[str, Any]], current: Optional[datetime]
+) -> Optional[datetime]:
+    """The newest incremental value across `rows`, or `current` when none parse."""
+    field = PAYMENTS_INCREMENTAL_FIELD if schema_name == "payments" else FANOUT_INCREMENTAL_FIELD
+    for row in rows:
+        value = _to_datetime(row.get(field))
+        if value is not None and (current is None or value > current):
+            current = value
+    return current
+
+
+def _describe_lag(lag: timedelta) -> str:
+    """A human-readable duration for the falling-behind messages, never below one minute."""
+    total_minutes = max(int(lag.total_seconds() // 60), 1)
+    if total_minutes >= 2 * 24 * 60:
+        return f"{total_minutes // (24 * 60)} days"
+    if total_minutes >= 120:
+        return f"{total_minutes // 60} hours"
+    return "1 minute" if total_minutes == 1 else f"{total_minutes} minutes"
+
+
 def _report_unresolved_references(schema_name: str, state: _FanoutRunState, logger: FilteringBoundLogger) -> None:
     noun = "customer" if schema_name == "customers" else "payment instrument"
     if state.rows_landed == 0:
@@ -640,6 +677,9 @@ def _get_rows(
         now,
     )
     chunk: list[dict[str, Any]] = []
+    covered_to = start
+    watermark = _to_datetime(db_incremental_field_last_value) if should_use_incremental_field else None
+    latest_yielded: Optional[datetime] = None
     for window, payments in _iter_bounded_payment_windows(session, auth, hosts["api"], start, now, logger, budget):
         for payment in payments:
             if schema_name == "payments":
@@ -667,6 +707,7 @@ def _get_rows(
                     state.rows_landed += 1
                     chunk.append(row)
             if len(chunk) >= FANOUT_CHUNK_SIZE:
+                latest_yielded = _latest_incremental_value(schema_name, chunk, latest_yielded)
                 yield chunk
                 chunk = []
         if budget.exhausted:
@@ -674,12 +715,31 @@ def _get_rows(
             # next scheduled sync re-covers it (merge dedupes overlapping rows).
             break
         resumable_source_manager.save_state(CheckoutComResumeConfig(search_window_to=_format_timestamp(window.end)))
+        covered_to = window.end
     if chunk:
+        latest_yielded = _latest_incremental_value(schema_name, chunk, latest_yielded)
         yield chunk
     if budget.exhausted:
+        advanced = latest_yielded is not None and (watermark is None or latest_yielded > watermark)
+        if should_use_incremental_field and advanced:
+            # Ending cleanly commits the yielded rows and promotes the watermark, so the next
+            # scheduled sync continues from here instead of redoing the same ground. Raising
+            # would discard all of it: the pipeline only finalizes staged batches and the
+            # staged cursor when the generator completes. The watermark has to actually move
+            # first: a run whose rows all sit at or behind it would report success while
+            # covering the same range forever.
+            if state.unresolvable_references:
+                _report_unresolved_references(schema_name, state, logger)
+            logger.warning(
+                f"Checkout.com {schema_name} sync is {_describe_lag(now - covered_to)} behind; this run "
+                "commits what it covered and the next scheduled sync continues from there"
+            )
+            return
         raise CheckoutComSyncBudgetExceeded(
-            f"{SYNC_BUDGET_EXCEEDED_MARKER} for {schema_name} before reaching "
-            f"{_format_timestamp(now)}; the range past the last complete window holds no rows yet"
+            f"{SYNC_BUDGET_EXCEEDED_MARKER}: {schema_name} is {_describe_lag(now - covered_to)} behind and "
+            "this run stopped before closing the gap. The sync retries and continues automatically. If the "
+            "gap keeps growing across runs, set a more recent start date on the source to narrow the range, "
+            "or contact PostHog support about a manual backfill."
         )
     if state.unresolvable_references:
         _report_unresolved_references(schema_name, state, logger)

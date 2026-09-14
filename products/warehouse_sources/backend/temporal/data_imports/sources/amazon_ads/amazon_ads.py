@@ -28,7 +28,6 @@ AMAZON_ADS_HOSTS = {
 }
 # Login with Amazon token endpoint is global.
 LWA_TOKEN_URL = "https://api.amazon.com/auth/o2/token"
-PAGE_SIZE = 500
 REQUEST_TIMEOUT_SECONDS = 120
 MAX_RETRY_ATTEMPTS = 5
 
@@ -231,6 +230,10 @@ def get_rows(
             if config.media_type is not None and method == "POST":
                 headers["Content-Type"] = config.media_type
                 headers["Accept"] = config.media_type
+            if config.ads_api:
+                # The unified Ads API reads the client id from its own header rather than the
+                # `Amazon-Advertising-API-ClientId` one the session already sends.
+                headers["Amazon-Ads-ClientId"] = client_id
             if extra_headers is not None:
                 headers.update(extra_headers)
             if method == "POST":
@@ -354,11 +357,13 @@ def get_rows(
         yield from report_rows(config.report, profile_ids)
         return
 
-    # Sponsored Products v3 list endpoints, fanned out per profile.
+    # Entity list endpoints, fanned out per profile.
     for profile_id in profile_ids:
         next_token: Optional[str] = None
         while True:
-            body: dict[str, Any] = {"maxResults": PAGE_SIZE}
+            body: dict[str, Any] = dict(config.filters or {})
+            if config.page_size is not None:
+                body["maxResults"] = config.page_size
             if next_token:
                 body["nextToken"] = next_token
             data = request("POST", config.path, profile_id=profile_id, body=body).json()

@@ -49,7 +49,8 @@ from posthog.tasks.report_utils import capture_event
 from posthog.tasks.utils import CeleryQueue
 from posthog.utils import DayRange, get_helm_info_env, get_instance_realm, get_instance_region, get_previous_day
 
-from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportDestination, BatchExportRun
+from products.batch_exports.backend.billing import exclude_non_billable_runs
+from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportRun
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction, HogFunctionType
 from products.cdp.backend.models.plugin import PluginConfig
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -2112,25 +2113,13 @@ def get_teams_with_free_historical_rows_synced_in_period(begin: datetime, end: d
 @timed_log()
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
 def get_teams_with_rows_exported_in_period(begin: datetime, end: datetime) -> list:
+    completed_runs = BatchExportRun.objects.filter(
+        finished_at__gte=begin,
+        finished_at__lte=end,
+        status=BatchExportRun.Status.COMPLETED,
+    )
     return list(
-        BatchExportRun.objects.filter(
-            finished_at__gte=begin,
-            finished_at__lte=end,
-            status=BatchExportRun.Status.COMPLETED,
-        )
-        .filter(Q(batch_export__deleted=False) | Q(batch_export_on_demand__deleted=False))
-        .exclude(
-            batch_export__destination__type__in=[
-                BatchExportDestination.Destination.HTTP,
-                BatchExportDestination.Destination.WORKFLOWS,
-            ]
-        )
-        .exclude(
-            batch_export_on_demand__destination__type__in=[
-                BatchExportDestination.Destination.HTTP,
-                BatchExportDestination.Destination.WORKFLOWS,
-            ]
-        )
+        exclude_non_billable_runs(completed_runs)
         .values(team_id=Coalesce(F("batch_export__team_id"), F("batch_export_on_demand__team_id")))
         .annotate(total=Sum("records_completed"))
     )

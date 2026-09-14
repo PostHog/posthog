@@ -15,8 +15,10 @@ from django.contrib.sessions.middleware import SessionMiddleware
 from django.core import mail
 from django.core.asgi import get_asgi_application
 from django.core.cache import cache
+from django.db import connection
 from django.http import HttpResponse
 from django.test import RequestFactory, SimpleTestCase, override_settings
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from asgiref.sync import sync_to_async
@@ -146,6 +148,34 @@ class TestLoginPrecheckAPI(APIBaseTest):
         self.assertEqual(len(response_data["webauthn_credentials"]), 1)
         self.assertEqual(response_data["webauthn_credentials"][0]["type"], "public-key")
         self.assertEqual(response_data["webauthn_credentials"][0]["transports"], ["internal", "hybrid"])
+
+    def test_login_precheck_offers_only_the_resolved_accounts_passkeys(self):
+        from webauthn.helpers import bytes_to_base64url
+
+        from posthog.models.webauthn_credential import WebauthnCredential
+
+        abandoned = User.objects.create_and_join(self.organization, "twin@posthog.com", None)
+        in_use = User.objects.create_and_join(self.organization, "twin-alt@posthog.com", self.CONFIG_PASSWORD)
+        User.objects.filter(pk=in_use.pk).update(email="Twin@posthog.com", last_login=timezone.now())
+        for owner, credential_id in ((abandoned, b"abandoned-credential"), (in_use, b"in-use-credential")):
+            WebauthnCredential.objects.create(
+                user=owner,
+                credential_id=credential_id,
+                label="Passkey",
+                public_key=b"test-public-key",
+                algorithm=-7,
+                counter=0,
+                transports=["internal"],
+                verified=True,
+            )
+
+        response = self.client.post("/api/login/precheck", {"email": "twin@posthog.com"})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            [credential["id"] for credential in response.json()["webauthn_credentials"]],
+            [bytes_to_base64url(b"in-use-credential")],
+        )
 
     def test_login_precheck_does_not_return_unverified_webauthn_credentials(self):
         from posthog.models.webauthn_credential import WebauthnCredential
@@ -317,22 +347,21 @@ class TestLoginPrecheckAPI(APIBaseTest):
             response = self.client.post("/api/login/precheck", {"email": "victim-30@posthog.com"})
             self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
 
-    def test_login_precheck_prefers_the_exact_case_match_like_login_does(self):
+    def test_login_precheck_describes_the_account_login_would_authenticate(self):
         # `User.email` is only unique case-*sensitively*, so variations can coexist. Precheck must
-        # describe the same account login would authenticate — an exact-case match wins.
+        # describe the same account login would authenticate: the one still in use, whichever case
+        # the person types.
         User.objects.create_and_join(self.organization, "casey@posthog.com", None)
         with_password = User.objects.create_and_join(self.organization, "casey-alt@posthog.com", self.CONFIG_PASSWORD)
         # `create_user` normalizes the address to lowercase, so write the variation in directly — the
         # accounts this guards against predate that normalization.
-        User.objects.filter(pk=with_password.pk).update(email="Casey@posthog.com")
+        User.objects.filter(pk=with_password.pk).update(email="Casey@posthog.com", last_login=timezone.now())
 
-        response = self.client.post("/api/login/precheck", {"email": "Casey@posthog.com"})
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["password_login_available"], True)
-
-        response = self.client.post("/api/login/precheck", {"email": "casey@posthog.com"})
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["password_login_available"], False)
+        for typed_email in ("Casey@posthog.com", "casey@posthog.com"):
+            with self.subTest(email=typed_email):
+                response = self.client.post("/api/login/precheck", {"email": typed_email})
+                self.assertEqual(response.status_code, status.HTTP_200_OK)
+                self.assertEqual(response.json()["password_login_available"], True)
 
 
 class TestLoginAPI(APIBaseTest):
@@ -342,6 +371,20 @@ class TestLoginAPI(APIBaseTest):
     """
 
     CONFIG_AUTO_LOGIN = False
+
+    def test_login_resolves_the_email_through_the_indexed_lower_fold(self):
+        self.user.is_email_verified = True
+        self.user.save()
+
+        with CaptureQueriesContext(connection) as queries:
+            response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        # `posthog_user` has an expression index on `LOWER(email)` only, so an `UPPER` comparison
+        # from `email__iexact` falls back to a sequential scan on every login attempt.
+        user_lookups = [q["sql"] for q in queries.captured_queries if 'FROM "posthog_user"' in q["sql"]]
+        self.assertTrue(user_lookups)
+        self.assertFalse([sql for sql in user_lookups if "UPPER(" in sql])
 
     @patch("posthoganalytics.capture")
     def test_user_logs_in_with_email_and_password(self, mock_capture):
@@ -1601,6 +1644,22 @@ class TestPasswordResetAPI(APIBaseTest):
         # Email should still be sent
         self.assertEqual(len(mail.outbox), 1)
         self.assertSetEqual({",".join(outmail.to) for outmail in mail.outbox}, {self.CONFIG_EMAIL})
+
+    def test_password_reset_reaches_the_account_login_would_authenticate(self):
+        set_instance_setting("EMAIL_HOST", "localhost")
+        abandoned = User.objects.create_and_join(self.organization, "casey@posthog.com", None)
+        in_use = User.objects.create_and_join(self.organization, "casey-alt@posthog.com", self.CONFIG_PASSWORD)
+        # `create_user` normalizes the address to lowercase, so write the variation in directly — the
+        # accounts this guards against predate that normalization.
+        User.objects.filter(pk=in_use.pk).update(email="Casey@posthog.com", last_login=timezone.now())
+
+        with self.settings(CELERY_TASK_ALWAYS_EAGER=True, SITE_URL="https://my.posthog.net"):
+            response = self.client.post("/api/reset/", {"email": "casey@posthog.com"})
+
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertSetEqual({",".join(outmail.to) for outmail in mail.outbox}, {"Casey@posthog.com"})
+        abandoned.refresh_from_db()
+        self.assertIsNone(abandoned.requested_password_reset_at)
 
     def test_reset_with_sso_available(self):
         """

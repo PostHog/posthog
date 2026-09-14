@@ -2,10 +2,9 @@ import uuid
 from typing import NoReturn
 
 import pytest
-from posthog.test.base import APIBaseTest
 from unittest.mock import Mock, patch
 
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 
 from drf_spectacular.utils import OpenApiResponse, PolymorphicProxySerializer
 from parameterized import parameterized
@@ -42,7 +41,7 @@ class RaisingResponseSerializer(serializers.Serializer):
         raise RuntimeError("boom")
 
 
-class TestValidatedRequestDecorator(APIBaseTest):
+class TestValidatedRequestDecorator(SimpleTestCase):
     def test_request_validation_with_valid_event_data(self):
         """All valid data, should return 200 OK"""
 
@@ -289,7 +288,9 @@ class TestValidatedRequestDecorator(APIBaseTest):
         ]
     )
     @override_settings(DEBUG=True)
-    def test_polymorphic_proxy_response_bypasses_validation(self, _name, many, payload):
+    def test_polymorphic_proxy_response_bypasses_validation(
+        self, _name: str, many: bool, payload: dict[str, bool] | list[dict[str, bool]]
+    ) -> None:
         @validated_request(
             request_serializer=EventCaptureRequestSerializer,
             responses={
@@ -303,7 +304,7 @@ class TestValidatedRequestDecorator(APIBaseTest):
                 ),
             },
         )
-        def mock_endpoint(view_self, request):
+        def mock_endpoint(view_self: object, request: object) -> Response:
             return Response(payload, status=status.HTTP_200_OK)
 
         mock_request = Mock()

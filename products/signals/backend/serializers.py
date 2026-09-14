@@ -1,18 +1,19 @@
 import json
 from collections.abc import Mapping
 from datetime import datetime
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
 from django.db.models import TextChoices
 
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import PolymorphicProxySerializer, extend_schema_field
 from rest_framework import serializers
+from rest_framework.request import Request
 
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
-from posthog.models import User
+from posthog.models import Team, User
 from posthog.models.integration import Integration, is_supported_external_issue_provider
 
 from products.signals.backend import contracts
@@ -21,6 +22,10 @@ from products.signals.backend.contracts import DEFAULT_NOT_ACTIONABLE_KEY, STEER
 from products.signals.backend.enums import SignalSourceProduct, SignalSourceType
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema
 from products.warehouse_sources.backend.facade.types import ExternalDataSchemaStatus
+
+if TYPE_CHECKING:
+    from products.signals.backend.implementation_pr import ImplementationPr
+    from products.signals.backend.report_claims import ReportClaim
 
 from .artefact_schemas import NON_WRITABLE_ARTEFACT_TYPES
 from .daily_limit import reports_generated_today, team_day_start
@@ -39,6 +44,19 @@ from .models import (
 )
 from .report_charts import CHART_SIZES, MAX_CHART_CAPTION_LENGTH, MAX_CHART_ID_LENGTH, MAX_CHART_TITLE_LENGTH
 from .report_generation.resolve_reviewers import enrich_reviewer_dicts_with_org_members
+from .report_metric_access import ReportMetricAccessPolicy
+from .report_metric_refresh import MAX_REPORT_METRIC_REFRESH_REPORTS
+from .report_metrics import (
+    MAX_LIVE_METRIC_QUERY_POINTS,
+    MAX_METRIC_CAPTION_LENGTH,
+    MAX_METRIC_ID_LENGTH,
+    MAX_METRIC_SERIES_POINTS,
+    MAX_METRIC_TITLE_LENGTH,
+    MAX_METRIC_UNIT_LENGTH,
+    REPORT_METRIC_KINDS,
+    REPORT_METRIC_ROLES,
+    REPORT_METRIC_VALUE_FORMATS,
+)
 from .tracker_issues import TRACKER_TARGET_REQUIRED_FIELDS, issue_reference, validated_github_repository
 
 DEFAULT_SESSION_ANALYSIS_SAMPLE_RATE = 0.1
@@ -294,6 +312,14 @@ class SignalTeamConfigSerializer(serializers.ModelSerializer):
             "pause until local midnight. Null means unlimited."
         ),
     )
+    default_open_pull_request_ready = serializers.BooleanField(
+        required=False,
+        help_text=(
+            "Whether self-driving pull requests open ready for review instead of draft, so the full CI "
+            "matrix starts when the pull request is created. False by default. A reviewer's own "
+            "github_open_pull_request_ready overrides this for reports that suggest them as reviewer."
+        ),
+    )
     reports_generated_today = serializers.SerializerMethodField(
         help_text=(
             "How many reports first became visible in the inbox during the current project-timezone "
@@ -341,6 +367,7 @@ class SignalTeamConfigSerializer(serializers.ModelSerializer):
             "issue_tracking_integration",
             "issue_tracking_config",
             "max_reports_per_day",
+            "default_open_pull_request_ready",
             "reports_generated_today",
             "daily_report_limit_reached",
             "created_at",
@@ -437,10 +464,70 @@ class _UserSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
+class SignalReportPullRequestAttachedBySerializer(serializers.Serializer):
+    kind = serializers.ChoiceField(
+        source="actor_kind",
+        choices=SignalActorKind.choices,
+        allow_null=True,
+        help_text="Kind of actor who attached the PR. Null when legacy attribution is unknown.",
+    )
+    user = _UserSerializer(
+        source="attached_by_user",
+        allow_null=True,
+        help_text="Authenticated principal who attached the PR, when recorded.",
+    )
+    agent = serializers.CharField(
+        source="agent_name", allow_null=True, help_text="External agent client name, when recorded."
+    )
+    task_id = serializers.UUIDField(allow_null=True, help_text="Internal task that attached the PR, when recorded.")
+
+
+class SignalReportPullRequestSerializer(serializers.Serializer):
+    id = serializers.UUIDField(
+        allow_null=True,
+        help_text="PR selection ID. Task-output links use a deterministic ID until attached as an artefact.",
+    )
+    url = serializers.URLField(help_text="GitHub pull request URL.")
+    state = serializers.ChoiceField(
+        choices=SignalReportAssignment.PrState.choices, help_text="Latest known GitHub state."
+    )
+    merged = serializers.BooleanField(help_text="Whether this PR merged.")
+    attached_by = serializers.SerializerMethodField(
+        help_text="Who first attached this PR to the report, not necessarily its GitHub author. Task-output links identify the originating task."
+    )
+    claim_id = serializers.UUIDField(
+        allow_null=True, help_text="Originating work claim. Null for legacy links without a recorded claim."
+    )
+    attached_at = serializers.DateTimeField(
+        allow_null=True,
+        help_text="When the first PR link was recorded. For backfilled links this is the import time; null for an unmigrated link.",
+    )
+
+    @extend_schema_field(SignalReportPullRequestAttachedBySerializer(allow_null=True))
+    def get_attached_by(self, obj: "ImplementationPr") -> dict[str, object] | None:
+        return (
+            SignalReportPullRequestAttachedBySerializer(obj).data
+            if obj.attached_at is not None or obj.actor_kind is not None
+            else None
+        )
+
+
 class SignalReportClaimSerializer(serializers.Serializer):
+    claim_id = serializers.UUIDField(
+        required=False, help_text="Active claim ID returned by an earlier call. Stale claims are rejected."
+    )
+    pull_requests = serializers.ListField(
+        child=serializers.URLField(max_length=2048),
+        required=False,
+        max_length=50,
+        help_text="GitHub PR URLs to add to this report's work. Additive and deduplicated; may span repositories.",
+    )
+    takeover = serializers.BooleanField(
+        required=False, default=False, help_text="Explicitly end another actor's claim and take ownership."
+    )
     pr_url = serializers.URLField(
         required=False,
-        help_text=("Optional GitHub pull request to attach to the claim. The report may be claimed without one."),
+        help_text="Compatibility alias for adding one PR. Prefer pull_requests for new callers.",
     )
     release = serializers.BooleanField(
         required=False,
@@ -449,12 +536,15 @@ class SignalReportClaimSerializer(serializers.Serializer):
     )
 
     def validate(self, attrs: dict) -> dict:
-        if attrs.get("release") and "pr_url" in attrs:
-            raise serializers.ValidationError("release and pr_url cannot be supplied together.")
+        if attrs.get("release") and ("pr_url" in attrs or attrs.get("pull_requests") or attrs.get("takeover")):
+            raise serializers.ValidationError("Release cannot be combined with PR attachment or takeover.")
+        if attrs.get("claim_id") and attrs.get("takeover"):
+            raise serializers.ValidationError("A claim ID cannot be combined with takeover.")
         return attrs
 
 
 class SignalReportAssigneeSerializer(serializers.Serializer):
+    claim_id = serializers.UUIDField(allow_null=True, help_text="Identifier for the active work attempt.")
     kind = serializers.ChoiceField(choices=SignalActorKind.choices)
     user = _UserSerializer(allow_null=True)
     task_id = serializers.UUIDField(allow_null=True)
@@ -480,6 +570,7 @@ class SignalUserAutonomyConfigSerializer(serializers.ModelSerializer):
             "slack_notification_channel",
             "slack_notification_min_priority",
             "github_assign_on_pull_request",
+            "github_open_pull_request_ready",
             "created_at",
             "updated_at",
         ]
@@ -503,6 +594,14 @@ class SignalUserAutonomyConfigSerializer(serializers.ModelSerializer):
                     "Whether to add this user as a GitHub assignee on implementation pull requests for "
                     "reports that suggest them as reviewer. Off by default. Assignment is additive, so "
                     "turning it off never removes an assignee from a pull request that already has one."
+                )
+            },
+            "github_open_pull_request_ready": {
+                "help_text": (
+                    "Whether implementation pull requests for reports that suggest this user as reviewer "
+                    "open ready for review instead of draft, so the full CI matrix starts right away. "
+                    "Null follows the project's default_open_pull_request_ready. Applies only when the "
+                    "pull request is created; a pull request somebody converts back to draft stays draft."
                 )
             },
         }
@@ -552,6 +651,15 @@ class SignalUserAutonomyConfigCreateSerializer(serializers.Serializer):
             "Add this user as a GitHub assignee on implementation pull requests for reports that "
             "suggest them as reviewer. Off by default. Turning it off stops future assignment and "
             "never removes an existing assignee."
+        ),
+    )
+    github_open_pull_request_ready = serializers.BooleanField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Open implementation pull requests for reports that suggest this user as reviewer ready "
+            "for review instead of draft, so the full CI matrix runs without anybody clicking Ready. "
+            "Null follows the project default. A ready pull request runs the full matrix on every push."
         ),
     )
 
@@ -678,6 +786,179 @@ class ReportChartSerializer(serializers.Serializer):
     )
 
 
+class _MetricFloatField(serializers.FloatField):
+    """A metric value that refuses a JSON boolean.
+
+    DRF's `FloatField` coerces `true`/`false` to 1.0/0.0 through `float(data)`, which would turn a
+    malformed boolean snapshot into a real measurement at the API boundary. A metric value is never
+    a boolean, so reject it before coercion; the schema pipeline still treats this as a plain number
+    because it subclasses `FloatField`.
+    """
+
+    def to_internal_value(self, data: float | int | str) -> float:
+        if isinstance(data, bool):
+            self.fail("invalid")
+        return super().to_internal_value(data)
+
+
+class ReportMetricComparisonSerializer(serializers.Serializer):
+    value = _MetricFloatField(help_text="Baseline or previous value, formatted like the current value.")
+    label = serializers.CharField(  # type: ignore[assignment]  # field name intentionally shadows Field.label
+        max_length=MAX_METRIC_UNIT_LENGTH,
+        help_text="Short context for the comparison, such as `Previous period`.",
+    )
+
+
+_REPORT_METRIC_QUERY_HELP = (
+    "Required when authoring: a live InsightVizNode wrapping one bounded TrendsQuery. Consumers "
+    "derive a BoldNumber execution for the whole-window aggregate and an ActionsBar execution for "
+    "longitudinal buckets. The query must produce exactly one output series and no more than "
+    f"{MAX_LIVE_METRIC_QUERY_POINTS} estimated longitudinal points; one formula may combine up to "
+    "ten event or action source series. An affected_users metric uses exactly one source with "
+    "`math: dau`; never sum its per-bucket unique-user values. A response omits this on list or "
+    "redacts it to null on detail when the viewer lacks access to the definition."
+)
+
+
+class ReportMetricSerializer(serializers.Serializer):
+    """One impact measurement shown on a report."""
+
+    metric_id = serializers.CharField(
+        max_length=MAX_METRIC_ID_LENGTH,
+        help_text=(
+            "Stable slug for this metric within the report: lowercase letters, numbers, underscores, "
+            "and hyphens, starting with a letter or number."
+        ),
+    )
+    title = serializers.CharField(
+        max_length=MAX_METRIC_TITLE_LENGTH,
+        help_text="Short human-readable label for the measurement.",
+    )
+    kind = serializers.ChoiceField(
+        choices=REPORT_METRIC_KINDS,
+        help_text="What the value measures, independent of how it is formatted or drawn.",
+    )
+    role = serializers.ChoiceField(
+        choices=REPORT_METRIC_ROLES,
+        required=False,
+        default="supporting",
+        help_text="`primary` for the report's key observation, otherwise `supporting`.",
+    )
+    value = _MetricFloatField(
+        allow_null=True,
+        required=False,
+        default=None,
+        help_text=(
+            "Latest saved snapshot, initially observed during authoring and replaced when a person "
+            "opens the inbox or the report. Null means no snapshot is available to this viewer; it never means "
+            "zero. The required live query remains the source of truth."
+        ),
+    )
+    value_at = serializers.DateTimeField(
+        allow_null=True,
+        required=False,
+        default=None,
+        help_text="When the visible snapshot value was measured; null when value is null.",
+    )
+    series = serializers.ListField(
+        child=_MetricFloatField(),
+        allow_null=True,
+        required=False,
+        default=None,
+        max_length=MAX_METRIC_SERIES_POINTS,
+        help_text=(
+            "Trailing per-bucket values of the live query, oldest first, saved with the value snapshot "
+            f"so a list row can draw the trend without running the query; at most {MAX_METRIC_SERIES_POINTS} "
+            "points. Null when no snapshot series is available to this viewer."
+        ),
+    )
+    value_format = serializers.ChoiceField(
+        choices=REPORT_METRIC_VALUE_FORMATS,
+        required=False,
+        default="number",
+        help_text=(
+            "How to format the numeric value; semantic meaning remains in kind. `percentage` uses "
+            "percentage points, so 34 renders as 34%; `percentage_scaled` uses a 0–1 ratio, so "
+            "0.34 renders as 34%. Sessions and occurrences use count; duration uses duration with "
+            "an ms/s unit; revenue uses currency with an ISO currency unit."
+        ),
+    )
+    unit = serializers.CharField(
+        allow_null=True,
+        required=False,
+        default=None,
+        max_length=MAX_METRIC_UNIT_LENGTH,
+        help_text="Optional short suffix or currency code, such as `users`, `ms`, or `USD`.",
+    )
+    query = ChartQueryField(
+        allow_null=True,
+        required=False,
+        default=None,
+        help_text=_REPORT_METRIC_QUERY_HELP,
+    )
+    caption = serializers.CharField(
+        allow_null=True,
+        required=False,
+        default=None,
+        max_length=MAX_METRIC_CAPTION_LENGTH,
+        help_text=(
+            "Optional context the tile cannot show, such as a filter that narrows the count or a "
+            "caveat on the data. Omit it rather than restate the title, unit, or window."
+        ),
+    )
+
+    def to_representation(self, instance: Mapping[str, object]) -> dict[str, object]:
+        representation = dict(super().to_representation(instance))
+        policy = self._access_policy()
+
+        if not policy.may_read_snapshot(instance):
+            representation["value"] = None
+            representation["value_at"] = None
+            representation["series"] = None
+
+        if "query" in representation and not policy.may_read_query(instance):
+            representation["query"] = None
+
+        return representation
+
+    def _access_policy(self) -> ReportMetricAccessPolicy:
+        context_key = "_report_metric_access_policy"
+        cached = self.context.get(context_key)
+        if isinstance(cached, ReportMetricAccessPolicy):
+            return cached
+
+        request = self.context.get("request")
+        get_team = self.context.get("get_team")
+        team = get_team() if callable(get_team) else None
+        policy = ReportMetricAccessPolicy(
+            request=request if isinstance(request, Request) else None,
+            team=team if isinstance(team, Team) else None,
+        )
+        self.context[context_key] = policy
+        return policy
+
+
+class ReportMetricWriteSerializer(ReportMetricSerializer):
+    """Authoring shape: unlike a read response, the live query cannot be absent or redacted."""
+
+    query = ChartQueryField(help_text=_REPORT_METRIC_QUERY_HELP)
+    comparison = ReportMetricComparisonSerializer(
+        allow_null=True,
+        required=False,
+        default=None,
+        help_text="Legacy optional comparison. New report metrics must omit it.",
+    )
+
+
+class ReportMetricListSerializer(ReportMetricSerializer):
+    """Snapshot-only metric shape for report lists.
+
+    Omitting query definitions keeps the paginated inbox payload bounded.
+    """
+
+    query = None  # type: ignore[assignment]  # removes the inherited field from the list projection
+
+
 class SignalReportSerializer(serializers.ModelSerializer):
     artefact_count = serializers.IntegerField(read_only=True)
     charts = ReportChartSerializer(
@@ -686,6 +967,14 @@ class SignalReportSerializer(serializers.ModelSerializer):
         help_text=(
             "Charts the report shows, in the order they were written. The summary places one with a "
             "`[label](chart:<chart_id>)` link; the rest render below it."
+        ),
+    )
+    metrics = ReportMetricSerializer(
+        many=True,
+        read_only=True,
+        help_text=(
+            "Typed impact measurements in display order. At most one is primary. Live metric values "
+            "and history come from their query; value/value_at are the latest saved fallback snapshots."
         ),
     )
     suggested_prompts = serializers.ListField(
@@ -737,6 +1026,9 @@ class SignalReportSerializer(serializers.ModelSerializer):
     )
     implementation_pr_url = serializers.SerializerMethodField(
         help_text="Pull request attached to this report's claim, if available.",
+    )
+    pull_requests = serializers.SerializerMethodField(
+        help_text="All distinct PRs linked to this report across work attempts."
     )
     implementation_pr_state = serializers.SerializerMethodField(
         help_text="Latest known pull request state: unknown, draft, open, closed, or merged.",
@@ -798,6 +1090,7 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "updated_at",
             "artefact_count",
             "charts",
+            "metrics",
             "suggested_prompts",
             "priority",
             "actionability",
@@ -809,6 +1102,7 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "source_products",
             "scout_name",
             "implementation_pr_url",
+            "pull_requests",
             "implementation_pr_state",
             "implementation_pr_merged",
             "tracker_issue_url",
@@ -951,27 +1245,43 @@ class SignalReportSerializer(serializers.ModelSerializer):
             return scout_names_map.get(str(obj.id))
         return None
 
+    def _get_pull_requests(self, obj: SignalReport) -> list["ImplementationPr"]:
+        from products.signals.backend.implementation_pr import fetch_implementation_prs_for_reports
+
+        by_report = self.context.get("pull_requests_map")
+        if by_report is None:
+            by_report = self.context.setdefault("resolved_pull_requests_map", {})
+            report_id = str(obj.id)
+            if report_id not in by_report:
+                by_report[report_id] = fetch_implementation_prs_for_reports([report_id], team_id=obj.team_id).get(
+                    report_id, []
+                )
+        return by_report.get(str(obj.id), [])
+
+    def _get_primary_pull_request(self, obj: SignalReport) -> "ImplementationPr | None":
+        from products.signals.backend.implementation_pr import primary_pull_request
+
+        prs = self._get_pull_requests(obj)
+        return primary_pull_request(prs) if prs else None
+
     def get_implementation_pr_url(self, obj: SignalReport) -> str | None:
-        assignment = self._get_assignment(obj)
-        if assignment is not None and assignment.pr_url:
-            return assignment.pr_url
-        implementation_pr_url_map: dict[str, str] | None = self.context.get("implementation_pr_url_map")
-        return implementation_pr_url_map.get(str(obj.id)) if implementation_pr_url_map is not None else None
+        pr = self._get_primary_pull_request(obj)
+        return pr.url if pr else None
 
     @extend_schema_field(serializers.ChoiceField(choices=SignalReportAssignment.PrState.choices, allow_null=True))
     def get_implementation_pr_state(self, obj: SignalReport) -> str | None:
-        assignment = self._get_assignment(obj)
-        if assignment is not None and assignment.pr_url:
-            return assignment.pr_state or SignalReportAssignment.PrState.UNKNOWN
-        implementation_pr_state_map: dict[str, str] | None = self.context.get("implementation_pr_state_map")
-        return implementation_pr_state_map.get(str(obj.id)) if implementation_pr_state_map is not None else None
+        pr = self._get_primary_pull_request(obj)
+        return pr.state if pr else None
 
     def get_implementation_pr_merged(self, obj: SignalReport) -> bool:
-        assignment = self._get_assignment(obj)
-        if assignment is not None and assignment.pr_url:
-            return assignment.pr_merged
-        merged_report_ids: set[str] | None = self.context.get("implementation_pr_merged_ids")
-        return str(obj.id) in merged_report_ids if merged_report_ids is not None else False
+        pr = self._get_primary_pull_request(obj)
+        return pr.merged if pr else False
+
+    @extend_schema_field(SignalReportPullRequestSerializer(many=True))
+    def get_pull_requests(self, obj: SignalReport) -> list[dict[str, object]]:
+        return cast(
+            list[dict[str, object]], SignalReportPullRequestSerializer(self._get_pull_requests(obj), many=True).data
+        )
 
     @staticmethod
     def _get_tracker_issue(obj: SignalReport) -> SignalReportTrackerIssue | None:
@@ -1004,35 +1314,10 @@ class SignalReportSerializer(serializers.ModelSerializer):
     def get_work_state(self, obj: SignalReport) -> str:
         if obj.status == SignalReport.Status.RESOLVED:
             return "done"
+        if any(pr.state in {"open", "draft", "unknown"} for pr in self._get_pull_requests(obj)):
+            return "in_review"
         assignment = self._get_assignment(obj)
-        if (
-            assignment is not None
-            and assignment.pr_url
-            and assignment.pr_state
-            in {
-                SignalReportAssignment.PrState.UNKNOWN,
-                SignalReportAssignment.PrState.DRAFT,
-                SignalReportAssignment.PrState.OPEN,
-            }
-        ):
-            return "in_review"
-        fallback_url_map: dict[str, str] | None = self.context.get("implementation_pr_url_map")
-        fallback_state_map: dict[str, str] | None = self.context.get("implementation_pr_state_map")
-        report_id = str(obj.id)
-        if (
-            fallback_url_map
-            and fallback_url_map.get(report_id)
-            and (fallback_state_map or {}).get(report_id)
-            in {
-                SignalReportAssignment.PrState.UNKNOWN,
-                SignalReportAssignment.PrState.DRAFT,
-                SignalReportAssignment.PrState.OPEN,
-            }
-        ):
-            return "in_review"
-        if assignment is not None and assignment.actor_kind:
-            return "working"
-        return "unclaimed"
+        return "working" if assignment is not None and assignment.actor_kind else "unclaimed"
 
     @extend_schema_field(SignalReportAssigneeSerializer(allow_null=True))
     def get_assignee(self, obj: SignalReport) -> dict | None:
@@ -1040,6 +1325,7 @@ class SignalReportSerializer(serializers.ModelSerializer):
         if assignment is None or not assignment.actor_kind:
             return None
         return {
+            "claim_id": str(assignment.claim_id) if assignment.claim_id else None,
             "kind": assignment.actor_kind,
             "user": _UserSerializer(assignment.actor_user).data if assignment.actor_user else None,
             "task_id": str(assignment.actor_task_id) if assignment.actor_task_id else None,
@@ -1047,9 +1333,14 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "claimed_at": assignment.claimed_at,
         }
 
-    @staticmethod
-    def _get_assignment(obj: SignalReport) -> SignalReportAssignment | None:
-        return getattr(obj, "assignment", None)
+    def _get_assignment(self, obj: SignalReport) -> "ReportClaim | None":
+        from products.signals.backend.report_claims import get_active_claim
+
+        claims = self.context.setdefault("claims_map", {})
+        report_id = str(obj.id)
+        if report_id not in claims:
+            claims[report_id] = get_active_claim(team_id=obj.team_id, report_id=report_id)
+        return claims[report_id]
 
     @extend_schema_field(SignalReportRefundSerializer(allow_null=True))
     def get_refund(self, obj: SignalReport) -> dict | None:
@@ -1093,6 +1384,51 @@ class SignalReportSerializer(serializers.ModelSerializer):
 
 # ── Report `signals` action ─────────────────────────────────────────────────────
 #
+class SignalReportListSerializer(SignalReportSerializer):
+    metrics = ReportMetricListSerializer(
+        many=True,
+        read_only=True,
+        help_text=(
+            "Snapshot-only impact measurements for inbox rows. Live query definitions and authored "
+            "comparisons are available from the report detail endpoint."
+        ),
+    )
+
+
+class SignalReportMetricRefreshRequestSerializer(serializers.Serializer):
+    report_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        min_length=1,
+        max_length=MAX_REPORT_METRIC_REFRESH_REPORTS,
+        help_text=(
+            "Reports on screen, in display order. Each report's row metric is refreshed before any "
+            f"report's supporting metrics. At most {MAX_REPORT_METRIC_REFRESH_REPORTS} ids per call."
+        ),
+    )
+
+
+class SignalReportMetricSnapshotsSerializer(serializers.Serializer):
+    id = serializers.UUIDField(read_only=True, help_text="Report id.")
+    metrics = ReportMetricListSerializer(
+        many=True,
+        read_only=True,
+        help_text="The report's metrics with their current snapshots, in display order.",
+    )
+
+
+class SignalReportMetricRefreshResponseSerializer(serializers.Serializer):
+    reports = SignalReportMetricSnapshotsSerializer(
+        many=True,
+        read_only=True,
+        help_text=(
+            "One entry per requested report the caller can read whose status is ready or "
+            "pending_input, in request order. A report in any other status has no entry. A metric "
+            "whose snapshot was fresh, whose query failed, or whose budget ran out keeps its "
+            "previous snapshot; merge by metric_id."
+        ),
+    )
+
+
 # A signal's `extra` blob is one of the Pydantic `*SignalExtra` shapes from `contracts.py`. Those
 # models are passed straight to `PolymorphicProxySerializer` — drf-spectacular's built-in
 # `PydanticExtension` turns each into a named OpenAPI component (nested models included), so the
@@ -1187,6 +1523,12 @@ class ReportSignalsResponseSerializer(serializers.Serializer):
 
 
 class SignalReportArtefactSerializer(serializers.ModelSerializer):
+    claim_id = serializers.UUIDField(
+        read_only=True, allow_null=True, help_text="Work claim that produced this artefact."
+    )
+    pull_request_id = serializers.UUIDField(
+        read_only=True, allow_null=True, help_text="Shared PR record linked by this artefact."
+    )
     content = serializers.SerializerMethodField()
     created_by = _UserSerializer(
         read_only=True,
@@ -1212,6 +1554,8 @@ class SignalReportArtefactSerializer(serializers.ModelSerializer):
     class Meta:
         model = SignalReportArtefact
         fields = [
+            "claim_id",
+            "pull_request_id",
             "id",
             "type",
             "content",
@@ -1351,6 +1695,9 @@ class SignalReportArtefactLogCreateSerializer(serializers.Serializer):
     # Plain CharField (not ChoiceField) on purpose: the value is validated against
     # `ArtefactType.values` in the view, and avoiding a `choices=` enum keeps this off the
     # collision-prone enum-name path in the generated OpenAPI types.
+    claim_id = serializers.UUIDField(
+        required=False, help_text="Active claim to attribute this work to. Must belong to the caller and report."
+    )
     artefact_type = serializers.CharField(help_text=_ARTEFACT_TYPES_HELP)
     content = serializers.JSONField(
         help_text="The artefact payload as a JSON object or array; shape depends on artefact_type "
@@ -1381,6 +1728,7 @@ class SignalReportArtefactWriteResponseSerializer(serializers.Serializer):
     """Response shape for the log-artefact create/update endpoints — echoes the stored row."""
 
     id = serializers.UUIDField(read_only=True, help_text="The artefact's unique id.")
+    claim_id = serializers.UUIDField(read_only=True, allow_null=True, help_text="Claim that produced this artefact.")
     report_id = serializers.UUIDField(read_only=True, help_text="The id of the report this artefact belongs to.")
     # Plain CharField (no `choices=`) to keep the model's full ArtefactType enum out of the
     # generated OpenAPI schema; the value is simply echoed back.

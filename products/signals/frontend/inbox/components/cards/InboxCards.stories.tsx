@@ -25,7 +25,7 @@ export const ReportCards: Story = {
     render: () => (
         <Stack>
             {reportTabReports.map((r) => (
-                <ReportCard key={r.id} report={r} />
+                <ReportCard key={r.id} report={r} selectable />
             ))}
         </Stack>
     ),

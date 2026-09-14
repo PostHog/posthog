@@ -1,7 +1,7 @@
 import dataclasses
 from collections.abc import Callable, Iterable, Iterator
-from datetime import UTC, datetime
-from typing import Any, Literal, Optional, cast
+from datetime import UTC, datetime, timedelta
+from typing import Any, Optional, cast
 
 from requests import Request, Response
 
@@ -52,6 +52,9 @@ RFC_3339_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
 
 # Lower bound for a first incremental run — earlier than any Metronome account.
 EPOCH_RFC_3339 = "1970-01-01T00:00:00Z"
+
+# `POST /v1/usage` documents `ending_before` as at least one day after `starting_on`.
+MIN_USAGE_WINDOW = timedelta(days=1)
 
 
 @frozen
@@ -133,17 +136,48 @@ def _incremental_window(config: MetronomeEndpointConfig, cursor_path: str) -> In
     }
 
 
-def _align_to_window(value: datetime, window_size: Literal["hour", "day"]) -> datetime:
-    """Floor a window bound to the boundary Metronome aggregates on.
+def _align_to_utc_midnight(value: datetime) -> datetime:
+    """Floor a usage window bound to the boundary Metronome requires.
 
-    A period's `start_timestamp` is part of the table's primary key, and the bound this run asks
-    from is the watermark shifted back by a lookback the user sets in seconds, so it usually lands
-    mid-period. Asking from mid-period risks a partial aggregate for a period the table already
-    holds in full, which then upserts as a second row instead of replacing the first.
+    `POST /v1/usage` documents both bounds as aligned to UTC midnight and answers a 400 when either
+    is not, whatever the `window_size`, so an hourly table also asks for whole days.
+
+    Flooring also keeps a bucketed table's rows stable. A period's `start_timestamp` is part of the
+    table's primary key, and the bound this run asks from is the watermark shifted back by a
+    lookback the user sets in seconds, so it usually lands mid-period. Asking from mid-period
+    returns a partial aggregate for a period the table already holds in full, which then upserts as
+    a second row instead of replacing the first.
     """
-    if window_size == "day":
-        return value.replace(hour=0, minute=0, second=0, microsecond=0)
-    return value.replace(minute=0, second=0, microsecond=0)
+    return value.replace(hour=0, minute=0, second=0, microsecond=0)
+
+
+def _usage_window_end(value: datetime) -> datetime:
+    """The end bound a usage request asks for.
+
+    Metronome takes a UTC-midnight bound only, so the nearest aligned end that still covers the
+    period in progress is the next midnight rather than the last one. Ending at the last one would
+    hold every table a full period behind, which is the period a usage table is most asked about.
+
+    Rows for a period still in progress come back partial. The merge key carries the period start,
+    so each later run upserts a fresher value over them, and the row settles once the period
+    closes. This is the same path a period already takes when Metronome accepts a backdated event
+    for it.
+    """
+    return _align_to_utc_midnight(value) + timedelta(days=1)
+
+
+def _clamp_window_start(starting_on: str, ending_before: str) -> str:
+    """Hold the requested window to the one-day minimum Metronome documents.
+
+    Both bounds floor to UTC midnight, so a table whose watermark already reached the newest
+    complete period resolves a start equal to the end. Metronome rejects that window, so ask for
+    the last whole day instead. Those rows upsert over ones the table already holds.
+    """
+    start = parse_datetime_value(starting_on)
+    end = parse_datetime_value(ending_before)
+    if start is None or end is None or end - start >= MIN_USAGE_WINDOW:
+        return starting_on
+    return _format_rfc3339(end - MIN_USAGE_WINDOW)
 
 
 def _resolve_window_start(
@@ -167,7 +201,7 @@ def _resolve_window_start(
         or coerce_datetime_to_utc(history_start)
         or datetime.now(UTC) - USAGE_HISTORY[config.name]
     )
-    return _format_rfc3339(_align_to_window(start, window_size))
+    return _format_rfc3339(_align_to_utc_midnight(start))
 
 
 @frozen
@@ -215,9 +249,13 @@ def _walk_start(
 
     if config.window_size is not None:
         if ending_before is None:
-            ending_before = _format_rfc3339(datetime.now(UTC))
+            ending_before = _format_rfc3339(_usage_window_end(datetime.now(UTC)))
         if starting_on is None:
-            starting_on = _resolve_window_start(config, db_incremental_field_last_value, history_start)
+            # Only a freshly resolved start is clamped. A resumed walk replays the exact window its
+            # checkpoint stored, and both bounds come back together or neither does.
+            starting_on = _clamp_window_start(
+                _resolve_window_start(config, db_incremental_field_last_value, history_start), ending_before
+            )
 
     return MetronomeWalkStart(starting_on=starting_on, ending_before=ending_before, paginator_state=paginator_state)
 
@@ -255,7 +293,9 @@ def _rest_client(api_key: str) -> RESTClient:
 
 
 def _list_params(config: MetronomeEndpointConfig) -> dict[str, Any]:
-    params: dict[str, Any] = {} if not config.paginated else {"limit": config.page_size}
+    params: dict[str, Any] = {}
+    if config.paginated and config.accepts_page_size:
+        params["limit"] = config.page_size
     params.update(config.extra_params)
     return params
 
@@ -290,13 +330,16 @@ def get_resource(
     if config.method == "post":
         json_body = dict(config.json_body)
         if config.window_size is not None:
-            # `starting_on` at the epoch means "all usage the account has". `ending_before` is the
-            # sync time; the caller pins both for the whole walk so a resumed attempt replays the
-            # same window, and these fall back only for a one-shot build with no pinned window.
-            json_body["window_size"] = config.window_size
+            # `starting_on` at the epoch means "all usage the account has". The caller pins both
+            # bounds for the whole walk so a resumed attempt replays the same window, and these
+            # fall back only for a one-shot build with no pinned window.
+            # The spec's enum accepts three casings, but both vendor SDKs emit upper case only.
+            json_body["window_size"] = config.window_size.upper()
             json_body["starting_on"] = window_starting_on if window_starting_on is not None else EPOCH_RFC_3339
             json_body["ending_before"] = (
-                window_ending_before if window_ending_before is not None else _format_rfc3339(datetime.now(UTC))
+                window_ending_before
+                if window_ending_before is not None
+                else _format_rfc3339(_usage_window_end(datetime.now(UTC)))
             )
         endpoint_config["json"] = json_body
 

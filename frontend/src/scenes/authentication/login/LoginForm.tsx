@@ -22,6 +22,7 @@ import { AuthScene, AuthSceneCard } from 'scenes/authentication/shared/authScene
 import { RegionField } from 'scenes/authentication/shared/authScene/RegionField'
 import { ERROR_MESSAGES } from 'scenes/authentication/shared/loginErrorMessages'
 import { OtherRegionHint } from 'scenes/authentication/shared/OtherRegionHint'
+import { pendingOAuthConnectionLogic, reviewAccessCopy } from 'scenes/authentication/shared/pendingOAuthConnectionLogic'
 import { RedirectIfLoggedInOtherInstance } from 'scenes/authentication/shared/RedirectToLoggedInInstance'
 import { isValidVerificationCode, normalizeVerificationCode } from 'scenes/authentication/shared/verificationCode'
 import { VerificationCodeInput } from 'scenes/authentication/shared/VerificationCodeInput'
@@ -120,6 +121,7 @@ export function LoginForm(): JSX.Element {
         availableLoginMethods,
     } = useValues(loginLogic)
     const { preflight } = useValues(preflightLogic)
+    const { pendingConnection } = useValues(pendingOAuthConnectionLogic({ screen: 'login' }))
 
     const isPasswordHidden = !!precheckResponse.sso_enforcement || isPasswordLoginUnavailable
     const isCodeSent = codeVerificationRequired
@@ -162,9 +164,9 @@ export function LoginForm(): JSX.Element {
                             <>
                                 {/* This whole fragment is deleted when the title flips to the code-sent
                                     string, so even the separator space lives inside an element */}
-                                <span>{'Log in to '}</span>
+                                <span>{pendingConnection ? 'Log in to connect ' : 'Log in to '}</span>
                                 <span className="px-1 rounded-md bg-[color-mix(in_srgb,var(--color-blue-500)_10%,transparent)] text-[var(--color-blue-500)]">
-                                    @PostHog
+                                    {pendingConnection ? pendingConnection.clientName : '@PostHog'}
                                 </span>
                             </>
                         )
@@ -175,6 +177,8 @@ export function LoginForm(): JSX.Element {
                                 For your security, we've emailed a 6-digit verification code to{' '}
                                 <strong>{codeVerificationEmail}</strong>.
                             </>
+                        ) : pendingConnection ? (
+                            reviewAccessCopy(pendingConnection, 'After you log in')
                         ) : (
                             "Welcome back. Let's go ship something."
                         )

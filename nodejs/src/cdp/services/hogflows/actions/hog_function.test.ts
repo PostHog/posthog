@@ -28,6 +28,7 @@ import { EmailService } from '../../messaging/email.service'
 import { EmailTrackingCodeSigner } from '../../messaging/helpers/tracking-code'
 import { RecipientPreferencesService } from '../../messaging/recipient-preferences.service'
 import { RecipientTokensService } from '../../messaging/recipient-tokens.service'
+import { CdpUsageReporterService } from '../../usage/cdp-usage-reporter.service'
 import { HogFlowFunctionsService } from '../hogflow-functions.service'
 import { findActionByType } from '../hogflow-utils'
 import { HogFunctionHandler } from './hog_function'
@@ -476,14 +477,23 @@ describe('HogFunctionHandler', () => {
     // The billing kind is the whole point of the per-channel handlers: push bills at its own rate
     // (roughly half of email), so a completed invocation must emit exactly one billable_invocation
     // carrying the handler's billing type — never fall back to another channel's kind.
-    it.each(['fetch', 'email', 'push'] as const)(
+    it.each([
+        ['fetch', 'workflow_billable_invocations'],
+        ['email', 'workflow_emails_sent'],
+        ['push', 'workflow_push_sent'],
+        ['sms', 'workflow_sms_sent'],
+    ] as const)(
         'emits a single billable_invocation with %s kind matching the handler billing type',
-        async (billingType) => {
+        async (billingType, usageKey) => {
+            const usageReporter: Pick<CdpUsageReporterService, 'reportBillableInvocation'> = {
+                reportBillableInvocation: jest.fn(),
+            }
             const handler = new HogFunctionHandler(
                 mockHogFlowFunctionsService,
                 mockRecipientPreferencesService,
                 mockEmailValidationService,
-                billingType
+                billingType,
+                usageReporter
             )
 
             const invocationResult = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
@@ -507,6 +517,9 @@ describe('HogFunctionHandler', () => {
                 metric_name: 'billable_invocation',
                 count: 1,
             })
+            expect(usageReporter.reportBillableInvocation).toHaveBeenCalledWith(
+                expect.objectContaining({ teamId: team.id, usageKey })
+            )
         }
     )
 
@@ -570,6 +583,31 @@ describe('HogFunctionHandler', () => {
         )
 
         expect(billableMetrics).toHaveLength(0)
+    })
+
+    it('drops the stale execResult when the function fails so the step stores no result', async () => {
+        jest.spyOn(mockHogFlowFunctionsService, 'executeWithAsyncFunctions').mockResolvedValueOnce({
+            finished: true,
+            error: 'Request failed with status 500',
+            execResult: { status: 500, body: 'upstream down' },
+            invocation: invocation as any,
+            logs: [],
+            metrics: [],
+            capturedPostHogEvents: [],
+            warehouseWebhookPayloads: [],
+            messageAssets: [],
+            conversionWatchers: [],
+        })
+
+        const invocationResult = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
+            queue: 'hog',
+            queuePriority: 0,
+        })
+
+        const handlerResult = await hogFunctionHandler.execute({ invocation, action, result: invocationResult })
+
+        expect(handlerResult.error).toBe('Request failed with status 500')
+        expect(handlerResult.result).toBeUndefined()
     })
 
     it('should not emit a billable_invocation metric when recipient opts out', async () => {
@@ -905,14 +943,22 @@ describe('HogFunctionHandler', () => {
                 )
             })
 
-            it('fails the step when the task did not complete', async () => {
+            it('fails the step with the outcome as its result when the task did not complete', async () => {
                 invocation.state.currentAction!.resumeResult = {
                     key: dispatchKey,
                     status: 'failed',
                     result: { error_message: 'sandbox crashed' },
                 }
 
-                await expect(execute()).rejects.toThrow('The task failed: sandbox crashed')
+                const { handlerResult } = await execute()
+
+                expect(handlerResult.error).toEqual(new Error('The task failed: sandbox crashed'))
+                expect(handlerResult.result).toEqual({
+                    id: 't1',
+                    run_id: 'r1',
+                    status: 'failed',
+                    error_message: 'sandbox crashed',
+                })
                 expect(executeSpy).not.toHaveBeenCalled()
             })
 

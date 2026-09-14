@@ -497,10 +497,16 @@ class TestSCIMUsersAPI(APILicensedTest):
         )
         assert not User.objects.filter(email="nonexistent@example.com").exists()
 
-    def test_put_user_email_belongs_to_another_user(self):
+    @parameterized.expand(
+        [
+            ("exact", "alpha@example.com", "alpha@example.com"),
+            ("dotted_capital_i", "bill@example.com", "bİll@example.com"),
+        ]
+    )
+    def test_put_user_email_belongs_to_another_user(self, _name, existing_email, submitted_email):
         # Existing user A in org
         user_a = User.objects.create_user(
-            email="alpha@example.com", password=None, first_name="Alpha", is_email_verified=True
+            email=existing_email, password=None, first_name="Alpha", is_email_verified=True
         )
         OrganizationMembership.objects.create(
             user=user_a, organization=self.organization, level=OrganizationMembership.Level.MEMBER
@@ -517,9 +523,9 @@ class TestSCIMUsersAPI(APILicensedTest):
         # IdP mismatches B and tries to PUT with A email
         put_data_conflict = {
             "schemas": ["urn:ietf:params:scim:schemas:core:2.0:User"],
-            "userName": "alpha@example.com",
+            "userName": submitted_email,
             "name": {"givenName": "Should", "familyName": "Fail"},
-            "emails": [{"value": "alpha@example.com", "primary": True}],
+            "emails": [{"value": submitted_email, "primary": True}],
             "active": True,
         }
 
@@ -1152,9 +1158,15 @@ class TestSCIMUsersAPI(APILicensedTest):
         user.refresh_from_db()
         assert user.email == "multiat@example.com"
 
-    def test_patch_replace_email_case_collision_rejected(self):
-        # A case-variant of an existing account's email collides at login time (email__iexact),
-        # so SCIM must reject it even though the unique index is case-sensitive.
+    @parameterized.expand(
+        [
+            ("ascii_case_variant", "EXISTING@example.com"),
+            ("dotted_capital_i", "exİsting@example.com"),
+        ]
+    )
+    def test_patch_replace_email_case_collision_rejected(self, _name, colliding_email):
+        # A case-variant of an existing account's email collides at login time, so SCIM must reject it
+        # even though the unique index is case-sensitive.
         user_a = User.objects.create_user(
             email="existing@example.com", password=None, first_name="A", is_email_verified=True
         )
@@ -1181,7 +1193,7 @@ class TestSCIMUsersAPI(APILicensedTest):
                 {
                     "op": "replace",
                     "path": "emails",
-                    "value": [{"value": "EXISTING@example.com", "primary": True}],
+                    "value": [{"value": colliding_email, "primary": True}],
                 }
             ],
         }
