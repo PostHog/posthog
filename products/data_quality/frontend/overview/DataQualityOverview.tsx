@@ -371,6 +371,7 @@ function SubjectChecks({ group }: { group: SubjectGroup }): JSX.Element {
                     <div className="flex flex-col gap-2 py-2">
                         {check.description && <p className="mb-0 text-secondary">{check.description}</p>}
                         <CheckRunsTable
+                            subjectType={check.subject_type}
                             runs={checkRunsByCheckId[check.id] ?? []}
                             loading={runsLoadingByCheckId[check.id]}
                         />
