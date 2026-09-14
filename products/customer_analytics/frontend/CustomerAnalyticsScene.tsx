@@ -41,6 +41,7 @@ import { FeatureRequestsTabContent } from './components/FeatureRequests/FeatureR
 import { FeedTabContent } from './components/Feed/FeedTabContent'
 import { FeedbackButton } from './components/FeedbackButton'
 import { ActiveUsersInsights } from './components/Insights/ActiveUsersInsights'
+import { RetentionInsights } from './components/Insights/RetentionInsights'
 import { SignupInsights } from './components/Insights/SignupInsights'
 import { CUSTOMER_ANALYTICS_DATA_COLLECTION_NODE_ID } from './constants'
 import { CustomerAnalyticsFilters } from './CustomerAnalyticsFilters'
@@ -118,6 +119,7 @@ function CustomerAnalyticsSceneContent(): JSX.Element {
                 <CustomerAnalyticsFilters />
                 <div className="space-y-2">
                     <ActiveUsersInsights />
+                    <RetentionInsights />
                     <SignupInsights />
                     <SessionInsights />
                 </div>
