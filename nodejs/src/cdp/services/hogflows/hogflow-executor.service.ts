@@ -119,7 +119,8 @@ export class HogFlowExecutorService {
         cohortMembershipRepository: CohortMembershipRepository,
         integrationManager: SlackAppLookup,
         duplicateObserver?: HogFlowDuplicateObserverService,
-        usageReporter?: CdpUsageReporterService
+        usageReporter?: CdpUsageReporterService,
+        options: { awaitedStepsEnabled?: boolean } = {}
     ) {
         this.hogFlowFunctionsService = hogFlowFunctionsService
         this.duplicateObserver = duplicateObserver ?? null
@@ -128,7 +129,8 @@ export class HogFlowExecutorService {
             recipientPreferencesService,
             emailValidationService,
             'fetch',
-            usageReporter
+            usageReporter,
+            options
         )
         const hogFunctionEmailHandler = new HogFunctionHandler(
             hogFlowFunctionsService,
@@ -136,6 +138,14 @@ export class HogFlowExecutorService {
             emailValidationService,
             'email',
             usageReporter
+        )
+        const hogFunctionSmsHandler = new HogFunctionHandler(
+            hogFlowFunctionsService,
+            recipientPreferencesService,
+            emailValidationService,
+            'sms',
+            usageReporter,
+            options
         )
         const hogFunctionPushHandler = new HogFunctionHandler(
             hogFlowFunctionsService,
@@ -153,7 +163,7 @@ export class HogFlowExecutorService {
             wait_until_time_window: new WaitUntilTimeWindowHandler(),
             random_cohort_branch: new RandomCohortBranchHandler(),
             function: hogFunctionHandler,
-            function_sms: hogFunctionHandler,
+            function_sms: hogFunctionSmsHandler,
             function_push: hogFunctionPushHandler,
             function_email: hogFunctionEmailHandler,
             exit: new ExitHandler(),
@@ -593,13 +603,14 @@ export class HogFlowExecutorService {
                     hogExecutorOptions: options?.hogExecutorOptions,
                 })
 
-                if (handlerResult.error) {
-                    throw handlerResult.error instanceof Error ? handlerResult.error : new Error(handlerResult.error)
-                }
-
+                // Stored before the error so `on_error: continue` still sees what the step returned.
                 if (handlerResult.result) {
                     this.trackActionResult(result, currentAction, handlerResult.result)
                     result.execResult = handlerResult.result
+                }
+
+                if (handlerResult.error) {
+                    throw handlerResult.error instanceof Error ? handlerResult.error : new Error(handlerResult.error)
                 }
 
                 if (handlerResult.finished) {
@@ -1001,6 +1012,9 @@ export class HogFlowExecutorService {
                 wakeEventUuid && wakeEventTimestamp
                     ? ` (woken by [Event:${wakeEventUuid}|${wakeEvent.replaceAll('|', '')}|${wakeEventTimestamp}])`
                     : ` (woken by event: ${wakeEvent.replaceAll('|', '')})`
+        }
+        if (hasCurrentAction && invocation.state.currentAction?.resumeResult) {
+            triggeredByEvent += ' (woken by the run finishing)'
         }
 
         return {

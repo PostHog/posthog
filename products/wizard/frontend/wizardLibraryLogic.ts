@@ -79,7 +79,7 @@ export interface wizardLibraryLogicActions {
     loadRegistryFailure: (error: string, errorObject?: unknown) => { error: string; errorObject?: unknown }
     loadRegistrySuccess: (registry: WizardProgramApi[]) => { registry: WizardProgramApi[] }
     markCommandCopied: () => { value: true }
-    openLibrary: (idempotencyKey?: string) => { idempotencyKey: string }
+    openLibrary: () => { idempotencyKey: string }
     refreshRuns: () => { value: true }
     runAgain: (run: WizardRunApi) => { run: WizardRunApi }
     selectProgram: (program: WizardProgramApi) => { program: WizardProgramApi }
@@ -128,7 +128,7 @@ export const wizardLibraryLogic = kea<wizardLibraryLogicType>([
         ],
     })),
     actions({
-        openLibrary: (idempotencyKey = uuid()) => ({ idempotencyKey }),
+        openLibrary: () => ({ idempotencyKey: uuid() }),
         closeLibrary: true,
         setLibrarySearch: (search: string) => ({ search }),
         selectProgram: (program: WizardProgramApi) => ({ program }),

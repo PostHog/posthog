@@ -27,6 +27,7 @@ from products.signals.backend.slack_inbox_notifications import (
     _build_signal_thread_blocks,
     _meets_min_priority,
     _resolve_reviewer_mentions,
+    _resolve_suggested_reviewer_user_ids,
     _signal_source_line,
     _summary_excerpt,
     dispatch_inbox_item_notifications,
@@ -419,6 +420,28 @@ def test_dispatch_falls_back_to_team_channel_without_suggested_reviewers(org_and
     assert fake_client.chat_postMessage.call_count == 1
     assert fake_client.chat_postMessage.call_args.kwargs["channel"] == "CTEAM"
     assert "Suggested reviewers" not in json.dumps(fake_client.chat_postMessage.call_args.kwargs["blocks"])
+
+
+@pytest.mark.django_db
+def test_reviewer_resolution_uses_only_the_latest_reviewer_row(org_and_team):
+    org, team = org_and_team
+    old_reviewer = _make_reviewer_user(org, "old@example.com", "old-reviewer")
+    current_reviewer = _make_reviewer_user(org, "current@example.com", "current-reviewer")
+    report = _make_ready_report(team, priority=AutonomyPriority.P1)
+    SignalReportArtefact.objects.create(
+        team=team,
+        report=report,
+        type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
+        content=json.dumps([{"user_uuid": str(old_reviewer.uuid)}]),
+    )
+    SignalReportArtefact.objects.create(
+        team=team,
+        report=report,
+        type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
+        content=json.dumps([{"user_uuid": str(current_reviewer.uuid)}]),
+    )
+
+    assert _resolve_suggested_reviewer_user_ids(report) == {current_reviewer.id}
 
 
 @pytest.mark.django_db
@@ -1234,3 +1257,23 @@ def test_reviewer_added_task_still_dispatches_when_source_product_lookup_fails(o
 
     mock_dispatch.assert_called_once()
     assert mock_dispatch.call_args.kwargs["source_products"] is None
+
+
+@pytest.mark.django_db
+def test_reviewer_added_task_decodes_uuid_from_the_legacy_argument(org_and_team):
+    _, team = org_and_team
+    with (
+        patch(
+            "products.signals.backend.signal_metadata.fetch_source_products_for_reports",
+            return_value={},
+        ),
+        patch("products.signals.backend.tasks.dispatch_reviewer_added_notifications") as mock_dispatch,
+    ):
+        send_reviewer_added_slack_notifications(
+            report_id="019f0000-0000-7000-8000-000000000000",
+            team_id=team.id,
+            added_github_logins=["linked-user", "user:019f0000-0000-7000-8000-000000000001"],
+        )
+
+    assert mock_dispatch.call_args.kwargs["added_github_logins"] == ["linked-user"]
+    assert mock_dispatch.call_args.kwargs["added_user_uuids"] == ["019f0000-0000-7000-8000-000000000001"]

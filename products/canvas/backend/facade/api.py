@@ -5,6 +5,7 @@ from products.canvas.backend.connectors import (
     canvas_connectors_enabled as canvas_connectors_enabled,
     connector_listings as connector_listings,
     mcp_provider_host as mcp_provider_host,
+    native_connector_listings as native_connector_listings,
 )
 from products.canvas.backend.layout import (
     CANVAS_LAYOUT_SCHEMA_VERSION as CANVAS_LAYOUT_SCHEMA_VERSION,

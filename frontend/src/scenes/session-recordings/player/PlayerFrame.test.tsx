@@ -53,6 +53,21 @@ describe('PlayerFrame', () => {
         expect(iframe).toHaveAttribute('sandbox', 'allow-same-origin')
     })
 
+    // Firefox fires load for the frame's initial about:blank document, which has no mount node.
+    // The shell document is still on its way, so the frame must keep its chance to load.
+    it('keeps the frame and reports nothing when the blank first document loads', () => {
+        const captureSpy = jest.spyOn(posthog, 'captureException')
+        const { container, iframe } = renderPlayerFrame()
+        // jsdom does not load the frame's src, so its document already carries the shell URL.
+        Object.defineProperty(iframe.contentDocument!, 'URL', { value: 'about:blank' })
+
+        fireEvent.load(iframe)
+
+        expect(container.querySelector('iframe.PlayerFrame__document')).toBe(iframe)
+        expect(container.querySelector('div.PlayerFrame__content')).toBeNull()
+        expect(captureSpy).not.toHaveBeenCalled()
+    })
+
     // A same-origin error page, a login redirect, or a browser network-error page all fire load
     // with a document that has no mount node. The player must not stay blank with no report.
     it('falls back to the app document and reports it when the frame loads without a mount node', () => {

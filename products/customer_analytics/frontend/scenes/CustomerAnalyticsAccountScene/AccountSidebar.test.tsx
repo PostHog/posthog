@@ -90,7 +90,7 @@ describe('AccountSidebar refresh recovery', () => {
         await act(async () => {
             await expectLogic(logic, () => logic.actions.loadPropertyData()).toFinishAllListeners()
         })
-        expect(screen.getByText("Couldn't refresh pinned properties. These values might be out of date.")).toBeVisible()
+        expect(screen.getByText('Could not refresh pinned properties. These values may be out of date.')).toBeVisible()
         expect(screen.getByDisplayValue('Draft to retain')).toBeVisible()
     })
 })

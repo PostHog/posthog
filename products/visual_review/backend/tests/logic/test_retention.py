@@ -1,6 +1,6 @@
 """Unit tests for logic/retention.py, the run and artifact retention sweep."""
 
-from datetime import timedelta
+from datetime import date, timedelta
 
 import pytest
 
@@ -323,3 +323,21 @@ class TestRetentionSweep:
         sweep_visual_review_retention()
 
         assert sweep_repo.call_count == 0
+
+
+class TestRotateForDay:
+    def test_every_item_leads_the_list_once_over_a_full_cycle(self):
+        items = ["a", "b", "c", "d"]
+        first_day = date(2026, 9, 10)
+
+        leaders = [retention.rotate_for_day(items, first_day + timedelta(days=n))[0] for n in range(len(items))]
+
+        assert sorted(leaders) == sorted(items)
+
+    def test_rotation_keeps_every_item(self):
+        items = ["a", "b", "c", "d"]
+
+        assert sorted(retention.rotate_for_day(items, date(2026, 9, 10))) == sorted(items)
+
+    def test_an_empty_list_stays_empty(self):
+        assert retention.rotate_for_day([], date(2026, 9, 10)) == []

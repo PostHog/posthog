@@ -278,6 +278,39 @@ def get_resource(
     }
 
 
+def _paginator_state_from_checkpoint(resume_config: Optional[DubResumeConfig]) -> Optional[dict[str, Any]]:
+    """Translate a saved checkpoint into the paginator state to start the resource on."""
+    if resume_config is None:
+        return None
+    if resume_config.page is not None:
+        return {"page": resume_config.page}
+    if resume_config.scope_index is not None:
+        return {"scope_index": resume_config.scope_index, "starting_after": resume_config.starting_after}
+    if resume_config.starting_after is not None:
+        return {"starting_after": resume_config.starting_after}
+    return None
+
+
+def _checkpoint_from_paginator_state(state: Optional[dict[str, Any]]) -> Optional[DubResumeConfig]:
+    """Translate paginator state into the checkpoint to persist.
+
+    Returns None when there's no next page to resume to; the Redis TTL handles cleanup on completion.
+    """
+    if not state:
+        return None
+    if state.get("page") is not None:
+        return DubResumeConfig(page=int(state["page"]))
+    if state.get("scope_index") is not None:
+        starting_after = state.get("starting_after")
+        return DubResumeConfig(
+            scope_index=int(state["scope_index"]),
+            starting_after=None if starting_after is None else str(starting_after),
+        )
+    if state.get("starting_after") is not None:
+        return DubResumeConfig(starting_after=str(state["starting_after"]))
+    return None
+
+
 def dub_source(
     api_key: str,
     endpoint: str,
@@ -313,35 +346,12 @@ def dub_source(
 
     initial_paginator_state: Optional[dict[str, Any]] = None
     if use_paginator_resume and resumable_source_manager.can_resume():
-        resume_config = resumable_source_manager.load_state()
-        if resume_config is not None:
-            if resume_config.page is not None:
-                initial_paginator_state = {"page": resume_config.page}
-            elif resume_config.scope_index is not None:
-                initial_paginator_state = {
-                    "scope_index": resume_config.scope_index,
-                    "starting_after": resume_config.starting_after,
-                }
-            elif resume_config.starting_after is not None:
-                initial_paginator_state = {"starting_after": resume_config.starting_after}
+        initial_paginator_state = _paginator_state_from_checkpoint(resumable_source_manager.load_state())
 
     def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
-        # Only persist when there's a next page to resume to; the Redis TTL handles
-        # cleanup on completion.
-        if not state:
-            return
-        if state.get("page") is not None:
-            resumable_source_manager.save_state(DubResumeConfig(page=int(state["page"])))
-        elif state.get("scope_index") is not None:
-            starting_after = state.get("starting_after")
-            resumable_source_manager.save_state(
-                DubResumeConfig(
-                    scope_index=int(state["scope_index"]),
-                    starting_after=None if starting_after is None else str(starting_after),
-                )
-            )
-        elif state.get("starting_after") is not None:
-            resumable_source_manager.save_state(DubResumeConfig(starting_after=str(state["starting_after"])))
+        resume_config = _checkpoint_from_paginator_state(state)
+        if resume_config is not None:
+            resumable_source_manager.save_state(resume_config)
 
     resource = rest_api_resource(
         config,

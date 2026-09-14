@@ -23,7 +23,9 @@ import {
     ScenePanelInfoSection,
 } from '~/layout/scenes/SceneLayout'
 
-import { Task, TaskRun } from '../../../types/taskTypes'
+import type { TaskRunDetailDTOApi } from 'products/tasks/frontend/generated/api.schemas'
+
+import type { Task } from '../../../types/taskTypes'
 import { TaskDebugLogsMenu } from './TaskDebugLogsMenu'
 import { TaskDebugLogsPanelToggle } from './TaskDebugLogsPanelToggle'
 import { TaskPanelSkeleton, TaskRunMetadataSkeleton } from './taskDetailSkeletons'
@@ -34,11 +36,11 @@ export interface TaskRunSceneShellProps {
     /** The loaded task, or `null` while loading (or during an optimistic create, before it exists). */
     task: Task | null
     /** The run whose metadata heads the thread, or `null` while loading. */
-    selectedRun: TaskRun | null
+    selectedRun: TaskRunDetailDTOApi | null
     /** Drives the title/panel/metadata skeletons — the single unified loading affordance for the header. */
-    isHeaderLoading: boolean
+    isHeaderLoading?: boolean
     /** Title-bar action buttons (or their skeleton). Supplied by the caller so the shell stays presentational. */
-    titleActions: JSX.Element
+    titleActions?: JSX.Element
     sceneMenuBarEnabled: boolean
     onArchive: () => void
     taskError: string | null
@@ -52,13 +54,12 @@ export interface TaskRunSceneShellProps {
 /**
  * The task-run scene chrome — scene panel, title header, run metadata, divider — around a run-log slot.
  * Purely presentational: both the detail page (wired from `taskDetailSceneLogic`) and the optimistic
- * create thread (wired all-loading) render it, so the `/tasks/new → /tasks/:id` handoff shows byte-identical
- * shell while only the continuous thread underneath persists.
+ * create thread render it, so the thread keeps the same layout across the `/tasks/new → /tasks/:id` handoff.
  */
 export function TaskRunSceneShell({
     task,
     selectedRun,
-    isHeaderLoading,
+    isHeaderLoading = false,
     titleActions,
     sceneMenuBarEnabled,
     onArchive,
@@ -83,9 +84,9 @@ export function TaskRunSceneShell({
                 </SceneMenuBar>
             )}
             <ScenePanel>
-                {isHeaderLoading || !task ? (
+                {isHeaderLoading ? (
                     <TaskPanelSkeleton />
-                ) : (
+                ) : task ? (
                     <>
                         <ScenePanelInfoSection>
                             <div className="flex flex-col gap-3">
@@ -121,7 +122,7 @@ export function TaskRunSceneShell({
                             </ButtonPrimitive>
                         </ScenePanelActionsSection>
                     </>
-                )}
+                ) : null}
             </ScenePanel>
 
             {taskError && !task ? (

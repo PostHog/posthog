@@ -1,7 +1,7 @@
 from datetime import timedelta
 from urllib.parse import urlparse
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
 from unittest.mock import Mock, patch
 
@@ -50,7 +50,7 @@ class TestWebAnalyticsDigestAPI(ClickhouseTestMixin, APIBaseTest):
         return self.ENDPOINT.format(team_id=team_id or self.team.id)
 
     def test_returns_digest_shape(self):
-        with freeze_time(QUERY_TIMESTAMP):
+        with time_machine.travel(QUERY_TIMESTAMP, tick=False):
             _create_person(team_id=self.team.pk, distinct_ids=["user_1"])
             _create_pageview(self.team, distinct_id="user_1", url="https://example.com/", timestamp="2025-01-25")
             flush_persons_and_events()
@@ -77,7 +77,7 @@ class TestWebAnalyticsDigestAPI(ClickhouseTestMixin, APIBaseTest):
         assert "/web" in data["dashboard_url"]
 
     def test_empty_team_returns_zero_metrics(self):
-        with freeze_time(QUERY_TIMESTAMP):
+        with time_machine.travel(QUERY_TIMESTAMP, tick=False):
             response = self.client.get(self._url())
 
         assert response.status_code == status.HTTP_200_OK
@@ -97,7 +97,7 @@ class TestWebAnalyticsDigestAPI(ClickhouseTestMixin, APIBaseTest):
         assert response.status_code in (status.HTTP_403_FORBIDDEN, status.HTTP_404_NOT_FOUND)
 
     def test_days_param_respected(self):
-        with freeze_time(QUERY_TIMESTAMP):
+        with time_machine.travel(QUERY_TIMESTAMP, tick=False):
             _create_person(team_id=self.team.pk, distinct_ids=["user_recent"])
             _create_person(team_id=self.team.pk, distinct_ids=["user_old"])
             _create_pageview(
@@ -133,13 +133,13 @@ class TestWebAnalyticsDigestAPI(ClickhouseTestMixin, APIBaseTest):
         ]
     )
     def test_days_param_validation(self, _name, days_value, expected_status):
-        with freeze_time(QUERY_TIMESTAMP):
+        with time_machine.travel(QUERY_TIMESTAMP, tick=False):
             response = self.client.get(self._url(), data={"days": days_value})
 
         assert response.status_code == expected_status
 
     def test_compare_false_omits_change(self):
-        with freeze_time(QUERY_TIMESTAMP):
+        with time_machine.travel(QUERY_TIMESTAMP, tick=False):
             _create_person(team_id=self.team.pk, distinct_ids=["user_current"])
             _create_person(team_id=self.team.pk, distinct_ids=["user_prior"])
             _create_pageview(
@@ -165,7 +165,7 @@ class TestWebAnalyticsDigestAPI(ClickhouseTestMixin, APIBaseTest):
             assert data[metric]["change"] is None, metric
 
     def test_compare_true_populates_change_when_prior_period_has_data(self):
-        with freeze_time(QUERY_TIMESTAMP):
+        with time_machine.travel(QUERY_TIMESTAMP, tick=False):
             _create_person(team_id=self.team.pk, distinct_ids=["cur_1"])
             _create_person(team_id=self.team.pk, distinct_ids=["cur_2"])
             _create_person(team_id=self.team.pk, distinct_ids=["cur_3"])
@@ -196,7 +196,7 @@ class TestWebAnalyticsDigestAPI(ClickhouseTestMixin, APIBaseTest):
         assert visitors["change"]["percent"] == 200
 
     def test_top_pages_limited_to_five(self):
-        with freeze_time(QUERY_TIMESTAMP):
+        with time_machine.travel(QUERY_TIMESTAMP, tick=False):
             for idx in range(7):
                 distinct_id = f"page_user_{idx}"
                 _create_person(team_id=self.team.pk, distinct_ids=[distinct_id])
@@ -219,7 +219,7 @@ class TestWebAnalyticsDigestAPI(ClickhouseTestMixin, APIBaseTest):
             assert isinstance(entry["visitors"], int)
 
     def test_top_sources_limited_to_five(self):
-        with freeze_time(QUERY_TIMESTAMP):
+        with time_machine.travel(QUERY_TIMESTAMP, tick=False):
             for idx in range(7):
                 distinct_id = f"src_user_{idx}"
                 _create_person(team_id=self.team.pk, distinct_ids=[distinct_id])
@@ -244,7 +244,7 @@ class TestWebAnalyticsDigestAPI(ClickhouseTestMixin, APIBaseTest):
             assert isinstance(entry["visitors"], int)
 
     def test_goals_empty_when_team_has_no_actions(self):
-        with freeze_time(QUERY_TIMESTAMP):
+        with time_machine.travel(QUERY_TIMESTAMP, tick=False):
             response = self.client.get(self._url())
 
         assert response.status_code == status.HTTP_200_OK
@@ -268,7 +268,7 @@ class TestWebAnalyticsDigestAPI(ClickhouseTestMixin, APIBaseTest):
         api_key = self.create_personal_api_key_with_scopes(scopes)
         self.client.logout()
 
-        with freeze_time(QUERY_TIMESTAMP):
+        with time_machine.travel(QUERY_TIMESTAMP, tick=False):
             response = self.client.get(self._url(), HTTP_AUTHORIZATION=f"Bearer {api_key}")
 
         assert response.status_code == expected_status
@@ -289,7 +289,7 @@ class TestWebAnalyticsRecapAPI(ClickhouseTestMixin, APIBaseTest):
         return self.ENDPOINT.format(team_id=team_id or self.team.id)
 
     def test_recap_extends_digest_with_persona_and_highlights(self):
-        with freeze_time(QUERY_TIMESTAMP):
+        with time_machine.travel(QUERY_TIMESTAMP, tick=False):
             _create_person(team_id=self.team.pk, distinct_ids=["user_1"])
             _create_pageview(self.team, distinct_id="user_1", url="https://example.com/", timestamp="2025-01-25")
             flush_persons_and_events()
@@ -317,7 +317,7 @@ class TestWebAnalyticsRecapAPI(ClickhouseTestMixin, APIBaseTest):
         assert data["project_name"] == self.team.name
 
     def test_empty_team_gets_just_getting_started_persona(self):
-        with freeze_time(QUERY_TIMESTAMP):
+        with time_machine.travel(QUERY_TIMESTAMP, tick=False):
             response = self.client.get(self._url())
 
         assert response.status_code == status.HTTP_200_OK
@@ -351,7 +351,7 @@ class TestWebAnalyticsRecapAPI(ClickhouseTestMixin, APIBaseTest):
         api_key = self.create_personal_api_key_with_scopes(scopes)
         self.client.logout()
 
-        with freeze_time(QUERY_TIMESTAMP):
+        with time_machine.travel(QUERY_TIMESTAMP, tick=False):
             response = self.client.get(self._url(), HTTP_AUTHORIZATION=f"Bearer {api_key}")
 
         assert response.status_code == expected_status

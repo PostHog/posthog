@@ -199,12 +199,29 @@ describe('accountSidebarConfigLogic', () => {
         useMocks(defaultMocks({ pinned_properties: [{ kind: 'custom_property', id: 'custom-1' }] }))
         await mountLogic()
 
+        expect(logic.values.activeConfiguratorKey).toBeNull()
+        expect(logic.values.isConfiguring).toBe(false)
         logic.actions.beginConfiguring()
+        expect(logic.values.activeConfiguratorKey).toBe('default')
+        expect(logic.values.isConfiguring).toBe(true)
+        logic.actions.cancelConfiguring()
+        expect(logic.values.activeConfiguratorKey).toBeNull()
+        expect(logic.values.isConfiguring).toBe(false)
+
+        logic.actions.beginConfiguring('account_sidebar:account-1')
+        expect(logic.values.activeConfiguratorKey).toBe('account_sidebar:account-1')
+        logic.actions.togglePinnedProperty({ kind: 'relationship', id: 'relationship-1' })
+        logic.actions.beginConfiguring('list_expansion:account-2')
+        expect(logic.values.activeConfiguratorKey).toBe('list_expansion:account-2')
+        expect(logic.values.isConfiguring).toBe(true)
+        expect(logic.values.draftPinnedProperties).toEqual([{ kind: 'custom_property', id: 'custom-1' }])
+
         logic.actions.togglePinnedProperty({ kind: 'relationship', id: 'relationship-1' })
         logic.actions.movePinnedProperty(1, 0)
         expect(logic.values.draftPinnedProperties.map(({ id }) => id)).toEqual(['relationship-1', 'custom-1'])
 
         logic.actions.cancelConfiguring()
+        expect(logic.values.activeConfiguratorKey).toBeNull()
         expect(logic.values.isConfiguring).toBe(false)
         expect(logic.values.draftPinnedProperties).toEqual([{ kind: 'custom_property', id: 'custom-1' }])
 
@@ -218,81 +235,90 @@ describe('accountSidebarConfigLogic', () => {
         expect(logic.values.draftPinLimitReached).toBe(true)
     })
 
-    it('saves once while a request is active and adopts the server response', async () => {
-        const captureSpy = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined as any)
-        let releasePatch: (() => void) | undefined
-        let patchCount = 0
-        let submittedBody: unknown
-        useMocks({
-            ...defaultMocks({ pinned_properties: [{ kind: 'custom_property', id: 'custom-1' }] }),
-            patch: {
-                [CONFIG_URL]: async ({ request }) => {
-                    patchCount += 1
-                    submittedBody = await request.json()
-                    await new Promise<void>((resolve) => {
-                        releasePatch = resolve
-                    })
-                    return submittedBody
+    it.each([undefined, 'list_expansion:account-1'])(
+        'saves once while a request is active and adopts the server response (owner: %s)',
+        async (configuratorKey) => {
+            const captureSpy = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined as any)
+            let releasePatch: (() => void) | undefined
+            let patchCount = 0
+            let submittedBody: unknown
+            useMocks({
+                ...defaultMocks({ pinned_properties: [{ kind: 'custom_property', id: 'custom-1' }] }),
+                patch: {
+                    [CONFIG_URL]: async ({ request }) => {
+                        patchCount += 1
+                        submittedBody = await request.json()
+                        await new Promise<void>((resolve) => {
+                            releasePatch = resolve
+                        })
+                        return submittedBody
+                    },
                 },
-            },
-        })
-        await mountLogic()
-        logic.actions.beginConfiguring()
-        logic.actions.togglePinnedProperty({ kind: 'relationship', id: 'relationship-1' })
+            })
+            await mountLogic()
+            logic.actions.beginConfiguring(configuratorKey)
+            logic.actions.togglePinnedProperty({ kind: 'relationship', id: 'relationship-1' })
 
-        await expectLogic(logic, () => logic.actions.savePinnedProperties()).toDispatchActions([
-            'persistPinnedProperties',
-        ])
-        await waitFor(() => expect(patchCount).toBe(1))
-        await expectLogic(logic, () => logic.actions.savePinnedProperties()).toNotHaveDispatchedActions([
-            'persistPinnedProperties',
-        ])
-        releasePatch?.()
-        await expectLogic(logic).toDispatchActions(['persistPinnedPropertiesSuccess']).toFinishAllListeners()
+            await expectLogic(logic, () => logic.actions.savePinnedProperties()).toDispatchActions([
+                'persistPinnedProperties',
+            ])
+            await waitFor(() => expect(patchCount).toBe(1))
+            expect(logic.values.activeConfiguratorKey).toBe(configuratorKey ?? 'default')
+            await expectLogic(logic, () => logic.actions.savePinnedProperties()).toNotHaveDispatchedActions([
+                'persistPinnedProperties',
+            ])
+            releasePatch?.()
+            await expectLogic(logic).toDispatchActions(['persistPinnedPropertiesSuccess']).toFinishAllListeners()
 
-        expect(patchCount).toBe(1)
-        expect(submittedBody).toEqual({
-            pinned_properties: [
-                { kind: 'custom_property', id: 'custom-1' },
+            expect(patchCount).toBe(1)
+            expect(submittedBody).toEqual({
+                pinned_properties: [
+                    { kind: 'custom_property', id: 'custom-1' },
+                    { kind: 'relationship', id: 'relationship-1' },
+                ],
+            })
+            expect(logic.values.config?.pinned_properties).toEqual(
+                (submittedBody as UserCustomerAnalyticsConfigApi).pinned_properties
+            )
+            expect(logic.values.activeConfiguratorKey).toBeNull()
+            expect(logic.values.isConfiguring).toBe(false)
+            expect(captureSpy).toHaveBeenCalledWith(AccountsEvents.PinnedPropertiesSaved, {
+                pinned_count: 2,
+                custom_property_count: 1,
+                relationship_count: 1,
+            })
+        }
+    )
+
+    it.each([undefined, 'list_expansion:account-1'])(
+        'keeps the draft open for retry and shows one notification when saving fails (owner: %s)',
+        async (configuratorKey) => {
+            silenceKeaLoadersErrors()
+            const toastSpy = jest.spyOn(lemonToast, 'error')
+            const captureSpy = jest.spyOn(posthog, 'capture')
+            useMocks({
+                ...defaultMocks({ pinned_properties: [{ kind: 'custom_property', id: 'custom-1' }] }),
+                patch: { [CONFIG_URL]: () => [500, { detail: 'Could not save pinned properties.' }] },
+            })
+            await mountLogic()
+            logic.actions.beginConfiguring(configuratorKey)
+            logic.actions.togglePinnedProperty({ kind: 'relationship', id: 'relationship-1' })
+            logic.actions.movePinnedProperty(1, 0)
+
+            await expectLogic(logic, () => logic.actions.savePinnedProperties())
+                .toDispatchActions(['persistPinnedPropertiesFailure'])
+                .toFinishAllListeners()
+
+            expect(logic.values.config?.pinned_properties).toEqual([{ kind: 'custom_property', id: 'custom-1' }])
+            expect(logic.values.draftPinnedProperties).toEqual([
                 { kind: 'relationship', id: 'relationship-1' },
-            ],
-        })
-        expect(logic.values.config?.pinned_properties).toEqual(
-            (submittedBody as UserCustomerAnalyticsConfigApi).pinned_properties
-        )
-        expect(logic.values.isConfiguring).toBe(false)
-        expect(captureSpy).toHaveBeenCalledWith(AccountsEvents.PinnedPropertiesSaved, {
-            pinned_count: 2,
-            custom_property_count: 1,
-            relationship_count: 1,
-        })
-    })
-
-    it('keeps the draft open for retry and shows one notification when saving fails', async () => {
-        silenceKeaLoadersErrors()
-        const toastSpy = jest.spyOn(lemonToast, 'error')
-        const captureSpy = jest.spyOn(posthog, 'capture')
-        useMocks({
-            ...defaultMocks({ pinned_properties: [{ kind: 'custom_property', id: 'custom-1' }] }),
-            patch: { [CONFIG_URL]: () => [500, { detail: 'Could not save pinned properties.' }] },
-        })
-        await mountLogic()
-        logic.actions.beginConfiguring()
-        logic.actions.togglePinnedProperty({ kind: 'relationship', id: 'relationship-1' })
-        logic.actions.movePinnedProperty(1, 0)
-
-        await expectLogic(logic, () => logic.actions.savePinnedProperties())
-            .toDispatchActions(['persistPinnedPropertiesFailure'])
-            .toFinishAllListeners()
-
-        expect(logic.values.config?.pinned_properties).toEqual([{ kind: 'custom_property', id: 'custom-1' }])
-        expect(logic.values.draftPinnedProperties).toEqual([
-            { kind: 'relationship', id: 'relationship-1' },
-            { kind: 'custom_property', id: 'custom-1' },
-        ])
-        expect(logic.values.isConfiguring).toBe(true)
-        expect(logic.values.canSavePinnedProperties).toBe(true)
-        expect(toastSpy).toHaveBeenCalledTimes(1)
-        expect(captureSpy).not.toHaveBeenCalledWith(AccountsEvents.PinnedPropertiesSaved, expect.anything())
-    })
+                { kind: 'custom_property', id: 'custom-1' },
+            ])
+            expect(logic.values.activeConfiguratorKey).toBe(configuratorKey ?? 'default')
+            expect(logic.values.isConfiguring).toBe(true)
+            expect(logic.values.canSavePinnedProperties).toBe(true)
+            expect(toastSpy).toHaveBeenCalledTimes(1)
+            expect(captureSpy).not.toHaveBeenCalledWith(AccountsEvents.PinnedPropertiesSaved, expect.anything())
+        }
+    )
 })

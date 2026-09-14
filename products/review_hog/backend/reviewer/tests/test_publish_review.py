@@ -95,6 +95,31 @@ class TestPostGithubReview:
         assert payload["commit_id"] == "deadbeef"
         assert payload["comments"] == comments
 
+    def test_credential_shapes_are_scrubbed_before_posting(
+        self, mock_request: MagicMock, mock_paginated: MagicMock
+    ) -> None:
+        _wire_readbacks(mock_paginated)
+        comments: list[ReviewComment] = [
+            {"path": "a.py", "body": "ran with GH_TOKEN=ghs_abcdefghijklmnopqrstuvwxyz0123", "side": "RIGHT", "line": 1}
+        ]
+
+        _post_github_review(
+            "o",
+            "r",
+            1,
+            "key phx_AbCdEfGhIjKlMnOpQrStUvWxYz0123456789 seen",
+            comments,
+            token="install-token",
+            head_sha="",
+            post_promo=False,
+            marker="m",
+            promo_marker="pm",
+        )
+
+        (payload,) = _review_posts(mock_request)
+        assert payload["body"] == "key [redacted] seen"
+        assert payload["comments"][0]["body"] == "ran with GH_TOKEN=[redacted]"
+
     def test_no_head_sha_posts_without_commit_pin(self, mock_request: MagicMock, mock_paginated: MagicMock) -> None:
         _wire_readbacks(mock_paginated)
 
@@ -382,11 +407,11 @@ class TestFormatIssueComment:
         # Alt text is the raw enum value, so the priority still reads when the badge image can't load.
         assert f"![{alt}]" in body
 
-    def test_layout_is_title_then_badges_then_collapsed_sections_validation_first(self) -> None:
+    def test_layout_is_title_then_badges_then_collapsed_sections_description_first(self) -> None:
         # Title leads, badges tag it just beneath, and all four sections stay folded — with the
-        # validator's verdict first (the deliberate reading order: claim → why it's real → detail).
+        # issue description first (the deliberate reading order: claim → what it is → why it's real).
         # Catches a badge/title reorder, a re-added `Priority | Lines` meta, a section surfaced inline
-        # instead of collapsed, or a template refactor flipping the order back to description-first.
+        # instead of collapsed, or a template refactor flipping the order back to validation-first.
         finding = _finding()
         body = _format_issue_comment(finding, _verdict())
 
@@ -394,8 +419,8 @@ class TestFormatIssueComment:
         positions = [
             body.index(f"<summary><strong>{label}</strong></summary>")
             for label in (
-                "Why we think it's a valid issue",
                 "Issue description",
+                "Why we think it's a valid issue",
                 "Suggested fix",
                 "Prompt to fix with AI (copy-paste)",
             )

@@ -22,6 +22,7 @@ from collections.abc import Iterable
 from django.conf import settings
 
 from posthog.event_usage import groups
+from posthog.helpers.slack_markdown import slack_markdown_block as _markdown_block
 from posthog.models import User
 from posthog.models.integration import Integration, SlackIntegration
 from posthog.ph_client import ph_scoped_capture
@@ -38,14 +39,15 @@ from products.signals.backend.report_generation.research import ActionabilityCho
 from products.signals.backend.report_generation.resolve_reviewers import (
     enrich_reviewer_dicts_with_org_members,
     normalized_github_logins_from_suggested_reviewer_artefacts,
+    normalized_user_uuids_from_suggested_reviewer_artefacts,
     resolve_org_github_login_to_users,
+    resolve_org_users_by_uuid,
 )
 from products.signals.backend.slack_formatting import (
     escape_slack_mrkdwn as _escape_mrkdwn,
     is_safe_slack_http_url as _is_safe_http_url,
     prepare_slack_markdown as _prepare_markdown,
     slack_channel_id_from_target as _channel_id_from_target,
-    slack_markdown_block as _markdown_block,
     strip_chart_references as _strip_chart_references,
 )
 from products.signals.backend.slack_notification_targets import is_slack_member_target, lookup_slack_user_id_by_email
@@ -173,23 +175,26 @@ def _latest_actionability(report: SignalReport) -> str | None:
 
 
 def _resolve_suggested_reviewer_user_ids(report: SignalReport) -> set[int]:
-    """Resolve the suggested-reviewer GitHub logins on the report to PostHog user IDs.
+    """Resolve the report's suggested reviewers to PostHog user IDs.
 
-    Uses the same enrichment path the API uses so a user that connected their
-    GitHub account after the report was generated is still picked up.
+    Uses the same enrichment path the API uses, so a reviewer stored by user uuid resolves whether
+    or not they have GitHub linked, and one stored by login is still picked up after they connect
+    their GitHub account.
     """
     artefacts = list(
         report.artefacts.filter(
             type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
-        ).order_by("-created_at")
+        ).order_by("-created_at")[:1]
     )
     if not artefacts:
         return set()
 
     logins = normalized_github_logins_from_suggested_reviewer_artefacts(artefacts)
-    if not logins:
+    user_uuids = normalized_user_uuids_from_suggested_reviewer_artefacts(artefacts)
+    if not logins and not user_uuids:
         return set()
-    login_map = resolve_org_github_login_to_users(report.team_id, logins)
+    login_map = resolve_org_github_login_to_users(report.team_id, logins) if logins else {}
+    uuid_map = resolve_org_users_by_uuid(report.team_id, user_uuids) if user_uuids else {}
     unmapped_count = len(logins - login_map.keys())
     if unmapped_count:
         # These reviewers can't get a personal-channel notification; when the whole list is
@@ -202,7 +207,7 @@ def _resolve_suggested_reviewer_user_ids(report: SignalReport) -> set[int]:
             unmapped_count,
             len(logins),
         )
-    if not login_map:
+    if not login_map and not uuid_map:
         return set()
 
     # Enrich each artefact's payload to drop reviewers that didn't resolve to a user.
@@ -214,7 +219,9 @@ def _resolve_suggested_reviewer_user_ids(report: SignalReport) -> set[int]:
             continue
         if not isinstance(parsed, list):
             continue
-        enriched = enrich_reviewer_dicts_with_org_members(report.team_id, parsed, login_to_user=login_map)
+        enriched = enrich_reviewer_dicts_with_org_members(
+            report.team_id, parsed, login_to_user=login_map, uuid_to_user=uuid_map
+        )
         for entry in enriched:
             user = entry.get("user") if isinstance(entry, dict) else None
             if isinstance(user, dict) and user.get("id"):
@@ -751,6 +758,7 @@ def dispatch_reviewer_added_notifications(
     added_github_logins: Iterable[str],
     source_products: list[str] | None = None,
     exclude_user_id: int | None = None,
+    added_user_uuids: Iterable[str] | None = None,
 ) -> int:
     """Notify reviewers a human just added to an already-actionable report.
 
@@ -767,7 +775,8 @@ def dispatch_reviewer_added_notifications(
     so someone adding themselves isn't pinged. Best-effort; returns messages sent.
     """
     added_logins = {s.strip().lower() for s in added_github_logins if s and s.strip()}
-    if not added_logins:
+    added_uuids = {s.strip() for s in (added_user_uuids or []) if s and s.strip()}
+    if not added_logins and not added_uuids:
         return 0
 
     try:
@@ -785,8 +794,13 @@ def dispatch_reviewer_added_notifications(
     if report.status != SignalReport.Status.READY or _latest_actionability(report) not in _ACTIONABLE_VALUES:
         return 0
 
-    login_to_user = resolve_org_github_login_to_users(team_id, added_logins)
-    user_ids = {user.id for user in login_to_user.values() if user.id != exclude_user_id}
+    # A reviewer added by uuid may have no GitHub login at all, so resolve both identities: the
+    # personal ping is the whole point of this path, and losing it would leave them unnotified.
+    resolved_users = [
+        *(resolve_org_github_login_to_users(team_id, added_logins).values() if added_logins else []),
+        *(resolve_org_users_by_uuid(team_id, added_uuids).values() if added_uuids else []),
+    ]
+    user_ids = {user.id for user in resolved_users if user.id != exclude_user_id}
     # Org membership alone isn't enough: on a private project an org member without project
     # access must not receive the report's contents, so intersect with the project's access set.
     if user_ids:

@@ -5,9 +5,9 @@ import {
 } from "@posthog/shared";
 import * as Haptics from "expo-haptics";
 import { Check } from "phosphor-react-native";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
-  ActivityIndicator,
+  Alert,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -19,6 +19,7 @@ import {
 import { useScreenInsets } from "@/hooks/useScreenInsets";
 import { useThemeColors } from "@/lib/theme";
 import { useDismissReport } from "../hooks/useInboxReports";
+import { useDismissDraftStore } from "../stores/dismissDraftStore";
 
 export interface DismissReportResult {
   reason: DismissalReasonOptionValue;
@@ -31,11 +32,7 @@ interface DismissReportSheetProps {
   reportId: string;
   reportTitle: string;
   onClose: () => void;
-  /**
-   * Fires after the API confirms the dismissal. The result is passed back so
-   * callers can route the reason/note through their own analytics — keeping
-   * this sheet stateless about the surface it was launched from.
-   */
+  /** Fires the moment the user confirms, before the API write settles. */
   onDismissed: (result: DismissReportResult) => void;
 }
 
@@ -48,48 +45,80 @@ export function DismissReportSheet({
 }: DismissReportSheetProps) {
   const { insets, bottom, sheetContentTop } = useScreenInsets();
   const themeColors = useThemeColors();
+  const draft = useDismissDraftStore((s) => s.drafts[reportId]);
+  const setDraft = useDismissDraftStore((s) => s.setDraft);
   const [reason, setReason] = useState<DismissalReasonOptionValue | null>(null);
   const [note, setNote] = useState("");
-  const [error, setError] = useState<string | null>(null);
   const dismiss = useDismissReport(reportId);
 
+  const sheetVisible = visible || draft?.reopen === true;
+  const openTransitionRef = useRef(false);
+
   useEffect(() => {
-    if (visible) {
+    if (!sheetVisible) {
+      openTransitionRef.current = false;
+      return;
+    }
+    if (openTransitionRef.current) return;
+    openTransitionRef.current = true;
+    if (draft?.reopen) {
+      setReason(draft.reason);
+      setNote(draft.note);
+    } else {
       setReason(null);
       setNote("");
-      setError(null);
     }
-  }, [visible]);
+  }, [sheetVisible, draft]);
 
-  const handleConfirm = async () => {
-    if (!reason || dismiss.isPending) return;
-    setError(null);
-    const trimmedNote = note.trim();
-    try {
-      await dismiss.mutateAsync({
-        reason,
-        note: trimmedNote || undefined,
-      });
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      onDismissed({ reason, note: trimmedNote || null });
-    } catch (err) {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-      setError(
-        err instanceof Error
-          ? err.message
-          : "Could not dismiss this report. Please try again.",
-      );
-    }
+  const displayedError = draft?.reopen ? draft.errorMessage : undefined;
+
+  const handleClose = () => {
+    setDraft(reportId, undefined);
+    onClose();
   };
 
-  const canSubmit = !!reason && !dismiss.isPending;
+  const handleConfirm = () => {
+    if (!reason) return;
+    const trimmedNote = note.trim();
+    const noteOrNull = trimmedNote || null;
+    setDraft(reportId, { reason, note: trimmedNote, reopen: false });
+    onClose();
+    onDismissed({ reason, note: noteOrNull });
+    // Use an independently managed promise rather than mutate()'s per-call
+    // callbacks: onDismissed above can trigger navigation that unmounts this
+    // sheet before the write settles, and per-call mutate callbacks are only
+    // fired while the initiating component is still mounted. A plain promise
+    // chain has no such dependency, so the draft is always reconciled.
+    dismiss.mutateAsync({ reason, note: trimmedNote || undefined }).then(
+      () => {
+        setDraft(reportId, undefined);
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      },
+      (err) => {
+        const message =
+          err instanceof Error
+            ? err.message
+            : "Could not dismiss this report. Please try again.";
+        setDraft(reportId, {
+          reason,
+          note: trimmedNote,
+          reopen: true,
+          errorMessage: message,
+        });
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+        Alert.alert("Couldn't dismiss report", message);
+      },
+    );
+  };
+
+  const canSubmit = !!reason;
 
   return (
     <Modal
-      visible={visible}
+      visible={sheetVisible}
       animationType="slide"
       presentationStyle="pageSheet"
-      onRequestClose={onClose}
+      onRequestClose={handleClose}
     >
       <KeyboardAvoidingView
         className="flex-1 bg-background"
@@ -100,16 +129,11 @@ export function DismissReportSheet({
           className="flex-1 bg-background"
           style={{ paddingTop: sheetContentTop() }}
         >
-          {/* Header */}
           <View className="flex-row items-center justify-between border-gray-6 border-b px-4 pb-3">
             <Text className="font-semibold text-[18px] text-gray-12">
               Dismiss report
             </Text>
-            <Pressable
-              onPress={onClose}
-              hitSlop={12}
-              disabled={dismiss.isPending}
-            >
+            <Pressable onPress={handleClose} hitSlop={12}>
               <Text className="text-[14px] text-accent-9">Cancel</Text>
             </Pressable>
           </View>
@@ -136,6 +160,9 @@ export function DismissReportSheet({
                   <Pressable
                     key={option.value}
                     onPress={() => setReason(option.value)}
+                    accessibilityLabel={`Dismissal reason: ${option.label}`}
+                    accessibilityRole="radio"
+                    accessibilityState={{ checked: selected }}
                     hitSlop={4}
                     className={`flex-row items-center justify-between px-3 py-3.5 active:bg-gray-3 ${
                       idx > 0 ? "border-gray-5 border-t" : ""
@@ -163,19 +190,17 @@ export function DismissReportSheet({
               multiline
               numberOfLines={3}
               maxLength={4000}
-              editable={!dismiss.isPending}
               className="min-h-[88px] rounded-xl bg-gray-2 px-3 py-3 text-[14px] text-gray-12"
               style={{ textAlignVertical: "top" }}
             />
 
-            {error && (
+            {displayedError && (
               <Text className="mt-3 text-[13px] text-status-error">
-                {error}
+                {displayedError}
               </Text>
             )}
           </ScrollView>
 
-          {/* Sticky submit */}
           <View
             className="border-gray-6 border-t bg-background px-4 pt-3"
             style={{ paddingBottom: bottom("compact") }}
@@ -183,21 +208,18 @@ export function DismissReportSheet({
             <Pressable
               onPress={handleConfirm}
               disabled={!canSubmit}
+              accessibilityLabel="Confirm dismissal"
               className={`flex-row items-center justify-center rounded-full px-6 py-3.5 ${
                 canSubmit ? "bg-accent-9 active:opacity-80" : "bg-gray-4"
               }`}
             >
-              {dismiss.isPending ? (
-                <ActivityIndicator color={themeColors.gray[12]} />
-              ) : (
-                <Text
-                  className={`font-semibold text-[15px] ${
-                    canSubmit ? "text-gray-12" : "text-gray-9"
-                  }`}
-                >
-                  Dismiss & teach the agent
-                </Text>
-              )}
+              <Text
+                className={`font-semibold text-[15px] ${
+                  canSubmit ? "text-gray-12" : "text-gray-9"
+                }`}
+              >
+                Dismiss & teach the agent
+              </Text>
             </Pressable>
           </View>
         </View>

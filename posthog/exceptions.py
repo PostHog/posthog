@@ -1,4 +1,4 @@
-from typing import Any, Optional, TypedDict
+from typing import Any, Optional, Protocol, TypedDict
 
 from django.http.request import HttpRequest
 from django.http.response import JsonResponse
@@ -135,6 +135,20 @@ class ClickHouseClusterMemoryLimitExceeded(ClickHouseQueryMemoryLimitExceeded):
     default_detail = (
         "We're under heavy load right now and couldn't finish this query. Please try again in a few minutes."
     )
+
+
+class FieldedValidationError(Protocol):
+    """A framework-free validation error, as a product's internals raise it."""
+
+    message: str
+    field: str | None
+
+
+def as_drf_validation_error(error: FieldedValidationError) -> ValidationError:
+    """The DRF equivalent of a framework-free validation error, keyed by field when it names one."""
+    if error.field:
+        return ValidationError({error.field: [error.message]})
+    return ValidationError(error.message)
 
 
 class ExceptionContext(TypedDict):

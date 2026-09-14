@@ -23,7 +23,7 @@ export function AgentsView() {
   if (agent) {
     return (
       <ScoutDetailView
-        skillSlug={agent.slug}
+        routeName={agent.skillName}
         highlightFindingId={agent.findingId}
         tab={agent.tab}
       />

@@ -1,7 +1,7 @@
 from datetime import UTC, datetime
 from typing import Any, Optional
 
-from freezegun import freeze_time
+import time_machine
 from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
@@ -119,26 +119,26 @@ class TestRowsFromResponse:
 
 
 class TestWindowsForActions:
-    @freeze_time("2024-06-01")
+    @time_machine.travel("2024-06-01", tick=False)
     def test_full_refresh_backfills_max_lookback(self) -> None:
         windows = _windows_for_actions(False, None)
         assert windows[0][0] == datetime(2021, 6, 2, tzinfo=UTC)
         assert windows[-1][1] == datetime(2024, 6, 1, tzinfo=UTC)
 
-    @freeze_time("2024-06-01")
+    @time_machine.travel("2024-06-01", tick=False)
     def test_incremental_windows_start_at_last_value(self) -> None:
         last_value = datetime(2024, 5, 1, tzinfo=UTC)
         windows = _windows_for_actions(True, last_value)
         assert windows[0][0] == last_value
 
-    @freeze_time("2024-06-01")
+    @time_machine.travel("2024-06-01", tick=False)
     def test_cursor_older_than_max_lookback_is_clamped(self) -> None:
         # Impact rejects a StartDate more than 3 years back, so a stale cursor is clamped rather
         # than sent as-is.
         windows = _windows_for_actions(True, datetime(2015, 1, 1, tzinfo=UTC))
         assert windows[0][0] == datetime(2021, 6, 2, tzinfo=UTC)
 
-    @freeze_time("2024-06-01")
+    @time_machine.travel("2024-06-01", tick=False)
     def test_future_cursor_yields_no_windows(self) -> None:
         assert _windows_for_actions(True, datetime(2025, 1, 1, tzinfo=UTC)) == []
 
@@ -328,7 +328,7 @@ class TestGetRowsSimple:
 
 
 class TestGetRowsActions:
-    @freeze_time("2024-06-01")
+    @time_machine.travel("2024-06-01", tick=False)
     def test_fanout_yields_per_campaign_and_saves_state(self) -> None:
         manager = FakeResumableManager()
 
@@ -360,7 +360,7 @@ class TestGetRowsActions:
         assert len(manager.saved) == 2 == len(batches)
         assert {s.campaign_id for s in manager.saved} == {10, 20}
 
-    @freeze_time("2024-06-01")
+    @time_machine.travel("2024-06-01", tick=False)
     def test_no_campaigns_yields_nothing(self) -> None:
         manager = FakeResumableManager()
         with (
@@ -370,7 +370,7 @@ class TestGetRowsActions:
             batches = list(get_rows("sid", "token", "Actions", MagicMock(), manager))  # type: ignore[arg-type]
         assert batches == []
 
-    @freeze_time("2024-06-01")
+    @time_machine.travel("2024-06-01", tick=False)
     def test_resume_skips_campaigns_before_the_bookmark(self) -> None:
         # An incremental cursor collapses the run to a single window, starting exactly at the
         # cursor value. Bookmarking campaign 20 (the middle of three) re-fetches it plus
@@ -402,7 +402,7 @@ class TestGetRowsActions:
             )
         assert seen_campaigns == [20, 30]
 
-    @freeze_time("2024-06-01")
+    @time_machine.travel("2024-06-01", tick=False)
     def test_paired_date_params_sent(self) -> None:
         manager = FakeResumableManager()
 
@@ -502,7 +502,7 @@ class TestGetRowsContractsFanout:
 
 
 class TestGetRowsActionUpdates:
-    @freeze_time("2024-06-01")
+    @time_machine.travel("2024-06-01", tick=False)
     def test_sends_start_and_end_date_params(self) -> None:
         manager = FakeResumableManager()
 

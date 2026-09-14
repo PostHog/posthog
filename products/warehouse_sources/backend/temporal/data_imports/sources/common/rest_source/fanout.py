@@ -1,4 +1,4 @@
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Literal, Protocol
@@ -23,11 +23,22 @@ logger = structlog.get_logger(__name__)
 
 
 class FanoutEndpointLike(Protocol):
-    name: str
-    path: str
-    incremental_fields: list[Any]
-    default_incremental_field: str | None
-    page_size: int
+    # Read-only members, because the helper only reads them and a mutable protocol attribute
+    # would exclude a frozen endpoint-config dataclass. A plain attribute still satisfies these.
+    @property
+    def name(self) -> str: ...
+
+    @property
+    def path(self) -> str: ...
+
+    @property
+    def incremental_fields(self) -> list[Any]: ...
+
+    @property
+    def default_incremental_field(self) -> str | None: ...
+
+    @property
+    def page_size(self) -> int: ...
 
 
 @dataclass(frozen=True)
@@ -99,6 +110,7 @@ def build_dependent_resource(
     parent_endpoint_extra: Endpoint | None = None,
     child_endpoint_extra: Endpoint | None = None,
     child_params_extra: dict[str, Any] | None = None,
+    parent_data_map: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
     page_size_param: str | None = "limit",
     resume_hook: Callable[[dict[str, Any] | None], None] | None = None,
     initial_paginator_state: dict[str, Any] | None = None,
@@ -138,6 +150,13 @@ def build_dependent_resource(
         "endpoint": parent_endpoint_config,
         "table_format": "delta",
     }
+
+    if parent_data_map is not None:
+        # Parent transforms run before the child transformer reads the page, so a resolve_field
+        # the parent rows do not carry can be derived here. `process_parent_data_item` binds the
+        # path with `str.format`, which applies no escaping, so a vendor whose ids can contain
+        # `/` must percent-encode them through this hook.
+        parent_resource["data_map"] = parent_data_map
 
     if warehouse_parent:
         if not source_id:
@@ -272,6 +291,36 @@ def build_dependent_resource(
             )
         child = child.add_filter(_not_newer_than(cursor_field, parent_snapshot_at))
     return child
+
+
+def build_chained_resource(
+    *,
+    resources: Sequence[EndpointResource],
+    child_name: str,
+    parent_name: str,
+    parent_field_renames: dict[str, str],
+    client_config: ClientConfig,
+    team_id: int,
+    job_id: str,
+) -> Iterable[Any]:
+    """Build a multi-level fan-out from a caller-assembled resource list and return the child.
+
+    `build_dependent_resource` covers one hop bound by one resolved param. A child whose path
+    binds several ids from the same parent row, or whose parent is itself a fan-out child,
+    needs its own resource list, which the caller assembles and passes here.
+
+    Such a chain carries no resume state: `create_resources` withholds the hook from every
+    resource once more than one is dependent, because one hook consumed at two levels would
+    corrupt the saved page.
+    """
+    config: RESTAPIConfig = {
+        "client": client_config,
+        "resource_defaults": {},
+        "resources": list(resources),
+    }
+    built = rest_api_resources(config, team_id, job_id, None)
+    child = next(r for r in built if getattr(r, "name", None) == child_name)
+    return child.add_map(rename_parent_fields(parent_name, parent_field_renames))
 
 
 def _not_newer_than(field: str, snapshot_at: datetime) -> Callable[[dict[str, Any]], bool]:

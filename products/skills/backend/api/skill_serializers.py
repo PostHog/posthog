@@ -1,7 +1,7 @@
 from typing import Any
 
 from django.db import transaction
-from django.db.models import Value
+from django.db.models import F, Value
 from django.db.models.functions import Length, Replace
 
 from drf_spectacular.utils import extend_schema_field, extend_schema_serializer
@@ -280,10 +280,18 @@ class LLMSkillFileSerializer(serializers.ModelSerializer):
 class LLMSkillFileManifestSerializer(serializers.ModelSerializer):
     line_count = serializers.IntegerField(help_text="Number of lines in the file content.")
     char_count = serializers.IntegerField(help_text="Number of characters in the file content.")
+    size = serializers.IntegerField(
+        allow_null=True,
+        help_text="Size of the file content in bytes. Null on rows written before digests were stamped.",
+    )
+    sha256 = serializers.CharField(
+        allow_null=True,
+        help_text="Hex SHA-256 of the file content. Null on rows written before digests were stamped.",
+    )
 
     class Meta:
         model = LLMSkillFile
-        fields = ["path", "content_type", "line_count", "char_count"]
+        fields = ["path", "content_type", "line_count", "char_count", "size", "sha256"]
 
 
 class LLMSkillFileInputSerializer(serializers.Serializer):
@@ -631,12 +639,17 @@ class LLMSkillSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(LLMSkillFileManifestSerializer(many=True))
     def get_files(self, instance: LLMSkill) -> list[dict[str, Any]]:
-        # Counts are computed in the database so the manifest never fetches file contents.
+        # Counts are computed in the database so the manifest never fetches file contents. The byte
+        # size comes from the stamped column rather than a `Length()` count, which counts characters.
         annotated = LLMSkillFile.objects.filter(skill=instance).annotate(
             char_count=Length("content"),
             line_count=Length("content") - Length(Replace("content", Value("\n"))) + 1,
+            size=F("content_size"),
+            sha256=F("content_sha256"),
         )
-        return [dict(row) for row in annotated.values("path", "content_type", "line_count", "char_count")]
+        return [
+            dict(row) for row in annotated.values("path", "content_type", "line_count", "char_count", "size", "sha256")
+        ]
 
     @extend_schema_field(LLMSkillOutlineEntrySerializer(many=True))
     def get_outline(self, instance: LLMSkill) -> list[dict[str, Any]]:

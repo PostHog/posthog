@@ -1,4 +1,5 @@
 import logging
+from collections.abc import Callable
 from datetime import timedelta
 from pathlib import Path
 from uuid import UUID
@@ -57,7 +58,12 @@ from products.wizard.backend.logic.workers.local_package import build_local_wiza
 from products.wizard.backend.logic.workers.wizard_error_output import stderr_to_wizard_error_code
 from products.wizard.backend.observability.service import wizard_observability
 
-from .repository_publisher import RepositoryPublishingError, create_pull_request, create_signed_commit
+from .repository_publisher import (
+    RepositoryPublishingError,
+    create_pull_request,
+    create_signed_commit,
+    stage_publishable_changes,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -132,6 +138,7 @@ def provision_wizard_worker(request: WizardWorkerProvisionRequest) -> WizardWork
 
     config = _build_sandbox_config(request, wizard_token)
     sandbox = get_sandbox_class().create(config)
+    _start_cpu_billing_sampler(sandbox)
     provisioned_at = timezone.now()
 
     return WizardWorkerProvisioning(
@@ -144,6 +151,19 @@ def provision_wizard_worker(request: WizardWorkerProvisionRequest) -> WizardWork
             ttl_expires_at=provisioned_at + timedelta(seconds=config.ttl_seconds),
         ),
     )
+
+
+def _start_cpu_billing_sampler(sandbox: SandboxBase) -> None:
+    try:
+        started = sandbox.start_cpu_billing_sampler()
+    except (SandboxExecutionError, SandboxNotFoundError, SandboxTimeoutError):
+        logger.warning(
+            "wizard_worker_cpu_billing_sampler_start_failed", extra={"sandbox_id": sandbox.id}, exc_info=True
+        )
+        return
+
+    if not started:
+        logger.warning("wizard_worker_cpu_billing_sampler_start_failed", extra={"sandbox_id": sandbox.id})
 
 
 def clone_repository(request: GitRepositoryCloneRequest) -> str:
@@ -232,6 +252,7 @@ def execute_wizard(request: WizardExecutionRequest) -> None:
 
 def create_git_repository_handoff(request: GitRepositoryHandoffRequest) -> WizardWorkerResult:
     sandbox = get_sandbox_class().get_by_id(request.sandbox_id)
+    stage_publishable_changes(sandbox, request.workspace_path)
 
     diff_result = sandbox.execute(
         build_git_diff_command(request.workspace_path),
@@ -295,11 +316,13 @@ def destroy_worker(sandbox_id: str) -> None:
 def measure_worker_usage(sandbox_id: str) -> WizardWorkerUsageMeasurement | None:
     try:
         sandbox = get_sandbox_class().get_by_id(sandbox_id)
-        cpu_usage_usec = sandbox.read_cpu_usage_usec()
-        billed_cpu_usage_usec = sandbox.read_billed_cpu_usage_usec()
     except (SandboxExecutionError, SandboxNotFoundError, SandboxTimeoutError):
         logger.exception("wizard_worker_usage_measurement_failed", extra={"sandbox_id": sandbox_id})
         return None
+
+    sandbox.config.cpu_cores = SANDBOX_CPU_CORES
+    cpu_usage_usec = _read_worker_usage(sandbox.read_cpu_usage_usec, sandbox_id)
+    billed_cpu_usage_usec = _read_worker_usage(sandbox.read_billed_cpu_usage_usec, sandbox_id)
 
     if cpu_usage_usec is None and billed_cpu_usage_usec is None:
         return None
@@ -309,6 +332,14 @@ def measure_worker_usage(sandbox_id: str) -> WizardWorkerUsageMeasurement | None
         billed_cpu_usage_usec=billed_cpu_usage_usec,
         measured_at=timezone.now(),
     )
+
+
+def _read_worker_usage(read_usage: Callable[[], int | None], sandbox_id: str) -> int | None:
+    try:
+        return read_usage()
+    except Exception:
+        logger.exception("wizard_worker_usage_read_failed", extra={"sandbox_id": sandbox_id})
+        return None
 
 
 def _raise_for_failure(

@@ -242,7 +242,11 @@
   INNER JOIN "posthog_team" ON ("posthog_featureflag"."team_id" = "posthog_team"."id")
   WHERE (NOT ("posthog_featureflag"."deleted")
          AND NOT "posthog_featureflag"."deleted"
-         AND "posthog_team"."project_id" = 99999
+         AND "posthog_team"."project_id" IN (1,
+                                             2,
+                                             3,
+                                             4,
+                                             5 /* ... */)
          AND (jsonb_path_exists(filters, '$.** ? (@.type == "flag")')))
   '''
 # ---
@@ -1161,7 +1165,11 @@
   INNER JOIN "posthog_team" ON ("posthog_featureflag"."team_id" = "posthog_team"."id")
   WHERE (NOT ("posthog_featureflag"."deleted")
          AND NOT "posthog_featureflag"."deleted"
-         AND "posthog_team"."project_id" = 99999
+         AND "posthog_team"."project_id" IN (1,
+                                             2,
+                                             3,
+                                             4,
+                                             5 /* ... */)
          AND (jsonb_path_exists(filters, '$.** ? (@.type == "flag")')))
   '''
 # ---

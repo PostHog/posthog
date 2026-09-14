@@ -56,7 +56,7 @@ CANONICAL_DISPLAY_TYPE_BY_NAME: dict[str, DisplayType] = {
 
 
 class CustomPropertyDefinition(TeamScopedRootMixin, UUIDModel, CreatedMetaFields, UpdatedMetaFields):
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
 
     target_type = models.CharField(
         choices=[(t.value, t.value) for t in TargetType],

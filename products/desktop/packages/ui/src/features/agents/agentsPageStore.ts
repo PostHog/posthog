@@ -11,7 +11,7 @@ export type AgentsTab = "agents" | "memory" | "setup";
 export const AGENTS_TABS: readonly AgentsTab[] = ["agents", "memory", "setup"];
 
 interface OpenAgent {
-  slug: string;
+  skillName: string;
   tab: ScoutDetailTab;
   findingId?: string;
 }
@@ -38,7 +38,7 @@ export function openAgentFrom(search: unknown): OpenAgent | null {
       : value.finding
         ? "output"
         : "activity";
-  return { slug: value.agent, tab, findingId: value.finding };
+  return { skillName: value.agent, tab, findingId: value.finding };
 }
 
 export function agentsPageActions() {
@@ -59,13 +59,13 @@ export function agentsPageActions() {
     showTab: (tab: AgentsTab) =>
       update((previous) => ({ ...keepSource(previous), tab }), false),
     openAgent: (
-      slug: string,
+      skillName: string,
       options?: { tab?: ScoutDetailTab; findingId?: string },
     ) =>
       update(
         (previous) => ({
           ...keepSource(previous),
-          agent: slug,
+          agent: skillName,
           ...(options?.tab ? { agentTab: options.tab } : {}),
           ...(options?.findingId ? { finding: options.findingId } : {}),
         }),
@@ -92,14 +92,16 @@ export function useOpenAgent(): OpenAgent | null {
   const packed = useRouterState({
     select: (state) => {
       const open = openAgentFrom(state.location.search);
-      return open ? `${open.slug} ${open.tab} ${open.findingId ?? ""}` : null;
+      return open
+        ? `${open.skillName} ${open.tab} ${open.findingId ?? ""}`
+        : null;
     },
   });
   return useMemo(() => {
     if (!packed) return null;
-    const [slug, tab, findingId] = packed.split(" ");
+    const [skillName, tab, findingId] = packed.split(" ");
     return {
-      slug,
+      skillName,
       tab: tab as ScoutDetailTab,
       findingId: findingId || undefined,
     };
