@@ -86,7 +86,9 @@ export function FeedbackAttachments({
   const imageInputRef = useRef<HTMLInputElement>(null);
   const logsRequestRef = useRef(0);
 
-  const loadLogs = async (includeWhenLoaded: boolean): Promise<string | null> => {
+  const loadLogs = async (
+    includeWhenLoaded: boolean,
+  ): Promise<string | null> => {
     const requestId = ++logsRequestRef.current;
     onChange((current) => ({
       ...current,
