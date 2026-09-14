@@ -82,6 +82,14 @@ pub struct Config {
     #[envconfig(default = "http://127.0.0.1:50054")]
     pub router_url: String,
 
+    /// HTTP/2 connections to open to the router, used round-robin per
+    /// request. Each connection lands on one router pod for its lifetime,
+    /// so a single connection pins every leader call of this pod to one
+    /// router and serializes the lifecycle fan-out onto one socket
+    /// (0 acts as 1).
+    #[envconfig(default = "4")]
+    pub router_channels: usize,
+
     /// Per-call timeout for leader-routed property writes (ms).
     #[envconfig(default = "5000")]
     pub leader_request_timeout_ms: u64,
@@ -113,6 +121,14 @@ pub struct Config {
     /// so the caller retries on another pod. 0 = disabled.
     #[envconfig(default = "0")]
     pub max_concurrent_requests: usize,
+
+    /// Leader property writes in flight per get-or-create batch (0 acts as 1).
+    #[envconfig(default = "8")]
+    pub property_write_concurrency: usize,
+
+    /// Leader calls in flight per lifecycle saga step (0 acts as 1).
+    #[envconfig(default = "8")]
+    pub lifecycle_leader_call_concurrency: usize,
 
     /// How long one claim of a lifecycle op lasts before another instance
     /// may steal it (seconds).

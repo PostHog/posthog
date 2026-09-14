@@ -115,6 +115,14 @@ class GoogleSearchConsoleSource(
             "invalid_grant": "Your Google Search Console connection has expired or been revoked. Please reconnect your account.",
         }
 
+    def get_retryable_errors(self) -> set[str]:
+        # `_query_search_analytics` already retries Search Analytics quota exhaustion in-line with
+        # backoff; if it stays exhausted once those retries run out, the property's quota refills
+        # over time and the resumable source picks up from the last saved date and row, so let
+        # Temporal retry the activity without paging it as a bug. The three quota raise sites carry a
+        # stable `(retryable)` marker, which does not collide with the 401/403 non-retryable keys.
+        return {"(retryable)"}
+
     def get_oauth_accounts(
         self, integration_id: int, team_id: int, search: str | None = None
     ) -> list[IntegrationAccount]:
@@ -291,6 +299,11 @@ class GoogleSearchConsoleSource(
 
         normalized = {url: site.get("permissionLevel") for site in sites if (url := site.get("siteUrl")) is not None}
         site_url = normalize_site_url(config.site_url)
+        if not normalized:
+            # The account owns no property at all, so no value can ever validate. The "not visible"
+            # message below sends the user back to re-checking the URL format they got right, which
+            # is the loop we keep seeing. Same failure the 403 listing path names, so same wording.
+            return False, _PROPERTY_LIST_ACCESS_ERROR
         if site_url not in normalized:
             suggestion = suggest_registered_site(site_url, normalized.keys())
             if suggestion is not None:

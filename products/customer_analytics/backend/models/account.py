@@ -72,7 +72,7 @@ class AccountProperties(BaseModel):
 
 
 class Account(TeamScopedRootMixin, UUIDModel, CreatedMetaFields, UpdatedMetaFields):
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
 
     external_id = models.CharField(max_length=400, null=True, blank=True)
     name = models.CharField(max_length=400)

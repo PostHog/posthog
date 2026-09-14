@@ -79,6 +79,9 @@ from ee.tasks.subscriptions.teams_subscriptions import TEAMS_WEBHOOK_URL_ERROR, 
 
 SUMMARY_QUOTA_CACHE_TTL_SECONDS = 60
 SUMMARY_CAP_HIT_DEDUPE_TTL_SECONDS = 600
+AI_DELIVERY_DISPLAY_FIELDS = frozenset(
+    {"include_images", "include_feedback", "include_manage_link", "include_posthog_hint"}
+)
 
 
 def _summary_quota_cache_key(organization_id) -> str:
@@ -267,6 +270,25 @@ class DeliveryConfigSerializer(serializers.Serializer):
             "Slack only: when true, upload all insight images together in the main Slack message "
             "instead of posting the first image in the main message and the rest as threaded replies. "
             "Defaults to false."
+        ),
+    )
+    include_images = serializers.BooleanField(
+        required=False,
+        help_text="AI prompt subscriptions only: include generated chart images. Defaults to true when omitted.",
+    )
+    include_feedback = serializers.BooleanField(
+        required=False,
+        help_text="AI prompt subscriptions only: include report feedback links. Defaults to true when omitted.",
+    )
+    include_manage_link = serializers.BooleanField(
+        required=False,
+        help_text="AI prompt subscriptions only: include a link to manage the subscription. Defaults to true when omitted.",
+    )
+    include_posthog_hint = serializers.BooleanField(
+        required=False,
+        help_text=(
+            "AI prompt subscriptions only: include PostHog product guidance. Slack only. "
+            "Email and Microsoft Teams reports do not include it. Defaults to true when omitted."
         ),
     )
 
@@ -552,6 +574,14 @@ class SubscriptionSerializer(serializers.ModelSerializer):
                 )
         except ValueError as exc:
             raise ValidationError(str(exc))
+        if (
+            resource_type == Subscription.ResourceType.AI_PROMPT
+            and self.partial
+            and existing is not None
+            and "delivery_config" in attrs
+        ):
+            existing_delivery_config = existing.delivery_config if isinstance(existing.delivery_config, dict) else {}
+            attrs["delivery_config"] = {**existing_delivery_config, **attrs["delivery_config"]}
         content_validators: dict[str, Callable[[dict, Optional[Subscription]], None]] = {
             Subscription.ResourceType.INSIGHT: self._validate_insight_content,
             Subscription.ResourceType.DASHBOARD: self._validate_dashboard_content,
@@ -591,6 +621,12 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             if "delivery_config" in attrs
             else (self.instance.delivery_config if self.instance else None)
         ) or {}
+        if resource_type != Subscription.ResourceType.AI_PROMPT and any(
+            field in effective_delivery_config for field in AI_DELIVERY_DISPLAY_FIELDS
+        ):
+            raise ValidationError(
+                {"delivery_config": ["AI delivery display options are only supported for prompt subscriptions."]}
+            )
 
         # Reject re-enables of subscriptions whose delivery prerequisite is still
         # permanently broken — otherwise the next delivery would just auto-disable

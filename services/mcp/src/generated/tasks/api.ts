@@ -854,7 +854,7 @@ export const TaskChannelsInstructionsUpdateBody = () => zod
     .describe('Request body for publishing a new instructions version.')
 
 /**
- * Get a list of tasks for the current project, with optional filtering by origin product, stage, organization, repository, created_by, and the workflow (hog_flow_id) that created the task. Pass basic=true for a summary payload that drops the description body from each row; use the search parameter to match description text server-side.
+ * Get a list of tasks for the current project, with optional filtering by origin product, stage, organization, repository, created_by, and the workflow (hog_flow_id) that created the task. By default, each row includes description. Pass basic=true for a summary row that omits description and includes description_preview, its first 1000 characters. Use the search parameter to match description text server-side.
  * @summary List tasks
  */
 export const TasksListParams = () => zod.object({
@@ -890,7 +890,7 @@ export const TasksListQueryParams = () => zod.object({
         .boolean()
         .default(tasksListQueryBasicDefault)
         .describe(
-            'Return a basic payload with heavy fields dropped, for surfaces that render only a summary of each task. Defaults to false. Currently this omits the description body, which dominates the list payload; the search parameter still matches description text server-side.'
+            'With true, return basic list rows for summary surfaces: each row omits the full description and includes description_preview, its first 1000 characters. Defaults to false, which returns full task rows with description. The search parameter still matches description text server-side.'
         ),
     channel: zod.string().optional().describe("Filter tasks to a channel's feed."),
     ci_status: zod

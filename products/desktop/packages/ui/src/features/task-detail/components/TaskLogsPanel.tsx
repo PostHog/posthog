@@ -7,7 +7,6 @@ import { ErrorBoundary } from "../../../primitives/ErrorBoundary";
 import { useHostCapabilities } from "../../../shell/useHostCapabilities";
 import { useFolders } from "../../folders/useFolders";
 import { useDraftStore } from "../../message-editor/draftStore";
-import { ProvisioningView } from "../../provisioning/ProvisioningView";
 import { useProvisioningStore } from "../../provisioning/store";
 import { SessionView } from "../../sessions/components/SessionView";
 import { useSessionCallbacks } from "../../sessions/hooks/useSessionCallbacks";
@@ -47,7 +46,6 @@ export function TaskLogsPanel({ taskId, task, hideInput }: TaskLogsPanelProps) {
   const isSuspended = suspendedTaskIds.has(taskId);
   const { restoreTask, isRestoring } = useRestoreTask();
 
-  const isProvisioning = useProvisioningStore((s) => s.activeTasks.has(taskId));
   const provisioningError = useProvisioningStore((s) => s.errors[taskId]);
   const clearProvisioning = useProvisioningStore((s) => s.clear);
 
@@ -112,10 +110,6 @@ export function TaskLogsPanel({ taskId, task, hideInput }: TaskLogsPanelProps) {
   const handleRestoreWorktree = useCallback(async () => {
     await restoreTask(taskId);
   }, [taskId, restoreTask]);
-
-  if (isProvisioning) {
-    return <ProvisioningView taskId={taskId} />;
-  }
 
   // Worktree provisioning failed but the task was kept. Offer to retry setup
   // (worktree mode) on the existing task. Takes priority over the folder-picker

@@ -103,7 +103,14 @@ fn scrub_ingestion(line: &Value, byte_walk: bool) -> String {
 
 #[test]
 fn a_ref_survives_a_trusted_rescrub() {
-    for attr in ["src", "xlink:href", "rr_src", "poster", "rr_dataURL"] {
+    for attr in [
+        "src",
+        "srcset",
+        "xlink:href",
+        "rr_src",
+        "poster",
+        "rr_dataURL",
+    ] {
         assert!(
             scrub_trusted(&img_line(REF, attr)).contains(REF),
             "ref destroyed in {attr}"
@@ -118,7 +125,10 @@ fn a_ref_survives_a_trusted_rescrub() {
 #[test]
 fn a_namespaced_url_ref_survives_only_a_trusted_rescrub() {
     for url_ref in [URL_REF, LEGACY_URL_REF] {
-        let line = img_line(url_ref, "data-anon-image-ref-src");
+        let mut line = img_line(url_ref, "data-anon-image-ref-src");
+        let attrs = &mut line[1]["data"]["adds"][0]["node"]["attributes"];
+        attrs["src"] = json!("data:image/svg+xml;base64,PHN2Zz4=");
+        attrs["srcset"] = json!("data:image/svg+xml;base64,PHN2Zz4=");
         assert!(scrub_trusted(&line).contains(url_ref));
         assert!(!scrub_default(&line).contains("data-anon-image-ref-src"));
         for byte_walk in [true, false] {

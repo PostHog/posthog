@@ -23,14 +23,17 @@ def cleanup_worker(team_id: int, run_id: UUID, sandbox_id: str) -> None:
     worker_store.mark_cleanup_pending(team_id, run_id)
 
     try:
-        usage = cloud_worker.measure_worker_usage(sandbox_id)
-
-        if usage is not None:
-            _record_worker_usage(team_id, run_id, sandbox_id, usage)
+        record_worker_usage(team_id, run_id, sandbox_id)
     finally:
         _destroy_worker(team_id, run_id, sandbox_id)
 
     _report_worker_usage(team_id, run_id)
+
+
+def record_worker_usage(team_id: int, run_id: UUID, sandbox_id: str) -> None:
+    usage = cloud_worker.measure_worker_usage(sandbox_id)
+    if usage is not None:
+        _record_worker_usage(team_id, run_id, sandbox_id, usage)
 
 
 def _record_worker_usage(

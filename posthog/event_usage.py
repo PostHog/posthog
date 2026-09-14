@@ -15,6 +15,7 @@ from rest_framework.authentication import SessionAuthentication
 
 from posthog.clickhouse.query_tagging import get_query_tag_value
 from posthog.constants import POSTHOG_INTERNAL_EMAIL_SUFFIX
+from posthog.helpers.oauth_pending_connection import PendingOAuthConnection
 from posthog.models import Organization, User
 from posthog.models.activity_logging.model_activity import is_impersonated_session
 from posthog.models.team import Team
@@ -44,6 +45,7 @@ def report_user_signed_up(
     role_at_organization: str = "",  # select input to ask what the user role is at the org
     referral_source: str = "",  # free text input to ask users where did they hear about us
     referral_source_ai_prompt: str = "",  # prompt they used when discovering PostHog via AI
+    oauth_connection: Optional[PendingOAuthConnection] = None,  # the app whose OAuth request sent them to sign up
 ) -> None:
     """
     Reports that a new user has joined. Only triggered when a new user is actually created (i.e. when an existing user
@@ -67,6 +69,9 @@ def report_user_signed_up(
         "referral_source_ai_prompt": referral_source_ai_prompt,
         "is_email_verified": user.is_email_verified,
     }
+    if oauth_connection is not None:
+        props["signup_oauth_client_name"] = oauth_connection.client_name
+        props["signup_oauth_client_id"] = oauth_connection.client_id
     if user_analytics_metadata is not None:
         props.update(user_analytics_metadata)
 

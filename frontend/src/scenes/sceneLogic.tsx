@@ -794,11 +794,11 @@ export const sceneLogic = kea<sceneLogicType>([
             if (user) {
                 // If user is already logged in, redirect away from unauthenticated-only routes (e.g. /signup)
                 if (sceneConfig.onlyUnauthenticated) {
-                    if (sceneId === Scene.Login) {
-                        handleLoginRedirect()
-                    } else {
-                        router.actions.replace(urls.default())
-                    }
+                    // `next` is where the person needs to end up, whichever screen they landed on:
+                    // an OAuth partner sends them to /signup?next=/oauth/authorize?... just as
+                    // `login_required` sends them to /login?next=... . With no `next` this lands on
+                    // the app root, so it covers the plain case too.
+                    handleLoginRedirect()
                     return
                 }
 

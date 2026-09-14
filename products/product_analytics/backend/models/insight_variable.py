@@ -8,7 +8,7 @@ from products.product_analytics.backend.facade import enums
 class InsightVariable(UUIDTModel, RootTeamMixin, CreatedMetaFields, UpdatedMetaFields):
     Type = enums.InsightVariableType
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
     name = models.CharField(max_length=400)
     code_name = models.CharField(max_length=400, null=True, blank=True)
     type = models.CharField(max_length=128, choices=Type)

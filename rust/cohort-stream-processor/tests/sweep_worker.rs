@@ -12,6 +12,7 @@
 // Tests seed and assert through `CohortStore` directly — the sanctioned direct-store test surface.
 #![allow(clippy::disallowed_methods)]
 
+use std::collections::HashSet;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -51,6 +52,12 @@ const BEHAVIORAL_HASH: [u8; 16] = *b"0123456789abcdef";
 const DAY_MS: i64 = 86_400_000;
 /// A window over 180 days routes `performed_event_multiple` to the compressed history variant.
 const COMPRESSED_WINDOW_DAYS: i64 = 365;
+/// Mirrors `workers::sweep_path::SWEEP_BATCH_KEYS`, the keys one sweep batch claims.
+const SWEEP_BATCH_KEYS: usize = 256;
+/// The wave in [`wave_against_a_full_live_lane`]: 600 keys is three batches at the target, so the
+/// scheduler has to hand the live lane a turn twice while draining it.
+const INTERLEAVED_WAVE: usize = 600;
+const INTERLEAVED_LIVE_AFTER: usize = 8;
 
 fn temp_store() -> (TempDir, CohortStore) {
     let dir = TempDir::new().unwrap();
@@ -266,7 +273,7 @@ async fn drain_until(what: &str, mut predicate: impl FnMut() -> bool) {
     panic!("timed out waiting for {what}");
 }
 
-/// [`drain_until`] on the sink's change count. `handle_sweep` produces before its state write, so a
+/// [`drain_until`] on the sink's change count. A sweep batch produces before its state write, so a
 /// test inspecting post-sweep state must follow this with a [`drain_until`] on the store itself.
 async fn drain_until_changes(sink: &CaptureSink, count: usize) {
     drain_until("the worker to record changes", || {
@@ -338,6 +345,99 @@ fn spawn_worker_with_restore(
         durable_restore,
     );
     (tx, worker)
+}
+
+/// Queue every batch up front, then start the worker, so the live lane is provably non-empty from
+/// the first turn. The interleaving the tests below assert is then a property of the scheduler
+/// rather than of how fast the test task sends.
+fn spawn_worker_prefilled(
+    store: &CohortStore,
+    catalog: Arc<CatalogHandle>,
+    sink: Arc<dyn MembershipSink>,
+    tracker: Arc<OffsetTracker>,
+    batches: Vec<Vec<ShuffleMessage>>,
+) -> Stage1Worker {
+    let (tx, rx) = mpsc::channel(batches.len().max(1));
+    for batch in batches {
+        tx.try_send(batch)
+            .expect("the lane is sized for every batch");
+    }
+    drop(tx);
+    Stage1Worker::spawn(
+        PARTITION_ID,
+        WorkerInbox::live_only(rx),
+        test_handle(store),
+        catalog,
+        sink,
+        tracker,
+        MergeWorkerDeps::capture(),
+        false,
+    )
+}
+
+/// One live batch: `count` matching events, one person each at `ts`, then a sweep whose cutoff is
+/// past their shared deadline, so the whole wave comes due at once.
+fn wave_then_sweep(count: usize, ts: &str, cutoff: i64) -> Vec<ShuffleMessage> {
+    let mut batch: Vec<ShuffleMessage> = (0..count)
+        .map(|i| ShuffleMessage::Event {
+            event: Box::new(event_at(person(i as u128 + 1), ts, i as i64)),
+            cse_offset: i as i64,
+            broker_ts_ms: None,
+        })
+        .collect();
+    batch.push(ShuffleMessage::Sweep {
+        due_before_ms: cutoff,
+    });
+    batch
+}
+
+/// The length of each contiguous run of `status` in the change stream, in order. Two runs mean
+/// something of another status came between them.
+fn status_runs(changes: &[CohortMembershipChange], status: MembershipStatus) -> Vec<usize> {
+    let mut runs = Vec::new();
+    let mut run = 0usize;
+    for change in changes {
+        if change.status == status {
+            run += 1;
+        } else if run > 0 {
+            runs.push(std::mem::take(&mut run));
+        }
+    }
+    if run > 0 {
+        runs.push(run);
+    }
+    runs
+}
+
+/// Drive a due wave larger than one sweep batch against a live lane that is already full, producing
+/// into `sink`, and return once the worker has drained both.
+async fn wave_against_a_full_live_lane(
+    wave: usize,
+    live_after: usize,
+    sink: Arc<dyn MembershipSink>,
+) {
+    let (_dir, store) = temp_store();
+    let filters = build_team_filters(vec![behavioral_leaf(7)]);
+    let tracker = Arc::new(OffsetTracker::new());
+
+    let ts = "2026-05-20 10:00:00.000000";
+    let event_ms = clickhouse_timestamp_to_millis(ts).unwrap();
+    let cutoff = event_ms + 8 * DAY_MS;
+    tracker.mark_dispatched(PARTITION_ID as i32, (wave + live_after) as i64);
+
+    let mut batches = vec![wave_then_sweep(wave, ts, cutoff)];
+    // Distinct persons, so these enter on their own rather than reviving a key the pass selected.
+    batches.extend((0..live_after).map(|i| {
+        let offset = (wave + i) as i64;
+        vec![ShuffleMessage::Event {
+            event: Box::new(event_at(person(offset as u128 + 1), ts, offset)),
+            cse_offset: offset,
+            broker_ts_ms: None,
+        }]
+    }));
+
+    let worker = spawn_worker_prefilled(&store, catalog_of(filters), sink, tracker, batches);
+    worker.join().await.unwrap();
 }
 
 #[tokio::test]
@@ -481,11 +581,11 @@ async fn without_durable_restart_a_dormant_member_is_not_re_evicted() {
 #[tokio::test]
 async fn event_then_sweep_in_one_batch_emits_entered_before_left() {
     // Regression: event-path changes accumulate in the buffer and were produced *after* the message
-    // loop, while the Sweep arm produces inline mid-loop. So a single `[Event, Sweep]` batch where the
-    // event enters then the sweep immediately ages it out used to emit `Left` (inline) before `Entered`
-    // (post-loop) — out of state-commit order. A last-write-wins consumer of the shadow topic would then
-    // read "member" while RocksDB says "left", a false parity mismatch. The buffer is now flushed before
-    // the Sweep arm, so produce order matches commit order: Entered then Left.
+    // loop, while the sweep produced mid-loop. So a single `[Event, Sweep]` batch where the event
+    // enters then the sweep immediately ages it out used to emit `Left` before `Entered` — out of
+    // state-commit order. A last-write-wins consumer of the shadow topic would then read "member"
+    // while RocksDB says "left", a false parity mismatch. The buffer is flushed at the Sweep arm and
+    // the eviction runs on a later turn, so produce order still matches commit order.
     let (_dir, store) = temp_store();
     let filters = build_team_filters(vec![behavioral_leaf(7)]);
     let lsk = behavioral_lsk(&filters);
@@ -526,11 +626,11 @@ async fn event_then_sweep_in_one_batch_emits_entered_before_left() {
     assert_eq!(
         statuses,
         vec![MembershipStatus::Entered, MembershipStatus::Left],
-        "within one batch the event's Entered must be produced before the sweep's inline Left",
+        "the event's Entered must be produced before the sweep's Left",
     );
     assert!(
         state_at(&store, lsk, alice).is_none(),
-        "the fully-expired single is deleted by the in-batch sweep",
+        "the fully-expired single is deleted by the sweep the batch requested",
     );
     assert_eq!(
         tracker.committable_offsets().get(&(PARTITION_ID as i32)),
@@ -638,11 +738,10 @@ async fn sweep_on_an_empty_queue_is_a_noop() {
 
 #[tokio::test]
 async fn sweep_caps_evictions_per_pass_and_drains_the_remainder_next_tick() {
-    // A large wave of single-leaf members all come due at one cutoff. `handle_sweep` caps the pop loop
-    // at `MAX_SWEEP_KEYS_PER_PASS` (10_000, private to the worker), so the first pass evicts exactly the
-    // cap and the leftover keys stay scheduled, draining on a second sweep. This bounds the per-pass
-    // RocksDB read + produce + write batch so events do not starve behind one giant sweep.
-    const CAP: usize = 10_000; // mirrors worker::MAX_SWEEP_KEYS_PER_PASS
+    // A large wave of single-leaf members all come due at one cutoff. One request plans over at most
+    // `MAX_SWEEP_KEYS_PER_PASS` (10_000, private to `workers::sweep_path`) of them, so the first pass
+    // evicts exactly the cap and the leftover keys stay scheduled, draining on a second sweep.
+    const CAP: usize = 10_000; // mirrors sweep_path::MAX_SWEEP_KEYS_PER_PASS
     let total = CAP + 1;
 
     let (_dir, store) = temp_store();
@@ -711,6 +810,241 @@ async fn sweep_caps_evictions_per_pass_and_drains_the_remainder_next_tick() {
     assert!(
         state_at(&store, lsk, leftover_person).is_none(),
         "the leftover key is evicted (deleted) by the second sweep",
+    );
+}
+
+#[tokio::test]
+async fn a_due_wave_drains_in_batches_that_alternate_with_live_traffic() {
+    // A wave used to drain in one pass, holding the partition for its whole duration and allocating
+    // every state value at once. Each batch now claims at most the target, and a live batch takes the
+    // turn in between, so a tz-midnight wave costs live traffic one batch at a time.
+    let sink = CaptureSink::new();
+    wave_against_a_full_live_lane(
+        INTERLEAVED_WAVE,
+        INTERLEAVED_LIVE_AFTER,
+        Arc::new(sink.clone()),
+    )
+    .await;
+    let changes = sink.changes();
+
+    assert_eq!(
+        status_runs(&changes, MembershipStatus::Left),
+        vec![
+            SWEEP_BATCH_KEYS,
+            SWEEP_BATCH_KEYS,
+            INTERLEAVED_WAVE - 2 * SWEEP_BATCH_KEYS,
+        ],
+        "three bounded batches, each separated by the live output of the batch that ran between",
+    );
+    assert_eq!(
+        changes
+            .iter()
+            .filter(|change| change.status == MembershipStatus::Left)
+            .count(),
+        INTERLEAVED_WAVE,
+        "interleaving does not cost the sweep any of its wave",
+    );
+    assert_eq!(
+        changes
+            .iter()
+            .filter(|change| change.status == MembershipStatus::Entered)
+            .count(),
+        INTERLEAVED_WAVE + INTERLEAVED_LIVE_AFTER,
+        "every queued live event entered while the sweep was draining",
+    );
+}
+
+#[tokio::test]
+async fn a_resumed_sweep_stamps_newer_than_the_live_output_it_yielded_to() {
+    // A batch takes its `last_updated` when it runs, not when its request arrived. Stamping at request
+    // time would give a resumed batch a timestamp older than the live change that ran in between, and
+    // a last-write-wins consumer would then resurrect the membership that batch just retracted.
+    let sink = CaptureSink::new();
+    wave_against_a_full_live_lane(
+        INTERLEAVED_WAVE,
+        INTERLEAVED_LIVE_AFTER,
+        Arc::new(sink.clone()),
+    )
+    .await;
+    let changes = sink.changes();
+
+    for pair in changes.windows(2) {
+        assert!(
+            pair[0].last_updated <= pair[1].last_updated,
+            "produce order must not go backwards in time: {} then {}",
+            pair[0].last_updated,
+            pair[1].last_updated,
+        );
+        // Every live change in this fixture is an `Entered` and every sweep change a `Left`, so a
+        // status change here is exactly a batch boundary.
+        if pair[0].status != pair[1].status {
+            assert!(
+                pair[0].last_updated < pair[1].last_updated,
+                "a sweep/live boundary must move strictly forward: {} then {}",
+                pair[0].last_updated,
+                pair[1].last_updated,
+            );
+        }
+    }
+}
+
+#[tokio::test]
+async fn an_event_between_batches_saves_a_key_the_pass_had_already_selected() {
+    // A pass plans over candidates up front but claims each key only as its batch runs, and the claim
+    // re-reads the deadline. A person whose window slides forward while an earlier batch is running
+    // therefore keeps their membership, rather than being evicted against a stale plan.
+    const WAVE: usize = 300;
+    // Persons sort by uuid, so the wave's persons 1..=300 split 1..=256 then 257..=300. This one is in
+    // the second batch, which runs after the live batch below.
+    let saved = person(WAVE as u128);
+
+    let (_dir, store) = temp_store();
+    let filters = build_team_filters(vec![behavioral_leaf(7)]);
+    let lsk = behavioral_lsk(&filters);
+    let sink = CaptureSink::new();
+    let tracker = Arc::new(OffsetTracker::new());
+
+    let ts = "2026-05-20 10:00:00.000000";
+    let event_ms = clickhouse_timestamp_to_millis(ts).unwrap();
+    let cutoff = event_ms + 8 * DAY_MS;
+    tracker.mark_dispatched(PARTITION_ID as i32, WAVE as i64 + 1);
+
+    let worker = spawn_worker_prefilled(
+        &store,
+        catalog_of(filters),
+        Arc::new(sink.clone()),
+        tracker,
+        vec![
+            wave_then_sweep(WAVE, ts, cutoff),
+            // Two days later, so this person's new deadline lands past the pass's cutoff.
+            vec![ShuffleMessage::Event {
+                event: Box::new(event_at(saved, "2026-05-22 10:00:00.000000", WAVE as i64)),
+                cse_offset: WAVE as i64,
+                broker_ts_ms: None,
+            }],
+        ],
+    );
+    worker.join().await.unwrap();
+
+    let changes = sink.changes();
+    assert_eq!(
+        changes
+            .iter()
+            .filter(|change| change.status == MembershipStatus::Left)
+            .count(),
+        WAVE - 1,
+        "every selected key evicted except the one an event pulled back",
+    );
+    assert!(
+        !changes.iter().any(|change| {
+            change.status == MembershipStatus::Left && change.person_id == saved.to_string()
+        }),
+        "the saved person must never be retracted",
+    );
+    assert!(
+        state_at(&store, lsk, saved).is_some(),
+        "the saved person's state survives the pass that had selected it",
+    );
+}
+
+#[tokio::test]
+async fn a_later_batchs_produce_failure_leaves_the_earlier_batches_settled() {
+    // Failure is now per batch, not per pass. The first batch's evictions stay committed and are never
+    // re-emitted; only the keys the failed batch claimed go back on the queue, and the next request
+    // retries exactly those.
+    const WAVE: usize = 300;
+    // Produce calls: 1 the wave's Entered, 2 the first sweep batch, 3 the second (fails), 4 the retry.
+    let sink = FailNthSink::new(3);
+
+    let (_dir, store) = temp_store();
+    let filters = build_team_filters(vec![behavioral_leaf(7)]);
+    let lsk = behavioral_lsk(&filters);
+    let tracker = Arc::new(OffsetTracker::new());
+
+    let ts = "2026-05-20 10:00:00.000000";
+    let event_ms = clickhouse_timestamp_to_millis(ts).unwrap();
+    let cutoff = event_ms + 8 * DAY_MS;
+    tracker.mark_dispatched(PARTITION_ID as i32, WAVE as i64);
+
+    let worker = spawn_worker_prefilled(
+        &store,
+        catalog_of(filters),
+        Arc::new(sink.clone()),
+        tracker,
+        vec![
+            wave_then_sweep(WAVE, ts, cutoff),
+            vec![ShuffleMessage::Sweep {
+                due_before_ms: cutoff,
+            }],
+        ],
+    );
+    worker.join().await.unwrap();
+
+    assert_eq!(
+        sink.calls(),
+        4,
+        "the failed batch produced once and retried once",
+    );
+    let changes = sink.changes();
+    let evicted: HashSet<&String> = changes
+        .iter()
+        .filter(|change| change.status == MembershipStatus::Left)
+        .map(|change| &change.person_id)
+        .collect();
+    assert_eq!(
+        changes
+            .iter()
+            .filter(|change| change.status == MembershipStatus::Left)
+            .count(),
+        WAVE,
+        "the whole wave evicted across the retry",
+    );
+    assert_eq!(
+        evicted.len(),
+        WAVE,
+        "the settled batch was not replayed into the retry",
+    );
+    for i in 0..WAVE {
+        assert!(
+            state_at(&store, lsk, person(i as u128 + 1)).is_none(),
+            "person {} still has state after the retry",
+            i + 1,
+        );
+    }
+}
+
+#[tokio::test]
+async fn a_live_lane_that_keeps_failing_its_produce_still_yields_the_sweep_its_turns() {
+    // The sweep's turn is claimed before a live batch runs, so a batch that fails its produce and
+    // skips the rest of the loop body still owes it. Claiming after the batch instead passes every
+    // test whose live lane succeeds, while a lane that keeps failing holds a due wave until it closes.
+    // Call 1 is the wave's own Entered; every live produce after it fails.
+    let sink = FailingLiveSink::new(2);
+    wave_against_a_full_live_lane(
+        INTERLEAVED_WAVE,
+        INTERLEAVED_LIVE_AFTER,
+        Arc::new(sink.clone()),
+    )
+    .await;
+
+    // `None` is a failed live produce. Each sweep batch after the first runs on the turn the failed
+    // live batch before it owed, rather than all of them once the lane has closed.
+    assert_eq!(
+        sink.outcomes(),
+        [
+            vec![
+                Some(MembershipStatus::Entered),
+                Some(MembershipStatus::Left)
+            ],
+            vec![
+                None,
+                Some(MembershipStatus::Left),
+                None,
+                Some(MembershipStatus::Left)
+            ],
+            vec![None; INTERLEAVED_LIVE_AFTER - 2],
+        ]
+        .concat(),
     );
 }
 
@@ -1239,6 +1573,51 @@ impl MembershipSink for FailNthSink {
         let acks = changes.iter().map(|_| Ok(())).collect();
         self.changes.lock().unwrap().extend(changes);
         acks
+    }
+}
+
+/// A sink that fails every live produce from `fail_from` (1-based) on while letting sweep batches
+/// through, telling them apart by their changes being all `Left`. Records each call as the status of
+/// its first change, or `None` when it failed.
+#[derive(Clone)]
+struct FailingLiveSink {
+    outcomes: Arc<Mutex<Vec<Option<MembershipStatus>>>>,
+    fail_from: usize,
+}
+
+impl FailingLiveSink {
+    fn new(fail_from: usize) -> Self {
+        Self {
+            outcomes: Arc::default(),
+            fail_from,
+        }
+    }
+
+    fn outcomes(&self) -> Vec<Option<MembershipStatus>> {
+        self.outcomes.lock().unwrap().clone()
+    }
+}
+
+#[async_trait]
+impl MembershipSink for FailingLiveSink {
+    async fn produce(
+        &self,
+        changes: Vec<CohortMembershipChange>,
+    ) -> Vec<Result<(), KafkaProduceError>> {
+        let mut outcomes = self.outcomes.lock().unwrap();
+        let call = outcomes.len() + 1;
+        let is_sweep = changes
+            .iter()
+            .all(|change| change.status == MembershipStatus::Left);
+        if call >= self.fail_from && !is_sweep {
+            outcomes.push(None);
+            return changes
+                .iter()
+                .map(|_| Err(KafkaProduceError::KafkaProduceCanceled))
+                .collect();
+        }
+        outcomes.push(changes.first().map(|change| change.status));
+        changes.iter().map(|_| Ok(())).collect()
     }
 }
 

@@ -1,7 +1,7 @@
 from datetime import UTC, datetime
 from typing import Protocol, cast
 
-from freezegun import freeze_time
+import time_machine
 
 from django.test import TestCase
 
@@ -34,13 +34,13 @@ class TestFileSystemViewLog(TestCase):
         )
         dashboard = Dashboard.objects.create(team=self.team, name="Dashboard", created_by=self.user)
 
-        with freeze_time("2024-01-01T10:00:00Z"):
+        with time_machine.travel("2024-01-01T10:00:00Z", tick=False):
             log_file_system_view(user=self.user, obj=insight)
 
-        with freeze_time("2024-01-02T10:00:00Z"):
+        with time_machine.travel("2024-01-02T10:00:00Z", tick=False):
             log_file_system_view(user=self.user, obj=dashboard)
 
-        with freeze_time("2024-01-03T10:00:00Z"):
+        with time_machine.travel("2024-01-03T10:00:00Z", tick=False):
             log_file_system_view(user=self.user, obj=dashboard)
 
         view_order = [
@@ -89,13 +89,13 @@ class TestFileSystemViewLog(TestCase):
             last_modified_by=self.user,
         )
 
-        with freeze_time("2024-02-01T10:00:00Z"):
+        with time_machine.travel("2024-02-01T10:00:00Z", tick=False):
             log_file_system_view(user=self.user, obj=insight)
 
-        with freeze_time("2024-02-01T10:00:03Z"):
+        with time_machine.travel("2024-02-01T10:00:03Z", tick=False):
             log_file_system_view(user=self.user, obj=insight)
 
-        with freeze_time("2024-02-01T10:00:10Z"):
+        with time_machine.travel("2024-02-01T10:00:10Z", tick=False):
             log_file_system_view(user=self.user, obj=insight)
 
         logs = FileSystemViewLog.objects.filter(team=self.team, user=self.user, type="insight", ref=insight.short_id)

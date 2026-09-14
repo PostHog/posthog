@@ -167,11 +167,15 @@ class TestDebugCHQuery(APIBaseTest):
         data = resp.json()
         i = data["buckets"].index(bucket)
         reads = data["reads"]
-        for series in ("precomputed_p50_duration_ms", "precomputed_p90_duration_ms", "precomputed_avg_read_bytes"):
+        for series in (
+            "precomputed_p50_duration_ms",
+            "precomputed_p90_duration_ms",
+            "fully_precomputed_avg_read_bytes",
+        ):
             self.assertEqual(len(reads[series]), len(data["buckets"]))
         self.assertEqual(reads["precomputed_p50_duration_ms"][i], 120)
         self.assertEqual(reads["precomputed_p90_duration_ms"][i], 450)
-        self.assertEqual(reads["precomputed_avg_read_bytes"][i], 2048)
+        self.assertEqual(reads["fully_precomputed_avg_read_bytes"][i], 2048)
         self.assertEqual(sum(reads["precomputed_p50_duration_ms"]), 120)
 
     @patch("posthog.api.debug_ch_queries.sync_execute", return_value=[])
