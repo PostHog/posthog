@@ -98,7 +98,6 @@ from posthog.models.activity_logging.activity_page import (
     activity_page_response,
     parse_activity_page_params,
 )
-from posthog.models.filters.utils import get_filter
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.models.utils import UUIDT
