@@ -8,7 +8,6 @@ import {
   rm,
   writeFile,
 } from "node:fs/promises";
-import * as nodeHttp from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type ContentBlock, RequestError } from "@agentclientprotocol/sdk";
@@ -421,7 +420,6 @@ describe("AgentServer HTTP Mode", () => {
   let server: AgentServer | undefined;
   let mswServer: SetupServerApi;
   let appendLogCalls: unknown[][];
-  let updateTaskRunBodies: unknown[];
   let port: number;
 
   // msw patches fetch process-wide. A second listen() on an already-patched
@@ -431,7 +429,6 @@ describe("AgentServer HTTP Mode", () => {
       ...createPostHogHandlers({
         baseUrl: "http://localhost:8000",
         onAppendLog: (entries) => appendLogCalls.push(entries),
-        onUpdateTaskRun: (body) => updateTaskRunBodies.push(body),
       }),
     );
     mswServer.listen({ onUnhandledRequest: "bypass" });
@@ -444,7 +441,6 @@ describe("AgentServer HTTP Mode", () => {
   beforeEach(async () => {
     repo = await createTestRepo("agent-server-http");
     appendLogCalls = [];
-    updateTaskRunBodies = [];
     // Use a unique high port per test to avoid reuse and browser-blocked ports.
     port = getNextTestPort();
   }, 30_000);
@@ -575,109 +571,6 @@ describe("AgentServer HTTP Mode", () => {
       expect.objectContaining({ notification: message }),
     );
     testServer.session = null;
-  });
-
-  describe("gateway accounting", () => {
-    it("starts the request observer for the Go gateway route", async () => {
-      const upstream = nodeHttp.createServer((request, response) => {
-        expect(request.headers.authorization).toBe("Bearer gateway-token");
-        response.writeHead(200, { "x-request-id": "gateway-request" });
-        response.end("ok");
-      });
-      await new Promise<void>((resolve) =>
-        upstream.listen(0, "127.0.0.1", resolve),
-      );
-      const address = upstream.address();
-      if (!address || typeof address === "string") {
-        throw new Error("Gateway test upstream did not bind a TCP port");
-      }
-      const originalGatewayUrl = process.env.AI_GATEWAY_URL;
-      const originalGatewayProducts = process.env.AI_GATEWAY_PRODUCTS;
-      const originalGatewayToken = process.env.AI_GATEWAY_TOKEN;
-
-      try {
-        process.env.AI_GATEWAY_URL = `http://127.0.0.1:${address.port}`;
-        process.env.AI_GATEWAY_PRODUCTS = "posthog_code";
-        process.env.AI_GATEWAY_TOKEN = "gateway-token";
-        const testServer = createServer();
-
-        await testServer.start();
-
-        const { gatewayAccounting: observer } = testServer as unknown as {
-          gatewayAccounting: { baseUrl: string; bearer: string } | null;
-        };
-        expect(observer).not.toBeNull();
-        if (!observer) {
-          throw new Error(
-            "Go gateway route did not start the request observer",
-          );
-        }
-        const response = await fetch(`${observer.baseUrl}/v1/messages`, {
-          method: "POST",
-          headers: { authorization: `Bearer ${observer.bearer}` },
-        });
-
-        expect(await response.text()).toBe("ok");
-        await vi.waitFor(() =>
-          expect(updateTaskRunBodies).toContainEqual({
-            state_append: { unprocessed_request_ids: "gateway-request" },
-          }),
-        );
-      } finally {
-        if (originalGatewayUrl === undefined) {
-          delete process.env.AI_GATEWAY_URL;
-        } else {
-          process.env.AI_GATEWAY_URL = originalGatewayUrl;
-        }
-        if (originalGatewayProducts === undefined) {
-          delete process.env.AI_GATEWAY_PRODUCTS;
-        } else {
-          process.env.AI_GATEWAY_PRODUCTS = originalGatewayProducts;
-        }
-        if (originalGatewayToken === undefined) {
-          delete process.env.AI_GATEWAY_TOKEN;
-        } else {
-          process.env.AI_GATEWAY_TOKEN = originalGatewayToken;
-        }
-        await new Promise<void>((resolve) => upstream.close(() => resolve()));
-      }
-    }, 30_000);
-
-    it("skips the request observer for the Python gateway route", async () => {
-      const originalGatewayUrl = process.env.AI_GATEWAY_URL;
-      const originalGatewayProducts = process.env.AI_GATEWAY_PRODUCTS;
-      const originalGatewayToken = process.env.AI_GATEWAY_TOKEN;
-
-      try {
-        delete process.env.AI_GATEWAY_URL;
-        delete process.env.AI_GATEWAY_PRODUCTS;
-        process.env.AI_GATEWAY_TOKEN = "gateway-token";
-        const testServer = createServer();
-
-        await testServer.start();
-
-        expect(
-          (testServer as unknown as { gatewayAccounting: unknown })
-            .gatewayAccounting,
-        ).toBeNull();
-      } finally {
-        if (originalGatewayUrl === undefined) {
-          delete process.env.AI_GATEWAY_URL;
-        } else {
-          process.env.AI_GATEWAY_URL = originalGatewayUrl;
-        }
-        if (originalGatewayProducts === undefined) {
-          delete process.env.AI_GATEWAY_PRODUCTS;
-        } else {
-          process.env.AI_GATEWAY_PRODUCTS = originalGatewayProducts;
-        }
-        if (originalGatewayToken === undefined) {
-          delete process.env.AI_GATEWAY_TOKEN;
-        } else {
-          process.env.AI_GATEWAY_TOKEN = originalGatewayToken;
-        }
-      }
-    }, 30_000);
   });
 
   describe("GET /health", () => {

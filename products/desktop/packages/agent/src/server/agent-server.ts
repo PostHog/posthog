@@ -133,7 +133,6 @@ import {
 } from "./cloud-prompt";
 import { CredentialRelay, CredentialRelayError } from "./credential-relay";
 import { TaskRunEventStreamSender } from "./event-stream-sender";
-import { GatewayAccountingProxy } from "./gateway-accounting";
 import { type JwtPayload, JwtValidationError, validateJwt } from "./jwt";
 import { type McpRelayResponse, McpRelayServer } from "./mcp-relay-server";
 import {
@@ -486,9 +485,6 @@ export class AgentServer {
   private readonly cancelledStartupSessions = new WeakSet<ActiveSession>();
   private runUsage = new RunUsageAccumulator();
   private runUsageRunId: string | null = null;
-  private gatewayAccounting: GatewayAccountingProxy | null = null;
-  private readonly gatewayBearer =
-    process.env.AI_GATEWAY_TOKEN?.trim() || undefined;
   private detectedPrUrl: string | null = null;
   private slackArtifactDelivery: SlackArtifactDelivery | null = null;
   private slackChartDelivery = false;
@@ -1111,10 +1107,6 @@ export class AgentServer {
               Promise.resolve()),
         5_000,
       );
-      if (this.gatewayAccounting) {
-        await this.gatewayAccounting.stop();
-        this.gatewayAccounting = null;
-      }
     } finally {
       this.server?.close();
       this.server = null;
@@ -1155,16 +1147,6 @@ export class AgentServer {
       this.logger.error(
         "Failed to mark run failed after fatal error",
         updateError,
-      );
-    }
-
-    try {
-      await this.gatewayAccounting?.stop();
-      this.gatewayAccounting = null;
-    } catch (stopError) {
-      this.logger.error(
-        "Failed to stop gateway accounting after fatal error",
-        stopError,
       );
     }
 
@@ -1830,16 +1812,6 @@ export class AgentServer {
     try {
       await this.initializationPromise;
     } catch (error) {
-      try {
-        await this.gatewayAccounting?.stop();
-      } catch (stopError) {
-        this.logger.warn(
-          "Failed to stop gateway accounting after initialization failure",
-          stopError,
-        );
-      } finally {
-        this.gatewayAccounting = null;
-      }
       if (this.shutdownController.signal.aborted) throw error;
       this.bootTracker.markFailed();
       if (error instanceof CredentialRelayError) {
@@ -2017,30 +1989,6 @@ export class AgentServer {
         authToken: gatewayEnv.anthropicAuthToken,
         projectId: Number(gatewayEnv.posthogProjectId) || undefined,
       }).catch(() => {});
-    }
-
-    if (gatewayEnv.isAiGateway) {
-      const upstreamBearer = gatewayEnv.anthropicAuthToken;
-      this.gatewayAccounting = new GatewayAccountingProxy({
-        api: this.posthogAPI,
-        taskId: payload.task_id,
-        runId: payload.run_id,
-        upstreamUrl: gatewayEnv.anthropicBaseUrl,
-        upstreamBearer,
-        logger: this.logger,
-      });
-      try {
-        await this.gatewayAccounting.start();
-      } catch (error) {
-        await this.gatewayAccounting.stop();
-        this.gatewayAccounting = null;
-        throw error;
-      }
-      gatewayEnv.anthropicBaseUrl = this.gatewayAccounting.baseUrl;
-      gatewayEnv.openaiBaseUrl = `${this.gatewayAccounting.baseUrl}/v1`;
-      gatewayEnv.anthropicAuthToken = this.gatewayAccounting.bearer;
-      gatewayEnv.openaiApiKey = this.gatewayAccounting.bearer;
-      delete process.env.AI_GATEWAY_TOKEN;
     }
 
     const prUrl = getTaskRunStateString(preTaskRun, "slack_notified_pr_url");
@@ -5184,7 +5132,7 @@ ${commonInstructions}
     // run's per-team OAuth token, whose team has no gateway wallet. A routed
     // product with no token therefore stays on the Python gateway. The worker's env values
     // win, because the token is pinned to the product they name.
-    const gatewayToken = this.gatewayBearer;
+    const gatewayToken = process.env.AI_GATEWAY_TOKEN?.trim() || undefined;
     let target = resolveGatewayTarget({
       product,
       aiStage,
@@ -5301,7 +5249,6 @@ ${commonInstructions}
       anthropicCustomHeaders: customHeaders,
       openaiCustomHeaders,
       posthogProjectId: String(projectId),
-      isAiGateway,
     };
   }
 
@@ -5949,11 +5896,6 @@ ${commonInstructions}
 
     if (this.session.sseController) {
       this.session.sseController.close();
-    }
-
-    if (this.gatewayAccounting) {
-      await this.gatewayAccounting.stop();
-      this.gatewayAccounting = null;
     }
 
     if (completeEventStream) {

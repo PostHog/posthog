@@ -3,6 +3,7 @@ export type PosthogPropertyValue = string | number | boolean | null | undefined;
 export type PosthogProperties = Record<string, PosthogPropertyValue>;
 
 export const POSTHOG_PROJECT_ID_HEADER = "X-PostHog-Project-Id";
+export const POSTHOG_TASK_RUN_ID_HEADER = "X-PostHog-Task-Run-Id";
 
 /**
  * Make a value safe to embed in an HTTP header value. Only printable ASCII
@@ -33,6 +34,11 @@ function buildEntries(properties: PosthogProperties): Array<[string, string]> {
   return entries;
 }
 
+function taskRunIdHeader(properties: PosthogProperties): string | null {
+  const taskRunId = properties.task_run_id;
+  return typeof taskRunId === "string" ? sanitizeHeaderValue(taskRunId) : null;
+}
+
 /**
  * Build a `Record<string, string>` of `x-posthog-property-<name>` headers
  * suitable for `fetch()` init.headers. The LLM gateway lifts each header
@@ -44,7 +50,11 @@ function buildEntries(properties: PosthogProperties): Array<[string, string]> {
 export function buildPosthogPropertyHeaderRecord(
   properties: PosthogProperties,
 ): Record<string, string> {
-  return Object.fromEntries(buildEntries(properties));
+  const taskRunId = taskRunIdHeader(properties);
+  return {
+    ...Object.fromEntries(buildEntries(properties)),
+    ...(taskRunId ? { [POSTHOG_TASK_RUN_ID_HEADER]: taskRunId } : {}),
+  };
 }
 
 /**
@@ -56,9 +66,11 @@ export function buildPosthogPropertyHeaderRecord(
 export function buildPosthogPropertyHeaderLines(
   properties: PosthogProperties,
 ): string {
-  return buildEntries(properties)
-    .map(([key, value]) => `${key}: ${value}`)
-    .join("\n");
+  const taskRunId = taskRunIdHeader(properties);
+  return [
+    ...buildEntries(properties).map(([key, value]) => `${key}: ${value}`),
+    ...(taskRunId ? [`${POSTHOG_TASK_RUN_ID_HEADER}: ${taskRunId}`] : []),
+  ].join("\n");
 }
 
 /**
@@ -193,7 +205,11 @@ export function buildPosthogPropertiesHeaderRecord(
   properties: PosthogProperties,
 ): Record<string, string> {
   const blob = buildPosthogPropertiesBlob(properties);
-  return blob ? { [POSTHOG_PROPERTIES_HEADER]: blob } : {};
+  const taskRunId = taskRunIdHeader(properties);
+  return {
+    ...(blob ? { [POSTHOG_PROPERTIES_HEADER]: blob } : {}),
+    ...(taskRunId ? { [POSTHOG_TASK_RUN_ID_HEADER]: taskRunId } : {}),
+  };
 }
 
 /**
@@ -204,5 +220,9 @@ export function buildPosthogPropertiesHeaderLines(
   properties: PosthogProperties,
 ): string {
   const blob = buildPosthogPropertiesBlob(properties);
-  return blob ? `${POSTHOG_PROPERTIES_HEADER}: ${blob}` : "";
+  const taskRunId = taskRunIdHeader(properties);
+  return [
+    ...(blob ? [`${POSTHOG_PROPERTIES_HEADER}: ${blob}`] : []),
+    ...(taskRunId ? [`${POSTHOG_TASK_RUN_ID_HEADER}: ${taskRunId}`] : []),
+  ].join("\n");
 }

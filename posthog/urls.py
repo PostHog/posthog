@@ -74,6 +74,7 @@ from products.stamphog.backend.facade.webhooks import stamphog_github_webhook
 from products.streamlit_apps.backend.presentation.bridge_views import StreamlitBridgeView
 from products.surveys.backend.api.survey import public_survey_page
 from products.tasks.backend.facade.agent_proxy import agent_proxy_callback
+from products.tasks.backend.facade.gateway import gateway_generation_request
 from products.user_interviews.backend.presentation.webhooks import (
     start_call as user_interviews_start_call,
     vapi_webhook,
@@ -224,6 +225,10 @@ urlpatterns = [
     path(
         "internal/tasks/runs/<str:run_id>/agent-proxy-callback/",
         csrf_exempt(agent_proxy_callback),
+    ),
+    path(
+        "internal/teams/<int:team_id>/task_runs/<str:run_id>/generation_requests/<str:request_id>/",
+        csrf_exempt(gateway_generation_request),
     ),
     # Internal SQLV2 run result callback (auth: signed callback token)
     path(

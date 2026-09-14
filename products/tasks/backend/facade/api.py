@@ -83,11 +83,7 @@ from products.tasks.backend.feature_flags import get_model_access_error, is_work
 from products.tasks.backend.github_repository_access import (
     inaccessible_repositories_via_integration as _inaccessible_repositories_via_integration,
 )
-from products.tasks.backend.logic.services.gateway_usage import (
-    gateway_usage_enabled,
-    processed_gateway_request_ids,
-    refresh_task_run_spend,
-)
+from products.tasks.backend.logic.services.gateway_usage import gateway_usage_enabled, refresh_task_run_spend
 from products.tasks.backend.logic.services.image_builder import (
     ensure_image_builder_task,
     is_custom_images_enabled,
@@ -2803,13 +2799,6 @@ def update_task_run(
         if isinstance(raw_state_append, dict)
         else {}
     )
-    gateway_request_id = raw_state_append.get("unprocessed_request_ids") if isinstance(raw_state_append, dict) else None
-    if (
-        caller_is_agent
-        and isinstance(gateway_request_id, str)
-        and re.fullmatch(r"[A-Za-z0-9_-]{1,255}", gateway_request_id)
-    ):
-        state_append["unprocessed_request_ids"] = gateway_request_id
     has_state_mutation = has_state_merge or bool(state_remove_keys) or bool(state_append)
     update_fields: set[str] = set()
 
@@ -2859,14 +2848,7 @@ def update_task_run(
             next_state = dict(run.state) if isinstance(run.state, dict) else {}
             for append_key, item in state_append.items():
                 current = next_state.get(append_key)
-                if append_key == "unprocessed_request_ids":
-                    current_ids = current if isinstance(current, list) else []
-                    token_spend = next_state.get("token_spend")
-                    if isinstance(token_spend, dict) and isinstance(current, list):
-                        processed_ids = processed_gateway_request_ids(next_state)
-                        if item not in current_ids and item not in processed_ids:
-                            next_state[append_key] = [*current_ids, item]
-                elif isinstance(current, list):
+                if isinstance(current, list):
                     next_state[append_key] = [*current, item]
                 elif current is None:
                     next_state[append_key] = [item]

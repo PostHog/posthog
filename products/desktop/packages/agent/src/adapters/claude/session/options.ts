@@ -83,7 +83,6 @@ export type GatewayEnv = {
   openaiCustomHeaders?: Record<string, string>;
   /** PostHog project ID used to build the gateway project-scope header. */
   posthogProjectId?: string;
-  isAiGateway?: boolean;
 };
 
 export interface BuildOptionsParams {
@@ -489,7 +488,6 @@ function buildSpawnWrapper(
   logger?: Logger,
   oauthToken?: string,
   onStartupOutput?: (stdout: Readable) => void,
-  gatewayEnv?: GatewayEnv,
 ): (options: SpawnOptions) => SpawnedProcess {
   return (spawnOpts: SpawnOptions): SpawnedProcess => {
     const command = oauthToken ? "/bin/bash" : spawnOpts.command;
@@ -507,7 +505,6 @@ function buildSpawnWrapper(
       cwd: spawnOpts.cwd,
       env: {
         ...spawnOpts.env,
-        ...buildEnvironment(gatewayEnv, sessionId),
         ...(oauthToken ? { CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR: "3" } : {}),
       },
       stdio: oauthToken
@@ -713,7 +710,6 @@ export function buildSessionOptions(params: BuildOptionsParams): Options {
         params.logger,
         params.machineAuth?.oauthToken,
         params.onStartupOutput,
-        params.gatewayEnv,
       ),
     }),
   };

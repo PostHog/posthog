@@ -294,6 +294,7 @@ class TaskRunUpdateSerializer(serializers.Serializer):
         help_text="State keys to remove atomically before applying any state updates.",
     )
     state_append = serializers.DictField(
+        child=serializers.JSONField(),
         required=False,
         allow_empty=False,
         help_text=(
@@ -305,18 +306,6 @@ class TaskRunUpdateSerializer(serializers.Serializer):
     error_message = serializers.CharField(
         required=False, allow_null=True, allow_blank=True, help_text="Error message if execution failed"
     )
-
-    def validate_state_append(self, value: dict[str, Any]) -> dict[str, Any]:
-        request_id = value.get("unprocessed_request_ids")
-        if "unprocessed_request_ids" in value and (
-            not isinstance(request_id, str) or re.fullmatch(r"[A-Za-z0-9_-]{1,255}", request_id) is None
-        ):
-            raise serializers.ValidationError(
-                {
-                    "unprocessed_request_ids": "Must contain one gateway request ID with letters, numbers, underscores, or hyphens."
-                }
-            )
-        return value
 
 
 class TaskRunSkillBundleMetadataSerializer(serializers.Serializer):

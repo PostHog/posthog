@@ -85,7 +85,27 @@ def _spend_buckets(state: dict[str, Any]) -> Iterable[dict[str, Any]]:
 
 
 def processed_gateway_request_ids(state: dict[str, Any]) -> set[str]:
-    return {request_id for bucket in _spend_buckets(state) for request_id in bucket.get("request_ids", [])}
+    return {
+        request_id
+        for bucket in _spend_buckets(state)
+        for request_id in bucket.get("request_ids", [])
+        if isinstance(request_id, str)
+    }
+
+
+def record_generation_request(*, team_id: int, run_id: UUID, request_id: str) -> None:
+    with transaction.atomic():
+        run = _locked_run(run_id, team_id)
+        state = dict(run.state or {})
+        pending = state.get("unprocessed_request_ids")
+        if not isinstance(pending, list):
+            pending = []
+        if request_id not in pending and request_id not in processed_gateway_request_ids(state):
+            pending = [*pending, request_id]
+        state["unprocessed_request_ids"] = pending
+        state.setdefault("token_spend", {})
+        run.state = state
+        run.save(update_fields=["state", "updated_at"])
 
 
 def _pending_ids(state: dict[str, Any]) -> list[str]:
