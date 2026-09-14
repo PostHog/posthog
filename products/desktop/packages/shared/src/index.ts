@@ -52,7 +52,11 @@ export {
   tabsSnapshotSchema,
   tabViewStateSchema,
 } from "./browser-tabs-schemas";
-export { omitNullCallToolResultFields } from "./call-tool-result";
+export {
+  boundPersistedMcpResult,
+  MAX_PERSISTED_MCP_RESULT_BYTES,
+  omitNullCallToolResultFields,
+} from "./call-tool-result";
 export * from "./canvas-contracts";
 export * from "./canvas-platform";
 export type { CloudRunSource, PrAuthorshipMode } from "./cloud";
@@ -253,11 +257,14 @@ export {
   workflowAgentStateSchema,
 } from "./orchestration";
 export {
+  CLIPBOARD_ATTACHMENT_DIR_NAME,
+  CLIPBOARD_ATTACHMENT_PREFIX,
   compactHomePath,
   expandTildePath,
   getFileExtension,
   getFileName,
   isAbsolutePath,
+  isClipboardAttachmentPath,
   pathToFileUri,
   toRelativePath,
 } from "./path";
