@@ -84,6 +84,7 @@ import { QueryContext } from '~/queries/types'
 import { AlertType } from 'products/alerts/frontend/types'
 import type { NodeApiSuspended } from 'products/data_modeling/frontend/generated/api.schemas'
 import type {
+    DataWarehouseSavedQueryApi,
     DataWarehouseSavedQueryApiSuspended,
     SyncFrequencyBoundsApi,
 } from 'products/data_warehouse/frontend/generated/api.schemas'
@@ -908,6 +909,9 @@ export interface WorkflowsConfig {
     capture_workflows_engagement_events: boolean
     // Optional so cached team objects from before this field shipped still typecheck.
     email_tracking_consent_mode?: 'off' | 'opt_out' | 'opt_in'
+    // Null uses the product default.
+    workflow_task_rate_limit_per_day?: number | null
+    workflow_task_team_rate_limit_per_day?: number | null
 }
 
 export interface FeatureFlagPolicyConfig {
@@ -6187,6 +6191,7 @@ export enum ActivityScope {
     ERROR_TRACKING_ISSUE = 'ErrorTrackingIssue',
     DATA_WAREHOUSE_EXPRESSION = 'DataWarehouseExpression',
     DATA_WAREHOUSE_SAVED_QUERY = 'DataWarehouseSavedQuery',
+    DATA_QUALITY_CHECK = 'DataQualityCheck',
     USER_INTERVIEW = 'UserInterview',
     TAG = 'Tag',
     TAGGED_ITEM = 'TaggedItem',
@@ -6344,6 +6349,7 @@ export interface DataWarehouseSavedQuery {
     suspended?: DataWarehouseSavedQueryApiSuspended
     created_by?: UserBasicType | null
     created_at?: string
+    updated_at?: DataWarehouseSavedQueryApi['updated_at']
     run_history?: DataWarehouseSavedQueryRunHistory[]
     origin?: DataWarehouseSavedQueryOrigin
     is_test?: boolean

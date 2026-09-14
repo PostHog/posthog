@@ -136,7 +136,7 @@ def _clear_modified_marker(job: DataModelingJob) -> None:
     # The API stamps `Modified` on a query edit. A serving run that started after the last save has
     # consumed that edit, so the marker must go. `updated_at` moves on every save, which is why the
     # comparison happens here, at run time, and not when the view is read.
-    if job.engine == DataModelingJobEngine.DUCKGRES or job.saved_query_id is None:
+    if job.engine != DataModelingJobEngine.CLICKHOUSE or job.saved_query_id is None:
         return
     DataWarehouseSavedQuery.objects.filter(
         id=job.saved_query_id,

@@ -1,6 +1,6 @@
 import re
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, TypeVar
 
 from django.db import IntegrityError, transaction
 from django.db.models import QuerySet
@@ -19,10 +19,17 @@ from ..models.skills import (
     category_for_skill_name,
 )
 
+_DigestModel = TypeVar("_DigestModel", LLMSkill, LLMSkillFile)
+
 MAX_SKILL_VERSION = 2000
 MAX_SKILL_BODY_BYTES = 1_000_000
 MAX_SKILL_FILE_BYTES = 1_000_000
 MAX_SKILL_FILE_COUNT = 200
+# A digest backfill page holds the full content of every row in it, because a digest cannot be
+# computed without the content. One body or bundled file is allowed to reach MAX_SKILL_BODY_BYTES /
+# MAX_SKILL_FILE_BYTES, so the page is sized against those caps rather than against a row count:
+# 100 rows bounds a page at about 100 MB of content. Raise it with --batch-size for small rows.
+DIGEST_BACKFILL_BATCH_SIZE = 100
 # Skill names that collide with reserved /skills routes and so can't be used: "new" is the create
 # form, and the rest mirror the category-tab slugs registered under /skills/<slug> in
 # products/skills/manifest.tsx — a skill with such a name would be shadowed by its tab route.
@@ -738,26 +745,31 @@ def rename_skill(team: Team, *, skill_name: str, new_name: str) -> LLMSkill:
         raise LLMSkillRenameNotAllowedError(prefix=blocked_prefix)
 
     with transaction.atomic():
-        locked_version_ids = list(
+        locked_versions = list(
             LLMSkill.objects.select_for_update()
             .filter(team=team, name=skill_name, deleted=False)
             .order_by("version", "created_at", "id")
-            .values_list("id", flat=True)
         )
-        if not locked_version_ids:
+        if not locked_versions:
             raise LLMSkillNotFoundError()
         if new_name == skill_name:
             return _renamed_skill_or_missing(team, new_name)
         if LLMSkill.objects.filter(team=team, name=new_name, deleted=False).exists():
             raise LLMSkillDuplicateNameConflictError()
 
-        # Bump updated_at (the .update() bypasses auto_now) so the marketplace plugin version,
-        # derived from max(updated_at) across all team rows, advances — a renamed skill changes
-        # the directory name in the exported tree, so installs must pick the rename up.
-        LLMSkill.objects.filter(team=team, name=skill_name, deleted=False).update(
-            name=new_name,
-            updated_at=timezone.now(),
-        )
+        # Stamp each locked row rather than issuing one `.update()`: the name is the first
+        # frontmatter key of the rendered SKILL.md, so a rename changes the bytes a host downloads,
+        # and neither `.update()` nor `bulk_update` calls `save()` to restamp the digest. A stale
+        # digest is invisible to the backfill, which only repairs rows that carry none.
+        # `updated_at` is set by hand because both paths also bypass auto_now, and the marketplace
+        # plugin version is max(updated_at) across all team rows: a renamed skill changes the
+        # directory name in the exported tree, so installs must pick the rename up.
+        renamed_at = timezone.now()
+        for version in locked_versions:
+            version.name = new_name
+            version.updated_at = renamed_at
+            version.stamp_digest()
+        LLMSkill.objects.bulk_update(locked_versions, ["name", "updated_at", *LLMSkill.DIGEST_FIELDS])
         rename_skill_owners(team, skill_name, new_name)
 
     return _renamed_skill_or_missing(team, new_name)
@@ -906,3 +918,44 @@ def set_skill_owners(team: Team, skill_name: str, users: list[User]) -> list[Use
             # write context-independent (works outside a request too).
             _owner_qs(team).create(team=team, skill_name=skill_name, user=user)
     return resolve_skill_owners(team, skill_name)
+
+
+@frozen
+class SkillDigestBackfillCounts:
+    skills: int
+    files: int
+
+
+def backfill_skill_digests(
+    *, batch_size: int = DIGEST_BACKFILL_BATCH_SIZE, recompute: bool = False
+) -> SkillDigestBackfillCounts:
+    """Stamp `sha256`/`size` on rows written before digests existed. Safe to re-run.
+
+    Every write path stamps its own digest, so this only has to reach the history. It walks in
+    primary-key order and writes fixed-size batches, so a team with a long skill history cannot
+    pull the whole table into memory. `recompute` re-stamps rows that already carry a digest,
+    for when the rendered form of a SKILL.md changes.
+    """
+    skills = LLMSkill.objects.all() if recompute else LLMSkill.objects.filter(skill_md_sha256__isnull=True)
+    files = LLMSkillFile.objects.all() if recompute else LLMSkillFile.objects.filter(content_sha256__isnull=True)
+    return SkillDigestBackfillCounts(
+        skills=_backfill_digests(LLMSkill, skills, batch_size), files=_backfill_digests(LLMSkillFile, files, batch_size)
+    )
+
+
+def _backfill_digests(model: type[_DigestModel], queryset: QuerySet[_DigestModel], batch_size: int) -> int:
+    # Cursor on the primary key rather than re-running the "needs a digest" filter: under
+    # `recompute` that filter matches every row, so a fixed `[:batch_size]` slice would never
+    # advance and the walk would never end.
+    cursor: Any = None
+    stamped = 0
+    while True:
+        page = queryset.filter(pk__gt=cursor) if cursor is not None else queryset
+        rows = list(page.order_by("pk")[:batch_size])
+        if not rows:
+            return stamped
+        for row in rows:
+            row.stamp_digest()
+        model.objects.bulk_update(rows, list(model.DIGEST_FIELDS))
+        stamped += len(rows)
+        cursor = rows[-1].pk

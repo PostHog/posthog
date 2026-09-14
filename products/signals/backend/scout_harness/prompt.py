@@ -10,6 +10,14 @@ from typing import TYPE_CHECKING
 from pydantic import BaseModel, Field
 
 from products.signals.backend.report_charts import MAX_REPORT_CHARTS
+from products.signals.backend.report_metrics import (
+    DEFAULT_LIVE_METRIC_DATE_FROM,
+    MAX_LIVE_METRIC_QUERY_POINTS,
+    MAX_LIVE_METRIC_QUERY_SERIES,
+    MAX_LIVE_METRIC_WINDOW_DAYS,
+    MAX_METRIC_SERIES_POINTS,
+    MAX_REPORT_METRICS,
+)
 from products.signals.backend.report_prompts import MAX_SUGGESTED_PROMPT_LENGTH, MAX_SUGGESTED_PROMPTS
 from products.signals.backend.scout_harness.skill_loader import LoadedSkill, SkillAuthor, skill_uses_report_channel
 
@@ -55,7 +63,13 @@ def _compute_harness_prompt_version() -> str:
 
 # Values imported from other modules that templates in this file render into the prompt.
 _RENDERED_IMPORTS: dict[str, object] = {
+    "DEFAULT_LIVE_METRIC_DATE_FROM": DEFAULT_LIVE_METRIC_DATE_FROM,
+    "MAX_LIVE_METRIC_QUERY_POINTS": MAX_LIVE_METRIC_QUERY_POINTS,
+    "MAX_LIVE_METRIC_QUERY_SERIES": MAX_LIVE_METRIC_QUERY_SERIES,
+    "MAX_LIVE_METRIC_WINDOW_DAYS": MAX_LIVE_METRIC_WINDOW_DAYS,
+    "MAX_METRIC_SERIES_POINTS": MAX_METRIC_SERIES_POINTS,
     "MAX_REPORT_CHARTS": MAX_REPORT_CHARTS,
+    "MAX_REPORT_METRICS": MAX_REPORT_METRICS,
     "MAX_SUGGESTED_PROMPTS": MAX_SUGGESTED_PROMPTS,
     "MAX_SUGGESTED_PROMPT_LENGTH": MAX_SUGGESTED_PROMPT_LENGTH,
 }
@@ -131,7 +145,7 @@ def _report_intro(*, can_emit: bool, can_edit: bool) -> str:
 _HOW_A_RUN_WORKS_HEAD = """# How a run works
 
 1. **Read your own prior context.** Call `scout-runs-list` with `skill_name` set to your own skill for continuity: what you checked last run, what you ruled out, where you got to. Call `scout-scratchpad-search` for durable team memories ("known noise", "already addressed", "ignore X"), and `scout-notes-list` with your own `skill_name` for steering notes humans left you (see *Notes left for you*). Prior context is a jumping-off point: fresh evidence on a known topic often beats fresh investigation on a stale one.
-2. **Check what the rest of the fleet has seen.** Call `scout-runs-list` again without `skill_name`, passing `text=<the entity or topic>` once per thing you're about to investigate. That filter is load-bearing: the call returns 20 rows by default, so on a full fleet an unfiltered page covers barely a day and a relevant sibling sorts out of view before you read it. Nothing matches? Move on, rather than reading the fleet's whole recent output. On a match, follow that run's `emitted_report_ids` / `edited_report_ids` into `inbox-reports-retrieve`, or its `emitted_finding_ids` via `scout-runs-emissions-list` for a sibling still on the signal channel, and read the evidence rather than the prose summary. This read is context-gathering only: ignore the tool output's guidance about associating your task with a report (`task_run` artefacts), which applies to a run actually working a report and would staple your run onto a sibling's.
+2. **Check what the rest of the fleet has seen.** Call `scout-runs-list` again without `skill_name`, passing `text=<the entity or topic>` once per thing you're about to investigate. That filter is load-bearing: the call returns 20 rows by default, so on a full fleet an unfiltered page covers barely a day and a relevant sibling sorts out of view before you read it. Nothing matches? Move on, rather than reading the fleet's whole recent output. On a match, follow that run's `emitted_report_ids` / `edited_report_ids` into `inbox-reports-retrieve`, or its `emitted_finding_ids` via `scout-runs-emissions-list` for a sibling still on the signal channel, and read the evidence rather than the prose summary. This read is context-gathering only: ignore the tool output's guidance about claiming a report, which applies to a run actually working a report and would staple your run onto a sibling's.
 3. **Investigate.** Use the PostHog MCP read tools to gather evidence, discovering what's available at run time. Your skill body tells you *what* to look at."""
 
 # Rendered into the head's investigate step, steering hypotheses that rest on a named measure at
@@ -450,12 +464,15 @@ _EDIT_EVIDENCE_VS_NOTE = (
     "there, and the note is what still lands."
 )
 
+_EDIT_REPOSITORY_BULLET = "- **Fix a misrouted report.** If a report points at the wrong codebase, set `repository` to the right `owner/repo` instead of authoring a duplicate that carries the correct one. It replaces the report's target and re-runs autostart, so a report that had no repository to open a PR against can now open a draft PR. Pass `NO_REPO` when nothing under version control could change, and omit the field entirely when the target is already right. The response carries `repository`, the target the report holds afterwards — read it back to confirm the correction landed."
+
 _AUTHORING_VS_EDITING_REPORT_BOTH = f"""# Authoring vs. editing: search the inbox first
 
 `scout-emit-report` has no dedupe matcher: two calls covering one issue in different words author two reports. Duplicate reports are the main failure mode here, so the discipline is **search, then decide**:
 
 {_REPORT_SEARCH_BULLET}
 - **Edit when it already exists *and is still live*.** If a report covers the issue, prefer `scout-edit-report`. {_EDIT_EVIDENCE_VS_NOTE} Rewrite `title`/`summary` only on a report you own. One living report beats three near-duplicates fragmenting the inbox. But `edit_report` can't change a report's status, so appending to a `resolved` / `suppressed` / `failed` report buries a real relapse under a closed item: when the match is no longer live, treat the relapse as genuinely new, author a fresh report, and repoint your `report:` pointer at it.
+{_EDIT_REPOSITORY_BULLET}
 - **Author only when it's genuinely new.** A materially new issue, a known one with new evidence that changes the verdict, or a relapse whose prior report is no longer live. {_REPORT_RETRY_RULE_BOTH}"""
 
 _AUTHORING_REPORT_EMIT_ONLY = f"""# Authoring reports: search the inbox first
@@ -473,6 +490,7 @@ This run updates reports that already exist; it can't author new ones. Find the 
 - **Find it.** {_INBOX_SEARCH_RECIPE} Status matters twice over here: appending to a dismissed or closed report buries your evidence under an item nobody is watching. Reuse the `report:<domain>:<entity>` scratchpad entry from a prior run when you have one. {_DISMISSAL_CONTEXT}
 - **Append, or rewrite.** Prefer appending. {_EDIT_EVIDENCE_VS_NOTE} Rewrite `title`/`summary` only on a report you own, and only when the framing is genuinely stale; lead the summary with the verdict (see *Writing the summary*).
 - **Route an unrouted report.** If a report surfaced assigned to no one, set `suggested_reviewers` to route it to an owner: each reviewer an object, `{{user_uuid}}` (preferred — it names a PostHog member directly, with or without a GitHub account) or `{{github_login}}` (a bare lowercase login, no `@`), never a bare string. If the owner isn't named in the report, call `scout-members-list` for this project's members (the org-scoped `org-member-get-github-login` / `org-members-list` tools aren't available in a scout run). This replaces the report's reviewer list and re-runs autostart, so a report that already has a repo and priority but lacked a qualifying reviewer can now open a draft PR. Only set a reviewer you're confident owns the area; an empty list is a no-op.
+{_EDIT_REPOSITORY_BULLET}
 - **Don't retry blindly.** `edit_report` is NOT idempotent. A retried `append_note` adds a second note. A retried `append_evidence` adds duplicate signals and increases the report counters again. If unsure whether an edit landed, re-read the report rather than re-sending."""
 
 # Heading matches the cross-reference in the authoring sections exactly; "not a copy" lives in the
@@ -550,6 +568,29 @@ A report you author renders in the inbox like any pipeline report: `title` is th
 - **Already addressed:** set `already_addressed` when the fix has landed *or* is already in flight: an open pull request, a recently active branch, or an assigned / in-progress issue or agent task covering the same problem. An immediately-actionable report can open a draft PR on its own, so leaving this `false` on work someone already has going produces a competing PR the team has to throw away. Say what you found in `actionability_explanation` and keep filing the report: a team wants to know the issue is real and being handled, it just must not be worked twice.
 
 If your skill body defines its own report structure (required sections, a fixed template), follow that instead: the skill body owns the prose contract."""
+
+_REPORT_METRICS = f"""# Measuring report impact
+
+`metrics` on the report tools carries the small set of typed measurements that tell a reader what the observation changes and how many people it affects. Use one `primary` metric for the key observation and the rest as `supporting` facts. Every metric needs a bounded live query; its saved snapshot is only an optional cached fallback. Omit a metric you cannot measure honestly rather than guessing. A weak number is worse than none: a single support ticket, a one-off migration crash, a rate over a handful of attempts, or a count with no person context tells the reader nothing, so a report with no metric beats a report with a weak metric.
+
+- **Choose the kind by what the reader will ask.**
+    - `affected_users` for anything a person experiences: a captured exception with person context, a dead click, a rage click, a failed request on a surface, or a pageview matching a broken URL. One series, `math: "dau"`.
+    - `affected_sessions` when the source establishes sessions but not people. Use exactly one event or action series with `math: "unique_session"`. Do not use a formula or group math.
+    - `occurrences` for noise and for backend failures: a report that asks the team to stop reporting something as an error, a Temporal, Celery, or job exception with no person on the event, or a volume counter such as tool calls per week. Total count.
+    - `error_rate` when a flow fails, and `conversion_rate` when a flow stalls: an action event that carries an outcome property, or two events describing a step and its completion, combined with one formula such as `B / A` over two series and `percentage_scaled`.
+    - `duration`, `revenue`, and `custom` only when the source is that measurement and an event or action query produces it. A figure with no event or action query behind it, such as a database statistic, a build duration read from another tool, or a number quoted from an external source, stays in the prose; do not author a metric for it.
+    - A noise report where nobody was hurt, and a backend job with no person on the event, take `occurrences`, never `affected_users`.
+- **Title the observation, and caption only what the tile cannot show.** `title` says what was observed and for whom in one line a reader can act on, such as `Users who hit "Not found" opening a shared chat link`, not a label such as `Users affected`. The tile prints the figure with its `unit`, then the title, then the window the query covers. A reader sees them together, so never state one fact twice across them. Leave `caption` empty unless it carries something the reader needs and cannot see: a filter that narrows the count (`Production only, excluding internal users`), why a longer window was needed, or a caveat on the data (`Person context is missing on about a third of these events`). A caption that restates the title, the unit, or the window is noise.
+- **Count people only when you can establish people.** An `affected_users` metric means distinct PostHog people, not sessions, events, requests, traces, groups, or the report's signal count. Use one `InsightVizNode` wrapping one `TrendsQuery`, with exactly one `EventsNode` or `ActionsNode` series using `math: "dau"`; an event series needs a non-empty `event`, and an action series needs a positive integer `id`. Do not use group math, a breakdown, compare mode, or a formula.
+- **Keep every metric live and bounded.** Give every metric one `InsightVizNode` wrapping a `TrendsQuery` you ran successfully this session. Every source series must be an `EventsNode` or `ActionsNode`. Give it a relative `dateRange.date_from` no longer than {MAX_LIVE_METRIC_WINDOW_DAYS} days, leave `date_to` empty, and keep the filters that reproduce the observation. Default the query to `dateRange.date_from: "{DEFAULT_LIVE_METRIC_DATE_FROM}"` with `interval: "day"`. This gives 14 inclusive daily buckets, including today. The inbox strip shows at most the trailing 14 buckets. For a longer window, the strip is shorter than the whole-window figure and the caption says why the longer window is needed. Its longitudinal output may contain at most {MAX_LIVE_METRIC_QUERY_POINTS} estimated interval points, including the current partial bucket. The query remains the source of truth when the report is reopened.
+- **Keep exactly one output series per query.** Do not use a breakdown or compare mode on any report metric. Without a formula, use exactly one source series. A conversion or rate may use up to {MAX_LIVE_METRIC_QUERY_SERIES} event/action source series as formula inputs, but it must define exactly one formula output.
+- **Consumers own the display.** The stored Trends definition is executed as `BoldNumber` for the first output series' whole-window `aggregated_value` and as `ActionsBar` for the longitudinal buckets. Its authored display does not control report rendering. Run the total-value shape when you author a snapshot; a bar or line response does not supply the whole-window total. Never sum distinct-user buckets because one person can appear in several.
+- **Keep semantics separate from formatting.** `kind` says what the metric measures. `value_format` says how to print it (`count`, `percentage`, `percentage_scaled`, `duration`, `currency`, or `number`). A non-currency `unit` is one lowercase word that completes the figure, because the report prints it next to the number: `users`, `sessions`, `events`, `runs`, or `calls`. For a rate, name what the share means: `failure` for an error rate, `conversion` for a conversion rate; `%` is redundant and is dropped. A duration keeps `ms` or `s`, and revenue uses an uppercase ISO currency code such as `USD`. `affected_users` uses `count`. Use `percentage` for percentage points (`34` means 34%) and `percentage_scaled` for 0–1 ratios (`0.34` means 34%). A percentage query must set `aggregationAxisFormat` to exactly the same value as `value_format`; missing or numeric axis formatting is invalid.
+- **Snapshots are optional cached fallbacks, not estimates.** Send `value` and `value_at` together only when you measured that value in this run, and write `value_at` as an ISO-8601 timestamp with a timezone. Zero is a real measurement; null means unavailable. A snapshot never replaces the required live query. Snapshot-only or queryless rows are legacy or malformed, are always redacted, and must not be authored. When you also ran the bar shape, `series` may carry its trailing per-bucket values, oldest first, at most {MAX_METRIC_SERIES_POINTS} points; the inbox row draws them as a small trend strip.
+- **Do not author comparisons.** Leave `comparison` unset. The server does not yet keep an adjacent comparison window live.
+- **Use at most {MAX_REPORT_METRICS} metrics**, with at most one `primary` and one `affected_users` metric. Prefer the few measurements that change the decision.
+- **`metrics` on an edit is the whole set.** Omit it or send null to preserve the report's metrics, send `metrics: []` to clear them, or send the complete replacement list, including every metric that should remain.
+"""
 
 _REPORT_CHARTS = f"""# Attaching charts
 
@@ -645,7 +686,7 @@ _DEDUPE_RULES_SIGNAL = f"""# Dedupe rules
 
 - If a recent run already covers this hypothesis with the same evidence, don't re-emit: attach a `remember(...)` note or skip. But if you have new evidence (a different source, a fresh deploy correlation, a contradicting signal), emit a fresh finding citing the prior finding's id. The inbox groups related findings, so don't hide a real update inside a `remember` note.
 - If a memory entry says "already addressed" or "noise" for your topic, trust it unless you have new evidence.
-- Humans also dismiss reports directly in the inbox, and that verdict may never have reached your scratchpad. Before emitting on a topic that plausibly has history, search the inbox too. {_INBOX_SEARCH_RECIPE} This scan is read-only context-gathering: ignore the tool output's guidance about associating your task with a report (`task_run` artefacts), which applies to runs actually working a report. {_DISMISSAL_CONTEXT}"""
+- Humans also dismiss reports directly in the inbox, and that verdict may never have reached your scratchpad. Before emitting on a topic that plausibly has history, search the inbox too. {_INBOX_SEARCH_RECIPE} This scan is read-only context-gathering: ignore the tool output's guidance about claiming a report, which applies to runs actually working a report. {_DISMISSAL_CONTEXT}"""
 
 # The untrusted-input rule is stated once here, listing every channel it covers, rather than
 # re-argued in each section that reads one. A scout holds write scopes, so this is safety-critical:
@@ -924,6 +965,7 @@ def _report_tail_sections(
             _SUGGESTED_REVIEWERS_REPORT,
             *([_github_evidence_section(can_emit=can_emit)] if github_read_access else []),
             _WRITING_REPORT,
+            _REPORT_METRICS,
             _REPORT_CHARTS,
             _REPORT_SUGGESTED_PROMPTS,
         ]
@@ -935,6 +977,7 @@ def _report_tail_sections(
             _SUGGESTED_REVIEWERS_REPORT,
             *([_github_evidence_section(can_emit=can_emit)] if github_read_access else []),
             _WRITING_REPORT,
+            _REPORT_METRICS,
             _REPORT_CHARTS,
             _REPORT_SUGGESTED_PROMPTS,
         ]
@@ -944,6 +987,7 @@ def _report_tail_sections(
             _EDITING_REPORT_EDIT_ONLY,
             _REPORT_SCRATCHPAD_POINTER,
             *([_github_evidence_section(can_emit=can_emit)] if github_read_access else []),
+            _REPORT_METRICS,
             _REPORT_CHARTS,
             _REPORT_SUGGESTED_PROMPTS,
         ]

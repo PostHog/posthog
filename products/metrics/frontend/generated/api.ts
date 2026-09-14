@@ -14,6 +14,7 @@ import type {
     MetricsAttributeValuesRetrieveParams,
     MetricsAttributesRetrieveParams,
     MetricsErrorSpikesRetrieveParams,
+    MetricsNamesRetrieveParams,
     MetricsValuesRetrieveParams,
     _HasMetricsResponseApi,
     _MetricAnomalyReportApi,
@@ -24,6 +25,7 @@ import type {
     _MetricExplainRequestApi,
     _MetricExplainResponseApi,
     _MetricNamesResponseApi,
+    _MetricPickerNamesResponseApi,
     _MetricQueryRequestApi,
     _MetricQueryResponseApi,
     _MetricSamplesRequestApi,
@@ -124,9 +126,8 @@ export const getMetricsAttributesRetrieveUrl = (projectId: string, params?: Metr
 }
 
 /**
- * Distinct attribute keys seen on the team's metrics (datapoint and
- * resource attributes merged), most frequent first. Backs the filter
- * bar's key autocomplete.
+ * Attribute keys ordered by distinct series count, from highest to
+ * lowest. `metricName` limits choices to one metric.
  */
 export const metricsAttributesRetrieve = async (
     projectId: string,
@@ -228,6 +229,36 @@ export const metricsHasMetricsRetrieve = async (
     })
 }
 
+export const getMetricsNamesRetrieveUrl = (projectId: string, params?: MetricsNamesRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/metrics/names/?${stringifiedParams}`
+        : `/api/projects/${projectId}/metrics/names/`
+}
+
+/**
+ * Distinct metric names for the viewer picker, without sparklines or caching.
+ */
+export const metricsNamesRetrieve = async (
+    projectId: string,
+    params?: MetricsNamesRetrieveParams,
+    options?: RequestInit
+): Promise<_MetricPickerNamesResponseApi> => {
+    return apiMutator<_MetricPickerNamesResponseApi>(getMetricsNamesRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getMetricsOverviewRetrieveUrl = (projectId: string) => {
     return `/api/projects/${projectId}/metrics/overview/`
 }
@@ -301,7 +332,7 @@ export const getMetricsValuesRetrieveUrl = (projectId: string, params?: MetricsV
 }
 
 /**
- * Distinct metric names for the team. Backs the picker UI.
+ * Distinct metric names for the team. Backs the catalog UI.
  */
 export const metricsValuesRetrieve = async (
     projectId: string,
