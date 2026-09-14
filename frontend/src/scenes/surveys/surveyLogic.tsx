@@ -3878,89 +3878,98 @@ export const surveyLogic = kea<surveyLogicType>([
                     ...teamLogic.values.currentTeam?.survey_config?.appearance,
                 },
             } as NewSurvey | Survey,
-            errors: ({ name, questions, appearance, type }) => {
-                const sanitizedAppearance = sanitizeSurveyAppearance(appearance)
-                return {
-                    name: !name && 'Please enter a name.',
-                    questions: questions.map((question) => {
-                        const questionErrors = {
-                            question: !question.question && 'Please enter a question label.',
-                        }
+            // kea-forms memoizes a function-style validator on the form value alone, so the team has
+            // to be a declared input. Read from the closure, a link error outlives the arrival of
+            // the project settings that clear it, and blocks the save.
+            errors: [
+                (s) => [s.survey, s.currentTeam],
+                (
+                    { name, questions, appearance, type }: NewSurvey | Survey,
+                    currentTeam: TeamPublicType | TeamType | null
+                ) => {
+                    const sanitizedAppearance = sanitizeSurveyAppearance(appearance)
+                    return {
+                        name: !name && 'Please enter a name.',
+                        questions: questions.map((question) => {
+                            const questionErrors = {
+                                question: !question.question && 'Please enter a question label.',
+                            }
 
-                        if (question.type === SurveyQuestionType.Link) {
-                            if (question.link) {
-                                if (question.link.startsWith('mailto:')) {
-                                    const emailRegex = /^mailto:[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/
-                                    if (!emailRegex.test(question.link)) {
-                                        return {
-                                            ...questionErrors,
-                                            link: 'Please enter a valid mailto link (e.g., mailto:example@domain.com).',
-                                        }
-                                    }
-                                } else if (!isAppSchemeLink(question.link, registeredLinkSchemes(values.currentTeam))) {
-                                    try {
-                                        const url = new URL(question.link)
-                                        if (url.protocol !== 'https:') {
+                            if (question.type === SurveyQuestionType.Link) {
+                                if (question.link) {
+                                    if (question.link.startsWith('mailto:')) {
+                                        const emailRegex = /^mailto:[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/
+                                        if (!emailRegex.test(question.link)) {
                                             return {
                                                 ...questionErrors,
-                                                link: 'Use an https:// link, or an app URL scheme this project allows for mobile deep links.',
+                                                link: 'Please enter a valid mailto link (e.g., mailto:example@domain.com).',
                                             }
                                         }
-                                    } catch {
-                                        return {
-                                            ...questionErrors,
-                                            link: 'Please enter a valid HTTPS URL.',
+                                    } else if (!isAppSchemeLink(question.link, registeredLinkSchemes(currentTeam))) {
+                                        try {
+                                            const url = new URL(question.link)
+                                            if (url.protocol !== 'https:') {
+                                                return {
+                                                    ...questionErrors,
+                                                    link: 'Use an https:// link, or an app URL scheme this project allows for mobile deep links.',
+                                                }
+                                            }
+                                        } catch {
+                                            return {
+                                                ...questionErrors,
+                                                link: 'Please enter a valid HTTPS URL.',
+                                            }
                                         }
                                     }
                                 }
                             }
-                        }
 
-                        if (question.type === SurveyQuestionType.Rating) {
-                            // Thumb questions (emoji + 2-point scale) hide the bound-label inputs in the editor,
-                            // so requiring them here would silently block save with no visible error.
-                            const requiresBoundLabels = !isThumbQuestion(question)
-                            return {
-                                ...questionErrors,
-                                display: !question.display && 'Please choose a display type.',
-                                scale: !question.scale && 'Please choose a scale.',
-                                lowerBoundLabel:
-                                    requiresBoundLabels &&
-                                    !question.lowerBoundLabel &&
-                                    'Please enter a lower bound label.',
-                                upperBoundLabel:
-                                    requiresBoundLabels &&
-                                    !question.upperBoundLabel &&
-                                    'Please enter an upper bound label.',
+                            if (question.type === SurveyQuestionType.Rating) {
+                                // Thumb questions (emoji + 2-point scale) hide the bound-label inputs in the editor,
+                                // so requiring them here would silently block save with no visible error.
+                                const requiresBoundLabels = !isThumbQuestion(question)
+                                return {
+                                    ...questionErrors,
+                                    display: !question.display && 'Please choose a display type.',
+                                    scale: !question.scale && 'Please choose a scale.',
+                                    lowerBoundLabel:
+                                        requiresBoundLabels &&
+                                        !question.lowerBoundLabel &&
+                                        'Please enter a lower bound label.',
+                                    upperBoundLabel:
+                                        requiresBoundLabels &&
+                                        !question.upperBoundLabel &&
+                                        'Please enter an upper bound label.',
+                                }
+                            } else if (
+                                question.type === SurveyQuestionType.SingleChoice ||
+                                question.type === SurveyQuestionType.MultipleChoice
+                            ) {
+                                return {
+                                    ...questionErrors,
+                                    choices:
+                                        !question.choices?.length || question.choices.some((choice) => !choice.trim())
+                                            ? 'Please ensure all choices are non-empty.'
+                                            : undefined,
+                                }
                             }
-                        } else if (
-                            question.type === SurveyQuestionType.SingleChoice ||
-                            question.type === SurveyQuestionType.MultipleChoice
-                        ) {
-                            return {
-                                ...questionErrors,
-                                choices:
-                                    !question.choices?.length || question.choices.some((choice) => !choice.trim())
-                                        ? 'Please ensure all choices are non-empty.'
-                                        : undefined,
-                            }
-                        }
 
-                        return questionErrors
-                    }),
-                    // release conditions controlled using a PureField in the form
-                    targeting_flag_filters: values.flagPropertyErrors,
-                    // controlled using a PureField in the form
-                    urlMatchType: values.urlMatchTypeValidationError,
-                    appearance:
-                        sanitizedAppearance &&
-                        validateSurveyAppearance(
-                            sanitizedAppearance,
-                            questions.some((q) => q.type === SurveyQuestionType.Rating),
-                            type
-                        ),
-                }
-            },
+                            return questionErrors
+                        }),
+                        // release conditions controlled using a PureField in the form
+                        targeting_flag_filters: values.flagPropertyErrors,
+                        // controlled using a PureField in the form
+                        urlMatchType: values.urlMatchTypeValidationError,
+                        appearance:
+                            sanitizedAppearance &&
+                            validateSurveyAppearance(
+                                sanitizedAppearance,
+                                questions.some((q) => q.type === SurveyQuestionType.Rating),
+                                type
+                            ),
+                    }
+                },
+            ],
             submit: (surveyPayload) => {
                 if (values.hasCycle) {
                     actions.reportSurveyCycleDetected(values.survey)
