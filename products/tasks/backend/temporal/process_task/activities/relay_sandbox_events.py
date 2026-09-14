@@ -46,7 +46,7 @@ from products.tasks.backend.temporal.process_task.utils import (
     is_slack_interaction_state,
 )
 
-from ee.hogai.sandbox import is_turn_complete, turn_complete_trace_id
+from ee.hogai.sandbox import PI_RUNTIME_ERROR_MESSAGE, is_turn_complete, pi_turn_error, turn_complete_trace_id
 
 logger = structlog.get_logger(__name__)
 
@@ -524,19 +524,33 @@ async def _relay_loop(
                             final_message_tracker.collect(event_data)
                             _track_tool_call(event_data, open_tool_calls)
 
-                            if _is_end_of_turn(event_data):
+                            if is_turn_complete(event_data):
+                                turn_failed = pi_turn_error(event_data)
                                 agent_active[0] = False
                                 open_tool_calls.clear()
                                 if workflow_handle is not None:
-                                    await _signal_safely(workflow_handle, "agent_state_changed", arg=False)
+                                    if turn_failed:
+                                        # A pi runtime error ends the turn but is not a
+                                        # successful completion — fail the run outright rather
+                                        # than reporting the turn as answered.
+                                        await _signal_safely(
+                                            workflow_handle, "complete_task", args=["failed", PI_RUNTIME_ERROR_MESSAGE]
+                                        )
+                                    else:
+                                        await _signal_safely(workflow_handle, "agent_state_changed", arg=False)
                                 if sandbox_id and background_logs_enabled:
                                     asyncio.create_task(_emit_agentsh_events(sandbox_id, run_id, last_audit_ts_ns))
-                                if task_run is not None and task_run.mode == "interactive":
+                                if not turn_failed and task_run is not None and task_run.mode == "interactive":
                                     # Hop off the event loop because the turn-completion dispatcher
                                     # performs sync Redis I/O and a potential network call to
                                     # the feature-flag service.
                                     asyncio.create_task(asyncio.to_thread(_safe_dispatch_turn_completed, task_run))
-                                if is_agent_design_enabled and slack_turn_active[0] and workflow_handle is not None:
+                                if (
+                                    not turn_failed
+                                    and is_agent_design_enabled
+                                    and slack_turn_active[0]
+                                    and workflow_handle is not None
+                                ):
                                     slack_turn_active[0] = False
                                     # Awaited in order: the final prose must be recorded before
                                     # turn_completed, which clears the parent's relay id and would
@@ -904,10 +918,13 @@ async def _signal_safely(
     workflow_handle: temporalio.client.WorkflowHandle,
     signal_name: str,
     arg: Any = None,
+    args: list[Any] | None = None,
 ) -> bool:
     """Fire-and-forget signal — failures must never break the relay loop."""
     try:
-        if arg is None:
+        if args is not None:
+            await workflow_handle.signal(signal_name, args=args)
+        elif arg is None:
             await workflow_handle.signal(signal_name)
         else:
             await workflow_handle.signal(signal_name, arg=arg)
@@ -919,13 +936,6 @@ async def _signal_safely(
 
 def _is_keepalive_event(event_data: dict) -> bool:
     return event_data.get("type") == "keepalive"
-
-
-def _is_end_of_turn(event_data: dict) -> bool:
-    pi_event = _pi_conversation_event(event_data)
-    if pi_event is not None:
-        return pi_event.get("type") == "turn_completed"
-    return is_turn_complete(event_data)
 
 
 async def _emit_agentsh_events(sandbox_id: str, run_id: str, last_ts_ns: list[int]) -> None:

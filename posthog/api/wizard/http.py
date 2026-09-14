@@ -159,7 +159,7 @@ class SetupWizardViewSet(viewsets.ViewSet):
     def gateway_token(self, request: Request) -> Response:
         """Mint a scoped gateway token for a wizard run.
 
-        The CLI uses the returned phe_ (pinned product=wizard / obo=<customer org>,
+        The CLI uses the returned phe_ (pinned product=wizard / obo=<customer team id>,
         capped, expiring) as its gateway bearer and re-calls near expiry. There is
         no other gateway: every refusal ends the run, with the body's `detail`
         shown to the user and its `code` naming the outcome.
@@ -300,7 +300,7 @@ class SetupWizardViewSet(viewsets.ViewSet):
             refuse("throttled", e, user=user)
         try:
             minted = mint_wizard_gateway_token(
-                obo=str(team.organization_id),
+                obo=str(team.id),
                 user=distinct_id,
                 product=product,
                 cap_usd=override.cap_usd,
@@ -322,7 +322,7 @@ class SetupWizardViewSet(viewsets.ViewSet):
                 "expires_at": minted["expires_at"],
                 "cap_usd": minted.get("cap_usd"),
                 "gateway_url": wizard_gateway_base_url(),
-                # Keeps a team breakdown beside the org-level obo attribution.
+                # The CLI stamps this on each generation as `team_id`.
                 "team_id": team.id,
             },
             status=status.HTTP_201_CREATED,
