@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 28 enabled ops
+ * PostHog API - MCP 26 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -974,108 +974,6 @@ export const FeatureFlagsEnableCreateParams = () => zod.object({
         .string()
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
-        ),
-})
-
-/**
- * Serve a feature flag to every user.
- *
- * Adds a release condition with no property filters at 100% and keeps the existing
- * conditions below it. Payloads, holdout and every other field are left as they are. On a
- * boolean flag, removing the new condition restores the previous targeting. On a
- * multivariate flag the variant distribution is rewritten as well, so removing the
- * condition restores the audience but not the old split. A flag that already leads with
- * such a condition gains no second one.
- *
- * This changes targeting only. A disabled flag still serves nobody, and a holdout is
- * evaluated before release conditions, so users in one keep getting the holdout variant
- * instead of the rollout.
- *
- * A multivariate flag needs `variant_key`, and every other flag rejects it. A release
- * condition decides who the flag serves, not which variant they get, so rolling a
- * multivariate flag out to everyone also gives the named variant 100% of the variant
- * distribution and every other variant 0%. To serve everyone and keep the current split
- * between variants, update the flag instead.
- *
- * Send the `version` your last read returned. A change to the flag after that version is
- * refused with 409. Read the flag again and decide the rollout against its current
- * definition.
- */
-export const FeatureFlagsRollOutToEveryoneCreateParams = () => zod.object({
-    id: zod.number().describe('A unique integer value identifying this feature flag.'),
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
-        ),
-})
-
-export const featureFlagsRollOutToEveryoneCreateBodyVersionMin = 0
-
-export const FeatureFlagsRollOutToEveryoneCreateBody = () => zod.object({
-    version: zod
-        .number()
-        .min(featureFlagsRollOutToEveryoneCreateBodyVersionMin)
-        .describe(
-            'The `version` from your most recent read of this flag. The change is refused with 409 if anyone else changed the flag after that version.'
-        ),
-    variant_key: zod
-        .string()
-        .nullish()
-        .describe(
-            'The variant every user gets. Required for a multivariate flag and rejected for any other flag, because a release condition decides who the flag serves and not which variant they get.'
-        ),
-})
-
-/**
- * Set what percentage of one release condition's audience a feature flag is served to.
- *
- * Changes `rollout_percentage` on the release condition at `condition_index` and nothing
- * else. The condition's property filters, every other condition, the variants, payloads,
- * holdout and every remaining field are left as they are.
- *
- * Send the `version` your last read returned. A change to the flag after that version is
- * refused with 409, because a condition index only names the condition you read. Read the
- * flag again and decide the percentage against its current definition.
- *
- * On a multivariate flag this sets how many of the matching users get a variant at all. It
- * does not change how the variants are split between them.
- */
-export const FeatureFlagsSetReleaseConditionRolloutCreateParams = () => zod.object({
-    id: zod.number().describe('A unique integer value identifying this feature flag.'),
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
-        ),
-})
-
-export const featureFlagsSetReleaseConditionRolloutCreateBodyConditionIndexMin = 0
-
-export const featureFlagsSetReleaseConditionRolloutCreateBodyRolloutPercentageMin = 0
-export const featureFlagsSetReleaseConditionRolloutCreateBodyRolloutPercentageMax = 100
-
-export const featureFlagsSetReleaseConditionRolloutCreateBodyVersionMin = 0
-
-export const FeatureFlagsSetReleaseConditionRolloutCreateBody = () => zod.object({
-    condition_index: zod
-        .number()
-        .min(featureFlagsSetReleaseConditionRolloutCreateBodyConditionIndexMin)
-        .describe(
-            'Zero-based position of the release condition in `filters.groups`, counted from the read that produced `version`.'
-        ),
-    rollout_percentage: zod
-        .number()
-        .min(featureFlagsSetReleaseConditionRolloutCreateBodyRolloutPercentageMin)
-        .max(featureFlagsSetReleaseConditionRolloutCreateBodyRolloutPercentageMax)
-        .describe(
-            'Percentage of the users matching that condition who are served the flag, 0 through 100. On a multivariate flag this is how many matching users get a variant at all, not how the variants are split between them.'
-        ),
-    version: zod
-        .number()
-        .min(featureFlagsSetReleaseConditionRolloutCreateBodyVersionMin)
-        .describe(
-            'The `version` from your most recent read of this flag. The change is refused with 409 if anyone else changed the flag after that version.'
         ),
 })
 
