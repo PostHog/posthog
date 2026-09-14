@@ -12,20 +12,20 @@ import {
   defaultAgentGrantPolicy,
   isAgentPolicyState,
 } from "@posthog/core/mcp-gateway/gatewayServers";
+import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  Button,
+  DialogBody,
+} from "@posthog/quill";
 import { AgentScopeToggle } from "@posthog/ui/features/mcp-gateway/components/parts/AgentScopeToggle";
 import { RobotAvatar } from "@posthog/ui/features/mcp-gateway/components/parts/avatars";
 import { ToolPolicyToggle } from "@posthog/ui/features/mcp-servers/components/parts/ToolPolicyToggle";
-import { Spinner } from "@posthog/ui/primitives/Spinner";
-import {
-  Badge,
-  Button,
-  Dialog,
-  Flex,
-  IconButton,
-  Select,
-  Text,
-  Tooltip,
-} from "@radix-ui/themes";
+import { Badge, IconButton, Select, Tooltip } from "@radix-ui/themes";
 import { useMemo, useState } from "react";
 
 interface GiveAccessDialogProps {
@@ -114,159 +114,138 @@ function GiveAccessDialogDraft({
   };
 
   return (
-    <Dialog.Root
-      open={open}
-      onOpenChange={(next) => {
-        if (!next && !pending) onClose();
-      }}
-    >
-      <Dialog.Content maxWidth="440px">
-        <Dialog.Title>Share {server.name} with an agent</Dialog.Title>
-        <Dialog.Description color="gray" className="text-sm">
-          The agent uses a connection available to you and calls {server.name}{" "}
-          under the tool policies you set below.
-        </Dialog.Description>
-
-        <Flex direction="column" gap="3" mt="4">
-          <Select.Root
-            value={selectedId ?? undefined}
-            onValueChange={selectAgent}
-            disabled={pending}
-          >
-            <Select.Trigger placeholder="Choose an agent…" />
-            <Select.Content>
-              {available.map((account) => (
-                <Select.Item key={account.id} value={account.id}>
-                  {account.name}{" "}
-                  <span className="font-mono text-xs">{account.handle}</span>
-                  {account.status === "paused" ? " (paused)" : ""}
-                </Select.Item>
-              ))}
-              {available.length === 0 && (
-                <Text color="gray" className="block px-3 py-2 text-sm italic">
-                  You've already shared {server.name} with every agent.
-                </Text>
-              )}
-            </Select.Content>
-          </Select.Root>
-
-          {selected && (
-            <Flex align="center" justify="between" gap="3">
-              <Text color="gray" className="text-[13px]">
-                Applies to
-              </Text>
-              <AgentScopeToggle
-                value={scope}
-                disabled={pending}
-                onChange={setScope}
-              />
-            </Flex>
-          )}
-
-          {selected && (
-            <Flex direction="column" gap="2">
-              <Flex align="center" justify="between">
-                <Flex align="center" gap="2">
-                  <RobotAvatar size="sm" />
-                  <Text
-                    color="gray"
-                    className="font-medium text-[10px] uppercase tracking-[0.06em]"
-                  >
-                    Tool policy for {selected.name}
-                  </Text>
-                </Flex>
-                <Flex align="center" gap="1">
-                  <Text color="gray" className="text-xs">
-                    Set all
-                  </Text>
-                  <Tooltip content="Always Allow all">
-                    <IconButton
-                      variant="soft"
-                      color="green"
-                      size="1"
-                      disabled={pending}
-                      onClick={() => bulkSet("approved")}
-                    >
-                      <Check size={11} weight="bold" />
-                    </IconButton>
-                  </Tooltip>
-                  <Tooltip content="Block all">
-                    <IconButton
-                      variant="soft"
-                      color="red"
-                      size="1"
-                      disabled={pending}
-                      onClick={() => bulkSet("do_not_use")}
-                    >
-                      <Prohibit size={11} weight="bold" />
-                    </IconButton>
-                  </Tooltip>
-                </Flex>
-              </Flex>
-              <div className="max-h-[280px] overflow-y-auto rounded border border-gray-5">
-                {toolPolicies.map((policy) => (
-                  <Flex
-                    key={policy.tool_name}
-                    align="center"
-                    justify="between"
-                    gap="3"
-                    className="border-gray-5 border-b px-3 py-1.5 last:border-b-0"
-                  >
-                    <Text truncate className="text-[12.5px]">
-                      {policy.tool_name}
-                    </Text>
-                    {policy.decided_by === "rule" ? (
-                      <Badge color="gray" variant="soft" size="1">
-                        Blocked by team policy
-                      </Badge>
-                    ) : (
-                      <ToolPolicyToggle
-                        value={policyFor(policy.tool_name)}
-                        disabled={pending}
-                        allowedStates={AGENT_POLICY_STATES}
-                        onChange={(state) => {
-                          if (isAgentPolicyState(state)) {
-                            setToolPolicy(policy.tool_name, state);
-                          }
-                        }}
-                      />
-                    )}
-                  </Flex>
+    <AlertDialog open={open} onOpenChange={() => undefined}>
+      <AlertDialogContent className="max-w-[440px]">
+        <AlertDialogHeader>
+          <AlertDialogTitle>Share {server.name} with an agent</AlertDialogTitle>
+          <AlertDialogDescription>
+            The agent uses a connection available to you and calls {server.name}{" "}
+            under the tool policies you set below.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <DialogBody>
+          <div className="flex flex-col gap-3">
+            <Select.Root
+              value={selectedId ?? undefined}
+              onValueChange={selectAgent}
+              disabled={pending}
+            >
+              <Select.Trigger placeholder="Choose an agent…" />
+              <Select.Content>
+                {available.map((account) => (
+                  <Select.Item key={account.id} value={account.id}>
+                    {account.name}{" "}
+                    <span className="font-mono text-xs">{account.handle}</span>
+                    {account.status === "paused" ? " (paused)" : ""}
+                  </Select.Item>
                 ))}
-                {toolPolicies.length === 0 && (
-                  <Text color="gray" className="block px-3 py-2 text-sm italic">
-                    No tools discovered yet — the agent gets access as soon as
-                    tools appear.
-                  </Text>
+                {available.length === 0 && (
+                  <p className="px-3 py-2 text-gray-10 text-sm italic">
+                    You've already shared {server.name} with every agent.
+                  </p>
                 )}
-              </div>
-            </Flex>
-          )}
-        </Flex>
+              </Select.Content>
+            </Select.Root>
 
-        <Flex gap="3" mt="4" justify="end">
-          <Button
-            variant="soft"
-            color="gray"
-            disabled={pending}
-            onClick={onClose}
-          >
+            {selected && (
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-[13px] text-gray-10">Applies to</span>
+                <AgentScopeToggle
+                  value={scope}
+                  disabled={pending}
+                  onChange={setScope}
+                />
+              </div>
+            )}
+
+            {selected && (
+              <div className="flex flex-col gap-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <RobotAvatar size="sm" />
+                    <span className="font-medium text-[10px] text-gray-10 uppercase tracking-[0.06em]">
+                      Tool policy for {selected.name}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <span className="text-gray-10 text-xs">Set all</span>
+                    <Tooltip content="Always Allow all">
+                      <IconButton
+                        variant="soft"
+                        color="green"
+                        size="1"
+                        disabled={pending}
+                        onClick={() => bulkSet("approved")}
+                      >
+                        <Check size={11} weight="bold" />
+                      </IconButton>
+                    </Tooltip>
+                    <Tooltip content="Block all">
+                      <IconButton
+                        variant="soft"
+                        color="red"
+                        size="1"
+                        disabled={pending}
+                        onClick={() => bulkSet("do_not_use")}
+                      >
+                        <Prohibit size={11} weight="bold" />
+                      </IconButton>
+                    </Tooltip>
+                  </div>
+                </div>
+                <div className="max-h-[280px] overflow-y-auto rounded border border-gray-5">
+                  {toolPolicies.map((policy) => (
+                    <div
+                      key={policy.tool_name}
+                      className="flex items-center justify-between gap-3 border-gray-5 border-b px-3 py-1.5 last:border-b-0"
+                    >
+                      <span className="truncate text-[12.5px]">
+                        {policy.tool_name}
+                      </span>
+                      {policy.decided_by === "rule" ? (
+                        <Badge color="gray" variant="soft" size="1">
+                          Blocked by team policy
+                        </Badge>
+                      ) : (
+                        <ToolPolicyToggle
+                          value={policyFor(policy.tool_name)}
+                          disabled={pending}
+                          allowedStates={AGENT_POLICY_STATES}
+                          onChange={(state) => {
+                            if (isAgentPolicyState(state)) {
+                              setToolPolicy(policy.tool_name, state);
+                            }
+                          }}
+                        />
+                      )}
+                    </div>
+                  ))}
+                  {toolPolicies.length === 0 && (
+                    <p className="px-3 py-2 text-gray-10 text-sm italic">
+                      No tools discovered yet — the agent gets access as soon as
+                      tools appear.
+                    </p>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        </DialogBody>
+        <AlertDialogFooter>
+          <Button variant="outline" disabled={pending} onClick={onClose}>
             Cancel
           </Button>
           <Button
-            variant="solid"
+            variant="primary"
+            loading={pending}
             disabled={!selected || pending}
             onClick={grant}
           >
-            {pending ? (
-              <Spinner size="sm" />
-            ) : (
-              <Check size={12} weight="bold" />
-            )}{" "}
+            {!pending && <Check size={12} weight="bold" />}
             Share access
           </Button>
-        </Flex>
-      </Dialog.Content>
-    </Dialog.Root>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 }

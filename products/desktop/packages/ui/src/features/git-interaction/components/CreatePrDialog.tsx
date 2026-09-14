@@ -4,16 +4,16 @@ import {
   formatFileCountLabel,
 } from "@posthog/core/git-interaction/diffStats";
 import { buildCreatePrFlowErrorPrompt } from "@posthog/core/git-interaction/errorPrompts";
-import { Spinner } from "@posthog/ui/primitives/Spinner";
 import {
   Button,
-  Checkbox,
   Dialog,
-  Flex,
-  Text,
-  TextArea,
-  TextField,
-} from "@radix-ui/themes";
+  DialogClose,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@posthog/quill";
+import { Checkbox, Flex, Text, TextArea, TextField } from "@radix-ui/themes";
 import { StepList, type StepStatus } from "../../../primitives/StepList";
 import { useGitInteractionStore } from "../state/gitInteractionStore";
 import type { CreatePrStep } from "../types";
@@ -106,16 +106,15 @@ export function CreatePrDialog({
   steps.push({ id: "creating-pr", label: "Create pull request" });
 
   return (
-    <Dialog.Root open={open} onOpenChange={onOpenChange}>
-      <Dialog.Content maxWidth="500px" size="1">
-        <Flex direction="column" gap="3">
-          <Flex align="center" gap="2">
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-[500px]">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2 text-sm">
             <GitPullRequest size={ICON_SIZE} />
-            <Text className="font-medium text-sm">
-              {isExecuting ? "Creating PR..." : "Create PR"}
-            </Text>
-          </Flex>
-
+            {isExecuting ? "Creating PR..." : "Create PR"}
+          </DialogTitle>
+        </DialogHeader>
+        <div className="flex flex-col gap-3">
           {!isExecuting && (
             <>
               {store.createPrNeedsBranch && (
@@ -235,17 +234,20 @@ export function CreatePrDialog({
                 <ErrorContainer error={store.createPrError} />
               )}
 
-              <Flex gap="2" justify="end">
-                <Dialog.Close>
-                  <Button size="1" variant="soft" color="gray">
-                    Cancel
-                  </Button>
-                </Dialog.Close>
-                <Button size="1" disabled={isSubmitting} onClick={onSubmit}>
-                  {isSubmitting && <Spinner size="sm" />}
+              <DialogFooter>
+                <DialogClose render={<Button variant="outline" size="sm" />}>
+                  Cancel
+                </DialogClose>
+                <Button
+                  variant="primary"
+                  size="sm"
+                  disabled={isSubmitting}
+                  loading={isSubmitting}
+                  onClick={onSubmit}
+                >
                   Create PR
                 </Button>
-              </Flex>
+              </DialogFooter>
             </>
           )}
 
@@ -278,22 +280,20 @@ export function CreatePrDialog({
                 />
               )}
 
-              <Flex gap="2" justify="end">
-                <Dialog.Close>
-                  <Button size="1" variant="soft" color="gray">
-                    {step === "error" ? "Close" : "Cancel"}
-                  </Button>
-                </Dialog.Close>
+              <DialogFooter>
+                <DialogClose render={<Button variant="outline" size="sm" />}>
+                  {step === "error" ? "Close" : "Cancel"}
+                </DialogClose>
                 {step === "error" && (
-                  <Button size="1" onClick={onSubmit}>
+                  <Button variant="primary" size="sm" onClick={onSubmit}>
                     Retry
                   </Button>
                 )}
-              </Flex>
+              </DialogFooter>
             </>
           )}
-        </Flex>
-      </Dialog.Content>
-    </Dialog.Root>
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }

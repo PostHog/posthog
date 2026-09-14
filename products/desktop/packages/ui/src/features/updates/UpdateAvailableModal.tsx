@@ -1,5 +1,18 @@
 import { X } from "@phosphor-icons/react";
 import { useHostTRPC } from "@posthog/host-router/react";
+import {
+  Button,
+  Dialog,
+  DialogBody,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  Progress,
+  Skeleton,
+} from "@posthog/quill";
 import { useBlockingAnnouncementVisible } from "@posthog/ui/features/announcements/useAnnouncementVisible";
 import { ReleaseNotesSections } from "@posthog/ui/features/updates/ReleaseNotesSections";
 import { parseReleaseNotes } from "@posthog/ui/features/updates/releaseNotes";
@@ -9,16 +22,6 @@ import {
   useInstallUpdate,
   useUpdateView,
 } from "@posthog/ui/features/updates/updateStore";
-import {
-  Button,
-  Dialog,
-  Flex,
-  IconButton,
-  Progress,
-  ScrollArea,
-  Skeleton,
-  Text,
-} from "@radix-ui/themes";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useEffect } from "react";
 
@@ -36,15 +39,15 @@ function formatSize(bytes: number | null): string {
 
 function ReleaseNotesSkeleton() {
   return (
-    <Flex direction="column" gap="3">
+    <div className="flex flex-col gap-3">
       {["improved", "fixed"].map((key) => (
-        <Flex key={key} direction="column" gap="2">
-          <Skeleton width="56px" height="12px" />
-          <Skeleton width="90%" height="14px" />
-          <Skeleton width="80%" height="14px" />
-        </Flex>
+        <div key={key} className="flex flex-col gap-2">
+          <Skeleton className="h-3 w-14" />
+          <Skeleton className="h-3.5 w-[90%]" />
+          <Skeleton className="h-3.5 w-[80%]" />
+        </div>
       ))}
-    </Flex>
+    </div>
   );
 }
 
@@ -97,98 +100,93 @@ export function UpdateAvailableModal() {
     (parsedNotes.improved.length > 0 || parsedNotes.fixed.length > 0);
 
   return (
-    <Dialog.Root
+    <Dialog
       open={isOpen}
       onOpenChange={(open) => {
         if (!open) close();
       }}
     >
-      <Dialog.Content maxWidth="440px">
-        <Flex direction="column" gap="4">
-          <Flex justify="between" align="start" gap="3">
-            <Flex direction="column" gap="1">
-              <Dialog.Title className="mb-0">
-                {isReady ? "Update ready" : "Update available"}
-              </Dialog.Title>
-              <Dialog.Description>
-                <Text color="gray" size="2">
-                  {targetVersion
-                    ? `PostHog ${targetVersion}${sizeLabel ? ` · ${sizeLabel}` : ""}`
-                    : "A new version is available"}
-                </Text>
-              </Dialog.Description>
-            </Flex>
-            <Dialog.Close>
-              <IconButton variant="ghost" color="gray" aria-label="Close">
-                <X size={16} />
-              </IconButton>
-            </Dialog.Close>
-          </Flex>
+      <DialogContent showCloseButton={false} className="max-w-[440px]">
+        <DialogHeader className="flex-row items-start justify-between gap-3">
+          <div className="flex flex-col gap-1">
+            <DialogTitle>
+              {isReady ? "Update ready" : "Update available"}
+            </DialogTitle>
+            <DialogDescription>
+              {targetVersion
+                ? `PostHog ${targetVersion}${sizeLabel ? ` · ${sizeLabel}` : ""}`
+                : "A new version is available"}
+            </DialogDescription>
+          </div>
+          <DialogClose
+            render={
+              <Button variant="link-muted" size="icon" aria-label="Close" />
+            }
+          >
+            <X size={16} />
+          </DialogClose>
+        </DialogHeader>
 
+        <DialogBody className="flex flex-col gap-4">
           {hasParsedNotes || isPendingReleases ? (
-            <Flex direction="column" gap="2">
-              <Text
-                size="1"
-                weight="medium"
-                color="gray"
-                className="uppercase tracking-wide"
-              >
+            <section className="flex flex-col gap-2">
+              <h2 className="font-medium text-(--gray-11) text-xs uppercase tracking-wide">
                 Release notes
-              </Text>
+              </h2>
               {hasParsedNotes && parsedNotes ? (
-                <ScrollArea
-                  type="auto"
-                  scrollbars="vertical"
-                  style={{ maxHeight: 240 }}
-                >
-                  <div className="pr-3">
-                    <ReleaseNotesSections notes={parsedNotes} />
-                  </div>
-                </ScrollArea>
+                <div className="max-h-60 overflow-y-auto pr-3">
+                  <ReleaseNotesSections notes={parsedNotes} />
+                </div>
               ) : (
                 <ReleaseNotesSkeleton />
               )}
-            </Flex>
+            </section>
           ) : null}
 
           {isDownloading ? (
-            <Flex direction="column" gap="1">
-              <Flex justify="between">
-                <Text size="1" color="gray">
+            <section className="flex flex-col gap-1">
+              <div className="flex justify-between">
+                <span className="text-(--gray-11) text-xs">
                   Downloading... {percent}%
-                </Text>
-                <Text size="1" color="gray">
+                </span>
+                <span className="text-(--gray-11) text-xs">
                   {formatSpeed(bytesPerSecond)}
-                </Text>
-              </Flex>
-              <Progress value={percent} size="2" />
-            </Flex>
+                </span>
+              </div>
+              <Progress value={percent} />
+            </section>
           ) : null}
+        </DialogBody>
 
-          <Flex justify="end" align="center" gap="2" mt="1">
-            <Button variant="soft" color="gray" size="2" onClick={close}>
-              Later
+        <DialogFooter>
+          <Button variant="outline" size="sm" onClick={close}>
+            Later
+          </Button>
+          {isReady ? (
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={() => void installUpdate()}
+            >
+              Restart to update
             </Button>
-            {isReady ? (
-              <Button size="2" onClick={() => void installUpdate()}>
-                Restart to update
-              </Button>
-            ) : isDownloading ? (
-              <Button size="2" disabled>
-                Downloading...
-              </Button>
-            ) : (
-              <Button
-                size="2"
-                onClick={() => downloadMutation.mutate(undefined)}
-                disabled={downloadMutation.isPending}
-              >
-                Download update
-              </Button>
-            )}
-          </Flex>
-        </Flex>
-      </Dialog.Content>
-    </Dialog.Root>
+          ) : isDownloading ? (
+            <Button variant="primary" size="sm" loading disabled>
+              Downloading...
+            </Button>
+          ) : (
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={() => downloadMutation.mutate(undefined)}
+              loading={downloadMutation.isPending}
+              disabled={downloadMutation.isPending}
+            >
+              Download update
+            </Button>
+          )}
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

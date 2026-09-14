@@ -1,4 +1,13 @@
 import { PencilSimple } from "@phosphor-icons/react";
+import {
+  Dialog,
+  DialogBody,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@posthog/quill";
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
 import {
   CATEGORY_LABELS,
@@ -8,7 +17,6 @@ import {
 } from "@posthog/ui/features/command/keyboard-shortcuts";
 import { useInboxAvailable } from "@posthog/ui/features/feature-flags/useInboxAvailable";
 import { useQuickAskShortcut } from "@posthog/ui/features/quick-ask/useQuickAskShortcut";
-import { Box, Dialog, Flex, Text } from "@radix-ui/themes";
 import { useMemo, useState } from "react";
 import { useHotkeys } from "react-hotkeys-hook";
 
@@ -66,30 +74,32 @@ export function KeyboardShortcutsSheet({
   });
 
   return (
-    <Dialog.Root open={open} onOpenChange={onOpenChange}>
-      <Dialog.Content
-        maxWidth="600px"
-        onEscapeKeyDown={(e) => e.preventDefault()}
-        className="max-h-[80vh] overflow-hidden"
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent
+        showCloseButton={false}
+        className="max-h-[80vh] max-w-[600px] overflow-hidden"
       >
-        <Flex align="start" justify="between" className="relative">
+        <DialogHeader className="relative flex-row items-start justify-between">
           <ShortcutsHeader />
-          <button
-            type="button"
-            onClick={() => onOpenChange(false)}
-            className="shrink-0 cursor-pointer [all:unset]"
+          <DialogClose
+            render={
+              <button
+                type="button"
+                className="shrink-0 cursor-pointer [all:unset]"
+              />
+            }
           >
             <Keycap label="Esc" size="sm" />
-          </button>
-        </Flex>
+          </DialogClose>
+        </DialogHeader>
 
-        <Box className="max-h-[calc(80vh-120px)] overflow-y-auto pr-[8px]">
+        <DialogBody className="max-h-[calc(80vh-120px)] overflow-y-auto pr-[8px]">
           <KeyboardShortcutsList
             leadingGeneralShortcuts={quickAsk ? [quickAsk] : []}
           />
-        </Box>
-      </Dialog.Content>
-    </Dialog.Root>
+        </DialogBody>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -97,21 +107,21 @@ function ShortcutsHeader() {
   const triggerParts = formatHotkeyParts("mod+/");
 
   return (
-    <Box mb="4">
-      <Flex align="center" gap="3" mb="1">
-        <Dialog.Title mb="0" className="text-2xl leading-[1.2]">
+    <div className="mb-4">
+      <div className="mb-1 flex items-center gap-3">
+        <DialogTitle className="text-2xl leading-[1.2]">
           Keyboard Combos
-        </Dialog.Title>
-        <Flex gap="1" align="center">
+        </DialogTitle>
+        <div className="flex items-center gap-1">
           {triggerParts.map((part) => (
             <Keycap key={part} label={part} />
           ))}
-        </Flex>
-      </Flex>
-      <Text color="gray" className="text-sm">
+        </div>
+      </div>
+      <DialogDescription className="text-sm">
         Your cheat codes for shipping faster
-      </Text>
-    </Box>
+      </DialogDescription>
+    </div>
   );
 }
 
@@ -150,7 +160,7 @@ export function KeyboardShortcutsList({
   ];
 
   return (
-    <Flex direction="column" gap="5">
+    <div className="flex flex-col gap-5">
       {categoryOrder.map((category) => {
         const shortcuts = shortcutsByCategory[category];
         if (shortcuts.length === 0) return null;
@@ -169,22 +179,19 @@ export function KeyboardShortcutsList({
         );
 
         return (
-          <Flex key={category} direction="column" gap="2">
-            <Text color="gray" className="font-bold text-base">
+          <section key={category} className="flex flex-col gap-2">
+            <h2 className="font-bold text-(--gray-11) text-base">
               {CATEGORY_LABELS[category]}
-            </Text>
-            <Box className="overflow-hidden rounded-(--radius-2) border border-(--gray-5)">
+            </h2>
+            <div className="overflow-hidden rounded-(--radius-2) border border-(--gray-5)">
               {category === "general" &&
                 leadingGeneralShortcuts.map((shortcut) => (
-                  <Flex
+                  <div
                     key={shortcut.id}
-                    align="center"
-                    justify="between"
-                    px="3"
-                    className="group border-b border-b-(--gray-4) pt-[6px] pb-[6px] last:border-b-0 odd:bg-(--gray-2) even:bg-(--gray-1)"
+                    className="group flex items-center justify-between border-b border-b-(--gray-4) pt-[6px] pb-[6px] last:border-b-0 odd:bg-(--gray-2) even:bg-(--gray-1)"
                   >
-                    <Text className="text-sm">{shortcut.description}</Text>
-                    <Flex gap="2" align="center">
+                    <span className="px-3 text-sm">{shortcut.description}</span>
+                    <div className="flex items-center gap-2 px-3">
                       <ShortcutKeys keys={shortcut.keys} />
                       {shortcut.onEdit && (
                         <button
@@ -197,29 +204,28 @@ export function KeyboardShortcutsList({
                           <PencilSimple size={14} />
                         </button>
                       )}
-                    </Flex>
-                  </Flex>
+                    </div>
+                  </div>
                 ))}
               {uniqueShortcuts.map((shortcut) => (
-                <Flex
+                <div
                   key={shortcut.id}
-                  align="center"
-                  justify="between"
-                  px="3"
-                  className="border-b border-b-(--gray-4) pt-[6px] pb-[6px] last:border-b-0 odd:bg-(--gray-2) even:bg-(--gray-1)"
+                  className="flex items-center justify-between border-b border-b-(--gray-4) pt-[6px] pb-[6px] last:border-b-0 odd:bg-(--gray-2) even:bg-(--gray-1)"
                 >
-                  <Text className="text-sm">{shortcut.description}</Text>
-                  <ShortcutKeys
-                    keys={shortcut.keys}
-                    alternateKeys={shortcut.alternateKeys}
-                  />
-                </Flex>
+                  <span className="px-3 text-sm">{shortcut.description}</span>
+                  <div className="px-3">
+                    <ShortcutKeys
+                      keys={shortcut.keys}
+                      alternateKeys={shortcut.alternateKeys}
+                    />
+                  </div>
+                </div>
               ))}
-            </Box>
-          </Flex>
+            </div>
+          </section>
         );
       })}
-    </Flex>
+    </div>
   );
 }
 
@@ -227,11 +233,11 @@ function SingleShortcutKeys({ keys }: { keys: string }) {
   const parts = formatHotkeyParts(keys);
 
   return (
-    <Flex gap="1" align="center">
+    <div className="flex items-center gap-1">
       {parts.map((part) => (
         <Keycap key={part} label={part} />
       ))}
-    </Flex>
+    </div>
   );
 }
 
@@ -247,12 +253,10 @@ function ShortcutKeys({
   }
 
   return (
-    <Flex gap="1" align="center">
+    <div className="flex items-center gap-1">
       <SingleShortcutKeys keys={keys} />
-      <Text color="gray" className="text-[13px]">
-        or
-      </Text>
+      <span className="text-(--gray-11) text-[13px]">or</span>
       <SingleShortcutKeys keys={alternateKeys} />
-    </Flex>
+    </div>
   );
 }

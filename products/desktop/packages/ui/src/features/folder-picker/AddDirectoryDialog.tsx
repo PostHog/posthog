@@ -3,13 +3,13 @@ import { ROOT_LOGGER, type RootLogger } from "@posthog/di/logger";
 import { useService } from "@posthog/di/react";
 import { useHostTRPCClient } from "@posthog/host-router/react";
 import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
   Button,
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
 } from "@posthog/quill";
 import { useAddDirectoryDialogStore } from "@posthog/ui/features/folder-picker/addDirectoryDialogStore";
 import { useEffect, useRef } from "react";
@@ -23,11 +23,9 @@ export function AddDirectoryDialog() {
   const onCancel = useAddDirectoryDialogStore((s) => s.onCancel);
   const close = useAddDirectoryDialogStore((s) => s.close);
 
-  const decidedRef = useRef(false);
   const justThisChatRef = useRef<HTMLButtonElement | null>(null);
   useEffect(() => {
     if (!open) return;
-    decidedRef.current = false;
     const id = window.setTimeout(() => justThisChatRef.current?.focus(), 0);
     return () => window.clearTimeout(id);
   }, [open]);
@@ -38,7 +36,6 @@ export function AddDirectoryDialog() {
     action: () => unknown,
     errorMessage: string,
   ) => {
-    decidedRef.current = true;
     try {
       await action();
     } catch (err) {
@@ -69,25 +66,17 @@ export function AddDirectoryDialog() {
     decideAndClose(() => onCancel?.(), "Failed to remove chip");
 
   return (
-    <Dialog
-      open={open}
-      onOpenChange={(isOpen) => {
-        if (!isOpen && !decidedRef.current) handleCancel();
-      }}
-    >
-      <DialogContent
-        showCloseButton={false}
-        className="!top-1/2 -translate-y-1/2 max-w-[480px] border border-(--gray-5) bg-(--gray-2) sm:max-w-[480px]"
-      >
-        <DialogHeader className="px-4 pt-4">
-          <DialogTitle className="flex items-center gap-2 text-base">
+    <AlertDialog open={open} onOpenChange={() => undefined}>
+      <AlertDialogContent className="!top-1/2 -translate-y-1/2 max-w-[480px] border border-(--gray-5) bg-(--gray-2) sm:max-w-[480px]">
+        <AlertDialogHeader className="px-4 pt-4">
+          <AlertDialogTitle className="flex items-center gap-2 text-base">
             <Folder size={16} weight="regular" />
             Add folder to chat
-          </DialogTitle>
-          <DialogDescription className="text-(--gray-11) text-sm">
+          </AlertDialogTitle>
+          <AlertDialogDescription className="text-(--gray-11) text-sm">
             The agent will be able to read and write files in this folder.
-          </DialogDescription>
-        </DialogHeader>
+          </AlertDialogDescription>
+        </AlertDialogHeader>
 
         <div className="px-4">
           <div
@@ -98,7 +87,7 @@ export function AddDirectoryDialog() {
           </div>
         </div>
 
-        <DialogFooter className="border-t-0 bg-transparent">
+        <AlertDialogFooter className="border-t-0 bg-transparent">
           <Button variant="outline" size="sm" onClick={handleCancel}>
             Cancel
           </Button>
@@ -113,8 +102,8 @@ export function AddDirectoryDialog() {
           >
             Just this chat
           </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 }

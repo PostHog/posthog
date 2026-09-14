@@ -1,5 +1,11 @@
 import type { FileAttachment } from "@posthog/core/message-editor/content";
 import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@posthog/quill";
+import {
   isGifFile,
   isRasterImageFile,
   parseImageDataUrl,
@@ -9,9 +15,9 @@ import {
   type AttachmentUploadStatus,
 } from "@posthog/ui/features/message-editor/components/Attachment";
 import { SafeImagePreview } from "@posthog/ui/primitives/SafeImagePreview";
-import { Dialog, Flex, Text } from "@radix-ui/themes";
+import { Flex } from "@radix-ui/themes";
 import { useQuery } from "@tanstack/react-query";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { readFileAsDataUrl } from "../hostApi";
 
 export type { AttachmentUploadStatus };
@@ -69,6 +75,7 @@ function ImageAttachment({
     staleTime: Infinity,
   });
 
+  const [open, setOpen] = useState(false);
   const isGif = isGifFile(attachment.label);
   const canvasRef = useFrozenGif(dataUrl, isGif);
   const parsedImage = dataUrl ? parseImageDataUrl(dataUrl) : null;
@@ -83,22 +90,19 @@ function ImageAttachment({
   );
 
   return (
-    <Dialog.Root>
-      <Dialog.Trigger>
-        <div>
-          <Attachment
-            label={attachment.label}
-            preview={preview}
-            hint="Click to preview"
-            onRemove={onRemove}
-            status={uploadStatus}
-          />
-        </div>
-      </Dialog.Trigger>
-      <Dialog.Content maxWidth="85vw" className="w-fit p-[16px]">
-        <Dialog.Title mb="2" className="text-sm">
-          {attachment.label}
-        </Dialog.Title>
+    <Dialog open={open} onOpenChange={setOpen}>
+      <Attachment
+        label={attachment.label}
+        preview={preview}
+        hint="Click to preview"
+        onOpen={() => setOpen(true)}
+        onRemove={onRemove}
+        status={uploadStatus}
+      />
+      <DialogContent className="w-fit max-w-[85vw] p-4">
+        <DialogHeader className="gap-0">
+          <DialogTitle className="text-sm">{attachment.label}</DialogTitle>
+        </DialogHeader>
         {parsedImage ? (
           <SafeImagePreview
             base64={parsedImage.base64}
@@ -107,12 +111,10 @@ function ImageAttachment({
             className="max-h-[75vh] max-w-[80vw]"
           />
         ) : (
-          <Text color="gray" className="text-sm">
-            Unable to load image preview
-          </Text>
+          <p className="text-gray-10 text-sm">Unable to load image preview</p>
         )}
-      </Dialog.Content>
-    </Dialog.Root>
+      </DialogContent>
+    </Dialog>
   );
 }
 

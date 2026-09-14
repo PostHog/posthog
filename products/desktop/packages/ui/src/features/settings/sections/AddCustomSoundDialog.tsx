@@ -7,16 +7,18 @@ import {
   Trash,
   UploadSimple,
 } from "@phosphor-icons/react";
-import { MAX_CUSTOM_SOUND_SECONDS } from "@posthog/ui/utils/customSound";
 import {
   Button,
-  Card,
   Dialog,
-  Flex,
-  IconButton,
-  Text,
-  TextField,
-} from "@radix-ui/themes";
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@posthog/quill";
+import { MAX_CUSTOM_SOUND_SECONDS } from "@posthog/ui/utils/customSound";
+import { Card, Flex, Text, TextField } from "@radix-ui/themes";
 import { useRef } from "react";
 import { useCustomSoundCapture } from "./useCustomSoundCapture";
 
@@ -31,13 +33,15 @@ export function AddCustomSoundDialog({
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   return (
-    <Dialog.Root open={open} onOpenChange={sound.handleOpenChange}>
-      <Dialog.Content maxWidth="420px">
-        <Dialog.Title>Add custom sound</Dialog.Title>
-        <Dialog.Description size="2" color="gray" mb="4">
-          Record a clip or import an audio file, then give it a name. Clips must
-          be {MAX_CUSTOM_SOUND_SECONDS}s or shorter.
-        </Dialog.Description>
+    <Dialog open={open} onOpenChange={sound.handleOpenChange}>
+      <DialogContent className="max-w-[420px]">
+        <DialogHeader>
+          <DialogTitle>Add custom sound</DialogTitle>
+          <DialogDescription>
+            Record a clip or import an audio file, then give it a name. Clips
+            must be {MAX_CUSTOM_SOUND_SECONDS}s or shorter.
+          </DialogDescription>
+        </DialogHeader>
 
         <Flex direction="column" gap="4">
           <Flex direction="column" gap="1">
@@ -65,12 +69,12 @@ export function AddCustomSoundDialog({
 
             <Flex gap="2" align="center" wrap="wrap">
               {sound.isRecording ? (
-                <Button color="red" onClick={sound.stopRecording}>
+                <Button variant="destructive" onClick={sound.stopRecording}>
                   <StopCircle weight="fill" /> Stop ({sound.elapsedLabel})
                 </Button>
               ) : (
                 <Button
-                  variant="soft"
+                  variant="outline"
                   onClick={sound.startRecording}
                   disabled={!sound.recordingSupported}
                   title={
@@ -83,7 +87,7 @@ export function AddCustomSoundDialog({
                 </Button>
               )}
               <Button
-                variant="soft"
+                variant="outline"
                 onClick={() => fileInputRef.current?.click()}
                 disabled={sound.isRecording}
               >
@@ -107,34 +111,33 @@ export function AddCustomSoundDialog({
               <Card size="1">
                 <Flex direction="column" gap="2">
                   <Flex align="center" gap="2">
-                    <IconButton
-                      variant="soft"
-                      size="1"
+                    <Button
+                      variant="outline"
+                      size="icon-sm"
                       onClick={sound.playPreview}
                       aria-label="Preview clip"
                     >
                       <Play weight="fill" />
-                    </IconButton>
+                    </Button>
                     <Text size="2" color="gray">
                       {sound.isTrimmed ? "Trimmed" : "Clip ready"} ·{" "}
                       {sound.clipDurationLabel}
                     </Text>
                     <Flex flexGrow="1" />
-                    <IconButton
-                      variant="ghost"
-                      color="gray"
-                      size="1"
+                    <Button
+                      variant="default"
+                      size="icon-sm"
                       onClick={sound.discardClip}
                       aria-label="Discard clip"
                     >
                       <Trash />
-                    </IconButton>
+                    </Button>
                   </Flex>
 
                   {sound.canOfferTrim && (
                     <Button
-                      variant={sound.isTrimmed ? "ghost" : "soft"}
-                      size="1"
+                      variant={sound.isTrimmed ? "default" : "outline"}
+                      size="sm"
                       className="self-start"
                       onClick={sound.toggleTrim}
                     >
@@ -161,17 +164,19 @@ export function AddCustomSoundDialog({
           </Flex>
         </Flex>
 
-        <Flex gap="3" mt="4" justify="end">
-          <Dialog.Close>
-            <Button variant="soft" color="gray">
-              Cancel
-            </Button>
-          </Dialog.Close>
-          <Button onClick={sound.save} disabled={!sound.canSave}>
+        <DialogFooter>
+          <DialogClose render={<Button variant="outline" />}>
+            Cancel
+          </DialogClose>
+          <Button
+            variant="primary"
+            onClick={sound.save}
+            disabled={!sound.canSave}
+          >
             Save
           </Button>
-        </Flex>
-      </Dialog.Content>
-    </Dialog.Root>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

@@ -2,12 +2,13 @@ import { Check, Copy } from "@phosphor-icons/react";
 import type { McpServiceAccountWithToken } from "@posthog/api-client/posthog-client";
 import {
   Button,
-  Callout,
   Dialog,
-  Flex,
-  IconButton,
-  Text,
-} from "@radix-ui/themes";
+  DialogBody,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@posthog/quill";
 import { useState } from "react";
 
 /** Shows a freshly-issued gateway token exactly once (creation or rotation). */
@@ -29,48 +30,49 @@ export function NewTokenDialog({
   };
 
   return (
-    <Dialog.Root
+    <Dialog
       open={!!account}
       onOpenChange={(next) => {
         if (!next) onClose();
       }}
     >
-      <Dialog.Content maxWidth="440px">
-        <Dialog.Title>
-          Gateway token for {account?.name ?? "agent"}
-        </Dialog.Title>
-        <Flex direction="column" gap="3">
-          <Callout.Root color="amber" size="1">
-            <Callout.Text>
+      <DialogContent className="max-w-[440px]">
+        <DialogHeader>
+          <DialogTitle>
+            Gateway token for {account?.name ?? "agent"}
+          </DialogTitle>
+        </DialogHeader>
+        <DialogBody>
+          <div className="flex flex-col gap-3">
+            <p
+              role="alert"
+              className="rounded-md border border-amber-7 bg-amber-3 px-3 py-2 text-amber-12 text-sm"
+            >
               Copy this token now — it's shown only once. The agent
               authenticates with it as a bearer token.
-            </Callout.Text>
-          </Callout.Root>
-          <Flex
-            align="center"
-            gap="2"
-            className="rounded border border-gray-5 bg-gray-2 px-3 py-2"
-          >
-            <Text className="min-w-0 flex-1 break-all font-mono text-[12.5px]">
-              {account?.token}
-            </Text>
-            <IconButton
-              variant="ghost"
-              color="gray"
-              size="1"
-              title="Copy token"
-              onClick={copy}
-            >
-              {copied ? <Check size={13} /> : <Copy size={13} />}
-            </IconButton>
-          </Flex>
-        </Flex>
-        <Flex justify="end" mt="4">
-          <Button variant="solid" onClick={onClose}>
+            </p>
+            <div className="flex items-center gap-2 rounded border border-gray-5 bg-gray-2 px-3 py-2">
+              <code className="min-w-0 flex-1 break-all text-[12.5px]">
+                {account?.token}
+              </code>
+              <Button
+                variant="link-muted"
+                size="icon-xs"
+                aria-label="Copy token"
+                title="Copy token"
+                onClick={copy}
+              >
+                {copied ? <Check size={13} /> : <Copy size={13} />}
+              </Button>
+            </div>
+          </div>
+        </DialogBody>
+        <DialogFooter>
+          <Button variant="primary" onClick={onClose}>
             Done
           </Button>
-        </Flex>
-      </Dialog.Content>
-    </Dialog.Root>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

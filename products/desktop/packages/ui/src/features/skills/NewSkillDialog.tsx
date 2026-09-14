@@ -1,13 +1,20 @@
-import { toast } from "@posthog/ui/primitives/toast";
 import {
-  Box,
   Button,
   Dialog,
-  Flex,
+  DialogBody,
+  DialogClose,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  Input,
   Select,
-  Text,
-  TextField,
-} from "@radix-ui/themes";
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@posthog/quill";
+import { toast } from "@posthog/ui/primitives/toast";
 import { useState } from "react";
 import { useFolders } from "../folders/useFolders";
 import { skillErrorDescription } from "./skillErrors";
@@ -49,59 +56,84 @@ export function NewSkillDialog({
   };
 
   return (
-    <Dialog.Root open={open} onOpenChange={onOpenChange}>
-      <Dialog.Content maxWidth="380px" size="2">
-        <Dialog.Title size="3">New skill</Dialog.Title>
-        <Flex direction="column" gap="3" mt="3">
-          <Box>
-            <Text className="mb-1 block text-[12px] text-gray-10">Name</Text>
-            <TextField.Root
-              size="2"
-              autoFocus
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="my-skill"
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && name.trim()) void handleCreate();
-              }}
-            />
-            <Text className="mt-1 block text-[11px] text-gray-9">
-              Lowercase letters, numbers, dashes, dots, and underscores
-            </Text>
-          </Box>
-          <Box>
-            <Text className="mb-1 block text-[12px] text-gray-10">
-              Location
-            </Text>
-            <Select.Root value={scope} onValueChange={setScope}>
-              <Select.Trigger className="w-full" />
-              <Select.Content>
-                <Select.Item value={USER_SCOPE}>Your skills</Select.Item>
-                {folders.map((folder) => (
-                  <Select.Item key={folder.path} value={folder.path}>
-                    Repository: {folder.name}
-                  </Select.Item>
-                ))}
-              </Select.Content>
-            </Select.Root>
-          </Box>
-          <Flex justify="end" gap="2" mt="2">
-            <Dialog.Close>
-              <Button size="1" variant="soft" color="gray">
-                Cancel
-              </Button>
-            </Dialog.Close>
-            <Button
-              size="1"
-              variant="solid"
-              onClick={handleCreate}
-              disabled={createSkill.isPending || !name.trim()}
-            >
-              Create
-            </Button>
-          </Flex>
-        </Flex>
-      </Dialog.Content>
-    </Dialog.Root>
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-[380px]">
+        <DialogHeader>
+          <DialogTitle>New skill</DialogTitle>
+        </DialogHeader>
+        <DialogBody>
+          <div className="flex flex-col gap-3">
+            <div>
+              <label
+                htmlFor="new-skill-name"
+                className="mb-1 block text-(--gray-10) text-xs"
+              >
+                Name
+              </label>
+              <Input
+                id="new-skill-name"
+                autoFocus
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="my-skill"
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && name.trim()) void handleCreate();
+                }}
+              />
+              <p className="mt-1 text-(--gray-9) text-xs">
+                Lowercase letters, numbers, dashes, dots, and underscores
+              </p>
+            </div>
+            <div>
+              <label
+                htmlFor="new-skill-location"
+                className="mb-1 block text-(--gray-10) text-xs"
+              >
+                Location
+              </label>
+              <Select
+                value={scope}
+                onValueChange={(value: string | null) => {
+                  if (value) setScope(value);
+                }}
+                items={[
+                  { value: USER_SCOPE, label: "Your skills" },
+                  ...folders.map((folder) => ({
+                    value: folder.path,
+                    label: `Repository: ${folder.name}`,
+                  })),
+                ]}
+              >
+                <SelectTrigger id="new-skill-location" className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={USER_SCOPE}>Your skills</SelectItem>
+                  {folders.map((folder) => (
+                    <SelectItem key={folder.path} value={folder.path}>
+                      Repository: {folder.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+        </DialogBody>
+        <DialogFooter>
+          <DialogClose render={<Button size="sm" variant="outline" />}>
+            Cancel
+          </DialogClose>
+          <Button
+            size="sm"
+            variant="primary"
+            onClick={() => void handleCreate()}
+            loading={createSkill.isPending}
+            disabled={createSkill.isPending || !name.trim()}
+          >
+            Create
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

@@ -5,6 +5,17 @@ import {
 } from "@posthog/core/task-detail/taskService";
 import { useService } from "@posthog/di/react";
 import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  Button,
+  DialogBody,
+  Input,
+} from "@posthog/quill";
+import {
   ANALYTICS_EVENTS,
   type ClaudeSessionImportSource,
   formatRelativeTimeShort,
@@ -13,7 +24,7 @@ import {
 import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { openTask } from "@posthog/ui/router/useOpenTask";
 import { track } from "@posthog/ui/shell/analytics";
-import { Dialog, Flex, ScrollArea, Text, TextField } from "@radix-ui/themes";
+import { Flex, Text } from "@radix-ui/themes";
 import { useEffect, useState } from "react";
 import claudeMark from "../../../assets/services/claude.svg";
 import { toastError } from "../../notifications/errorDetails";
@@ -148,28 +159,31 @@ export function SessionPickerDialog({
     : sessions;
 
   return (
-    <Dialog.Root open={open} onOpenChange={onOpenChange}>
-      <Dialog.Content size="2" maxWidth="520px">
-        <Dialog.Title size="3">Continue a Claude Code session</Dialog.Title>
-        <Dialog.Description size="1" color="gray" mb="3">
-          Pick up a recent terminal session in this repo.
-        </Dialog.Description>
-        <TextField.Root
-          placeholder="Search sessions…"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          mb="3"
+    <AlertDialog open={open} onOpenChange={() => undefined}>
+      <AlertDialogContent className="sm:max-w-[520px]">
+        <AlertDialogHeader>
+          <AlertDialogTitle>Continue a Claude Code session</AlertDialogTitle>
+          <AlertDialogDescription>
+            Pick up a recent terminal session in this repo.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <DialogBody
+          className="flex flex-col gap-3"
+          viewportClassName="max-h-[360px]"
         >
-          <TextField.Slot>
-            <MagnifyingGlassIcon size={14} />
-          </TextField.Slot>
-        </TextField.Root>
-        <ScrollArea
-          type="auto"
-          scrollbars="vertical"
-          style={{ maxHeight: 360 }}
-        >
-          <Flex direction="column" gap="2" pr="3">
+          <div className="relative">
+            <MagnifyingGlassIcon
+              size={14}
+              className="-translate-y-1/2 pointer-events-none absolute top-1/2 left-3 text-muted-foreground"
+            />
+            <Input
+              placeholder="Search sessions…"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              className="pl-9"
+            />
+          </div>
+          <div className="flex flex-col gap-2">
             {filtered.map((session) => (
               <SessionCard
                 key={session.sourceSessionId}
@@ -185,10 +199,15 @@ export function SessionPickerDialog({
                 No matching sessions.
               </Text>
             )}
-          </Flex>
-        </ScrollArea>
-      </Dialog.Content>
-    </Dialog.Root>
+          </div>
+        </DialogBody>
+        <AlertDialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            Cancel
+          </Button>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 }
 

@@ -286,12 +286,15 @@ describe("GiveAccessDialog", () => {
     );
 
     const shareButton = screen.getByRole("button", { name: /Share access/ });
-    expect(shareButton).toBeDisabled();
+    expect(shareButton).toHaveAttribute("aria-disabled", "true");
     expect(shareButton.querySelector('[role="status"]')).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Cancel" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Cancel" })).toHaveAttribute(
+      "aria-disabled",
+      "true",
+    );
 
     fireEvent.keyDown(document, { key: "Escape" });
     expect(onClose).not.toHaveBeenCalled();
-    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    expect(screen.getByRole("alertdialog")).toBeInTheDocument();
   });
 });

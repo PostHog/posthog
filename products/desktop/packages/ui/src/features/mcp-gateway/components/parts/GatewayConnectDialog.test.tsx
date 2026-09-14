@@ -100,7 +100,7 @@ describe("GatewayConnectDialog", () => {
     // The template fixes the mechanism, so there is nothing to choose.
     expect(screen.queryByText("Authentication")).not.toBeInTheDocument();
     const connect = screen.getByRole("button", { name: "Connect" });
-    expect(connect).toBeDisabled();
+    expect(connect).toHaveAttribute("aria-disabled", "true");
 
     await user.type(screen.getByPlaceholderText("Enter API key"), "sk-secret");
     await user.click(connect);

@@ -18,8 +18,18 @@ import type {
   AutoresearchDraftConfig,
 } from "@posthog/core/autoresearch/schemas";
 import {
-  Button,
   Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+  Button as QuillButton,
+} from "@posthog/quill";
+import {
+  Button,
   Popover,
   SegmentedControl,
   Text,
@@ -237,24 +247,27 @@ function DirectionOption({
 
 function AutoresearchInfoDialog() {
   return (
-    <Dialog.Root>
-      <Dialog.Trigger>
-        <Button
-          size="1"
-          variant="ghost"
-          color="gray"
-          aria-label="What is autoresearch?"
-          className="text-gray-10"
-        >
-          <Question size={13} />
-          See how it works
-        </Button>
-      </Dialog.Trigger>
-      <Dialog.Content maxWidth="720px" size="2">
-        <Dialog.Title className="text-base">What is autoresearch?</Dialog.Title>
-        <Dialog.Description className="text-sm" color="gray">
-          Autoresearch runs a bounded experiment loop inside this task.
-        </Dialog.Description>
+    <Dialog>
+      <DialogTrigger
+        render={
+          <QuillButton
+            size="sm"
+            variant="link-muted"
+            aria-label="What is autoresearch?"
+            className="text-gray-10"
+          />
+        }
+      >
+        <Question size={13} />
+        See how it works
+      </DialogTrigger>
+      <DialogContent className="max-w-[720px]">
+        <DialogHeader>
+          <DialogTitle>What is autoresearch?</DialogTitle>
+          <DialogDescription>
+            Autoresearch runs a bounded experiment loop inside this task.
+          </DialogDescription>
+        </DialogHeader>
 
         <div className="mt-4 grid gap-4 sm:grid-cols-[minmax(0,1.35fr)_minmax(220px,1fr)]">
           <ExperimentLoopVisual />
@@ -293,28 +306,25 @@ function AutoresearchInfoDialog() {
           follows the measurement instructions in your prompt.
         </Text>
 
-        <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-gray-5 border-t pt-3">
-          <div className="flex items-center gap-2">
-            <Button
-              variant="ghost"
-              color="gray"
+        <DialogFooter>
+          <div className="mr-auto flex items-center gap-2">
+            <QuillButton
+              variant="link-muted"
               onClick={() => openExternalUrl(AUTORESEARCH_FEEDBACK_MAILTO)}
             >
               <EnvelopeSimple size={14} />
               Send feedback or report a bug
-            </Button>
-            <Text size="1" color="gray" className="hidden sm:inline">
+            </QuillButton>
+            <span className="hidden text-gray-10 text-xs sm:inline">
               autoresearch@posthog.com
-            </Text>
+            </span>
           </div>
-          <Dialog.Close>
-            <Button variant="soft" color="gray">
-              Got it
-            </Button>
-          </Dialog.Close>
-        </div>
-      </Dialog.Content>
-    </Dialog.Root>
+          <DialogClose render={<QuillButton variant="outline" />}>
+            Got it
+          </DialogClose>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 

@@ -2,12 +2,14 @@ import type { AutoresearchDirection } from "@posthog/core/autoresearch/schemas";
 import {
   Button,
   Dialog,
-  Flex,
-  Select,
-  Text,
-  TextArea,
-  TextField,
-} from "@radix-ui/themes";
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@posthog/quill";
+import { Flex, Select, Text, TextArea, TextField } from "@radix-ui/themes";
 import { useState } from "react";
 import {
   type AutoresearchModelOption,
@@ -57,12 +59,12 @@ export function AutoresearchConfigDialog({
   onSubmit,
 }: AutoresearchConfigDialogProps) {
   return (
-    <Dialog.Root open={open} onOpenChange={onOpenChange}>
-      <Dialog.Content maxWidth="480px" size="2">
-        <Dialog.Title className="text-base">{title}</Dialog.Title>
-        <Dialog.Description className="text-sm" color="gray">
-          {description}
-        </Dialog.Description>
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-[480px]">
+        <DialogHeader>
+          <DialogTitle>{title}</DialogTitle>
+          <DialogDescription>{description}</DialogDescription>
+        </DialogHeader>
         {/* Radix unmounts closed dialog content, so the form mounts fresh
             (seeded from the current `initial`) on every open. */}
         <ConfigForm
@@ -74,8 +76,8 @@ export function AutoresearchConfigDialog({
           onSubmit={onSubmit}
           onDone={() => onOpenChange(false)}
         />
-      </Dialog.Content>
-    </Dialog.Root>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -281,16 +283,19 @@ function ConfigForm({
         )}
       </Flex>
 
-      <Flex justify="end" gap="2" mt="4">
-        <Dialog.Close>
-          <Button variant="soft" color="gray" size="1">
-            Cancel
-          </Button>
-        </Dialog.Close>
-        <Button size="1" onClick={handleSubmit} disabled={!canSubmit}>
+      <DialogFooter>
+        <DialogClose render={<Button variant="outline" size="sm" />}>
+          Cancel
+        </DialogClose>
+        <Button
+          size="sm"
+          variant="primary"
+          onClick={handleSubmit}
+          disabled={!canSubmit}
+        >
           {submitLabel}
         </Button>
-      </Flex>
+      </DialogFooter>
     </>
   );
 }

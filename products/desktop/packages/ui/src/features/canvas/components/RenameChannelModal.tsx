@@ -1,6 +1,14 @@
-import { XIcon } from "@phosphor-icons/react";
 import { validateChannelName } from "@posthog/core/canvas/channelName";
-import { Button } from "@posthog/quill";
+import {
+  Button,
+  Dialog,
+  DialogBody,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  Input,
+} from "@posthog/quill";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { channelGlyph } from "@posthog/ui/features/canvas/components/channelGlyph";
 import type { Channel } from "@posthog/ui/features/canvas/hooks/useChannels";
@@ -8,7 +16,6 @@ import { useChannelMutations } from "@posthog/ui/features/canvas/hooks/useChanne
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
 import { toast } from "@posthog/ui/primitives/toast";
 import { track } from "@posthog/ui/shell/analytics";
-import { Dialog, Flex, IconButton, Text, TextField } from "@radix-ui/themes";
 import { useEffect, useState } from "react";
 
 // Matches the create-channel naming constraint.
@@ -64,87 +71,69 @@ export function RenameChannelModal({
   };
 
   return (
-    <Dialog.Root
+    <Dialog
       open={open}
       onOpenChange={(next) => {
         if (!isRenaming) onOpenChange(next);
       }}
     >
-      <Dialog.Content maxWidth="560px">
-        <Flex align="start" justify="between" gap="3">
-          <Dialog.Title>
-            <Text className="font-bold text-lg">
-              Rename {spacesLayout ? "space" : "channel"}
-            </Text>
-          </Dialog.Title>
-          <Dialog.Close>
-            <IconButton
-              variant="ghost"
-              color="gray"
-              size="2"
-              aria-label="Close"
-              disabled={isRenaming}
+      <DialogContent className="max-w-[560px]" showCloseButton={!isRenaming}>
+        <DialogHeader>
+          <DialogTitle>Rename {spacesLayout ? "space" : "channel"}</DialogTitle>
+        </DialogHeader>
+        <DialogBody>
+          <div className="flex flex-col gap-2">
+            <label
+              htmlFor="rename-channel-name"
+              className="font-medium text-sm"
             >
-              <XIcon size={18} />
-            </IconButton>
-          </Dialog.Close>
-        </Flex>
-
-        <Flex direction="column" gap="2" mt="4">
-          <Text
-            as="label"
-            htmlFor="rename-channel-name"
-            className="font-medium text-sm"
-          >
-            Name
-          </Text>
-          <TextField.Root
-            id="rename-channel-name"
-            autoFocus
-            size="3"
-            value={name}
-            placeholder="e.g. mobile"
-            maxLength={MAX_CHANNEL_NAME_LENGTH}
-            disabled={isRenaming}
-            onChange={(e) => setName(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                e.preventDefault();
-                void submit();
-              }
-            }}
-          >
-            <TextField.Slot>
-              {channelGlyph(channel.name, {
-                personal: channel.channelType === "personal",
-                private: channel.channelType === "private",
-                size: 16,
-                space: spacesLayout,
-              })}
-            </TextField.Slot>
-            <TextField.Slot side="right">
-              <Text className="text-gray-9 text-sm tabular-nums">
+              Name
+            </label>
+            <div className="relative">
+              <span className="-translate-y-1/2 pointer-events-none absolute top-1/2 left-3">
+                {channelGlyph(channel.name, {
+                  personal: channel.channelType === "personal",
+                  private: channel.channelType === "private",
+                  size: 16,
+                  space: spacesLayout,
+                })}
+              </span>
+              <Input
+                id="rename-channel-name"
+                autoFocus
+                value={name}
+                placeholder="e.g. mobile"
+                maxLength={MAX_CHANNEL_NAME_LENGTH}
+                disabled={isRenaming}
+                onChange={(e) => setName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    void submit();
+                  }
+                }}
+                className="pr-12 pl-10"
+              />
+              <span className="-translate-y-1/2 pointer-events-none absolute top-1/2 right-3 text-muted-foreground text-sm tabular-nums">
                 {remaining}
-              </Text>
-            </TextField.Slot>
-          </TextField.Root>
-          {validationError && (
-            <Text color="red" className="text-sm">
-              {validationError}
-            </Text>
-          )}
-        </Flex>
-
-        <Flex gap="3" mt="5" justify="end">
+              </span>
+            </div>
+            {validationError && (
+              <p className="text-destructive text-sm">{validationError}</p>
+            )}
+          </div>
+        </DialogBody>
+        <DialogFooter>
           <Button
             variant="primary"
+            loading={isRenaming}
             disabled={!trimmed || unchanged || !!validationError || isRenaming}
             onClick={submit}
           >
             Rename
           </Button>
-        </Flex>
-      </Dialog.Content>
-    </Dialog.Root>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
