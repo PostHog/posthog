@@ -1064,6 +1064,17 @@
                     "legendFormat": "workflow tasks > 1s",
                     "range": true,
                     "refId": "C"
+                },
+                {
+                    "datasource": {
+                        "type": "prometheus",
+                        "uid": "${datasource}"
+                    },
+                    "editorMode": "code",
+                    "expr": "clamp_min((sum(rate(temporal_workflow_task_schedule_to_start_latency_count{task_queue=\"general-purpose-task-queue\"}[$__rate_interval])) - sum(rate(temporal_workflow_task_schedule_to_start_latency_bucket{task_queue=\"general-purpose-task-queue\",le=\"10000\"}[$__rate_interval]))) / clamp_min(sum(rate(temporal_workflow_task_schedule_to_start_latency_count{task_queue=\"general-purpose-task-queue\"}[$__rate_interval])), 1e-9), 0)",
+                    "legendFormat": "workflow tasks > 10s",
+                    "range": true,
+                    "refId": "D"
                 }
             ],
             "title": "Tasks that wait over 1s and 10s for a worker",
