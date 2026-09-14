@@ -6,9 +6,13 @@ import { LemonInput, Tooltip } from '@posthog/lemon-ui'
 
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
-import { INTERVAL_TO_DEFAULT_MOVING_AVERAGE_PERIOD, trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 
 import { isTrendsQuery } from '~/queries/utils'
+
+import {
+    INTERVAL_TO_DEFAULT_MOVING_AVERAGE_PERIOD,
+    trendsDataLogic,
+} from 'products/product_analytics/frontend/insights/trends/trendsDataLogic'
 
 export function MovingAverageIntervalsInput(): JSX.Element {
     const { insightProps } = useValues(insightLogic)

@@ -162,7 +162,7 @@ export interface ProductEmptyStateConfig {
 
 /**
  * Declared on a scene's `SceneExport` to opt into the app-shell empty-state gate.
- * Both fields live in the scene's lazy chunk, so heavy assets (hedgehog PNGs,
+ * These fields live in the scene's lazy chunk, so heavy assets (hedgehog PNGs,
  * preview widgets) never enter the eager graph.
  */
 export interface SceneProductEmptyState {
@@ -191,6 +191,12 @@ export interface SceneProductEmptyState {
      * a person may well configure before a first workflow exists.
      */
     scenes?: GatedScene[]
+    /**
+     * Rendered under the product header whenever the gate is up (setup screen or its spinner).
+     * The gate replaces the scene, so tab bars declared inside the scene never appear. Put
+     * sibling-tab nav here so those surfaces stay reachable before the product has data.
+     */
+    SceneNav?: ComponentType
 }
 
 /**
