@@ -70,7 +70,12 @@ It reads public replies written by a person from each environment where Support 
 Private notes, customer messages, deleted replies, and AI replies are not used.
 
 Each reply is checked for reusable information, personal data, secrets, and overlap with existing Business knowledge.
-Accepted information is added to the **Learned from support** source.
+Accepted answers are added as their own learned sources, named after the topic.
+You can open, edit, or delete a learned source.
+PostHog does not overwrite a source that already exists, even if it analyzes the same ticket again.
+
+A project can have up to 200 learned sources.
+After that, new answers are not added until you delete some.
 
 ## Run learning manually
 

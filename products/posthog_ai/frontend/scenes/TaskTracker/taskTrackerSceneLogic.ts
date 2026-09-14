@@ -38,7 +38,7 @@ import type { ActiveCreation } from '../../logics/runnerPanelLogic'
 import { taskRunDefaultsLogic } from '../../logics/taskRunDefaultsLogic'
 import { tasksLogic } from '../../logics/tasksLogic'
 import { taskWarmLogic } from '../../logics/taskWarmLogic'
-import type { WarmLease } from '../../logics/taskWarmLogic'
+import type { WarmLease, WarmSubmission } from '../../logics/taskWarmLogic'
 import { toolStreamEventsLogic } from '../../logics/toolStreamEventsLogic'
 import { welcomeOverrideLogic } from '../../logics/welcomeOverrideLogic'
 import type { AttachedContextItem } from '../../types/contextTypes'
@@ -214,8 +214,12 @@ export interface taskTrackerSceneLogicActions {
     toggleHistory: () => {
         value: true
     } // runnerPanelLogic
-    consumeWarm: () => {
-        value: true
+    consumeWarm: (
+        submission: WarmSubmission,
+        runId: string | null
+    ) => {
+        runId: string | null
+        submission: WarmSubmission
     } // taskWarmLogic
     noteDraft: (
         hasText: boolean,
@@ -223,6 +227,9 @@ export interface taskTrackerSceneLogicActions {
     ) => {
         hasText: boolean
         request: import('../../logics/taskWarmLogic').TaskWarmRequest
+    } // taskWarmLogic
+    prepareSubmit: (submission: WarmSubmission) => {
+        submission: WarmSubmission
     } // taskWarmLogic
     releaseWarm: () => {
         value: true
@@ -384,7 +391,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             composerSeedLogic(props),
             ['consumeSeed', 'setSeed'],
             taskWarmLogic({ panelId: props.panelId }),
-            ['noteDraft', 'consumeWarm', 'releaseWarm'],
+            ['noteDraft', 'prepareSubmit', 'consumeWarm', 'releaseWarm'],
         ],
     })),
 
@@ -619,6 +626,9 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             }
             const disposables = cache.disposables
             cache.submittingTask = disposables
+            const projectId = String(values.currentProjectId)
+            const warmSubmission: WarmSubmission = { projectId, lease: null }
+            actions.prepareSubmit(warmSubmission)
 
             // Optimistically open the thread on send: a `runStreamLogic` keyed by a client `streamKey`, seeded
             // with the typed message + provisioning indicator, rendered by the pending `RunSurface` (the
@@ -709,14 +719,11 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                     pending_user_message: pendingUserMessage,
                 }
 
-                const projectId = String(values.currentProjectId)
                 const newTask = await submitWithWarmRunRetry(
                     (options) => tasksCreate(projectId, taskData, options),
                     disposables
                 )
-                // Whatever happened, this submit owns the warm now: drop the lease without cancelling it,
-                // since the Run it points at is the one the create just activated.
-                actions.consumeWarm()
+                actions.consumeWarm(warmSubmission, newTask.latest_run?.id ?? null)
 
                 if (!disposables.isDisposed && values.activeCreation?.streamKey === streamKey) {
                     interaction.props.flushDraft?.()
