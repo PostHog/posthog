@@ -19,6 +19,8 @@ from enum import StrEnum
 
 from django.db import transaction
 
+from posthog.dataclasses import frozen
+
 from products.signals.backend.artefact_schemas import (
     SIGNALS_PRODUCT,
     TASK_RUN_TYPE_DISCUSSION,
@@ -89,19 +91,37 @@ class _ImplementationSlotClaim(StrEnum):
 
     @property
     def detail(self) -> str:
-        """The message the person reads when the claim refuses their action."""
+        """The message the person reads when the claim refuses their action.
+
+        The client shows the same copy for the same claim without asking the server, from
+        `SLOT_CLAIM_DISABLED_REASON` in ImplementButton.tsx. Keep the two in step.
+        """
         if self is _ImplementationSlotClaim.SHIPPED_PR:
-            return "This report already has a pull request. Open the existing task to continue it."
-        return "A pull request run is already in progress for this report. Open the existing task to follow it."
+            return "This report already has a pull request. Open the run to continue it."
+        return "A pull request run is already in progress for this report. Open the run to follow it."
+
+
+@frozen
+class _ImplementationSlotClaimant:
+    """The task that holds a report's implementation slot, and why it holds it.
+
+    The task id travels with the reason so a refusal can send the person to the run it names.
+    """
+
+    reason: _ImplementationSlotClaim
+    task_id: str
 
 
 class ReportTaskCapExceeded(Exception):
     """A signal report already has its allowance of user-started tasks."""
 
-    def __init__(self, kind: str, detail: str) -> None:
+    def __init__(self, kind: str, detail: str, task_id: str | None = None) -> None:
         super().__init__(detail)
         self.kind = kind
         self.detail = detail
+        # The task holding the slot, when the cap names one. The discussion cap does not: it counts
+        # tasks rather than pointing at one.
+        self.task_id = task_id
 
 
 def _task_run_content(product: str, type: str, task_id: str, run_id: str | None) -> TaskRunArtefact:
@@ -192,7 +212,7 @@ def _runs_claim_implementation_slot(
 
 def _implementation_slot_claim(
     *, team_id: int, report_id: str, exclude_task_id: str | None = None
-) -> _ImplementationSlotClaim | None:
+) -> _ImplementationSlotClaimant | None:
     """Why the report's one implementation slot is still claimed, or `None` when it is free.
 
     Reads the `SignalReportTask` gate rows (not the API-mutable artefact log) and traverses
@@ -210,11 +230,16 @@ def _implementation_slot_claim(
     runs_by_task: dict[str, list[tuple[str | None, object]]] = {}
     for task_id, status, pr_url in rows:
         runs_by_task.setdefault(str(task_id), []).append((status, pr_url))
-    claims = {_runs_claim_implementation_slot(runs) for runs in runs_by_task.values()}
+    claims = {
+        task_id: claim
+        for task_id, runs in runs_by_task.items()
+        if (claim := _runs_claim_implementation_slot(runs)) is not None
+    }
     # A shipped PR is the better answer when one task shipped and another is still working.
-    for claim in (_ImplementationSlotClaim.SHIPPED_PR, _ImplementationSlotClaim.IN_FLIGHT):
-        if claim in claims:
-            return claim
+    for reason in (_ImplementationSlotClaim.SHIPPED_PR, _ImplementationSlotClaim.IN_FLIGHT):
+        for task_id, claim in claims.items():
+            if claim is reason:
+                return _ImplementationSlotClaimant(reason=reason, task_id=task_id)
     return None
 
 
@@ -237,9 +262,11 @@ def enforce_report_task_cap(*, team_id: int, report_id: str, relationship: str |
         # The serializer already team-scoped the report; behave as the create path would without a cap.
         return
     if relationship is None or relationship == TASK_RUN_TYPE_IMPLEMENTATION:
-        claim = _implementation_slot_claim(team_id=team_id, report_id=report_id)
-        if claim is not None:
-            raise ReportTaskCapExceeded(kind=TASK_RUN_TYPE_IMPLEMENTATION, detail=claim.detail)
+        claimant = _implementation_slot_claim(team_id=team_id, report_id=report_id)
+        if claimant is not None:
+            raise ReportTaskCapExceeded(
+                kind=TASK_RUN_TYPE_IMPLEMENTATION, detail=claimant.reason.detail, task_id=claimant.task_id
+            )
         assignment = get_active_claim(team_id=team_id, report_id=report_id)
         if assignment and assignment.actor_kind:
             if assignment.actor_kind != "task":
@@ -307,11 +334,17 @@ def enforce_report_implementation_rerun_cap(*, team_id: int, report_id: str, tas
     assignment = get_active_claim(team_id=team_id, report_id=report_id)
     if assignment and assignment.actor_kind and str(assignment.actor_task_id) != task_id:
         raise ReportTaskCapExceeded(
-            kind=TASK_RUN_TYPE_IMPLEMENTATION, detail="This report is claimed by another actor."
+            kind=TASK_RUN_TYPE_IMPLEMENTATION,
+            detail="This report is claimed by another actor.",
+            task_id=str(assignment.actor_task_id)
+            if assignment.actor_kind == "task" and assignment.actor_task_id
+            else None,
         )
-    claim = _implementation_slot_claim(team_id=team_id, report_id=report_id, exclude_task_id=task_id)
-    if claim is not None:
-        raise ReportTaskCapExceeded(kind=TASK_RUN_TYPE_IMPLEMENTATION, detail=claim.detail)
+    claimant = _implementation_slot_claim(team_id=team_id, report_id=report_id, exclude_task_id=task_id)
+    if claimant is not None:
+        raise ReportTaskCapExceeded(
+            kind=TASK_RUN_TYPE_IMPLEMENTATION, detail=claimant.reason.detail, task_id=claimant.task_id
+        )
     claim_report_for_task(team_id=team_id, report_id=report_id, task_id=task_id)
 
 
