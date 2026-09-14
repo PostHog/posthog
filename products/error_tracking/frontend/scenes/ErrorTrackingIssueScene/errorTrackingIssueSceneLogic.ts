@@ -895,7 +895,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         spikeEvents: [
             [] as ErrorTrackingSpikeEvent[],
             {
-                loadSpikeEvents: async (_, breakpoint) => {
+                loadSpikeEvents: async (_: void, breakpoint) => {
                     const { dateFrom, dateTo } = dateRangeToIsoBounds(values.dateRange)
                     try {
                         const response = await api.errorTracking.getSpikeEvents({
