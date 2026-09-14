@@ -8,7 +8,7 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
-from products.data_modeling.backend.facade.models import DataModelingJob, DataWarehouseSavedQuery
+from products.data_modeling.backend.facade.models import DAG, DataModelingJob, DataWarehouseSavedQuery, Edge, Node
 from products.endpoints.backend.models import Endpoint, EndpointVersion
 from products.endpoints.backend.tasks.tasks import (
     STALE_THRESHOLD_DAYS,
@@ -109,15 +109,17 @@ class TestDeactivateStaleMaterializationsTask(BaseTest):
         assert version.saved_query is not None
         assert version.saved_query.is_materialized is True
 
-    def test_keeps_newly_materialized_endpoint(self):
+    @parameterized.expand([1, 10])
+    def test_keeps_newly_materialized_endpoint(self, age_days):
         now = timezone.now()
         # Materialization enabled today, never executed
         endpoint, version = self._create_materialized_endpoint(
             "new_materialization",
             last_run_at=now - timedelta(hours=1),
             last_executed_at=None,
-            materialization_created_at=now - timedelta(days=1),
+            materialization_created_at=now - timedelta(days=age_days),
         )
+        EndpointVersion.objects.filter(pk=version.pk).update(created_at=now - timedelta(days=45))
 
         deactivate_stale_materializations()
 
@@ -141,7 +143,7 @@ class TestDeactivateStaleMaterializationsTask(BaseTest):
         version.refresh_from_db()
         assert version.saved_query is not None
 
-    def test_keeps_old_materialization_that_was_never_executed(self):
+    def test_hibernates_old_materialization_that_was_never_executed(self):
         now = timezone.now()
         # Materialization enabled 45 days ago but never executed via API key
         endpoint, version = self._create_materialized_endpoint(
@@ -150,12 +152,78 @@ class TestDeactivateStaleMaterializationsTask(BaseTest):
             last_executed_at=None,
             materialization_created_at=now - timedelta(days=45),
         )
+        EndpointVersion.objects.filter(pk=version.pk).update(created_at=now - timedelta(days=45))
 
         deactivate_stale_materializations()
 
-        # Should not be deactivated - last_executed_at is null (never used via API)
+        version.refresh_from_db()
+        assert version.saved_query is None
+        assert version.materialization_hibernated_at is not None
+
+    def test_keeps_never_called_version_when_the_endpoint_has_a_recent_call(self):
+        now = timezone.now()
+        # The version has no call of its own, but the endpoint does — a missing version
+        # timestamp alone does not prove the version was never called.
+        endpoint, version = self._create_materialized_endpoint(
+            "never_called_current_version",
+            last_run_at=now - timedelta(hours=1),
+            last_executed_at=now - timedelta(hours=1),
+            materialization_created_at=now - timedelta(days=45),
+        )
+        EndpointVersion.objects.filter(pk=version.pk).update(created_at=now - timedelta(days=45))
+
+        deactivate_stale_materializations()
+
         version.refresh_from_db()
         assert version.saved_query is not None
+        assert version.materialization_hibernated_at is None
+
+    def test_stale_sweep_snapshot_does_not_pause_a_version_the_user_disabled(self):
+        now = timezone.now()
+        endpoint, version = self._create_materialized_endpoint(
+            "disabled_mid_sweep",
+            last_run_at=now - timedelta(hours=1),
+            last_executed_at=now - timedelta(days=45),
+            materialization_created_at=now - timedelta(days=45),
+        )
+        stale_snapshot = EndpointVersion.objects.select_related("saved_query", "endpoint").get(pk=version.pk)
+
+        # The customer disables materialization after the sweep picked its candidates.
+        version.disable_materialization()
+
+        with mock.patch("products.endpoints.backend.tasks.tasks.notify_materialization_hibernated") as notify:
+            _deactivate_version_materialization(stale_snapshot)
+
+        version.refresh_from_db()
+        assert version.saved_query is None
+        assert version.materialization_hibernated_at is None
+        notify.assert_not_called()
+
+    def test_keeps_materialization_another_model_reads(self):
+        now = timezone.now()
+        endpoint, version = self._create_materialized_endpoint(
+            "feeds_a_model",
+            last_run_at=now - timedelta(hours=1),
+            last_executed_at=None,
+            materialization_created_at=now - timedelta(days=45),
+        )
+        EndpointVersion.objects.filter(pk=version.pk).update(created_at=now - timedelta(days=45))
+
+        dag = DAG.get_or_create_default(self.team)
+        source = Node.objects.create(team=self.team, dag=dag, saved_query=version.saved_query)
+        dependent = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="downstream_model",
+            query=self.sample_hogql_query,
+        )
+        target = Node.objects.create(team=self.team, dag=dag, saved_query=dependent)
+        Edge.objects.create(team=self.team, dag=dag, source=source, target=target)
+
+        deactivate_stale_materializations()
+
+        version.refresh_from_db()
+        assert version.saved_query is not None
+        assert version.materialization_hibernated_at is None
 
     def test_skips_endpoints_not_materialized_recently(self):
         now = timezone.now()
@@ -204,7 +272,7 @@ class TestDeactivateStaleMaterializationsTask(BaseTest):
         # No materialized endpoints exist
         with mock.patch("products.endpoints.backend.tasks.tasks.logger") as mock_logger:
             deactivate_stale_materializations()
-            mock_logger.info.assert_called_with("deactivate_stale_materializations_no_candidates")
+            mock_logger.info.assert_called_with("hibernate_stale_materializations_no_candidates")
 
     def test_handles_endpoint_exactly_at_threshold(self):
         now = timezone.now()

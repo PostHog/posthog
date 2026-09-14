@@ -41,6 +41,10 @@ export const REALTIME_NOTIFICATION_TYPE_META: Record<string, { label: string; de
         label: 'Materialized view failures',
         description: 'When a materialized view in your project fails to refresh',
     },
+    materialization_hibernated: {
+        label: 'Endpoint materialization paused',
+        description: 'When unused endpoint materialization pauses until the next API-key call',
+    },
     issue_assigned: {
         label: 'Issues assigned',
         description: 'When an error tracking issue is assigned to you',

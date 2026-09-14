@@ -655,6 +655,11 @@ class EndpointViewSet(
     @extend_schema(
         responses={200: EndpointMaterializationSerializer},
         description="Get materialization status for an endpoint. Supports ?version=N query param.",
+        parameters=[
+            OpenApiParameter(
+                "version", int, OpenApiParameter.QUERY, description="Version number. Defaults to the current version."
+            )
+        ],
     )
     @action(methods=["GET"], detail=True, url_path="materialization_status")
     def materialization_status(self, request: Request, name=None, *args, **kwargs) -> Response:

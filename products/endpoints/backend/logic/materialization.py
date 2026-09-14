@@ -131,6 +131,8 @@ def build_materialization_info(version: EndpointVersion, endpoint_name: str | No
             "reason": reason if not can_mat else None,
         }
 
+    result["hibernated"] = version.materialization_hibernated_at is not None
+    result["hibernated_at"] = version.materialization_hibernated_at
     if endpoint_name is not None:
         result["name"] = endpoint_name
     return result
@@ -156,10 +158,10 @@ class MaterializationPreview:
 class EndpointMaterializationService:
     """Enable, disable, and preview materialization for endpoint versions."""
 
-    def __init__(self, team: Team, request: Request):
+    def __init__(self, team: Team, request: Request | None = None):
         self.team = team
         self.request = request
-        self.user = cast(User, request.user)
+        self.user = cast(User, request.user) if request is not None else None
 
     def enable_materialization(
         self,
@@ -273,7 +275,7 @@ class EndpointMaterializationService:
             # query (deferred to on_commit, so it sees the version link above).
             try:
                 saved_query.schedule_materialization(
-                    trigger_immediate_run=newly_materialized, triggered_by_id=self.user.pk
+                    trigger_immediate_run=newly_materialized, triggered_by_id=self.user.pk if self.user else None
                 )
             except (UnsatisfiableFrequencyError, UnsupportedFrequencyTargetError) as e:
                 # The chosen data freshness can't be honored (e.g. finer than an upstream import
@@ -381,6 +383,8 @@ class EndpointMaterializationService:
                     context=EndpointContext(version=version.version),
                 ),
             )
+        else:
+            version.disable_materialization()
         # Clears this version's throttle-readiness key plus the "current" key (the disabled
         # version may be the current one) — the next request lazily re-checks the DB.
         clear_endpoint_materialization_cache(self.team.pk, endpoint.name, versions=[version.version])

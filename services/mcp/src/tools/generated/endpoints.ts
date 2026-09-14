@@ -141,7 +141,11 @@ const endpointMaterializationConditions = (): ToolBase<
 
 const EndpointMaterializationStatusSchema = () => {
     const EndpointsMaterializationStatusRetrieveParams = orvalSchemas.EndpointsMaterializationStatusRetrieveParams()
-    return EndpointsMaterializationStatusRetrieveParams.omit({ project_id: true })
+    const EndpointsMaterializationStatusRetrieveQueryParams =
+        orvalSchemas.EndpointsMaterializationStatusRetrieveQueryParams()
+    return EndpointsMaterializationStatusRetrieveParams.omit({ project_id: true }).extend(
+        EndpointsMaterializationStatusRetrieveQueryParams.shape
+    )
 }
 
 const endpointMaterializationStatus = (): ToolBase<
@@ -155,6 +159,9 @@ const endpointMaterializationStatus = (): ToolBase<
         const result = await context.api.request<Schemas.EndpointMaterialization>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/endpoints/${encodeURIComponent(String(params.name))}/materialization_status/`,
+            query: {
+                version: params.version,
+            },
         })
         return await withPostHogUrl(context, result, `/endpoints/${result.name}`)
     },

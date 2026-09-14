@@ -74,6 +74,13 @@ export interface EndpointMaterializationApi {
     enabled: boolean
     /** Whether a successful materialization is available to serve. */
     ready: boolean
+    /** Whether unused materialization is paused until the next API-key execution. */
+    readonly hibernated: boolean
+    /**
+     * When unused materialization was paused, or null when it is not paused.
+     * @nullable
+     */
+    readonly hibernated_at: string | null
     /** Current materialization status (e.g. 'Completed', 'Running'). */
     status?: string
     /** Whether this endpoint query can be materialized. */
@@ -1098,6 +1105,13 @@ export type EndpointsLogsRetrieveParams = {
      * @minLength 1
      */
     search?: string
+}
+
+export type EndpointsMaterializationStatusRetrieveParams = {
+    /**
+     * Version number. Defaults to the current version.
+     */
+    version?: number
 }
 
 export type EndpointsOpenapiSpecRetrieveParams = {

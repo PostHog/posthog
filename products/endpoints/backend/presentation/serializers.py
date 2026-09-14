@@ -99,6 +99,15 @@ class EndpointMaterializationSerializer(serializers.Serializer):
     ready = serializers.BooleanField(
         help_text="Whether a successful materialization is available to serve.",
     )
+    hibernated = serializers.BooleanField(
+        read_only=True,
+        help_text="Whether unused materialization is paused until the next API-key execution.",
+    )
+    hibernated_at = serializers.DateTimeField(
+        read_only=True,
+        allow_null=True,
+        help_text="When unused materialization was paused, or null when it is not paused.",
+    )
     status = serializers.CharField(
         required=False,
         help_text="Current materialization status (e.g. 'Completed', 'Running').",

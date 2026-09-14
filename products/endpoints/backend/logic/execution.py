@@ -82,12 +82,13 @@ from products.endpoints.backend.metrics import (
     ENDPOINT_EXECUTION_DURATION_SECONDS,
     ENDPOINT_EXECUTION_TOTAL,
     ENDPOINT_HOGQL_RESULT_ROWS,
+    ENDPOINT_MATERIALIZATION_EVENT_TOTAL,
     ENDPOINT_MATERIALIZED_FRESHNESS_RATIO,
     ENDPOINT_VALIDATION_ERROR_TOTAL,
     query_kind_label,
 )
 from products.endpoints.backend.models import Endpoint, EndpointVersion
-from products.endpoints.backend.tasks import shadow_compare_ducklake_execution
+from products.endpoints.backend.tasks import shadow_compare_ducklake_execution, wake_hibernated_materialization
 from products.managed_warehouse.backend.facade.api import is_dev_mode
 
 from common.hogvm.python.utils import HogVMException
@@ -383,8 +384,13 @@ class EndpointExecutionService(PydanticModelMixin):
         if offset is not None and not strategy.supports_pagination:
             raise ValidationError({"offset": "offset is only supported for HogQL endpoints"})
 
-        # Validate refresh mode
-        if data.refresh == EndpointRefreshMode.DIRECT and not is_materialized:
+        # Validate refresh mode. A hibernated version has no saved query, so it is not
+        # materialized: keep accepting 'direct' so its callers stay inline and claim the wake.
+        if (
+            data.refresh == EndpointRefreshMode.DIRECT
+            and not is_materialized
+            and version.materialization_hibernated_at is None
+        ):
             ENDPOINT_VALIDATION_ERROR_TOTAL.labels(reason="direct_refresh_not_materialized").inc()
             raise ValidationError(
                 {
@@ -654,6 +660,7 @@ class EndpointExecutionService(PydanticModelMixin):
             raise
         finally:
             self._track_last_executed(endpoint, version_obj)
+            self._maybe_wake_materialization(version_obj)
             if execution_status is not None:
                 _duration = time.monotonic() - _start_time
                 ENDPOINT_EXECUTION_DURATION_SECONDS.labels(
@@ -732,6 +739,29 @@ class EndpointExecutionService(PydanticModelMixin):
         except Exception:
             logger.debug("Failed to record endpoint result metrics", exc_info=True)
         return cache_outcome, result_row_count
+
+    def _maybe_wake_materialization(self, version_obj: EndpointVersion) -> None:
+        if version_obj.materialization_hibernated_at is None or not is_api_key_access_method(
+            get_query_tag_value("access_method")
+        ):
+            return
+        try:
+            # Claim before dispatch so concurrent calls cannot create duplicate backing queries.
+            # Leave failed wakes inline instead of retrying a broken enable on every request.
+            claimed = EndpointVersion.objects.filter(
+                pk=version_obj.pk,
+                endpoint__team_id=self.team.pk,
+                materialization_hibernated_at__isnull=False,
+            ).update(materialization_hibernated_at=None)
+            if claimed:
+                wake_hibernated_materialization.delay(
+                    self.team.pk,
+                    str(version_obj.pk),
+                    version_obj.updated_at.isoformat() if version_obj.updated_at else None,
+                )
+        except Exception:
+            logger.exception("dispatch_materialization_wake_failed", version_id=str(version_obj.pk))
+            ENDPOINT_MATERIALIZATION_EVENT_TOTAL.labels(action="wake", status="error").inc()
 
     def _track_last_executed(self, endpoint: Endpoint, version_obj: EndpointVersion) -> None:
         """Record last execution time (30-minute granularity, API key calls only)."""

@@ -231,6 +231,11 @@ class EndpointVersion(UpdatedMetaFields, models.Model):
         blank=True,
         help_text="When this version was last executed via the run API. Updated with 30-minute granularity.",
     )
+    materialization_hibernated_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When unused materialization was paused. The next API-key execution requests materialization again.",
+    )
     optional_breakdown_properties = models.JSONField(
         default=list,
         db_default=[],
@@ -287,16 +292,17 @@ class EndpointVersion(UpdatedMetaFields, models.Model):
         """Counterpart of disable_materialization: link the backing saved query to this version."""
         self.saved_query = saved_query
         self.bucket_overrides = bucket_overrides
-        self.save(update_fields=["saved_query", "bucket_overrides", "updated_at"])
+        self.materialization_hibernated_at = None
+        self.save(update_fields=["saved_query", "bucket_overrides", "materialization_hibernated_at", "updated_at"])
 
-    def disable_materialization(self) -> None:
+    def disable_materialization(self, *, hibernating: bool = False) -> None:
         """Disable materialization: revert and soft-delete the saved query, clear version fields."""
-        if not self.saved_query:
-            return
-        self.saved_query.revert_materialization()
-        self.saved_query.soft_delete()
+        if self.saved_query:
+            self.saved_query.revert_materialization()
+            self.saved_query.soft_delete()
         self.saved_query = None
-        self.save(update_fields=["saved_query", "updated_at"])
+        self.materialization_hibernated_at = timezone.now() if hibernating else None
+        self.save(update_fields=["saved_query", "materialization_hibernated_at", "updated_at"])
 
     @property
     def is_materialized(self) -> bool:

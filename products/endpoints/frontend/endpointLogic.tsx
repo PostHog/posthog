@@ -17,8 +17,9 @@ import { EndpointRequest, ProductIntentContext, ProductKey } from '~/queries/sch
 import { EndpointType, EndpointVersionType } from '~/types'
 
 import type { ProductIntentProperties } from '../../../frontend/src/lib/utils/product-intents'
-import type { EndpointVersionMaterializationType } from '../../../frontend/src/types'
 import { endpointsLogic } from './endpointsLogic'
+import { endpointsMaterializationStatusRetrieve } from './generated/api'
+import type { EndpointMaterializationApi } from './generated/api.schemas'
 import { insightPickerEndpointModalLogic } from './insightPickerEndpointModalLogic'
 
 export type CodeExampleTab = 'terminal' | 'python' | 'nodejs'
@@ -101,13 +102,13 @@ export interface endpointLogicActions {
         errorObject?: any
     }
     loadMaterializationStatusSuccess: (
-        materializationStatus: EndpointVersionMaterializationType | null | undefined,
+        materializationStatus: EndpointMaterializationApi | null,
         payload?: {
             name: string
             version?: number
         }
     ) => {
-        materializationStatus: EndpointVersionMaterializationType | null | undefined
+        materializationStatus: EndpointMaterializationApi | null
         payload?: {
             name: string
             version?: number
@@ -334,7 +335,11 @@ export const endpointLogic = kea<endpointLogicType>([
                     if (!name) {
                         return null
                     }
-                    const materializationStatus = await api.endpoint.getMaterializationStatus(name, version)
+                    const materializationStatus = await endpointsMaterializationStatusRetrieve(
+                        String(teamLogic.values.currentTeamId),
+                        name,
+                        version !== undefined ? { version } : undefined
+                    )
 
                     // Update the endpoint object with the new materialization status (only for current version)
                     if (values.endpoint && version === undefined) {
