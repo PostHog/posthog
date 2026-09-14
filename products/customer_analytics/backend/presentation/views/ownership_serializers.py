@@ -53,7 +53,7 @@ class ExternalAccountRoleOwnershipSerializer(serializers.Serializer):
 class ExternalAccountOwnershipSerializer(serializers.Serializer):
     account_id = serializers.CharField(help_text="Account UUID, the canonical identity within this project.")
     external_id = serializers.CharField(
-        allow_null=True, help_text="External account key: the PostHog organization id the account is linked to."
+        allow_null=True, help_text="External account key: the group key the account is linked to."
     )
     region = serializers.CharField(
         allow_null=True, help_text="Region of this PostHog instance (`us`, `eu`), or null when self-hosted."

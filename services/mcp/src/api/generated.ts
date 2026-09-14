@@ -37486,7 +37486,7 @@ export namespace Schemas {
       /** Account UUID, the canonical identity within this project. */
       account_id: string;
       /**
-         * External account key: the PostHog organization id the account is linked to.
+         * External account key: the group key the account is linked to.
          * @nullable
          */
       external_id: string | null;
