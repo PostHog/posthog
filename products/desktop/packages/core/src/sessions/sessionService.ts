@@ -69,11 +69,11 @@ import {
 } from "@posthog/shared/domain-types";
 import type { SendCommandOutput } from "../cloud-task/schemas";
 import type { CommentTarget } from "../comments/anchors";
+import { isGithubConnectionRequiredError } from "../integrations/connectErrors";
 import type {
   AgentSessionNotification,
   AgentSessionNotificationTrigger,
 } from "../notification/agentSessionNotifications";
-import { isGithubConnectionRequiredError } from "../integrations/connectErrors";
 import { extractPostHogObjectReferences } from "../posthog-objects/references";
 import type { SpeechKind, SpeechSource } from "../speech/identifiers";
 import {
