@@ -945,7 +945,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                         actions.setFreshQuery(true)
                     }
 
-                    eventUsageLogic.actions.reportInsightStarted(query)
+                    eventUsageLogic.actions.reportInsightStarted(query, sceneSource)
                 } else {
                     // queryFromUrl can also come from the insightType hash param (above), so only
                     // treat it as a shared link's query when q itself is present.
