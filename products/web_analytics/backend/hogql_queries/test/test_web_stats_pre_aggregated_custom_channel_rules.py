@@ -27,12 +27,17 @@ from products.web_analytics.backend.hogql_queries.test.web_preaggregated_test_ba
 )
 
 
-def _rule(channel_type: str, key: CustomChannelField, value: str) -> CustomChannelRule:
+def _rule(
+    channel_type: str,
+    key: CustomChannelField,
+    value: str | None,
+    op: CustomChannelOperator = CustomChannelOperator.EXACT,
+) -> CustomChannelRule:
     return CustomChannelRule(
         channel_type=channel_type,
         combiner=FilterLogicalOperator.AND_,
         id="rule-1",
-        items=[CustomChannelCondition(id="condition-1", key=key, op=CustomChannelOperator.EXACT, value=value)],
+        items=[CustomChannelCondition(id="condition-1", key=key, op=op, value=value)],
     )
 
 
@@ -52,6 +57,8 @@ class TestWebStatsPreAggregatedCustomChannelRules(WebAnalyticsPreAggregatedTestB
                     # Mixed case on purpose: a rule must match the value as the team wrote it.
                     ("/pricing", "$direct", "MyPartner"),
                     ("/blog", "google.com", None),
+                    # The literal string 'null' is a value sites really send.
+                    ("/signup", "$direct", "null"),
                 ]
             ):
                 distinct_id = f"user_{index}"
@@ -106,13 +113,27 @@ class TestWebStatsPreAggregatedCustomChannelRules(WebAnalyticsPreAggregatedTestB
 
     @parameterized.expand(
         [
-            ("utm_source", CustomChannelField.UTM_SOURCE, "MyPartner", "Partner program"),
-            ("pathname", CustomChannelField.PATHNAME, "/blog", "Blog"),
-            ("referring_domain", CustomChannelField.REFERRING_DOMAIN, "google.com", "Search partner"),
+            ("utm_source", CustomChannelField.UTM_SOURCE, "MyPartner", "Partner program", CustomChannelOperator.EXACT),
+            ("pathname", CustomChannelField.PATHNAME, "/blog", "Blog", CustomChannelOperator.EXACT),
+            (
+                "referring_domain",
+                CustomChannelField.REFERRING_DOMAIN,
+                "google.com",
+                "Search partner",
+                CustomChannelOperator.EXACT,
+            ),
+            # Both paths null a stored 'null', so an is_set rule must skip that row on each of them.
+            (
+                "utm_source_is_set",
+                CustomChannelField.UTM_SOURCE,
+                None,
+                "Campaign traffic",
+                CustomChannelOperator.IS_SET,
+            ),
         ]
     )
-    def test_custom_rule_on_pre_aggregated_field(self, _name, key, value, channel_type):
-        custom_rules = [_rule(channel_type, key, value)]
+    def test_custom_rule_on_pre_aggregated_field(self, _name, key, value, channel_type, op):
+        custom_rules = [_rule(channel_type, key, value, op)]
 
         preagg_response = self._calculate(use_preagg=True, custom_rules=custom_rules)
         live_response = self._calculate(use_preagg=False, custom_rules=custom_rules)
