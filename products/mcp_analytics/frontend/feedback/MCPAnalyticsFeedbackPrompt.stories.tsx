@@ -8,7 +8,7 @@ import { userLogic } from 'scenes/userLogic'
 import { mswDecorator } from '~/mocks/browser'
 
 import { MCPSessionDetail } from '../sessions/MCPSessionDetail'
-import { MCP_ANALYTICS_USEFULNESS_SURVEY_ID } from './constants'
+import { MCP_ANALYTICS_USEFULNESS_SURVEY_ID, MCP_ANALYTICS_SESSION_FEEDBACK_PROMPT } from './constants'
 import { mcpAnalyticsFeedbackLogic } from './mcpAnalyticsFeedbackLogic'
 import { MCPAnalyticsFeedbackPrompt } from './MCPAnalyticsFeedbackPrompt'
 
@@ -48,12 +48,14 @@ const survey: Survey = {
 const meta: Meta<typeof MCPAnalyticsFeedbackPrompt> = {
     title: 'Products/MCP Analytics/Feedback prompt',
     component: MCPAnalyticsFeedbackPrompt,
+    args: { contextKey: 'example-session', prompt: MCP_ANALYTICS_SESSION_FEEDBACK_PROMPT },
     decorators: [
         (Story, context) => {
             const { user } = useValues(userLogic)
             const logic = mcpAnalyticsFeedbackLogic({
                 userId: user?.uuid ?? '',
-                sessionId: 'example-session',
+                contextKey: 'example-session',
+                prompt: context.args.prompt ?? MCP_ANALYTICS_SESSION_FEEDBACK_PROMPT,
                 isImpersonated: false,
             })
             useValues(logic)
@@ -91,17 +93,17 @@ export default meta
 type Story = StoryObj<typeof meta>
 
 export const Default: Story = {
-    render: () => (
+    render: (args) => (
         <div className="w-[800px] max-w-full">
-            <MCPAnalyticsFeedbackPrompt sessionId="example-session" />
+            <MCPAnalyticsFeedbackPrompt {...args} />
         </div>
     ),
 }
 
 export const Narrow: Story = {
-    render: () => (
+    render: (args) => (
         <div className="w-[520px] max-w-full">
-            <MCPAnalyticsFeedbackPrompt sessionId="example-session" />
+            <MCPAnalyticsFeedbackPrompt {...args} />
         </div>
     ),
 }
@@ -150,3 +152,16 @@ export const SessionReview: Story = {
 export const FollowUp: Story = { ...Narrow, parameters: { feedbackStage: 'followup' } }
 export const Error: Story = { ...Narrow, parameters: { feedbackStage: 'error' } }
 export const Thanks: Story = { ...Narrow, parameters: { feedbackStage: 'thanks' } }
+
+export const ContextualCopy: Story = {
+    ...Narrow,
+    args: {
+        prompt: {
+            entryPoint: 'tool_review_prompt',
+            tab: 'tools',
+            version: 1,
+            question: 'Did this tool breakdown help you find what you needed?',
+            followUpQuestion: 'What did you find, or what was missing?',
+        },
+    },
+}

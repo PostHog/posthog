@@ -2,8 +2,18 @@ export const MCP_ANALYTICS_FEEDBACK_SURVEY_ID = '01a04991-bc80-0000-70c5-beeea05
 
 export const MCP_ANALYTICS_USEFULNESS_SURVEY_ID = '01a091d3-2706-0000-124f-3aab2a5e9e11'
 
-export const MCP_ANALYTICS_FEEDBACK_PROPERTIES = {
-    feedback_surface: 'mcp_analytics',
-    feedback_entry_point: 'session_review_prompt',
-    mcp_analytics_tab: 'sessions',
+export interface MCPAnalyticsFeedbackPromptConfig {
+    entryPoint: string
+    tab: string
+    version: number
+    question: string
+    followUpQuestion: string
+}
+
+export const MCP_ANALYTICS_SESSION_FEEDBACK_PROMPT: MCPAnalyticsFeedbackPromptConfig = {
+    entryPoint: 'session_review_prompt',
+    tab: 'sessions',
+    version: 1,
+    question: 'Did this session help you find what you needed?',
+    followUpQuestion: 'What did you learn, or what was missing?',
 }

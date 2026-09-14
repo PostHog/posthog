@@ -6,9 +6,11 @@ A visible tab starts a fresh delay.
 Loading, empty, impersonated, and capture-disabled sessions do not receive a prompt.
 The SDK must load the survey and its feature flags and return it as an active matching survey before the delay starts.
 
-The question and choices come from a separate API survey, rather than the generic header feedback survey.
+A separate API survey supplies stable question IDs and validates the layout.
+Each placement supplies its own question text through `MCPAnalyticsFeedbackPromptConfig`.
 The supported shape is one two-point emoji rating question followed by one optional open-text question.
-The UI renders the question text and thumbs buttons using LemonUI components.
+The UI renders the configured text and thumbs buttons using LemonUI components.
+The prompt snapshots its copy and placement when shown, so all events in one submission describe the same displayed questions.
 The first choice queues a partial response immediately and reveals the optional follow-up.
 Selecting Done or Send feedback completes the same submission.
 Closing or navigating away after the first answer leaves that answer available as a partial response.
@@ -17,6 +19,7 @@ The confirmation means the SDK accepted the event for delivery, not that the ser
 
 A prompt starts a 30-day cooldown for that signed-in user in the browser, including when dismissed or left unanswered.
 The header button remains available during the cooldown and opens the existing general feedback popover.
+All placements share the same cooldown.
 The cooldown uses local storage; it does not follow the user across browsers or coordinate simultaneous tabs.
 
 ## Configuration and release
@@ -28,10 +31,13 @@ The questions are:
 2. What did you learn, or what was missing? Optional open text.
 
 The ID in `MCP_ANALYTICS_USEFULNESS_SURVEY_ID` selects this survey.
-Deploy the frontend before launching the survey.
+The API survey can launch before deployment because it does not display itself.
+The custom frontend must be deployed before viewers can see the prompt.
 Draft and stopped surveys do not start a new prompt; a viewer with an already visible prompt can finish it.
 Feature flag targeting is checked through `getActiveMatchingSurveys`, while the frontend owns the reading delay and cooldown.
-Keep the question types, order, and meaning stable; use a new survey for a different measurement.
+Keep the question IDs, types, and order stable.
+Placements can change the wording while asking about the same usefulness measurement.
+Use a new survey for a different measurement.
 An incompatible question count or type suppresses the prompt.
 
 ## Measurement
@@ -50,7 +56,25 @@ Repeated answer or completion clicks do not queue another response.
 These existing event names need no new event-definition registration.
 Do not send synthetic events to initialize production reporting.
 
-All inline events carry `feedback_entry_point: session_review_prompt`, `feedback_surface: mcp_analytics`, and `mcp_analytics_tab: sessions`.
+All inline events carry `feedback_surface: mcp_analytics` and these placement properties:
+
+| Property                     | Value                                                        |
+| ---------------------------- | ------------------------------------------------------------ |
+| `feedback_entry_point`       | Stable placement identifier, such as `session_review_prompt` |
+| `mcp_analytics_tab`          | Tab that contains the prompt, such as `sessions`             |
+| `feedback_question_version`  | Copy version for that placement                              |
+| `feedback_question`          | Exact thumbs question shown                                  |
+| `feedback_followup_question` | Configured optional follow-up text                           |
+
+`$survey_questions` pairs those displayed texts with the API survey's stable question IDs on all lifecycle events.
+The API survey's configured title remains the heading in the standard results table.
+Break reporting down by placement and copy version to compare contextual questions.
+
+To reuse the prompt, pass a `prompt` configuration and a `contextKey` for the reviewed item.
+The context key isolates local state when changing items and is never captured.
+Keep `entryPoint` stable and increment `version` when changing either question's wording.
+`MCP_ANALYTICS_SESSION_FEEDBACK_PROMPT` configures the session detail placement.
+Other placements must mount the same component only when their content is ready for review.
 Header responses carry `feedback_entry_point: header` and the active tab.
 No MCP session IDs, tool inputs, outputs, or customer end-user details are attached by this prompt.
 The SDK's existing viewer identity and group context remain available for cohort analysis.

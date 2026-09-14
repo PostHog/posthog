@@ -2,7 +2,7 @@ import posthog, { Survey, SurveyType, SurveyQuestionType } from 'posthog-js'
 
 import { initKeaTests } from '~/test/init'
 
-import { MCP_ANALYTICS_FEEDBACK_PROPERTIES, MCP_ANALYTICS_USEFULNESS_SURVEY_ID } from './constants'
+import { MCP_ANALYTICS_SESSION_FEEDBACK_PROMPT, MCP_ANALYTICS_USEFULNESS_SURVEY_ID } from './constants'
 import {
     FEEDBACK_PROMPT_COOLDOWN_MS,
     FEEDBACK_PROMPT_DELAY_MS,
@@ -69,8 +69,9 @@ describe('mcpAnalyticsFeedbackLogic', () => {
         })
         logic = mcpAnalyticsFeedbackLogic({
             userId: 'example-user',
-            sessionId: 'example-session',
+            contextKey: 'example-session',
             isImpersonated: false,
+            prompt: MCP_ANALYTICS_SESSION_FEEDBACK_PROMPT,
         })
         unmount = logic.mount()
     })
@@ -97,7 +98,9 @@ describe('mcpAnalyticsFeedbackLogic', () => {
         expect(posthog.capture).toHaveBeenCalledWith(
             'survey shown',
             expect.objectContaining({
-                ...MCP_ANALYTICS_FEEDBACK_PROPERTIES,
+                feedback_surface: 'mcp_analytics',
+                feedback_entry_point: 'session_review_prompt',
+                mcp_analytics_tab: 'sessions',
                 $survey_id: survey.id,
                 $survey_submission_id: expect.any(String),
             })
@@ -108,7 +111,64 @@ describe('mcpAnalyticsFeedbackLogic', () => {
         expect(jest.mocked(posthog.capture).mock.calls.filter(([name]) => name === 'survey shown')).toHaveLength(1)
     })
 
-    it('keeps the cooldown across sessions after dismissal', () => {
+    it.each(['complete', 'dismiss'] as const)(
+        'captures the displayed copy and placement throughout a %s submission',
+        (ending) => {
+            unmount()
+            const prompt = {
+                entryPoint: 'tool_review_prompt',
+                tab: 'tools',
+                version: 2,
+                question: 'Did this tool breakdown help you find what you needed?',
+                followUpQuestion: 'What did you find, or what was missing?',
+            }
+            logic = mcpAnalyticsFeedbackLogic({
+                userId: 'example-user',
+                contextKey: 'example-tool',
+                isImpersonated: false,
+                prompt,
+            })
+            unmount = logic.mount()
+            loadSurvey()
+            jest.advanceTimersByTime(FEEDBACK_PROMPT_DELAY_MS)
+            expect(logic.values.prompt).toEqual(prompt)
+            const displayedQuestion = prompt.question
+            prompt.question = 'Later copy must not change an open prompt'
+            logic.actions.submitResponse('1', false)
+            if (ending === 'complete') {
+                logic.actions.setDetail('Found a slow call.')
+                logic.actions.submitResponse('1', true)
+            } else {
+                logic.actions.dismissPrompt()
+            }
+            const events = jest.mocked(posthog.capture).mock.calls
+            expect(events.map(([name]) => name)).toEqual([
+                'survey shown',
+                'survey sent',
+                ending === 'complete' ? 'survey sent' : 'survey dismissed',
+            ])
+            for (const [, properties] of events) {
+                expect(properties).toMatchObject({
+                    $survey_id: survey.id,
+                    $survey_submission_id: logic.values.submissionId,
+                    feedback_surface: 'mcp_analytics',
+                    feedback_entry_point: 'tool_review_prompt',
+                    mcp_analytics_tab: 'tools',
+                    feedback_question_version: 2,
+                    feedback_question: displayedQuestion,
+                    feedback_followup_question: prompt.followUpQuestion,
+                    $survey_questions: [
+                        { id: 'example-choice', question: displayedQuestion },
+                        { id: 'example-detail', question: prompt.followUpQuestion },
+                    ],
+                })
+            }
+            expect(logic.values.prompt.question).toBe(displayedQuestion)
+            expect(survey.questions[0].question).toBe('Was this useful?')
+        }
+    )
+
+    it('keeps the cooldown across placements after dismissal', () => {
         loadSurvey()
         jest.advanceTimersByTime(FEEDBACK_PROMPT_DELAY_MS)
         logic.actions.dismissPrompt()
@@ -116,8 +176,9 @@ describe('mcpAnalyticsFeedbackLogic', () => {
         unmount()
         logic = mcpAnalyticsFeedbackLogic({
             userId: 'example-user',
-            sessionId: 'another-session',
+            contextKey: 'another-session',
             isImpersonated: false,
+            prompt: { ...MCP_ANALYTICS_SESSION_FEEDBACK_PROMPT, entryPoint: 'tool_review_prompt', tab: 'tools' },
         })
         unmount = logic.mount()
         loadSurvey()
@@ -127,8 +188,9 @@ describe('mcpAnalyticsFeedbackLogic', () => {
         jest.advanceTimersByTime(FEEDBACK_PROMPT_COOLDOWN_MS)
         logic = mcpAnalyticsFeedbackLogic({
             userId: 'example-user',
-            sessionId: 'example-session',
+            contextKey: 'example-session',
             isImpersonated: false,
+            prompt: MCP_ANALYTICS_SESSION_FEEDBACK_PROMPT,
         })
         unmount = logic.mount()
         loadSurvey()
@@ -145,11 +207,11 @@ describe('mcpAnalyticsFeedbackLogic', () => {
     })
 
     it.each([
-        { userId: '', sessionId: 'example-session', isImpersonated: false },
-        { userId: 'example-user', sessionId: 'example-session', isImpersonated: true },
+        { userId: '', contextKey: 'example-session', isImpersonated: false },
+        { userId: 'example-user', contextKey: 'example-session', isImpersonated: true },
     ])('does not prompt an ineligible user: %j', (props) => {
         unmount()
-        logic = mcpAnalyticsFeedbackLogic(props)
+        logic = mcpAnalyticsFeedbackLogic({ ...props, prompt: MCP_ANALYTICS_SESSION_FEEDBACK_PROMPT })
         unmount = logic.mount()
         loadSurvey()
         jest.advanceTimersByTime(FEEDBACK_PROMPT_DELAY_MS)

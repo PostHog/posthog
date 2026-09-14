@@ -10,21 +10,25 @@ import {
     path,
     props,
     reducers,
+    selectors,
 } from 'kea'
 import posthog, { Survey, SurveyQuestionType, SurveyType } from 'posthog-js'
 
-import { MCP_ANALYTICS_FEEDBACK_PROPERTIES, MCP_ANALYTICS_USEFULNESS_SURVEY_ID } from './constants'
+import { MCPAnalyticsFeedbackPromptConfig, MCP_ANALYTICS_USEFULNESS_SURVEY_ID } from './constants'
 
 export const FEEDBACK_PROMPT_DELAY_MS = 30_000
 export const FEEDBACK_PROMPT_COOLDOWN_MS = 30 * 24 * 60 * 60 * 1000
 
 export interface MCPAnalyticsFeedbackLogicProps {
     userId: string
-    sessionId: string
+    contextKey: string
+    prompt: MCPAnalyticsFeedbackPromptConfig
     isImpersonated: boolean
 }
 
 export interface mcpAnalyticsFeedbackLogicValues {
+    prompt: MCPAnalyticsFeedbackPromptConfig
+    surveyEventProperties: Record<string, unknown>
     visible: boolean
     lastPromptAt: number
     survey: Survey | null
@@ -73,7 +77,7 @@ function hasFeedbackQuestions(survey: Survey): boolean {
 export const mcpAnalyticsFeedbackLogic: LogicWrapper<mcpAnalyticsFeedbackLogicType> =
     kea<mcpAnalyticsFeedbackLogicType>([
         props({} as MCPAnalyticsFeedbackLogicProps),
-        key(({ userId, sessionId }) => `${userId}:${sessionId}`),
+        key(({ userId, contextKey, prompt }) => JSON.stringify([userId, prompt.entryPoint, contextKey])),
         path((key) => ['products', 'mcp_analytics', 'frontend', 'feedback', 'mcpAnalyticsFeedbackLogic', key]),
         actions({
             schedulePrompt: (survey: Survey | null) => ({ survey }),
@@ -89,6 +93,7 @@ export const mcpAnalyticsFeedbackLogic: LogicWrapper<mcpAnalyticsFeedbackLogicTy
             responseFailed: true,
         }),
         reducers(({ props }) => ({
+            prompt: [props.prompt, { showPrompt: () => ({ ...props.prompt }) }],
             visible: [false, { showPrompt: () => true, dismissPrompt: () => false }],
             survey: [null as Survey | null, { showPrompt: (_, { survey }) => survey }],
             submissionId: ['', { showPrompt: (_, { submissionId }) => submissionId }],
@@ -106,6 +111,30 @@ export const mcpAnalyticsFeedbackLogic: LogicWrapper<mcpAnalyticsFeedbackLogicTy
                 { showPrompt: (_, { timestamp }) => timestamp },
             ],
         })),
+        selectors({
+            surveyEventProperties: [
+                (s) => [s.survey, s.submissionId, s.prompt],
+                (
+                    survey: Survey | null,
+                    submissionId: string,
+                    prompt: MCPAnalyticsFeedbackPromptConfig
+                ): Record<string, unknown> => ({
+                    feedback_surface: 'mcp_analytics',
+                    feedback_entry_point: prompt.entryPoint,
+                    mcp_analytics_tab: prompt.tab,
+                    feedback_question_version: prompt.version,
+                    feedback_question: prompt.question,
+                    feedback_followup_question: prompt.followUpQuestion,
+                    $survey_id: survey?.id,
+                    $survey_name: survey?.name,
+                    $survey_submission_id: submissionId,
+                    $survey_questions: survey?.questions.map(({ id }, index) => ({
+                        id,
+                        question: index === 0 ? prompt.question : prompt.followUpQuestion,
+                    })),
+                }),
+            ],
+        }),
         listeners(({ actions, values, props, cache }) => ({
             schedulePrompt: ({ survey }) => {
                 cache.disposables.dispose('prompt-delay')
@@ -137,21 +166,13 @@ export const mcpAnalyticsFeedbackLogic: LogicWrapper<mcpAnalyticsFeedbackLogicTy
                     return () => window.clearTimeout(timer)
                 }, 'prompt-delay')
             },
-            showPrompt: ({ survey, submissionId }) => {
-                posthog.capture('survey shown', {
-                    ...MCP_ANALYTICS_FEEDBACK_PROPERTIES,
-                    $survey_id: survey.id,
-                    $survey_name: survey.name,
-                    $survey_submission_id: submissionId,
-                })
+            showPrompt: () => {
+                posthog.capture('survey shown', values.surveyEventProperties)
             },
             dismissPrompt: () => {
                 if (values.survey && !values.completed) {
                     posthog.capture('survey dismissed', {
-                        ...MCP_ANALYTICS_FEEDBACK_PROPERTIES,
-                        $survey_id: values.survey.id,
-                        $survey_name: values.survey.name,
-                        $survey_submission_id: values.submissionId,
+                        ...values.surveyEventProperties,
                         $survey_partially_completed: !!values.answer,
                     })
                 }
@@ -171,12 +192,8 @@ export const mcpAnalyticsFeedbackLogic: LogicWrapper<mcpAnalyticsFeedbackLogicTy
                 }
                 try {
                     const queued = posthog.capture('survey sent', {
-                        ...MCP_ANALYTICS_FEEDBACK_PROPERTIES,
-                        $survey_id: survey.id,
-                        $survey_name: survey.name,
-                        $survey_submission_id: values.submissionId,
+                        ...values.surveyEventProperties,
                         $survey_completed: completed,
-                        $survey_questions: survey.questions.map(({ id, question }) => ({ id, question })),
                         [`$survey_response_${survey.questions[0].id}`]: answer,
                         ...(completed && values.detail.trim()
                             ? { [`$survey_response_${survey.questions[1].id}`]: values.detail.trim() }
