@@ -27,6 +27,7 @@ from products.signals.backend.report_generation.resolve_reviewers import (
     _recency_multiplier,
     _relevant_area_activity,
     _score_candidates,
+    enrich_reviewer_dicts_with_org_members,
     rank_assignee_candidates,
     resolve_org_github_login_to_users,
     resolve_suggested_reviewers,
@@ -110,6 +111,20 @@ def test_returns_empty_when_no_match(organization, team):
     result = resolve_org_github_login_to_users(team.id, ["different-login"])
 
     assert result == {}
+
+
+@pytest.mark.django_db
+def test_uuid_reviewer_does_not_fall_back_to_a_reassigned_login(organization, team):
+    original = _create_org_member("original@example.com", organization)
+    replacement = _create_org_member("replacement@example.com", organization)
+    _make_social_auth(replacement, team, "reassigned")
+
+    enriched = enrich_reviewer_dicts_with_org_members(
+        team.id,
+        [{"user_uuid": str(original.uuid), "github_login": "reassigned"}],
+    )
+
+    assert enriched[0]["user"]["id"] == original.id
 
 
 @pytest.mark.django_db

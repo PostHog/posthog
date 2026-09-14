@@ -22,6 +22,7 @@ from products.conversations.backend.temporal.ai_reply.activities.safety_filter i
 from products.conversations.backend.temporal.ai_reply.activities.validate import support_validate_activity
 from products.conversations.backend.temporal.ai_reply.constants import (
     AI_REPLY_TRACE_NAMESPACE,
+    DEFER_KNOWLEDGE_GAPS_UNTIL_RESOLUTION_PATCH,
     MAX_ATTEMPTS,
     MAX_SAFETY_REVIEWED_CHARS,
     SCORE_THRESHOLD,
@@ -46,7 +47,6 @@ from products.conversations.backend.temporal.ai_reply.schemas import (
 # them through the sandbox unmodified.
 with workflow.unsafe.imports_passed_through():
     pass
-
 
 # ---------------------------------------------------------------------------
 # Workflow
@@ -110,7 +110,7 @@ class SupportReplyWorkflow:
 
         async def _persist_gaps(gap_missing: list[str], gap_ticket_type: str, gap_outcome: str) -> None:
             """Best-effort: record knowledge gaps without breaking the pipeline."""
-            if not gap_missing:
+            if not gap_missing or workflow.patched(DEFER_KNOWLEDGE_GAPS_UNTIL_RESOLUTION_PATCH):
                 return
             try:
                 await workflow.execute_activity(

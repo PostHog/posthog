@@ -54,6 +54,20 @@ class TestRepoViewSet(VisualReviewTeamScopedTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["repo_full_name"], "org/test")
 
+    def test_patch_repo_applies_every_setting_in_the_body(self):
+        repo = api.create_repo(team_id=self.team.id, repo_external_id=555, repo_full_name="org/settings")
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/visual_review/repos/{repo.id}/",
+            {"enable_pr_comments": True, "debt_digest_enabled": True},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertTrue(data["enable_pr_comments"])
+        self.assertTrue(data["debt_digest_enabled"])
+
     def test_retrieve_project_not_found(self):
         import uuid
 

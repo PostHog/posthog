@@ -167,6 +167,29 @@ class TestUntaggedFollowupInteractivity(TestCase):
         assert cache.get(_picker_context_cache_key(self.context_token)) is None
         assert mock_post.call_args.kwargs["json"] == {"delete_original": True}
 
+    def test_dismissal_attributes_to_the_prompts_integration(self, mock_slack_cls, mock_post):
+        # A workspace can be linked to several projects; the dismissal must land on the
+        # integration that raised the prompt, not on whichever row a lookup returns first.
+        mock_slack_cls.slack_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
+        second_team = Team.objects.create(organization=self.organization, name="Second Team")
+        second_integration = Integration.objects.create(
+            team=second_team,
+            kind="slack",
+            integration_id=self.slack_team_id,
+            sensitive_config={"access_token": "xoxb-second"},
+        )
+        context = cache.get(_picker_context_cache_key(self.context_token))
+        context["integration_id"] = second_integration.id
+        cache.set(_picker_context_cache_key(self.context_token), context, timeout=900)
+
+        with patch("products.slack_app.backend.api.capture_slack_event") as mock_capture:
+            response = self._click(UNTAGGED_FOLLOWUP_ACTION_DISMISS, "U_BOB")
+
+        assert response.status_code == 200
+        mock_capture.assert_called_once()
+        assert mock_capture.call_args.args[0].id == second_integration.id
+        assert mock_capture.call_args.args[1] == "slack app untagged followup dismissed"
+
     def test_click_from_anyone_but_the_message_author_dispatches_nothing(self, mock_slack_cls, mock_post):
         # The prompt is ephemeral, so this shouldn't be reachable — but the run
         # would execute as the clicker against somebody else's message.

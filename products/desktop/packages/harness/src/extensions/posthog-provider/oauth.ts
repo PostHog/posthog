@@ -8,6 +8,7 @@ import type {
 import {
   type CloudRegion,
   getCloudUrlFromRegion,
+  getCustomCloud,
   getOauthClientIdFromRegion,
   OAUTH_SCOPES,
 } from "@posthog/shared";
@@ -67,12 +68,37 @@ function toCredentials(
   response: OAuthTokenResponse,
   region: CloudRegion,
 ): OAuthCredentials {
+  const custom = region === "custom" ? getCustomCloud() : null;
   return {
     access: response.access_token,
     refresh: response.refresh_token,
     expires: Date.now() + response.expires_in * 1000 - TOKEN_EXPIRY_SKEW_MS,
     region,
+    ...(custom
+      ? {
+          customCloudUrl: custom.url,
+          customOauthClientId: custom.oauthClientId,
+        }
+      : {}),
   };
+}
+
+// A refresh token only works on the instance that issued it, so a stored
+// custom credential whose instance changed can never refresh successfully.
+function assertCredentialsMatchCustomCloud(
+  credentials: OAuthCredentials,
+): void {
+  if ((credentials.region as CloudRegion | undefined) !== "custom") return;
+  const target = getCustomCloud();
+  if (
+    !target ||
+    credentials.customCloudUrl !== target.url ||
+    credentials.customOauthClientId !== target.oauthClientId
+  ) {
+    throw new Error(
+      "The custom PostHog instance changed since sign-in. Sign in again to continue.",
+    );
+  }
 }
 
 async function postToken(
@@ -255,12 +281,15 @@ export async function refreshPosthog(
 ): Promise<OAuthCredentials> {
   const effectiveRegion =
     (credentials.region as CloudRegion | undefined) ?? region;
+  assertCredentialsMatchCustomCloud(credentials);
+  // The credential bag is an open record, so the custom fields read as unknown.
+  const storedClientId = credentials.customOauthClientId as string | undefined;
   const tokens = await postToken(
     effectiveRegion,
     {
       grant_type: "refresh_token",
       refresh_token: credentials.refresh,
-      client_id: getOauthClientIdFromRegion(effectiveRegion),
+      client_id: storedClientId ?? getOauthClientIdFromRegion(effectiveRegion),
     },
     signal,
   );

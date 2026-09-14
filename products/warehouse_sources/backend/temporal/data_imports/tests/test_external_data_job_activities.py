@@ -21,6 +21,7 @@ from products.warehouse_sources.backend.temporal.data_imports.external_data_job 
     TRANSIENT_EGRESS_MESSAGE,
     TRANSIENT_POOLER_MESSAGE,
     TRANSIENT_SOURCE_CONNECTION_MESSAGE,
+    TRANSIENT_SOURCE_ERROR_MESSAGE,
     TRANSIENT_VENDOR_UNAVAILABLE_MESSAGE,
     UNEXPECTED_ERROR_MESSAGE,
     UpdateExternalDataJobStatusInputs,
@@ -29,21 +30,27 @@ from products.warehouse_sources.backend.temporal.data_imports.external_data_job 
     trigger_schedule_buffer_one_activity,
     update_external_data_job_model,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source import (
+    _CONNECTION_LIMIT_EXHAUSTED_MESSAGE,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestCustomerFacingError(SimpleTestCase):
-    @parameterized.expand(
-        [
-            # Temporal wraps a retryable REST exhaustion / connection drop as an ApplicationError
-            # whose str() is "<ClassName>: <message>". The customer-facing latest_error must be the
-            # message alone, not the internal class name.
-            ("rest_retryable", "RESTClientRetryableError", "HTTP 429 for https://api.example.com/usage"),
-            ("driver_drop", "OperationalError", "connection failed: server closed the connection unexpectedly"),
-        ]
-    )
-    def test_strips_leaked_internal_exception_class_name(self, _name: str, exc_type: str, message: str) -> None:
-        assert _customer_facing_error(ApplicationError(message, type=exc_type)) == message
+    def test_strips_leaked_internal_exception_class_name(self) -> None:
+        # Temporal wraps a driver connection drop as an ApplicationError whose str() is
+        # "<ClassName>: <message>". The customer-facing latest_error must be the message alone,
+        # not the internal class name.
+        message = "connection failed: server closed the connection unexpectedly"
+        cause = ApplicationError(message, type="OperationalError")
+        assert _customer_facing_error(cause) == message
+
+    def test_retryable_rest_error_becomes_a_friendly_message(self) -> None:
+        # A REST source that exhausts its retries on an HTTP 429/5xx surfaces as an ApplicationError
+        # typed RESTClientRetryableError, whose message is a raw string like "HTTP 503 for <url>".
+        # The customer must read a friendly message, not the raw HTTP status.
+        cause = ApplicationError("HTTP 503 for https://api.example.com/usage", type="RESTClientRetryableError")
+        assert _customer_facing_error(cause) == TRANSIENT_SOURCE_ERROR_MESSAGE
 
     def test_falls_back_to_str_when_cause_has_no_message(self) -> None:
         assert _customer_facing_error(ValueError("connection reset")) == "connection reset"
@@ -276,6 +283,15 @@ def test_read_only_transaction_disables_the_schema_only_when_the_source_raised_i
             'connection failed: connection to server at "198.51.100.7", port 5432 failed: '
             "SSL SYSCALL error: EOF detected",
             TRANSIENT_SOURCE_CONNECTION_MESSAGE,
+        ),
+        # A connect-time capacity refusal. The generic map has no entry for it, so the Postgres
+        # source's own exhaustion message fills the gap.
+        (
+            "postgres_connection_limit",
+            ExternalDataSourceType.POSTGRES,
+            'connection failed: connection to server at "198.51.100.7", port 5432 failed: '
+            "FATAL: sorry, too many clients already",
+            _CONNECTION_LIMIT_EXHAUSTED_MESSAGE,
         ),
         # pymysql renders a mid-query drop as a bare code/message tuple.
         (

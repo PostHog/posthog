@@ -28,14 +28,12 @@ from products.batch_exports.backend.tests.temporal.destinations.s3.utils import 
 )
 from products.batch_exports.backend.tests.temporal.utils.workflow import fail_on_application_error
 
-pytestmark = [
-    pytest.mark.asyncio,
-    pytest.mark.django_db,
-    pytest.mark.skipif(
-        not has_valid_credentials(),
-        reason="AWS credentials not set in environment",
-    ),
-]
+pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
+
+requires_aws_credentials = pytest.mark.skipif(
+    not has_valid_credentials(),
+    reason="AWS credentials not set in environment",
+)
 
 
 @pytest_asyncio.fixture
@@ -73,6 +71,7 @@ async def file_download_batch_export(
     await adelete_batch_export(batch_export, temporal_client)
 
 
+@requires_aws_credentials
 @pytest.mark.parametrize("interval", ["hour"], indirect=True)
 @pytest.mark.parametrize("model", [BatchExportModel(name="events", schema=None)])
 @pytest.mark.parametrize("exclude_events", [None], indirect=True)
@@ -194,3 +193,71 @@ async def test_file_download_workflow_exports_data(
     for fd in file_downloads:
         response = await s3_client.head_object(Bucket=s3_bucket, Key=fd.key)
         assert response["ResponseMetadata"]["HTTPStatusCode"] == 200
+
+
+@pytest.mark.parametrize("interval", ["hour"], indirect=True)
+@pytest.mark.parametrize("exclude_events", [None], indirect=True)
+async def test_file_download_workflow_generates_no_downloads_for_a_failed_run(
+    ateam,
+    file_download_batch_export,
+    interval,
+    compression,
+    exclude_events,
+    file_format,
+    data_interval_start,
+    data_interval_end,
+):
+    """A run that fails while staging must not leave download records behind.
+
+    An invalid filter fails the staging activity before it reaches S3, so this needs no AWS
+    credentials. The workflow should complete successfully, because this is user error, not our
+    fault.
+    """
+    batch_export_id = str(file_download_batch_export.id)
+
+    inputs = FileDownloadBatchExportInputs(
+        team_id=ateam.pk,
+        batch_export_id=batch_export_id,
+        data_interval_end=data_interval_end.isoformat(),
+        data_interval_start=data_interval_start.isoformat(),
+        interval=interval,
+        batch_export_model=BatchExportModel(
+            name="events",
+            schema=None,
+            filters=[{"key": "event =", "type": "hogql", "value": None}],
+        ),
+        file_format=file_format,
+        compression=compression,
+    )
+
+    async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
+        async with Worker(
+            activity_environment.client,
+            task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
+            workflows=[FileDownloadBatchExportWorkflow],
+            activities=[
+                start_batch_export_run,
+                finish_batch_export_run,
+                insert_into_internal_stage_activity,
+                export_to_file_download_bucket_with_temporary_credentials,
+                generate_file_downloads,
+            ],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ):
+            with fail_on_application_error():
+                await activity_environment.client.execute_workflow(
+                    FileDownloadBatchExportWorkflow.run,
+                    inputs,
+                    id=str(uuid.uuid4()),
+                    task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                    execution_timeout=dt.timedelta(seconds=30),
+                )
+
+    runs = await afetch_batch_export_runs(batch_export_id=batch_export_id)
+    assert len(runs) == 1
+    assert runs[0].status == "Failed"
+    assert runs[0].latest_error is not None
+    assert runs[0].latest_error.startswith("One or more provided filters are invalid")
+
+    assert not await BatchExportFileDownload.objects.filter(team_id=ateam.pk, batch_export_run_id=runs[0].id).aexists()

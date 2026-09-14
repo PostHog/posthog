@@ -1,6 +1,7 @@
 from .clustering_config import ClusteringConfig
 from .clustering_job import ClusteringJob
 from .datasets import Dataset, DatasetItem, DatasetItemVersion, DatasetRevision
+from .evaluation_backfill import EvaluationBackfill
 from .evaluation_config import EvaluationConfig
 from .evaluation_directories import EvaluationDirectory
 from .evaluation_reports import EvaluationReport, EvaluationReportRun
@@ -21,6 +22,7 @@ __all__ = [
     "ClusteringConfig",
     "ClusteringJob",
     "Evaluation",
+    "EvaluationBackfill",
     "EvaluationConfig",
     "EvaluationDirectory",
     "EvaluationReport",

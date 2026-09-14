@@ -751,7 +751,7 @@ def fork_menu_element(integration_id: int) -> dict[str, Any]:
 TURN_FEEDBACK_ACTION_ID = "slack_app_turn_feedback"
 
 
-def turn_feedback_block(integration_id: int, run_id: str) -> dict[str, Any]:
+def turn_feedback_block(integration_id: int, run_id: str, trace_id: str | None = None) -> dict[str, Any]:
     """The thumbs a reader rates one agent answer with.
 
     Slack's own feedback element rather than a pair of buttons: it renders as the two
@@ -764,12 +764,19 @@ def turn_feedback_block(integration_id: int, run_id: str) -> dict[str, Any]:
     interactivity router can tell whose click this is, the same way the fork menu's
     option value does. The task is not carried: it is read back from the run row.
 
+    ``trace_id`` is the answering turn's gateway trace id, which nothing on the server
+    can look up afterwards — it exists only in the turn that produced this reply — so the
+    reply itself is where it has to be kept. Omitted when the turn reported none, which
+    is what a rating with no ``$ai_trace_id`` then means.
+
     The block's shape is also a read contract, not only a render: the reaction feedback
     path fetches the posted message back from Slack and finds the run through this
     element's action id and button value (``turn_feedback._feedback_value_from_message``).
     Renaming the element's keys silently kills reaction feedback.
     """
-    target = {"integration_id": integration_id, "run_id": run_id}
+    target: dict[str, Any] = {"integration_id": integration_id, "run_id": run_id}
+    if trace_id:
+        target["trace_id"] = trace_id
     return {
         "type": "context_actions",
         "elements": [

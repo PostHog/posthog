@@ -9,6 +9,8 @@ from ..facade.enums import SubjectType
 if TYPE_CHECKING:
     from posthog.hogql import ast
 
+    from products.data_catalog.backend.facade.contracts import HogQLMetricDefinition
+
 
 class Evaluation(StrEnum):
     """How the runner turns a compiled query's result row into a status."""
@@ -43,6 +45,8 @@ class SubjectRef:
     name: str
     queryable_name: str
     exists: bool
+    definition_kind: str | None = None
+    metric_definition: "HogQLMetricDefinition | None" = None
 
 
 @dataclass(frozen=True)

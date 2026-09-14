@@ -22,6 +22,7 @@ import {
   nextRunAt,
   normalizeRunStatus,
   prettifyScoutSkillName,
+  resolveScoutRouteName,
   runDurationSeconds,
   runMatchesFilter,
   SCOUT_CUSTOM_CRON_SCHEDULE_MODE,
@@ -33,8 +34,7 @@ import {
   scoutCreatorKey,
   scoutCronScheduleError,
   scoutRunOutcomeLabel,
-  scoutSkillNameFromSlug,
-  scoutSkillSlug,
+  scoutScheduleNamesClockTime,
   sortConfigsForDisplay,
   summarizeRunWindow,
   weeklyCronToDayTime,
@@ -84,17 +84,39 @@ describe("naming", () => {
     expect(prettifyScoutSkillName("custom_thing")).toBe("Custom thing");
   });
 
-  it("round-trips slugs", () => {
-    expect(scoutSkillSlug("signals-scout-error-tracking")).toBe(
+  it.each<[string, string[], string]>([
+    [
+      "signals-scout-error-tracking",
+      ["signals-scout-error-tracking"],
+      "signals-scout-error-tracking",
+    ],
+    ["my-churn-watch", ["my-churn-watch"], "my-churn-watch"],
+    // A link copied before the route carried full names.
+    [
       "error-tracking",
-    );
-    expect(scoutSkillNameFromSlug("error-tracking")).toBe(
+      ["signals-scout-error-tracking"],
       "signals-scout-error-tracking",
-    );
-    expect(scoutSkillNameFromSlug("signals-scout-error-tracking")).toBe(
-      "signals-scout-error-tracking",
-    );
-  });
+    ],
+    // A bare name wins over the prefixed scout that shares its slug.
+    [
+      "error-tracking",
+      ["error-tracking", "signals-scout-error-tracking"],
+      "error-tracking",
+    ],
+    ["unknown-scout", ["signals-scout-error-tracking"], "unknown-scout"],
+  ])("resolves route value %s", (routeValue, skillNames, expected) =>
+    expect(
+      resolveScoutRouteName(
+        routeValue,
+        skillNames.map((skill_name) => ({ skill_name })),
+      ),
+    ).toBe(expected),
+  );
+
+  it("keeps the route value while configs are still loading", () =>
+    expect(resolveScoutRouteName("error-tracking", undefined)).toBe(
+      "error-tracking",
+    ));
 
   it.each<[Pick<ScoutConfig, "scout_origin"> | null | undefined, ScoutOrigin]>([
     [{ scout_origin: "canonical" }, "canonical"],
@@ -729,6 +751,26 @@ describe("schedule modes", () => {
       }),
     ).toBe(expected);
   });
+
+  it.each([
+    ["a rolling interval", null, 1440, false],
+    ["an hourly interval", null, 60, false],
+    ["a plain daily cron", "0 9 * * *", 1440, true],
+    ["a weekly cron", "30 8 * * 4", 1440, true],
+    ["a cron the presets cannot name", "0 9 * * 1-5", 1440, true],
+    ["a cron stepped by the hour", "0 */3 * * *", 1440, true],
+    ["a cron running through the day", "*/30 * * * *", 1440, false],
+  ])(
+    "tells whether %s states a clock time",
+    (_label, cron, minutes, expected) => {
+      expect(
+        scoutScheduleNamesClockTime({
+          run_interval_minutes: minutes as number,
+          run_cron_schedule: cron as string | null,
+        }),
+      ).toBe(expected);
+    },
+  );
 
   it.each([
     ["a rolling interval", null, "1440"],

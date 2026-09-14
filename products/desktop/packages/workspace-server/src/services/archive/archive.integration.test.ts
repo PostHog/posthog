@@ -58,6 +58,7 @@ function initializeGitRepo(dir: string): void {
   });
   execSync("git config user.name 'Test'", { cwd: dir, stdio: "pipe" });
   execSync("git config commit.gpgsign false", { cwd: dir, stdio: "pipe" });
+  execSync("git config tag.gpgsign false", { cwd: dir, stdio: "pipe" });
   writeFileSync(path.join(dir, "README.md"), "# Test Repo");
   execSync("git add . && git commit -m 'Initial commit'", {
     cwd: dir,
@@ -109,7 +110,10 @@ async function withTestContext(
   fn: (ctx: TestContext) => Promise<void>,
 ): Promise<void> {
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "archive-int-"));
-  const repoPath = await createTempRepo();
+  const repoPath =
+    opts.hasWorkspace === false
+      ? path.join(tempDir, "repo")
+      : await createTempRepo();
   const worktreeBasePath = path.join(tempDir, "worktrees");
   let gitRepoInitialized = false;
 
@@ -748,7 +752,7 @@ describe("ArchiveService integration", () => {
       }));
 
     it("throws when workspace not found for unarchive", () =>
-      withTestContext({}, async (ctx) => {
+      withTestContext({ hasWorkspace: false }, async (ctx) => {
         await expect(ctx.service.unarchiveTask("nonexistent")).rejects.toThrow(
           "Workspace not found",
         );
@@ -839,7 +843,7 @@ describe("ArchiveService integration", () => {
       }));
 
     it("throws when workspace not found for delete", () =>
-      withTestContext({}, async (ctx) => {
+      withTestContext({ hasWorkspace: false }, async (ctx) => {
         await expect(
           ctx.service.deleteArchivedTask("nonexistent"),
         ).rejects.toThrow("Workspace not found");

@@ -103,10 +103,21 @@ export class BrowserPool {
         }
     }
 
+    // puppeteer-capture only rejects a non-chrome-headless-shell binary when a capture attaches. This check
+    // runs before the worker reports ready, so a bad PUPPETEER_EXECUTABLE_PATH fails the pod instead of every render.
     async launch(): Promise<void> {
-        if (this.idle.length === 0) {
-            this.idle.push(await this.launchBrowser())
+        if (this.idle.length > 0) {
+            return
         }
+        const slot = await this.launchBrowser()
+        const spawnfile = slot.browser.process()?.spawnfile
+        if (!spawnfile?.includes('chrome-headless-shell')) {
+            await this.closeBrowser(slot)
+            throw new Error(
+                `Browser is not chrome-headless-shell: "${spawnfile ?? 'unknown'}". Set PUPPETEER_EXECUTABLE_PATH to a chrome-headless-shell binary`
+            )
+        }
+        this.idle.push(slot)
     }
 
     async getPage(): Promise<Page> {

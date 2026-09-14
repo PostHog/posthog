@@ -2,6 +2,7 @@ import re
 import dataclasses
 from typing import Any
 
+import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
@@ -13,6 +14,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.buildbette
 from products.warehouse_sources.backend.temporal.data_imports.sources.buildbetter.settings import (
     BUILDBETTER_API_URL,
     BUILDBETTER_ENDPOINTS,
+    BuildBetterEndpointConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -36,14 +38,7 @@ class BuildBetterResumeConfig:
     offset: int
 
 
-def _make_paginated_request(
-    api_key: str,
-    endpoint_name: str,
-    logger: FilteringBoundLogger,
-    resumable_source_manager: ResumableSourceManager[BuildBetterResumeConfig],
-    incremental_field: str | None = None,
-    incremental_field_last_value: str | None = None,
-):
+def _resolve_endpoint(endpoint_name: str) -> tuple[BuildBetterEndpointConfig, str]:
     endpoint_config = BUILDBETTER_ENDPOINTS.get(endpoint_name)
     if not endpoint_config:
         raise ValueError(f"Unknown BuildBetter endpoint: {endpoint_name}")
@@ -52,63 +47,76 @@ def _make_paginated_request(
     if not query:
         raise ValueError(f"No GraphQL query for endpoint: {endpoint_name}")
 
-    # Nested fields still present in the query that we will drop if the account's schema rejects them.
-    droppable_fields = dict(OPTIONAL_QUERY_FIELDS.get(endpoint_name, {}))
+    return endpoint_config, query
 
-    graphql_query_name = endpoint_config.graphql_query_name or endpoint_name
 
-    sess = make_tracked_session(
-        headers={
-            "X-Buildbetter-API-Key": api_key,
-            "Content-Type": "application/json",
-        }
-    )
+def _raise_for_retryable_status(response: requests.Response) -> None:
+    if response.status_code >= 500:
+        raise BuildBetterRetryableError(f"BuildBetter: server error {response.status_code}")
 
-    @retry(
-        retry=retry_if_exception_type(BuildBetterRetryableError),
-        stop=stop_after_attempt(5),
-        wait=wait_exponential_jitter(initial=1, max=30),
-        reraise=True,
-    )
-    def execute(variables: dict[str, Any]) -> dict:
-        response = sess.post(BUILDBETTER_API_URL, json={"query": query, "variables": variables}, timeout=60)
+    if response.status_code == 429:
+        raise BuildBetterRetryableError("BuildBetter: rate limited")
 
-        if response.status_code >= 500:
-            raise BuildBetterRetryableError(f"BuildBetter: server error {response.status_code}")
 
-        if response.status_code == 429:
-            raise BuildBetterRetryableError("BuildBetter: rate limited")
-
-        try:
-            payload = response.json()
-        except Exception:
-            if not response.ok:
-                raise Exception(
-                    f"{response.status_code} Client Error: {response.reason} (BuildBetter API: {response.text})"
-                )
-            raise Exception(f"Unexpected BuildBetter response: {response.text}")
-
-        if "errors" in payload:
-            error_messages = [e.get("message", "") for e in payload["errors"]]
-            joined = "; ".join(error_messages)
-            if not response.ok:
-                raise Exception(f"{response.status_code} Client Error: {response.reason} (BuildBetter API: {joined})")
-            for msg in error_messages:
-                match = _MISSING_FIELD_RE.search(msg)
-                if match and (field := match.group(1)) in droppable_fields:
-                    raise BuildBetterMissingFieldError(field)
-            raise Exception(f"BuildBetter GraphQL error: {joined}")
-
+def _decode_payload(response: requests.Response) -> dict:
+    try:
+        return response.json()
+    except Exception:
         if not response.ok:
-            raise Exception(f"{response.status_code} Client Error: {response.reason} (BuildBetter API: {payload})")
+            raise Exception(
+                f"{response.status_code} Client Error: {response.reason} (BuildBetter API: {response.text})"
+            )
+        raise Exception(f"Unexpected BuildBetter response: {response.text}")
 
-        if "data" not in payload:
-            raise Exception(f"Unexpected BuildBetter response format. Keys: {list(payload.keys())}")
 
-        return payload
+def _raise_for_payload_errors(response: requests.Response, payload: dict, droppable_fields: dict[str, str]) -> None:
+    if "errors" in payload:
+        error_messages = [e.get("message", "") for e in payload["errors"]]
+        joined = "; ".join(error_messages)
+        if not response.ok:
+            raise Exception(f"{response.status_code} Client Error: {response.reason} (BuildBetter API: {joined})")
+        for msg in error_messages:
+            match = _MISSING_FIELD_RE.search(msg)
+            if match and (field := match.group(1)) in droppable_fields:
+                raise BuildBetterMissingFieldError(field)
+        raise Exception(f"BuildBetter GraphQL error: {joined}")
 
-    page_size = endpoint_config.page_size
+    if not response.ok:
+        raise Exception(f"{response.status_code} Client Error: {response.reason} (BuildBetter API: {payload})")
 
+    if "data" not in payload:
+        raise Exception(f"Unexpected BuildBetter response format. Keys: {list(payload.keys())}")
+
+
+@retry(
+    retry=retry_if_exception_type(BuildBetterRetryableError),
+    stop=stop_after_attempt(5),
+    wait=wait_exponential_jitter(initial=1, max=30),
+    reraise=True,
+)
+def _execute_query(
+    sess: requests.Session,
+    query: str,
+    variables: dict[str, Any],
+    droppable_fields: dict[str, str],
+) -> dict:
+    response = sess.post(BUILDBETTER_API_URL, json={"query": query, "variables": variables}, timeout=60)
+
+    _raise_for_retryable_status(response)
+    payload = _decode_payload(response)
+    _raise_for_payload_errors(response, payload, droppable_fields)
+
+    return payload
+
+
+def _initial_variables(
+    endpoint_name: str,
+    page_size: int,
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[BuildBetterResumeConfig],
+    incremental_field: str | None,
+    incremental_field_last_value: str | None,
+) -> dict[str, Any]:
     resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     initial_offset = resume_config.offset if resume_config is not None else 0
     if resume_config is not None:
@@ -122,11 +130,46 @@ def _make_paginated_request(
     if incremental_field and incremental_field_last_value:
         variables["where"] = {incremental_field: {"_gt": incremental_field_last_value}}
 
+    return variables
+
+
+def _make_paginated_request(
+    api_key: str,
+    endpoint_name: str,
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[BuildBetterResumeConfig],
+    incremental_field: str | None = None,
+    incremental_field_last_value: str | None = None,
+):
+    endpoint_config, query = _resolve_endpoint(endpoint_name)
+
+    # Nested fields still present in the query that we will drop if the account's schema rejects them.
+    droppable_fields = dict(OPTIONAL_QUERY_FIELDS.get(endpoint_name, {}))
+
+    graphql_query_name = endpoint_config.graphql_query_name or endpoint_name
+    page_size = endpoint_config.page_size
+
+    sess = make_tracked_session(
+        headers={
+            "X-Buildbetter-API-Key": api_key,
+            "Content-Type": "application/json",
+        }
+    )
+
+    variables = _initial_variables(
+        endpoint_name=endpoint_name,
+        page_size=page_size,
+        logger=logger,
+        resumable_source_manager=resumable_source_manager,
+        incremental_field=incremental_field,
+        incremental_field_last_value=incremental_field_last_value,
+    )
+
     try:
         while True:
             logger.debug(f"Querying BuildBetter endpoint {endpoint_name} with variables: {variables}")
             try:
-                payload = execute(variables)
+                payload = _execute_query(sess, query, variables, droppable_fields)
             except BuildBetterMissingFieldError as e:
                 query = query.replace(droppable_fields.pop(e.field_name), "")
                 logger.warning(

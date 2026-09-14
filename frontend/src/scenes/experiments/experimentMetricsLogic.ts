@@ -641,6 +641,8 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                     actions.setRecalculationLoading(false)
                     return
                 }
+                // The setFeatureFlags listener re-runs this load if a later flag update contradicts this value.
+                cache.branchFlagValue = flagEnabled()
                 /**
                  * bail if feature not enabled. Clear recalculation loading state
                  */
@@ -750,6 +752,18 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                 // branch decision uses the real flag value. One-shot: clear the deferred flag first.
                 if (cache.deferredLoadLatest) {
                     cache.deferredLoadLatest = false
+                    actions.loadLatestRecalculation()
+                    return
+                }
+                /**
+                 * The deferred replay only covers loads that ran before any flags arrived. The first
+                 * setFeatureFlags of a page load can carry the server bootstrap set, which omits every flag
+                 * it could not evaluate locally (org-targeted flags among them), so this flag reads off. A
+                 * load that branched on that value bailed, and nothing else re-runs it when the real flag
+                 * response lands, which leaves the recalculation UI waiting forever. Re-run it when the
+                 * current value contradicts the recorded one; equal values no-op.
+                 */
+                if (cache.branchFlagValue !== undefined && flagEnabled() !== cache.branchFlagValue) {
                     actions.loadLatestRecalculation()
                 }
             },

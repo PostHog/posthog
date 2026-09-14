@@ -64,7 +64,15 @@ impl Collector for QueryStats {
         } else {
             ("pg_stat_statements(false)", "")
         };
-        let cols = statements::pgss_columns(cx.pg_version);
+        let ext = statements::pgss_version(cx);
+        let stale_event = statements::stale_report(cx, &mut extra);
+        if ext < statements::MIN_PGSS_VERSION {
+            let (mut snap, state) =
+                statements::empty(self.name(), KEY, cx, &extra, Default::default());
+            snap.events.extend(stale_event);
+            return Ok((snap, state));
+        }
+        let cols = statements::pgss_columns(ext);
         let src = Source {
             name: "query_stats",
             aux_name: "queries",
@@ -83,7 +91,9 @@ impl Collector for QueryStats {
             ),
             text_key: &["queryid", "datname"],
         };
-        statements::collect(&src, cx, prev, extra, true).await
+        let (mut snap, state) = statements::collect(&src, cx, prev, extra, true).await?;
+        snap.events.extend(stale_event);
+        Ok((snap, state))
     }
 }
 

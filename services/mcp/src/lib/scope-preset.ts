@@ -31,6 +31,7 @@ const SERVER_MINTED_MARKER_SCOPE = 'internal_run:read'
 // plus the scratchpad object). A `:write` on one of these is internal provenance, not the
 // user-facing write access that separates an implementation run from a research run.
 const INTERNAL_WRITE_SCOPE_OBJECTS = new Set([
+    'context_layer_internal',
     'internal_run',
     'loop_context_internal',
     'mcp_builtin_agent',

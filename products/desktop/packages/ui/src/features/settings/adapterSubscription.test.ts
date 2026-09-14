@@ -13,6 +13,7 @@ import {
   effectiveModelAccess,
   registerSubscriptionAtBoot,
   type SubscriptionStatus,
+  subscriptionModelAccess,
   subscriptionNeedsConnection,
 } from "./adapterSubscription";
 
@@ -85,6 +86,32 @@ describe("adapter subscription gating", () => {
   ])("%s", (_name, input, expected) => {
     expect(effectiveModelAccess(input)).toBe(expected);
   });
+
+  it.each([
+    ["subscription selected", true, true, "own-subscription"],
+    ["rollout disabled after selection", true, false, "own-subscription"],
+    ["gateway selected", false, true, "posthog-gateway"],
+  ])(
+    "cloud billing preserves intent: %s",
+    (_name, cloudSubscriptionOn, cloudFlagEnabled, expected) => {
+      expect(
+        subscriptionModelAccess(
+          {
+            flagEnabled: false,
+            subscriptionOn: false,
+            cloudSubscriptionOn,
+            cloudFlagEnabled,
+            status: undefined,
+            loggedIn: false,
+            loginState: "unknown",
+            needsConnection: false,
+            setSubscriptionOn: () => {},
+          },
+          "cloud",
+        ),
+      ).toBe(expected);
+    },
+  );
 
   it.each([
     [

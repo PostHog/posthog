@@ -119,7 +119,9 @@ export const eventInsightsLogic = kea<eventInsightsLogicType>([
                 return {
                     ...response,
                     filters,
-                    results: (response?.results ?? []).map((rawInsight: any) => getQueryBasedInsightModel(rawInsight)),
+                    results: (response?.results ?? []).map((rawInsight: any) =>
+                        getQueryBasedInsightModel(rawInsight, 'event_insights_list')
+                    ),
                 } as InsightsResult
             },
         },

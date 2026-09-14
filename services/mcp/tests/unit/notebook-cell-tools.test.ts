@@ -251,19 +251,30 @@ describe('notebook cell tools', () => {
         )
     })
 
-    it('add component cell inserts the tag with a minted nodeId and no run', async () => {
+    it.each([
+        {
+            tag: 'Query',
+            props: { query: { kind: 'InsightVizNode', source: { kind: 'TrendsQuery', series: [] } } },
+            expected: '<Query query={{"kind":"InsightVizNode"',
+        },
+        {
+            tag: 'Widget',
+            props: { prompt: 'Show weekly signups as an interactive chart' },
+            expected: '<Widget prompt="Show weekly signups as an interactive chart"',
+        },
+    ])('add $tag component cell inserts the tag with a minted nodeId and no run', async ({ tag, props, expected }) => {
         const state = makeState('# Doc\n')
         const context = createMockContext(state)
 
         const result = await addCellHandler(context, {
             notebook_id: 'aBcD1234',
             cell_type: 'component',
-            tag_name: 'Query',
-            props: { query: { kind: 'InsightVizNode', source: { kind: 'TrendsQuery', series: [] } } },
+            tag_name: tag,
+            props,
         })
 
         const inserted = state.saveBodies[0].content.content[0].attrs.markdown
-        expect(inserted).toContain(`<Query query={{"kind":"InsightVizNode"`)
+        expect(inserted).toContain(expected)
         expect(inserted).toContain(`nodeId="${result.node_id}"`)
         expect(state.runBodies).toHaveLength(0)
     })

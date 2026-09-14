@@ -11,6 +11,7 @@ import { signalsReportsRefundCreate } from 'products/signals/frontend/generated/
 
 import { captureInboxReportAction, InboxReportActionSurface } from '../../inboxAnalytics'
 import { SignalReport, SignalReportStatus } from '../../types'
+import { reportPullRequests, hasMergedReportPullRequest } from '../../utils/reportPullRequests'
 import { openRefundReportDialog } from '../shell/RefundReportDialog'
 
 // Copy per backend `refund_ineligibility_reason`. `already_refunded` / `billing_exempt` never
@@ -51,7 +52,7 @@ export function useReportRefund({
     // without a PR was never billed either. One refund per report, ever.
     const canRefund =
         !!featureFlags[FEATURE_FLAGS.SIGNALS_PR_REFUNDS] &&
-        !!report.implementation_pr_url &&
+        reportPullRequests(report).length > 0 &&
         !report.refund &&
         !report.billing_exempt_reason
 
@@ -70,7 +71,7 @@ export function useReportRefund({
             // A merged PR resolved the report? The refund leaves it in Resolved instead of dismissing
             // it (the `resolved_via_merged_pr` branch in the refund endpoint), so the copy must not
             // promise a dismissal.
-            staysResolved: report.status === SignalReportStatus.RESOLVED && report.implementation_pr_merged === true,
+            staysResolved: report.status === SignalReportStatus.RESOLVED && hasMergedReportPullRequest(report),
             onConfirm: async ({ reason, note }) => {
                 if (isRefunding || currentTeamId == null) {
                     return

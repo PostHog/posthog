@@ -1,4 +1,5 @@
 import json
+import asyncio
 import datetime as dt
 import dataclasses
 
@@ -12,6 +13,7 @@ from temporalio import activity, exceptions, workflow
 from temporalio.common import RetryPolicy
 
 from posthog.models.integration import AzureBlobIntegration, Integration
+from posthog.models.integration.azure_blob import EndpointNotAllowedError, validate_azure_blob_connection_string
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_write_only_logger
@@ -101,7 +103,7 @@ class MalformedConnectionStringError(Exception):
 
     def __init__(self):
         super().__init__(
-            "The provided connection string was rejected by Azure. Ensure the connection string is made up of key=value pairs separated only by a semicolon (;) with no additional characters in between. Example: AccountName=name;AccountKey=key;SomeKey=somevalue"
+            "The provided connection string is malformed or invalid. Ensure the connection string is made up of key=value pairs separated only by a semicolon (;) with no additional characters in between. Additionally, ensure any endpoints point to valid URLs you control. Example: AccountName=name;AccountKey=key;SomeKey=somevalue"
         )
 
 
@@ -111,17 +113,6 @@ def _is_authorization_failure_response_error(err: HttpResponseError) -> bool:
     'error_code' is monkey-patched dynamically so we must use 'getattr' for type checkers.
     """
     return getattr(err, "error_code", None) == StorageErrorCode.AUTHORIZATION_FAILURE
-
-
-def _strip_leading_whitespace(conn_str: str) -> str:
-    """Remove any leading whitespace from key=value pairs.
-
-    This is rejected by Azure SDK when parsing. In contrast, I like to help our users
-    get things right. I do not strip trailing whitespace as I cannot confirm whether
-    values can have trailing whitespace, in contrast to keys, which most definitely
-    don't.
-    """
-    return ";".join(value.lstrip() for value in conn_str.split(";"))
 
 
 @dataclasses.dataclass(kw_only=True)
@@ -193,15 +184,19 @@ class AzureBlobConsumer(Consumer):
         # See: https://learn.microsoft.com/en-us/python/api/azure-storage-blob/azure.storage.blob.blobserviceclient
 
         try:
+            await asyncio.to_thread(validate_azure_blob_connection_string, connection_string)
             blob_service_client = BlobServiceClient.from_connection_string(
-                conn_str=_strip_leading_whitespace(connection_string),
+                conn_str=connection_string,
                 max_single_put_size=64 * 1024 * 1024,  # 64 MiB
                 max_block_size=4 * 1024 * 1024,  # 4 MiB
                 # Increase the read timeout to 10 minutes to account for large uploads.
                 read_timeout=600,
                 # Azure SDK defaults but we set them explicitly for visibility.
                 retry_policy=ExponentialRetry(initial_backoff=15, increment_base=3, retry_total=3),
+                permit_redirects=False,
             )
+        except EndpointNotAllowedError:
+            raise
         except ValueError:
             raise MalformedConnectionStringError()
 

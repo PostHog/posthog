@@ -9,6 +9,7 @@ import posthoganalytics
 from temporalio import activity
 
 from posthog.settings import SITE_URL
+from posthog.usage_ingestion.client import UsageRecord, report_usage
 
 from products.replay_vision.backend.billing import observation_credits_for_model
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
@@ -265,4 +266,20 @@ def mark_observation_succeeded_activity(inputs: MarkObservationSucceededInputs) 
             "organization": str(obs["team__organization_id"]),
             "project": str(obs["team__uuid"]),
         },
+    )
+    # Last, and off the receipt rather than the receipt being new: the transition above already
+    # committed the credits, and `record_id` deduplicates a resend, so a retry that gets this far
+    # again costs nothing. Everything that has to happen for a scan happens before this line.
+    report_usage(
+        [
+            UsageRecord(
+                record_id=str(inputs.observation_id),
+                producer_id="replay-vision",
+                team_id=obs["team_id"],
+                usage_key="replay_vision_credits",
+                unit="credits",
+                quantity=credits,
+            )
+        ],
+        site="replay_vision",
     )

@@ -7,7 +7,7 @@ An agent then searches for the best model for that question, and once it finds o
 The framing is Karpathy's `autoresearch` prompt pattern: an agent edits one thing, runs a fixed eval, keeps the change if a single metric improved, reverts otherwise, and loops until a stop rule fires.
 Here the "one thing" is a feature set plus a model spec, the fixed eval is holdout AUC on a labeled training population, and the loop runs inside a Tasks sandbox.
 
-This directory currently holds the data model and the access gate only.
+This directory holds the data model, the access gate, and the backend packages that have landed so far; each package has its own `AGENTS.md`.
 The training loop, inference, evaluation, the API, the MCP tools, and the frontend land in later pieces of the split tracked in [#88464](https://github.com/PostHog/posthog/pull/88464).
 
 ## Data model in one pass
@@ -45,6 +45,7 @@ These are the ones that have actually broken things.
 
 - **Everything is keyed on `person_id`, one row per person.**
   Agent-authored `feature_sql` must be a read-only `SELECT` keyed on `person_id`, and the label and population queries key on it too.
+  The feature SQL exposes that key under the column name `distinct_id` (`a.person_id AS distinct_id`), which is what the training join and the materialized parquet read; the name is historical, the value is always the person id.
   A mismatch here does not raise, it silently produces all-zero labels and a degenerate model.
   **A uniform score distribution is an identifier mismatch until proven otherwise, not a bad model.**
 - **The agent proposes, the backend disposes.**

@@ -350,7 +350,7 @@ describe('NotebookNodeGeneratedWidget', () => {
         await waitFor(() => expect(container.querySelector('[data-attr="notebook-widget-run"]')).toBeNull())
         await waitFor(() => expect(container.querySelector('iframe')).not.toBeNull())
         expect(container.querySelector('iframe')?.getAttribute('src')).toBe(
-            'https://example.com/untrusted-widget.html#theme=light'
+            'https://example.com/untrusted-widget.html?sandbox=allow-pointer-lock#theme=light'
         )
         expect(container.querySelector('iframe')?.getAttribute('title')).toBe('Widget')
     })
@@ -423,7 +423,7 @@ describe('NotebookNodeGeneratedWidget', () => {
         expect(screen.queryByText('Review this widget before running it') !== null).toBe(!autoRuns)
         expect(container.querySelector('[data-attr="notebook-widget-run"]') !== null).toBe(!autoRuns)
         expect(container.querySelector('iframe')?.getAttribute('src') ?? null).toBe(
-            autoRuns ? 'https://example.com/reviewed-widget.html#theme=light' : null
+            autoRuns ? 'https://example.com/reviewed-widget.html?sandbox=allow-pointer-lock#theme=light' : null
         )
     })
 

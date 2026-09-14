@@ -955,10 +955,11 @@ tools:
             }
         title: List prompts
         description: >
-            List all LLM prompts stored for the current team. Optionally filter by name. Returns paginated prompt
-            summaries. By default, only prompt metadata is returned, not full prompt content. Every result also includes
-            `outline`, a flat list of markdown headings parsed from the prompt — use it as a lightweight table of
-            contents, and pair with `content=none` to keep responses small.
+            List all LLM prompts stored for the current team. Optionally filter by name. Pass `label` (e.g.
+            'production') to get each prompt at the version that label currently points to; prompts without that label
+            are omitted. Returns paginated prompt summaries. By default, only prompt metadata is returned, not full
+            prompt content. Every result also includes `outline`, a flat list of markdown headings parsed from the
+            prompt — use it as a lightweight table of contents, and pair with `content=none` to keep responses small.
     llma-prompt-resolve:
         operation: llm_prompts_resolve_name_retrieve
         enabled: false

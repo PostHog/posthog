@@ -5,6 +5,7 @@ import {
     ConversionGoalFilter,
     DataWarehouseNode,
     ExternalDataSourceType,
+    IntegrationFilter,
     MARKETING_INTEGRATION_CONFIGS,
     MarketingAnalyticsColumnsSchemaNames,
     MarketingAnalyticsConstants,
@@ -826,4 +827,11 @@ export function rowMatchesSearch(record: unknown, searchTerm: string): boolean {
         }
         return false
     })
+}
+
+/** The stored filter is whatever an older build of this page wrote, so keep only the field we still read.
+ * A key the query schema no longer accepts makes the backend reject every request the dashboard sends. */
+export function sanitizeIntegrationFilter(stored: unknown): IntegrationFilter {
+    const ids = (stored as IntegrationFilter | null | undefined)?.integrationSourceIds
+    return { integrationSourceIds: Array.isArray(ids) ? ids.filter((id) => typeof id === 'string') : [] }
 }

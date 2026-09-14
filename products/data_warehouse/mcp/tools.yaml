@@ -288,7 +288,6 @@ tools:
             - columns
             - last_run_at
             - managed_viewset_kind
-            - sync_frequency_managed_by_dag
             - latest_history_id
         param_overrides:
             name:
@@ -441,7 +440,6 @@ tools:
             - columns
             - last_run_at
             - managed_viewset_kind
-            - sync_frequency_managed_by_dag
             - latest_history_id
         param_overrides:
             name:

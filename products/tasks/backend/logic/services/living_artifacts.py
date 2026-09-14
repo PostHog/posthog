@@ -24,6 +24,7 @@ import structlog
 from slack_sdk.errors import SlackApiError
 
 from posthog.event_usage import groups
+from posthog.helpers.slack_markdown import SLACK_MARKDOWN_TEXT_MAX_LEN, slack_markdown_block
 from posthog.ph_client import ph_scoped_capture
 from posthog.storage import object_storage
 from posthog.utils import absolute_uri
@@ -852,12 +853,15 @@ def has_pending_slack_image_artifacts(run: TaskRun) -> bool:
 
 
 def deliver_pending_slack_file_artifacts(
-    run: TaskRun, *, answer_sections: list[str] | None = None
+    run: TaskRun, *, answer_sections: list[str] | None = None, answer_is_markdown: bool = False
 ) -> SlackFileDeliveryResult:
     """Deliver pending slack_file artifacts to the mapped thread.
 
+    ``answer_is_markdown`` says the relay left the answer as Markdown for a ``markdown``
+    block rather than converting it to ``mrkdwn`` for a ``section``.
+
     Images compose into a single chat message together with ``answer_sections``
-    (the relay's converted answer text): text sections first, then one card per
+    (the relay's answer text): text sections first, then one card per
     chart (title, image block, "Open in PostHog" button). Chart images reference a
     url minted here from their export asset — Slack's image proxy fetches the PNG
     from us, so no file upload (and no files:write scope) is involved; other images
@@ -966,6 +970,7 @@ def deliver_pending_slack_file_artifacts(
             mapping=mapping,
             image_cards=image_cards,
             answer_sections=answer_sections or [],
+            answer_is_markdown=answer_is_markdown,
             mark_delivered=_mark_card_delivered,
             deadline=deadline,
         )
@@ -975,9 +980,9 @@ def deliver_pending_slack_file_artifacts(
     elif answer_sections is not None:
         # Compose was requested but every image upload failed: the answer text must
         # still land — and before the non-image shares below, to keep thread order.
-        sections = [section for section in answer_sections if section.strip()]
-        posted = [_post_thread_text(slack, mapping=mapping, text=section) for section in sections]
-        result.answer_posted = bool(sections) and all(posted)
+        blocks = _answer_text_blocks(answer_sections, markdown=answer_is_markdown)
+        posted = [_post_answer_block(slack, mapping=mapping, block=block) for block in blocks]
+        result.answer_posted = bool(blocks) and all(posted)
 
     for artifact, version_payload, content_type in other_files:
         if not has_file_scope:
@@ -1106,6 +1111,7 @@ def _post_composed_answer_message(
     mapping: Any,
     image_cards: list[_SlackImageCard],
     answer_sections: list[str],
+    answer_is_markdown: bool,
     mark_delivered: Callable[[_SlackImageCard], None],
     deadline: float,
 ) -> bool:
@@ -1117,21 +1123,41 @@ def _post_composed_answer_message(
     post succeeds, so an activity that dies part-way through doesn't replay the cards
     that already landed."""
     sections = [section for section in answer_sections if section.strip()]
-    section_blocks = _section_blocks(sections)
+    section_blocks = _answer_text_blocks(sections, markdown=answer_is_markdown)
     card_blocks: list[dict[str, Any]] = []
     for card in image_cards:
         card_blocks.extend(_chart_card_blocks(card))
 
-    spill_count = max(len(section_blocks) - max(_SLACK_MESSAGE_BLOCK_LIMIT - len(card_blocks), 0), 0)
+    if answer_is_markdown:
+        # A composed message carries a single answer block, because the budget the block's
+        # character cap comes from is spent across every markdown block in one payload. The
+        # ones before it go out on their own. The relay chunks under that cap, so most answers
+        # are one block and nothing spills.
+        keep_count = 1
+    else:
+        keep_count = max(_SLACK_MESSAGE_BLOCK_LIMIT - len(card_blocks), 0)
+    spill_count = max(len(section_blocks) - keep_count, 0)
     posted_blocks = 0
     for block in section_blocks[:spill_count]:
-        posted_blocks += 1 if _post_thread_text(slack, mapping=mapping, text=block["text"]["text"]) else 0
+        # A spilled block is one post each, and a long answer spills several, so this loop
+        # answers to the same budget as the posts below it.
+        if time.monotonic() >= deadline:
+            # The caller reposts the whole answer once this reports it unsent, so stop here
+            # rather than adding a composed message that the repost would duplicate. The cards
+            # stay pending and the next relay delivers them.
+            logger.warning("task_artifact.slack_post_budget_exhausted", spilled=posted_blocks, of=spill_count)
+            return False
+        posted_blocks += 1 if _post_answer_block(slack, mapping=mapping, block=block) else 0
     kept = section_blocks[spill_count:]
 
     # Cards alone can exceed the block cap (17+ charts) — composing would then fail
     # deterministically as invalid_blocks, so go straight to the per-card path.
     if len(kept) + len(card_blocks) <= _SLACK_MESSAGE_BLOCK_LIMIT:
-        fallback_text = sections[0] if sections else _artifact_fallback_text(image_cards[0].artifact)
+        # The fallback names what this message shows, which is the block it kept rather than the
+        # answer's first chunk. Slack reads it for the notification, the screen reader, and the
+        # mentions it pings, so naming a spilled chunk would preview the wrong text and could
+        # ping its mention a second time.
+        fallback_text = _answer_block_text(kept[0]) if kept else _artifact_fallback_text(image_cards[0].artifact)
         try:
             if _post_blocks_with_processing_retry(
                 slack,
@@ -1148,10 +1174,10 @@ def _post_composed_answer_message(
         except Exception:
             logger.warning("task_artifact.slack_composed_message_failed", exc_info=True)
 
-    # Degraded path: the answer must not be lost — post the text plainly, then each
+    # Degraded path: the answer must not be lost — post the text on its own, then each
     # card on its own so one bad card can't sink the others.
     for block in kept:
-        posted_blocks += 1 if _post_thread_text(slack, mapping=mapping, text=block["text"]["text"]) else 0
+        posted_blocks += 1 if _post_answer_block(slack, mapping=mapping, block=block) else 0
     for card in image_cards:
         try:
             if _post_blocks_with_processing_retry(
@@ -1169,34 +1195,56 @@ def _post_composed_answer_message(
     return bool(section_blocks) and posted_blocks == len(section_blocks)
 
 
-# Section blocks hard-cap at 3000 chars. The relay pre-splits at 2900 before conversion,
-# but the mention prefix and mrkdwn expansion (table column padding, escapes) can push a
-# section past that — re-split after conversion, preferring whitespace so the cut doesn't
-# land inside a converted mrkdwn entity like `<url|text>`. Tables convert to fenced blocks,
-# so a cut inside one is closed and reopened to keep each block self-contained.
+# Section blocks hard-cap at 3000 chars and markdown blocks at 12,000. The relay pre-splits
+# under both, but the mention prefix and, on the mrkdwn path, the conversion itself (table
+# column padding, escapes) can push a block past its cap — re-split here, preferring
+# whitespace so the cut doesn't land inside an entity like `<url|text>` or a Markdown link.
+# A cut inside a fenced block is closed and reopened to keep each block self-contained.
 _SLACK_SECTION_BLOCK_CHAR_LIMIT = 3000
 _SLACK_CODE_FENCE = "```"
 
 
-def _section_blocks(sections: list[str]) -> list[dict[str, Any]]:
+def _answer_text_blocks(sections: list[str], *, markdown: bool) -> list[dict[str, Any]]:
+    """One block per piece of answer text, sized to the cap of the block type it lands in."""
+    limit = SLACK_MARKDOWN_TEXT_MAX_LEN if markdown else _SLACK_SECTION_BLOCK_CHAR_LIMIT
     blocks: list[dict[str, Any]] = []
     for section in sections:
-        for piece in _split_section_text(section):
-            blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": piece}})
+        for piece in _split_section_text(section, limit_chars=limit):
+            blocks.append(slack_markdown_block(piece) if markdown else _mrkdwn_section_block(piece))
     return blocks
 
 
-def _split_section_text(section: str) -> list[str]:
+def _mrkdwn_section_block(text: str) -> dict[str, Any]:
+    return {"type": "section", "text": {"type": "mrkdwn", "text": text}}
+
+
+def _answer_block_text(block: dict[str, Any]) -> str:
+    """The text a block carries, whichever of the two shapes it is."""
+    return block["text"] if block["type"] == "markdown" else block["text"]["text"]
+
+
+def _post_answer_block(slack: Any, *, mapping: Any, block: dict[str, Any]) -> bool:
+    """Post one answer block as its own message, reporting whether it landed.
+
+    A `markdown` block has to go out as a block, because a plain-text message would show
+    the Markdown source instead of rendering it. An `mrkdwn` section carries the same text
+    either way, so it posts plainly, which is what these messages have always been.
+    """
+    blocks = [block] if block["type"] == "markdown" else None
+    return _post_thread_text(slack, mapping=mapping, text=_answer_block_text(block), blocks=blocks)
+
+
+def _split_section_text(section: str, *, limit_chars: int) -> list[str]:
     pieces: list[str] = []
     remaining = section
     reopen = ""
     while True:
         candidate = reopen + remaining
-        if len(candidate) <= _SLACK_SECTION_BLOCK_CHAR_LIMIT:
+        if len(candidate) <= limit_chars:
             if candidate.strip():
                 pieces.append(candidate)
             return pieces
-        limit = _SLACK_SECTION_BLOCK_CHAR_LIMIT
+        limit = limit_chars
         if candidate[:limit].count(_SLACK_CODE_FENCE) % 2:
             limit -= len(f"\n{_SLACK_CODE_FENCE}")
         window = candidate[:limit]
@@ -1215,12 +1263,18 @@ def _split_section_text(section: str) -> list[str]:
             pieces.append(piece)
 
 
-def _post_thread_text(slack: Any, *, mapping: Any, text: str) -> bool:
-    """Post one plain text message, reporting whether it landed — callers use this to decide
-    whether the answer still needs a fallback, so a swallowed failure must not read as sent."""
+def _post_thread_text(slack: Any, *, mapping: Any, text: str, blocks: list[dict[str, Any]] | None = None) -> bool:
+    """Post one message, reporting whether it landed — callers use this to decide whether the
+    answer still needs a fallback, so a swallowed failure must not read as sent.
+
+    ``blocks`` is for text a plain message cannot render, and ``text`` stays the notification
+    fallback beside it."""
     try:
         return (
-            post_slack_thread_reply(slack, channel=mapping.channel, thread_ts=mapping.thread_ts, text=text) is not None
+            post_slack_thread_reply(
+                slack, channel=mapping.channel, thread_ts=mapping.thread_ts, text=text, blocks=blocks
+            )
+            is not None
         )
     except Exception:
         logger.warning("task_artifact.slack_thread_text_failed", exc_info=True)

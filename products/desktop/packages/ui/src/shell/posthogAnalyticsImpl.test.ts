@@ -14,6 +14,7 @@ const mockPosthog = {
   reset: vi.fn(),
   captureException: vi.fn(),
   reloadFeatureFlags: vi.fn(),
+  metrics: { histogram: vi.fn() },
 };
 
 vi.mock("posthog-js/dist/module.full.no-external", () => ({
@@ -221,6 +222,36 @@ describe("track", () => {
   });
 });
 
+describe("recordNavigationSettled", () => {
+  it("records duration by route after init", async () => {
+    const { initializePostHog, recordNavigationSettled } =
+      await loadAnalytics();
+    initializePostHog();
+
+    recordNavigationSettled(125, "/tasks/$taskId", "hidden");
+
+    expect(mockPosthog.metrics.histogram).toHaveBeenCalledWith(
+      "desktop.navigation.settled.duration",
+      125,
+      {
+        unit: "ms",
+        attributes: {
+          route: "/tasks/$taskId",
+          visibility_at_settle: "hidden",
+        },
+      },
+    );
+  });
+
+  it("does nothing before init", async () => {
+    const { recordNavigationSettled } = await loadAnalytics();
+
+    recordNavigationSettled(125, "/tasks/$taskId", "visible");
+
+    expect(mockPosthog.metrics.histogram).not.toHaveBeenCalled();
+  });
+});
+
 describe("initializePostHog", () => {
   it("is idempotent across repeat calls", async () => {
     const { initializePostHog } = await loadAnalytics();
@@ -252,6 +283,22 @@ describe("initializePostHog", () => {
       "test-key",
       expect.objectContaining({
         session_recording: { captureCanvas: { recordCanvas: false } },
+      }),
+    );
+  });
+
+  it("configures metrics for the desktop service", async () => {
+    const { initializePostHog } = await loadAnalytics();
+
+    initializePostHog();
+
+    expect(mockPosthog.init).toHaveBeenCalledWith(
+      "test-key",
+      expect.objectContaining({
+        metrics: {
+          serviceName: "posthog-desktop",
+          environment: "development",
+        },
       }),
     );
   });
