@@ -13,6 +13,8 @@ from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.utils import generate_random_token_personal
 
+from products.access_control.backend.models.access_control import AccessControl
+from products.dashboards.backend.models.dashboard import Dashboard
 from products.reminders.backend.models import Reminder
 
 
@@ -329,4 +331,72 @@ class TestReminderAPI(APIBaseTest):
         # RootTeamMixin.save would store this against the parent project, which the credential
         # does not reach, so the reach check has to judge the team the row lands on.
         self.assertEqual(response.status_code, 403, response.content)
+        self.assertEqual(Reminder.objects.count(), 0)
+
+    def test_list_hides_reminders_from_an_organization_the_user_left(self) -> None:
+        _, _, other_team = Organization.objects.bootstrap(self.user)
+        self._make_reminder(other_team)
+        other_team.organization.memberships.filter(user=self.user).delete()
+        self._authenticate_with_oauth("user:read", scoped_teams=[self.team.id, other_team.id])
+
+        response = self.client.get("/api/reminders/")
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.json()["results"], [])
+
+    def test_list_hides_reminders_from_a_deactivated_organization(self) -> None:
+        self._make_reminder()
+        self.organization.is_active = False
+        self.organization.save(update_fields=["is_active"])
+        self._authenticate_with_oauth("user:read")
+
+        response = self.client.get("/api/reminders/")
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.json()["results"], [])
+
+    def test_list_hides_reminders_when_the_organization_disallows_personal_api_keys(self) -> None:
+        self._make_reminder()
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ORGANIZATION_SECURITY_SETTINGS, "name": "Security settings"}
+        ]
+        self.organization.members_can_use_personal_api_keys = False
+        self.organization.save(update_fields=["available_product_features", "members_can_use_personal_api_keys"])
+        membership = self.organization.memberships.get(user=self.user)
+        membership.level = OrganizationMembership.Level.MEMBER
+        membership.save(update_fields=["level"])
+        self._authenticate_with_personal_api_key(["user:read"])
+
+        response = self.client.get("/api/reminders/")
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.json()["results"], [])
+
+    def test_attaching_a_resource_the_caller_cannot_view_is_refused(self) -> None:
+        dashboard = Dashboard.objects.create(team=self.team, name="Revenue")
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": "Access control"}
+        ]
+        self.organization.save(update_fields=["available_product_features"])
+        AccessControl.objects.create(team=self.team, resource="dashboard", access_level="none")
+        membership = self.organization.memberships.get(user=self.user)
+        membership.level = OrganizationMembership.Level.MEMBER
+        membership.save(update_fields=["level"])
+        self._authenticate_with_oauth("user:write")
+
+        response = self.client.post(
+            "/api/reminders/",
+            {
+                "organization": str(self.organization.id),
+                "team": self.team.id,
+                "title": "Review the weekly numbers",
+                "recurrence_interval": "weekly",
+                "resource_type": "dashboard",
+                "resource_id": str(dashboard.pk),
+            },
+        )
+
+        self.assertEqual(response.status_code, 400, response.content)
+        # Same message an absent dashboard gets, so the refusal does not confirm it exists.
+        self.assertIn("No dashboard with id", response.content.decode())
         self.assertEqual(Reminder.objects.count(), 0)

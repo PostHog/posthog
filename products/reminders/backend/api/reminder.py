@@ -29,6 +29,7 @@ from posthog.permissions import (
     VerifiedDomainEnforcementPermission,
     get_authenticator_scoped_organization_ids,
     get_authenticator_scoped_team_ids,
+    get_authenticator_scopes,
     get_authenticator_user_credential,
 )
 from posthog.user_permissions import UserPermissions
@@ -59,24 +60,55 @@ ORGANIZATION_BOUNDARY_PERMISSIONS = (
 )
 
 
-def deny_restricted_personal_api_key(request: Request, organization: Organization) -> None:
+def personal_api_key_denial(request: Request, organization: Organization) -> str | None:
     """The third leg of what check_team_and_org_permissions skips for `scope_object = "user"`.
     Mirrors APIScopePermission._check_organization_personal_api_key_restrictions, which is private
-    and resolves its organization from routing attributes a root viewset does not have.
+    and resolves its organization from routing attributes a root viewset does not have. The
+    platform check gates every method, so this one feeds the read filter as well as the writes.
     """
     credential = get_authenticator_user_credential(getattr(request, "successful_authenticator", None))
     if not isinstance(credential, PersonalAPIKey):
-        return
+        return None
     if not organization.is_feature_available(AvailableFeature.ORGANIZATION_SECURITY_SETTINGS):
-        return
+        return None
     membership = get_cached_organization_membership(organization.id, cast(User, request.user))
     if membership is None:
-        return
+        return None
     if not organization.members_can_use_personal_api_keys and membership.level < OrganizationMembership.Level.ADMIN:
-        raise PermissionDenied(
+        return (
             f"Organization '{organization.name}' does not allow using personal API keys. "
             f"Contact an admin to enable personal API keys for this organization."
         )
+    return None
+
+
+def deny_restricted_personal_api_key(request: Request, organization: Organization) -> None:
+    denial = personal_api_key_denial(request, organization)
+    if denial is not None:
+        raise PermissionDenied(denial)
+
+
+def readable_organization_ids(request: Request) -> list[Any]:
+    """Organizations this request may read reminders from.
+
+    A reminder row outlives the access that created it: the writer can lose membership, and the
+    organization can be deactivated or stop allowing personal API keys. The write path checks all
+    three, so the read path has to as well, or a row stays readable after its access is gone.
+    """
+    user = cast(User, request.user)
+    memberships = UserPermissions(user).organization_memberships
+    organizations = Organization.objects.filter(id__in=list(memberships.keys()))
+    uses_token = get_authenticator_scopes(getattr(request, "successful_authenticator", None)) is not None
+    readable = []
+    for organization in organizations:
+        # A null is_active counts as deactivated, which is how ActiveOrganizationPermission reads
+        # it. Session callers keep reading, because they still have to reach the app to fix it.
+        if uses_token and (organization.is_pending_deletion or not organization.is_active):
+            continue
+        if personal_api_key_denial(request, organization) is not None:
+            continue
+        readable.append(organization.id)
+    return readable
 
 
 def enforce_organization_boundaries(view: viewsets.ModelViewSet, organization: Organization) -> None:
@@ -365,6 +397,7 @@ class ReminderViewSet(viewsets.ModelViewSet):
             .select_related("created_by", "team", "organization")
             .order_by("-created_at")
         )
+        queryset = queryset.filter(organization_id__in=readable_organization_ids(self.request))
         scoped_organizations, scoped_teams = token_scope_restrictions(self.request)
         if scoped_organizations is not None:
             queryset = queryset.filter(organization_id__in=scoped_organizations)
