@@ -2140,7 +2140,7 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
         # The inbox PR is superseded by a fix that landed elsewhere, so the receiver must close it
         # with the resolve-specific comment rather than leave it open.
         report = self._create_report()
-        with patch("products.signals.backend.receivers.close_dismissed_report_pr") as mock_task:
+        with patch("products.signals.backend.tasks.close_dismissed_report_pr") as mock_task:
             with self.captureOnCommitCallbacks(execute=True):
                 response = self.client.post(
                     self._state_url(str(report.id)),
@@ -2446,7 +2446,7 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
             report.save(update_fields=["status_before_suppression"])
 
         with (
-            patch("products.signals.backend.receivers.close_dismissed_report_pr") as mock_close_pr,
+            patch("products.signals.backend.tasks.close_dismissed_report_pr") as mock_close_pr,
             self.captureOnCommitCallbacks(execute=True),
         ):
             response = self.client.post(
