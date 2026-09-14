@@ -6,8 +6,9 @@ That is the rule for a new endpoint; the endpoints that predate the package are 
 Read this page before you add an endpoint or a consumer.
 [`posthog/ingress/README.md`](../../posthog/ingress/README.md) holds the package's own reference: the lanes, the dedup rules, and the metric names.
 
-A hand-rolled `hmac` check in a view is a CI failure.
-The `inbound-webhooks-go-through-ingress` semgrep rule fails on a signature comparison in a view or a per-product verifier helper.
+A hand-rolled `hmac` check in a view is not the way in.
+The `inbound-webhooks-go-through-ingress` semgrep rule turns that shape into a CI failure: it catches a signature comparison in a view or in a per-product verifier helper.
+The rule ships in its own PR, not this one (see [The semgrep rule](#the-semgrep-rule)).
 
 ## The transport contract
 
@@ -126,18 +127,21 @@ The GitHub installation lifecycle is the one case today: it keeps PostHog's own 
 ### The DRF adapter path
 
 An endpoint that genuinely needs DRF team scoping keeps its view and subclasses `posthog.auth.WebhookSignatureAuthentication`.
-That base class computes its digest with `hmac_sha256_signature()` and compares with `signatures_match()` from `posthog/ingress/verify/schemes.py`, so both paths share one implementation of HMAC-SHA256.
+That base class still carries its own HMAC-SHA256 computation, so the two paths implement the same algorithm twice today.
+Moving it onto the schemes in `posthog/ingress/verify/schemes.py` is its own PR.
 Customer.io is the reference: it is team-scoped, its secret comes from that team's integration row, and it needs no fan-out, so `customerio/` contributes a scheme only and declares no spec.
 Two cross-region lookups subclass the same base, each with its own header names and signed-input format.
 Reach for this path only when the endpoint needs DRF's team scoping. Everything else goes through `build_webhook_view()`.
 
 ### The semgrep rule
 
-`.semgrep/rules/devex/inbound-webhooks-go-through-ingress.yaml` fires on three shapes.
+`inbound-webhooks-go-through-ingress` lands in its own PR, as `.semgrep/rules/devex/inbound-webhooks-go-through-ingress.yaml`.
+It fires on three shapes.
 `hmac.compare_digest` in a module that also reads a known signature header.
 `hmac` inside a function named like a signature verifier, in the verb form (`verify_signature`) or the predicate form (`signature_ok`, `_is_valid_signature`).
 A vendor SDK call that verifies an inbound signature, such as `stripe.WebhookSignature.verify_header()`, because that shape carries no `hmac` for the first two to find.
-`posthog/ingress/` and `posthog/auth.py` are excluded because they are the sanctioned implementation.
+`posthog/ingress/` is excluded because it is the sanctioned implementation.
+`posthog/auth.py` sits in the ratchet below instead, until the DRF base class moves onto the ingress schemes.
 Tests are excluded because a test builds a signature to send rather than verifying an inbound one.
 
 The rest of the exclusion list is a ratchet.
@@ -158,7 +162,7 @@ A genuine exception carries `# nosemgrep: inbound-webhooks-go-through-ingress --
 | `customerio` | `/api/projects/<team_id>/messaging/customerio/webhook/` | none         | none, it is the DRF adapter path                                                                                                            | `products/messaging/backend/api/customerio_webhook.py`                  |
 
 Only the `stamphog` row is wired in the PR that adds this page.
-The other rows land in their own PRs, one per owning team; until then those endpoints verify by hand and sit in the semgrep rule's ratchet list.
+The other rows land in their own PRs, one per owning team; until then those endpoints verify by hand, and the semgrep rule's ratchet list carries them when the rule lands.
 The GitHub endpoints are declared in `posthog/urls.py`, as is the SES one.
 The others are declared by the product that owns them.
 See [`url-routing.md`](url-routing.md) for the routing rules those declarations follow, and [`github-webhooks.md`](github-webhooks.md) for the GitHub specifics.
@@ -172,6 +176,6 @@ Read that section before you propose any of them: each was a real proposal alrea
 
 ## Why the budget and the statement cap exist
 
-The August 2026 prod-us incidents on the GitHub webhook path were caused by unbounded query cost against a shared connection pool, not by the synchronous execution model.
+Past incidents on the GitHub webhook path were caused by unbounded query cost against a shared connection pool, not by the synchronous execution model.
 The fixes that worked bounded the queries: [#83852](https://github.com/PostHog/posthog/pull/83852) scoped the run lookup to the installation's teams and put a statement timeout on the attribution lookup, and [#87779](https://github.com/PostHog/posthog/pull/87779) added the indexes it needed.
 Ingress carries both controls as general ones, so the next endpoint gets them without rediscovering the incident.

@@ -28,6 +28,8 @@ The secret is per team: it comes from that team's messaging integration row rath
 
 This is the DRF adapter path.
 `posthog.auth.WebhookSignatureAuthentication` does the verifying, and the view answers 200 for an event it does not handle.
+That class still carries its own HMAC-SHA256 computation rather than the scheme described above, so the scheme here documents the shape without being on the request path yet.
+Moving the class onto the ingress schemes is its own PR.
 Reach for this path only when an endpoint genuinely needs DRF's team scoping.
 Everything else goes through `build_webhook_view()`.
 
