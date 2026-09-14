@@ -53,6 +53,7 @@ from products.batch_exports.backend.temporal.sql.common import get_user_hogql_ba
 
 SESSION = boto3.Session()
 FILE_DOWNLOAD_MAX_RANGE = dt.timedelta(weeks=1)
+DEFAULT_MAX_SIZE_MB = 1024
 LOGGER = structlog.get_logger(__name__)
 _FILE_DOWNLOAD_BATCH_EXPORTS_LOCK_KEY = int.from_bytes(
     # 4 ASCII bytes to fill 32-bit PostgreSQL lock key
@@ -83,10 +84,11 @@ class FileDownloadDestinationFileConfigSerializer(serializers.Serializer):
     )
     max_size_mb = serializers.IntegerField(
         required=False,
-        default=None,
+        default=DEFAULT_MAX_SIZE_MB,
         allow_null=True,
         min_value=0,
-        help_text="Split download into multiple files of at most this size in MB",
+        help_text="Split the download into files of about this size in MiB. A file can go a little "
+        "over. Set it to null or 0 to write a single file of any size.",
     )
 
 
@@ -179,7 +181,7 @@ COUNT_ROWS_TIMEOUT_MESSAGE = (
     "Timeout exceeded while counting rows. The query may be too complex, or the count may be too "
     "large to finish within a short time. Running this query in an export may take too long to "
     "complete and/or may produce a very large file to download. Narrow the query with a WHERE "
-    "clause to count and export less data if you can't tolerate the additional exeuction time "
+    "clause to count and export less data if you can't tolerate the additional execution time "
     "and/or file size."
 )
 
@@ -355,6 +357,10 @@ class RetrieveCompletedOutputSerializer(serializers.Serializer):
 
     status = serializers.ChoiceField(choices=["Completed"])
     files = serializers.ListField(child=serializers.UUIDField())
+    records_completed = serializers.IntegerField(
+        allow_null=True,
+        help_text="Number of rows this run exported.",
+    )
 
 
 class RetrieveFailedOutputSerializer(serializers.Serializer):
@@ -376,6 +382,11 @@ class RetrieveOutputSerializer(serializers.Serializer):
     files = serializers.ListField(
         child=serializers.UUIDField(),
         required=False,
+    )
+    records_completed = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        help_text="Number of rows this run exported.",
     )
 
 
@@ -534,7 +545,7 @@ class FileDownloadBatchExportOnDemandViewSet(
 
         run_status = batch_export_run.status
 
-        files = {}
+        completed: dict[str, list[str] | int | None] = {}
         if run_status == BatchExportRun.Status.COMPLETED:
             if batch_export_run.batch_export_on_demand is None:
                 raise RuntimeError("Batch export on demand must be defined on this run")
@@ -555,9 +566,10 @@ class FileDownloadBatchExportOnDemandViewSet(
                 # showing running status.
                 run_status = BatchExportRun.Status.RUNNING
             else:
-                files["files"] = ids
+                completed["files"] = ids
+                completed["records_completed"] = batch_export_run.records_completed
 
-        return response.Response({"status": run_status, **files, **error})
+        return response.Response({"status": run_status, **completed, **error})
 
     @action(
         methods=["GET"], detail=True, url_path=r"download(?:/(?P<part>[^/.]+))?", required_scopes=["batch_export:read"]
