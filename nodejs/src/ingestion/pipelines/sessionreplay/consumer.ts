@@ -42,6 +42,7 @@ import { SessionRecordingApiConfig, SessionRecordingConfig } from './config'
 import { KafkaOffsetManager } from './kafka/offset-manager'
 import { SessionRecordingIngesterMetrics } from './metrics'
 import { SessionReplayLagReporter } from './session-replay-lag-reporter'
+import { recordPersistedSessionUsage } from './session-usage-step'
 import { BlackholeSessionBatchFileStorage } from './sessions/blackhole-session-batch-writer'
 import { RetentionAwareStorage } from './sessions/retention-aware-batch-writer'
 import { SessionBatchFileStorage } from './sessions/session-batch-file-storage'
@@ -334,14 +335,13 @@ export class SessionRecordingIngester {
         })
         await this.batchLock(async () => {
             logger.info('🔁', 'blob_ingester_consumer_v2 - flushing batch', { batchSize: this.currentBatch.size })
-            // Billing has nothing to wait on the batch for, and a usage outage must not stop lag
-            // reporting or the batch reset — so it goes out alongside and swallows its own failure.
-            await Promise.all([
-                instrumentFn(`recordingingesterv2.handleEachBatch.flush`, async () => this.currentBatch.flush()),
-                this.usageBatch.flush().catch((error) => {
-                    logger.warn('⚠️', 'blob_ingester_consumer_v2 - usage flush failed', { error })
-                }),
-            ])
+            const persistedSessions = await instrumentFn(`recordingingesterv2.handleEachBatch.flush`, async () =>
+                this.currentBatch.flush()
+            )
+            recordPersistedSessionUsage(this.usageBatch, persistedSessions)
+            await this.usageBatch.flush().catch((error) => {
+                logger.warn('⚠️', 'blob_ingester_consumer_v2 - usage flush failed', { error })
+            })
             // The flush committed the batch's offsets, so its data is now durably ingested — report lag.
             // Skipped if the flush above threw, so a failed flush records no premature lag sample.
             this.lagReporter.flush()
@@ -375,7 +375,6 @@ export class SessionRecordingIngester {
             sessionKeyResolutionMaxConcurrency: this.config.SESSION_RECORDING_KEY_RESOLUTION_MAX_CONCURRENCY,
             topHog: this.topHog,
             isDebugLoggingEnabled: this.isDebugLoggingEnabled,
-            usageBatch: this.usageBatch,
         })
 
         // Check that the storage backend is healthy before starting the consumer
