@@ -623,6 +623,26 @@ class TestPushSubscriptionsAPI(BaseTest):
         assert len(rejected) == 1
         assert rejected[0]["detail"] == expected_detail
 
+    @parameterized.expand(
+        [
+            ("string", "my-firebase-project", "my-firebase-project"),
+            ("non_string_is_dropped", ["x" * 64] * 64, None),
+        ]
+    )
+    def test_invalid_token_rejection_logs_the_app_id(self, _name: str, app_id: object, logged: str | None):
+        payload = {"distinct_id": "user-1", "device_token": "device-token", "app_id": app_id}
+
+        with capture_logs() as logs:
+            # The second post is served by the negative cache, a separate rejection site.
+            first = self._post(payload, api_key="phc_not_a_real_token")
+            second = self._post(payload, api_key="phc_not_a_real_token")
+
+        assert first.status_code == status.HTTP_401_UNAUTHORIZED
+        assert second.status_code == status.HTTP_401_UNAUTHORIZED
+        rejected = [entry for entry in logs if entry["event"] == "push_subscription_rejected"]
+        assert len(rejected) == 2
+        assert all(entry["app_id"] == logged for entry in rejected)
+
     def test_invalid_token_rejection_attributes_the_sdk_and_never_logs_the_raw_token(self):
         bad_token = "phc_invalid_bad_token_value"
 
