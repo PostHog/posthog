@@ -71,6 +71,7 @@ function makeState(tools: { name: string }[], overrides: Partial<ResolvedState> 
         sessionContext: null,
         allTools: tools as any,
         scopeGatedTools: [],
+        readOnlyGatedTools: [],
         flagGatedTools: [],
         gatewayToolsEnabled: false,
         distinctId: 'test-distinct-id',

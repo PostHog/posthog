@@ -640,6 +640,7 @@ export class ToolExecutor {
                     this.skillCatalogService?.getCatalog()
                 ),
                 flagGatedTools: state.flagGatedTools,
+                readOnlyGatedTools: state.readOnlyGatedTools,
                 skillsSession: this.instructionsBuilder.execSkillsEnabled(state)
                     ? buildSkillsSessionState(state.reqCtx, state.requestContext.mcpSessionId)
                     : undefined,
@@ -939,7 +940,8 @@ function execCommandAnalyticsProperties(execArgs: unknown, state: ResolvedState)
         (name) =>
             state.allTools.some((t) => t.name === name) ||
             state.scopeGatedTools.some((t) => t.name === name) ||
-            state.flagGatedTools.some((t) => t.name === name)
+            state.flagGatedTools.some((t) => t.name === name) ||
+            state.readOnlyGatedTools.some((t) => t.name === name)
     )
     return {
         ...(verb !== undefined ? { $mcp_exec_verb: verb } : {}),

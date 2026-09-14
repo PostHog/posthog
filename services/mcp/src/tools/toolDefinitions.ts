@@ -426,3 +426,36 @@ export function getScopeGatedTools(scopes: string[], options?: ToolFilterOptions
 
     return gated
 }
+
+export interface ReadOnlyGatedTool {
+    name: string
+    title: string
+    description: string
+}
+
+/**
+ * Tools a read-only connection hides, while every other filter kept them. The
+ * exec dispatcher reads this so an agent on such a connection learns the tool
+ * exists and the connection cannot call it. Without the hint the agent reads the
+ * absence as a capability PostHog never shipped, and reports it as missing.
+ */
+export function getReadOnlyGatedTools(options?: ToolFilterOptions): ReadOnlyGatedTool[] {
+    if (!options?.readOnly) {
+        return []
+    }
+    const excluded = new Set(options.excludeTools ?? [])
+    const gated: ReadOnlyGatedTool[] = []
+
+    for (const [name, definition] of filterToolEntries({ ...options, readOnly: false }, true)) {
+        if (excluded.has(name) || definition.annotations.readOnlyHint === true) {
+            continue
+        }
+        // Never hint at staff-only tools, for the reason {@link getScopeGatedTools} gives.
+        if (isStaffOnlyTool(definition.required_scopes ?? [])) {
+            continue
+        }
+        gated.push({ name, title: definition.title, description: definition.description })
+    }
+
+    return gated
+}

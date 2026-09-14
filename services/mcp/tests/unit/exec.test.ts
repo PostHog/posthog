@@ -1597,6 +1597,79 @@ describe('exec tool', () => {
         })
     })
 
+    describe('read-only gated tools', () => {
+        const readOnlyGatedTools = [
+            {
+                name: 'cohorts-create',
+                title: 'Create cohort',
+                description: 'Create a cohort (a saved group of persons)',
+            },
+        ]
+
+        it('reports a write tool as existing but unreachable, not as unknown', async () => {
+            const exec = createExec([makeMockTool({ name: 'cohorts-list' })], undefined, { readOnlyGatedTools })
+
+            for (const command of ['call cohorts-create {}', 'info cohorts-create', 'schema cohorts-create name']) {
+                const message = await exec.handler(mockContext, { command }).then(
+                    () => '',
+                    (error: Error) => error.message
+                )
+                expect(message).toContain('this MCP connection is read-only')
+                expect(message).not.toContain('Unknown tool')
+            }
+        })
+
+        // Read-only is the outer cause and the one the user fixes first, so it wins
+        // over the scope hint when a write tool is behind both.
+        it('reports read-only ahead of a missing scope', async () => {
+            const exec = createExecTool(
+                [makeMockTool({ name: 'cohorts-list' })],
+                mockContext,
+                'desc',
+                'cmd',
+                undefined,
+                undefined,
+                [
+                    {
+                        name: 'cohorts-create',
+                        title: 'Create cohort',
+                        description: 'Create a cohort',
+                        missingScopes: ['cohort:write'],
+                    },
+                ],
+                { readOnlyGatedTools }
+            )
+
+            await expect(exec.handler(mockContext, { command: 'info cohorts-create' })).rejects.toThrow(/read-only/)
+        })
+
+        it('surfaces the hidden write tools a search matched', async () => {
+            const exec = createExec([makeMockTool({ name: 'cohorts-list', title: 'List all cohorts' })], undefined, {
+                readOnlyGatedTools,
+            })
+
+            const result = JSON.parse((await exec.handler(mockContext, { command: 'search cohort' })) as string)
+
+            expect(result.matches).toEqual(['cohorts-list'])
+            expect(result.read_only_matches).toEqual(['cohorts-create'])
+            expect(result.hint).toContain('read-only')
+        })
+
+        it('stays silent about write tools a search did not match', async () => {
+            const exec = createExec(
+                [makeMockTool({ name: 'feature-flag-get-all', title: 'List feature flags' })],
+                undefined,
+                {
+                    readOnlyGatedTools,
+                }
+            )
+
+            const result = await exec.handler(mockContext, { command: 'search feature-flag' })
+
+            expect(JSON.parse(result as string)).toEqual(['feature-flag-get-all'])
+        })
+    })
+
     describe('deprecated tool redirects', () => {
         it.each([
             ['read-data-warehouse-schema', 'execute-sql'],

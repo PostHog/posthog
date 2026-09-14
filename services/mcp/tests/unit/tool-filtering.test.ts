@@ -8,6 +8,7 @@ import { getToolsFromContext } from '@/tools'
 import {
     getAdvertisedOAuthScopes,
     getFlagGatedTools,
+    getReadOnlyGatedTools,
     getToolDefinitions,
     getRequiredFeatureFlags,
     getToolsForFeatures,
@@ -1245,5 +1246,31 @@ describe('Tool Filtering - Entitlements (access control family)', () => {
         for (const tool of [...memberAndDefaultTools, ...roleTools]) {
             expect(unknown).toContain(tool)
         }
+    })
+})
+
+describe('getReadOnlyGatedTools', () => {
+    it('reports a write tool a read-only connection hides, so a caller learns it exists', () => {
+        const gated = getReadOnlyGatedTools({ readOnly: true }).map((tool) => tool.name)
+
+        expect(gated).toContain('cohorts-create')
+        expect(gated).not.toContain('cohorts-list')
+    })
+
+    it('reports nothing when the connection serves write tools', () => {
+        expect(getReadOnlyGatedTools({})).toEqual([])
+        expect(getReadOnlyGatedTools({ readOnly: false })).toEqual([])
+    })
+
+    it('leaves out a tool another filter already hid, so the hint stays reachable', () => {
+        const gated = getReadOnlyGatedTools({
+            readOnly: true,
+            features: ['cohorts'],
+            excludeTools: ['cohorts-partial-update'],
+        }).map((tool) => tool.name)
+
+        expect(gated).toContain('cohorts-create')
+        expect(gated).not.toContain('cohorts-partial-update')
+        expect(gated).not.toContain('experiment-create')
     })
 })

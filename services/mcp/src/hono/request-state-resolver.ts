@@ -17,7 +17,9 @@ import {
     type FlagGatedTool,
     getFlagGatedTools,
     getRequiredFeatureFlags,
+    getReadOnlyGatedTools,
     getScopeGatedTools,
+    type ReadOnlyGatedTool,
     type ScopeGatedTool,
 } from '@/tools/toolDefinitions'
 import type { Context, Tool, Env, ZodObjectAny } from '@/tools/types'
@@ -48,6 +50,7 @@ export interface ResolvedState {
     sessionContext: MCPSessionContext | null
     allTools: Tool<ZodObjectAny>[]
     scopeGatedTools: ScopeGatedTool[]
+    readOnlyGatedTools: ReadOnlyGatedTool[]
     flagGatedTools: FlagGatedTool[]
     /**
      * Whether the caller's team may reach third-party MCP tools through `exec`.
@@ -251,6 +254,7 @@ export class RequestStateResolver {
         const scopeGatedTools = useSingleExec ? getScopeGatedTools(apiKeyScopes, filterOptions) : []
         // Only exec redirects a call to a gated tool; tools mode just omits it.
         const flagGatedTools = useSingleExec ? getFlagGatedTools(filterOptions) : []
+        const readOnlyGatedTools = useSingleExec ? getReadOnlyGatedTools(filterOptions) : []
 
         const [groupTypes, metadata, metadataCompact] = await Promise.all([
             cachedProjectId && hasScope(apiKeyScopes, 'group:read')
@@ -272,6 +276,7 @@ export class RequestStateResolver {
             sessionContext,
             allTools,
             scopeGatedTools,
+            readOnlyGatedTools,
             flagGatedTools,
             gatewayToolsEnabled:
                 useSingleExec &&
