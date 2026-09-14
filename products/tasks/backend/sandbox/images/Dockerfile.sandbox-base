@@ -186,6 +186,8 @@ RUN chmod +x /opt/posthog/bin/git
 # non-interactive `bash -c`; the agent's interactive shell needs this shim).
 COPY products/tasks/backend/sandbox/images/gh-guard.sh /opt/posthog/bin/gh
 RUN chmod +x /opt/posthog/bin/gh
+COPY products/tasks/backend/sandbox/images/hogli-shim.sh /opt/posthog/bin/hogli
+RUN chmod +x /opt/posthog/bin/hogli
 COPY products/tasks/backend/sandbox/images/cpu_billing_sampler.py /usr/local/bin/posthog-cpu-billing-sampler
 RUN chmod +x /usr/local/bin/posthog-cpu-billing-sampler
 COPY --from=agent-shadow-builder /agent-shadow /usr/local/bin/agent-shadow

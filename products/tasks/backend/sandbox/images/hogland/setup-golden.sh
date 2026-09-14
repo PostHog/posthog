@@ -336,6 +336,7 @@ log "guards + cpu sampler (delivered over ssh by bake-golden.sh)"
 # fails the bake if a hand run omitted them.
 test -x /opt/posthog/bin/git
 test -x /opt/posthog/bin/gh
+test -x /opt/posthog/bin/hogli
 test -x /usr/local/bin/posthog-cpu-billing-sampler
 
 log "git identity"
@@ -430,6 +431,7 @@ agentsh --version
 test -x /scripts/node_modules/.bin/agent-server
 test -x /opt/posthog/bin/git
 test -x /opt/posthog/bin/gh
+test -x /opt/posthog/bin/hogli
 
 # LAST step: strip the ephemeral CI ssh key so it does not persist into the
 # snapshot and therefore into every restored task box. Production restores with
