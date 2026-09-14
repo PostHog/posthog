@@ -41,26 +41,40 @@ export function SpaceFileDocument({ id }: { id: string | undefined }) {
   const [sourceVisible, setSourceVisible] = useState(false);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
+  // The editor owns its text once it starts, so it takes this as a seed rather
+  // than a controlled value. Feeding the draft back would rebuild the editor on
+  // every keystroke and drop the caret; the token says when a reseed is meant.
+  const [seed, setSeed] = useState("");
+  const [seedToken, setSeedToken] = useState(0);
   const [baseVersion, setBaseVersion] = useState(0);
   const [conflict, setConflict] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [selection, setSelection] = useState<EditorSelection | null>(null);
   const openedFileId = useRef<string | null>(null);
 
+  const seedEditor = useCallback((content: string): void => {
+    setDraft(content);
+    setSeed(content);
+    setSeedToken((token) => token + 1);
+  }, []);
+
   useEffect(() => {
     if (!file || file.id === openedFileId.current) return;
     openedFileId.current = file.id;
-    setDraft(file.content);
+    seedEditor(file.content);
     setBaseVersion(file.version);
     setConflict(false);
     setSaveError(null);
+    const blank = file.content.trim() === "";
+    setSourceVisible(blank);
+    setEditing(blank);
     track(ANALYTICS_EVENTS.SPACE_FILE_ACTION, {
       action_type: "open",
       file_id: file.id,
       channel_id: file.channel_id,
       success: true,
     });
-  }, [file]);
+  }, [file, seedEditor]);
 
   const save = async (): Promise<void> => {
     if (!file || isUpdating) return;
@@ -70,7 +84,7 @@ export function SpaceFileDocument({ id }: { id: string | undefined }) {
         content: draft,
         baseVersion,
       });
-      setDraft(updated.content);
+      seedEditor(updated.content);
       setBaseVersion(updated.version);
       setConflict(false);
       setEditing(false);
@@ -102,7 +116,7 @@ export function SpaceFileDocument({ id }: { id: string | undefined }) {
   const reloadLatest = async (): Promise<void> => {
     const latest = await reload();
     if (latest) {
-      setDraft(latest.content);
+      seedEditor(latest.content);
       setBaseVersion(latest.version);
     }
     setConflict(false);
@@ -157,6 +171,8 @@ export function SpaceFileDocument({ id }: { id: string | undefined }) {
         editing={editing}
         saving={isUpdating}
         draft={draft}
+        seed={seed}
+        seedToken={seedToken}
         conflict={conflict}
         saveError={saveError}
         onToggleSource={() => {
@@ -165,13 +181,16 @@ export function SpaceFileDocument({ id }: { id: string | undefined }) {
         }}
         onEdit={() => {
           setSelection(null);
-          if (file) setBaseVersion(file.version);
+          if (file) {
+            setBaseVersion(file.version);
+            seedEditor(file.content);
+          }
           setSourceVisible(true);
           setEditing(true);
         }}
         onCancel={() => {
           if (file) {
-            setDraft(file.content);
+            seedEditor(file.content);
             setBaseVersion(file.version);
           }
           setConflict(false);

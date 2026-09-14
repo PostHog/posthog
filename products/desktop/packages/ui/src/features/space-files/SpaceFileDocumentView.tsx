@@ -29,6 +29,8 @@ export function SpaceFileDocumentView({
   editing,
   saving,
   draft,
+  seed,
+  seedToken,
   conflict,
   saveError,
   onToggleSource,
@@ -46,6 +48,9 @@ export function SpaceFileDocumentView({
   editing: boolean;
   saving: boolean;
   draft: string;
+  /** Text the editor starts from. Never the live draft: see SpaceFileDocument. */
+  seed: string;
+  seedToken: number;
   conflict: boolean;
   saveError: string | null;
   onToggleSource: () => void;
@@ -130,8 +135,8 @@ export function SpaceFileDocumentView({
       {sourceVisible ? (
         <div className="min-h-0 flex-1">
           <CodeMirrorEditor
-            key={`${file.id}:${editing ? "edit" : "source"}`}
-            content={editing ? draft : file.content}
+            key={`${file.id}:${editing ? "edit" : "source"}:${seedToken}`}
+            content={editing ? seed : file.content}
             filePath={`space-files/${file.id}/${file.name}`}
             readOnly={!editing}
             enrichment={undefined}

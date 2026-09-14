@@ -21,11 +21,12 @@ const mocks = vi.hoisted(() => ({
   reload: vi.fn(),
   openTaskInput: vi.fn(),
   track: vi.fn(),
+  currentFile: undefined as SpaceFile | undefined,
 }));
 
 vi.mock("@posthog/ui/features/space-files/useSpaceFiles", () => ({
   useSpaceFile: () => ({
-    file,
+    file: mocks.currentFile,
     isLoading: false,
     isError: false,
     error: null,
@@ -39,13 +40,18 @@ vi.mock("@posthog/ui/features/space-files/useSpaceFiles", () => ({
 vi.mock("@posthog/ui/features/canvas/hooks/useOrgMembers", () => ({
   useOrgMembers: () => ({ members: [] }),
 }));
+// The real editor takes `content` as a seed and then owns its own text, so the
+// fake is uncontrolled too. A controlled fake would hide a caller that feeds
+// the draft back in and rebuilds the editor on every keystroke.
 vi.mock("@posthog/ui/features/code-editor/components/CodeMirrorEditor", () => ({
   CodeMirrorEditor: ({
     content,
+    readOnly,
     onContentChange,
     onSelectionChange,
   }: {
     content: string;
+    readOnly?: boolean;
     onContentChange?: (value: string) => void;
     onSelectionChange?: (selection: {
       text: string;
@@ -57,7 +63,8 @@ vi.mock("@posthog/ui/features/code-editor/components/CodeMirrorEditor", () => ({
     <>
       <textarea
         aria-label="Source"
-        value={content}
+        readOnly={readOnly}
+        defaultValue={content}
         onChange={(event) => onContentChange?.(event.target.value)}
       />
       <button
@@ -109,6 +116,7 @@ describe("SpaceFileDocument", () => {
     mocks.reload.mockReset();
     mocks.openTaskInput.mockReset();
     mocks.track.mockReset();
+    mocks.currentFile = file;
   });
 
   it("keeps the draft and offers a reload after a save conflict", async () => {
@@ -127,21 +135,50 @@ describe("SpaceFileDocument", () => {
     render(<SpaceFileDocument id="file-1" />);
 
     await user.click(screen.getByText("Edit"));
-    const source = screen.getByLabelText("Source");
-    fireEvent.change(source, { target: { value: "# Keep this draft" } });
+    fireEvent.change(screen.getByLabelText("Source"), {
+      target: { value: "# Keep this draft" },
+    });
     await user.click(screen.getByText("Save"));
 
     await waitFor(() =>
       expect(screen.getAllByText("Reload latest")).toHaveLength(1),
     );
-    expect(source).toHaveValue("# Keep this draft");
+    expect(screen.getByLabelText("Source")).toHaveValue("# Keep this draft");
     expect(mocks.update).toHaveBeenCalledWith("file-1", {
       content: "# Keep this draft",
       baseVersion: 2,
     });
 
     await user.click(screen.getByText("Reload latest"));
-    await waitFor(() => expect(source).toHaveValue("# Latest version"));
+    await waitFor(() =>
+      expect(screen.getByLabelText("Source")).toHaveValue("# Latest version"),
+    );
+  });
+
+  it("does not reseed the editor while typing", async () => {
+    const user = userEvent.setup();
+    render(<SpaceFileDocument id="file-1" />);
+
+    await user.click(screen.getByText("Edit"));
+    const source = screen.getByLabelText("Source");
+    await user.type(source, "abc");
+
+    expect(screen.getByLabelText("Source")).toBe(source);
+  });
+
+  it("opens a blank file ready to edit", () => {
+    mocks.currentFile = { ...file, content: "" };
+    render(<SpaceFileDocument id="file-1" />);
+
+    expect(screen.getByText("Save")).toBeInTheDocument();
+    expect(screen.getByLabelText("Source")).not.toHaveAttribute("readonly");
+  });
+
+  it("opens a file with content in the preview", () => {
+    render(<SpaceFileDocument id="file-1" />);
+
+    expect(screen.getByText("Edit")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Source")).not.toBeInTheDocument();
   });
 
   it("opens the task composer in the file space with a guarded file prompt", async () => {
