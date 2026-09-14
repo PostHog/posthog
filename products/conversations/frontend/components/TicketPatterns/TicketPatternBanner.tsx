@@ -51,8 +51,8 @@ export function TicketPatternBanner(): JSX.Element | null {
                             'data-attr': 'ticket-pattern-banner-review',
                         }}
                     >
-                        <div className="flex flex-col gap-1">
-                            <div>
+                        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
+                            <div className="min-w-0">
                                 <strong>Possible emerging issue.</strong>{' '}
                                 <span translate="no">{patternSummary(pattern)}</span>
                                 {pattern.first_ticket_at ? (
@@ -62,10 +62,12 @@ export function TicketPatternBanner(): JSX.Element | null {
                                     </>
                                 ) : null}
                             </div>
-                            <div className="flex flex-wrap gap-2">
+                            {/* A primary button loses its contrast on the warning background in dark
+                                mode, so both decisions use the neutral variants the banner already styles. */}
+                            <div className="flex flex-wrap gap-1">
                                 <LemonButton
                                     size="xsmall"
-                                    type="primary"
+                                    type="secondary"
                                     loading={busy}
                                     disabledReason={busy ? 'Saving' : decisionDisabledReason}
                                     onClick={() => confirmPattern(pattern.id)}
@@ -75,7 +77,7 @@ export function TicketPatternBanner(): JSX.Element | null {
                                 </LemonButton>
                                 <LemonButton
                                     size="xsmall"
-                                    type="secondary"
+                                    type="tertiary"
                                     loading={busy}
                                     disabledReason={busy ? 'Saving' : decisionDisabledReason}
                                     onClick={() => dismissPattern(pattern.id)}
