@@ -120,8 +120,7 @@ class TestOwnershipClaims(BaseTest):
         holder = self._active_ae()
         assert holder is not None and result.relationship_id == holder.id
         assert (holder.user_id, holder.source, holder.source_ref) == (self.user.id, "salesforce_claim", TASK)
-        fence = self._fence()
-        assert fence is not None and fence > FENCE and result.controlled_at == fence
+        assert self._fence() == FENCE and result.controlled_at == FENCE
         activity = ActivityLog.objects.get(team_id=self.team.id, scope="Account", activity="role_claimed")
         assert activity.is_system
         assert activity.detail is not None
@@ -206,7 +205,7 @@ class TestOwnershipClaims(BaseTest):
         assert (released.outcome, released.relationship_id) == ("cleared", claimed.relationship_id)
         assert self._active_ae() is None
         fence = self._fence()
-        assert fence is not None and fence_after_claim is not None and fence > fence_after_claim
+        assert fence == fence_after_claim == FENCE
         activity = ActivityLog.objects.get(team_id=self.team.id, activity="role_released")
         assert activity.detail is not None
         assert activity.detail["context"]["source_actor_id"] == "example-salesforce-user-99"
@@ -217,6 +216,16 @@ class TestOwnershipClaims(BaseTest):
         assert repeated.outcome == "not_held"
         assert self._fence() == fence
         assert ActivityLog.objects.filter(team_id=self.team.id, activity="role_released").count() == 1
+
+    def test_a_task_allocated_after_a_release_is_accepted_when_the_release_was_processed_later(self):
+        self._claim()
+        self._release_claim()
+
+        result = self._claim(source_ref="task-2", allocated_at=datetime(2026, 1, 3, 0, 10, tzinfo=UTC))
+
+        assert result.outcome == "accepted"
+        holder = self._active_ae()
+        assert holder is not None and holder.source_ref == "task-2"
 
     @parameterized.expand(["after_a_human_transfer", "after_a_human_clear"])
     def test_release_after_a_human_decision_is_not_held(self, decision):

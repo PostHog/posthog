@@ -311,8 +311,13 @@ def claim_initial_ae(*, team: Team, decision: contracts.OwnershipClaimDecision) 
     Under the Account lock, an accepted claim for the same Task is recognized first, so a Task read
     again on a later run is answered with the original decision even after the role has changed
     hands. A new Task may fill the AE role only when the account manages it, the role is empty, the
-    assignee is a member, and the allocation is later than the role fence by more than the clock-skew
-    allowance. Every refusal is returned as an outcome for the reconciler to record.
+    assignee is a member, and the allocation is later than the role's control timestamp, the last
+    human decision, by more than the clock-skew allowance. Every refusal is returned as an outcome
+    for the reconciler to record.
+
+    Neither a claim nor a release moves the control timestamp. Both carry Salesforce's decision time
+    and are processed later, so moving it to the processing instant would fence out a Task allocated
+    between the source event and this sweep.
     """
     actor = Actor(source=AccountRelationshipSource.SALESFORCE_CLAIM)
     with transaction.atomic():
@@ -346,7 +351,7 @@ def claim_initial_ae(*, team: Team, decision: contracts.OwnershipClaimDecision) 
         holder = _active_relationships(team.id, locked_account, definition).first()
         if holder is not None:
             return _claim_result("rejected", "role_occupied", holder)
-        fence = ownership.role_fence(locked_account, "ae", definition)
+        fence = ownership.controlled_at(locked_account, "ae")
         rejection = ownership.allocation_rejection(decision.allocated_at, fence)
         if rejection is not None:
             return _claim_result("rejected", rejection)
@@ -359,7 +364,7 @@ def claim_initial_ae(*, team: Team, decision: contracts.OwnershipClaimDecision) 
             source=actor.source,
             source_ref=decision.source_ref,
         )
-        controlled_at = ownership.advance_control_timestamp(locked_account, "ae")
+        controlled_at = fence
         _record_transition(
             account=locked_account,
             actor=actor,
@@ -397,7 +402,7 @@ def release_initial_ae(*, team: Team, decision: contracts.OwnershipClaimDecision
             return _claim_result("not_held", None, accepted)
 
         _end_rows(team.id, [accepted])
-        controlled_at = _advance_if_managed(locked_account, "ae")
+        controlled_at = ownership.controlled_at(locked_account, "ae")
         _record_transition(
             account=locked_account,
             actor=actor,

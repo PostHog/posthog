@@ -15,7 +15,7 @@ from typing import Literal, cast
 from uuid import UUID
 
 from django.db import transaction
-from django.db.models import F, Max, QuerySet
+from django.db.models import F, QuerySet
 from django.db.models.functions import Greatest, Now
 from django.utils import timezone
 
@@ -272,20 +272,6 @@ def region_matches(region: str) -> bool:
     decision to name theirs."""
     instance_region = get_instance_region()
     return instance_region is None or region == instance_region.lower()
-
-
-def role_fence(account: Account, role: OwnershipRole, definition: AccountRelationshipDefinition) -> datetime | None:
-    """The latest instant at which the role was decided: its control timestamp or any retained
-    relationship transition under the bound definition, whichever is later."""
-    transitions = (
-        AccountRelationship.objects.for_team(account.team_id)
-        .filter(account=account, definition=definition)
-        .aggregate(started=Max("started_at"), ended=Max("ended_at"))
-    )
-    candidates = [
-        value for value in (controlled_at(account, role), transitions["started"], transitions["ended"]) if value
-    ]
-    return max(candidates) if candidates else None
 
 
 def allocation_rejection(allocated_at: datetime, fence: datetime | None) -> contracts.OwnershipClaimReason | None:
