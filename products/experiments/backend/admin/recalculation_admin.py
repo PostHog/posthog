@@ -137,6 +137,12 @@ class ExperimentMetricsRecalculationAdmin(admin.ModelAdmin):
         if request.method != "POST":
             return HttpResponseRedirect(change_url)
 
+        # A run with no query_to never started, so "completed" would be a lie the API then serves: the
+        # latest-run endpoint would return it with zero results and stop falling back to timeseries data.
+        if status == ExperimentMetricsRecalculation.Status.COMPLETED and obj.query_to is None:
+            messages.error(request, "This recalculation never started, so it cannot be completed; mark it failed.")
+            return HttpResponseRedirect(change_url)
+
         # First-write-wins guard: only stamp a terminal status on a run that hasn't already finalized, so this
         # never clobbers a run the workflow completed a moment earlier. Mirrors the activity's completed_at guard.
         # for_team scopes the fail-closed write to the row's own team (admin runs outside request/team scope).

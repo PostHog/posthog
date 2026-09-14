@@ -1,20 +1,36 @@
 from dataclasses import dataclass, field
 from typing import Optional
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    DependentEndpointConfig,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ResponseAction
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
 # Better Stack Uptime API. Standard collections live under /v2; incidents moved to /v3 (the /v2
 # incidents route still exists, but /v3 is the documented current version). Confirmed against the
 # live API: real routes return 401 on a bad token, unknown routes return 404.
 BETTER_STACK_BASE_URL = "https://uptime.betterstack.com/api"
+# Team members and organization roles are account-level, so Better Stack serves them from the main
+# host rather than the Uptime subdomain. Confirmed the same way: the Uptime host 404s both routes
+# while this one returns 401 on a bad token.
+BETTER_STACK_ORG_BASE_URL = "https://betterstack.com/api"
+
+# A parent row deleted between the parent listing and the child fetch 404s. Skip that parent
+# instead of failing the whole fan-out.
+_SKIP_MISSING_PARENT: list[ResponseAction] = [{"status_code": 404, "action": "ignore"}]
 
 
-@dataclass
+@dataclass(frozen=True)
 class BetterStackEndpointConfig:
     name: str
     path: str
-    # Only True where Better Stack exposes a genuine server-side date filter. Today that's the
-    # incidents endpoint's `from`/`to` params (YYYY-MM-DD, by incident start date).
+    # Host serving this resource. Defaults to the Uptime API.
+    base_url: str = BETTER_STACK_BASE_URL
+    # Only True where Better Stack exposes a genuine server-side date filter on this endpoint's
+    # own request. Today that's the incidents endpoint's `from`/`to` params (YYYY-MM-DD, by
+    # incident start date). A fan-out child leaves this False even when it tracks a cursor — its
+    # request set is bounded through the parent listing instead.
     supports_incremental: bool = False
     incremental_fields: list[IncrementalField] = field(default_factory=list)
     # Stable field to partition by — a creation/start timestamp, never `updated_at`.
@@ -24,21 +40,39 @@ class BetterStackEndpointConfig:
     # incidents endpoint caps at 50.
     page_size: int = 50
     should_sync_default: bool = True
+    # Set where the resource only exists per parent row (e.g. /monitors/{monitor_id}/sla).
+    fanout: Optional[DependentEndpointConfig] = None
+
+    @property
+    def default_incremental_field(self) -> str | None:
+        return self.incremental_fields[0]["field"] if self.incremental_fields else None
 
 
-_STARTED_AT: list[IncrementalField] = [
-    {
-        "label": "started_at",
-        "type": IncrementalFieldType.DateTime,
-        "field": "started_at",
-        "field_type": IncrementalFieldType.DateTime,
-    }
-]
+def _datetime_field(name: str) -> list[IncrementalField]:
+    return [
+        {
+            "label": name,
+            "type": IncrementalFieldType.DateTime,
+            "field": name,
+            "field_type": IncrementalFieldType.DateTime,
+        }
+    ]
+
+
+_MONITOR_FANOUT = DependentEndpointConfig(
+    parent_name="monitors",
+    resolve_param="monitor_id",
+    resolve_field="id",
+    include_from_parent=["id"],
+    parent_field_renames={"id": "monitor_id"},
+    child_response_actions=_SKIP_MISSING_PARENT,
+)
 
 # Endpoint catalog — the streams a reliability team actually wants from an uptime/incident
-# platform: monitors and heartbeats (plus their groups), incident history, on-call calendars,
-# escalation policies, and status pages. Every path was confirmed to be a real route against the
-# live API.
+# platform: monitors and heartbeats (plus their groups), monitor availability and latency,
+# incident history and commentary, on-call calendars, escalation policies, status pages, and the
+# people lookups the rest of them reference. Every path was confirmed to be a real route against
+# the live API.
 BETTER_STACK_ENDPOINTS: dict[str, BetterStackEndpointConfig] = {
     # Incident history is the high-volume stream — incremental via the server-side `from` date
     # filter on the incident start date.
@@ -46,15 +80,54 @@ BETTER_STACK_ENDPOINTS: dict[str, BetterStackEndpointConfig] = {
         name="incidents",
         path="/v3/incidents",
         supports_incremental=True,
-        incremental_fields=_STARTED_AT,
+        incremental_fields=_datetime_field("started_at"),
         partition_key="started_at",
         page_size=50,
+    ),
+    # Acknowledgement and resolution commentary, one request per incident. The endpoint returns
+    # every comment at once (no pagination, no time filter), so it merges on its primary key and
+    # bounds its request set through the incidents listing instead.
+    "incident_comments": BetterStackEndpointConfig(
+        name="incident_comments",
+        path="/v2/incidents/{incident_id}/comments",
+        incremental_fields=_datetime_field("created_at"),
+        partition_key="created_at",
+        primary_keys=["incident_id", "id"],
+        should_sync_default=False,
+        fanout=DependentEndpointConfig(
+            parent_name="incidents",
+            resolve_param="incident_id",
+            resolve_field="id",
+            include_from_parent=["id"],
+            parent_field_renames={"id": "incident_id"},
+            child_response_actions=_SKIP_MISSING_PARENT,
+        ),
     ),
     "monitors": BetterStackEndpointConfig(
         name="monitors",
         path="/v2/monitors",
         partition_key="created_at",
         page_size=250,
+    ),
+    # Uptime percentage and downtime totals per monitor — the product's headline metric, which
+    # the monitors table does not carry. One row per monitor, recomputed every sync.
+    "monitor_availability": BetterStackEndpointConfig(
+        name="monitor_availability",
+        path="/v2/monitors/{monitor_id}/sla",
+        primary_keys=["monitor_id"],
+        fanout=_MONITOR_FANOUT,
+    ),
+    # Latency time series per monitor and region. Better Stack only serves the last 24 hours and
+    # takes no time filter, so each sync re-reads that window and merges it onto the history
+    # already collected; appending would duplicate the overlap.
+    "monitor_response_times": BetterStackEndpointConfig(
+        name="monitor_response_times",
+        path="/v2/monitors/{monitor_id}/response-times",
+        incremental_fields=_datetime_field("at"),
+        partition_key="at",
+        primary_keys=["monitor_id", "region", "at"],
+        should_sync_default=False,
+        fanout=_MONITOR_FANOUT,
     ),
     "monitor_groups": BetterStackEndpointConfig(
         name="monitor_groups",
@@ -86,6 +159,21 @@ BETTER_STACK_ENDPOINTS: dict[str, BetterStackEndpointConfig] = {
     "escalation_policies": BetterStackEndpointConfig(
         name="escalation_policies",
         path="/v2/policies",
+    ),
+    # People lookups resolving the user ids incidents, on-call calendars and escalation policies
+    # reference. Both are account-level, so they live on the other host.
+    "team_members": BetterStackEndpointConfig(
+        name="team_members",
+        path="/v2/team-members",
+        base_url=BETTER_STACK_ORG_BASE_URL,
+        # The collection mixes accepted members with pending invitations, whose ids come from
+        # separate id spaces — `type` keeps two rows from collapsing onto one key.
+        primary_keys=["id", "type"],
+    ),
+    "roles": BetterStackEndpointConfig(
+        name="roles",
+        path="/v2/roles",
+        base_url=BETTER_STACK_ORG_BASE_URL,
     ),
 }
 

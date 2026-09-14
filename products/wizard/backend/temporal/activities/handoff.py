@@ -6,7 +6,10 @@ from posthog.temporal.common.utils import asyncify
 from products.wizard.backend.facade import api as wizard_facade
 from products.wizard.backend.facade.contracts import CreatePullRequestArtifactInput
 from products.wizard.backend.facade.enums import WizardRunStage, WizardRunStatus
-from products.wizard.backend.logic.workers import service as cloud_worker
+from products.wizard.backend.logic.workers import (
+    lifecycle as worker_lifecycle,
+    service as cloud_worker,
+)
 from products.wizard.backend.logic.workers.service import GitRepositoryHandoffRequest
 from products.wizard.backend.temporal.activities.errors import WIZARD_WORKER_EXECUTION_ERROR_TYPE
 from products.wizard.backend.temporal.activities.lifecycle import transition_cloud_run
@@ -49,4 +52,5 @@ def create_run_artifacts(input: PreparedGitRepositoryWorkspace) -> None:
             )
         )
 
+    worker_lifecycle.record_worker_usage(input.team_id, input.run_id, input.sandbox_id)
     transition_cloud_run(input.team_id, input.run_id, WizardRunStatus.COMPLETED)

@@ -17,7 +17,7 @@ Do NOT:
 
 import asyncio
 from collections.abc import Iterable
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from enum import Enum
 from typing import TYPE_CHECKING, Any, Optional, cast
 from uuid import UUID
@@ -84,6 +84,7 @@ from products.conversations.backend.facade.api import (
     SupportSlackNotConfigured,
     SupportTicketMessage as SupportTicketMessage,
     TicketSummary as TicketSummary,
+    can_sync_google_account_email,
     list_account_email_thread_messages,
     list_account_email_threads,
     list_account_ticket_messages,
@@ -98,6 +99,7 @@ from products.customer_analytics.backend.facade.contracts import (
 from products.customer_analytics.backend.facade.email_matching import schedule_email_thread_link_recalculation
 from products.customer_analytics.backend.facade.enums import AccountPropertyPinKind
 from products.customer_analytics.backend.logic import (
+    account_presence as _account_presence_logic,
     account_track_rules as _account_track_rules_logic,
     announcements as _announcements_logic,
     channel_summaries as _channel_summaries_logic,
@@ -897,6 +899,10 @@ class ResourceForbiddenError(Exception):
     """Raised when the caller passes resource/object access checks at the team level but
     lacks the object-level access required for the action — the view maps this to 403,
     matching the ``AccessControlPermission.has_object_permission`` path it replaces."""
+
+
+class GoogleAccountBackfillUnavailable(Exception):
+    pass
 
 
 class WarehouseSyncPausedError(Exception):
@@ -3696,6 +3702,23 @@ def get_accessible_account_id(team_id: int, account_id: str, user_access_control
     return str(account.id) if account is not None else None
 
 
+def list_account_presence_viewers(
+    team_id: int,
+    account_id: str,
+    user_access_control: "UserAccessControl",
+    user: "User",
+) -> list[contracts.AccountPresenceViewer] | None:
+    accessible_account_id = get_accessible_account_id(team_id, account_id, user_access_control)
+    if accessible_account_id is None:
+        return None
+    display_name = user.get_full_name().strip() or user.first_name.strip() or "A teammate"
+    return _account_presence_logic.heartbeat_account_presence(
+        team_id=team_id,
+        account_id=accessible_account_id,
+        viewer=contracts.AccountPresenceViewer(user_id=user.id, display_name=display_name),
+    )
+
+
 def get_editable_account_id(team_id: int, account_id: str, user_access_control: "UserAccessControl") -> str | None:
     """The account_id when the caller can edit that account, else None."""
     account = _resolve_accessible_account(team_id, user_access_control, account_id=account_id)
@@ -4027,6 +4050,7 @@ def list_calendar_sync_statuses(team_id: int) -> list[contracts.CalendarSyncStat
     activity's timeout — a run past it is considered dead, not running)."""
     from products.customer_analytics.backend.logic.calendar_sync import (  # noqa: PLC0415 — keeps requests/HogQL layers off the import path
         LAST_SYNCED_AT_CONFIG_KEY,
+        SYNC_RETRY_AT_CONFIG_KEY,
         SYNC_STALE_AFTER,
         SYNC_STARTED_AT_CONFIG_KEY,
     )
@@ -4036,10 +4060,15 @@ def list_calendar_sync_statuses(team_id: int) -> list[contracts.CalendarSyncStat
         config = integration.config or {}
         last_synced_at = _parse_datetime(config.get(LAST_SYNCED_AT_CONFIG_KEY))
         started_at = _parse_datetime(config.get(SYNC_STARTED_AT_CONFIG_KEY))
+        retry_at = _parse_datetime(config.get(SYNC_RETRY_AT_CONFIG_KEY))
+        now = timezone.now()
         is_syncing = bool(
-            started_at
-            and (last_synced_at is None or started_at > last_synced_at)
-            and started_at > timezone.now() - SYNC_STALE_AFTER
+            (retry_at and retry_at > now)
+            or (
+                started_at
+                and (last_synced_at is None or started_at > last_synced_at)
+                and started_at > now - SYNC_STALE_AFTER
+            )
         )
         statuses.append(
             contracts.CalendarSyncStatus(
@@ -4094,6 +4123,55 @@ def trigger_calendar_sync(
             client.start_workflow(
                 CalendarSyncWorkflow.run,
                 CalendarSyncInput(integration_id=integration_id, team_id=team_id),
+                id=f"google-calendar-sync-{integration_id}",
+                task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
+                id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+                retry_policy=RetryPolicy(maximum_attempts=1),
+            )
+        )
+    except WorkflowAlreadyStartedError:
+        return "already_running"
+    return "started"
+
+
+def trigger_google_account_backfill(
+    team_id: int,
+    integration_id: int,
+    *,
+    start_date: date,
+    end_date: date,
+    has_management_access: bool,
+) -> str | None:
+    integration = (
+        Integration.objects.only("id")
+        .filter(id=integration_id, team_id=team_id, kind=Integration.IntegrationKind.GOOGLE_CALENDAR)
+        .first()
+    )
+    if integration is None:
+        return None
+    if not has_management_access:
+        raise ResourceForbiddenError
+    if not can_sync_google_account_email(integration_id, team_id):
+        raise GoogleAccountBackfillUnavailable
+
+    from posthog.temporal.common.client import sync_connect  # noqa: PLC0415 — keeps temporal off the import path
+
+    from products.customer_analytics.backend.temporal.calendar_sync import (  # noqa: PLC0415 — same
+        GoogleAccountBackfillInput,
+        GoogleAccountBackfillWorkflow,
+    )
+
+    client = sync_connect()
+    try:
+        asyncio.run(
+            client.start_workflow(
+                GoogleAccountBackfillWorkflow.run,
+                GoogleAccountBackfillInput(
+                    integration_id=integration_id,
+                    team_id=team_id,
+                    start_at=datetime.combine(start_date, time.min, tzinfo=UTC).isoformat(),
+                    end_at=datetime.combine(end_date + timedelta(days=1), time.min, tzinfo=UTC).isoformat(),
+                ),
                 id=f"google-calendar-sync-{integration_id}",
                 task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
                 id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,

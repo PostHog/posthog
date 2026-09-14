@@ -1,0 +1,167 @@
+{
+    "$schema": "./node_modules/oxlint/configuration_schema.json",
+    "plugins": ["typescript", "unicorn"],
+    "jsPlugins": [
+        "eslint-plugin-no-only-tests",
+        {
+            "name": "eslint-js",
+            "specifier": "oxlint-plugin-eslint"
+        }
+    ],
+    "categories": {
+        "correctness": "off"
+    },
+    "options": {
+        "typeAware": true,
+        "reportUnusedDisableDirectives": "error"
+    },
+    "ignorePatterns": [
+        "bin",
+        "dist",
+        "node_modules",
+        "src/common/config/idl",
+        // Standalone package with its own Oxlint config; excluded from the parent lint pass.
+        "src/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub-sidecar",
+        "**/dev/**",
+        // Match ESLint's default file extensions and hidden-file exclusions.
+        "**/.*",
+        "!.eslintrc.js",
+        "**/*.mjs",
+        "**/*.cjs",
+        "**/*.jsx"
+    ],
+    "rules": {
+        "eslint-js/no-restricted-syntax": [
+            "error",
+            {
+                "selector": "CallExpression[callee.object.name=\"JSON\"][callee.property.name=\"parse\"]",
+                "message": "Use parseJSON from src/common/utils/json-parse instead of JSON.parse for better performance"
+            }
+        ],
+        "unicorn/no-abusive-eslint-disable": "error",
+        "no-only-tests/no-only-tests": "error",
+        "eslint/no-constant-binary-expression": "error",
+        "eslint/no-unused-vars": [
+            "error",
+            {
+                "ignoreRestSiblings": true,
+                "argsIgnorePattern": "^_",
+                "varsIgnorePattern": "^_"
+            }
+        ],
+        "typescript/require-await": "error",
+        "typescript/await-thenable": "error",
+        "typescript/no-floating-promises": "error",
+        "typescript/no-misused-promises": [
+            "error",
+            {
+                "checksVoidReturn": false
+            }
+        ],
+        "typescript/no-empty-object-type": [
+            "error",
+            {
+                "allowInterfaces": "with-single-extends"
+            }
+        ],
+        "eslint/curly": "error",
+        "eslint/no-fallthrough": "warn",
+        "eslint/no-restricted-globals": [
+            "error",
+            {
+                "name": "fetch",
+                "message": "Use the request util from ~/common/utils/request instead of the global fetch"
+            }
+        ],
+        "eslint/no-restricted-imports": [
+            "error",
+            {
+                "paths": [
+                    {
+                        "name": "node-fetch",
+                        "message": "Use the request util from ~/common/utils/request instead of node-fetch"
+                    },
+                    {
+                        "name": "undici",
+                        "message": "Use the request util from ~/common/utils/request instead of undici"
+                    }
+                ],
+                "patterns": [
+                    {
+                        "group": ["fetch"],
+                        "message": "Use the request util from ~/common/utils/request instead of importing fetch directly"
+                    }
+                ]
+            }
+        ],
+        "typescript/ban-ts-comment": "error",
+        "eslint/no-array-constructor": "error",
+        "typescript/no-duplicate-enum-values": "error",
+        "typescript/no-extra-non-null-assertion": "error",
+        "typescript/no-misused-new": "error",
+        "typescript/no-namespace": "error",
+        "typescript/no-non-null-asserted-optional-chain": "error",
+        "typescript/no-this-alias": "error",
+        "typescript/no-unnecessary-type-constraint": "error",
+        "typescript/no-unsafe-declaration-merging": "error",
+        "typescript/no-unsafe-function-type": "error",
+        "eslint/no-unused-expressions": "error",
+        "typescript/no-wrapper-object-types": "error",
+        "typescript/prefer-as-const": "error",
+        "typescript/prefer-namespace-keyword": "error",
+        "typescript/triple-slash-reference": "error"
+    },
+    "overrides": [
+        {
+            "files": ["**/*.ts", "**/*.tsx", "**/*.mts", "**/*.cts"],
+            "rules": {
+                "eslint/no-var": "error",
+                "eslint/prefer-const": "error",
+                "eslint/prefer-rest-params": "error",
+                "eslint/prefer-spread": "error"
+            }
+        },
+        {
+            "files": ["**/tests/**/*.ts", "src/celery/**/*.ts"],
+            "rules": {
+                "typescript/no-explicit-any": "off",
+                "typescript/no-floating-promises": "off"
+            }
+        },
+        {
+            "files": [
+                // Ingestion is standardized on the ~/ alias. Ban parent-relative
+                // (../) imports so the structure stays codemod-friendly through future moves; keep ./ siblings.
+                // Overrides replace rule options, so the global fetch/node-fetch/undici bans are repeated here.
+                "src/ingestion/**/*.ts"
+            ],
+            "rules": {
+                "eslint/no-restricted-imports": [
+                    "error",
+                    {
+                        "paths": [
+                            {
+                                "name": "node-fetch",
+                                "message": "Use the request util from ~/common/utils/request instead of node-fetch"
+                            },
+                            {
+                                "name": "undici",
+                                "message": "Use the request util from ~/common/utils/request instead of undici"
+                            }
+                        ],
+                        "patterns": [
+                            {
+                                "group": ["fetch"],
+                                "message": "Use the request util from ~/common/utils/request instead of importing fetch directly"
+                            },
+                            {
+                                "group": ["../*", "../**"],
+                                "message": "Within src/ingestion, import via the ~/ alias instead of parent-relative (../) paths."
+                            }
+                        ]
+                    }
+                ]
+            }
+        }
+    ]
+}

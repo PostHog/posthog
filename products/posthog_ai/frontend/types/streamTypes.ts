@@ -24,7 +24,13 @@ export interface ProgressStep {
  * banner (attempt counter + backoff); `connection_failed` is its terminal state (retries exhausted or a
  * non-retryable open); `agent_error` / `agent_crash` are genuine agent-emitted failures rendered inline.
  */
-export type RunAlertKind = 'reconnecting' | 'connection_failed' | 'agent_error' | 'agent_crash'
+export type RunAlertKind =
+    | 'reconnecting'
+    | 'connection_failed'
+    | 'agent_error'
+    | 'agent_error_continued'
+    | 'agent_crash'
+    | 'message_undelivered'
 
 /**
  * View-model for the live connection banner, derived by `runStreamLogic.runConnectionState` and consumed
@@ -135,6 +141,9 @@ export interface ThreadItem {
     /** Stable id — message buffer id, tool call id, or a generated separator/error id. */
     id: string
     type: ThreadItemType
+    /** Recorded activity times in milliseconds; absent for imported or untimed history. */
+    startedAt?: number
+    endedAt?: number
     /** For `human_message`, `assistant_message`, and `assistant_thought` items. */
     text?: string
     /** Whether the assistant message buffer is finalized. */
@@ -147,7 +156,11 @@ export interface ThreadItem {
      * For `error` items — distinguishes a friendlier agent-crash affordance (`crash`) from a
      * raw error line (`error`, the default). Drives the copy/styling branch in the renderer.
      */
-    variant?: 'error' | 'crash'
+    variant?: 'error' | 'crash' | 'undelivered'
+    /** For `error` items — a follow-up message failed to reach the agent because of this error. */
+    undeliveredMessage?: boolean
+    /** For `error` items — the run in the resume chain whose frame produced this error. */
+    sourceRunId?: string
     /** For `status` and `task_notification` items — the wire `status` string. */
     status?: string
     /** For `status` items — whether the status phase has completed. */
@@ -171,14 +184,6 @@ export interface ThreadItem {
      * copyable rows carrying a send's attached trusted/untrusted context blocks.
      */
     debugLevel?: string
-}
-
-/** One PostHog product the agent grounded an answer in, accumulated across the whole session. */
-export interface ResourceProduct {
-    /** Wire product id, e.g. 'product_analytics'. The local taxonomy maps it to an icon + label. */
-    id: string
-    /** Wire-supplied label; falls back to the local taxonomy label when absent. */
-    label?: string
 }
 
 /**

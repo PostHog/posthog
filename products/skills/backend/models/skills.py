@@ -1,9 +1,13 @@
+from typing import Any
+
 from django.db import models
 from django.db.models import Count, DateTimeField, IntegerField, OuterRef, Q, QuerySet, Subquery
 from django.utils import timezone
 
 from posthog.models.scoping.manager import TeamScopedManager
 from posthog.models.utils import UUIDModel
+
+from ..marketplace.packaging import SkillExport, SkillFileExport, render_skill_md, utf8_digest
 
 # Server-owned grouping stamped on every create path (REST serializer, MCP tool, import): the Skills
 # page's category tabs (SKILL_CATEGORY_TABS in llmSkillsLogic.ts) filter on `category`, and the
@@ -19,6 +23,22 @@ CATEGORY_BY_NAME_PREFIX: tuple[tuple[str, str], ...] = (
 
 def category_for_skill_name(name: str) -> str:
     return next((category for prefix, category in CATEGORY_BY_NAME_PREFIX if name.startswith(prefix)), "")
+
+
+class SkillDigestManager(models.Manager):
+    """Manager that stamps content digests on ``bulk_create``, which never calls ``save()``.
+
+    The store has many write paths — create, publish, duplicate, import, community install, and the
+    per-file add/delete/rename — and every one of them must leave a digest behind, because a host
+    that speaks the MCP Skills extension rejects content whose bytes disagree with the manifest.
+    Stamping on the model rather than at each call site means a write path added later cannot forget.
+    """
+
+    def bulk_create(self, objs: Any, *args: Any, **kwargs: Any) -> Any:
+        objs = list(objs)
+        for obj in objs:
+            obj.stamp_digest()
+        return super().bulk_create(objs, *args, **kwargs)
 
 
 class LLMSkill(UUIDModel):
@@ -64,21 +84,58 @@ class LLMSkill(UUIDModel):
 
     # Versioning (same pattern as LLMPrompt)
     version = models.PositiveIntegerField(default=1)
-    is_latest = models.BooleanField(default=True)
     version_description = models.CharField(max_length=400, null=True, blank=True)
+    is_latest = models.BooleanField(default=True)
+    deleted = models.BooleanField(default=False)
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
-    created_by = models.ForeignKey(
-        "posthog.User",
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-    )
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
+    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
 
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
 
-    deleted = models.BooleanField(default=False)
+    # Digest of the *rendered* SKILL.md (frontmatter + body), not of `body` alone: the manifest
+    # describes the file a host downloads, and that file carries the frontmatter too. Bare hex,
+    # without the `sha256:` prefix the spec puts on the wire — the MCP resource layer adds it. Nullable
+    # until the backfill has run everywhere; new writes always stamp it.
+    skill_md_sha256 = models.CharField(max_length=64, null=True, blank=True)
+    skill_md_size = models.PositiveIntegerField(null=True, blank=True)
+
+    DIGEST_FIELDS = ("skill_md_sha256", "skill_md_size")
+
+    objects = SkillDigestManager()
+
+    def to_export(self, files: "list[LLMSkillFile] | None" = None) -> SkillExport:
+        """Map this row onto the Django-free spec dataclass. The one storage -> spec mapping.
+
+        The digest below and the exported artifact must describe the same bytes, so they cannot
+        each carry their own copy of this mapping — a spec field added to one and not the other
+        would make every host reject the file it downloads.
+        """
+        return SkillExport(
+            name=self.name,
+            description=self.description,
+            body=self.body,
+            version=self.version,
+            license=self.license or "",
+            compatibility=self.compatibility or "",
+            allowed_tools=list(self.allowed_tools or []),
+            metadata=dict(self.metadata or {}),
+            files=[SkillFileExport(path=f.path, content=f.content, content_type=f.content_type) for f in files or []],
+        )
+
+    def rendered_skill_md(self) -> str:
+        return render_skill_md(self.to_export())
+
+    def stamp_digest(self) -> None:
+        self.skill_md_sha256, self.skill_md_size = utf8_digest(self.rendered_skill_md())
+
+    def save(self, *args: Any, update_fields: Any = None, **kwargs: Any) -> None:
+        self.stamp_digest()
+        # A narrowed write would otherwise leave the old digest next to the new content.
+        if update_fields is not None:
+            update_fields = [*update_fields, *self.DIGEST_FIELDS]
+        super().save(*args, update_fields=update_fields, **kwargs)
 
 
 class LLMSkillFile(UUIDModel):
@@ -95,6 +152,23 @@ class LLMSkillFile(UUIDModel):
     path = models.CharField(max_length=500)
     content = models.TextField()
     content_type = models.CharField(max_length=100, default="text/plain")
+
+    # See `LLMSkill.skill_md_sha256` for the storage shape and the nullability window.
+    content_sha256 = models.CharField(max_length=64, null=True, blank=True)
+    content_size = models.PositiveIntegerField(null=True, blank=True)
+
+    DIGEST_FIELDS = ("content_sha256", "content_size")
+
+    objects = SkillDigestManager()
+
+    def stamp_digest(self) -> None:
+        self.content_sha256, self.content_size = utf8_digest(self.content)
+
+    def save(self, *args: Any, update_fields: Any = None, **kwargs: Any) -> None:
+        self.stamp_digest()
+        if update_fields is not None:
+            update_fields = [*update_fields, *self.DIGEST_FIELDS]
+        super().save(*args, update_fields=update_fields, **kwargs)
 
 
 class LLMSkillOwner(UUIDModel):

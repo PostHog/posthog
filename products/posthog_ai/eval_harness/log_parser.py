@@ -347,13 +347,16 @@ def _index_tool_use_positions(messages: list[dict[str, Any]]) -> dict[str, int]:
     return positions
 
 
+_CALL_FLAGS = frozenset({"--json", "--confirm", "--no-skills"})
+
+
 def _parse_exec_command(command: str) -> tuple[str, dict[str, Any]] | None:
     """Split a CLI-style ``exec`` command string into ``(virtual_name, input)``.
 
     Recognised shapes (produced by single-exec mode where the agent talks to
     the PostHog MCP through one ``exec`` tool):
       - ``"info <tool>"``                    → ``("__info__:<tool>", {})``
-      - ``"call [--json] <tool> <json>"``    → ``("<tool>", parsed_json)``
+      - ``"call [--json] [--confirm] [--no-skills] <tool> <json>"`` → ``("<tool>", parsed_json)``
 
     Returns ``None`` for anything else (``search``, ``tools``, ``schema``,
     malformed) so callers can fall through to the raw ``exec`` representation.
@@ -373,8 +376,10 @@ def _parse_exec_command(command: str) -> tuple[str, dict[str, Any]] | None:
 
     if head == "call":
         rest = rest.strip()
-        if rest.startswith("--json"):
-            rest = rest[len("--json") :].lstrip()
+        flag, _, remainder = rest.partition(" ")
+        while flag in _CALL_FLAGS:
+            rest = remainder.lstrip()
+            flag, _, remainder = rest.partition(" ")
         if not rest:
             return None
         tool, _, json_part = rest.partition(" ")

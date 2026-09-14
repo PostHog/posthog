@@ -19,7 +19,7 @@ from products.replay_vision.backend.temporal.scanners import (
 )
 from products.replay_vision.backend.temporal.scanners.base import BaseScanner, SignalFinding, SignalsResponse
 from products.replay_vision.backend.temporal.scanners.summarizer import summary_embedding_text
-from products.replay_vision.backend.temporal.types import EventTable
+from products.replay_vision.backend.temporal.types import EventTable, ScannerCallOutput
 
 
 def _build_replay_scanner(**overrides) -> ReplayScanner:
@@ -830,18 +830,35 @@ class TestSignalSideMission:
         )
         assert scanner.mission_steps()[-1].name == "signals"
 
-    def test_signals_parse_and_assemble_alongside_output(self) -> None:
+    @pytest.mark.parametrize("start_time, end_time", [(0, 0), (72, 72), (72, 78)])
+    def test_signals_parse_and_assemble_alongside_output(self, start_time: int, end_time: int) -> None:
         scanner = scanner_from_db(_build_replay_scanner(emits_signals=True))
-        signals_resp = SignalsResponse.model_validate(
-            {"signals": [{**self._VALID_SIGNAL}, {**self._VALID_SIGNAL, "url": "/two"}]}
-        )
+        signal = {**self._VALID_SIGNAL, "start_time": start_time, "end_time": end_time}
+        signals_resp = SignalsResponse.model_validate({"signals": [signal, {**self._VALID_SIGNAL, "url": "/two"}]})
         core = MonitorLlmResponse(verdict="yes", reasoning="r", confidence=0.9)
         out, signals = scanner.assemble({"core": core, "signals": signals_resp})
         assert isinstance(out, MonitorOutput)
         assert [isinstance(s, SignalFinding) for s in signals] == [True, True]
         assert signals[0].problem_type == "bug"
-        assert signals[0].start_time == 72
+        assert signals[0].start_time == start_time
+        assert signals[0].end_time == end_time
         assert signals[1].url == "/two"
+
+    @pytest.mark.parametrize("start_time, end_time", [(-1, 0), (0, -1), (72, 71)])
+    def test_signals_reject_invalid_time_ranges(self, start_time: int, end_time: int) -> None:
+        signal = {**self._VALID_SIGNAL, "start_time": start_time, "end_time": end_time}
+        with pytest.raises(ValidationError):
+            SignalsResponse.model_validate({"signals": [signal]})
+
+    def test_historical_activity_output_keeps_legacy_signal_times(self) -> None:
+        output = ScannerCallOutput.model_validate(
+            {
+                "model_output": MonitorOutput(verdict="yes", reasoning="r", confidence=0.9).model_dump(),
+                "signals": [{**self._VALID_SIGNAL, "start_time": 78, "end_time": 72}],
+            }
+        )
+        assert output.signals[0].start_time == 78
+        assert output.signals[0].end_time == 72
 
     def test_signals_default_empty_when_step_absent(self) -> None:
         # A signals turn that failed validation is absent; the output still assembles with no findings.

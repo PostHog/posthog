@@ -1,6 +1,6 @@
 from datetime import UTC, datetime
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, BaseTest, ClickhouseTestMixin
 from unittest import mock
 
@@ -784,7 +784,7 @@ class TestWebEnsurePrecomputed(BaseTest):
         reset_query_tags()
         self.team.timezone = tz
         with (
-            freeze_time("2026-08-20T12:00:00Z"),
+            time_machine.travel("2026-08-20T12:00:00Z", tick=False),
             tags_context(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS.value),
         ):
             web_ensure_precomputed(team=self.team, ttl_seconds={"0d": 4 * 3600, "default": 3600}, table=None)

@@ -18,3 +18,8 @@ It includes a compact row with counts and percentages for **Completed**, **Dismi
 These percentages use all responses matching the current filters as their denominator, including archived responses when selected.
 Each submission counts once in this breakdown, even when the performance summary counts unique people.
 The performance bar labels dismissals with no answers separately from responses.
+
+Use **Export responses** on the Summary tab to download answers as CSV or Excel.
+The export includes all responses matching the current filters, across all table pages.
+The Responses tab has an export control in the table.
+The same export remains available in the action sidebar.

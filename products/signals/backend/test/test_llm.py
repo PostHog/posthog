@@ -1,3 +1,6 @@
+import os
+import importlib
+
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -5,6 +8,7 @@ from django.test import override_settings
 
 from anthropic.types import Message, TextBlock, Usage
 
+from products.signals.backend.temporal import llm
 from products.signals.backend.temporal.llm import call_llm
 from products.signals.eval.llm_gen.client import CanonicalSignal, CanonicalSignalBatch, generate_canonical_signals
 
@@ -152,3 +156,62 @@ async def test_request_shape_follows_model_capabilities(
     assert ("temperature" in kwargs) is expect_temperature
     assert (kwargs.get("thinking") or {}).get("type") == expect_thinking
     assert kwargs.get("output_config") == ({"effort": expect_effort} if expect_effort else None)
+
+
+@pytest.mark.asyncio
+async def test_explicit_model_overrides_the_matching_model() -> None:
+    client = _mock_anthropic_client()
+    with (
+        patch(f"{MODULE_PATH}.MATCHING_MODEL", "claude-sonnet-4-5"),
+        patch(f"{MODULE_PATH}.get_async_anthropic_gateway_client", return_value=client),
+    ):
+        await call_llm(
+            team_id=1,
+            system_prompt="s",
+            user_prompt="u",
+            validate=lambda text: text,
+            stage="safety_filter",
+            model="claude-sonnet-5",
+        )
+
+    kwargs = client.messages.create.call_args.kwargs
+
+    # The capabilities follow the override, not MATCHING_MODEL, so dropping it flips all three.
+    assert kwargs["model"] == "claude-sonnet-5"
+    assert kwargs["messages"][-1]["role"] == "user"
+    assert "temperature" not in kwargs
+
+
+def _reload_model_constants(env: dict[str, str]) -> tuple[str, str]:
+    # Both constants resolve at import, so the environment has to change around a reload. The
+    # second reload puts the module back on the real environment for the rest of the session.
+    try:
+        with patch.dict(os.environ, env):
+            for key in ("SIGNAL_MATCHING_LLM_MODEL", "SIGNAL_SAFETY_LLM_MODEL"):
+                if key not in env:
+                    os.environ.pop(key, None)
+            importlib.reload(llm)
+            return llm.MATCHING_MODEL, llm.SAFETY_MODEL
+    finally:
+        importlib.reload(llm)
+
+
+@pytest.mark.parametrize(
+    "env,expected_matching,expected_safety",
+    [
+        ({}, "claude-sonnet-5", "claude-sonnet-5"),
+        ({"SIGNAL_MATCHING_LLM_MODEL": "claude-opus-5"}, "claude-opus-5", "claude-sonnet-5"),
+        (
+            {"SIGNAL_MATCHING_LLM_MODEL": "claude-opus-5", "SIGNAL_SAFETY_LLM_MODEL": "claude-haiku-4-5"},
+            "claude-opus-5",
+            "claude-haiku-4-5",
+        ),
+    ],
+)
+def test_safety_model_does_not_follow_the_matching_model(
+    env: dict[str, str], expected_matching: str, expected_safety: str
+) -> None:
+    matching, safety = _reload_model_constants(env)
+
+    assert matching == expected_matching
+    assert safety == expected_safety

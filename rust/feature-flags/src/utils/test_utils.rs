@@ -1826,15 +1826,27 @@ impl TestContext {
             .await
     }
 
-    /// Populate cache for a team and store an ETag alongside it.
-    /// The ETag is stored at `{cache_key}:etag` using pickle serialization,
-    /// matching Django's HyperCache behavior.
+    /// Populate cache for a team and store an ETag alongside it, on the shared Redis.
+    /// See `populate_cache_for_team_with_etag_on`.
     pub async fn populate_cache_for_team_with_etag(
         &self,
         team_id: i32,
         etag: &str,
     ) -> Result<(), Error> {
         let redis_client = setup_redis_client(Some(self.config.redis_url.clone())).await;
+        self.populate_cache_for_team_with_etag_on(redis_client, team_id, etag)
+            .await
+    }
+
+    /// Populate cache for a team and store an ETag alongside it, on the given Redis.
+    /// The ETag is stored at `{cache_key}:etag` using pickle serialization,
+    /// matching Django's HyperCache behavior.
+    pub async fn populate_cache_for_team_with_etag_on(
+        &self,
+        redis_client: Arc<dyn RedisClientTrait + Send + Sync>,
+        team_id: i32,
+        etag: &str,
+    ) -> Result<(), Error> {
         self.populate_flag_definitions_cache(redis_client.clone(), team_id)
             .await?;
 

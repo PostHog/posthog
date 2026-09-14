@@ -485,6 +485,10 @@ export const getDisplay = (query: InsightQueryNode): ChartDisplayType | undefine
     return undefined
 }
 
+export const isMetricInsightQuery = (query?: Record<string, any> | null): boolean =>
+    (isDataVisualizationNode(query) && query.display === ChartDisplayType.Metric) ||
+    (isInsightVizNode(query) && isTrendsQuery(query.source) && getDisplay(query.source) === ChartDisplayType.Metric)
+
 // Display types whose viz paints to a <canvas> (Chart.js / quill-charts), which repaints on every resize
 // frame. Everything else renders as DOM/SVG and is cheap to keep mounted while a tile is resized.
 const CANVAS_CHART_DISPLAY_TYPES = new Set<ChartDisplayType>([

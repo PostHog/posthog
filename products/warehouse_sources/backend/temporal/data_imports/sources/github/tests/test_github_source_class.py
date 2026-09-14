@@ -148,6 +148,20 @@ class TestGithubSource:
         retryable_errors = self.source.get_retryable_errors()
         assert error_message_matches(observed_error, retryable_errors)
 
+    def test_ssl_eof_error_is_retryable_not_non_retryable(self):
+        # A TLS session cut at the socket while minting the installation access token
+        # (client_request has no in-process retry, unlike _fetch_page). Must stay retryable so a
+        # dropped connection to GitHub doesn't disable the source.
+        observed_error = (
+            "HTTPSConnectionPool(host='api.github.com', port=443): Max retries exceeded with url: "
+            "/app/installations/123/access_tokens (Caused by SSLError(SSLEOFError(8, "
+            "'[SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1032)')))"
+        )
+        non_retryable_errors = self.source.get_non_retryable_errors()
+        assert not any(key in observed_error for key in non_retryable_errors)
+        retryable_errors = self.source.get_retryable_errors()
+        assert error_message_matches(observed_error, retryable_errors)
+
     @pytest.mark.parametrize(
         "raised_message,expected_key",
         [
@@ -494,7 +508,10 @@ class TestGithubSource:
         "selection,expected_message",
         [
             ("oauth", "No GitHub account is connected. Connect a GitHub account and try again."),
-            ("pat", "GitHub personal access token is not configured. Please update the source configuration."),
+            (
+                "pat",
+                "No GitHub personal access token is set. Enter one, or switch the authentication type to OAuth and connect a GitHub account.",
+            ),
         ],
     )
     def test_validate_credentials_maps_config_errors_to_friendly_message(self, selection, expected_message):
@@ -521,6 +538,9 @@ class TestGithubSource:
             (None, ["PostHog/posthog", "posthog/posthog", " Other/Repo "], ["posthog/posthog", "other/repo"]),
             # A non-empty `repositories` is the authoritative set; `repository` only marks bare naming.
             ("posthog/posthog", ["a/b"], ["a/b"]),
+            # A repo pasted as a GitHub URL must route to the same storage as `owner/repo`, or the
+            # same repository would sync into two tables depending on how it was entered.
+            (None, ["https://github.com/PostHog/posthog.git", "posthog/posthog"], ["posthog/posthog"]),
         ],
     )
     def test_effective_repositories(self, repository, repositories, expected):
@@ -712,6 +732,7 @@ class TestGithubSource:
         inputs.schema_metadata = None
         inputs.s3_folder_name = "issues"
         inputs.should_use_incremental_field = False
+        inputs.last_synced_at = datetime.datetime(2026, 9, 8, tzinfo=datetime.UTC)
 
         self.source.source_for_pipeline(config, mock.MagicMock(), inputs)
 
@@ -719,6 +740,7 @@ class TestGithubSource:
         assert kwargs["repository"] == "legacy/repo"
         assert kwargs["endpoint"] == "issues"
         assert kwargs["response_name"] == "issues"
+        assert kwargs["reconcile_since"] == inputs.last_synced_at
 
     @pytest.mark.parametrize(
         "pin,expected",
