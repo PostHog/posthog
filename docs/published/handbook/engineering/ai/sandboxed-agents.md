@@ -119,12 +119,6 @@ Task links in shared AI history open `/ai?task=<task-id>` and render the task ru
 The task stays selected on reload and when navigating back or forward.
 Existing `/tasks/<task-id>` links still open the standalone runner.
 
-The history filter includes PostHog AI, Slack, and Desktop.
-Each origin filter shows the current user's tasks from that source and works with search.
-PostHog AI also includes chat history. Slack and Desktop exclude chat history.
-Desktop uses `client_provenance=posthog_desktop`, not the `user_created` origin, which other clients also use.
-Tasks without that source field do not appear under Desktop.
-
 ## Fine-grained access tokens
 
 Every sandboxed agent gets a scoped OAuth access token that controls what PostHog resources it can access.
