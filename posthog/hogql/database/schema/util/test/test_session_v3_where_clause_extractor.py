@@ -6,6 +6,8 @@ from posthog.test.base import APIBaseTest, ClickhouseTestMixin, NewEventsSchemaS
 
 from django.conf import settings
 
+from parameterized import parameterized
+
 from posthog.schema import SessionTableVersion
 
 from posthog.hogql import ast
@@ -227,6 +229,18 @@ class TestSessionWhereClauseExtractorV3(ClickhouseTestMixin, APIBaseTest):
     def test_timestamp_unrelated_function_timestamp(self):
         actual = f(
             self.inliner.get_inner_where(parse("SELECT * FROM sessions WHERE like(toString(min_timestamp), 'b')"))
+        )
+        assert actual is None
+
+    @parameterized.expand(
+        [
+            ("between", "unrelated_field BETWEEN 1 AND 2"),
+            ("is_distinct_from", "unrelated_field IS DISTINCT FROM 1"),
+        ]
+    )
+    def test_unliftable_predicate_does_not_leak_tombstone(self, _name: str, predicate: str):
+        actual = self.inliner.get_inner_where(
+            parse(f"SELECT * FROM sessions WHERE min_timestamp > '2021-01-01' AND {predicate}")
         )
         assert actual is None
 
