@@ -41,9 +41,6 @@ from datetime import timedelta
 # keeps the pattern backslash-free, so it survives embedding in a HogQL string literal unescaped.
 _SOURCE_PR_PATTERN = "^(?:trunk-merge/|gh-readonly-queue/[^/]+/)pr-([0-9]+)[/-]"
 
-# Wider than _SOURCE_PR_PATTERN: a batched or otherwise unresolvable gate branch still sits here.
-_GATE_BRANCH_PREFIXES = ("trunk-merge/", "gh-readonly-queue/")
-
 # The identities a real merge queue acts as. GitHub's native queue pushes gate branches without
 # opening a PR, so only Trunk needs an entry today.
 MERGE_QUEUE_BOT_HANDLES: frozenset[str] = frozenset({"trunk-io[bot]"})
@@ -84,11 +81,12 @@ def looks_like_merge_queue_branch_expr(branch_column: str) -> str:
 def in_merge_queue_namespace_expr(branch_column: str) -> str:
     """HogQL predicate on the queue's branch namespace, for spend totals only.
 
-    A false positive can only misplace a sum, so the shape needs no corroboration. Anything that
-    decides what a row *is* must use ``merge_queue_branch_expr``.
+    Wider than ``_SOURCE_PR_PATTERN``: a batched or otherwise unresolvable gate branch still sits
+    here. A false positive can only misplace a sum, so the shape needs no corroboration. Anything
+    that decides what a row *is* must use ``merge_queue_branch_expr``.
     """
-    tests = " OR ".join(f"startsWith(ifNull({branch_column}, ''), '{prefix}')" for prefix in _GATE_BRANCH_PREFIXES)
-    return f"({tests})"
+    branch = f"ifNull({branch_column}, '')"
+    return f"(startsWith({branch}, 'trunk-merge/') OR startsWith({branch}, 'gh-readonly-queue/'))"
 
 
 def source_pr_string_expr(branch_column: str, *, queue_actor_column: str) -> str:

@@ -20,7 +20,6 @@ import type {
     WorkflowJobApi,
     WorkflowRunDetailApi,
 } from '../generated/api.schemas'
-import { authoredRunsOnly } from '../lib/ci'
 import { failedShardsLabel, groupJobs } from '../lib/jobGroups'
 import { jobCacheKey } from '../lib/jobs'
 import {
@@ -616,9 +615,11 @@ export const pullRequestDetailLogic = kea<pullRequestDetailLogicType>([
                 return labels
             },
         ],
+        // Drops merge-queue gate attempts, whose head SHAs the author never pushed. Mirrors the
+        // backend's `runs_by_pr` rollup, so push counts agree between the PR list and this page.
         authoredRuns: [
             (s) => [s.prRuns],
-            (prRuns: WorkflowRunDetailApi[]): WorkflowRunDetailApi[] => authoredRunsOnly(prRuns),
+            (prRuns: WorkflowRunDetailApi[]): WorkflowRunDetailApi[] => prRuns.filter((run) => !run.is_merge_queue),
         ],
         pushes: [
             (s) => [s.authoredRuns],

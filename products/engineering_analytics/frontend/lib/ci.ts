@@ -12,7 +12,7 @@ export interface CIRollup {
     inconclusive: number
 }
 
-export function ciStatusOf(rollup: Pick<CIRollup, 'runs' | 'passing' | 'failing' | 'pending'>): CIStatus {
+export function ciStatusOf(rollup: CIRollup): CIStatus {
     if (rollup.runs === 0) {
         return 'none'
     }
@@ -22,12 +22,9 @@ export function ciStatusOf(rollup: Pick<CIRollup, 'runs' | 'passing' | 'failing'
     if (rollup.pending > 0) {
         return 'running'
     }
-    // Nothing failed, pending, or passed means every run was cancelled or skipped, not green.
-    return rollup.passing > 0 ? 'passing' : 'inconclusive'
-}
-
-/** Drops merge-queue gate attempts, whose head SHAs the author never pushed. Mirrors the backend's
- * `runs_by_pr` rollup, so push counts agree between the PR list and the PR detail page. */
-export function authoredRunsOnly<T extends { is_merge_queue: boolean }>(runs: T[]): T[] {
-    return runs.filter((run) => !run.is_merge_queue)
+    if (rollup.passing > 0) {
+        return 'passing'
+    }
+    // Every run was cancelled or skipped, which is not green.
+    return 'inconclusive'
 }

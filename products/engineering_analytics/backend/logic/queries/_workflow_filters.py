@@ -22,6 +22,7 @@ UNPAGED_SCAN_LIMIT = 100000
 DECISIVE_FAILURE_CONCLUSIONS = ("failure", "timed_out", "startup_failure", "stale")
 DECISIVE_FAILURE_CONCLUSIONS_SQL = ", ".join(f"'{conclusion}'" for conclusion in DECISIVE_FAILURE_CONCLUSIONS)
 SUCCESSFUL_RUN_CONDITION = "status = 'completed' AND conclusion = 'success'"
+FAILED_RUN_CONDITION = f"status = 'completed' AND conclusion IN ({DECISIVE_FAILURE_CONCLUSIONS_SQL})"
 CONCLUSIVE_RUN_CONDITION = f"status = 'completed' AND conclusion IN ('success', {DECISIVE_FAILURE_CONCLUSIONS_SQL})"
 
 # Duration percentiles use successful instances because cancelled, skipped, and failed instances
@@ -41,8 +42,7 @@ def success_rate_expr(scope: str | None = None) -> str:
 def failure_rate_expr(scope: str | None = None) -> str:
     """The complement of ``success_rate_expr`` over the same denominator."""
     guard = f" AND {scope}" if scope else ""
-    decisive = f"status = 'completed' AND conclusion IN ({DECISIVE_FAILURE_CONCLUSIONS_SQL})"
-    return f"countIf({decisive}{guard}) / nullIf(countIf({CONCLUSIVE_RUN_CONDITION}{guard}), 0)"
+    return f"countIf({FAILED_RUN_CONDITION}{guard}) / nullIf(countIf({CONCLUSIVE_RUN_CONDITION}{guard}), 0)"
 
 
 # A run that settled in under this many seconds with a benign conclusion did no real CI work — the

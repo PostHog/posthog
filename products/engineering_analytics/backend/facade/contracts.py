@@ -1538,7 +1538,7 @@ class RunFailureLogs:
 class WorkflowJobAggregate:
     """Per-job aggregates for one workflow over a window, one row per de-sharded job name
     (matrix ``(G/N)`` suffix stripped; unexpanded ``${{ matrix.* }}`` templates collapsed).
-    ``failure_rate`` is over completed jobs; ``p50_seconds``/``p95_seconds`` are over
+    ``failure_rate`` is decisive failures over conclusive jobs; ``p50_seconds``/``p95_seconds`` are over
     successful jobs only (cancelled and failed instances end early and would bias a
     duration percentile low); cost is None when every instance ran on an unknown tier."""
 

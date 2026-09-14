@@ -34,7 +34,7 @@ _LIMIT = 200
 
 # A skipped job is stamped started_at = created_at, so it never queued. `conclusion` is Nullable and
 # NULL != 'skipped' is NULL, which quantileIf drops; the ifNull keeps still-running jobs in the sample.
-_EXECUTED_JOB_CONDITION = "ifNull(conclusion, '') != 'skipped'"
+_QUEUED_JOB_CONDITION = "ifNull(conclusion, '') != 'skipped'"
 
 # De-shard + de-template in SQL so grouping happens server-side over millions of job rows.
 # Mirrors jobGroups.stripShardSuffix / collapseTemplates on the frontend and
@@ -57,7 +57,7 @@ _AGGREGATE_SELECT = f"""
         count() AS job_count,
         uniq(name) AS shard_count,
         uniq(run_id) AS runs_in,
-        quantileIf(0.5)(queue_seconds, {_EXECUTED_JOB_CONDITION}) AS queue_p50_seconds,
+        quantileIf(0.5)(queue_seconds, {_QUEUED_JOB_CONDITION}) AS queue_p50_seconds,
         quantileIf(0.5)(duration_seconds, {DURATION_PERCENTILE_CONDITION}) AS p50_seconds,
         quantileIf(0.95)(duration_seconds, {DURATION_PERCENTILE_CONDITION}) AS p95_seconds,
         -- Jobs without a verdict (skipped, cancelled, neutral) stay in job_count but not in the rate.
