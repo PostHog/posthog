@@ -26,6 +26,8 @@ import {
     SidePanelTab,
 } from '~/types'
 
+import { REPORT_AI_PANEL } from 'products/signals/frontend/inbox/inboxTaskKickoffLogic'
+
 import type { ToolRegistration } from './max-constants'
 import { PENDING_AI_PROMPT_KEY } from './max-storage-keys'
 import { maxContextLogic } from './maxContextLogic'
@@ -111,6 +113,9 @@ export function parseCommandString(options: string): ParsedCommand {
 }
 
 function handleCommandString(options: string, actions: maxLogicType['actions'], effectivePhaiView: PhaiViewMode): void {
+    if (options === REPORT_AI_PANEL) {
+        return
+    }
     const parsed = parseCommandString(options)
 
     // Note: The mode parameter is handled directly by maxThreadLogic in its afterMount
