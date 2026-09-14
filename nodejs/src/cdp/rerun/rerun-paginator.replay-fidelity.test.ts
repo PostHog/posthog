@@ -76,10 +76,11 @@ describe('RerunPaginatorService replay fidelity (hog_flow)', () => {
         progress: { queued: 0, skipped: 0, done: false },
     }
 
-    it('restores currentAction and personId so a partially-run flow resumes instead of restarting', async () => {
+    it.each([undefined, 1] as const)('restores progress and customer task key version %j', async (version) => {
         const persistedState = {
             event: { uuid: 'evt-1', distinct_id: 'd-1', properties: {}, timestamp: '2026-06-01T09:00:00Z' },
             actionStepCount: 3,
+            customerTaskIdempotencyVersion: version,
             variables: { ticket_id: '123' },
             // The flow had already advanced to (and parked at) this action. The parked
             // hogFunctionState is stored as `stripInputs` wrote it: `globals.inputs` gone.
@@ -126,6 +127,7 @@ describe('RerunPaginatorService replay fidelity (hog_flow)', () => {
         expect(invocation.state?.currentAction).toEqual({ id: 'send_email', startedAtTimestamp: 999 })
         expect(invocation.state?.personId).toBe('person-1')
         expect(invocation.state?.actionStepCount).toBe(3)
+        expect(invocation.state?.customerTaskIdempotencyVersion).toBe(version)
         expect(invocation.state?.variables).toEqual({ ticket_id: '123' })
         // Sticky rerun counter still increments so max_attempts guards apply.
         expect(invocation.state?.rerunAttempts).toBe(1)
@@ -157,5 +159,6 @@ describe('RerunPaginatorService replay fidelity (hog_flow)', () => {
 
         const invocation = hogFlowQueue.queueInvocations.mock.calls[0][0][0] as CyclotronJobInvocationHogFlow
         expect(invocation.state?.currentAction).toBeUndefined()
+        expect(invocation.state?.customerTaskIdempotencyVersion).toBeUndefined()
     })
 })

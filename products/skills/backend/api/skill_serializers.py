@@ -1,3 +1,4 @@
+from dataclasses import asdict
 from typing import Any
 
 from django.db import transaction
@@ -26,6 +27,7 @@ from .skill_services import (
     SKILL_NAME_PATTERN,
     LLMSkillOwnerNotFoundError,
     check_allowed_tool_name,
+    compute_spec_problems,
     normalize_skill_file_path,
     resolve_owner_users,
     resolve_skill_owners,
@@ -271,6 +273,16 @@ class LLMSkillOutlineEntrySerializer(serializers.Serializer):
     text = serializers.CharField(help_text="Heading text.")
 
 
+class LLMSkillSpecProblemSerializer(serializers.Serializer):
+    code = serializers.CharField(
+        help_text="Stable machine-readable code for the problem, e.g. description_too_long or file_path_collides."
+    )
+    message = serializers.CharField(help_text="What is wrong and what to change, written for the skill's author.")
+    file_path = serializers.CharField(
+        allow_null=True, help_text="The bundled file the problem is about. Null when it is about the skill itself."
+    )
+
+
 class LLMSkillFileSerializer(serializers.ModelSerializer):
     class Meta:
         model = LLMSkillFile
@@ -403,7 +415,10 @@ class LLMSkillPublishSerializer(serializers.Serializer):
     allowed_tools = serializers.ListField(
         child=serializers.CharField(validators=[validate_allowed_tool]),
         required=False,
-        help_text="List of pre-approved tools the skill may use. Tool names cannot contain whitespace.",
+        help_text="Tools the skill asks to use. Tool names cannot contain whitespace. A harness that reads the "
+        "skill from a file (zip export, git marketplace, a content=full bundle) treats the list as pre-approved. "
+        "A harness that loads the skill over MCP, including the default content=stub bundle, ignores the list "
+        "until the user approves that grant.",
     )
     metadata = serializers.DictField(
         required=False,
@@ -498,7 +513,10 @@ class LLMSkillSerializer(serializers.ModelSerializer):
         child=serializers.CharField(validators=[validate_allowed_tool]),
         required=False,
         default=list,
-        help_text="List of pre-approved tools the skill may use. Tool names cannot contain whitespace.",
+        help_text="Tools the skill asks to use. Tool names cannot contain whitespace. A harness that reads the "
+        "skill from a file (zip export, git marketplace, a content=full bundle) treats the list as pre-approved. "
+        "A harness that loads the skill over MCP, including the default content=stub bundle, ignores the list "
+        "until the user approves that grant.",
     )
     metadata = serializers.DictField(
         required=False,
@@ -522,6 +540,10 @@ class LLMSkillSerializer(serializers.ModelSerializer):
     )
     outline = serializers.SerializerMethodField(
         help_text="Flat list of markdown headings parsed from the skill body. Useful as a lightweight table of contents.",
+    )
+    spec_problems = serializers.SerializerMethodField(
+        help_text="Why this skill is left out of the skills bundle and the plugin marketplace, as stable codes with "
+        "author-facing messages. Empty when the skill packages cleanly.",
     )
     body_total_length = serializers.SerializerMethodField(
         help_text="Total length of the full body in characters, independent of any body_offset/body_length paging. "
@@ -551,6 +573,7 @@ class LLMSkillSerializer(serializers.ModelSerializer):
             "owners",
             "files",
             "outline",
+            "spec_problems",
             "version",
             "version_description",
             "created_by",
@@ -567,6 +590,7 @@ class LLMSkillSerializer(serializers.ModelSerializer):
             "owners",
             "files",
             "outline",
+            "spec_problems",
             "body_total_length",
             "body_next_offset",
             "version",
@@ -650,6 +674,18 @@ class LLMSkillSerializer(serializers.ModelSerializer):
         return [
             dict(row) for row in annotated.values("path", "content_type", "line_count", "char_count", "size", "sha256")
         ]
+
+    @extend_schema_field(LLMSkillSpecProblemSerializer(many=True))
+    def get_spec_problems(self, instance: LLMSkill) -> list[dict[str, Any]]:
+        # Like owners: the list endpoint pre-resolves paths for the whole page (one query) and passes
+        # them via context to avoid N+1; a single-skill fetch reads them on demand. Paths only,
+        # because loading the relation would carry every bundled file's content the response drops.
+        paths_by_skill_id = self.context.get("file_paths_by_skill_id")
+        if paths_by_skill_id is not None:
+            paths = paths_by_skill_id.get(instance.id, [])
+        else:
+            paths = sorted(LLMSkillFile.objects.filter(skill=instance).values_list("path", flat=True))
+        return [asdict(problem) for problem in compute_spec_problems(instance.name, instance.description, paths)]
 
     @extend_schema_field(LLMSkillOutlineEntrySerializer(many=True))
     def get_outline(self, instance: LLMSkill) -> list[dict[str, Any]]:
