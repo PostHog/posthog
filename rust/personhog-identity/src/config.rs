@@ -203,6 +203,11 @@ impl IdentityTables {
         }
     }
 
+    /// Whether this is the validation set, for `mirrored_query!` and kin.
+    pub fn is_validation(&self) -> bool {
+        *self == Self::validation()
+    }
+
     /// Only the two complete namespaces are accepted: a partial override
     /// (one table flipped, the others left on defaults) would pair person
     /// ids from one sequence with rows keyed by another, which is exactly

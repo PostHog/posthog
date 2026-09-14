@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE lifecycle_op\n            SET parked_at = now(), parked_reason = $3, lease_expires_at = NULL\n            WHERE op_id = $1 AND completed_at IS NULL AND attempt = $2\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Int4",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "c06236beb4d3303a998ede6b8a950b2344d0ee3963d07816ba16f67090e90f65"
+}

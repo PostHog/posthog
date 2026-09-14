@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE lifecycle_op SET lease_expires_at = NULL WHERE op_id = $1 AND completed_at IS NULL AND attempt = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "e30146cb33d6e652c0341094a6665c064de4a7e59511684d322965a7b996aea0"
+}

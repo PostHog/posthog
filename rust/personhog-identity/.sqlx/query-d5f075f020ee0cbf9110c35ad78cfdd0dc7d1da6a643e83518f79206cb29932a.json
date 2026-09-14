@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT moved FROM lifecycle_op_person WHERE op_id = $1 AND role = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "moved",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "d5f075f020ee0cbf9110c35ad78cfdd0dc7d1da6a643e83518f79206cb29932a"
+}
