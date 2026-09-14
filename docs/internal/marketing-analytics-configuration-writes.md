@@ -40,4 +40,4 @@ With `new-marketing-analytics-dashboard` enabled, Ad performance reuses the exis
 
 The new dashboard opens on Acquisition. Its section tiles show one section at a time while preserving the shared date and comparison filters. Retention, Conversion, and Revenue tiles follow their existing feature flags.
 
-Acquisition and Engagement reuse the Web Analytics stats table with a shared traffic breakdown selector. Acquisition shows visitors and pageviews; Engagement shows visitors and bounce rate. Changing sections preserves the selected breakdown, date range, and comparison.
+Acquisition and Engagement reuse the Web Analytics stats table with a shared traffic breakdown selector. The Acquisition table shows visitors and pageviews; the Engagement table shows visitors and bounce rate. Summary cards remain visitors, sessions, and pageviews for Acquisition, and session duration and bounce rate for Engagement. Changing sections preserves the selected breakdown, date range, and comparison.
