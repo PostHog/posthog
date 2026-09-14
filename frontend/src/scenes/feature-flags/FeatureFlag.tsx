@@ -79,6 +79,7 @@ import {
     QueryBasedInsightModel,
 } from '~/types'
 
+import { FeatureFlagFormLoadError } from 'products/feature_flags/frontend/FeatureFlagFormLoadError'
 import { FeatureFlagStaleBanner } from 'products/feature_flags/frontend/FeatureFlagStaleBanner'
 import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
 
@@ -88,7 +89,6 @@ import { openFeatureFlagDeleteDialog } from './featureFlagDeleteDialog'
 import { FeatureFlagEvaluationContexts } from './FeatureFlagEvaluationContexts'
 import { ExperimentsTab } from './FeatureFlagExperimentsTab'
 import { FeedbackTab } from './FeatureFlagFeedbackTab'
-import { FeatureFlagFormLoadError } from './FeatureFlagFormLoadError'
 import { FeatureFlagLogicProps, featureFlagLogic } from './featureFlagLogic'
 import { FeatureFlagOverview } from './FeatureFlagOverview'
 import FeatureFlagProjects from './FeatureFlagProjects'
