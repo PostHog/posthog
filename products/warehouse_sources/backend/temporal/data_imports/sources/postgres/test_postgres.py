@@ -732,6 +732,39 @@ class TestPostgresSourceNonRetryableErrors:
     @pytest.mark.parametrize(
         "error_msg",
         [
+            # Raw psycopg message (what the activity-level check sees via str(e)). libpq concatenates
+            # the SSL and no-encryption attempts into one message when sslmode=prefer retries after the
+            # SSL attempt is rejected; the host/user/database are volatile, the pg_hba.conf phrase is
+            # stable.
+            'connection failed: connection to server at "127.0.0.1", port 36079 failed: FATAL:  no '
+            'pg_hba.conf entry for host "172.31.4.66", user "postgres", database "peak_staging_db", '
+            'SSL encryption\nconnection to server at "127.0.0.1", port 36079 failed: FATAL:  no '
+            'pg_hba.conf entry for host "172.31.4.66", user "postgres", database "peak_staging_db", '
+            "no encryption",
+            # Temporal-wrapped message (what the workflow-level check sees) — carries the class name.
+            'OperationalError: connection failed: connection to server at "10.0.0.5", port 5432 failed: '
+            'FATAL:  no pg_hba.conf entry for host "10.0.0.5", user "postgres", database "app", no encryption',
+        ],
+    )
+    def test_no_pg_hba_conf_entry_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Missing pg_hba.conf entry error should be non-retryable: {error_msg}"
+
+    def test_no_pg_hba_conf_entry_returns_friendly_message(self, source):
+        non_retryable = source.get_non_retryable_errors()
+        error_msg = (
+            'connection failed: connection to server at "127.0.0.1", port 36079 failed: FATAL:  no '
+            'pg_hba.conf entry for host "172.31.4.66", user "postgres", database "peak_staging_db", '
+            "no encryption"
+        )
+        friendly = [reason for pattern, reason in non_retryable.items() if pattern in error_msg and reason]
+        assert friendly, "Missing pg_hba.conf entry error should surface an actionable message"
+        assert "pg_hba.conf" in friendly[0]
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
             # Neon suspends compute when the plan's compute-time quota is exhausted; the handshake
             # fails with this provider message. The host/IP and port are volatile and excluded.
             'connection failed: connection to server at "44.198.216.75", port 5432 failed: ERROR:  Your account or project has exceeded the compute time quota. Upgrade your plan to increase limits.',
