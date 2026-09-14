@@ -3801,10 +3801,11 @@ WORKFLOW_PROPOSAL_EVIDENCE_SCHEMA = {
     "type": "object",
     "additionalProperties": True,
     "description": (
-        "The numbers behind the proposal, read back by name. Four keys are required: `metric`, the "
+        "The numbers behind the proposal, read back by name. Five keys are required: `metric`, the "
         "metric name; `current_value`, its value as a number (a rate as a fraction, 0.0865, never a "
-        "string); `n`, the denominator that value was computed over; and `guardrails`, a list of "
-        "{metric, value, n} counter-metrics read over the same window, empty only if none apply. "
+        "string); `unit`, either `rate` or `count`, since 1.0 is either every message or one of them; "
+        "`n`, the denominator that value was computed over; and `guardrails`, a list of "
+        "{metric, value, n, unit} counter-metrics read over the same window, empty only if none apply. "
         "Also conventional: target_value, window, query, app_source_id. A rate with no denominator "
         "lets a reviewer mistake noise for a result, a target with no counter-metrics hides a change "
         "that lifts one number by harming another, and a number under a key of your own reads to a "
@@ -3927,6 +3928,11 @@ class WorkflowProposalCreateSerializer(serializers.Serializer):
                 "Include `current_value`, the metric's current value as a number. Send a rate as a "
                 "fraction (0.0865), not as a string ('8.65%')."
             )
+        if value.get("unit") not in EVIDENCE_UNITS:
+            raise exceptions.ValidationError(
+                f"Include `unit`, one of: {', '.join(EVIDENCE_UNITS)}. Without it the panel cannot tell "
+                "a rate of 1.0 from a count of 1, and would show the count as 100%."
+            )
         if not isinstance(value.get("n"), int):
             raise exceptions.ValidationError(
                 "Include `n`, the number of observations behind current_value. A rate without its "
@@ -3934,13 +3940,17 @@ class WorkflowProposalCreateSerializer(serializers.Serializer):
             )
         if not isinstance(value.get("guardrails"), list):
             raise exceptions.ValidationError(
-                "Include `guardrails`: a list of {metric, value, n} counter-metrics read over the same "
-                "window, so a change that lifts the target by harming something else is visible. Send "
-                "an empty list only if none apply."
+                "Include `guardrails`: a list of {metric, value, n, unit} counter-metrics read over the "
+                "same window, so a change that lifts the target by harming something else is visible. "
+                "Send an empty list only if none apply."
             )
         for guardrail in value.get("guardrails") or []:
             if not isinstance(guardrail, dict) or "metric" not in guardrail:
                 raise exceptions.ValidationError("Each guardrail needs at least a `metric` name.")
+            if guardrail.get("unit") not in EVIDENCE_UNITS:
+                raise exceptions.ValidationError(
+                    f"Guardrail `{guardrail['metric']}` needs a `unit`, one of: {', '.join(EVIDENCE_UNITS)}."
+                )
         return value
 
     def validate_content(self, value: Any) -> dict:
@@ -4079,6 +4089,10 @@ PROPOSAL_WHOLE_LIST_FIELDS = ("edges", "variables")
 
 # Content fields a proposal merges into rather than replaces, keyed by the item's stable id.
 PROPOSAL_MERGE_BY_ID_FIELDS = ("actions",)
+
+# A number a producer sends means nothing on its own: 1.0 is either every message or one of them.
+# The producer says which, because it is the only party that knows.
+EVIDENCE_UNITS = ("rate", "count")
 
 
 def merge_proposal_content(live_content: dict, proposal_content: dict) -> dict:
