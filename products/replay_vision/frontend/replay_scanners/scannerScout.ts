@@ -247,7 +247,7 @@ const TREND_LENSES: Record<ScannerTypeEnumApi, TrendLens> = {
  * name is the person's own, the default is where the scanner belongs. Editable like any other. */
 function scoutDefaultName(scannerName: string, phrase: string): string {
     const scanner = scannerName.trim()
-    return scanner ? `${scanner} ${phrase}` : capitalizeFirstLetter(phrase)
+    return scanner && /[\p{L}\p{N}]/u.test(scanner) ? `${scanner} ${phrase}` : capitalizeFirstLetter(phrase)
 }
 
 export function scannerScoutTemplates(

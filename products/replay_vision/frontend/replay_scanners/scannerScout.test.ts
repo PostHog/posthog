@@ -58,6 +58,11 @@ describe('scannerScout', () => {
         ])
         // A scanner can be unnamed, and " daily digest" is not a name.
         expect(scannerScoutTemplates(scannerId, 'monitor', '')[0].defaultName).toBe('Daily digest')
+        // A name with no letters or numbers is noise next to the phrase; a non-Latin one is still a
+        // name, which is why the check is unicode-aware rather than a word-character test.
+        expect(scannerScoutTemplates(scannerId, 'monitor', '!!!')[0].defaultName).toBe('Daily digest')
+        expect(scannerScoutTemplates(scannerId, 'monitor', '!!! 42')[0].defaultName).toBe('!!! 42 daily digest')
+        expect(scannerScoutTemplates(scannerId, 'monitor', '日本語')[0].defaultName).toBe('日本語 daily digest')
     })
 
     it('claims only the scouts recorded as belonging to this scanner', () => {

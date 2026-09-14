@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { LemonButton, LemonInput, LemonModal, LemonSelect, LemonSkeleton, Link } from '@posthog/lemon-ui'
 
@@ -147,6 +147,20 @@ export function ScannerScoutFormModal({
         }
     }, [template, seeded, loadedForThisScout, skillPrompt, scoutDelivery])
 
+    // The scanner's name can arrive after the modal opens (the scanner and the scouts list load in
+    // parallel), and the default name leads with it. Until it answers, the scanner logic holds a
+    // team-named placeholder, so a name seeded before it reads wrong. Follow a changed default
+    // until the person edits the name.
+    const nameTouchedRef = useRef(false)
+    useEffect(() => {
+        if (!template || nameTouchedRef.current) {
+            return
+        }
+        setForm((current) =>
+            current.name === template.defaultName ? current : { ...current, name: template.defaultName }
+        )
+    }, [template])
+
     if (!template && !config) {
         return null
     }
@@ -226,7 +240,10 @@ export function ScannerScoutFormModal({
                     <span className="text-xs text-default">Name</span>
                     <LemonInput
                         value={form.name}
-                        onChange={(name) => patch({ name })}
+                        onChange={(name) => {
+                            nameTouchedRef.current = true
+                            patch({ name })
+                        }}
                         placeholder={template?.defaultName}
                         maxLength={SCOUT_DISPLAY_NAME_MAX_LENGTH}
                         data-attr="vision-scout-form-name"
