@@ -73,6 +73,35 @@ export function pickBestPersonDistinctId(distinctIds: string[] | null | undefine
 }
 
 /**
+ * Group the distinct IDs that are the same except for letter case.
+ *
+ * Flag rollout hashing uses the distinct ID exactly as written, so `Kate@example.com` and
+ * `kate@example.com` can fall on different sides of the same percentage rollout. Screens that
+ * evaluate one distinct ID use this to point at the IDs that can give a different answer.
+ *
+ * The result maps each such distinct ID to its siblings. IDs without a sibling are absent.
+ */
+export function findCaseVariantDistinctIds(distinctIds: string[] | null | undefined): Map<string, string[]> {
+    const groups = new Map<string, string[]>()
+    for (const distinctId of distinctIds ?? []) {
+        const group = groups.get(distinctId.toLowerCase()) ?? []
+        group.push(distinctId)
+        groups.set(distinctId.toLowerCase(), group)
+    }
+
+    const siblingsById = new Map<string, string[]>()
+    for (const group of groups.values()) {
+        for (const distinctId of group) {
+            const siblings = group.filter((other) => other !== distinctId)
+            if (siblings.length) {
+                siblingsById.set(distinctId, siblings)
+            }
+        }
+    }
+    return siblingsById
+}
+
+/**
  * Returns a human-friendly display name for a Person object.
  *
  * Resolution order:

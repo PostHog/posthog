@@ -7,6 +7,7 @@ import {
     asDisplay,
     asLink,
     coercePropertyValue,
+    findCaseVariantDistinctIds,
     getPersonColorIndex,
     parsePersonFromHogQLRow,
     pickBestPersonDistinctId,
@@ -293,6 +294,42 @@ describe('scoreDistinctId', () => {
         },
     ])('$label: $id → $expected', ({ id, expected }) => {
         expect(scoreDistinctId(id)).toBe(expected)
+    })
+})
+
+describe('findCaseVariantDistinctIds', () => {
+    it.each([
+        { distinctIds: undefined, expected: [], label: 'undefined has no case variants' },
+        { distinctIds: ['solo@example.com'], expected: [], label: 'a single ID has no case variants' },
+        {
+            distinctIds: ['kate@example.com', 'other@example.com'],
+            expected: [],
+            label: 'IDs that differ by more than case are not variants',
+        },
+        {
+            distinctIds: ['kate@example.com', 'kate@example.com'],
+            expected: [],
+            label: 'an exactly repeated ID is not its own variant',
+        },
+        {
+            distinctIds: ['Kate@example.com', 'kate@example.com'],
+            expected: [
+                ['Kate@example.com', ['kate@example.com']],
+                ['kate@example.com', ['Kate@example.com']],
+            ],
+            label: 'IDs that differ only by case point at each other',
+        },
+        {
+            distinctIds: ['KATE@example.com', 'Kate@example.com', 'kate@example.com'],
+            expected: [
+                ['KATE@example.com', ['Kate@example.com', 'kate@example.com']],
+                ['Kate@example.com', ['KATE@example.com', 'kate@example.com']],
+                ['kate@example.com', ['KATE@example.com', 'Kate@example.com']],
+            ],
+            label: 'a group of three lists the other two for each ID',
+        },
+    ])('$label', ({ distinctIds, expected }) => {
+        expect([...findCaseVariantDistinctIds(distinctIds).entries()]).toEqual(expected)
     })
 })
 
