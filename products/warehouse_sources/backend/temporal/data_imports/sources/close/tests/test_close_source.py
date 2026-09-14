@@ -69,6 +69,14 @@ class TestCloseSource:
         assert is_valid is False
         assert error_message == "Close API key is required"
 
+    def test_field_list_too_long_is_non_retryable(self) -> None:
+        # Close rejects an over-long `_fields` list with this message. It can never succeed on
+        # retry, so it must be classified non-retryable rather than looping in Temporal.
+        error_msg = 'Close rejected the search query: {"field-errors": {"_fields": "List is too long."}}'
+        matched = [msg for pattern, msg in self.source.get_non_retryable_errors().items() if pattern in error_msg]
+        assert len(matched) == 1
+        assert matched[0] is not None
+
     def test_retryable_errors_match_exhausted_connection_retries(self) -> None:
         error_msg = (
             "HTTPSConnectionPool(host='api.close.com', port=443): Max retries exceeded with "

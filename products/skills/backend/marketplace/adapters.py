@@ -424,7 +424,7 @@ def _name_and_description_are_valid(name: str, description: str) -> bool:
 _GENERATED_ENTRIES = ("SKILL.md", CODEX_METADATA_PATH)
 
 
-def _bundle_paths_are_safe(paths: list[str]) -> bool:
+def bundle_paths_are_safe(paths: list[str]) -> bool:
     """True when a skill's archive entries unpack cleanly into a home directory on any filesystem.
 
     Every stored path must already be canonical (a legacy ``refs\\guide.md`` would be archived
@@ -485,7 +485,7 @@ def _walk_full(candidates: QuerySet[LLMSkill], limit: int) -> _BundleWalk:
             .annotate(content_bytes=_octet_length(F("content")))
             .values_list("path", "content_bytes")
         )
-        if not _bundle_paths_are_safe([path for path, _ in sized_files]):
+        if not bundle_paths_are_safe([path for path, _ in sized_files]):
             skipped_count = _record_skip(skipped_count, skipped_sample, name)
             continue
         # The stored bytes are a floor for the rendered tree, so a skill that fails here would fail

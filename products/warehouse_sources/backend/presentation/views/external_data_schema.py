@@ -138,6 +138,15 @@ def _cdc_table_mode_change_needs_resnapshot(old_mode: str | None, new_mode: str 
     return bool(new_targets - old_targets)
 
 
+def _concrete_field_names(validated_data: dict[str, Any]) -> list[str]:
+    """The schema columns this payload writes, for a save() that leaves every other column alone.
+
+    updated_at is auto_now, and Django only refreshes an auto_now field named in update_fields.
+    """
+    columns = {field.name for field in ExternalDataSchema._meta.concrete_fields}
+    return [*(key for key in validated_data if key in columns), "updated_at"]
+
+
 def _reset_cdc_for_full_resnapshot(instance: ExternalDataSchema) -> None:
     """Cancel any running workflow and reset schema state so the next run does a full snapshot.
 
@@ -670,13 +679,15 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         validated_data: dict[str, Any],
         original_sync_type_config: dict[str, Any],
     ) -> ExternalDataSchema:
-        """Persist the update, replaying only the sync_type_config keys this request changed onto a
-        freshly-locked copy of the row.
+        """Persist the update onto a freshly-locked row, writing only the fields this request changed.
 
-        super().update() does a full-instance save that rewrites sync_type_config wholesale from the
-        copy loaded at the start of the request, so without this it would revert any key a concurrent
-        CDC extract activity (cdc_last_log_position, cdc_deferred_runs, cdc_mode) committed in between.
-        The lock is held across the save so nothing interleaves.
+        super().update() does a full-instance save: every column goes back to the value it held in the
+        copy loaded at the start of the request. A PATCH that carries one field therefore reverts every
+        field anything else wrote in between — a concurrent CDC extract activity's sync_type_config keys
+        (cdc_last_log_position, cdc_deferred_runs, cdc_mode), or the table_id, status, last_synced_at
+        and initial_sync_complete that `delete_table()` clears. sync_type_config additionally merges,
+        because two writers own different keys of the same column. The lock is held across the save so
+        nothing interleaves.
         """
         intended = instance.sync_type_config or {}
         changed = {
@@ -691,9 +702,14 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             merged.update(changed)
             for key in removed:
                 merged.pop(key, None)
-            instance.sync_type_config = merged
             validated_data["sync_type_config"] = merged
-            return super().update(instance, validated_data)
+            # Apply to the locked row rather than the request's copy. The copy still holds whatever
+            # the other writer replaced, and activity logging diffs the stored row against the
+            # instance it saves, so saving the copy logs a reversal that never reached the database.
+            for attr, value in validated_data.items():
+                setattr(locked, attr, value)
+            locked.save(update_fields=_concrete_field_names(validated_data))
+            return locked
 
     def update(self, instance: ExternalDataSchema, validated_data: dict[str, Any]) -> ExternalDataSchema:
         data = self.initial_data if isinstance(self.initial_data, dict) else {}
@@ -1086,7 +1102,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             sync_type is None and instance.sync_type == ExternalDataSchema.SyncType.CDC
         )
         if is_cdc and source_type_supports_cdc(source.source_type):
-            self._handle_cdc_publication_change(instance, source, should_sync, sync_type)
+            self._handle_cdc_publication_change(instance, source, should_sync, sync_type, validated_data)
 
         if trigger_refresh:
             instance.sync_type_config.update({"reset_pipeline": True})
@@ -1359,6 +1375,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         source: ExternalDataSource,
         should_sync: bool | None,
         sync_type: str | None,
+        validated_data: dict[str, Any],
     ) -> None:
         """Add/remove the table from the CDC capture set when a schema is toggled or set to CDC."""
         adapter = get_cdc_adapter(source)
@@ -1388,10 +1405,12 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             if should_sync is True and not newly_set_to_cdc:
                 # Mutate in memory only — the locked terminal save in `update()` (which calls this)
                 # persists both fields, merging cdc_mode onto the freshly-read config so a concurrent
-                # CDC extract activity's writes survive. A separate save here would clobber them.
+                # CDC extract activity's writes survive. A separate save here would clobber them. It
+                # writes only the columns validated_data names, hence the flag going in there too.
                 instance.sync_type_config["cdc_mode"] = "snapshot"
                 instance.sync_type_config["reset_pipeline"] = True
                 instance.initial_sync_complete = False
+                validated_data["initial_sync_complete"] = False
 
         # Remove table from capture set when toggling sync off
         elif should_sync is False and instance.should_sync:

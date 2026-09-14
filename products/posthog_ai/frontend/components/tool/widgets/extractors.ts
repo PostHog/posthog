@@ -94,9 +94,16 @@ export interface QueryResultExtraction {
  * renderer (e.g. a single LLM trace) return null and fall back to the generic card.
  */
 export function extractQueryResult(message: ToolCallMessage): QueryResultExtraction | null {
+    if (message.status !== 'completed') {
+        return null
+    }
+
     const output = getToolOutputRecord(message)
     const query = asRecord(output?.query)
     if (!query || typeof query.kind !== 'string') {
+        return null
+    }
+    if (isHogQLQuery(query) && !asString(query.query)?.trim()) {
         return null
     }
 

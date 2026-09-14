@@ -6,6 +6,10 @@ from django.db import IntegrityError, transaction
 
 from parameterized import parameterized
 
+from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.scoping import team_scope
+
+from products.data_catalog.backend.facade.api import upsert_metric
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.data_quality.backend.facade.enums import (
     CheckRunStatus,
@@ -46,26 +50,77 @@ class TestDataQualityModels(BaseTest):
         )
         assert table_subject.pk is not None
 
-    def test_a_deleted_check_frees_its_definition_for_a_new_one(self) -> None:
+    @parameterized.expand(
+        [(SubjectType.VIEW, "saved_query_id"), (SubjectType.TABLE, "table_id"), (SubjectType.METRIC, "metric_id")]
+    )
+    def test_a_deleted_check_frees_its_definition_for_a_new_one(self, subject_type: SubjectType, fk_name: str) -> None:
         # Authoring a definition that was deleted earlier is a new check with its own id and
         # history, not a resurrection of the row the user believes is gone.
-        deleted = self._create_check(deleted=True)
+        subject = {"subject_type": subject_type, "saved_query_id": None, fk_name: uuid4()}
+        deleted = self._create_check(deleted=True, **subject)
 
-        replacement = self._create_check()
+        replacement = self._create_check(**subject)
 
         assert replacement.pk != deleted.pk
 
-    def test_orphaned_checks_escape_fingerprint_uniqueness(self) -> None:
+    @parameterized.expand([(SubjectType.VIEW,), (SubjectType.TABLE,), (SubjectType.METRIC,)])
+    def test_orphaned_checks_escape_fingerprint_uniqueness(self, subject_type: SubjectType) -> None:
         # SET_NULL orphaning must never be blocked by the constraint, even for twin fingerprints.
-        self._create_check(saved_query_id=None)
-        second = self._create_check(saved_query_id=None)
+        self._create_check(saved_query_id=None, subject_type=subject_type)
+        second = self._create_check(saved_query_id=None, subject_type=subject_type)
         assert second.pk is not None
 
     def test_subject_binding_rejects_contradictory_rows(self) -> None:
+        assert DataQualityCheck._meta.get_field("metric").deconstruct()[3]["db_index"] is False
         with self.assertRaises(IntegrityError), transaction.atomic():
             self._create_check(table_id=uuid4())
         with self.assertRaises(IntegrityError), transaction.atomic():
             self._create_check(subject_type=SubjectType.TABLE)
+        metric = upsert_metric(
+            team=self.team,
+            user=self.user,
+            name="revenue",
+            description="Revenue",
+            definition={"kind": "HogQLQuery", "query": "SELECT 1"},
+        )
+        for binding in [
+            {"metric_id": metric.id},
+            {"metric_id": metric.id, "saved_query_id": None},
+            {"subject_type": "metric"},
+            {"subject_type": "metric", "saved_query_id": None, "table_id": uuid4()},
+            {"subject_type": "metric", "saved_query_id": None, "table_id": uuid4(), "metric_id": metric.id},
+        ]:
+            with self.subTest(binding=binding), self.assertRaises(IntegrityError), transaction.atomic():
+                self._create_check(**binding)
+        check = self._create_check(subject_type="metric", saved_query_id=None, metric_id=metric.id)
+        assert check.subject_uuid == metric.id
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            self._create_check(subject_type="metric", saved_query_id=None, metric_id=metric.id)
+
+    def test_moving_a_check_to_another_metric_keeps_its_audit_entry(self) -> None:
+        # A subject FK enters the diff as a Metric instance, which the activity encoder cannot
+        # serialize, and one unserializable change drops the whole entry -- including the fields a
+        # person did edit in the same save.
+        first, second = (
+            upsert_metric(
+                team=self.team,
+                user=self.user,
+                name=name,
+                description="Revenue",
+                definition={"kind": "HogQLQuery", "query": "SELECT 1"},
+            )
+            for name in ("revenue", "refunds")
+        )
+        check = self._create_check(subject_type=SubjectType.METRIC, saved_query_id=None, metric_id=first.id)
+        check.metric_id = second.id
+        check.description = "Revenue must be non-empty"
+
+        with team_scope(self.team.id):
+            check.save()
+
+        entry = ActivityLog.objects.get(scope="DataQualityCheck", item_id=str(check.id), activity="updated")
+        assert entry.detail is not None
+        assert [change["field"] for change in entry.detail["changes"]] == ["description"]
 
     def test_blank_names_coexist_but_set_names_are_unique(self) -> None:
         self._create_check()
@@ -105,6 +160,7 @@ class TestDataQualityModels(BaseTest):
         model.objects.filter(id=subject_id).delete()
 
     def test_run_history_survives_deleting_the_definition(self) -> None:
+        assert "subject_version" not in {field.name for field in DataQualityCheckRun._meta.fields}
         check = self._create_check()
         suite_run = DataQualitySuiteRun.objects.for_team(self.team.id).create(
             team=self.team, trigger=SuiteRunTrigger.MANUAL
