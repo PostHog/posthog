@@ -626,13 +626,8 @@ class TestFileDownloadHogQL:
 
     @pytest.fixture
     async def hogql_export_test_events(self, clickhouse_client, team):
-        """Insert events for this and another team directly into the events table.
-
-        A hogql export reads the main (sharded) events table with no interval filter, so
-        the test controls exactly which rows exist there: no duplicates, plus another
-        team's rows to verify only this team's data is exported.
-        """
-        timestamp = dt.datetime.now(dt.UTC) - dt.timedelta(hours=1)
+        interval_start = dt.datetime.now(dt.UTC) - dt.timedelta(hours=2)
+        timestamp = interval_start + dt.timedelta(minutes=30)
         events = generate_test_events(
             count=10,
             team_id=team.pk,
@@ -640,6 +635,9 @@ class TestFileDownloadHogQL:
             event_name="test-{i}",
             properties={"$browser": "Chrome"},
         )
+        events[0]["timestamp"] = (interval_start - dt.timedelta(seconds=1)).strftime("%Y-%m-%d %H:%M:%S.%f")
+        events[1]["timestamp"] = interval_start.strftime("%Y-%m-%d %H:%M:%S.%f")
+        events[-1]["timestamp"] = (interval_start + dt.timedelta(hours=1)).strftime("%Y-%m-%d %H:%M:%S.%f")
         events_from_other_team = generate_test_events(
             count=3,
             team_id=team.pk + random.randint(1, 1000),
@@ -703,9 +701,17 @@ class TestFileDownloadHogQL:
                 id="unknown-table",
             ),
             pytest.param(
-                {"data_interval_start": "2026-01-01T00:00:00+00:00", "data_interval_end": "2026-01-02T00:00:00+00:00"},
-                "not supported when 'model' is 'hogql'",
-                id="intervals-with-hogql",
+                {"hogql_query": "SELECT event FROM events WHERE timestamp < {data_interval_end}"},
+                "'data_interval_start' and 'data_interval_end' are required",
+                id="missing-placeholder-bounds",
+            ),
+            pytest.param(
+                {
+                    "hogql_query": "SELECT event FROM events WHERE timestamp >= {data_interval_start}",
+                    "data_interval_start": "2026-01-01T00:00:00+00:00",
+                },
+                "'data_interval_start' and 'data_interval_end' are required",
+                id="incomplete-placeholder-bounds",
             ),
             pytest.param(
                 {"include": ["my-event"]},
@@ -766,17 +772,26 @@ class TestFileDownloadHogQL:
         )
         assert await sync_to_async(lambda: BatchExportSource.objects.for_team(team.pk).count())() == 0
 
+    @pytest.mark.parametrize(
+        "with_placeholders,with_bounds",
+        [(False, False), (False, True), (True, True)],
+        ids=["unbounded", "bounds-without-placeholders", "bounded"],
+    )
     @pytest.mark.usefixtures("enable_hogql_flag")
     @pytest.mark.django_db(transaction=True)
-    async def test_create(self, async_client: AsyncClient, team, user, mock_start_file_download_export):
-        """A hogql create request stores the query on a source and threads it to the workflow.
-
-        The query runs over all data at the time the export starts, so the run stores a
-        concrete now/now interval: any interval placeholders in the query select the same
-        rows an unbounded query would, and everything downstream formats concrete bounds.
-        """
+    @time_machine.travel("2026-01-08T00:00:00Z", tick=False)
+    async def test_create(
+        self, async_client: AsyncClient, team, user, mock_start_file_download_export, with_placeholders, with_bounds
+    ):
         await async_client.aforce_login(user)
         hogql_query = "SELECT event AS event, distinct_id AS distinct_id FROM events"
+        if with_placeholders:
+            hogql_query += " WHERE timestamp >= {data_interval_start} AND timestamp < {data_interval_end}"
+        bounds = (
+            {"data_interval_start": "2026-01-01T00:00:00+00:00", "data_interval_end": "2026-01-08T00:00:00+00:00"}
+            if with_bounds
+            else {}
+        )
 
         before = dt.datetime.now(dt.UTC)
         response = await async_client.post(
@@ -785,6 +800,7 @@ class TestFileDownloadHogQL:
                 "file": {"format": "Parquet"},
                 "model": "hogql",
                 "hogql_query": hogql_query,
+                **bounds,
             },
             content_type="application/json",
         )
@@ -797,8 +813,12 @@ class TestFileDownloadHogQL:
                 "batch_export_on_demand__source", "batch_export_on_demand__destination"
             ).aget(id=response.json()["id"])
 
-        assert run.data_interval_start == run.data_interval_end
-        assert before <= run.data_interval_end <= after
+        if with_bounds:
+            assert run.data_interval_start == dt.datetime.fromisoformat(bounds["data_interval_start"])
+            assert run.data_interval_end == dt.datetime.fromisoformat(bounds["data_interval_end"])
+        else:
+            assert run.data_interval_start == run.data_interval_end
+            assert before <= run.data_interval_end <= after
         on_demand = run.batch_export_on_demand
         assert on_demand is not None
         assert on_demand.model == "hogql"
@@ -812,17 +832,36 @@ class TestFileDownloadHogQL:
         assert batch_export_model.name == "hogql"
         assert batch_export_model.hogql_query == hogql_query
         assert mock_start_file_download_export.call_args.kwargs["max_size_mb"] == DEFAULT_MAX_SIZE_MB
+        assert mock_start_file_download_export.call_args.kwargs["data_interval_start"] == run.data_interval_start
+        assert mock_start_file_download_export.call_args.kwargs["data_interval_end"] == run.data_interval_end
 
+    @pytest.mark.parametrize("with_bounds", [False, True], ids=["unbounded", "bounded"])
     @pytest.mark.usefixtures("override_file_download_settings", "enable_hogql_flag")
     @pytest.mark.django_db(transaction=True)
-    async def test_end_to_end(self, async_client: AsyncClient, temporal_client, team, user, hogql_export_test_events):
-        """A hogql export produces a downloadable file whose contents match the query results."""
+    async def test_end_to_end(
+        self, async_client: AsyncClient, temporal_client, team, user, hogql_export_test_events, with_bounds
+    ):
         await async_client.aforce_login(user)
 
         hogql_query = """
         SELECT event AS event, distinct_id AS distinct_id, properties.$browser AS browser
         FROM events
         """
+        bounds = {}
+        if with_bounds:
+            hogql_query += " WHERE timestamp >= {data_interval_start} AND timestamp < {data_interval_end}"
+            bounds = {
+                "data_interval_start": hogql_export_test_events[1]["timestamp"] + "+00:00",
+                "data_interval_end": hogql_export_test_events[-1]["timestamp"] + "+00:00",
+            }
+        expected_events = hogql_export_test_events[1:-1] if with_bounds else hogql_export_test_events
+        count_response = await async_client.post(
+            f"/api/projects/{team.pk}/file_download_batch_exports/count_rows",
+            {"model": "hogql", "hogql_query": hogql_query, **bounds},
+            content_type="application/json",
+        )
+        assert count_response.status_code == status.HTTP_200_OK, count_response.json()
+        assert count_response.json() == {"count": len(expected_events)}
 
         async with Worker(
             temporal_client,
@@ -837,6 +876,7 @@ class TestFileDownloadHogQL:
                     "file": {"format": "Parquet", "compression": "zstd"},
                     "model": "hogql",
                     "hogql_query": hogql_query,
+                    **bounds,
                 },
                 content_type="application/json",
             )
@@ -881,48 +921,71 @@ class TestFileDownloadHogQL:
 
         assert set(table.column_names) == {"event", "distinct_id", "browser"}
         exported_rows = sorted((row["event"], row["distinct_id"], row["browser"]) for row in table.to_pylist())
-        expected_rows = sorted((e["event"], e["distinct_id"], "Chrome") for e in hogql_export_test_events)
+        expected_rows = sorted((e["event"], e["distinct_id"], "Chrome") for e in expected_events)
         assert exported_rows == expected_rows
+        assert len(exported_rows) == count_response.json()["count"]
 
     @pytest.mark.parametrize(
-        "hogql_query,expected_count",
+        "hogql_query,expected_count,with_bounds",
         [
             pytest.param(
                 "SELECT event AS event, distinct_id AS distinct_id FROM events",
                 10,
+                False,
                 id="plain-select-scoped-to-team",
             ),
             pytest.param(
                 "SELECT count() AS event_count FROM events",
                 1,
+                False,
                 id="aggregate-counts-result-rows-not-scanned-rows",
             ),
             pytest.param(
                 "SELECT event AS event FROM events UNION ALL SELECT event AS event FROM events",
                 20,
+                False,
                 id="union-all",
             ),
             pytest.param(
                 "SELECT event AS event FROM events LIMIT 4",
                 4,
+                False,
                 id="user-limit-caps-the-count",
             ),
             pytest.param(
                 "SELECT event AS event, distinct_id AS distinct_id FROM events "
                 "WHERE timestamp >= {data_interval_start} AND timestamp < {data_interval_end}",
-                10,
-                id="interval-placeholders-cover-everything-up-to-now",
+                8,
+                True,
+                id="explicit-interval-excludes-outside-rows",
+            ),
+            pytest.param(
+                "SELECT event FROM events "
+                "WHERE timestamp >= {data_interval_start} AND timestamp < {data_interval_end} LIMIT 4",
+                4,
+                True,
+                id="bounded-query-limit-caps-the-count",
             ),
         ],
     )
     @pytest.mark.usefixtures("enable_hogql_flag", "hogql_export_test_events")
     @pytest.mark.django_db(transaction=True)
-    async def test_count_rows(self, async_client: AsyncClient, team, user, hogql_query, expected_count):
+    async def test_count_rows(
+        self, async_client: AsyncClient, team, user, hogql_query, expected_count, with_bounds, hogql_export_test_events
+    ):
         await async_client.aforce_login(user)
+        bounds = (
+            {
+                "data_interval_start": hogql_export_test_events[1]["timestamp"] + "+00:00",
+                "data_interval_end": hogql_export_test_events[-1]["timestamp"] + "+00:00",
+            }
+            if with_bounds
+            else {}
+        )
 
         response = await async_client.post(
             f"/api/projects/{team.pk}/file_download_batch_exports/count_rows",
-            {"model": "hogql", "hogql_query": hogql_query},
+            {"model": "hogql", "hogql_query": hogql_query, **bounds},
             content_type="application/json",
         )
 
@@ -962,6 +1025,11 @@ class TestFileDownloadHogQL:
                 "no_such_table",
                 id="unknown-table",
             ),
+            pytest.param(
+                {"model": "hogql", "hogql_query": "SELECT event FROM events WHERE timestamp < {data_interval_end}"},
+                "'data_interval_start' and 'data_interval_end' are required",
+                id="missing-placeholder-bounds",
+            ),
         ],
     )
     @pytest.mark.usefixtures("enable_hogql_flag")
@@ -971,14 +1039,16 @@ class TestFileDownloadHogQL:
     ):
         await async_client.aforce_login(user)
 
-        response = await async_client.post(
-            f"/api/projects/{team.pk}/file_download_batch_exports/count_rows",
-            body,
-            content_type="application/json",
-        )
+        with unittest.mock.patch("products.batch_exports.backend.api.file_download.execute_hogql_query") as execute:
+            response = await async_client.post(
+                f"/api/projects/{team.pk}/file_download_batch_exports/count_rows",
+                body,
+                content_type="application/json",
+            )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert expected_error_fragment in response.content.decode()
+        execute.assert_not_called()
         assert await sync_to_async(lambda: BatchExportSource.objects.for_team(team.pk).count())() == 0
 
     @pytest.mark.django_db(transaction=True)

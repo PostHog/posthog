@@ -85,7 +85,7 @@ def find_interval_placeholders(parsed: ast.SelectQuery | ast.SelectSetQuery) -> 
 def replace_interval_placeholders(
     parsed: ast.SelectQuery | ast.SelectSetQuery,
     data_interval_start: dt.datetime | None,
-    data_interval_end: dt.datetime,
+    data_interval_end: dt.datetime | None,
 ) -> ast.SelectQuery | ast.SelectSetQuery:
     """Return a copy of the query with the interval placeholders replaced by their values.
 

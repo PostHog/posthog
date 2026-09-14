@@ -1785,8 +1785,12 @@ export const FileDownloadHogQLRequestApiModel = {
 export interface FileDownloadHogQLRequestApi {
     file: FileDownloadDestinationFileConfigApi
     model: FileDownloadHogQLRequestApiModel
-    /** HogQL SELECT query whose results are exported. This model is in closed beta and is enabled per team; when it is not enabled, the request fails with a permission error that names HogQL batch exports. Contact PostHog support to request access. The query may reference the {data_interval_start} and {data_interval_end} placeholders, replaced with the interval the run exports; without them it runs over all data at the time the export starts. Every column in the SELECT clause must be a field or have an alias. It is recommended to limit the query with a WHERE clause, for example bounding timestamp on the events table, both to avoid exporting more rows than expected and because user queries run under stricter resource limits than the other models. */
+    /** HogQL SELECT query whose results are exported. This model is in closed beta and is enabled per team; when it is not enabled, the request fails with a permission error that names HogQL batch exports. Contact PostHog support to request access. The query may reference the {data_interval_start} and {data_interval_end} placeholders. If either appears, provide both data_interval_start and data_interval_end; missing bounds are rejected, not inferred. Supplied bounds must span at most seven days and end no later than now. Without placeholders, the query runs unchanged, even if bounds are supplied. Every column in the SELECT clause must be a field or have an alias. It is recommended to limit the query with a WHERE clause, for example bounding timestamp on the events table, both to avoid exporting more rows than expected and because user queries run under stricter resource limits than the other models. */
     hogql_query: string
+    /** Start of the export interval. Provide both bounds when either is supplied or the HogQL query uses an interval placeholder. The interval must span at most seven days. */
+    data_interval_start?: string
+    /** End of the export interval. Must not precede the start or be in the future. Bounds replace HogQL placeholders; they do not add filters to the query. */
+    data_interval_end?: string
 }
 
 export type CreateFileDownloadRequestApi =
@@ -1886,11 +1890,11 @@ export interface FileDownloadBatchExportOnDemandApi {
     model: FileDownloadBatchExportOnDemandModelEnumApi
     include?: string[]
     exclude?: string[]
-    /** HogQL SELECT query whose results are exported. This model is in closed beta and is enabled per team; when it is not enabled, the request fails with a permission error that names HogQL batch exports. Contact PostHog support to request access. The query may reference the {data_interval_start} and {data_interval_end} placeholders, replaced with the interval the run exports; without them it runs over all data at the time the export starts. Every column in the SELECT clause must be a field or have an alias. It is recommended to limit the query with a WHERE clause, for example bounding timestamp on the events table, both to avoid exporting more rows than expected and because user queries run under stricter resource limits than the other models. */
+    /** HogQL SELECT query whose results are exported. This model is in closed beta and is enabled per team; when it is not enabled, the request fails with a permission error that names HogQL batch exports. Contact PostHog support to request access. The query may reference the {data_interval_start} and {data_interval_end} placeholders. If either appears, provide both data_interval_start and data_interval_end; missing bounds are rejected, not inferred. Supplied bounds must span at most seven days and end no later than now. Without placeholders, the query runs unchanged, even if bounds are supplied. Every column in the SELECT clause must be a field or have an alias. It is recommended to limit the query with a WHERE clause, for example bounding timestamp on the events table, both to avoid exporting more rows than expected and because user queries run under stricter resource limits than the other models. */
     hogql_query?: string
-    /** Start of the data interval to export */
+    /** Start of the export interval. Provide both bounds when either is supplied or the HogQL query uses an interval placeholder. The interval must span at most seven days. */
     data_interval_start?: string
-    /** End of the data interval to export */
+    /** End of the export interval. Must not precede the start or be in the future. Bounds replace HogQL placeholders; they do not add filters to the query. */
     data_interval_end?: string
 }
 
@@ -1912,8 +1916,12 @@ export interface FileDownloadCountRowsRequestApi {
      *
      * * `hogql` - hogql */
     model: FileDownloadHogQLModelEnumApi
-    /** HogQL SELECT query whose results are exported. This model is in closed beta and is enabled per team; when it is not enabled, the request fails with a permission error that names HogQL batch exports. Contact PostHog support to request access. The query may reference the {data_interval_start} and {data_interval_end} placeholders, replaced with the interval the run exports; without them it runs over all data at the time the export starts. Every column in the SELECT clause must be a field or have an alias. It is recommended to limit the query with a WHERE clause, for example bounding timestamp on the events table, both to avoid exporting more rows than expected and because user queries run under stricter resource limits than the other models. */
+    /** HogQL SELECT query whose results are exported. This model is in closed beta and is enabled per team; when it is not enabled, the request fails with a permission error that names HogQL batch exports. Contact PostHog support to request access. The query may reference the {data_interval_start} and {data_interval_end} placeholders. If either appears, provide both data_interval_start and data_interval_end; missing bounds are rejected, not inferred. Supplied bounds must span at most seven days and end no later than now. Without placeholders, the query runs unchanged, even if bounds are supplied. Every column in the SELECT clause must be a field or have an alias. It is recommended to limit the query with a WHERE clause, for example bounding timestamp on the events table, both to avoid exporting more rows than expected and because user queries run under stricter resource limits than the other models. */
     hogql_query: string
+    /** Start of the export interval. Provide both bounds when either is supplied or the HogQL query uses an interval placeholder. The interval must span at most seven days. */
+    data_interval_start?: string
+    /** End of the export interval. Must not precede the start or be in the future. Bounds replace HogQL placeholders; they do not add filters to the query. */
+    data_interval_end?: string
 }
 
 /**
@@ -1921,7 +1929,7 @@ export interface FileDownloadCountRowsRequestApi {
  */
 export interface FileDownloadCountRowsResponseApi {
     /**
-     * Number of rows the query returns now. A HogQL batch export runs its query as of the time the export starts, so a run started now would export this many rows.
+     * Number of rows the query returns with the supplied interval bounds. Data arriving between counting and exporting can change the result.
      * @minimum 0
      */
     count: number

@@ -374,13 +374,13 @@ class HogQLQueryRecordBatchModel(RecordBatchModel):
         self.wait_for_data_interval_end = bool(find_interval_placeholders(self.parsed_hogql_query))
 
     def get_hogql_query(
-        self, data_interval_start: dt.datetime | None, data_interval_end: dt.datetime
+        self, data_interval_start: dt.datetime | None, data_interval_end: dt.datetime | None
     ) -> ast.SelectQuery | ast.SelectSetQuery:
         """Return the query with any interval placeholders replaced by this run's bounds."""
         return replace_interval_placeholders(self.parsed_hogql_query, data_interval_start, data_interval_end)
 
     def get_count_hogql_query(
-        self, data_interval_start: dt.datetime | None, data_interval_end: dt.datetime
+        self, data_interval_start: dt.datetime | None, data_interval_end: dt.datetime | None
     ) -> ast.SelectQuery:
         """Return a HogQL query counting the rows this model would export."""
         return ast.SelectQuery(
