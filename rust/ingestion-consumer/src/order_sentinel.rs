@@ -431,6 +431,9 @@ impl ConsumerContext for SentinelContext {
                 // us after re-assignment) from the last commit — every per-key
                 // baseline is stale.
                 self.key_sentinel.clear();
+                // The hook must run after the ledger forget above: it stamps
+                // each revocation with the bumped generation so only older
+                // poll slices are stripped.
                 if let Some(hook) = self.revoke_hook.get() {
                     let partitions: Vec<(String, i32)> = tpl
                         .elements()
