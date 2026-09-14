@@ -1,0 +1,115 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+
+import { ApiClient } from '@/api/client'
+import { findRecoverableApiError, handleToolError, PostHogApiError } from '@/lib/errors'
+import { getResultsHandler } from '@/tools/experiments/getResults'
+import type { Context } from '@/tools/types'
+
+const captureException = vi.fn()
+vi.mock('@/lib/posthog', () => ({
+    getPostHogClient: () => ({ captureException }),
+}))
+vi.mock('@/lib/posthog/analytics', () => ({
+    AnalyticsEvent: { MCP_TOOL_CALL: '$mcp_tool_call' },
+}))
+vi.mock('@/lib/posthog/flags', () => ({
+    isFeatureFlagEnabled: vi.fn().mockResolvedValue(false),
+}))
+
+// An agent passing a guessed or stale experiment id gets a 404. The client rewrites it
+// into a message that names the recovery path, but that message must stay a typed 4xx:
+// a bare Error skipped the recoverable branch of handleToolError, so every such miss was
+// captured as an exception and counted as an internal failure with no message.
+describe('experiment not-found rewrite', () => {
+    beforeEach(() => {
+        vi.clearAllMocks()
+        vi.spyOn(console, 'error').mockImplementation(() => {})
+    })
+
+    afterEach(() => {
+        vi.restoreAllMocks()
+        vi.unstubAllGlobals()
+    })
+
+    const stubNotFound = (): void => {
+        vi.stubGlobal(
+            'fetch',
+            vi.fn().mockResolvedValue(new Response(JSON.stringify({ detail: 'Not found.' }), { status: 404 }))
+        )
+    }
+    const buildClient = (): ApiClient => new ApiClient({ apiToken: 'phx_test', baseUrl: 'https://us.posthog.com' })
+
+    it('returns a typed 404 that keeps the experiment-specific message', async () => {
+        stubNotFound()
+
+        const result = await buildClient().experiments({ projectId: '42' }).get({ experimentId: 999 })
+
+        expect(result.success).toBe(false)
+        if (result.success) {
+            return
+        }
+        expect(result.error).toBeInstanceOf(PostHogApiError)
+        expect((result.error as PostHogApiError).status).toBe(404)
+        expect(result.error.message).toContain('Experiment 999 not found in this project')
+        expect(result.error.message).toContain('experiment-list')
+    })
+
+    it('keeps the plain path for 404s on other endpoints', async () => {
+        stubNotFound()
+
+        const result = await buildClient()
+            .request({ method: 'GET', path: '/api/projects/42/feature_flags/999/' })
+            .then(
+                () => undefined,
+                (error: unknown) => error
+            )
+
+        expect(result).toBeInstanceOf(PostHogApiError)
+        expect((result as PostHogApiError).status).toBe(404)
+        expect((result as PostHogApiError).message).not.toContain('Experiment')
+    })
+
+    it('is handled as agent-recoverable: the message is returned verbatim and no exception is captured', async () => {
+        stubNotFound()
+
+        const result = await buildClient().experiments({ projectId: '42' }).get({ experimentId: 999 })
+        const handled = handleToolError(result.success ? undefined : result.error, 'experiment-get')
+
+        expect(handled.isError).toBe(true)
+        expect(handled.content[0]).toMatchObject({
+            type: 'text',
+            text: expect.stringContaining('Experiment 999 not found in this project'),
+        })
+        expect(captureException).not.toHaveBeenCalled()
+    })
+
+    it('stays reachable through the results tool, which wraps the failure with a cause', async () => {
+        const notFound = new PostHogApiError({
+            status: 404,
+            statusText: 'Not Found',
+            body: '{"detail":"Not found."}',
+            url: 'https://us.posthog.com/api/projects/42/experiments/999/',
+            method: 'GET',
+            message: 'Experiment 999 not found in this project.',
+        })
+        const context = {
+            api: {
+                experiments: () => ({
+                    getMetricResults: vi.fn().mockResolvedValue({ success: false, error: notFound }),
+                }),
+            },
+            stateManager: { getProjectId: vi.fn().mockResolvedValue('42') },
+        } as unknown as Context
+
+        const thrown = await getResultsHandler(context, { id: 999, refresh: false }).then(
+            () => undefined,
+            (error: unknown) => error
+        )
+
+        expect(thrown).toBeInstanceOf(Error)
+        expect((thrown as Error).message).toContain('Experiment 999 not found in this project')
+        expect(findRecoverableApiError(thrown)).toBe(notFound)
+        expect(handleToolError(thrown, 'experiment-results-get').isError).toBe(true)
+        expect(captureException).not.toHaveBeenCalled()
+    })
+})

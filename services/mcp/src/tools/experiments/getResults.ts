@@ -29,7 +29,13 @@ export const getResultsHandler: ToolBase<typeof schema, Result>['handler'] = asy
     })
 
     if (!result.success) {
-        throw new Error(`Failed to get experiment results: ${result.error.message}`)
+        // `cause` keeps the typed API error reachable, so a 404 on a guessed id still
+        // classifies as agent-recoverable instead of an internal failure.
+        const error: Error & { cause?: unknown } = new Error(
+            `Failed to get experiment results: ${result.error.message}`
+        )
+        error.cause = result.error
+        throw error
     }
 
     const {
