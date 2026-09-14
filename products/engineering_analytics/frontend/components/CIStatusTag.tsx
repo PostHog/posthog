@@ -22,7 +22,7 @@ export function CIStatusTag({ rollup }: { rollup: CIRollup }): JSX.Element {
     }
     return (
         <Tooltip
-            title={`${rollup.passing} passed, ${rollup.failing} failed, ${rollup.pending} still running, ${rollup.inconclusive} cancelled or skipped. Workflow-level status for the PR's latest commit, not per-check.`}
+            title={`${rollup.passing} passed, ${rollup.failing} failed, ${rollup.pending} still running, ${rollup.inconclusive} with no verdict. Workflow-level status for the PR's latest commit, not per-check.`}
         >
             <span className="flex items-center gap-1.5">
                 {rollup.passing > 0 && <Count count={rollup.passing} icon={<IconCheck />} className="text-success" />}
