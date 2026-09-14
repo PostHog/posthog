@@ -757,14 +757,14 @@ Diffed against: <https://developers.beehiiv.com/api-reference>
 
 ## Bettermode — **thin**
 
-Today (6): `members`, `moderation_items`, `posts`, `replies`, `spaces`, `tags`
+Today (11): `collections`, `members`, `moderation_items`, `post_types`, `posts`, `replies`, `roles`, `space_members`, `space_post_types`, `spaces`, `tags`
 
 Diffed against: <https://api.bettermode.com/ (live GraphQL introspection of queryType fields; 159 root queries)>
 
-- [ ] `spaceMembers` — join table linking members to spaces; without it space membership is unqueryable (high)
-- [ ] `postTypes / spacePostTypes` — lookup resolving the postTypeId carried on every post we already sync (high)
-- [ ] `collections` — lookup that groups the spaces we already sync (high)
-- [ ] `roles` — lookup resolving roleId on members and space members (high)
+- [x] `spaceMembers` — join table linking members to spaces; without it space membership is unqueryable (high), added here
+- [x] `postTypes / spacePostTypes` — lookup resolving the postTypeId carried on every post we already sync (high), both added here
+- [x] `collections` — lookup that groups the spaces we already sync (high), added here
+- [x] `roles` — lookup resolving roleId on members and space members (high), added here
 - [ ] `events` — community events are a first-class content object alongside posts (high)
 - [ ] `eventRegistrations / memberEventRegistrations` — attendance and RSVP records, the core event engagement metric (high)
 - [ ] `activityLogs` — network-wide activity event stream for behavioral analysis (high)
