@@ -748,16 +748,32 @@ def test_patch_returns_error_on_unsupported_hogql_query(
     assert response.status_code == status.HTTP_400_BAD_REQUEST
 
 
-@pytest.mark.usefixtures("hogql_batch_exports_enabled")
-def test_can_patch_hogql_model_batch_export(
-    client: HttpClient, temporal, encryption_codec, organization, team, user, hogql_batch_export_data
+@pytest.mark.parametrize("hogql_enabled", [True, False], ids=["enabled", "disabled"])
+def test_patch_hogql_model_batch_export(
+    client: HttpClient,
+    temporal,
+    encryption_codec,
+    organization,
+    team,
+    user,
+    hogql_batch_export_data,
+    hogql_batch_exports_enabled,
+    hogql_enabled: bool,
 ):
     client.force_login(user)
     batch_export = create_batch_export_ok(client, team.pk, hogql_batch_export_data)
     source_id = BatchExport.objects.get(id=batch_export["id"]).source_id
+    hogql_batch_exports_enabled.return_value = hogql_enabled
 
     # A change that does not touch the source keeps it as it is.
     response = patch_batch_export(client, team.pk, batch_export["id"], {"name": "renamed"})
+    if not hogql_enabled:
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+        unchanged = get_batch_export_ok(client, team.pk, batch_export["id"])
+        assert unchanged["name"] == batch_export["name"]
+        assert unchanged["hogql_query"] == hogql_batch_export_data["hogql_query"]
+        return
+
     assert response.status_code == status.HTTP_200_OK, response.json()
     renamed = get_batch_export_ok(client, team.pk, batch_export["id"])
     assert renamed["name"] == "renamed"

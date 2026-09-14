@@ -1748,12 +1748,12 @@ class BatchExportSerializer(serializers.ModelSerializer):
         if attrs.get("filters"):
             raise serializers.ValidationError({"filters": "'filters' are not supported when 'model' is 'hogql'"})
 
+        team = self.context["get_team"]()
+        check_hogql_batch_exports_enabled(team)
+
         source = self.instance.source if self.instance is not None else None
         if source is not None and "hogql_query" not in attrs:
             return
-
-        team = self.context["get_team"]()
-        check_hogql_batch_exports_enabled(team)
 
         hogql_query = attrs.get("hogql_query", source.hogql_query if source is not None else None)
         if not hogql_query:

@@ -14,6 +14,7 @@ from posthog.api.test.test_team import create_team
 from posthog.api.test.test_user import create_user
 from posthog.models.integration import Integration
 from posthog.models.person.util import create_person
+from posthog.models.scoping import team_scope
 from posthog.models.team import Team
 
 from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportBackfill, BatchExportSource
@@ -638,13 +639,14 @@ def test_batch_export_backfill_hogql_interval_validation(
     expected_error: str | None,
 ) -> None:
     client.force_login(user)
-    batch_export = create_batch_export(team, create_destination())
-    batch_export.model = model
-    if model == BatchExport.Model.HOGQL:
-        batch_export.source = BatchExportSource.objects.create(team=team, hogql_query=hogql_query)
-    else:
-        batch_export.schema = {"hogql_query": hogql_query, "fields": [{"expression": "event", "alias": "event"}]}
-    batch_export.save()
+    with team_scope(team_id=team.pk):
+        batch_export = create_batch_export(team, create_destination())
+        batch_export.model = model
+        if model == BatchExport.Model.HOGQL:
+            batch_export.source = BatchExportSource.objects.create(team_id=team.pk, hogql_query=hogql_query)
+        else:
+            batch_export.schema = {"hogql_query": hogql_query, "fields": [{"expression": "event", "alias": "event"}]}
+        batch_export.save()
 
     with (
         patch("products.batch_exports.backend.api.batch_export.posthoganalytics.feature_enabled", return_value=True),

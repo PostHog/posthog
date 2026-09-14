@@ -65,15 +65,26 @@ def test_each_run_substitutes_its_own_bounds_without_mutating_the_query() -> Non
         assert find_interval_placeholders(parsed) == {"data_interval_start", "data_interval_end"}
 
 
-async def test_missing_referenced_start_returns_non_retryable_staging_error() -> None:
+@pytest.mark.parametrize(
+    "hogql_query,expected_error",
+    [
+        (
+            "SELECT event FROM events WHERE timestamp >= {data_interval_start}",
+            "'data_interval_start' is not defined",
+        ),
+        ("not a valid query", "Failed to parse HogQL query"),
+        ("SELECT event FROM events WHERE timestamp >= {unknown}", "Unknown placeholder '{unknown}'"),
+        (None, "no HogQL query was provided"),
+    ],
+    ids=["missing-start", "malformed-query", "unsupported-placeholder", "missing-query"],
+)
+async def test_invalid_hogql_returns_non_retryable_staging_error(hogql_query: str | None, expected_error: str) -> None:
     inputs = BatchExportInsertIntoInternalStageInputs(
         team_id=1,
         batch_export_id="00000000-0000-4000-8000-000000000001",
         data_interval_start=None,
         data_interval_end=(dt.datetime.now(dt.UTC) - dt.timedelta(hours=1)).isoformat(),
-        batch_export_model=BatchExportModel(
-            name="hogql", schema=None, hogql_query="SELECT event FROM events WHERE timestamp >= {data_interval_start}"
-        ),
+        batch_export_model=BatchExportModel(name="hogql", schema=None, hogql_query=hogql_query),
     )
     clickhouse = MockClickHouseClient()
 
@@ -85,6 +96,6 @@ async def test_missing_referenced_start_returns_non_retryable_staging_error() ->
 
     assert result.error is not None
     assert result.error.type == "UnsupportedHogQLQueryError"
-    assert "'data_interval_start' is not defined" in result.error.message
+    assert expected_error in result.error.message
     assert result.records_total is None
     clickhouse.expect_query_count(0)
