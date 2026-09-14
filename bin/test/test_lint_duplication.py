@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
 
-import tempfile
 import subprocess
-from pathlib import Path
-
+import tempfile
 import unittest
+from pathlib import Path
 
 from parameterized import parameterized
 
