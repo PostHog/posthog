@@ -660,13 +660,13 @@ const TasksListSchema = () => {
 
 const tasksList = (): ToolBase<
     ReturnType<typeof TasksListSchema>,
-    WithPostHogUrl<Schemas.PaginatedTaskDetailDTOList>
+    WithPostHogUrl<Schemas.PaginatedTaskListItemList>
 > => ({
     name: 'tasks-list',
     schema: TasksListSchema(),
     handler: async (context: Context, params: z.infer<ReturnType<typeof TasksListSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.PaginatedTaskDetailDTOList>({
+        const result = await context.api.request<Schemas.PaginatedTaskListItemList>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/tasks/`,
             query: {

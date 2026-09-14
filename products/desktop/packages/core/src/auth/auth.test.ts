@@ -476,6 +476,28 @@ describe("AuthService", () => {
     });
   });
 
+  it("does not let a caller silently refresh past a stale scope version", async () => {
+    seedStoredSession({
+      refreshToken: "refresh-token",
+      selectedProjectId: 123,
+      scopeVersion: OAUTH_SCOPE_VERSION - 1,
+    });
+    oauthFlow.refreshToken.mockResolvedValue(mockTokenResponse());
+    stubAuthFetch();
+
+    await service.initialize();
+    expect(service.getState().needsScopeReauth).toBe(true);
+
+    // A caller that only wants a token (e.g. a background usage/telemetry
+    // fetch) must not resurrect the session on the old scope grant behind
+    // the reauth prompt's back.
+    await expect(service.getValidAccessToken()).rejects.toThrow(
+      NotAuthenticatedError,
+    );
+    expect(oauthFlow.refreshToken).not.toHaveBeenCalled();
+    expect(service.getState().needsScopeReauth).toBe(true);
+  });
+
   it.each(["us", "dev", "dev-cloud"] as const)(
     "restores an authenticated stored %s session",
     async (cloudRegion) => {

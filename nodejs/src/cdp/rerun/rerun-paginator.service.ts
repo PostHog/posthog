@@ -795,7 +795,12 @@ export class RerunPaginatorService {
             // with "No recipient identifier found". Dropping it makes the
             // action re-enter fresh, so inputs re-render against the current
             // config, which is what a rerun intends anyway.
-            const { hogFunctionState: _stripped, ...restoredCurrentAction } = persistedState.currentAction ?? {}
+            const {
+                hogFunctionState: _stripped,
+                awaitingResume: _awaitingResume,
+                resumeResult: _resumeResult,
+                ...restoredCurrentAction
+            } = persistedState.currentAction ?? {}
 
             invocation.id = row.invocation_id
             invocation.parentRunId = row.parent_run_id || null

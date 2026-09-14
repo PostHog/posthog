@@ -7,6 +7,7 @@ import { initKeaTests } from '~/test/init'
 import { expectLogic } from '~/test/keaTestUtils'
 
 import {
+    dataCatalogMetricsChecksDestroy,
     dataQualityChecksHealthList,
     dataQualityChecksList,
     dataQualityRunsCreate,
@@ -40,6 +41,7 @@ jest.mock('lib/lemon-ui/LemonToast/LemonToast', () => ({
 }))
 
 jest.mock('products/data_quality/frontend/generated/api', () => ({
+    dataCatalogMetricsChecksDestroy: jest.fn(),
     dataQualityChecksList: jest.fn(),
     dataQualityChecksHealthList: jest.fn(),
     dataQualityRunsCreate: jest.fn(),
@@ -386,6 +388,19 @@ describe('dataQualityOverviewLogic', () => {
         expect(lemonToast.success).toHaveBeenCalledWith('Check deleted')
     })
 
+    it('deletes a metric check through its catalog route', async () => {
+        ;(dataCatalogMetricsChecksDestroy as jest.Mock).mockResolvedValue(undefined)
+        await mountLogic()
+
+        logic.actions.deleteCheck(
+            buildCheck('check-1', 'signups', 'failed', { subject_type: 'metric', subject_uuid: 'uuid-signups' })
+        )
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(dataCatalogMetricsChecksDestroy).toHaveBeenCalledWith('1', 'uuid-signups', 'check-1')
+        expect(lemonToast.success).toHaveBeenCalledWith('Check deleted')
+    })
+
     it('keeps the row and says so when a delete fails', async () => {
         ;(warehouseSavedQueriesChecksDestroy as jest.Mock).mockRejectedValue(new Error('down'))
         await mountLogic()
@@ -511,6 +526,16 @@ describe('dataQualityOverviewLogic', () => {
             'a table linked by hand rather than synced',
             { subject_type: 'table', subject_uuid: 'uuid-table', subject_source_id: null },
             '/data-management/sources/self-managed-uuid-table/schemas',
+        ],
+        [
+            'a metric on its catalog page',
+            { subject_type: 'metric', subject_uuid: 'uuid-metric', subject_metric_name: 'signups' },
+            '/data-catalog/metrics/signups',
+        ],
+        [
+            'a metric whose name did not come through',
+            { subject_type: 'metric', subject_uuid: 'uuid-metric', subject_metric_name: null },
+            null,
         ],
     ])('links %s', (_case, overrides, expected) => {
         expect(subjectDetailUrl(buildCheck('check-1', 'orders', null, overrides))).toEqual(expected)
