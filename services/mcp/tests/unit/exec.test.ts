@@ -16,6 +16,7 @@ import {
     describeApiValidationError,
     describeExecCommand,
     describeValidationError,
+    type ExecCommandMeta,
     type ExecInnerCallProperties,
     type ExecToolOptions,
     formatInputValidationError,
@@ -1667,6 +1668,26 @@ describe('exec tool', () => {
             const result = await exec.handler(mockContext, { command: 'search feature-flag' })
 
             expect(JSON.parse(result as string)).toEqual(['feature-flag-get-all'])
+        })
+
+        // `exec_search_match_count` is 0 for these searches, and a 0 there is read as a
+        // capability PostHog does not have. Without this count, every search for a tool
+        // the connection hides would be filed as an unmet capability.
+        it('counts the hidden matches a search found', async () => {
+            const tracked: ExecCommandMeta[] = []
+            const exec = createExec(
+                [makeMockTool({ name: 'feature-flag-get-all', title: 'List feature flags' })],
+                undefined,
+                { readOnlyGatedTools, trackCommand: (meta) => tracked.push(meta) }
+            )
+
+            await exec.handler(mockContext, { command: 'search cohort' })
+
+            expect(tracked.at(-1)).toMatchObject({
+                exec_search_query: 'cohort',
+                exec_search_match_count: 0,
+                exec_search_read_only_match_count: 1,
+            })
         })
 
         it('caps the hidden matches a broad query returns, and says how many there are', async () => {

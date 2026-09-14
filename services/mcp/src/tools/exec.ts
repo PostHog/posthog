@@ -130,6 +130,14 @@ export interface ExecCommandMeta {
     exec_search_match_count?: number
     /** How many of those matches came from a connected third-party server. */
     exec_search_gateway_match_count?: number
+    /**
+     * How many tools matched but are hidden because the connection is read-only. A
+     * search that matched only these carries `exec_search_match_count: 0`, which the
+     * field above reads as a capability PostHog does not have. Only a read-only
+     * connection can hide a match, so the field is absent from every other search
+     * rather than reporting a constant zero.
+     */
+    exec_search_read_only_match_count?: number
 }
 
 export type ExecCommandTracker = (meta: ExecCommandMeta) => void
@@ -1475,6 +1483,9 @@ export function createExecTool(
                         exec_search_query: rest,
                         exec_search_match_count: matchedNames.length,
                         exec_search_gateway_match_count: matchedNames.filter(isGatewayToolName).length,
+                        ...(readOnlyMatches.length > 0
+                            ? { exec_search_read_only_match_count: readOnlyMatches.length }
+                            : {}),
                     })
 
                     if (gatedMatches.length > 0 || readOnlyMatches.length > 0) {
