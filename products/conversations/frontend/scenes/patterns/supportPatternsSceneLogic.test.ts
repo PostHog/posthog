@@ -135,18 +135,22 @@ describe('supportPatternsSceneLogic', () => {
         expect(logic.values.statusFilter).toEqual('open')
     })
 
-    it('loads nothing while the flag is off, then once when it arrives', async () => {
-        let requests = 0
+    it.each([
+        { url: urls.supportPatterns(), expected: 'open' as PatternStatusFilter },
+        { url: urls.supportPatterns('confirmed'), expected: 'confirmed' as PatternStatusFilter },
+    ])('loads $expected once when the flag arrives after the scene mounted', async ({ url, expected }) => {
+        const requested: (string | null)[] = []
         useMocks({
             get: {
-                '/api/projects/:team_id/conversations/patterns/': () => {
-                    requests += 1
+                '/api/projects/:team_id/conversations/patterns/': ({ request }) => {
+                    requested.push(new URL(request.url).searchParams.get('status'))
                     return [200, { results: [makePattern('a')], count: 1, next: null, previous: null }]
                 },
             },
         })
         logic.unmount()
         featureFlagLogic.actions.setFeatureFlags([], {})
+        router.actions.push(url)
         logic = supportPatternsSceneLogic()
         logic.mount()
 
@@ -160,8 +164,9 @@ describe('supportPatternsSceneLogic', () => {
         featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.PRODUCT_SUPPORT_TICKET_PATTERNS], flags)
         await expectLogic(logic).toFinishAllListeners()
 
+        expect(logic.values.statusFilter).toEqual(expected)
         expect(logic.values.patterns.map((p) => p.id)).toEqual(['a'])
-        expect(requests).toEqual(1)
+        expect(requested).toEqual([expected])
     })
 
     it('puts the row back when the decision fails', async () => {

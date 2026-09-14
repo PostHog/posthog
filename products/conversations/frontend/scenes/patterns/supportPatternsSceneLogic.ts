@@ -157,9 +157,17 @@ export const supportPatternsSceneLogic = kea<supportPatternsSceneLogicType>([
     listeners(({ actions, values }) => ({
         setStatusFilter: () => actions.loadPatterns(),
         // The flag can land after the scene mounts, and the scene only shows once it is on, so the
-        // first load has to wait for it rather than for a filter change.
+        // first load has to wait for it rather than for a filter change. urlToAction ran while the
+        // flag was still off, and a flag change is not a location change, so the status in the URL
+        // has to be applied here too.
         setFeatureFlags: () => {
-            if (values.patternsEnabled && !values.patternsRequested) {
+            if (!values.patternsEnabled || values.patternsRequested) {
+                return
+            }
+            const status = toPatternStatusFilter(router.values.searchParams.status)
+            if (status !== values.statusFilter) {
+                actions.setStatusFilter(status)
+            } else {
                 actions.loadPatterns()
             }
         },
