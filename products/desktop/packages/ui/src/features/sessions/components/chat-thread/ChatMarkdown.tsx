@@ -135,7 +135,7 @@ const components: Components = {
     <ul className="list-disc space-y-0.5 ps-4">{children}</ul>
   ),
   ol: ({ children, start }) => (
-    <ol start={start} className="list-decimal space-y-0.5 ps-5">
+    <ol start={start} className="list-decimal space-y-0.5 ps-8">
       {children}
     </ol>
   ),
