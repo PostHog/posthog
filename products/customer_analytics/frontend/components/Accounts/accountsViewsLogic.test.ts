@@ -13,6 +13,7 @@ import { initKeaTests } from '~/test/init'
 
 import { ColumnConfigurationApi } from 'products/product_analytics/frontend/generated/api.schemas'
 
+import { customerAnalyticsSceneLogic } from '../../customerAnalyticsSceneLogic'
 import { ACCOUNTS_DEFAULT_COLUMNS, accountsColumnConfigLogic } from './accountsColumnConfigLogic'
 import { accountsLogic, SEARCH_DEBOUNCE_MS } from './accountsLogic'
 import { accountsOverviewTilesLogic } from './accountsOverviewTilesLogic'
@@ -47,6 +48,13 @@ describe('accountsViewsLogic', () => {
         accountsLogic().mount()
         logic = accountsViewsLogic()
         logic.mount()
+    }
+
+    const unmountAll = (): void => {
+        logic.unmount()
+        accountsLogic().unmount()
+        accountsOverviewTilesLogic().unmount()
+        accountsColumnConfigLogic().unmount()
     }
 
     beforeEach(() => {
@@ -369,6 +377,68 @@ describe('accountsViewsLogic', () => {
             .toMatchValues({ viewToEdit: null })
         expect(patchedBody).toEqual({ name: 'Renamed', visibility: 'private' })
     })
+
+    it.each([true, false])(
+        'restores an updated saved sort after a tab round trip with a session draft: %s',
+        async (keepDraft) => {
+            let savedView = buildView({
+                filters: { assignmentStatus: 'assigned', assignedTo: [CURRENT_USER_ID] },
+                order_by: ['csm DESC'],
+            })
+            let loadCount = 0
+            let releaseRemountLoad!: () => void
+            const remountLoad = new Promise<void>((resolve) => {
+                releaseRemountLoad = resolve
+            })
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/column_configurations/': async () => {
+                        if (++loadCount > 1) {
+                            await remountLoad
+                        }
+                        return [200, { count: 1, results: [savedView] }]
+                    },
+                },
+                patch: {
+                    '/api/projects/:team_id/column_configurations/:id/': async ({ request }) => {
+                        const updates = (await request.json()) as Partial<ColumnConfigurationApi>
+                        savedView = { ...savedView, ...updates }
+                        return [200, savedView]
+                    },
+                },
+            })
+            localStorage.setItem(
+                `customerAnalytics.accounts.accountsViewsLogic.${MOCK_DEFAULT_TEAM.id}.currentViewId`,
+                JSON.stringify('view-1')
+            )
+            const sceneLogic = customerAnalyticsSceneLogic()
+            sceneLogic.mount()
+            mountAll()
+            await expectLogic(logic).toDispatchActions(['loadViewsSuccess', 'applyView']).toFinishAllListeners()
+
+            accountsLogic.actions.setSortOrder({ column: 'name', direction: 'desc' })
+            await expectLogic(logic, () => logic.actions.updateView({ id: 'view-1', updates: {} }))
+                .toDispatchActions(['updateViewSuccess'])
+                .toFinishAllListeners()
+            expect(savedView.order_by).toEqual(['name DESC'])
+            expect(sceneLogic.values.mineOnly).toBe(true)
+
+            router.actions.push(urls.customerAnalyticsNotes())
+            unmountAll()
+            if (!keepDraft) {
+                sessionStorage.clear()
+            }
+            router.actions.push(urls.customerAnalyticsAccounts())
+            mountAll()
+            releaseRemountLoad()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(accountsLogic.values.sortOrder).toEqual({ column: 'name', direction: 'desc' })
+            expect(logic.values.isDirty).toBe(false)
+            unmountAll()
+            sceneLogic.unmount()
+        }
+    )
 
     it('migrates localStorage tiles into the creator-owned default row exactly once', async () => {
         const customTiles = [{ id: 'mine', label: 'Mine', metric: { type: 'count' as const } }]

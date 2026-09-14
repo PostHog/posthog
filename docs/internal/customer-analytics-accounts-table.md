@@ -27,6 +27,7 @@ If browser storage is unavailable or invalid, the list uses URL state and saved 
 
 `accountsLogic.viewState` supplies the shared snapshot for drafts and saved views.
 `applyViewState` restores it without intermediate URL writes.
+The router restores state once on mount, so default preferences cannot become a draft that blocks the saved view.
 The parent scene preserves the view hash when changing date or test-account filters.
 
 ## Column widths

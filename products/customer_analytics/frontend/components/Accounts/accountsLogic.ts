@@ -1816,7 +1816,6 @@ export const accountsLogic = kea<accountsLogicType>([
         posthog.capture(AccountsEvents.ListViewed)
         // Relationship cells need member names before an editor opens.
         actions.ensureAllMembersLoaded()
-        actions.restoreViewStateFromRoute()
     }),
     actionToUrl(({ values, cache }) => ({
         syncViewStateToUrl: () => {
