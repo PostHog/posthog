@@ -53,10 +53,20 @@ if(EMSCRIPTEN)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fwasm-exceptions")
 
     # Shared link flags for all WASM targets
+    #
+    # DYNAMIC_EXECUTION=0 removes the one `new Function` Emscripten emits. Embind builds an
+    # invoker per bound signature by concatenating a function body and compiling it, which the
+    # app's `script-src` reports as an eval violation. Without the flag the browser build is the
+    # only part of the app that still needs `'unsafe-eval'`, and we are not adding that token.
+    # The flag makes embind close over the argument converters and call `.apply` instead, so it
+    # costs a little per call and nothing per parse. The build fails outright if anything else
+    # in the glue needs dynamic execution, which is what keeps this honest; do not answer such a
+    # failure with `=2`, which only downgrades the error and leaves the eval in place.
     set(WASM_COMMON_LINK_FLAGS "\
         -lembind \
         -s WASM=1 \
         -s MODULARIZE=1 \
+        -s DYNAMIC_EXECUTION=0 \
         -s EXPORT_NAME='createHogQLParser' \
         -s ALLOW_MEMORY_GROWTH=1 \
         -s SINGLE_FILE=1 \
