@@ -164,11 +164,13 @@ Connect your Instagram account, then pick the professional account you want to s
                 "Instagram's API kept rate limiting or returning errors, so this sync couldn't "
                 "finish. Nothing needs changing on your source, and the next sync runs on schedule."
             ),
-            # The client's own per-sync call cap. A fresh attempt gets a fresh budget and resumes from
-            # the last checkpoint, so the schema stays enabled — this only replaces the raw text.
+            # The client's per-sync call cap. This raises only as a backstop, because every
+            # streaming loop checks the budget and returns cleanly, so a capped sync finishes
+            # instead of failing. The schema stays enabled, and the checkpoint is keyed by job id,
+            # so a later scheduled sync starts over rather than continuing where this one stopped.
             REQUEST_BUDGET_ERROR_PREFIX: (
-                "This sync stopped after it spent its Instagram API request budget. The next sync "
-                "continues from where it stopped."
+                "This sync stopped after it spent its Instagram API request budget. Nothing needs "
+                "changing on your source, and the next scheduled sync starts with a fresh budget."
             ),
         }
 
