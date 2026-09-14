@@ -12,6 +12,7 @@ from uuid import UUID
 
 from django.db.models import Prefetch
 
+from posthog.constants import INTERNAL_BOT_EMAIL_SUFFIX
 from posthog.dataclasses import frozen
 from posthog.models import Organization, OrganizationMembership, Team, User
 
@@ -50,6 +51,7 @@ def _visible_memberships(
 ) -> list[OrganizationMembership]:
     memberships = (
         OrganizationMembership.objects.filter(organization=organization, user__is_active=True)
+        .exclude(user__email__endswith=INTERNAL_BOT_EMAIL_SUFFIX)
         .select_related("user")
         .prefetch_related(Prefetch("role_memberships", queryset=RoleMembership.objects.valid_for_authorization()))
         .order_by("user__first_name", "user__email")
