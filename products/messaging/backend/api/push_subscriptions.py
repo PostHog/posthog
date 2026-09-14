@@ -92,19 +92,13 @@ _PUSH_INTEGRATION_KINDS = ("firebase", "apns")
 
 VALID_PLATFORMS = ("android", "ios")
 
-# Shipped SDKs can omit `platform`: posthog-android before the @SerializedName fix loses the field to
-# R8 in minified release builds. The field is metadata, because _find_integrations resolves the
-# provider from app_id alone, so a request that identifies its SDK carries the platform implicitly.
-# Infer it instead of rejecting, or those devices never register and push silently does not work.
-_SDK_NAME_PLATFORMS = {
-    "posthog-android": "android",
-    "posthog-ios": "ios",
-}
-
-PUSH_SUBSCRIPTION_PLATFORM_INFERRED_COUNTER = Counter(
-    "push_subscription_platform_inferred",
-    "Registrations whose absent platform was inferred from the SDK user agent.",
-    labelnames=["sdk_name", "platform"],
+# `platform` is validated and echoed but never stored: the property is keyed on app_id and the
+# provider is resolved from app_id alone. Requiring it rejected every posthog-android build that
+# loses the field to R8, and a rejected device re-posts on every app open and never registers.
+PUSH_SUBSCRIPTION_PLATFORM_ABSENT_COUNTER = Counter(
+    "push_subscription_platform_absent",
+    "Registrations accepted without a platform field, by SDK.",
+    labelnames=["sdk_name"],
 )
 
 # A device registration payload is a handful of short string fields (distinct_id, device_token,
@@ -340,6 +334,7 @@ def push_subscriptions(request: Request):
             code="invalid_api_key",
             status_code=status.HTTP_401_UNAUTHORIZED,
             api_key_fingerprint=_api_key_fingerprint(api_key),
+            app_id=data.get("app_id"),
         )
 
     team = Team.objects.get_team_from_cache_or_token(api_key)
@@ -354,6 +349,7 @@ def push_subscriptions(request: Request):
             code="invalid_api_key",
             status_code=status.HTTP_401_UNAUTHORIZED,
             api_key_fingerprint=_api_key_fingerprint(api_key),
+            app_id=data.get("app_id"),
         )
 
     distinct_id = data.get("distinct_id")
@@ -361,18 +357,11 @@ def push_subscriptions(request: Request):
     platform = data.get("platform")
     app_id = data.get("app_id")
 
-    if not platform:
-        inferred_from = _parse_user_agent_sdk(request).name
-        if inferred_from in _SDK_NAME_PLATFORMS:
-            platform = _SDK_NAME_PLATFORMS[inferred_from]
-            PUSH_SUBSCRIPTION_PLATFORM_INFERRED_COUNTER.labels(sdk_name=inferred_from, platform=platform).inc()
-
     missing_fields = [
         field_name
         for field_name, value in [
             ("distinct_id", distinct_id),
             ("device_token", device_token),
-            ("platform", platform),
             ("app_id", app_id),
         ]
         if not value or not isinstance(value, str)
@@ -396,10 +385,14 @@ def push_subscriptions(request: Request):
 
     assert isinstance(distinct_id, str)
     assert isinstance(device_token, str)
-    assert isinstance(platform, str)
     assert isinstance(app_id, str)
 
-    if platform not in VALID_PLATFORMS:
+    if not platform:
+        platform = None
+        PUSH_SUBSCRIPTION_PLATFORM_ABSENT_COUNTER.labels(
+            sdk_name=_parse_user_agent_sdk(request).name or "unknown"
+        ).inc()
+    elif not isinstance(platform, str) or platform not in VALID_PLATFORMS:
         return _rejection_response(
             request,
             f"Invalid platform. Must be one of: {', '.join(VALID_PLATFORMS)}.",

@@ -282,80 +282,68 @@ class TestPushSubscriptionsAPI(BaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "device_token" in response.json()["detail"]
-        assert "platform" in response.json()["detail"]
+        assert "platform" not in response.json()["detail"]
         assert "app_id" in response.json()["detail"]
 
     @parameterized.expand(
         [
-            ("android", "posthog-android/3.58.0", "android"),
-            ("ios", "posthog-ios/3.69.5", "ios"),
+            ("absent_no_user_agent", {}, None),
+            ("absent_android_sdk", {}, "posthog-android/3.58.0"),
+            ("absent_platform_ambiguous_sdk", {}, "posthog-flutter/5.6.0"),
+            ("empty_string", {"platform": ""}, None),
         ]
     )
-    def test_absent_platform_is_inferred_from_the_sdk_user_agent(
-        self, _name: str, user_agent: str, expected_platform: str
+    def test_registration_without_a_platform_is_accepted_and_stored(
+        self, _name: str, extra: dict, user_agent: str | None
     ):
         payload = {
             "distinct_id": "user-1",
             "device_token": "device-token",
             "app_id": "my-firebase-project",
             "api_key": self.team.api_token,
+            **extra,
         }
+        headers = {"HTTP_USER_AGENT": user_agent} if user_agent else {}
 
-        response = self.client.post(
-            "/api/push_subscriptions/",
-            data=json.dumps(payload),
-            content_type="application/json",
-            HTTP_USER_AGENT=user_agent,
-        )
+        with patch("products.messaging.backend.api.push_subscriptions.capture_internal") as capture:
+            response = self.client.post(
+                "/api/push_subscriptions/",
+                data=json.dumps(payload),
+                content_type="application/json",
+                **headers,
+            )
 
         assert response.status_code == status.HTTP_200_OK
-        assert response.json()["platform"] == expected_platform
+        assert response.json()["platform"] is None
+        assert capture.call_count == 1
+        assert "$device_push_subscription_my-firebase-project" in capture.call_args.kwargs["properties"]["$set"]
 
-    @parameterized.expand(
-        [
-            ("no_user_agent", None),
-            ("non_posthog", "Mozilla/5.0"),
-            ("platform_ambiguous_sdk", "posthog-flutter/5.6.0"),
-        ]
-    )
-    def test_absent_platform_still_rejected_when_the_sdk_does_not_imply_one(self, _name: str, user_agent: str | None):
-        payload = {
-            "distinct_id": "user-1",
-            "device_token": "device-token",
-            "app_id": "my-firebase-project",
-            "api_key": self.team.api_token,
-        }
-        extra = {"HTTP_USER_AGENT": user_agent} if user_agent else {}
-
-        response = self.client.post(
-            "/api/push_subscriptions/",
-            data=json.dumps(payload),
-            content_type="application/json",
-            **extra,
-        )
-
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json()["code"] == "missing_fields"
-        assert "platform" in response.json()["detail"]
-
-    def test_explicit_platform_wins_over_the_user_agent(self):
-        payload = {
-            "distinct_id": "user-1",
-            "device_token": "device-token",
-            "platform": "ios",
-            "app_id": "my-firebase-project",
-            "api_key": self.team.api_token,
-        }
-
-        response = self.client.post(
-            "/api/push_subscriptions/",
-            data=json.dumps(payload),
-            content_type="application/json",
-            HTTP_USER_AGENT="posthog-android/3.58.0",
+    def test_explicit_platform_is_echoed(self):
+        response = self._post(
+            {
+                "distinct_id": "user-1",
+                "device_token": "device-token",
+                "platform": "ios",
+                "app_id": "my-firebase-project",
+            }
         )
 
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["platform"] == "ios"
+
+    def test_invalid_token_rejection_logs_the_app_id(self):
+        payload = {"distinct_id": "user-1", "device_token": "device-token", "app_id": "my-firebase-project"}
+
+        with capture_logs() as logs:
+            # The second post is served by the negative cache, a separate rejection site.
+            first = self._post(payload, api_key="phc_not_a_real_token")
+            second = self._post(payload, api_key="phc_not_a_real_token")
+
+        assert first.status_code == status.HTTP_401_UNAUTHORIZED
+        assert second.status_code == status.HTTP_401_UNAUTHORIZED
+        rejected = [entry for entry in logs if entry["event"] == "push_subscription_rejected"]
+        assert len(rejected) == 2
+        assert all(entry["app_id"] == "my-firebase-project" for entry in rejected)
 
     def test_invalid_platform(self):
         response = self._post(
