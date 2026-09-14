@@ -26,6 +26,8 @@ const TRUNK_QUARANTINE: TrunkQuarantineDebtApi = {
     truncated: false,
     limit: 5000,
     ttl_days: 15,
+    truncated: false,
+    limit: 5000,
     repository: 'PostHog/posthog',
     trunk_url: 'https://app.trunk.io/posthog-inc/flaky-tests?repo=PostHog/posthog',
     teams: [
