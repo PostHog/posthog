@@ -16,7 +16,6 @@ from posthog.models.comment import Comment
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team import Team
 from posthog.models.user import User
-from posthog.test.persons import create_person
 
 from products.conversations.backend.mailgun import (
     MailgunDomainConflict,
@@ -2464,24 +2463,6 @@ class TestEmailInboundTrustedRelay(BaseTest):
         comment = Comment.objects.get(team=self.team, scope="conversations_ticket")
         assert comment.item_context is not None
         assert comment.item_context["email_relay_from"] == self.RELAY
-
-    @patch("products.conversations.backend.api.email_events.validate_webhook_signature", return_value=True)
-    def test_relayed_ticket_skips_org_of_a_person_identified_under_the_recovered_address(self, _mock_sig: MagicMock):
-        """The recovered address reaches the resolver as ticket.distinct_id, so a person
-        identified under it resolves an organization before the email fallback is ever
-        reached. Only a team with such a person exercises that path."""
-        self.user.distinct_id = "jane@customer.com"
-        self.user.save(update_fields=["distinct_id"])
-        create_person(team=self.team, distinct_ids=["jane@customer.com"], is_identified=True)
-
-        self.client.post(
-            "/api/conversations/v1/email/inbound",
-            self._relay_data("<relay-identified@t.com>", **{"Reply-To": "Jane Doe <jane@customer.com>"}),
-        )
-
-        ticket = Ticket.objects.get(team=self.team)
-        assert ticket.distinct_id == "jane@customer.com"
-        assert ticket.organization_id is None
 
 
 class TestEmailInboundSelfAddressedAutoreply(BaseTest):

@@ -1132,6 +1132,29 @@ class TestConversationEvents(BaseTest):
         assert stored.organization_id_source == OrganizationIdSource.PERSON
 
     @patch("products.conversations.backend.events.capture_internal")
+    @patch("products.conversations.backend.events.get_persons_by_distinct_ids")
+    def test_capture_ticket_created_skips_organization_id_for_a_relayed_ticket(self, mock_get_persons, mock_capture):
+        from posthog.models.person.person import Person
+
+        # Same fixtures as the test above, which resolve an org through the membership on
+        # customer-123. Only email_relayed differs, so a regression in the relay guard
+        # shows up here as the org being resolved from an address the relay merely claimed.
+        person_org = Organization.objects.create(name="Relayed Org")
+        person_user = User.objects.create(email="relayed@example.com", distinct_id="customer-123")
+        OrganizationMembership.objects.create(user=person_user, organization=person_org)
+
+        mock_get_persons.return_value = [Person(team_id=self.team.id, is_identified=True)]
+
+        self.ticket.anonymous_traits = {**self.ticket.anonymous_traits, "email_relayed": True}
+        self.ticket.save(update_fields=["anonymous_traits"])
+
+        capture_ticket_created(self.ticket)
+
+        stored = Ticket.objects.get(id=self.ticket.id)
+        assert stored.organization_id is None
+        assert "$groups" not in mock_capture.call_args.kwargs["properties"]
+
+    @patch("products.conversations.backend.events.capture_internal")
     @patch("products.conversations.backend.events._resolve_org_groups")
     def test_capture_message_received_uses_stored_organization_id(self, mock_resolve, mock_capture):
         self.ticket.organization_id = "stored-org-123"
