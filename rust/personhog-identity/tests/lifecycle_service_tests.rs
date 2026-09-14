@@ -44,6 +44,7 @@ async fn delete_status(request: DeletePersonsRequest) -> Code {
         Arc::new(SimLeader::new(pool, tables.person.clone())),
         tables,
         common::FAN_OUT_CONCURRENCY,
+        common::NUM_PARTITIONS,
     );
     service
         .delete_persons(Request::new(request))
