@@ -2,7 +2,7 @@ import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, redu
 import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
-import { ApiError } from 'lib/api-error'
+import { ApiError, isScopeNotFoundError, isUnavailableEndpointError } from 'lib/api-error'
 import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { resolveOnboardingFlowVariant } from 'scenes/onboarding/onboardingVariants'
@@ -54,6 +54,18 @@ const MAX_SESSION_LIFETIME_MS = 60 * 60 * 1000
 // with nothing in the UI to explain why. Failing open costs a wrong takeover during an outage;
 // failing closed costs every new team its onboarding.
 const MAX_CONSECUTIVE_POLL_FAILURES = 3
+
+// How long the route may stay unserved (404/405) before we stop asking. That is what a rolling
+// deploy looks like from an old bundle, so it has to survive a deploy window — but a route that
+// never comes back would otherwise be polled for the lifetime of the tab. Wall-clock rather than a
+// count of polls: a project switch or a tab resume can ask for a check every few seconds, and a
+// budget of five polls would be gone in half a minute, long before a deploy finishes.
+export const UNAVAILABLE_ROUTE_GRACE_MS = 5 * 60 * 1000
+
+// Minimum gap between polls triggered by a project-id change. Nothing rate-limits how often
+// `currentProjectId` moves, and each move both clears the verdict and asks for a fresh poll, so an
+// id that flaps would otherwise turn into a request burst.
+const PROJECT_CHANGE_THROTTLE_MS = 5 * 1000
 
 /**
  * Keep the detector mounted and watching a program until the returned cleanup runs. The one way to
@@ -148,6 +160,9 @@ export interface wizardActiveSessionDetectorLogicActions {
     markResolutionUnavailable: () => {
         value: true
     }
+    markRouteUnavailable: () => {
+        value: true
+    }
     pollFailed: () => {
         value: true
     }
@@ -223,6 +238,10 @@ export const wizardActiveSessionDetectorLogic = kea<wizardActiveSessionDetectorL
         // endpoint (401/403 access denial). Set once and we stop polling for the
         // rest of the session lifetime.
         markPermanentlyDisabled: true,
+        // The route we poll is unserved and has used up its retries. Stops the poll like an access
+        // denial, but says nothing about any run: a stream already reporting one keeps its widget,
+        // and reports the run terminal itself when it ends.
+        markRouteUnavailable: true,
         // Enough polls failed that we can't keep consumers waiting for a verdict. Unlike
         // markInactive this is not a claim about any run, so it leaves activeWorkflowId alone —
         // it only unblocks the surfaces gated on hasResolvedSessionState.
@@ -268,8 +287,9 @@ export const wizardActiveSessionDetectorLogic = kea<wizardActiveSessionDetectorL
                 markInactive: () => true,
                 scheduleMarkInactive: () => true,
                 // Access denial means there will never be a verdict; "resolved, not running" is the
-                // only answer consumers can act on.
+                // only answer consumers can act on. An unserved route strands them the same way.
                 markPermanentlyDisabled: () => true,
+                markRouteUnavailable: () => true,
                 markResolutionUnavailable: () => true,
                 // A verdict about the previous project says nothing about the new one.
                 resetSessionState: () => false,
@@ -298,6 +318,7 @@ export const wizardActiveSessionDetectorLogic = kea<wizardActiveSessionDetectorL
             false,
             {
                 markPermanentlyDisabled: () => true,
+                markRouteUnavailable: () => true,
             },
         ],
     }),
@@ -348,7 +369,11 @@ export const wizardActiveSessionDetectorLogic = kea<wizardActiveSessionDetectorL
                         )) || null
                 )
             )
-            if (seq !== cache.pollSeq) {
+            // The project id is checked as well as the sequence: a project change schedules its
+            // poll behind a delay, so it raises the sequence too late to invalidate a request
+            // already in flight. Without this, the answer for the project the user left decides the
+            // state of the one they are on — a dead scope there would disable the detector here.
+            if (seq !== cache.pollSeq || values.currentProjectId !== projectId) {
                 return
             }
 
@@ -368,29 +393,60 @@ export const wizardActiveSessionDetectorLogic = kea<wizardActiveSessionDetectorL
                 return
             }
 
-            // 401/403 are structural access denials: the user can't or shouldn't talk to this
-            // endpoint. Stop polling permanently rather than burning load on a URL we know is wrong
-            // — but only when every program agrees, so one program's denial can't silence a healthy
-            // one. A 404 is deliberately excluded: during a rolling deploy the /latest/ route is
-            // absent on old pods, so a transient 404 falls through to the retry path and self-heals.
-            const denials = errors.filter(
-                (err) => err instanceof ApiError && (err.status === 401 || err.status === 403)
-            )
-            if (denials.length > 0 && denials.length === results.length) {
-                const denial = denials[0] as ApiError
-                posthog.captureException(denial, {
+            // Only a failure every program shares says anything about the endpoint, so one program's
+            // failure can't silence a healthy one.
+            const sharedFailure = (matches: (err: unknown) => boolean): ApiError | null => {
+                const matched = errors.filter(matches)
+                return matched.length > 0 && matched.length === results.length ? (matched[0] as ApiError) : null
+            }
+            // The caller picks which disable it is, because the two write different state: an
+            // access denial or a dead scope drops the session with the poll, an unserved route
+            // leaves it to the stream.
+            const disablePolling = (error: ApiError, markDisabled: () => void): void => {
+                posthog.captureException(error, {
                     tags: { feature: 'wizard-active-session-detector', reason: 'permanently_disabled' },
-                    extra: { status: denial.status },
+                    extra: { status: error.status },
                 })
-                actions.setLastError(`wizard latest-session endpoint returned ${denial.status} — disabling detector`)
-                actions.markPermanentlyDisabled()
+                actions.setLastError(`wizard latest-session endpoint returned ${error.status} — disabling detector`)
+                markDisabled()
                 cache.disposables.dispose('rest-poll')
+            }
+
+            // Structural access denial: the user can't or shouldn't talk to this endpoint. Stop
+            // rather than burning load on a URL we know is wrong.
+            const denial = sharedFailure((err) => err instanceof ApiError && (err.status === 401 || err.status === 403))
+            if (denial) {
+                disablePolling(denial, actions.markPermanentlyDisabled)
                 return
+            }
+
+            // The project or organization in the URL no longer resolves, so every endpoint under it
+            // answers the same way and repeating the request can never succeed.
+            const deadScope = sharedFailure(isScopeNotFoundError)
+            if (deadScope) {
+                disablePolling(deadScope, actions.markPermanentlyDisabled)
+                return
+            }
+
+            // The route itself is unserved (404/405), which is also what a rolling deploy looks like
+            // from an old bundle. Retry until the grace window closes. An unserved poll route says
+            // nothing about a run the stream is already reporting, so the session survives the
+            // shutdown — otherwise a user installing through the window the retries exist to ride
+            // out would lose the widget for that run until they reload the page.
+            const unavailable = sharedFailure(isUnavailableEndpointError)
+            if (unavailable) {
+                cache.unavailableSince = cache.unavailableSince ?? Date.now()
+                if (Date.now() - cache.unavailableSince >= UNAVAILABLE_ROUTE_GRACE_MS) {
+                    disablePolling(unavailable, actions.markRouteUnavailable)
+                    return
+                }
+            } else {
+                cache.unavailableSince = undefined
             }
 
             for (const err of errors) {
                 // Transient REST failure (including a deploy-window 404) — surface it via
-                // lastError + Sentry. The next poll retries.
+                // lastError + Sentry. The next poll retries, up to the ceiling above.
                 posthog.captureException(err, {
                     tags: { feature: 'wizard-active-session-detector', reason: 'transient' },
                 })
@@ -475,7 +531,7 @@ export const wizardActiveSessionDetectorLogic = kea<wizardActiveSessionDetectorL
             cache.disposables.dispose('mark-inactive-grace')
         },
     })),
-    subscriptions(({ actions }) => ({
+    subscriptions(({ actions, cache }) => ({
         // Project switching mid-session: drop any stale "active" state from the
         // previous project and force a fresh poll against the new project id.
         currentProjectId: (projectId: number | null, prev: number | null | undefined) => {
@@ -490,9 +546,26 @@ export const wizardActiveSessionDetectorLogic = kea<wizardActiveSessionDetectorL
                 return
             }
             actions.resetSessionState()
-            if (projectId !== null) {
-                actions.check()
+            if (projectId === null) {
+                return
             }
+            // Nothing upstream limits how fast the project id can move, and each move asks for a
+            // poll, so an id that flaps used to mean one request per change. Keeping the first
+            // pending check collapses a burst into a single poll for the settled id. Same
+            // deadline-based shape as the teardown timer above, so a tab resume schedules only the
+            // remaining wait rather than starting the window again.
+            if (cache.disposables.registry.has('project-change-check')) {
+                return
+            }
+            cache.projectCheckAt = Date.now() + PROJECT_CHANGE_THROTTLE_MS
+            cache.disposables.add(() => {
+                const remaining = Math.max(0, (cache.projectCheckAt ?? 0) - Date.now())
+                const id = window.setTimeout(() => {
+                    cache.disposables.dispose('project-change-check')
+                    actions.check()
+                }, remaining)
+                return () => window.clearTimeout(id)
+            }, 'project-change-check')
         },
     })),
     afterMount(({ actions, cache }) => {

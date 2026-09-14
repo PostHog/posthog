@@ -1,13 +1,19 @@
 import { expectLogic } from 'kea-test-utils'
 
 import { ApiError } from 'lib/api-error'
+import { projectLogic } from 'scenes/projectLogic'
 
 import { initKeaTests } from '~/test/init'
+import type { ProjectType } from '~/types'
 
 import { wizardSessionsLatestRetrieve } from 'products/wizard/frontend/generated/api'
 import type { WizardSessionDTOApi } from 'products/wizard/frontend/generated/api.schemas'
 
-import { isSessionActive, wizardActiveSessionDetectorLogic } from './wizardActiveSessionDetectorLogic'
+import {
+    UNAVAILABLE_ROUTE_GRACE_MS,
+    isSessionActive,
+    wizardActiveSessionDetectorLogic,
+} from './wizardActiveSessionDetectorLogic'
 
 jest.mock('products/wizard/frontend/generated/api', () => ({
     wizardSessionsLatestRetrieve: jest.fn(),
@@ -121,15 +127,154 @@ describe('wizardActiveSessionDetectorLogic', () => {
             .toMatchValues({ permanentlyDisabled: true })
     })
 
-    it('does NOT permanently disable on a 404 (transient deploy-window route gap)', async () => {
-        mockLatestRetrieve.mockRejectedValue(new ApiError('not found', 404))
+    // The loop this guards: a project scope the user lost access to answers 404 forever, and the
+    // detector used to retry it once a minute for the lifetime of the tab, filing an exception each
+    // time. A dead scope is knowable from the first answer, so it stops there.
+    it('stops polling on the first 404 from a scope that no longer resolves', async () => {
+        mockLatestRetrieve.mockRejectedValue(
+            new ApiError('not found', 404, undefined, { detail: 'Project not found.' })
+        )
 
         await expectLogic(logic, () => {
             logic.actions.check()
         })
-            .toDispatchActions(['setLastError'])
-            .toNotHaveDispatchedActions(['markPermanentlyDisabled'])
-            .toMatchValues({ permanentlyDisabled: false })
+            .toDispatchActions(['markPermanentlyDisabled'])
+            .toMatchValues({ permanentlyDisabled: true })
+
+        const callsAfterDisable = mockLatestRetrieve.mock.calls.length
+        await expectLogic(logic, () => {
+            logic.actions.check()
+        }).toFinishAllListeners()
+        expect(mockLatestRetrieve.mock.calls.length).toBe(callsAfterDisable)
+    })
+
+    // A route missing on an old pod mid-rollout looks the same but does come back, so it keeps
+    // retrying — until the grace window closes, because a route that never returns must not poll
+    // forever either. The window is wall-clock: a project switch or a tab resume can ask for a check
+    // every few seconds, and a budget counted in polls would be gone before a deploy finishes.
+    describe('an unserved route', () => {
+        beforeEach(() => {
+            jest.useFakeTimers()
+            mockLatestRetrieve.mockRejectedValue(new ApiError('not found', 404))
+        })
+
+        afterEach(() => {
+            jest.useRealTimers()
+        })
+
+        it('keeps retrying while the grace window is open, then stops polling for good', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.check()
+            })
+                .toDispatchActions(['setLastError'])
+                .toNotHaveDispatchedActions(['markRouteUnavailable'])
+
+            jest.advanceTimersByTime(UNAVAILABLE_ROUTE_GRACE_MS - 1_000)
+            await expectLogic(logic, () => {
+                logic.actions.check()
+            }).toNotHaveDispatchedActions(['markRouteUnavailable'])
+            expect(logic.values.permanentlyDisabled).toBe(false)
+
+            jest.advanceTimersByTime(2_000)
+            await expectLogic(logic, () => {
+                logic.actions.check()
+            }).toDispatchActions(['markRouteUnavailable'])
+
+            const callsAfterStop = mockLatestRetrieve.mock.calls.length
+            await expectLogic(logic, () => {
+                logic.actions.check()
+            }).toDispatchActions(['check'])
+            expect(mockLatestRetrieve.mock.calls.length).toBe(callsAfterStop)
+        })
+
+        // An unserved poll route says nothing about a run the stream is already reporting. Dropping
+        // the session with the poll would take the widget away mid-install, for the rest of the
+        // tab — in exactly the rollout window the grace window exists to ride out.
+        it('leaves a live run streaming when the grace window closes', async () => {
+            logic.actions.markActive('posthog-integration')
+
+            await expectLogic(logic, () => {
+                logic.actions.check()
+            }).toDispatchActions(['pollFailed'])
+            jest.advanceTimersByTime(UNAVAILABLE_ROUTE_GRACE_MS)
+            await expectLogic(logic, () => {
+                logic.actions.check()
+            }).toDispatchActions(['markRouteUnavailable'])
+
+            expect(logic.values.permanentlyDisabled).toBe(true)
+            expect(logic.values.hasActiveSession).toBe(true)
+            expect(logic.values.shouldStream).toBe(true)
+        })
+
+        it('reopens the window once a poll in between answers', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.check()
+            }).toDispatchActions(['pollFailed'])
+
+            jest.advanceTimersByTime(UNAVAILABLE_ROUTE_GRACE_MS - 1_000)
+            mockLatestRetrieve.mockResolvedValue(null)
+            await expectLogic(logic, () => {
+                logic.actions.check()
+            }).toDispatchActions(['markInactive'])
+
+            mockLatestRetrieve.mockRejectedValue(new ApiError('not found', 404))
+            jest.advanceTimersByTime(2_000)
+            await expectLogic(logic, () => {
+                logic.actions.check()
+            }).toNotHaveDispatchedActions(['markRouteUnavailable'])
+            expect(logic.values.permanentlyDisabled).toBe(false)
+        })
+    })
+
+    // Every project-id change asks for a poll, and nothing upstream limits how fast the id can
+    // move — so an id that flaps turned into one request per change.
+    describe('project-change polling', () => {
+        beforeEach(() => {
+            jest.useFakeTimers()
+        })
+
+        afterEach(() => {
+            jest.useRealTimers()
+        })
+
+        it('collapses a flapping project id into one poll', () => {
+            mockLatestRetrieve.mockResolvedValue(null)
+
+            projectLogic.actions.loadCurrentProjectSuccess({ id: 1 } as ProjectType)
+            projectLogic.actions.loadCurrentProjectSuccess({ id: 2 } as ProjectType)
+            projectLogic.actions.loadCurrentProjectSuccess({ id: 3 } as ProjectType)
+            expect(mockLatestRetrieve).not.toHaveBeenCalled()
+
+            jest.advanceTimersByTime(5_000)
+            expect(mockLatestRetrieve).toHaveBeenCalledTimes(1)
+        })
+    })
+
+    // A poll asks for the project id it captured at the start. The poll after a project change is
+    // delayed, so it cannot invalidate a request that is already in flight for the old project —
+    // whose answer would otherwise decide the state of the project the user is now on.
+    it('drops a poll that settles after the project id moved on', async () => {
+        projectLogic.actions.loadCurrentProjectSuccess({ id: 1 } as ProjectType)
+
+        let settleFirstPoll: (session: WizardSessionDTOApi | null) => void = () => {}
+        mockLatestRetrieve.mockImplementation(
+            () =>
+                new Promise<WizardSessionDTOApi | null>((resolve) => {
+                    settleFirstPoll = resolve
+                })
+        )
+
+        await expectLogic(logic, () => {
+            logic.actions.check()
+        }).toDispatchActions(['check'])
+
+        projectLogic.actions.loadCurrentProjectSuccess({ id: 2 } as ProjectType)
+
+        await expectLogic(logic, () => {
+            settleFirstPoll(makeSession({ run_phase: 'running' }))
+        }).toFinishAllListeners()
+
+        expect(logic.values.hasActiveSession).toBe(false)
     })
 
     // With two programs watched, a failure on the live one plus an empty answer from the other is
