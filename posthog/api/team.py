@@ -7,6 +7,9 @@ from typing import Any, Literal, cast
 
 from django.conf import settings
 from django.db import transaction
+from django.db.models import F, JSONField, Value
+from django.db.models.expressions import CombinedExpression
+from django.db.models.functions import Coalesce
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
@@ -1194,6 +1197,21 @@ def _get_organization_for_logs_settings_check(serializer: serializers.BaseSerial
     return None
 
 
+def update_team_logs_settings(team: Team, value: dict | None) -> None:
+    merged_value = (
+        CombinedExpression(
+            Coalesce(F("logs_settings"), Value({}, output_field=JSONField())),
+            "||",
+            Value(value, output_field=JSONField()),
+            output_field=JSONField(),
+        )
+        if value is not None
+        else None
+    )
+    Team.objects.filter(pk=team.pk).update(logs_settings=merged_value, updated_at=timezone.now())
+    team.refresh_from_db(fields=["logs_settings", "updated_at"])
+
+
 class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin, UserAccessControlSerializerMixin):
     instance: Team | None
     _group_types_cache: list[dict[str, Any]] | None = None
@@ -1886,6 +1904,37 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
     VALID_RETENTION_DAYS = {14, 30}
 
     def validate_logs_settings(self, value: dict | None) -> dict | None:
+        team = (
+            self.instance.passthrough_team
+            if self.instance is not None and hasattr(self.instance, "passthrough_team")
+            else self.instance
+        )
+        if value is None or isinstance(value, dict) and "json_parse_logs_attribute_key" in value:
+            access_control = self.user_access_control
+            if access_control and not access_control.check_access_level_for_resource("logs", "editor"):
+                raise exceptions.PermissionDenied("You need editor access to Logs to modify JSON attribute parsing.")
+            request = self.context.get("request")
+            organization = _get_organization_for_logs_settings_check(self)
+            groups = {"organization": str(organization.id)} if organization else {}
+            if team is not None:
+                groups["project"] = str(team.id)
+            if (
+                request is None
+                or not getattr(request.user, "distinct_id", None)
+                or posthoganalytics.feature_enabled(
+                    "logs-json-attribute-parsing",
+                    str(request.user.distinct_id),
+                    groups=groups,
+                    group_properties={"organization": {"id": str(organization.id)}} if organization else {},
+                    only_evaluate_locally=False,
+                    send_feature_flag_events=False,
+                )
+                is not True
+            ):
+                raise exceptions.PermissionDenied(
+                    "The logs-json-attribute-parsing feature flag must be enabled to modify JSON attribute parsing."
+                )
+
         if value is None:
             return value
 
@@ -1909,11 +1958,6 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
                 f"retention_days must be one of {sorted(TeamSerializer.VALID_RETENTION_DAYS)}"
             )
 
-        team = (
-            self.instance.passthrough_team
-            if self.instance is not None and hasattr(self.instance, "passthrough_team")
-            else self.instance
-        )
         logs_settings = team.logs_settings if team is not None else None
         old_retention = logs_settings.get("retention_days") if logs_settings else None
 
@@ -2165,15 +2209,19 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         # each other — e.g. an `onboarding_tasks` PATCH racing the onboarding-completion PATCH
         # erased `has_completed_onboarding_for` and reverted `completed_snippet_onboarding`,
         # bouncing freshly onboarded users back into onboarding.
+        logs_settings_updated = "logs_settings" in validated_data
+        if logs_settings_updated:
+            update_team_logs_settings(instance, validated_data.pop("logs_settings"))
+
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
-        if validated_data:
+        if validated_data or logs_settings_updated:
             # auto_now fields only refresh when included in update_fields
             instance.save(update_fields=[*validated_data.keys(), "updated_at"])
         # Snapshot before the cache refresh below so the audit diff only reflects this
         # request's writes, not fields a concurrent request changed.
         after_update = instance.__dict__.copy()
-        if validated_data:
+        if validated_data or logs_settings_updated:
             # The in-memory instance may hold stale values for fields a concurrent request
             # changed, and the post-save receiver has already cached that snapshot. Reload
             # and re-cache so the team cache reflects the merged row.

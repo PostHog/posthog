@@ -60,11 +60,13 @@ A change reaches log ingestion within a few minutes. Records ingested in that wi
 
 ## JSON attribute parsing configuration
 
-The project API stores the selected JSON attribute key in `logs_settings.json_parse_logs_attribute_key`, separately from the `logs_config` endpoint above. Only project admins can update this setting.
+The project API stores the selected JSON attribute key in `logs_settings.json_parse_logs_attribute_key`, separately from the `logs_config` endpoint above. Updating or clearing this setting requires project admin and Logs Editor access, plus the `logs-json-attribute-parsing` feature flag enabled for the requesting user. The API enforces these checks.
 
 - The value must be a string. Leading and trailing whitespace is trimmed, and the trimmed key can be at most 200 characters.
 - The key is matched literally, including dots.
 - The default is off. An empty string disables parsing.
-- A `PATCH` replaces the whole `logs_settings` object, so send the other fields back with it.
+- A `PATCH` merges supplied keys into the stored `logs_settings` object. Send only changed keys so unrelated settings, including concurrent updates, are preserved. Sending `logs_settings: null` clears all Logs settings and also requires Logs Editor access and the feature flag.
 
 Nothing reads this setting yet, so storing a key does not change how logs are parsed. Changing it never reprocesses historical logs.
+
+The API evaluates the `logs-json-attribute-parsing` feature flag for the requesting user with organization and project context. Disabled or unavailable flag evaluations reject writes, including empty-string and null resets, with HTTP 403. Unrelated Logs settings can still be updated. Disabling the flag does not change the saved value. Keep this rollout flag disabled until the ingestion implementation is deployed.

@@ -1,3 +1,4 @@
+import json
 import threading
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -2013,17 +2014,127 @@ def team_api_test_factory():
                 (" " + "a" * 200 + " ", "a" * 200),
             ]
         )
-        def test_logs_settings_json_attribute_key(self, key, expected):
+        @patch("posthog.api.team.posthoganalytics.feature_enabled", return_value=True)
+        def test_logs_settings_json_attribute_key(self, key, expected, _mock_flag):
+            existing_settings = {"retention_days": 7, "json_parse_logs": False, "scrub_ips": True}
+            self.team.logs_settings = existing_settings
+            self.team.save()
             response = self.client.patch(
                 "/api/environments/@current/",
                 {"logs_settings": {"json_parse_logs_attribute_key": key}},
             )
             assert response.status_code == status.HTTP_200_OK
             self.team.refresh_from_db()
-            assert self.team.logs_settings["json_parse_logs_attribute_key"] == expected
+            expected_settings = {**existing_settings, "json_parse_logs_attribute_key": expected}
+            assert self.team.logs_settings == expected_settings
+            assert response.json()["logs_settings"] == expected_settings
+
+        @patch("posthog.api.team.posthoganalytics.feature_enabled", return_value=True)
+        def test_logs_settings_partial_patch_preserves_concurrent_updates(self, _mock_flag):
+            stale_team = Team.objects.get(pk=self.team.pk)
+            existing_settings = {"retention_days": 7, "json_parse_logs": False, "scrub_ips": True}
+            Team.objects.filter(pk=self.team.pk).update(logs_settings=existing_settings)
+
+            with patch.object(Project, "passthrough_team", property(lambda _self: stale_team)):
+                response = self.client.patch(
+                    f"/api/environments/{self.team.id}/",
+                    {"logs_settings": {"json_parse_logs_attribute_key": "attributes"}},
+                )
+
+            assert response.status_code == status.HTTP_200_OK
+            expected_settings = {**existing_settings, "json_parse_logs_attribute_key": "attributes"}
+            self.team.refresh_from_db()
+            assert self.team.logs_settings == expected_settings
+            assert response.json()["logs_settings"] == expected_settings
+            assert json.loads(cache.get(f"team_token:{self.team.api_token}"))["logs_settings"] == expected_settings
+
+        @parameterized.expand(
+            [
+                ("none", {"json_parse_logs_attribute_key": "context"}, status.HTTP_403_FORBIDDEN),
+                ("viewer", {"json_parse_logs_attribute_key": "context"}, status.HTTP_403_FORBIDDEN),
+                ("viewer", {"json_parse_logs_attribute_key": ""}, status.HTTP_403_FORBIDDEN),
+                ("viewer", None, status.HTTP_403_FORBIDDEN),
+                ("editor", {"json_parse_logs_attribute_key": "context"}, status.HTTP_200_OK),
+                ("editor", None, status.HTTP_200_OK),
+            ]
+        )
+        @patch("posthog.api.team.posthoganalytics.feature_enabled", return_value=True)
+        def test_logs_settings_json_attribute_requires_logs_editor(
+            self, access_level, settings_value, expected_status, _mock_flag
+        ):
+            from products.access_control.backend.models.access_control import AccessControl
+
+            self.organization_membership.level = OrganizationMembership.Level.MEMBER
+            self.organization_membership.save()
+            self.organization.available_product_features = [{"key": AvailableFeature.ACCESS_CONTROL}]
+            self.organization.save()
+            AccessControl.objects.create(
+                team=self.team, resource="project", resource_id=str(self.team.id), access_level="admin"
+            )
+            AccessControl.objects.create(team=self.team, resource="logs", access_level=access_level)
+            original_settings = {"json_parse_logs_attribute_key": "attributes", "json_parse_logs": True}
+            self.team.logs_settings = original_settings
+            self.team.save()
+
+            response = self.client.patch(
+                "/api/environments/@current/", {"logs_settings": settings_value}, format="json"
+            )
+
+            assert response.status_code == expected_status, response.json()
+            self.team.refresh_from_db()
+            if expected_status == status.HTTP_403_FORBIDDEN:
+                assert self.team.logs_settings == original_settings
+            else:
+                assert self.team.logs_settings == (
+                    {**original_settings, **settings_value} if settings_value is not None else None
+                )
+
+        @parameterized.expand(
+            [
+                (False, {"json_parse_logs_attribute_key": "context"}, status.HTTP_403_FORBIDDEN),
+                (None, {"json_parse_logs_attribute_key": "context"}, status.HTTP_403_FORBIDDEN),
+                (False, {"json_parse_logs_attribute_key": ""}, status.HTTP_403_FORBIDDEN),
+                (False, None, status.HTTP_403_FORBIDDEN),
+                (True, {"json_parse_logs_attribute_key": "context"}, status.HTTP_200_OK),
+                (True, None, status.HTTP_200_OK),
+                (False, {"json_parse_logs": False}, status.HTTP_200_OK),
+                (False, {}, status.HTTP_200_OK),
+            ]
+        )
+        def test_logs_settings_json_attribute_requires_feature_flag(self, enabled, settings_value, expected_status):
+            original_settings = {"json_parse_logs_attribute_key": "attributes", "json_parse_logs": True}
+            self.team.logs_settings = original_settings
+            self.team.save()
+
+            with patch("posthog.api.team.posthoganalytics.feature_enabled", return_value=enabled) as mock_flag:
+                response = self.client.patch(
+                    "/api/environments/@current/", {"logs_settings": settings_value}, format="json"
+                )
+
+            assert response.status_code == expected_status, response.json()
+            self.team.refresh_from_db()
+            if expected_status == status.HTTP_403_FORBIDDEN:
+                assert "logs-json-attribute-parsing" in response.json()["detail"]
+                assert self.team.logs_settings == original_settings
+            else:
+                assert self.team.logs_settings == (
+                    {**original_settings, **settings_value} if settings_value is not None else None
+                )
+            if settings_value is None or "json_parse_logs_attribute_key" in settings_value:
+                mock_flag.assert_called_once_with(
+                    "logs-json-attribute-parsing",
+                    str(self.user.distinct_id),
+                    groups={"organization": str(self.organization.id), "project": str(self.team.id)},
+                    group_properties={"organization": {"id": str(self.organization.id)}},
+                    only_evaluate_locally=False,
+                    send_feature_flag_events=False,
+                )
+            else:
+                mock_flag.assert_not_called()
 
         @parameterized.expand([(None,), (True,), (123,), ([],), ({},), ("a" * 201,)])
-        def test_logs_settings_invalid_json_attribute_key(self, key):
+        @patch("posthog.api.team.posthoganalytics.feature_enabled", return_value=True)
+        def test_logs_settings_invalid_json_attribute_key(self, key, _mock_flag):
             response = self.client.patch(
                 "/api/environments/@current/",
                 {"logs_settings": {"json_parse_logs_attribute_key": key}},
@@ -2070,7 +2181,8 @@ def team_api_test_factory():
             )
             assert response.status_code == status.HTTP_200_OK
 
-        def test_logs_settings_non_retention_changes_not_restricted(self):
+        @patch("posthog.api.team.posthoganalytics.feature_enabled", return_value=True)
+        def test_logs_settings_non_retention_changes_not_restricted(self, _mock_flag):
             self._grant_logs_retention_features(AvailableFeature.LOGS_RETENTION_30D)
 
             # Set initial retention

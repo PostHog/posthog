@@ -52,6 +52,7 @@ from posthog.api.team import (
     handle_tracing_config,
     report_conversations_settings_changes,
     team_event_ingestion_restrictions_view,
+    update_team_logs_settings,
     validate_secret_token_generation,
     validate_team_attrs,
     validate_team_workflows_config,
@@ -1291,6 +1292,9 @@ class ProjectBackwardCompatSerializer(
         # bouncing freshly onboarded users back into onboarding.
         updated_team_fields = []
         updated_project_fields = []
+        logs_settings_updated = "logs_settings" in validated_data
+        if logs_settings_updated:
+            update_team_logs_settings(team, validated_data.pop("logs_settings"))
         for attr, value in validated_data.items():
             if attr not in self.Meta.team_passthrough_fields:
                 # This attr is a Project field
@@ -1309,13 +1313,13 @@ class ProjectBackwardCompatSerializer(
 
         if updated_project_fields:
             instance.save(update_fields=updated_project_fields)
-        if updated_team_fields:
+        if updated_team_fields or logs_settings_updated:
             # auto_now fields only refresh when included in update_fields
             team.save(update_fields=[*updated_team_fields, "updated_at"])
         # Snapshot before the cache refresh below so the audit diff only reflects this
         # request's writes, not fields a concurrent request changed.
         team_after_update = team.__dict__.copy()
-        if updated_team_fields:
+        if updated_team_fields or logs_settings_updated:
             # The in-memory team may hold stale values for fields a concurrent request
             # changed, and the post-save receiver has already cached that snapshot. Reload
             # and re-cache so the team cache reflects the merged row.
