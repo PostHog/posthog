@@ -1953,6 +1953,8 @@ class TrinoPrinter(PostgresPrinter):
                 node, "arrayLastIndex expects a one-argument lambda and array in Trino mode."
             )
         predicate = node.args[0]
+        if not isinstance(predicate.expr, ast.Expr):
+            self._invalid_function_arguments(node, "arrayLastIndex requires an expression lambda in Trino mode.")
         argument = self._print_identifier(predicate.args[0])
         matches = f"transform({self.visit(node.args[1])}, {argument} -> {self._visit_predicate(predicate.expr)})"
         state = "__hogql_last_index_state"
