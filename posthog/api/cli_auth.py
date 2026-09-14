@@ -182,6 +182,7 @@ class CLIAuthViewSet(viewsets.ViewSet):
             .values_list("id", flat=True)[:MAX_EXPIRED_DEVICE_AUTHORIZATIONS_CLEANED]
         )
         if expired_ids:
+            # nosemgrep: idor-lookup-without-team (bounded cleanup of expired bearer records)
             CLIDeviceAuthorization.objects.unscoped().filter(id__in=expired_ids).delete()
 
         expires_at = now + timedelta(seconds=DEVICE_CODE_EXPIRY_SECONDS)
@@ -287,6 +288,7 @@ class CLIAuthViewSet(viewsets.ViewSet):
             )
 
         with transaction.atomic():
+            # nosemgrep: idor-lookup-without-team, idor-taint-user-input-to-model-get (authorization was found by a bearer code and is locked before use)
             authorization = CLIDeviceAuthorization.objects.unscoped().select_for_update().get(pk=authorization.pk)
             if authorization.expires_at <= timezone.now():
                 return Response(
@@ -407,6 +409,7 @@ class CLIAuthViewSet(viewsets.ViewSet):
 
         if authorization.status == CLIDeviceAuthorization.Status.AUTHORIZED:
             with transaction.atomic():
+                # nosemgrep: idor-lookup-without-team, idor-taint-user-input-to-model-get (authorization was found by a bearer code and is locked before use)
                 authorization = CLIDeviceAuthorization.objects.unscoped().select_for_update().get(pk=authorization.pk)
                 if authorization.status != CLIDeviceAuthorization.Status.AUTHORIZED:
                     return Response(
