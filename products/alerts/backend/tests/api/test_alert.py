@@ -1276,8 +1276,8 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
 
     @parameterized.expand(
         [
-            ("every_15_minutes", "2026-03-18T09:05:00+00:00"),
-            ("hourly", "2026-03-18T09:35:00+00:00"),
+            ("every_15_minutes", "every_15_minutes", "2026-03-18T09:05:00+00:00"),
+            ("hourly", "hourly", "2026-03-18T09:35:00+00:00"),
         ]
     )
     @time_machine.travel("2026-03-18T09:00:00Z", tick=False)

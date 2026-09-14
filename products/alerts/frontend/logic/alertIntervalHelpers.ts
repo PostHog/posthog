@@ -43,7 +43,7 @@ export function scheduleStartTimeForInterval(
     interval: AlertCalculationInterval,
     scheduleStartTime: string | null | undefined
 ): string | null {
-    return canSetAlertScheduleStartTime(interval) ? (scheduleStartTime ?? '00:00') : null
+    return canSetAlertScheduleStartTime(interval) ? (scheduleStartTime ?? null) : null
 }
 
 export function getAlertScheduleStartMinute(scheduleStartTime: string | null | undefined): number | undefined {
@@ -54,7 +54,7 @@ export function getAlertScheduleStartMinute(scheduleStartTime: string | null | u
 }
 
 export function scheduleStartTimeForMinute(minute: number | null | undefined): string | null {
-    if (minute === null || minute === undefined || minute < 0 || minute > 59) {
+    if (minute === null || minute === undefined || !Number.isInteger(minute) || minute < 0 || minute > 59) {
         return null
     }
     return `00:${String(minute).padStart(2, '0')}`

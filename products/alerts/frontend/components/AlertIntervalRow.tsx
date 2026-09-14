@@ -184,13 +184,15 @@ export function AlertIntervalRow({
                             min={0}
                             max={59}
                             step={1}
-                            value={getAlertScheduleStartMinute(alertForm.schedule_start_time) ?? 0}
+                            value={getAlertScheduleStartMinute(alertForm.schedule_start_time)}
+                            onFocus={(event) => event.currentTarget.select()}
                             onChange={(minute) =>
                                 onSetAlertFormValue('schedule_start_time', scheduleStartTimeForMinute(minute))
                             }
                             aria-label="Alert evaluation minute"
                             data-attr="alertForm-schedule-start-time"
                         />
+                        <span>of the hour</span>
                     </>
                 )}
                 {evaluatedWindow}

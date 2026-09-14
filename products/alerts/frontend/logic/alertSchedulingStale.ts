@@ -26,7 +26,12 @@ export function approximateNextAlertRun(
 
     const scheduleStartMinute = scheduleStartTime ? Number(scheduleStartTime.split(':')[1]) : undefined
     const nextRunFromScheduleStartMinute = (cadenceMinutes: number): Dayjs | null => {
-        if (scheduleStartMinute === undefined || scheduleStartMinute < 0 || scheduleStartMinute > 59) {
+        if (
+            scheduleStartMinute === undefined ||
+            !Number.isInteger(scheduleStartMinute) ||
+            scheduleStartMinute < 0 ||
+            scheduleStartMinute > 59
+        ) {
             return null
         }
 

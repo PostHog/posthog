@@ -38,6 +38,7 @@ describe('alertSchedulingStale', () => {
                 '2026-07-24T17:10:00.000Z',
             ],
             [AlertCalculationInterval.HOURLY, '00:55', '2026-07-24T16:30:00.000Z', '2026-07-24T16:55:00.000Z'],
+            [AlertCalculationInterval.HOURLY, '00:NaN', '2026-07-24T16:30:00.000Z', '2026-07-24T17:30:00.000Z'],
         ])('uses %s schedule start time %s', (interval, scheduleStartTime, nowValue, expected) => {
             const now = dayjs.utc(nowValue)
 

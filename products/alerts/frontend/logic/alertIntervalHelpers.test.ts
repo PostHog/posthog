@@ -163,9 +163,12 @@ describe('alertIntervalHelpers', () => {
             expect(scheduleStartTimeForInterval(interval, '00:55')).toBe(expected)
         })
 
-        it.each([[AlertCalculationInterval.HOURLY, '00:00']])('defaults %s to %s', (interval, expected) => {
-            expect(scheduleStartTimeForInterval(interval, null)).toBe(expected)
-        })
+        it.each([[AlertCalculationInterval.HOURLY, null]])(
+            'preserves an unanchored %s schedule',
+            (interval, expected) => {
+                expect(scheduleStartTimeForInterval(interval, null)).toBe(expected)
+            }
+        )
     })
 
     describe('alert schedule start minute', () => {
@@ -180,6 +183,8 @@ describe('alertIntervalHelpers', () => {
 
         it.each([
             [undefined, null],
+            [Number.NaN, null],
+            [1.5, null],
             [-1, null],
             [60, null],
             [0, '00:00'],
