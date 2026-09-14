@@ -308,7 +308,9 @@ export { rewriteSavedLocation } from "./route-migrations";
 export { Saga, type SagaLogger, type SagaResult } from "./saga";
 export {
   type AcpMessage,
+  IDLE_RESUME_STOP_REASON,
   IMPORTED_USER_PROMPT_META_KEY,
+  isIdleResumeTurnComplete,
   isJsonRpcNotification,
   isJsonRpcRequest,
   isJsonRpcResponse,
