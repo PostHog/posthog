@@ -122,7 +122,7 @@ from rest_framework.exceptions import ValidationError
 from posthog.schema import EventsNode
 
 from posthog.hogql import ast
-from posthog.hogql.constants import HogQLGlobalSettings
+from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS, HogQLGlobalSettings
 from posthog.hogql.database.database import Database
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.query import execute_hogql_query
@@ -740,9 +740,10 @@ class _ComparedEnrollment:
     # How many people each variant enrolled inside the compared stretch, whether or not they
     # turned out to have a session. What "one variant enrolled almost everyone" is decided from.
     persons_by_variant: dict[str, int]
-    # The same count over the whole run. Separates a variant that is thin everywhere, which is the
-    # configured split, from one that stopped enrolling part way through, which is a split that
-    # changed.
+    # The same count over as much of the run as the nomination query reaches, which is every minute
+    # that enrolled anyone unless the run holds more of them than one query returns. Separates a
+    # variant that is thin everywhere, which is the configured split, from one that stopped
+    # enrolling part way through, which is a split that changed.
     run_persons_by_variant: dict[str, int]
     ranges: tuple[_TimeRange, ...]
     # True when more people were exposed than one comparison covers, so the oldest enrollees were
@@ -1003,10 +1004,10 @@ def _nominate_enrollment(setup: _QuerySetup, *, window_end: datetime) -> _Compar
 
     Read as per-minute counts of first exposures split by variant, newest minute first, rather than
     one row per person: the walk below only needs to know how many people of each variant a stretch
-    of time admits, minute buckets keep the result under HogQL's returned-rows ceiling however many
-    people the run has, and they make the cutoff a clean boundary the population filter can
-    reproduce exactly. MULTIPLE_VARIANT_KEY people are in, so the count of people the analysis set
-    aside is taken over the same people the comparison reads.
+    of time admits, minute buckets bound the result by how many minutes enrolled anyone rather than
+    by how many people the run has, and they make the cutoff a clean boundary the population filter
+    can reproduce exactly. MULTIPLE_VARIANT_KEY people are in, so the count of people the analysis
+    set aside is taken over the same people the comparison reads.
     """
     first_exposures = ast.SelectQuery(
         select=[
@@ -1032,12 +1033,14 @@ def _nominate_enrollment(setup: _QuerySetup, *, window_end: datetime) -> _Compar
         select_from=ast.JoinExpr(table=first_exposures),
         group_by=[ast.Field(chain=["minute"]), ast.Field(chain=["variant"])],
         order_by=[ast.OrderExpr(expr=ast.Field(chain=["minute"]), order="DESC")],
-        # Every row carries at least one person, and one minute holds at most one row per variant
-        # plus one for the people who saw several. A result this long therefore has more people in
-        # its complete minutes than the person cap, so the walk stops before the oldest minute,
-        # whose rows the limit may have cut in half. One row past that, so a run whose enrollment
-        # exactly fills the cap is not read as cut short.
-        limit=ast.Constant(value=MAX_DELTA_SCAN_PERSONS + len(setup.variant_keys) + 2),
+        # Every row the ceiling allows, not a bound derived from the person cap. The walk needs
+        # only the newest cap's worth of people, but the rows behind them are what
+        # `run_persons_by_variant` reads to tell a variant that is thin everywhere from one that
+        # stopped enrolling, and they come out of an aggregation computed whatever the limit says,
+        # so that history costs no extra read. The limit can cut the oldest minute's rows in half,
+        # leaving it short of the people it held; the walk never reaches that minute, because every
+        # row carries at least one person and the person cap stops it far sooner.
+        limit=ast.Constant(value=MAX_SELECT_RETURNED_ROWS),
     )
 
     # Rows of one minute are adjacent, because the minute is the only sort key, so inserting them
@@ -1104,7 +1107,7 @@ def _is_one_sided_enrollment(
     because enrollment changed, not because the flag was configured that way: an intentionally
     small variant on a low-traffic experiment stays under the floor in every stretch of the run,
     and telling that reader their split changed and that waiting cannot help would name a cause
-    that never happened. A variant that reached the floor over the whole run but not inside the
+    that never happened. A variant that reached the floor earlier in the run but not inside the
     compared stretch did stop enrolling, and under an even configured split there is nothing else
     left to explain the imbalance.
     """
@@ -1155,9 +1158,9 @@ def _plan_compared_enrollment(
     absorbs that because it bounds aggregation state rather than the rows read. Free of ClickHouse
     so the cost bound can be tested on its own.
 
-    `run_persons_by_variant` is counted over the whole run rather than over `buckets`, because the
-    caller holds the newest minutes back from the walk on a running experiment and those people are
-    enrolled all the same.
+    `run_persons_by_variant` is counted over every minute the caller read rather than over
+    `buckets`, because the caller holds the newest minutes back from the walk on a running
+    experiment and those people are enrolled all the same.
     """
     ranges: list[_TimeRange] = []
     covered = timedelta(0)
