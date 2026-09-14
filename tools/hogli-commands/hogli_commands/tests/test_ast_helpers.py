@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from hogli_commands.product.ast_helpers import get_model_names
+from hogli_commands.product.ast_helpers import get_frozen_dataclass_names, get_model_names
 
 MODELS_SOURCE = """
 from django.db import models
@@ -78,3 +78,59 @@ class TestGetModelNames:
         backend.mkdir()
         (backend / "models.py").write_text(NO_DJANGO_SOURCE)
         assert get_model_names(backend) == []
+
+
+FROZEN_DATACLASS_SOURCE = """
+import posthog.dataclasses
+from dataclasses import dataclass
+
+from posthog.dataclasses import frozen
+
+
+@frozen
+class HouseDefault:
+    name: str
+
+
+@frozen(slots=True)
+class HouseWithOptions:
+    name: str
+
+
+@frozen(frozen=False)
+class HouseOptedOut:
+    name: str
+
+
+@posthog.dataclasses.frozen
+class HouseQualified:
+    name: str
+
+
+@dataclass(frozen=True)
+class StdlibFrozen:
+    name: str
+
+
+@dataclass
+class StdlibMutable:
+    name: str
+"""
+
+
+class TestGetFrozenDataclassNames:
+    @pytest.mark.parametrize(
+        "name, expected",
+        [
+            ("HouseDefault", True),  # @frozen is frozen unless it says otherwise
+            ("HouseWithOptions", True),  # an unrelated keyword does not unfreeze it
+            ("HouseOptedOut", False),  # frozen=False is the opt-out
+            ("HouseQualified", True),  # module prefix stripped before matching
+            ("StdlibFrozen", True),
+            ("StdlibMutable", False),  # stdlib is mutable unless frozen=True
+        ],
+    )
+    def test_classification(self, tmp_path: Path, name: str, expected: bool) -> None:
+        source = tmp_path / "contracts.py"
+        source.write_text(FROZEN_DATACLASS_SOURCE)
+        assert (name in get_frozen_dataclass_names(source)) is expected

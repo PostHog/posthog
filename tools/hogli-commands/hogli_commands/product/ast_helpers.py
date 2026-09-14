@@ -116,8 +116,36 @@ def get_model_names(backend_dir: Path) -> list[str]:
     return names
 
 
+def _decorator_name(node: ast.expr) -> str | None:
+    """The bare name of a decorator, with any call and any module prefix stripped."""
+    target = node.func if isinstance(node, ast.Call) else node
+    if isinstance(target, ast.Name):
+        return target.id
+    if isinstance(target, ast.Attribute):
+        return target.attr
+    return None
+
+
+def _keyword_is(node: ast.expr, name: str, value: bool) -> bool:
+    if not isinstance(node, ast.Call):
+        return False
+    return any(
+        kw.arg == name and isinstance(kw.value, ast.Constant) and kw.value.value is value for kw in node.keywords
+    )
+
+
+def _is_frozen_dataclass_decorator(node: ast.expr) -> bool:
+    """True for @dataclass(frozen=True) and for the house decorator, which is frozen by default."""
+    name = _decorator_name(node)
+    if name == "dataclass":
+        return _keyword_is(node, "frozen", True)
+    if name == "frozen":
+        return not _keyword_is(node, "frozen", False)
+    return False
+
+
 def get_frozen_dataclass_names(file_path: Path) -> list[str]:
-    """Return names of @dataclass(frozen=True) classes in a file."""
+    """Return names of frozen dataclasses in a file."""
     tree = ast_parse_safe(file_path)
     if not tree:
         return []
@@ -125,18 +153,8 @@ def get_frozen_dataclass_names(file_path: Path) -> list[str]:
     for node in ast.walk(tree):
         if not isinstance(node, ast.ClassDef):
             continue
-        for dec in node.decorator_list:
-            if not isinstance(dec, ast.Call):
-                continue
-            func = dec.func
-            is_dc = (isinstance(func, ast.Name) and func.id == "dataclass") or (
-                isinstance(func, ast.Attribute) and func.attr == "dataclass"
-            )
-            if is_dc and any(
-                kw.arg == "frozen" and isinstance(kw.value, ast.Constant) and kw.value.value is True
-                for kw in dec.keywords
-            ):
-                names.append(node.name)
+        if any(_is_frozen_dataclass_decorator(dec) for dec in node.decorator_list):
+            names.append(node.name)
     return names
 
 
