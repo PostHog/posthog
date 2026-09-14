@@ -10,10 +10,22 @@ import { TaskRunStatus } from 'products/posthog_ai/frontend/types/taskTypes'
 
 import { ReportTaskPurpose } from '../components/detail/artefactTypes'
 import { INBOX_EVENTS } from '../inboxAnalytics'
+import { inboxTaskKickoffLogic } from '../inboxTaskKickoffLogic'
 import { SignalReport } from '../types'
-import { ReportTaskEntry, implementationSlotClaim, inboxReportDetailLogic } from './inboxReportDetailLogic'
+import {
+    ReportTaskEntry,
+    effectiveImplementationSlotClaim,
+    implementationSlotClaim,
+    inboxReportDetailLogic,
+} from './inboxReportDetailLogic'
 
 const REPORT = { id: 'report-1', status: 'ready', title: 'Checkout errors spiked' } as unknown as SignalReport
+
+// A report an implementation run already holds, as the list payload hands it to the detail pane.
+const taskClaimedReport = {
+    ...REPORT,
+    assignee: { kind: 'task', task_id: 'task-1' },
+} as unknown as SignalReport
 
 const linkedTask = (purpose: ReportTaskPurpose, status: TaskRunStatus | null, prUrl?: string): ReportTaskEntry =>
     ({
@@ -57,6 +69,47 @@ describe('inboxReportDetailLogic', () => {
             expect(implementationSlotClaim([linkedTask('research', TaskRunStatus.IN_PROGRESS)])).toBeNull()
             expect(implementationSlotClaim([linkedTask('other', TaskRunStatus.IN_PROGRESS)])).toBeNull()
             expect(implementationSlotClaim(null)).toBeNull()
+        })
+
+        // Each row is a press that used to reach the server and come back as an error toast.
+        it.each([
+            {
+                label: 'a cold load of a report a task is working',
+                tasks: null,
+                report: taskClaimedReport,
+                refused: false,
+                claim: 'in_flight',
+            },
+            {
+                label: 'a cold load of an unclaimed report',
+                tasks: null,
+                report: REPORT,
+                refused: false,
+                claim: null,
+            },
+            {
+                label: 'a refusal the task list does not know about yet',
+                tasks: [],
+                report: REPORT,
+                refused: true,
+                claim: 'in_flight',
+            },
+            {
+                label: 'a loaded list that holds the slot',
+                tasks: [linkedTask('implementation', TaskRunStatus.COMPLETED, 'https://github.com/acme/web/pull/1')],
+                report: taskClaimedReport,
+                refused: true,
+                claim: 'shipped_pr',
+            },
+            {
+                label: 'a loaded list with the slot free',
+                tasks: [linkedTask('implementation', TaskRunStatus.COMPLETED)],
+                report: taskClaimedReport,
+                refused: false,
+                claim: null,
+            },
+        ])('$label gates Implement on: $claim', ({ tasks, report, refused, claim }) => {
+            expect(effectiveImplementationSlotClaim(tasks, report, refused)).toBe(claim)
         })
     })
 
@@ -439,6 +492,32 @@ describe('inboxReportDetailLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
 
             expect(artefactRequests).toBe(beforeKickoff + 1)
+        })
+
+        // Leaving the correction to the next poll tick keeps the button pressable for seconds.
+        it('disables Implement and reloads the task list when the server refuses the press', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+            const beforeRefusal = artefactRequests
+
+            inboxTaskKickoffLogic.actions.createPrFailure(REPORT.id, 'signal_report_task_cap')
+
+            expect(logic.values.implementationSlotClaim).toBe('in_flight')
+            await expectLogic(logic).toFinishAllListeners()
+            expect(artefactRequests).toBe(beforeRefusal + 1)
+        })
+
+        it.each([
+            { label: 'another report', reportId: 'report-2', limitCode: 'signal_report_task_cap' },
+            { label: 'a failure that is not a refusal', reportId: REPORT.id, limitCode: null },
+        ])('leaves Implement alone for $label', async ({ reportId, limitCode }) => {
+            await expectLogic(logic).toFinishAllListeners()
+            const before = artefactRequests
+
+            inboxTaskKickoffLogic.actions.createPrFailure(reportId, limitCode)
+
+            expect(logic.values.implementationSlotClaim).toBeNull()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(artefactRequests).toBe(before)
         })
     })
 })

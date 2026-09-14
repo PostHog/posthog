@@ -5,11 +5,12 @@ import userEvent from '@testing-library/user-event'
 
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
+import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
+import { makeReport } from '../../__mocks__/inboxMocks'
 import { captureInboxReportAction } from '../../inboxAnalytics'
 import { inboxTaskKickoffLogic } from '../../inboxTaskKickoffLogic'
-import { SignalReport, SignalReportStatus } from '../../types'
 import { ImplementButton } from './ImplementButton'
 
 jest.mock('../../inboxAnalytics', () => ({
@@ -21,26 +22,30 @@ jest.mock('lib/utils/copyToClipboard', () => ({
     copyToClipboard: jest.fn().mockResolvedValue(true),
 }))
 
-function makeReport(): SignalReport {
-    return {
-        id: 'report-1',
-        title: 'Exceptions spiked',
-        summary: 'summary',
-        status: SignalReportStatus.READY,
-        total_weight: 0,
-        signal_count: 1,
-        relevant_user_count: null,
-        artefact_count: 0,
-        is_suggested_reviewer: false,
-        created_at: '2026-06-11T10:00:00Z',
-        updated_at: '2026-06-11T10:00:00Z',
-    } satisfies SignalReport
-}
+// The shared factory mints a fresh report id per call, and the assertions read it back.
+const report = (overrides: Parameters<typeof makeReport>[0] = {}): ReturnType<typeof makeReport> =>
+    makeReport({ id: 'report-1', title: 'Exceptions spiked', summary: 'summary', ...overrides })
 
 describe('ImplementButton', () => {
     let createPrFromReport: jest.Mock
+    // Holds the report's artefact log — and so its task list — unresolved, which is the pane's cold load.
+    let releaseArtefacts: () => void
 
     beforeEach(() => {
+        releaseArtefacts = () => {}
+        const artefacts = new Promise<void>((resolve) => {
+            releaseArtefacts = resolve
+        })
+        useMocks({
+            get: {
+                '/api/projects/:team_id/signals/reports/:id/artefacts/': async () => {
+                    await artefacts
+                    return { results: [] }
+                },
+                '/api/projects/:team_id/signals/reports/:id/signals/': { signals: [] },
+                '/api/projects/:team_id/signals/reports/available_reviewers/': [],
+            },
+        })
         initKeaTests()
         inboxTaskKickoffLogic.mount()
         createPrFromReport = jest.fn()
@@ -50,13 +55,14 @@ describe('ImplementButton', () => {
     })
 
     afterEach(() => {
+        releaseArtefacts()
         cleanup()
         jest.restoreAllMocks()
     })
 
     async function openMenu(): Promise<ReturnType<typeof userEvent.setup>> {
         const user = userEvent.setup()
-        render(<ImplementButton report={makeReport()} />)
+        render(<ImplementButton report={report()} />)
         await user.click(screen.getByTestId('inbox-report-create-pr-steer'))
         await waitFor(() => expect(screen.getByText('Implement with PostHog')).toBeInTheDocument())
         return user
@@ -64,7 +70,7 @@ describe('ImplementButton', () => {
 
     it('starts a PostHog agent from the main action', async () => {
         const user = userEvent.setup()
-        render(<ImplementButton report={makeReport()} />)
+        render(<ImplementButton report={report()} />)
 
         await user.click(screen.getByTestId('inbox-report-create-pr'))
 
@@ -102,6 +108,37 @@ describe('ImplementButton', () => {
             'Keep the existing API'
         )
         expect(jest.mocked(captureInboxReportAction).mock.calls[0][0].extra).toEqual({ has_feedback: true })
+    })
+
+    // The run the server refuses for is usually already running when the pane opens, and the task
+    // list takes several requests to arrive. An enabled button in that window is the press that
+    // comes back as an error toast.
+    it('stays disabled on a cold load of a report a run already holds', async () => {
+        const user = userEvent.setup()
+        render(
+            <ImplementButton
+                report={report({
+                    assignee: {
+                        kind: 'task',
+                        task_id: 'task-1',
+                        claim_id: null,
+                        user: null,
+                        agent: null,
+                        claimed_at: null,
+                    },
+                })}
+            />
+        )
+
+        const button = screen.getByTestId('inbox-report-create-pr')
+        expect(button).toHaveAttribute('aria-disabled', 'true')
+        await user.click(button)
+        expect(createPrFromReport).not.toHaveBeenCalled()
+
+        // The loaded task list is the better answer and takes the gate back: this one holds no run,
+        // so the report's own claim stops standing in for it.
+        releaseArtefacts()
+        await waitFor(() => expect(button).toHaveAttribute('aria-disabled', 'false'))
     })
 
     it('copies a prompt that claims the report and attaches the finished pull request', async () => {
