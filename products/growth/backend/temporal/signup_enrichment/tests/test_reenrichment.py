@@ -27,6 +27,7 @@ from products.growth.backend.temporal.signup_enrichment.reenrichment import (
 )
 
 _MODULE = "products.growth.backend.temporal.signup_enrichment.reenrichment"
+_EVALUATED_AT = dt.datetime(2026, 9, 14, 12, 0, tzinfo=dt.UTC)
 
 
 def _now() -> dt.datetime:
@@ -218,6 +219,7 @@ class TestReenrichOrganizationActivity(BaseTest):
         outcome = EnrichmentOutcome(
             provider_fields=EnrichmentFields(company_type="STARTUP"),
             fit=IcpFitResult(status="scored", score=48),
+            fit_evaluated_at=_EVALUATED_AT,
             enrichment_status="NOT_FOUND",
         )
         result, pha_client, enrich = self._run(outcome)
@@ -237,7 +239,7 @@ class TestReenrichOrganizationActivity(BaseTest):
         assert event.kwargs["properties"]["icp_fit_status"] == "scored"
         assert event.kwargs["properties"]["matched"] is True
         assert event.kwargs["properties"]["icp_fit_evaluation_kind"] == "sweep"
-        assert event.kwargs["properties"]["icp_fit_evaluated_at"]
+        assert event.kwargs["properties"]["icp_fit_evaluated_at"] == _EVALUATED_AT.isoformat()
         assert event.kwargs["properties"]["harmonic_enrichment_status"] == "NOT_FOUND"
         pha_client.shutdown.assert_called_once()
 

@@ -520,7 +520,8 @@ class TestEnrichmentCore(BaseTest):
         assert outcome.provider_fields is None
         record = OrganizationEnrichment.objects.get(organization=self.organization)
         assert record.data["icp_fit_evaluation_kind"] == "initial"
-        assert record.data["icp_fit_evaluated_at"]
+        assert outcome.fit_evaluated_at is not None
+        assert record.data["icp_fit_evaluated_at"] == outcome.fit_evaluated_at.isoformat()
         data = {k: v for k, v in record.data.items() if not k.startswith("icp_fit_eval")}
         assert data == {
             "icp_fit_status": "not_found",

@@ -1,3 +1,5 @@
+import datetime as dt
+
 import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock
@@ -106,6 +108,7 @@ class TestEnrichmentWriter(BaseTest):
             icp_score=9,
             fit=_fit(),
             fit_evaluation_kind=FIT_EVALUATION_KIND_INITIAL,
+            fit_evaluated_at=dt.datetime(2026, 9, 14, 12, 0, tzinfo=dt.UTC),
         )
 
         record = OrganizationEnrichment.objects.get(organization=self.organization)
@@ -116,7 +119,7 @@ class TestEnrichmentWriter(BaseTest):
         assert record.data["icp_fit_status"] == "scored"
         assert record.data["icp_fit_lists_version"] == "lists-1"
         assert record.data["icp_fit_evaluation_kind"] == "initial"
-        assert record.data["icp_fit_evaluated_at"]
+        assert record.data["icp_fit_evaluated_at"] == "2026-09-14T12:00:00+00:00"
         assert record.data["icp_fit_components"]["capital"] == 30
         assert record.data["icp_fit_flags"] == {
             "quality_investor": True,

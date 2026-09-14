@@ -89,7 +89,9 @@ def write_harmonic_enrichment_status(
     return previous_status
 
 
-def _fit_record_writes(fit: IcpFitResult, *, evaluation_kind: str) -> tuple[dict[str, Any], list[str]]:
+def _fit_record_writes(
+    fit: IcpFitResult, *, evaluation_kind: str, evaluated_at: dt.datetime
+) -> tuple[dict[str, Any], list[str]]:
     """The Postgres (data) writes and key removals for one fit evaluation.
 
     Removals are derived from the keys this evaluation actually produced, so a scored org
@@ -101,7 +103,7 @@ def _fit_record_writes(fit: IcpFitResult, *, evaluation_kind: str) -> tuple[dict
     values: dict[str, Any] = {
         "icp_fit_status": fit.status,
         "icp_fit_version": fit.version,
-        "icp_fit_evaluated_at": dt.datetime.now(dt.UTC).isoformat(),
+        "icp_fit_evaluated_at": evaluated_at.isoformat(),
         "icp_fit_evaluation_kind": evaluation_kind,
     }
     if fit.lists_version:
@@ -156,6 +158,7 @@ def write_organization_enrichment(
     mirror_distinct_id: Optional[str] = None,
     fit: Optional[IcpFitResult] = None,
     fit_evaluation_kind: Optional[str] = None,
+    fit_evaluated_at: Optional[dt.datetime] = None,
     fit_mirror_distinct_id: Optional[str] = None,
 ) -> None:
     """Persist enrichment to Postgres and project it onto the organization group.
@@ -181,10 +184,10 @@ def write_organization_enrichment(
     miss-path status stamp.
 
     `fit_evaluation_kind` (initial | recheck | backfill | sweep) is required whenever
-    `fit` is given. It and an evaluated-at timestamp land on every evaluation, including
-    score-less ones, because the sweep overwrites scores in place and the record must say
-    which run wrote the current value. Both ride the Postgres record only, not the group
-    projection or the person mirror.
+    `fit` is given. It and `fit_evaluated_at` (defaulting to now) land on every evaluation,
+    including score-less ones, because the sweep overwrites scores in place and the record
+    must say which run wrote the current value. Both ride the Postgres record only, not the
+    group projection or the person mirror.
 
     No-op when there are no set fields and no scores, so a Harmonic miss with fit scoring
     degraded leaves the stores untouched.
@@ -197,7 +200,9 @@ def write_organization_enrichment(
     if fit is not None:
         if fit_evaluation_kind is None:
             raise ValueError("fit_evaluation_kind is required when fit is provided")
-        fit_values, remove = _fit_record_writes(fit, evaluation_kind=fit_evaluation_kind)
+        fit_values, remove = _fit_record_writes(
+            fit, evaluation_kind=fit_evaluation_kind, evaluated_at=fit_evaluated_at or dt.datetime.now(dt.UTC)
+        )
         values = {**values, **fit_values}
 
     if not values:
