@@ -1810,7 +1810,8 @@ export class PiSessionController {
       return;
     }
     const failure = normalizeSessionError(error);
-    const classified = classifyPromptFailure(error);
+    const details = (error as { data?: { details?: string } })?.data?.details;
+    const classified = classifyPromptFailure(error, details);
     const retryable =
       classified.kind === "provider_credentials"
         ? classified.retryable

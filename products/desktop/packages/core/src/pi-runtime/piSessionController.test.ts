@@ -592,6 +592,44 @@ describe("PiSessionController", () => {
     expect(session.retry).not.toHaveBeenCalled();
   });
 
+  it("classifies rejected provider credentials from cloud failure details", async () => {
+    let onError: (error: unknown) => void = () => {};
+    const session = Object.assign(createSession(), {
+      cloudStatus: "failed" as const,
+      retry: vi.fn(async () => {}),
+    });
+    vi.mocked(session.onConversationEvent).mockImplementation(
+      (_eventHandler, errorHandler) => {
+        onError = errorHandler;
+        return () => {};
+      },
+    );
+    const controller = createController(session);
+
+    await controller.connect("task-1", "run-1");
+    onError(
+      Object.assign(new Error("Cloud run failed"), {
+        data: {
+          details:
+            'API Error: 400 {"error":{"type":"provider_credentials_rejected"}}',
+        },
+        retryable: true,
+      }),
+    );
+
+    expect(controller.store.getState().sessions["task-1"]).toMatchObject({
+      connectionState: "error",
+      error: {
+        scope: "connection",
+        kind: "provider_credentials",
+        title: "AI provider credentials rejected",
+        retryable: false,
+      },
+    });
+    controller.retryUnhealthyCloudSessions();
+    expect(session.retry).not.toHaveBeenCalled();
+  });
+
   it("keeps fatal runtime errors in a retryable disconnected state", async () => {
     let onEvent: (event: AgentConversationEvent) => void = () => {};
     const session = createSession();
