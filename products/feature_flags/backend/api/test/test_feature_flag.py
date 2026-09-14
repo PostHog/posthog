@@ -5596,6 +5596,23 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             cohort_request.json().items(),
         )
 
+    @parameterized.expand(
+        [
+            ("cohort_name", "Power users"),
+            ("list_value", [1, 2]),
+            ("null_value", None),
+        ]
+    )
+    def test_creating_feature_flag_with_non_integer_cohort_value(self, _name, value):
+        cohort_request = self._create_flag_with_properties(
+            f"cohort-flag-{_name}",
+            [{"key": "id", "type": "cohort", "value": value}],
+            expected_status=status.HTTP_400_BAD_REQUEST,
+        )
+
+        self.assertEqual(cohort_request.json()["code"], "invalid_cohort_id")
+        self.assertIn("needs a numeric cohort ID", cohort_request.json()["detail"])
+
     def test_validation_payloads(self):
         self._create_flag_with_properties(
             "person-flag",

@@ -80,7 +80,7 @@ from posthog.rate_limit import (
     ProjectSecretApiKeyTeamRateThrottle,
 )
 from posthog.settings.feature_flags import REMOTE_CONFIG_RATE_LIMITS
-from posthog.utils import is_valid_regex, str_to_bool
+from posthog.utils import is_valid_regex, safe_int, str_to_bool
 from posthog.views import format_bytes
 
 from products.access_control.backend.presentation.access_control import (
@@ -1848,10 +1848,17 @@ class FeatureFlagSerializer(
                     raise serializers.ValidationError(f"{located.path}.value: invalid regex pattern")
 
             if located.prop.get("type") == "cohort":
-                cohort_id = located.prop.get("value")
+                cohort_value = located.prop.get("value")
+                cohort_id = safe_int(cohort_value)
+                if cohort_id is None:
+                    raise serializers.ValidationError(
+                        detail=f"{located.path}.value: a cohort filter needs a numeric cohort ID. "
+                        f"Received: {str(cohort_value)[:100]}",
+                        code="invalid_cohort_id",
+                    )
                 try:
                     initial_cohort: Cohort = Cohort.objects.get(
-                        pk=cast(str | int, cohort_id), team__project_id=self.context["project_id"]
+                        pk=cohort_id, team__project_id=self.context["project_id"]
                     )
                     # Static cohorts (including one-time snapshots) hold a
                     # materialised person list.  The populating criteria may
@@ -1909,8 +1916,6 @@ class FeatureFlagSerializer(
 
     def _validate_flag_reference(self, flag_reference):
         """Validate and convert flag reference to flag key."""
-        from posthog.utils import safe_int
-
         flag_id = safe_int(flag_reference)
         if flag_id is None:
             raise serializers.ValidationError(
