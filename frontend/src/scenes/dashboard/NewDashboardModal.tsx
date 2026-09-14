@@ -59,8 +59,7 @@ export function NewDashboardModal(): JSX.Element {
                     onChange={setTemplateFilter}
                     value={templateFilter}
                     fullWidth={true}
-                    // On a phone, a focused input makes iOS pan the whole viewport on swipe,
-                    // so the template list can't be scrolled until the keyboard is dismissed.
+                    // A focused input makes iOS pan the viewport on swipe instead of scrolling the list.
                     autoFocus={!isMobile()}
                     className="min-w-0 flex-1"
                 />
@@ -80,8 +79,7 @@ export function NewDashboardModal(): JSX.Element {
 
     return (
         <DialogPrimitive
-            // Base UI focuses the first tabbable element on open, which would be the filter input and
-            // would bring back the viewport panning that its autoFocus guard avoids on phones.
+            // Base UI would otherwise focus the filter input on open.
             initialFocus={!isMobile()}
             open={newDashboardModalVisible}
             onOpenChange={(open) => !open && hideNewDashboardModal()}

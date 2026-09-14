@@ -38,8 +38,7 @@ export function NewWorkflowModal(): JSX.Element {
                             onChange={setTemplateFilter}
                             value={templateFilter}
                             fullWidth={true}
-                            // On a phone, a focused input makes iOS pan the whole viewport on swipe,
-                            // so the template list can't be scrolled until the keyboard is dismissed.
+                            // A focused input makes iOS pan the viewport on swipe instead of scrolling the list.
                             autoFocus={!isMobile()}
                         />
                         {availableTags.length > 0 && (
