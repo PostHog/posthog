@@ -335,7 +335,19 @@ If automatic creation failed with a permissions error, the fix depends on how yo
         # than the full message: "notified of the problem" covers Stripe's backend-communication
         # errors, and "An unknown error occurred" covers the generic 5xx it can't attribute to a more
         # specific cause (some of which arrive without the "notified" boilerplate).
-        return {"Request rate limit exceeded", "notified of the problem", "An unknown error occurred"}
+        #
+        # PostHog's own egress proxy answering the CONNECT tunnel with a 429, surfaced by the
+        # underlying `requests.ProxyError` — not Stripe's or the customer's fault, the same
+        # reasoning already applied to bing_ads, github, hubspot, intercom, linkedin_ads and
+        # salesforce for the identical tunnel signature. Match the status only, since the message
+        # also carries the request URL/path; a deterministic tunnel failure (e.g. 407 proxy-auth)
+        # still stays reportable.
+        return {
+            "Request rate limit exceeded",
+            "notified of the problem",
+            "An unknown error occurred",
+            "Tunnel connection failed: 429",
+        }
 
     def _get_api_key(self, config: StripeSourceConfig, team_id: int) -> str:
         if config.auth_method.selection == "api_key":

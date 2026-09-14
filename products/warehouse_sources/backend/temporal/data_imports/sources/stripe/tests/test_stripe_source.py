@@ -309,6 +309,32 @@ class TestStripeSource:
         retryable_errors = self.source.get_retryable_errors()
         assert error_message_matches(observed_error, retryable_errors)
 
+    def test_egress_proxy_tunnel_429_is_retryable(self):
+        # PostHog's own egress proxy throttling the CONNECT tunnel, surfaced by the stripe SDK's
+        # requests-based transport as an APIConnectionError wrapping a ProxyError — not a Stripe or
+        # customer credential problem, and self-recovering once the proxy stops throttling.
+        observed_error = (
+            "Unexpected error communicating with Stripe.  If this problem persists, let us know at "
+            "support@stripe.com.\n\n(Network error: ProxyError: HTTPSConnectionPool(host='api.stripe.com', "
+            "port=443): Max retries exceeded with url: /v1/payouts?limit=100 (Caused by "
+            "ProxyError('Cannot connect to proxy.', OSError('Tunnel connection failed: 429 Too Many "
+            "Requests'))))"
+        )
+        non_retryable_errors = self.source.get_non_retryable_errors()
+        assert not any(key in observed_error for key in non_retryable_errors)
+        retryable_errors = self.source.get_retryable_errors()
+        assert error_message_matches(observed_error, retryable_errors)
+
+    def test_proxy_auth_rejection_is_not_mistaken_for_tunnel_429(self):
+        # A deterministic proxy-auth rejection is not a transient tunnel gateway status — it must
+        # stay reportable rather than being swallowed by the 429 tunnel pattern.
+        observed_error = (
+            "Caused by ProxyError('Cannot connect to proxy.', OSError('Tunnel connection failed: "
+            "407 Proxy Authentication Required'))"
+        )
+        retryable_errors = self.source.get_retryable_errors()
+        assert not error_message_matches(observed_error, retryable_errors)
+
     @pytest.mark.parametrize(
         "config,expected_message",
         [
