@@ -17,11 +17,6 @@ from products.dashboards.backend.models.dashboard_saved_view import DashboardSav
 class TestDashboardSavedViews(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
-        self.saved_views_flag = patch(
-            "products.dashboards.backend.api.dashboard_saved_view.dashboard_saved_views_enabled", return_value=True
-        )
-        self.saved_views_flag.start()
-        self.addCleanup(self.saved_views_flag.stop)
         self.base_url = f"/api/projects/{self.team.pk}/dashboard_saved_views/"
 
     def _payload(self, **overrides: object) -> dict[str, object]:
@@ -31,12 +26,6 @@ class TestDashboardSavedViews(APIBaseTest):
         }
         payload.update(overrides)
         return payload
-
-    @patch("products.dashboards.backend.api.dashboard_saved_view.dashboard_saved_views_enabled", return_value=False)
-    def test_rejects_requests_when_saved_views_flag_is_disabled(self, _dashboard_saved_views_enabled) -> None:
-        response = self.client.get(self.base_url)
-
-        assert response.status_code == status.HTTP_403_FORBIDDEN
 
     @parameterized.expand(
         [
