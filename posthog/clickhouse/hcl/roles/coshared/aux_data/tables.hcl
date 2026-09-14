@@ -550,6 +550,65 @@ database "posthog" {
       type = "Array(String)"
     }
   }
+  table "_marketing_sessions_dimensional_preaggregated_columns" {
+    abstract = true
+    column "team_id" {
+      type = "Int64"
+    }
+    column "job_id" {
+      type = "UUID"
+    }
+    column "period_bucket" {
+      type = "DateTime"
+    }
+    column "session_id" {
+      type = "String"
+    }
+    column "person_id" {
+      type = "UUID"
+    }
+    column "start_timestamp" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "min_event_timestamp" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "max_event_timestamp" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "channel_type" {
+      type = "String"
+    }
+    column "utm_source" {
+      type = "String"
+    }
+    column "utm_medium" {
+      type = "String"
+    }
+    column "utm_campaign" {
+      type = "String"
+    }
+    column "utm_term" {
+      type = "String"
+    }
+    column "utm_content" {
+      type = "String"
+    }
+    column "referring_domain" {
+      type = "String"
+    }
+    column "entry_pathname" {
+      type = "String"
+    }
+    column "computed_at" {
+      type    = "DateTime64(6, 'UTC')"
+      default = "now()"
+    }
+    column "expires_at" {
+      type    = "DateTime64(6, 'UTC')"
+      default = "now() + toIntervalDay(7)"
+    }
+  }
   table "_web_bounces_dimensional_preaggregated_columns" {
     abstract = true
     column "team_id" {
@@ -1177,6 +1236,15 @@ database "posthog" {
       remote_database = "posthog"
       remote_table    = "sharded_web_bot_definition"
       sharding_key    = "sipHash64(id)"
+    }
+  }
+  table "marketing_sessions_dimensional_preaggregated" {
+    extend = "_marketing_sessions_dimensional_preaggregated_columns"
+    engine "distributed" {
+      cluster_name    = "aux"
+      remote_database = "posthog"
+      remote_table    = "sharded_marketing_sessions_dimensional_preaggregated"
+      sharding_key    = "cityHash64(person_id)"
     }
   }
   table "web_bounces_dimensional_preaggregated" {
