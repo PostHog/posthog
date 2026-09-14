@@ -809,6 +809,7 @@ ignore_imports = [
     "products.alerts.backend.facade.api -> products.alerts.backend.presentation.views.alert",
     "products.alerts.backend.facade.api -> products.alerts.backend.presentation.views.alert_schedule_restriction",
     "products.managed_warehouse.backend.facade.api -> products.managed_warehouse.backend.presentation.views",
+    "products.stamphog.backend.facade.webhooks -> products.stamphog.backend.presentation.webhooks",
     "products.tasks.backend.facade.api -> products.tasks.backend.presentation.serializers",
     "products.billing_alerts.backend.facade.api -> rest_framework",
     "products.dashboards.backend.facade.api -> rest_framework",
