@@ -103,21 +103,22 @@ def _all_buttons(messages: list[debt_digest.SlackMessage]) -> list[dict]:
 
 class TestLead:
     @pytest.mark.parametrize(
-        "expiring,pileups,fields",
+        "expiring,pileups,fields,mentions_lapse",
         [
-            (1, 0, ["*1 quarantine* expires soon", "*0 snapshots* with piled-up variants"]),
-            (0, 2, ["*0 quarantines* expire soon", "*2 snapshots* with piled-up variants"]),
-            (3, 1, ["*3 quarantines* expire soon", "*1 snapshot* with piled-up variants"]),
+            (1, 0, ["*1 quarantine* expires soon"], True),
+            (0, 2, ["*2 snapshots* with piled-up variants"], False),
+            (3, 1, ["*3 quarantines* expire soon", "*1 snapshot* with piled-up variants"], True),
         ],
     )
-    def test_the_lead_names_the_team_and_counts_both_conditions(
-        self, expiring: int, pileups: int, fields: list[str]
+    def test_the_lead_names_the_team_and_counts_only_the_conditions_it_has(
+        self, expiring: int, pileups: int, fields: list[str], mentions_lapse: bool
     ) -> None:
         message = debt_digest.lead_message(_repo(), _team_digest(expiring, pileups), _MONDAY)
 
         assert message.blocks[0]["type"] == "header"
         assert message.blocks[0]["text"]["text"] == "Visual review debt for team-devex"
         assert [field["text"] for field in message.blocks[2]["fields"]] == fields
+        assert ("Quarantines that lapse" in message.blocks[3]["text"]["text"]) is mentions_lapse
         assert "week of Sep 14" in message.blocks[1]["elements"][0]["text"]
 
     def test_the_lead_links_to_the_two_pages_the_counts_come_from(self) -> None:
@@ -176,8 +177,46 @@ class TestThreadReplies:
 
         assert messages[0].blocks[-1]["type"] == "section"
         assert messages[-1].blocks[-2]["type"] == "divider"
-        assert messages[-1].blocks[-1]["elements"][0]["text"].startswith("Next digest Monday, Sep 21.")
-        assert "notifications: {visual_review: false}" in messages[-1].text
+        assert messages[-1].blocks[-1]["elements"][0]["text"] == "Next digest Monday, Sep 21."
+
+    @pytest.mark.parametrize(
+        "dark_facts,titles,urls",
+        [
+            (
+                "Expires *Wednesday*",
+                [f"*{_STORY_ID}* storybook · light and dark"],
+                [f"{settings.SITE_URL}/project/7/visual_review/repos/abc/flakiness#preset=quarantined&q={_STORY_ID}"],
+            ),
+            (
+                "Expires *Thursday*",
+                [f"*{_STORY_ID}--light* storybook", f"*{_STORY_ID}--dark* storybook"],
+                [
+                    f"{settings.SITE_URL}/project/7/visual_review/repos/abc/storybook/snapshots/{_STORY_ID}--light",
+                    f"{settings.SITE_URL}/project/7/visual_review/repos/abc/storybook/snapshots/{_STORY_ID}--dark",
+                ],
+            ),
+        ],
+    )
+    def test_theme_variants_of_a_story_expiring_together_list_once(
+        self, dark_facts: str, titles: list[str], urls: list[str]
+    ) -> None:
+        light = _item(_PLACED, identifier=f"{_STORY_ID}--light", facts="Expires *Wednesday*")
+        dark = _item(_PLACED, identifier=f"{_STORY_ID}--dark", facts=dark_facts)
+        digest = debt_digest.TeamDigest(
+            team_slug="team-devex",
+            expiring_quarantines=[light, dark],
+            variant_pileups=[
+                _item(_PLACED, identifier=f"{_STORY_ID}--light"),
+                _item(_PLACED, identifier=f"{_STORY_ID}--dark"),
+            ],
+        )
+
+        quarantines, pileups = debt_digest.thread_messages(_repo(), digest, _MONDAY)
+
+        assert [text.split("\n")[0] for text in _section_texts(quarantines)[1:]] == titles
+        assert [button["url"] for button in _buttons(quarantines)] == urls
+        # A baseline resets one snapshot at a time, so pile-up variants keep a button each.
+        assert len(_buttons(pileups)) == 2
 
     def test_a_group_over_the_block_limit_splits_and_repeats_its_heading(self) -> None:
         items = [_item(_PLACED)] * (debt_digest._ITEMS_PER_MESSAGE + 1)
@@ -575,7 +614,7 @@ class TestCollectAndSend:
         # Preview prints the plain text behind every message, so a by-hand run reads without Slack.
         assert rendered[0].startswith("Visual review debt for team-devex in org/test-debt: ")
         assert "3 accepted variants of the current baseline" in rendered[0]
-        assert rendered[0].rstrip().endswith("under your team in owners.yaml.")
+        assert rendered[0].rstrip().split("\n")[-1].startswith("Next digest Monday, ")
 
     def test_an_unreadable_owners_file_sends_nothing(self, repo, mocker):
         self._completed_run(repo, mocker)

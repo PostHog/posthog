@@ -61,6 +61,33 @@ class StoryIndex:
     path_by_story_id: Mapping[str, str]
 
 
+@frozen
+class ThemeSplit:
+    """An identifier with its theme taken out, and that theme. The theme is empty when there is none."""
+
+    rest: str
+    theme: str
+
+
+def split_theme(identifier: str) -> ThemeSplit:
+    """Take the theme out of an identifier and keep everything else.
+
+    A browser suffix stays in `rest`, so a chromium snapshot and a webkit snapshot of one story never
+    share a `rest`.
+    """
+    rest = identifier
+    browser_suffix = ""
+    for browser in _SUFFIXED_BROWSERS:
+        if rest.endswith(f"--{browser}"):
+            browser_suffix = f"--{browser}"
+            rest = rest.removesuffix(browser_suffix)
+            break
+    for theme in _THEMES:
+        if rest.endswith(f"--{theme}"):
+            return ThemeSplit(rest=f"{rest.removesuffix(f'--{theme}')}{browser_suffix}", theme=theme)
+    return ThemeSplit(rest=identifier, theme="")
+
+
 def _strip_theme_and_browser(identifier: str) -> str | None:
     """The story id an identifier was built from, before any width suffix is considered.
 
