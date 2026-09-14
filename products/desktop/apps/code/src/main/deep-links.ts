@@ -31,7 +31,7 @@ export function registerDeepLinkHandlers(): void {
   // Handle deep link URLs on macOS
   app.on("open-url", (event, url) => {
     event.preventDefault();
-    log.info("open-url event received", { url, appReady: app.isReady() });
+    log.info("open-url event received", { appReady: app.isReady() });
 
     if (!app.isReady()) {
       pendingDeepLinkUrl = url;
@@ -44,14 +44,13 @@ export function registerDeepLinkHandlers(): void {
 
   // Handle deep link URLs on Windows/Linux (second instance sends URL via command line)
   app.on("second-instance", (_event, commandLine) => {
+    const url = findDeepLinkUrlInArgs(commandLine);
     log.info("second-instance event received", {
-      commandLine: commandLine.join(" "),
       argCount: commandLine.length,
+      hasDeepLink: Boolean(url),
     });
 
-    const url = findDeepLinkUrlInArgs(commandLine);
     if (url) {
-      log.info("Deep link URL found in second-instance args", { url });
       getDeepLinkService().handleUrl(url);
       focusMainWindow("second-instance deep link");
     } else {
