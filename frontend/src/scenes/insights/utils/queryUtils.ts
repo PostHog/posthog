@@ -18,14 +18,15 @@ import {
     filterForQuery,
     filterKeyForQuery,
     getMathTypeWarning,
+    hasBreakdownFilter,
     isEventsNode,
     isFunnelsQuery,
     isHogQLQuery,
-    isLifecycleQuery,
     isInsightQueryNode,
     isInsightQueryWithDisplay,
     isInsightQueryWithSeries,
     isInsightVizNode,
+    isLifecycleQuery,
     isPathsQuery,
     isRetentionQuery,
     isStickinessQuery,
@@ -369,13 +370,23 @@ export const cleanInsightQuery = (query: InsightQueryNode, opts?: CompareQueryOp
     return cleanedQuery
 }
 
-// A stale result rendered under a chart family it was not computed for shows nothing or a 0, so it is not renderable.
-export const trendsResultsMatchDisplay = (results: unknown[], display: ChartDisplayType): boolean => {
+// A stale result rendered under a query it was not computed for shows nothing or a 0, so it is not renderable.
+export const trendsResultsMatchQuery = (results: unknown[], query: TrendsQuery): boolean => {
+    const display = query.trendsFilter?.display ?? ChartDisplayType.ActionsLineGraph
     const first = results[0] as
-        | { data?: unknown; aggregated_value?: unknown; calendar_heatmap_data?: unknown; median?: unknown }
+        | {
+              data?: unknown
+              aggregated_value?: unknown
+              calendar_heatmap_data?: unknown
+              median?: unknown
+              breakdown_value?: unknown
+          }
         | undefined
     if (!first) {
         return true
+    }
+    if ((first.breakdown_value !== undefined) !== hasBreakdownFilter(query.breakdownFilter)) {
+        return false
     }
     if (first.calendar_heatmap_data) {
         return display === ChartDisplayType.CalendarHeatmap

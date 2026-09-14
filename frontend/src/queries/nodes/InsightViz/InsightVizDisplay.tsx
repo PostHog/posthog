@@ -291,6 +291,22 @@ export function InsightVizDisplay({
             return <InsightTimeoutState queryId={timedOutQueryId} />
         }
 
+        // A loaded result that no longer matches the query (a reload that failed or was superseded) draws a
+        // blank or zeroed chart, so prompt for a refresh instead.
+        if (
+            isTrends &&
+            !insightDataLoading &&
+            !hasRenderableResults &&
+            (insightData?.result != null || insightData?.results != null)
+        ) {
+            return (
+                <InsightRefreshDataHint
+                    onRetry={() => loadData(query && shouldQueryBeAsync(query) ? 'force_async' : 'force_blocking')}
+                    insightProps={insightProps}
+                />
+            )
+        }
+
         // On a dashboard, users sometimes see an empty chart even though the insight is valid—often because
         // they navigated away while numbers were still loading, or nothing was cached yet. Prompt them to
         // refresh rather than staring at a blank tile. this is possible if the redis cache is a miss, and they dont have anything
