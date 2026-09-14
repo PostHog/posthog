@@ -170,12 +170,16 @@ class TestAgentProxyCallback(TestCase):
         self.assertTrue(response.json()["dispatched"])
         notify.assert_called_once()
 
-    def test_awaiting_input_skipped_for_background_run(self) -> None:
-        with patch("products.tasks.backend.agent_proxy_callback.notify_task_run_turn_completed") as notify:
+    def test_awaiting_input_signals_turn_end_but_skips_push_for_background_run(self) -> None:
+        with (
+            patch("products.tasks.backend.agent_proxy_callback.notify_task_run_turn_completed") as notify,
+            patch.object(TaskRun, "signal_agent_turn_completed") as signal_turn_completed,
+        ):
             response = self._post(self._body(kind="awaiting_input", agent_active=False), token=self._token())
         self.assertEqual(response.status_code, 200)
         self.assertFalse(response.json()["dispatched"])
         notify.assert_not_called()
+        signal_turn_completed.assert_called_once()
 
     def test_unknown_run_returns_200_not_dispatched(self) -> None:
         run = self.task.create_run()
