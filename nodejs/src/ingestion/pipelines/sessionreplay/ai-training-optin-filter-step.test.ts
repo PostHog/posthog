@@ -12,7 +12,7 @@ describe('ai-training-optin-filter-step', () => {
     })
 
     it('resumes the same session after the team opts in again', async () => {
-        const input = { team: team(true), sessionId: '01a09f92-e780-7000-8000-000000000001' }
+        const input = { team: team(true), sessionId: '01a0a0dc-7e80-7000-8000-000000000001' }
         expect((await step(input)).type).toBe(PipelineResultType.OK)
         input.team.aiTrainingOptedIn = false
         expect((await step(input)).type).toBe(PipelineResultType.DROP)

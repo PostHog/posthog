@@ -230,7 +230,7 @@ describe('ML session key batches', () => {
     })
 
     it('publishes a bounded concurrent batch only after privacy writes commit', async () => {
-        const identity = { ...session, sessionId: '01a09f92-e780-7000-8000-000000000001' }
+        const identity = { ...session, sessionId: '01a0a0dc-7e80-7000-8000-000000000001' }
         const controller = new MlPrivacyBatchController(store, encryption)
         await controller.prepare([identity])
         let release!: () => void

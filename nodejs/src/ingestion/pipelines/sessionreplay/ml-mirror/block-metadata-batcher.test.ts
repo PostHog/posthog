@@ -111,8 +111,8 @@ describe('BlockMetadataBatcher', () => {
 
     it('keeps v2 offsets pending until the encrypted eval index upload succeeds', async () => {
         await sodium.ready
-        const sessionId = '01a09f92-e780-7000-8000-000000000001'
-        const timestamp = Date.parse('2026-09-14T11:00:01Z')
+        const sessionId = '01a0a0dc-7e80-7000-8000-000000000001'
+        const timestamp = Date.parse('2026-09-14T17:00:01Z')
         const key: MlDataKey = {
             identity: { teamId: 7, organizationId: 'test-org', sessionId },
             plaintext: Buffer.alloc(32, 7),
