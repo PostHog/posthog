@@ -38,7 +38,7 @@ export { useWelcomeOverride } from '../hooks/useWelcomeOverride'
 export type { UseWelcomeOverrideOptions } from '../hooks/useWelcomeOverride'
 // The standing "act via tool calls" instruction the sidebar surfaces attach while the user watches a
 // run — the prompt-side half of `useMcpToolApplyBack` (hidden from chips, deduped once per task).
-export { AGENT_TOOL_APPLY_BACK_CONTEXT_ITEM } from '../utils/posthogContextBlock'
+export { AGENT_TOOL_APPLY_BACK_CONTEXT_ITEM, wrapWithPosthogContext } from '../utils/posthogContextBlock'
 
 // --- User-picked context (the composer's @-affordance, headless half) ---
 // `contextPickerLogic` owns explicit user picks and registers them as the `user-picker` provider;
