@@ -8,6 +8,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useMocks } from '~/mocks/jest'
 import { actionsModel } from '~/models/actionsModel'
 import { groupsModel } from '~/models/groupsModel'
+import { primaryEventPropertiesModel } from '~/models/primaryEventPropertiesModel'
 import { initKeaTests } from '~/test/init'
 import { AppContext, PropertyFilterType, PropertyOperator } from '~/types'
 
@@ -55,6 +56,7 @@ describe('taxonomicExampleBrowserLogic', () => {
         useMocks({
             get: {
                 '/api/projects/:team/event_definitions': { results: [], count: 0 },
+                '/api/projects/:team_id/event_definitions/primary_properties/': { primary_properties: {} },
                 '/api/projects/:team/property_definitions': { results: [], count: 0 },
                 '/api/projects/:team/actions/': { results: [], count: 0 },
                 '/api/environments/:team/persons/properties': [],
@@ -77,6 +79,7 @@ describe('taxonomicExampleBrowserLogic', () => {
         initKeaTests()
         actionsModel.mount()
         groupsModel.mount()
+        primaryEventPropertiesModel.mount()
         featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.TAXONOMIC_FILTER_EXAMPLE_BROWSER]: true })
     })
 
