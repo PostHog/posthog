@@ -11,14 +11,10 @@ class Migration(migrations.Migration):
     operations = [
         SafeAddIndexConcurrently(
             model_name="errortrackingsymbolset",
-            index=models.Index(
-                fields=["team", "created_at", "id"], name="et_symset_team_created_idx"
-            ),
+            index=models.Index(fields=["team", "created_at", "id"], name="et_symset_team_created_idx"),
         ),
         SafeAddIndexConcurrently(
             model_name="errortrackingsymbolset",
-            index=models.Index(
-                fields=["team", "last_used", "id"], name="et_symset_team_used_idx"
-            ),
+            index=models.Index(fields=["team", "last_used", "id"], name="et_symset_team_used_idx"),
         ),
     ]
