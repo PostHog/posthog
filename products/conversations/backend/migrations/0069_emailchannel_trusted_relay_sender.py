@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("conversations", "0064_alter_emailthreadaccountlink_match_source"),
+        ("conversations", "0068_alter_emailchannelsetup_team_and_more"),
     ]
 
     operations = [
