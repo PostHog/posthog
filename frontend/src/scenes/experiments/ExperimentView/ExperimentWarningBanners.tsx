@@ -14,8 +14,9 @@ function warningCaption(key: ExperimentWarning['key']): string {
         case 'running_but_flag_disabled':
             return 'The experiment is paused'
         case 'running_but_single_variant_shipped':
-        case 'running_but_no_rollout':
             return 'The experiment is running, but no users are exposed to the A/B test'
+        case 'running_but_no_rollout':
+            return 'The experiment is running, but no new users are being exposed'
         case 'ended_but_multiple_variants_rolled_out':
         case 'not_started_but_multiple_variants_rolled_out':
             return 'The experiment is not running, but users are exposed to multiple variants'
@@ -48,8 +49,9 @@ function WarningDetail({
         case 'running_but_no_rollout':
             return (
                 <>
-                    The feature flag {flagLink} has a <strong>0% rollout</strong>. End the experiment with a conclusion,
-                    or increase the rollout percentage to start collecting data.
+                    The feature flag {flagLink} has a <strong>0% rollout</strong>, so no new users enter the experiment.
+                    Results collected so far are not affected. End the experiment with a conclusion, or increase the
+                    rollout percentage to collect more data.
                 </>
             )
         case 'ended_but_multiple_variants_rolled_out':
