@@ -13,7 +13,7 @@ import { MlBlockMetadataOutput } from '~/ingestion/pipelines/sessionreplay/share
 import { BlockMetadataBatcher, OffsetStore } from './block-metadata-batcher'
 import { BlockMetadataParquetStore } from './block-metadata-parquet-store'
 import { MlBlockMetadataSink } from './ml-block-metadata-sink'
-import { PSEUDONYM_DISTINCT_ID, PSEUDONYM_SESSION, PSEUDONYM_TEAM, pseudonymize } from './pseudonymize'
+import { PSEUDONYM_SESSION, PSEUDONYM_TEAM, pseudonymize } from './pseudonymize'
 
 const SECRET = 'roundtrip-secret'
 const SESSION_A = '018bcfe5-6800-7000-8000-000000000001'
@@ -132,7 +132,7 @@ describe('ML metadata producer → sink round-trip', () => {
         const a = bySession.get(pseudonymize(SECRET, PSEUDONYM_SESSION, SESSION_A))!
         expect(a).toBeDefined()
         expect(a.team_id).toBe(pseudonymize(SECRET, PSEUDONYM_TEAM, '1'))
-        expect(a.distinct_id).toBe(pseudonymize(SECRET, PSEUDONYM_DISTINCT_ID, 'person-1'))
+        expect(a).not.toHaveProperty('distinct_id')
         // Raw ids never survive the trip (BigInt-safe stringify, since INT64 fields read back as bigint).
         expect(a.session_id).not.toBe(SESSION_A)
         const serialized = JSON.stringify(a, (_key, value) => (typeof value === 'bigint' ? value.toString() : value))

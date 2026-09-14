@@ -24,7 +24,7 @@ rules:
     - match: '/taxonomy/'
       owners: team-product-analytics
     - match: '/templates/surveys/'
-      owners: team-surveys
+      owners: conversations
     - match: '/warehouse/'
       owners: team-data-stack
     - match: '*llm_prompt*.py'

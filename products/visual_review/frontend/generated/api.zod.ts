@@ -111,6 +111,12 @@ export const VisualReviewRunsAddSnapshotsCreateBody = /* @__PURE__ */ zod.object
         })
     ),
     baseline_hashes: zod.record(zod.string(), zod.string()).optional(),
+    story_index_hash: zod
+        .string()
+        .optional()
+        .describe(
+            "SHA-256 of the story-to-file map the CLI built from the Storybook index.json of this run's build. Every shard of a run sends the same value. Empty when the run sends no map."
+        ),
 })
 
 /**

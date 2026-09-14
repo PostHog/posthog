@@ -173,7 +173,7 @@ class TestMarkNewClones(unittest.TestCase):
     ) -> None:
         baseline = [make_clone("a.py", "b.py", 100) for _ in range(baseline_copies)]
         current = [make_clone("a.py", "b.py", 100, is_new=False) for _ in range(current_copies)]
-        mark_new_clones(current, baseline)
+        mark_new_clones(current, baseline, {"a.py"})
         self.assertEqual([clone["isNew"] for clone in current], expected_is_new)
 
     def test_an_edited_fragment_is_new_even_when_the_pair_has_a_baseline_clone(self) -> None:
@@ -181,8 +181,23 @@ class TestMarkNewClones(unittest.TestCase):
         edited = make_clone("a.py", "b.py", 100)
         edited["fragment"] = "y = 2\n" * 10
         current = [make_clone("a.py", "b.py", 100), edited]
-        mark_new_clones(current, baseline)
+        mark_new_clones(current, baseline, {"a.py"})
         self.assertEqual([clone["isNew"] for clone in current], [False, True])
+
+    @parameterized.expand(
+        [
+            ("removed_third_copy", {"c.py"}, False),
+            ("first_copy_changed", {"a.py", "c.py"}, True),
+            ("second_copy_changed", {"b.py", "c.py"}, True),
+        ]
+    )
+    def test_changed_pairing_only_counts_when_a_copy_changed(
+        self, _name: str, changed_files: set[str], expected_is_new: bool
+    ) -> None:
+        baseline = [make_clone("a.py", "c.py", 100), make_clone("b.py", "c.py", 100)]
+        current = [make_clone("a.py", "b.py", 100)]
+        mark_new_clones(current, baseline, changed_files)
+        self.assertEqual(current[0]["isNew"], expected_is_new)
 
 
 if __name__ == "__main__":

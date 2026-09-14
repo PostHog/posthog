@@ -189,6 +189,11 @@
         "params": [],
         "scope": "project"
     },
+    "aiTask": {
+        "template": "/ai",
+        "params": [],
+        "scope": "project"
+    },
     "alert": {
         "template": "/alerts",
         "params": [],

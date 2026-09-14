@@ -93,6 +93,45 @@ def test_retryable_error_is_reraised_for_temporal_retry():
         _run_activity(source_mock)
 
 
+@pytest.mark.parametrize(
+    "error_msg",
+    [
+        "HTTPSConnectionPool(host='api.example.com', port=443): Max retries exceeded with url: /v1/things "
+        "(Caused by ProxyError('Cannot connect to proxy.', OSError('Tunnel connection failed: 429 Too Many Requests')))",
+        "Could not connect to ClickHouse at https://example.invalid:8443: ('Cannot connect to proxy.', TimeoutError('timed out'))",
+    ],
+    ids=["tunnel_429", "proxy_connect_timeout"],
+)
+def test_transient_egress_proxy_error_is_reraised_without_source_opt_in(error_msg):
+    source_mock = mock.MagicMock()
+    source_mock.parse_config.return_value = {}
+    source_mock.get_schemas.side_effect = Exception(error_msg)
+    source_mock.get_non_retryable_errors.return_value = {}
+    source_mock.get_retryable_errors.return_value = set()
+
+    with pytest.raises(NonReportableError) as exc_info:
+        _run_activity(source_mock)
+
+    assert str(exc_info.value) == error_msg
+
+
+def test_proxy_auth_failure_is_still_reported():
+    error_msg = (
+        "Could not connect to ClickHouse at https://example.invalid:8443: "
+        "('Cannot connect to proxy.', OSError('Tunnel connection failed: 407 Proxy Authentication Required'))"
+    )
+    source_mock = mock.MagicMock()
+    source_mock.parse_config.return_value = {}
+    source_mock.get_schemas.side_effect = Exception(error_msg)
+    source_mock.get_non_retryable_errors.return_value = {}
+    source_mock.get_retryable_errors.return_value = set()
+
+    with pytest.raises(Exception, match="407") as exc_info:
+        _run_activity(source_mock)
+
+    assert not isinstance(exc_info.value, NonReportableError)
+
+
 def test_undecrypted_integration_secret_error_is_skipped():
     # Checked by type, not message, so it must be skipped even when get_non_retryable_errors
     # has no matching entry — otherwise discovery retries forever on an unrecoverable decryption

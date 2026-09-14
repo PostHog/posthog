@@ -46,7 +46,7 @@ describe('MlBlockMetadataSink', () => {
         const row = parseJSON((messages[0].value as Buffer).toString())
         expect(row.session_id).toBe(pseudonymize(SECRET, PSEUDONYM_SESSION, 's1'))
         expect(row.session_id).not.toBe('s1')
-        expect(row.distinct_id).not.toContain('user@example.com')
+        expect(row).not.toHaveProperty('distinct_id')
         expect(row.block_byte_end).toBe(9)
     })
 

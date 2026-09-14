@@ -164,7 +164,7 @@ def clone_key(clone: dict) -> tuple[frozenset, str]:
     return pair, hashlib.sha256(clone["fragment"].encode()).hexdigest()
 
 
-def mark_new_clones(current: list[dict], baseline: list[dict]) -> None:
+def mark_new_clones(current: list[dict], baseline: list[dict], changed_files: set[str]) -> None:
     """Flag clones the baseline cannot account for, counting occurrences.
 
     A fragment already copied once between two files is grandfathered only
@@ -174,7 +174,9 @@ def mark_new_clones(current: list[dict], baseline: list[dict]) -> None:
     available = collections.Counter(clone_key(clone) for clone in baseline)
     for clone in current:
         key = clone_key(clone)
-        if available[key] > 0:
+        if key[0].isdisjoint(changed_files):
+            clone["isNew"] = False
+        elif available[key] > 0:
             available[key] -= 1
             clone["isNew"] = False
         else:
@@ -268,7 +270,15 @@ def main() -> int:
     if scan_failed:
         return 2
 
-    mark_new_clones(current_clones, baseline_clones)
+    changed_files = set(
+        subprocess.check_output(["git", "diff", "--name-only", "-z", baseline], cwd=repo, text=True).split("\0")
+    )
+    changed_files.update(
+        subprocess.check_output(["git", "ls-files", "--others", "--exclude-standard", "-z"], cwd=repo, text=True).split(
+            "\0"
+        )
+    )
+    mark_new_clones(current_clones, baseline_clones, changed_files)
     print(
         f"{len(current_clones)} clones in this tree, {sum(1 for c in current_clones if c['isNew'])} not in the baseline"
     )

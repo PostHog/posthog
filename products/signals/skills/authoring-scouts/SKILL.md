@@ -163,6 +163,7 @@ For an **existing scout**, tune with `posthog:scout-config-update` (find the `id
   Up to 10 per scout, and each must be reachable through the project's GitHub connection — an unreachable name is refused on write rather than surfacing as a clone failure mid-run.
   The scout's GitHub access stays read-only whether or not it clones, so a listed repository gives it a tree to read and never the ability to push, comment, or open a pull request. Write access for a scout is a separate opt-in that does not exist yet.
   A multi-repository scout gets each tree on its default branch; there is no per-repository branch selection.
+  Each tree carries the repository's full commit history, so a skill body can run `git log`, `git blame`, and `--since` against it without an unshallow fetch first.
   Applies from the scout's next run, and changes are activity-logged.
 - `tags` — free-form labels grouping the fleet, e.g. `["revenue", "on-call"]`. Up to 10 per scout, normalized to lowercase kebab-case (`On Call` → `on-call`) and deduped.
   Set them at create time: a scout that lands already grouped saves a follow-up edit, and the desktop app's scout list filters on them.

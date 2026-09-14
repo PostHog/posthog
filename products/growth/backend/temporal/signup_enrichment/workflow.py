@@ -159,6 +159,8 @@ async def enrich_signup_organization_activity(
                         "fields_filled": len(filled),
                         "organization_id": inputs.organization_id,
                         "icp_fit_status": fit.status if fit else None,
+                        "icp_fit_evaluated_at": outcome.fit_evaluated_at and outcome.fit_evaluated_at.isoformat(),
+                        "icp_fit_evaluation_kind": ctx.phase.fit_evaluation_kind if fit else None,
                         "harmonic_enrichment_status": outcome.enrichment_status,
                     },
                     groups={"organization": inputs.organization_id},

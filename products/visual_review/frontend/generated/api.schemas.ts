@@ -200,6 +200,11 @@ export interface FlakinessEntryApi {
     needs_decision: boolean
     /** Active quarantine details when `is_quarantined` is true. Null otherwise. */
     quarantine?: BaselineQuarantineSummaryApi | null
+    /**
+     * Slug of the team that owns the file this snapshot's story lives in, from the repository's ownership files. `unowned` when no entry covers the file. Null when ownership is unknown: the snapshot is not a Storybook snapshot, the newest default-branch run sent no story index, the story is not in it, or the ownership files could not be read.
+     * @nullable
+     */
+    owner_team?: string | null
     identifier: string
     run_type: string
     /** @nullable */
@@ -489,9 +494,13 @@ export type AddSnapshotsInputApiBaselineHashes = { [key: string]: string }
 export interface AddSnapshotsInputApi {
     snapshots: SnapshotManifestItemApi[]
     baseline_hashes?: AddSnapshotsInputApiBaselineHashes
+    /** SHA-256 of the story-to-file map the CLI built from the Storybook index.json of this run's build. Every shard of a run sends the same value. Empty when the run sends no map. */
+    story_index_hash?: string
 }
 
 export interface AddSnapshotsResultApi {
+    /** Where to upload the story-to-file map, as a presigned POST with a JSON body. Null when the request sent no map, or the store already holds a map with that hash. */
+    story_index_upload?: UploadTargetApi | null
     added: number
     uploads: UploadTargetApi[]
 }

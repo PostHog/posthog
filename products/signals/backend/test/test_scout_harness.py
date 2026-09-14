@@ -59,6 +59,7 @@ from products.signals.backend.scout_harness.prompt import (
     _METRICS_CATALOG_SUPERSEDES_CACHE as _SUPERSEDES_CACHED_ENTRIES,
     _REPORT_CHARTS,
     HARNESS_PROMPT_VERSION,
+    _checkout_section,
     build_run_prompt,
 )
 from products.signals.backend.scout_harness.runner import (
@@ -466,6 +467,17 @@ class TestPromptCacheablePrefix(SimpleTestCase):
             '"verdict"',
         ):
             assert value not in head, f"{value} interpolated above the per-run block"
+
+
+class TestCheckoutSection(SimpleTestCase):
+    def test_it_states_that_the_tree_carries_full_history(self) -> None:
+        # Provisioning clones a pinned repository with its history, but a skill body that cannot
+        # read that from the prompt probes the tree and pays an unshallow fetch of minutes and
+        # gigabytes on every scheduled run.
+        section = _checkout_section(["acme-co/service"])
+
+        assert "full commit history" in section
+        assert "git blame" in section
 
 
 class TestPromptCrossReferences(SimpleTestCase):

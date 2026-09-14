@@ -1,5 +1,6 @@
 import re
 import json
+import math
 import logging
 from datetime import UTC, datetime, timedelta
 from typing import Any, Optional
@@ -884,7 +885,10 @@ class DebugCHQueries(viewsets.ViewSet):
             entry["total_read_bytes"] += row["total_read_bytes"]
             if row["reads"] > 0:
                 for stat in ("avg_duration_ms", "p50_duration_ms", "p90_duration_ms", "avg_read_bytes"):
-                    entry[stat] = row[stat]
+                    # avgIf/quantileIf return nan when a path has zero successful reads. STRICT_JSON
+                    # is off, so a nan would serialize as literal NaN — invalid JSON for the client.
+                    value = row[stat]
+                    entry[stat] = value if value is not None and math.isfinite(value) else None
             for reason in self._PRECOMPUTE_SKIP_REASONS:
                 entry["skip_reasons"][reason] += row[f"skip_{reason}"]
             metric_events["precomputed"] += row["me_precomputed"]

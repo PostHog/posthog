@@ -2226,6 +2226,7 @@ class SignalReportViewSet(
 
         # Hide the report from the list immediately while signal deletion continues asynchronously.
         updated_fields = report.transition_to(SignalReport.Status.DELETED)
+        report._transition_actor_user_id = self._request_attribution().user_id  # type: ignore[attr-defined]
         report.save(update_fields=updated_fields)
 
         return Response({"status": "deletion_started", "report_id": report_id}, status=status.HTTP_202_ACCEPTED)
@@ -2677,6 +2678,10 @@ class SignalReportViewSet(
                 # superseded and the receiver closes it. The PR-merge webhook resolves through
                 # transition_to directly and never sets this, so a merged PR is left alone.
                 report._close_pr_on_resolve = target_status == SignalReport.Status.RESOLVED  # type: ignore[attr-defined]
+                # Name the caller in the comments the receiver leaves on the linked pull request
+                # and tracker issue. An external agent keeps its user principal, so it names the
+                # person who ran it rather than nobody.
+                report._transition_actor_user_id = self._request_attribution().user_id  # type: ignore[attr-defined]
 
                 report.save(update_fields=updated_fields)
 
@@ -2967,6 +2972,7 @@ class SignalReportViewSet(
             resolved_via_merged_pr = report.status == SignalReport.Status.RESOLVED and pr_merged
             if report.status != SignalReport.Status.SUPPRESSED and not resolved_via_merged_pr:
                 updated_fields = report.transition_to(SignalReport.Status.SUPPRESSED)
+                report._transition_actor_user_id = attribution.user_id  # type: ignore[attr-defined]
                 report.save(update_fields=updated_fields)
             SignalReportArtefact.append_dismissal(
                 team_id=self.team.id,

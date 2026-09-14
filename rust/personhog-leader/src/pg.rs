@@ -16,6 +16,24 @@ use crate::cache::{approx_person_bytes, CachedPerson, PersonCacheKey};
 pub struct PgFallback {
     pub pool: PgPool,
     pub table: String,
+    pub lifecycle: LifecycleTables,
+}
+
+/// The saga tables the fence checks read. Must be the pair identity
+/// writes its marks to, or every committed release fails closed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LifecycleTables {
+    pub op: String,
+    pub op_person: String,
+}
+
+impl LifecycleTables {
+    pub fn new(op: &str, op_person: &str) -> Self {
+        Self {
+            op: op.to_string(),
+            op_person: op_person.to_string(),
+        }
+    }
 }
 
 /// Take a fallback-pool connection, recording the wait: the pool is small
