@@ -3895,13 +3895,13 @@ describe('runStreamLogic', () => {
             const readinessError = { status: 503, code: 'agent_session_not_ready' }
             const accepted = { jsonrpc: '2.0', result: { resolved: true } }
             const answers = { 'Which environment?': 'Example environment' }
-            const submit = (): void => {
+            const submit = (target: typeof logic = logic): void => {
                 const record = parsePermissionRequestFrame(permissionFrame, 'run-1')!
                 if (automatic) {
-                    logic.actions.autoApprovePermissionRequest(record, 'allow_once')
+                    target.actions.autoApprovePermissionRequest(record, 'allow_once')
                 } else {
-                    logic.actions.ingestPermissionRequest(record)
-                    logic.actions.respondToPermission({ requestId: record.requestId, optionId: 'allow_once', answers })
+                    target.actions.ingestPermissionRequest(record)
+                    target.actions.respondToPermission({ requestId: record.requestId, optionId: 'allow_once', answers })
                 }
             }
 
@@ -3909,6 +3909,7 @@ describe('runStreamLogic', () => {
                 jest.useFakeTimers()
                 jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined as never)
                 jest.spyOn(lemonToast, 'error').mockImplementation(() => undefined as never)
+                jest.spyOn(api.tasks.runs, 'getLogEntries').mockResolvedValue([])
                 logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
             })
 
@@ -3972,7 +3973,7 @@ describe('runStreamLogic', () => {
                         command.mockImplementation(() => new Promise(() => {}))
                     }
                     submit()
-                    await jest.advanceTimersByTimeAsync(10_000)
+                    await jest.advanceTimersByTimeAsync(20_000)
                     expect(command).toHaveBeenCalledTimes(outcome === 'exhausted' ? 12 : 1)
                     expect(logic.values.pendingPermissionRequest?.requestId).toBe('req-1')
                     expect(logic.values.respondingToPermission).toBe(false)
@@ -3990,6 +3991,145 @@ describe('runStreamLogic', () => {
                         answers,
                     })
                     expect(logic.values.pendingPermissionRequest).toBeNull()
+                }
+            )
+
+            test.each([false, true])(
+                'recovers a duplicate reply from the live stream (eventFirst=%s)',
+                async (eventFirst) => {
+                    const source = MockStream.latest()
+                    const other = runStreamLogic({ streamKey: 'other-client' })
+                    other.mount()
+                    other.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
+                    const command = jest.mocked(tasksRunsCommandCreate)
+                    const rejection = {
+                        jsonrpc: '2.0',
+                        error: { code: -32000, message: 'No pending permission request found for id: req-1' },
+                    }
+                    let rejectReply!: (response: typeof rejection) => void
+                    command.mockResolvedValueOnce(accepted).mockImplementationOnce(
+                        () =>
+                            new Promise((resolve) => {
+                                rejectReply = resolve
+                            })
+                    )
+                    try {
+                        submit(other)
+                        submit()
+                        await jest.advanceTimersByTimeAsync(0)
+                        expect(other.values.resolvedPermissionRequestIds.has('req-1')).toBe(true)
+                        if (!eventFirst) {
+                            rejectReply(rejection)
+                            await jest.advanceTimersByTimeAsync(5_500)
+                            expect(logic.values.respondingToPermission).toBe(true)
+                            expect(logic.values.resolvedPermissionRequestIds.has('req-1')).toBe(false)
+                            expect(lemonToast.error).not.toHaveBeenCalled()
+                            if (automatic) {
+                                expect(logic.values.pendingPermissionRequest).toBeNull()
+                            }
+                        }
+                        await source.emitMessage(notification('_posthog/permission_resolved', { requestId: 'req-1' }))
+                        if (eventFirst) {
+                            rejectReply(rejection)
+                        }
+                        await jest.advanceTimersByTimeAsync(0)
+                        expect(command).toHaveBeenCalledTimes(2)
+                        expect(logic.values.pendingPermissionRequest).toBeNull()
+                        expect(logic.values.respondingToPermission).toBe(false)
+                        expect(logic.values.resolvedPermissionRequestIds.has('req-1')).toBe(true)
+                        expect(lemonToast.error).not.toHaveBeenCalled()
+                        expect(posthog.captureException).not.toHaveBeenCalled()
+                        await jest.advanceTimersByTimeAsync(10_000)
+                        expect(api.tasks.runs.getLogEntries).not.toHaveBeenCalled()
+                        expect(lemonToast.error).not.toHaveBeenCalled()
+                    } finally {
+                        other.unmount()
+                    }
+                }
+            )
+
+            test.each([false, true])(
+                'preserves a newer approval when the resolution wait finishes (resolved=%s)',
+                async (resolved) => {
+                    jest.mocked(tasksRunsCommandCreate).mockRejectedValue(new TypeError('Network request failed'))
+                    submit()
+                    await jest.advanceTimersByTimeAsync(0)
+                    logic.actions.ingestPermissionRequest(
+                        parsePermissionRequestFrame({ ...permissionFrame, requestId: 'req-next' }, 'run-1')!
+                    )
+                    if (resolved) {
+                        await MockStream.latest().emitMessage(
+                            notification('_posthog/permission_resolved', { requestId: 'req-1' })
+                        )
+                    }
+                    await jest.advanceTimersByTimeAsync(10_000)
+                    expect(logic.values.pendingPermissionRequest?.requestId).toBe('req-next')
+                    expect(logic.values.resolvedPermissionRequestIds.has('req-1')).toBe(resolved)
+                    expect(logic.values.respondingToPermission).toBe(false)
+                }
+            )
+
+            test.each(['ancestor', 'unknown_run', 'other_request', 'missing'])(
+                'does not confirm an approval from a %s resolution',
+                async (resolution) => {
+                    jest.mocked(tasksRunsCommandCreate).mockRejectedValue(new TypeError('Network request failed'))
+                    submit()
+                    await jest.advanceTimersByTimeAsync(0)
+                    if (resolution !== 'missing') {
+                        logic.actions.ingestAcpFrame({
+                            ...notification('_posthog/permission_resolved', {
+                                requestId: resolution === 'other_request' ? 'other-request' : 'req-1',
+                            }),
+                            source_run_id:
+                                resolution === 'ancestor'
+                                    ? 'run-ancestor'
+                                    : resolution === 'unknown_run'
+                                      ? undefined
+                                      : 'run-1',
+                        })
+                    }
+                    await jest.advanceTimersByTimeAsync(9_999)
+                    expect(logic.values.respondingToPermission).toBe(true)
+                    expect(lemonToast.error).not.toHaveBeenCalled()
+                    await jest.advanceTimersByTimeAsync(1)
+                    expect(logic.values.resolvedPermissionRequestIds.has('req-1')).toBe(false)
+                    expect(logic.values.pendingPermissionRequest?.requestId).toBe('req-1')
+                    expect(logic.values.respondingToPermission).toBe(false)
+                    expect(lemonToast.error).toHaveBeenCalledTimes(1)
+                    await jest.advanceTimersByTimeAsync(10_000)
+                    expect(api.tasks.runs.getLogEntries).not.toHaveBeenCalled()
+                    expect(lemonToast.error).toHaveBeenCalledTimes(1)
+                }
+            )
+
+            test.each(['replacement', 'terminal', 'resolved', 'unmount', 'reset'])(
+                'cancels the resolution wait on %s without reporting a delivery error',
+                async (change) => {
+                    jest.mocked(tasksRunsCommandCreate).mockRejectedValue(new TypeError('Network request failed'))
+                    submit()
+                    await jest.advanceTimersByTimeAsync(0)
+                    expect(logic.values.respondingToPermission).toBe(true)
+                    if (change === 'replacement') {
+                        logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-2' })
+                    } else if (change === 'terminal') {
+                        logic.actions.handleTerminalStatus({ status: 'completed' })
+                    } else if (change === 'resolved') {
+                        logic.actions.ingestAcpFrame(
+                            notification('_posthog/permission_resolved', { requestId: 'req-1' })
+                        )
+                    } else if (change === 'reset') {
+                        logic.actions.reset()
+                    } else {
+                        logic.unmount()
+                        logic.mount()
+                    }
+                    await jest.advanceTimersByTimeAsync(20_000)
+                    expect(api.tasks.runs.getLogEntries).not.toHaveBeenCalled()
+                    expect(logic.values.pendingPermissionRequest).toBeNull()
+                    expect(logic.values.respondingToPermission).toBe(false)
+                    expect(logic.values.resolvedPermissionRequestIds.has('req-1')).toBe(change === 'resolved')
+                    expect(lemonToast.error).not.toHaveBeenCalled()
+                    expect(posthog.captureException).not.toHaveBeenCalled()
                 }
             )
 
@@ -4343,22 +4483,31 @@ describe('runStreamLogic', () => {
         it('falls back to a manual card when the auto-approve POST fails', async () => {
             ;(tasksRunsCommandCreate as jest.Mock).mockRejectedValue({ status: 502 })
             jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined as any)
+            jest.spyOn(api.tasks.runs, 'getLogEntries').mockResolvedValue([])
             logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
             const source = MockStream.latest()
 
-            await source.emitMessage({
-                ...permissionFrame,
-                requestId: 'req-fail',
-                toolCall: {
-                    ...permissionFrame.toolCall,
-                    serverName: 'posthog',
-                    toolName: 'exec',
-                    _meta: { claudeCode: { toolName: 'mcp__posthog__exec' } },
-                    rawInput: { command: 'call insight-create {"name":"x"}' },
-                },
-            })
+            jest.useFakeTimers()
+            try {
+                await source.emitMessage({
+                    ...permissionFrame,
+                    requestId: 'req-fail',
+                    toolCall: {
+                        ...permissionFrame.toolCall,
+                        serverName: 'posthog',
+                        toolName: 'exec',
+                        _meta: { claudeCode: { toolName: 'mcp__posthog__exec' } },
+                        rawInput: { command: 'call insight-create {"name":"x"}' },
+                    },
+                })
 
-            expect(logic.values.pendingPermissionRequest?.requestId).toEqual('req-fail')
+                expect(logic.values.pendingPermissionRequest).toBeNull()
+                expect(logic.values.respondingToPermission).toBe(true)
+                await jest.advanceTimersByTimeAsync(10_000)
+                expect(logic.values.pendingPermissionRequest?.requestId).toEqual('req-fail')
+            } finally {
+                jest.useRealTimers()
+            }
         })
 
         it('drives a generic task viewer with no conversation id', async () => {
@@ -4434,15 +4583,20 @@ describe('runStreamLogic', () => {
             ;(tasksRunsCommandCreate as jest.Mock).mockRejectedValue({ status: 502 })
             const exceptionSpy = jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined as any)
             const toastSpy = jest.spyOn(lemonToast, 'error').mockImplementation(() => undefined as any)
+            jest.spyOn(api.tasks.runs, 'getLogEntries').mockResolvedValue([])
             logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
             logic.actions.ingestPermissionRequest(parsePermissionRequestFrame(permissionFrame, 'run-1')!)
 
-            await expectLogic(logic, () => {
+            jest.useFakeTimers()
+            try {
                 logic.actions.respondToPermission({
                     requestId: 'req-1',
                     optionId: 'allow_once',
                 })
-            }).toFinishAllListeners()
+                await jest.advanceTimersByTimeAsync(10_000)
+            } finally {
+                jest.useRealTimers()
+            }
 
             expect(logic.values.pendingPermissionRequest?.requestId).toEqual('req-1')
             // A failed reply POST must not tear down the live stream — the run is still alive and
@@ -4545,15 +4699,18 @@ describe('runStreamLogic', () => {
         })
 
         it('clears the pending card when another client resolves the request', async () => {
+            const logs = jest.spyOn(api.tasks.runs, 'getLogEntries').mockResolvedValue([])
             logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
+            const source = MockStream.latest()
             logic.actions.ingestPermissionRequest(parsePermissionRequestFrame(permissionFrame, 'run-1')!)
             expect(logic.values.pendingPermissionRequest?.requestId).toEqual('req-1')
 
-            await expectLogic(logic, () => {
-                logic.actions.ingestAcpFrame(notification('_posthog/permission_resolved', { requestId: 'req-1' }))
-            }).toFinishAllListeners()
+            await source.emitMessage(notification('_posthog/permission_resolved', { requestId: 'req-1' }))
 
             expect(logic.values.pendingPermissionRequest).toBeNull()
+            expect(logic.values.resolvedPermissionRequestIds.has('req-1')).toBe(true)
+            expect(tasksRunsCommandCreate).not.toHaveBeenCalled()
+            expect(logs).not.toHaveBeenCalled()
         })
 
         it('drops the pending card when the run reaches a terminal status, but not before', () => {
