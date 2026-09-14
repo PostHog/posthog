@@ -39,6 +39,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.instagram.
     BAD_REQUEST_ERROR_PREFIX,
     PERMISSION_ERROR_PREFIX,
     REQUEST_BUDGET_ERROR_PREFIX,
+    RETRYABLE_ERROR_PREFIX,
     InstagramAPIError,
     InstagramAuthError,
     InstagramPermissionError,
@@ -148,8 +149,21 @@ Connect your Instagram account, then pick the professional account you want to s
             ),
         }
 
+    def get_retryable_errors(self) -> set[str]:
+        # Meta throttling, a 5xx, and the transient Graph codes. `InstagramClient.get` already
+        # retries these with backoff, so one that reaches the activity means that budget ran out
+        # and a fresh attempt recovers. Matching here keeps a self-recovering failure logged as a
+        # warning instead of entering error tracking as a defect.
+        return {RETRYABLE_ERROR_PREFIX}
+
     def get_retry_exhausted_errors(self) -> dict[str, str]:
         return {
+            # The transient class above, once Temporal's own retries run out too. The schema stays
+            # enabled; this only replaces the raw Graph API text the job would otherwise store.
+            RETRYABLE_ERROR_PREFIX: (
+                "Instagram's API kept rate limiting or returning errors, so this sync couldn't "
+                "finish. Nothing needs changing on your source, and the next sync runs on schedule."
+            ),
             # The client's own per-sync call cap. A fresh attempt gets a fresh budget and resumes from
             # the last checkpoint, so the schema stays enabled — this only replaces the raw text.
             REQUEST_BUDGET_ERROR_PREFIX: (

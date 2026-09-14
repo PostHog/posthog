@@ -103,10 +103,14 @@ class TestInstagramSource:
 
         assert friendly and friendly[0]
 
-    def test_a_throttling_error_is_left_retryable(self) -> None:
+    def test_a_throttling_error_stays_retryable_and_reports_a_message(self) -> None:
         observed_error = f"{RETRYABLE_ERROR_PREFIX}: status=429, code=4, message=rate limited"
 
         assert not any(key in observed_error for key in self.source.get_non_retryable_errors())
+        # Unmatched here, the activity logs a self-recovering rate limit as an unexpected
+        # exception and the job keeps the raw Graph API text.
+        assert any(key in observed_error for key in self.source.get_retryable_errors())
+        assert any(key in observed_error for key in self.source.get_retry_exhausted_errors())
 
     def test_spending_the_request_budget_reports_a_message_without_disabling_the_schema(self) -> None:
         observed_error = f"{REQUEST_BUDGET_ERROR_PREFIX} of 25000 requests spent"
