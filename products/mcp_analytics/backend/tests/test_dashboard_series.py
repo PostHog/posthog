@@ -1,7 +1,7 @@
 from datetime import UTC, datetime
 from typing import Any
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest.mock import patch
 
@@ -102,7 +102,7 @@ class TestMCPToolCallsAndErrorsQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Cli
         # Both directions matter here: "last hour" has to stay exact or it pulls in an extra chunk
         # of calls, while day and up has to cover whole days or the first bucket undercounts against
         # the wall-clock keys the client zero-fills with.
-        with freeze_time("2026-07-21 18:30:00"):
+        with time_machine.travel("2026-07-21 18:30:00", tick=False):
             # 08:00 Pacific on the 20th: inside the truncated day window, outside an exact one.
             self._emit(timestamp=datetime(2026, 7, 20, 15, 0, tzinfo=UTC))
             # 10:15 Pacific: inside the truncated hour window (10:00), outside the exact one (10:30).

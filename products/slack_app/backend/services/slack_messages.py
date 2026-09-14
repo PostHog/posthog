@@ -115,6 +115,43 @@ def resolve_user_mentions_text(
     return resolved
 
 
+# A `&lt;` that would begin a mention (`<@`) or broadcast (`<!`) token stays escaped:
+# decoded user text must never mint a token that downstream mention handling or the
+# outbound relay could turn into a real ping.
+_RE_DECODABLE_LT = re.compile(r"&lt;(?![@!])")
+
+
+def decode_slack_entities(text: str) -> str:
+    """Decode the three entities Slack escapes in message text: `&`, `<`, `>`.
+
+    Slack escapes only these three
+    (https://docs.slack.dev/messaging/formatting-message-text#escaping), so three
+    targeted replaces rather than `html.unescape`, which would also decode entities
+    the user typed literally. `&amp;` decodes last so a user-typed literal `&lt;`
+    (wire form `&amp;lt;`) comes out as `&lt;` instead of double-decoding to `<`.
+    """
+    text = _RE_DECODABLE_LT.sub("<", text)
+    return text.replace("&gt;", ">").replace("&amp;", "&")
+
+
+def _resolve_and_decode(
+    slack: SlackIntegration,
+    integration: Integration,
+    text: str,
+    *,
+    strip_bot_user_id: str | None = None,
+) -> str:
+    """Resolve mentions, then decode escaped entities: the one order that is safe.
+
+    Mention resolution must run first so its regex only ever sees genuine
+    wire-format tokens; the decode guard then keeps user-typed text from minting
+    new ones behind it. Every inbound path goes through here so no path can
+    apply one step without the other.
+    """
+    resolved = resolve_user_mentions_text(slack, integration, text, strip_bot_user_id=strip_bot_user_id)
+    return decode_slack_entities(resolved)
+
+
 def decode_slack_event_text(slack: SlackIntegration, integration: Integration, text: str) -> str:
     """Strip the bot's own self-mention from a Slack event and label the rest for the agent.
 
@@ -123,9 +160,13 @@ def decode_slack_event_text(slack: SlackIntegration, integration: Integration, t
     `<@U…>` reference with a `|displayname` label so the agent can echo the
     token verbatim to ping the user back. Centralised here so a new trigger
     handler can't drift back into the original mention-eating bug.
+
+    Also decodes Slack's escaped entities, because this text feeds task titles and
+    descriptions that render in the PostHog UI, where an undecoded `&gt;` shows up
+    literally.
     """
     bot_user_id = get_cached_bot_user_id(slack, integration)
-    return resolve_user_mentions_text(slack, integration, text, strip_bot_user_id=bot_user_id).strip()
+    return _resolve_and_decode(slack, integration, text, strip_bot_user_id=bot_user_id).strip()
 
 
 def labeled_mentions_to_display_names(text: str) -> str:
@@ -543,7 +584,7 @@ def collect_thread_messages(
             SlackThreadMessage(
                 user=username,
                 user_id=user_id or "",
-                text=resolve_user_mentions_text(slack, integration, extract_message_text(msg)),
+                text=_resolve_and_decode(slack, integration, extract_message_text(msg)),
                 ts=msg.get("ts") or "",
                 files_json=encode_slack_file_refs(parse_slack_file_refs(msg.get("files"))),
             )
@@ -751,7 +792,7 @@ def fork_menu_element(integration_id: int) -> dict[str, Any]:
 TURN_FEEDBACK_ACTION_ID = "slack_app_turn_feedback"
 
 
-def turn_feedback_block(integration_id: int, run_id: str) -> dict[str, Any]:
+def turn_feedback_block(integration_id: int, run_id: str, trace_id: str | None = None) -> dict[str, Any]:
     """The thumbs a reader rates one agent answer with.
 
     Slack's own feedback element rather than a pair of buttons: it renders as the two
@@ -764,12 +805,19 @@ def turn_feedback_block(integration_id: int, run_id: str) -> dict[str, Any]:
     interactivity router can tell whose click this is, the same way the fork menu's
     option value does. The task is not carried: it is read back from the run row.
 
+    ``trace_id`` is the answering turn's gateway trace id, which nothing on the server
+    can look up afterwards — it exists only in the turn that produced this reply — so the
+    reply itself is where it has to be kept. Omitted when the turn reported none, which
+    is what a rating with no ``$ai_trace_id`` then means.
+
     The block's shape is also a read contract, not only a render: the reaction feedback
     path fetches the posted message back from Slack and finds the run through this
     element's action id and button value (``turn_feedback._feedback_value_from_message``).
     Renaming the element's keys silently kills reaction feedback.
     """
-    target = {"integration_id": integration_id, "run_id": run_id}
+    target: dict[str, Any] = {"integration_id": integration_id, "run_id": run_id}
+    if trace_id:
+        target["trace_id"] = trace_id
     return {
         "type": "context_actions",
         "elements": [

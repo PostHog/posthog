@@ -37,7 +37,10 @@ const {
 }));
 
 vi.mock("@posthog/ui/shell/analytics", () => ({ track }));
-vi.mock("@posthog/ui/router/useAppView", () => ({ useAppView }));
+vi.mock("@posthog/ui/router/useAppView", () => ({
+  useAppView,
+  useReportSourceNavType: () => null,
+}));
 // Channel reports defaults off here so the Inbox item renders; the flag-on
 // test flips it via `channelReportsFlag`.
 let channelReportsFlag = false;
@@ -103,7 +106,16 @@ vi.mock("@posthog/ui/features/canvas/hooks/useTaskActivity", () => ({
   useTaskActivity: () => ({ items: [], unreadCount: 0, isLoading: false }),
 }));
 vi.mock("@tanstack/react-router", () => ({
-  useRouterState: () => false,
+  useRouterState: ({ select }: { select: (state: unknown) => unknown }) =>
+    select({
+      matches: [],
+      location: {
+        pathname: "/",
+        href: "/",
+        search: {},
+        state: {},
+      },
+    }),
 }));
 
 import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";

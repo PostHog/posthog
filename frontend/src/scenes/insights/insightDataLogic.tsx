@@ -19,6 +19,7 @@ import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { PromiseTimeoutError, withTimeout } from 'lib/utils/async'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { objectsEqual } from 'lib/utils/objects'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
@@ -162,6 +163,7 @@ export interface insightDataLogicValues {
     query: Node | null
     queryChanged: boolean
     queryFromUrl: boolean
+    savingDisplayOptions: boolean
     savingSqlVisualization: SqlVisualizationUpdate['type'] | null
     showDebugPanel: boolean
     showQueryEditor: boolean
@@ -414,6 +416,9 @@ export interface insightDataLogicActions {
     persistDisplayOptions: (query: Node) => {
         query: Node<Record<string, any>>
     }
+    persistDisplayOptionsSettled: () => {
+        value: true
+    }
     persistSqlVisualization: (update: SqlVisualizationUpdate) => {
         update: SqlVisualizationUpdate
     }
@@ -541,12 +546,20 @@ export const insightDataLogic = kea<insightDataLogicType>([
         toggleDebugPanel: true,
         cancelChanges: true,
         persistDisplayOptions: (query: Node) => ({ query }),
+        persistDisplayOptionsSettled: true,
         persistSqlVisualization: (update: SqlVisualizationUpdate) => ({ update }),
         persistSqlVisualizationFailed: (update: SqlVisualizationUpdate) => ({ update }),
         persistSqlVisualizationSettled: true,
     }),
 
     reducers({
+        savingDisplayOptions: [
+            false,
+            {
+                persistDisplayOptions: () => true,
+                persistDisplayOptionsSettled: () => false,
+            },
+        ],
         savingSqlVisualization: [
             null as SqlVisualizationUpdate['type'] | null,
             {
@@ -786,13 +799,12 @@ export const insightDataLogic = kea<insightDataLogicType>([
             // (a display toggle or removing a filter) would PATCH the insight before the user
             // clicks Save. Edits there must persist only through an explicit save.
             if (isInsightSceneInstance(props)) {
+                actions.persistDisplayOptionsSettled()
                 return
             }
-            // Debounce rapid clicks. insightDataLogic is keyed per insight, so breakpoint
-            // only cancels concurrent saves for this insight without affecting unrelated tiles.
-            await breakpoint(700)
             const insightId = values.insight.id
             if (!insightId) {
+                actions.persistDisplayOptionsSettled()
                 return
             }
             // Only persist when the query actually differs from what's saved. The setQuery →
@@ -800,17 +812,50 @@ export const insightDataLogic = kea<insightDataLogicType>([
             // re-syncs (tile re-renders, results refreshes) that carry an unchanged query;
             // persisting those produces spurious saves and activity-log churn.
             if (objectsEqual(query, values.savedInsight.query)) {
+                actions.persistDisplayOptionsSettled()
                 return
             }
+            const refreshResults = values.savedInsight.query
+                ? !compareQuery(query, values.savedInsight.query, { ignoreVisualizationOnlyChanges: true })
+                : false
+            const saveId = (cache.displayOptionsSaveId ?? 0) + 1
+            cache.displayOptionsSaveId = saveId
             try {
-                const updatedItem = await insightsApi.update(insightId, { query })
-                // Drop the response if a newer save started while this request was in flight.
-                await breakpoint(0)
+                // Debounce rapid clicks. insightDataLogic is keyed per insight, so breakpoint
+                // only cancels concurrent saves for this insight without affecting unrelated tiles.
+                await breakpoint(700)
+                // Breakpoints cannot cancel PATCHes that have already started, so serialize them per insight.
+                await cache.displayOptionsSave
+                breakpoint()
+                const save = withTimeout(
+                    (signal) => insightsApi.update(insightId, { query }, { signal }),
+                    15_000,
+                    'Saving display options timed out'
+                )
+                // The next save only needs to know when this request finishes.
+                cache.displayOptionsSave = save.catch(() => undefined)
+                const updatedItem = await save
+                if (saveId !== cache.displayOptionsSaveId) {
+                    return
+                }
                 actions.renameInsightSuccess(updatedItem)
+                if (refreshResults) {
+                    props.refreshAfterDisplayOptionsChange?.(updatedItem)
+                }
+                actions.persistDisplayOptionsSettled()
                 lemonToast.success('Insight updated')
             } catch (e) {
                 // A breakpoint means a newer save superseded this one, and that save owns the state.
-                if (!isBreakpoint(e as Error)) {
+                if (!isBreakpoint(e as Error) && saveId === cache.displayOptionsSaveId) {
+                    if (e instanceof PromiseTimeoutError) {
+                        actions.persistDisplayOptionsSettled()
+                        lemonToast.warning(
+                            "Couldn't confirm whether the insight was updated. Refresh the dashboard to check."
+                        )
+                        return
+                    }
+                    actions.syncQueryFromProps(values.savedInsight.query ?? null)
+                    actions.persistDisplayOptionsSettled()
                     lemonToast.error('Failed to update insight')
                 }
             }

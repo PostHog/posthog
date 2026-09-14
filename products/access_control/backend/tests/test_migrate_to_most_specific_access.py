@@ -13,6 +13,7 @@ from products.access_control.backend.facade.most_specific_migration import (
     enable_most_specific_resolution,
     find_organizations_to_migrate,
 )
+from products.access_control.backend.facade.resolution_preview import iter_resolution_changes
 from products.access_control.backend.models.access_control import AccessControl
 from products.access_control.backend.tests.test_user_access_control import BaseUserAccessControlTest
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -87,6 +88,32 @@ class TestMigrateToMostSpecificAccess(BaseUserAccessControlTest):
             "No rules org": False,
         }
         assert "would be migrated" in out.getvalue()
+
+    def test_object_rules_the_preview_cannot_resolve_stay_on_legacy(self) -> None:
+        # No model backs the account resource, so an empty preview proves nothing for this organization
+        team = self.unchanged_organization.teams.get()
+        AccessControl.objects.create(team=team, resource="account", resource_id="1", access_level="none")
+        out = StringIO()
+        call_command("migrate_to_most_specific_access", stdout=out)
+
+        assert self._resolution_flags()["Unchanged org"] is False
+        assert f"{self.unchanged_organization.id}\tUnchanged org" in out.getvalue().split("could not be evaluated")[1]
+
+    def test_object_rules_on_a_resource_the_preview_skips_do_not_block_the_switch(self) -> None:
+        # Plugin rules are left out of the comparison on purpose, so they say nothing about resolvability
+        team = self.unchanged_organization.teams.get()
+        AccessControl.objects.create(team=team, resource="plugin", resource_id="1", access_level="none")
+        call_command("migrate_to_most_specific_access", stdout=StringIO())
+
+        assert self._resolution_flags()["Unchanged org"] is True
+
+    def test_single_organization_preview_still_sees_rules_it_cannot_resolve(self) -> None:
+        team = self.unchanged_organization.teams.get()
+        AccessControl.objects.create(team=team, resource="account", resource_id="1", access_level="none")
+
+        teams = [team for team, _ in iter_resolution_changes(str(self.unchanged_organization.id))]
+
+        assert teams == [team]
 
     def test_rules_written_after_the_classification_block_the_switch(self) -> None:
         candidates = find_organizations_to_migrate()

@@ -161,6 +161,10 @@ observations they have to go read.
   them with `vision-scanners-observations-list` for one scanner over time, or `vision-observations-list`
   (requires `session_id`) for every scanner's findings on a single session. To dig into a recording, hand off
   to the `investigating-replay` skill.
+- **Say how the scanner gets better.** A first prompt is a guess, and the first sweep is what corrects it.
+  Tell the user that rating results thumbs up or down with `vision-observations-label-create` turns into a
+  config recommendation they can review on the scanner's Calibration tab. Most scanners are never rated, so
+  they run forever on the first guess. The `exploring-replay-vision-observations` skill covers that loop.
 
 ## Updating an existing scanner
 

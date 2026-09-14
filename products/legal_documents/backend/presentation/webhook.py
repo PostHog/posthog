@@ -122,7 +122,7 @@ def legal_document_pandadoc_webhook(request: Request) -> Response:
             processed_any = True
             continue
 
-        # Other states (document.sent, document.viewed, …) — nothing to do.
+        logger.info("pandadoc_webhook_state_ignored", status=event_status, pandadoc_document_id=pandadoc_document_id)
 
     if processed_any:
         return Response({"status": "ok"}, status=status.HTTP_200_OK)

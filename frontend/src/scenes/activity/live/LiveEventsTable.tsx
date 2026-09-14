@@ -84,6 +84,8 @@ export function LiveEventsTable(): JSX.Element {
                         onChange={(value) => setFilters({ ...filters, eventType: value })}
                         placeholder="Filter by event"
                         allEventsOption="clear"
+                        // Narrows the live feed in memory rather than saving a query.
+                        includeHiddenEvents
                     />
                     <PropertyFilters
                         pageKey="live-events"

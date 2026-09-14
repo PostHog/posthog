@@ -16,7 +16,7 @@ import {
   type SessionService,
 } from "@posthog/core/sessions/sessionService";
 import { useService } from "@posthog/di/react";
-import { Button, Spinner } from "@posthog/quill";
+import { Button } from "@posthog/quill";
 import type { TaskRun, TaskRunArtifact } from "@posthog/shared";
 import {
   getAuthIdentity,
@@ -28,6 +28,7 @@ import { usePanelLayoutStore } from "@posthog/ui/features/panels/panelLayoutStor
 import { PostHogObjectPage } from "@posthog/ui/features/posthog-objects/PostHogObjectPage";
 import { useCommentNavigationStore } from "@posthog/ui/features/sessions/commentNavigationStore";
 import { useSessionSelector } from "@posthog/ui/features/sessions/sessionStore";
+import { LoadingState } from "@posthog/ui/primitives/LoadingState";
 import {
   type ReactElement,
   useCallback,
@@ -333,11 +334,7 @@ export function ArtifactPreview({
     ) : null;
 
   if (isLoading) {
-    return (
-      <div className="flex h-full items-center justify-center">
-        <Spinner />
-      </div>
-    );
+    return <LoadingState />;
   }
   if (isError || imageError) return <ArtifactPreviewError />;
 

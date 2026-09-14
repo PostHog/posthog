@@ -20,7 +20,7 @@ from posthog.redis import get_client
 from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV, POSTHOG_AI_APP_CLIENT_ID_DEV
 
 from products.access_control.backend.models.access_control import AccessControl
-from products.conversations.backend.models import Ticket
+from products.conversations.backend.models import EmailOutboxMessage, Ticket
 from products.conversations.backend.models.constants import Channel, Status
 from products.conversations.backend.reply_dedupe import REPLY_IN_PROGRESS_ERROR_TYPE, ReplyFingerprint, reserve
 
@@ -922,6 +922,20 @@ class TestComments(APIBaseTest, QueryMatchingTest):
         assert len(response.json()["results"]) == 1
         assert response.json()["results"][0]["content"] == "comment notebook-2"
 
+    def test_lists_comments_filtered_by_author(self) -> None:
+        other_user = User.objects.create_and_join(self.organization, "other-author@posthog.com", "password")
+        self._create_comment({"content": "mine", "scope": "Replay", "item_id": "session-1"})
+        Comment.objects.create(
+            team=self.team, created_by=other_user, content="theirs", scope="Replay", item_id="session-2"
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/comments?scope=Replay&created_by={self.user.id}")
+        assert response.status_code == status.HTTP_200_OK
+        assert [comment["content"] for comment in response.json()["results"]] == ["mine"]
+
+        response = self.client.get(f"/api/projects/{self.team.id}/comments?created_by=not-a-user-id")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
     def test_lists_comments_thread(self) -> None:
         initial_comment = self._create_comment({"content": "comment notebook-1", "scope": "Notebook", "item_id": "1"})
         self._create_comment({"content": "comment reply", "source_comment": initial_comment["id"]})
@@ -1673,6 +1687,24 @@ class TestCommentsSupportReplyDedupe(APIBaseTest):
         assert response.status_code == status.HTTP_409_CONFLICT
         assert response.json()["error_type"] == REPLY_IN_PROGRESS_ERROR_TYPE
         assert not Comment.objects.filter(scope="conversations_ticket").exists()
+
+    def test_outbox_failure_rolls_back_comment_and_allows_retry(self) -> None:
+        self.ticket.channel_source = Channel.EMAIL
+        self.ticket.save(update_fields=["channel_source"])
+
+        with mock.patch(
+            "products.conversations.backend.signals.EmailOutboxMessage.objects.get_or_create",
+            side_effect=RuntimeError("outbox write failed"),
+        ):
+            response = self._post()
+
+        assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
+        assert not Comment.objects.filter(scope="conversations_ticket", item_id=str(self.ticket.id)).exists()
+        assert not EmailOutboxMessage.objects.filter(ticket=self.ticket).exists()
+
+        retry = self._post()
+        assert retry.status_code == status.HTTP_201_CREATED
+        assert EmailOutboxMessage.objects.filter(ticket=self.ticket).count() == 1
 
     @parameterized.expand(
         [

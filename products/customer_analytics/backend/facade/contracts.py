@@ -16,7 +16,7 @@ from dataclasses import (
 )
 from datetime import date, datetime
 from enum import Enum
-from typing import Any, TypedDict
+from typing import Any, Literal, TypedDict
 from uuid import UUID
 
 from pydantic.dataclasses import dataclass
@@ -50,6 +50,17 @@ class AccountRelationshipDefinition:
     name: str = ""
     description: str | None = None
     is_single_holder: bool = True
+
+
+@dataclass(frozen=True)
+class PinnedAccountProperty:
+    kind: Literal["custom_property", "relationship"]
+    id: UUID
+
+
+@dataclass(frozen=True)
+class UserCustomerAnalyticsConfig:
+    pinned_properties: list[PinnedAccountProperty] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -91,6 +102,12 @@ class Account:
     name: str
     properties: AccountProperties
     created_at: datetime | None
+
+
+@dataclass(frozen=True)
+class AccountPresenceViewer:
+    user_id: int
+    display_name: str
 
 
 @dataclass(frozen=True)
@@ -1067,9 +1084,8 @@ class CreateAccountNotebookInput:
     """Validated body for creating an account notebook.
 
     ``content`` is the ProseMirror document the caller supplied (or ``None``);
-    ``synthesized_content`` is the markdown-derived document the view built when the
-    caller passed only ``text_content`` — the view owns that normalization so the
-    ``ee.hogai`` tiptap helper stays off the facade import path.
+    ``synthesized_content`` is the markdown notebook document the view built when the
+    caller passed only ``text_content``.
     """
 
     title: str | None

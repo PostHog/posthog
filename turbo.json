@@ -23,7 +23,10 @@
             ],
             "outputs": [],
             "cache": true,
-            "env": ["DATABASE_URL", "REDIS_URL", "CLICKHOUSE_HOST", "TEST"],
+            // PERSON_ON_EVENTS_V2_ENABLED belongs in `env`, not passThroughEnv: it
+            // changes the SQL a query runner builds, so a result cached under one mode
+            // must not satisfy a run in the other.
+            "env": ["DATABASE_URL", "REDIS_URL", "CLICKHOUSE_HOST", "TEST", "PERSON_ON_EVENTS_V2_ENABLED"],
             // Credentials and the fork-PR flag the product-run temporal suites need
             // (tasks sandbox JWT, batch-exports Modal/S3, RUNS_ON_INTERNAL_PR that
             // skips internal-only tests for external contributors). Turbo strips

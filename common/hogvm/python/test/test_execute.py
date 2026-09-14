@@ -1,4 +1,5 @@
 import json
+import time
 from collections.abc import Callable
 from typing import Any, Optional, cast
 
@@ -16,8 +17,14 @@ from common.hogvm.python.operation import (
     HOGQL_BYTECODE_VERSION as VERSION,
     Operation as op,
 )
-from common.hogvm.python.stl import STL, sleep
-from common.hogvm.python.utils import HogVMException, UncaughtHogVMException
+from common.hogvm.python.stl import _MAX_SEQUENCE_LENGTH, STL, _guard_sequence_length, sleep
+from common.hogvm.python.utils import (
+    COST_PER_UNIT,
+    MAX_MEMORY,
+    HogVMException,
+    HogVMMemoryExceededException,
+    UncaughtHogVMException,
+)
 
 
 class TestBytecodeExecute:
@@ -86,7 +93,6 @@ class TestBytecodeExecute:
         assert self._run("match('test', 'x.*')") is False
         assert self._run("match('test', '')") is True
         assert self._run("match('', '')") is True
-        assert self._run("match('ab', '(?<=a)b')") is True
         assert self._run("'test' =~ 'e.*'") is True
         assert self._run("'test' !~ 'e.*'") is False
         assert self._run("'test' =~ '^e.*'") is False
@@ -118,6 +124,7 @@ class TestBytecodeExecute:
         [
             ("function_list_input", "match(['tool_call'], 'tool')", {}, "Function match requires input"),
             ("function_invalid_pattern", "match('tool_call', '[')", {}, "Invalid regex pattern"),
+            ("function_lookbehind_unsupported", "match('ab', '(?<=a)b')", {}, "Invalid regex pattern"),
             ("operator_list_input", "['tool_call'] =~ 'tool'", {}, "Function match requires input"),
             (
                 "operator_invalid_pattern",
@@ -348,6 +355,22 @@ class TestBytecodeExecute:
             assert str(e) == "Memory limit of 67108864 bytes exceeded. Attempted to use 67155164 bytes"
         else:
             raise AssertionError("Expected Exception not raised")
+
+    def test_range_refuses_length_past_memory_ceiling(self):
+        # The asserted size proves the guard fired before allocation, not after building the list.
+        length = 10**12
+        bytecode = [_H, VERSION, op.INTEGER, length, op.CALL_GLOBAL, "range", 1, op.RETURN]
+        with pytest.raises(HogVMMemoryExceededException) as exc:
+            execute_bytecode(bytecode, {})
+        assert exc.value.attempted_memory == (length + 1) * COST_PER_UNIT
+
+    def test_range_ceiling_matches_stack_accounting(self):
+        # The ceiling is the largest length the stack accepts, so a list at the ceiling stays within
+        # the limit and one past it is refused. Locks the boundary without allocating either list.
+        assert (_MAX_SEQUENCE_LENGTH + 1) * COST_PER_UNIT <= MAX_MEMORY
+        _guard_sequence_length(_MAX_SEQUENCE_LENGTH)
+        with pytest.raises(HogVMMemoryExceededException):
+            _guard_sequence_length(_MAX_SEQUENCE_LENGTH + 1)
 
     def test_functions(self):
         def stringify(*args):
@@ -1204,9 +1227,44 @@ class TestBytecodeExecute:
         assert self._run("extractRegex(null, '\\\\w+')") == ""
         assert self._run("extractRegex('hello', null)") == ""
 
+        # A pattern with a group that captured nothing still returns the group, not the whole match
+        assert self._run("extractRegex('b', '(a)?b')") == ""
+        assert self._run("extractRegex('b', '(?:(a)|b)')") == ""
+
         # Complex pattern like ClickHouse sortableSemver uses
         assert self._run("extractRegex('v1.2.3-alpha', '(\\\\d+(\\\\.\\\\d+)+)')") == "1.2.3"
         assert self._run("extractRegex('version 10.20.30', '(\\\\d+(\\\\.\\\\d+)+)')") == "10.20.30"
+
+    @parameterized.expand(
+        [
+            ("match", False),
+            ("extractRegex", ""),
+        ]
+    )
+    def test_regex_functions_run_in_linear_time(self, fn_name: str, expected: bool | str) -> None:
+        # Python's re engine needs exponential time on this pattern, so this pins the engine choice.
+        # CPU time rather than wall clock, so a paused runner cannot fail the assertion on its own.
+        subject = "a" * 26 + "!"
+        start = time.process_time()
+        result = STL[fn_name].fn([subject, "(a+)+$"], None, None, 5.0)
+        elapsed = time.process_time() - start
+        assert result == expected
+        assert elapsed < 1.0
+
+    @parameterized.expand(
+        [
+            ("extractRegex", "café", r"\w+", "caf"),
+            ("extractRegex", "日本語", r"\w+", ""),
+            ("match", "Müller", r"^\w+$", False),
+            ("match", "١٢٣", r"\d+", False),
+        ]
+    )
+    def test_regex_character_classes_are_ascii_only(
+        self, fn_name: str, subject: str, pattern: str, expected: bool | str
+    ) -> None:
+        # The linear-time test cannot pin this, because another linear-time engine could restore the
+        # Unicode classes and still run fast. Python's re engine gives "café", a match, and true here.
+        assert STL[fn_name].fn([subject, pattern], None, None, 5.0) == expected
 
     def test_sortable_semver(self):
         # Basic semver parsing

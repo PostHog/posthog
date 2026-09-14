@@ -42,7 +42,8 @@ describe('usage-records-steps', () => {
     async function queueEventUsage(
         ingested: Promise<IngestedEventInfo | null>[],
         event: Partial<{ event: string; eventUuid: string; distinctId: string }> = {},
-        personProcessing: { processPerson?: boolean; person?: Person } = {}
+        personProcessing: { processPerson?: boolean; person?: Person } = {},
+        headers: { now?: Date } = {}
     ): Promise<void> {
         const prepare = createRecordEventUsageStep(() => 'events')
         const prepared = await prepare({
@@ -54,6 +55,7 @@ describe('usage-records-steps', () => {
                 timestamp: '2026-06-15T23:55:00.000Z',
                 ...event,
             },
+            headers,
             eventUsageBatch,
             ...personProcessing,
         })
@@ -142,6 +144,22 @@ describe('usage-records-steps', () => {
                 timestampMs: FLUSH_TIMESTAMP_MS,
             },
         ])
+    })
+
+    it('uses trusted capture time when an event flushes six hours later', async () => {
+        const capturedAtMs = FLUSH_TIMESTAMP_MS
+        jest.setSystemTime(capturedAtMs)
+        await queueEventUsage(
+            [Promise.resolve({ topic: 'events', partition: 0 })],
+            {},
+            {},
+            { now: new Date(capturedAtMs) }
+        )
+
+        jest.advanceTimersByTime(6 * 60 * 60 * 1000)
+        await eventUsageBatch.flush()
+
+        expect(ingestedUsage[0]).toEqual(expect.objectContaining({ timestampMs: capturedAtMs }))
     })
 
     // The meters have to match `person_mode` in the nightly report's two billable-event queries,

@@ -242,6 +242,10 @@ import {
   type McpToolBlockComponent,
 } from "@posthog/ui/features/sessions/components/session-update/identifiers";
 import {
+  CLAUDE_SUBSCRIPTION_TOKEN_SETTINGS,
+  type ClaudeSubscriptionTokenSettings,
+} from "@posthog/ui/features/settings/claudeSubscriptionTokenSettings";
+import {
   DEV_MODE_CLIENT,
   type DevModeClient,
 } from "@posthog/ui/features/settings/devModeClient";
@@ -374,6 +378,7 @@ export interface RendererBindings {
   [SPEECH_USER_NAME_PROVIDER]: UserNameProvider;
   [SPEECH_NOTIFY_SETTINGS]: ISpeechNotifySettings;
   [SPEECH_KEY_STORE]: ISpeechKeyStore;
+  [CLAUDE_SUBSCRIPTION_TOKEN_SETTINGS]: ClaudeSubscriptionTokenSettings;
   [FILE_WATCHER_CLIENT]: FileWatcherClient;
   [FEATURE_FLAGS]: FeatureFlags;
   [AUTH_SIDE_EFFECTS]: IAuthSideEffects;

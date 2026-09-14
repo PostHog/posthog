@@ -4,7 +4,7 @@ from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from unittest import mock
 
 import requests
@@ -419,7 +419,7 @@ class TestArchiveWindowing:
             )
         return batches, session
 
-    @freeze_time("2026-03-01")
+    @time_machine.travel("2026-03-01", tick=False)
     def test_covers_every_location_within_a_window_before_advancing(self) -> None:
         manager = FakeResumeManager()
         responses = [_response(200, _hourly_body(["2026-01-01T00:00"], temperature_2m=[1.0])) for _ in range(4)]
@@ -441,7 +441,7 @@ class TestArchiveWindowing:
         # One batch per window, holding both locations' rows.
         assert [len(batch) for batch in batches] == [2, 2]
 
-    @freeze_time("2026-03-01")
+    @time_machine.travel("2026-03-01", tick=False)
     def test_windows_are_contiguous_and_never_overlap(self) -> None:
         manager = FakeResumeManager()
         responses = [_response(200, _hourly_body(["2026-01-01T00:00"], temperature_2m=[1.0])) for _ in range(4)]
@@ -456,7 +456,7 @@ class TestArchiveWindowing:
         assert (first[1] - first[0]).days == ARCHIVE_WINDOW_DAYS - 1
         assert (second[0] - first[1]).days == 1
 
-    @freeze_time("2026-03-01")
+    @time_machine.travel("2026-03-01", tick=False)
     def test_checkpoints_after_each_window_and_clears_on_completion(self) -> None:
         manager = FakeResumeManager()
         responses = [_response(200, _hourly_body(["2026-01-01T00:00"], temperature_2m=[1.0])) for _ in range(4)]
@@ -466,7 +466,7 @@ class TestArchiveWindowing:
         assert [state.next_start_date for state in manager.saved] == ["2026-02-01", "2026-03-02"]
         assert manager.cleared is True
 
-    @freeze_time("2026-03-01")
+    @time_machine.travel("2026-03-01", tick=False)
     def test_resumes_from_the_saved_window(self) -> None:
         manager = FakeResumeManager(OpenMeteoResumeConfig(next_start_date="2026-02-01"))
         responses = [_response(200, _hourly_body(["2026-02-01T00:00"], temperature_2m=[1.0])) for _ in range(2)]
@@ -475,7 +475,7 @@ class TestArchiveWindowing:
 
         assert [_query(url)["start_date"][0] for url in _requested_urls(session)] == ["2026-02-01", "2026-02-01"]
 
-    @freeze_time("2026-03-01")
+    @time_machine.travel("2026-03-01", tick=False)
     def test_makes_no_requests_when_the_watermark_is_already_current(self) -> None:
         manager = FakeResumeManager()
         session = _fake_session([])

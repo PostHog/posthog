@@ -5,7 +5,7 @@ from uuid import UUID
 from zoneinfo import ZoneInfo
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -33,6 +33,7 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
+from posthog.hogql.constants import HogQLQuerySettings
 from posthog.hogql.direct_connection import INVALID_CONNECTION_ID_ERROR, get_direct_connection_source
 from posthog.hogql.errors import ExposedHogQLError, QueryError
 from posthog.hogql.printer import prepare_ast_for_printing as unmocked_prepare_ast_for_printing
@@ -44,8 +45,11 @@ from posthog.hogql.test.utils import (
     pretty_print_response_in_tests,
 )
 
+from posthog.clickhouse.adhoc_events_deletion import ADHOC_EVENTS_DELETION_TABLE, ADHOC_EVENTS_DELETION_TABLE_SQL
+from posthog.clickhouse.client import sync_execute
 from posthog.errors import CHQueryErrorS3Error, InternalCHQueryError
 from posthog.models.exchange_rate.currencies import SUPPORTED_CURRENCY_CODES
+from posthog.models.team import Team
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.uuidt import UUIDT, uuid7
@@ -124,7 +128,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_query(self):
-        with freeze_time("2020-01-10"):
+        with time_machine.travel("2020-01-10", tick=False):
             random_uuid = self._create_random_events()
 
             response = execute_hogql_query(
@@ -138,7 +142,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_subquery(self):
-        with freeze_time("2020-01-10"):
+        with time_machine.travel("2020-01-10", tick=False):
             random_uuid = self._create_random_events()
 
             response = execute_hogql_query(
@@ -152,7 +156,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_subquery_alias(self):
-        with freeze_time("2020-01-10"):
+        with time_machine.travel("2020-01-10", tick=False):
             random_uuid = self._create_random_events()
 
             response = execute_hogql_query(
@@ -223,7 +227,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_query_distinct(self):
-        with freeze_time("2020-01-10"):
+        with time_machine.travel("2020-01-10", tick=False):
             random_uuid = self._create_random_events()
 
             response = execute_hogql_query(
@@ -237,7 +241,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_query_person_distinct_ids(self):
-        with freeze_time("2020-01-10"):
+        with time_machine.travel("2020-01-10", tick=False):
             self._create_random_events()
             response = execute_hogql_query(
                 f"select distinct person_id, distinct_id from person_distinct_ids",
@@ -248,7 +252,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             self.assertTrue(len(response.results) > 0)
 
     def test_query_timings(self):
-        with freeze_time("2020-01-10"):
+        with time_machine.travel("2020-01-10", tick=False):
             random_uuid = self._create_random_events()
             response = execute_hogql_query_with_timings(
                 "select count(), event from events where properties.random_uuid = {random_uuid} group by event",
@@ -264,7 +268,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_query_joins_simple(self):
-        with freeze_time("2020-01-10"):
+        with time_machine.travel("2020-01-10", tick=False):
             self._create_random_events()
 
             response = execute_hogql_query(
@@ -286,7 +290,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_query_joins_pdi(self):
-        with freeze_time("2020-01-10"):
+        with time_machine.travel("2020-01-10", tick=False):
             self._create_random_events()
 
             response = execute_hogql_query(
@@ -310,7 +314,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_query_joins_events_pdi(self):
-        with freeze_time("2020-01-10"):
+        with time_machine.travel("2020-01-10", tick=False):
             self._create_random_events()
 
             response = execute_hogql_query(
@@ -325,7 +329,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_query_joins_events_e_pdi(self):
-        with freeze_time("2020-01-10"):
+        with time_machine.travel("2020-01-10", tick=False):
             self._create_random_events()
 
             response = execute_hogql_query(
@@ -431,9 +435,102 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(executor.types, [])
         mock_sync_execute.assert_not_called()
 
+    def test_compiled_hogql_select_can_be_embedded_in_insert(self) -> None:
+        sync_execute(ADHOC_EVENTS_DELETION_TABLE_SQL(on_cluster=False))
+        sync_execute(f"TRUNCATE TABLE {ADHOC_EVENTS_DELETION_TABLE}")
+        self.addCleanup(sync_execute, f"TRUNCATE TABLE {ADHOC_EVENTS_DELETION_TABLE}")
+
+        event_name = 'delete candidates with "quotes"'
+        expected_uuid = _create_event(team=self.team, distinct_id="selected", event=event_name)
+        other_team = Team.objects.create(organization=self.organization, name="Other project")
+        _create_event(team=other_team, distinct_id="not-selected", event=event_name)
+        flush_persons_and_events()
+
+        executor = HogQLQueryExecutor(
+            query="SELECT uuid FROM events WHERE event = {event_name}",
+            placeholders={"event_name": ast.Constant(value=event_name)},
+            team=self.team,
+            pretty=False,
+        )
+        selected = executor.generate_clickhouse_subquery_sql()
+        selected_sql = selected.sql
+
+        self.assertNotIn(" LIMIT ", selected_sql)
+        self.assertNotIn(" SETTINGS ", selected_sql)
+        self.assertNotIn(event_name, selected_sql)
+
+        # The outer statement and destination are server-owned; only the parsed and resolved SELECT is embedded.
+        insert_sql = (  # nosemgrep: clickhouse-injection-taint
+            f"INSERT INTO {ADHOC_EVENTS_DELETION_TABLE} (team_id, uuid) "
+            f"SELECT %(_deletion_team_id)s, selected.uuid FROM ({selected_sql}) AS selected"
+        )
+        sync_execute(
+            insert_sql,
+            {**selected.context.values, "_deletion_team_id": self.team.pk},
+            team_id=self.team.pk,
+            settings=selected.settings,
+        )
+
+        queued = sync_execute(
+            f"SELECT team_id, toString(uuid) FROM {ADHOC_EVENTS_DELETION_TABLE} ORDER BY team_id, uuid"
+        )
+        self.assertEqual(queued, [(self.team.pk, expected_uuid)])
+
+    def test_embedded_hogql_select_rejects_ast_settings(self) -> None:
+        query = ast.SelectQuery(
+            select=[ast.Field(chain=["uuid"])],
+            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+            settings=HogQLQuerySettings(max_bytes_to_read=1),
+        )
+        executor = HogQLQueryExecutor(query=query, team=self.team)
+
+        with self.assertRaisesRegex(ExposedHogQLError, "SETTINGS are not allowed"):
+            executor.generate_clickhouse_subquery_sql()
+
+        placeholder_executor = HogQLQueryExecutor(
+            query="SELECT uuid FROM {source}",
+            placeholders={"source": query},
+            team=self.team,
+        )
+
+        with self.assertRaisesRegex(ExposedHogQLError, "SETTINGS are not allowed"):
+            placeholder_executor.generate_clickhouse_subquery_sql()
+
+    def test_embedded_hogql_select_returns_required_table_settings(self) -> None:
+        from posthog.hogql.context import HogQLContext
+        from posthog.hogql.database.database import Database
+        from posthog.hogql.database.models import StringDatabaseField, TableNode
+        from posthog.hogql.database.s3_table import DataWarehouseTable as HogQLDataWarehouseTable
+
+        csv_table = HogQLDataWarehouseTable(
+            name="csv_table",
+            url="https://example.com/test.csv",
+            format="CSVWithNames",
+            fields={"uuid": StringDatabaseField(name="uuid")},
+            structure="`uuid` String",
+            top_level_settings=HogQLQuerySettings(format_csv_allow_double_quotes=True),
+        )
+        database = Database()
+        root = TableNode()
+        root.add_child(TableNode(name="csv_table", table=csv_table))
+        database._add_warehouse_tables(root)
+        executor = HogQLQueryExecutor(
+            query="SELECT uuid FROM csv_table",
+            team=self.team,
+            context=HogQLContext(team_id=self.team.pk, database=database),
+            modifiers=HogQLQueryModifiers(forceClickhouseDataSkippingIndexes=["idx"]),
+        )
+
+        selected = executor.generate_clickhouse_subquery_sql()
+
+        self.assertTrue(selected.settings["format_csv_allow_double_quotes"])
+        self.assertEqual(selected.settings["force_data_skipping_indices"], "idx")
+        self.assertNotIn("readonly", selected.settings)
+        self.assertNotIn(" SETTINGS ", selected.sql)
+
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_query_joins_pdi_persons(self):
-        with freeze_time("2020-01-10"):
+        with time_machine.travel("2020-01-10", tick=False):
             self._create_random_events()
 
             response = execute_hogql_query(
@@ -454,7 +551,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_query_joins_pdi_person_properties(self):
-        with freeze_time("2020-01-10"):
+        with time_machine.travel("2020-01-10", tick=False):
             self._create_random_events()
 
             response = execute_hogql_query(
@@ -472,7 +569,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_query_joins_events_first_to_persons(self):
-        with freeze_time("2020-01-10"):
+        with time_machine.travel("2020-01-10", tick=False):
             _create_person(
                 properties={"email": "test@posthog.com"},
                 team=self.team,
@@ -501,7 +598,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_query_joins_lazy_on_both_sides(self):
-        with freeze_time("2020-01-10"):
+        with time_machine.travel("2020-01-10", tick=False):
             _create_person(
                 properties={"email": "test@posthog.com"},
                 team=self.team,
@@ -536,7 +633,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_query_joins_persons_to_events(self):
-        with freeze_time("2020-01-10"):
+        with time_machine.travel("2020-01-10", tick=False):
             _create_person(
                 properties={"email": "test@posthog.com"},
                 team=self.team,
@@ -561,7 +658,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_query_joins_events_pdi_person(self):
-        with freeze_time("2020-01-10"):
+        with time_machine.travel("2020-01-10", tick=False):
             self._create_random_events()
 
             response = execute_hogql_query(
@@ -577,7 +674,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
     @pytest.mark.usefixtures("unittest_snapshot")
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_query_joins_events_pdi_person_properties(self):
-        with freeze_time("2020-01-10"):
+        with time_machine.travel("2020-01-10", tick=False):
             self._create_random_events()
 
             response = execute_hogql_query(
@@ -592,7 +689,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_query_joins_events_pdi_e_person_properties(self):
-        with freeze_time("2020-01-10"):
+        with time_machine.travel("2020-01-10", tick=False):
             self._create_random_events()
 
             response = execute_hogql_query(
@@ -607,7 +704,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_query_joins_events_person_properties(self):
-        with freeze_time("2020-01-10"):
+        with time_machine.travel("2020-01-10", tick=False):
             self._create_random_events()
 
             response = execute_hogql_query(
@@ -621,7 +718,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_query_joins_events_person_properties_in_aggregration(self):
-        with freeze_time("2020-01-10"):
+        with time_machine.travel("2020-01-10", tick=False):
             self._create_random_events()
             response = execute_hogql_query(
                 "SELECT s.pdi.person.properties.sneaky_mail, count() FROM events s GROUP BY s.pdi.person.properties.sneaky_mail LIMIT 10",
@@ -633,7 +730,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_select_person_on_events(self):
-        with freeze_time("2020-01-10"):
+        with time_machine.travel("2020-01-10", tick=False):
             self._create_random_events()
             response = execute_hogql_query(
                 "SELECT poe.properties.sneaky_mail, count() FROM events s GROUP BY poe.properties.sneaky_mail LIMIT 10",
@@ -646,7 +743,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
     @pytest.mark.usefixtures("unittest_snapshot")
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_query_select_person_with_joins_without_poe(self):
-        with freeze_time("2020-01-10"):
+        with time_machine.travel("2020-01-10", tick=False):
             self._create_random_events()
 
             response = execute_hogql_query(
@@ -662,7 +759,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
     @pytest.mark.usefixtures("unittest_snapshot")
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=True, PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_query_select_person_with_poe_without_joins(self):
-        with freeze_time("2020-01-10"):
+        with time_machine.travel("2020-01-10", tick=False):
             self._create_random_events()
 
             response = execute_hogql_query(
@@ -677,7 +774,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_prop_cohort_basic(self):
-        with freeze_time("2020-01-10"):
+        with time_machine.travel("2020-01-10", tick=False):
             _create_person(
                 distinct_ids=["some_other_id"],
                 team_id=self.team.pk,
@@ -749,7 +846,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_prop_cohort_static(self):
-        with freeze_time("2020-01-10"):
+        with time_machine.travel("2020-01-10", tick=False):
             _create_person(
                 distinct_ids=["some_other_id"],
                 team_id=self.team.pk,
@@ -808,7 +905,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_join_with_property_materialized_session_id(self):
-        with freeze_time("2020-01-10"):
+        with time_machine.travel("2020-01-10", tick=False):
             _create_person(
                 distinct_ids=["some_id"],
                 team_id=self.team.pk,
@@ -852,7 +949,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_join_with_property_not_materialized(self):
-        with freeze_time("2020-01-10"):
+        with time_machine.travel("2020-01-10", tick=False):
             _create_person(
                 distinct_ids=["some_id"],
                 team_id=self.team.pk,
@@ -915,7 +1012,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             having cnt > 10
             limit 1
         """
-        with freeze_time("2025-02-15 22:52:00"):
+        with time_machine.travel("2025-02-15 22:52:00", tick=False):
             response = execute_hogql_query(query, team=self.team, pretty=False)
             self.assertEqual(response.results, [])
             self.assertResponseMatchesSnapshot(response)
@@ -931,7 +1028,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             where timestamp >= addDays(today(), -10) and json_int = 17
             limit 1
         """
-        with freeze_time("2025-02-15 22:52:00"):
+        with time_machine.travel("2025-02-15 22:52:00", tick=False):
             response = execute_hogql_query(query, team=self.team, pretty=False)
             self.assertEqual(response.results, [])
             self.assertResponseMatchesSnapshot(response)
@@ -953,7 +1050,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             GROUP BY major_version
             ORDER BY major_version
         """
-        with freeze_time("2025-02-15 22:52:00"):
+        with time_machine.travel("2025-02-15 22:52:00", tick=False):
             response = execute_hogql_query(query, team=self.team, pretty=False)
             self.assertEqual(response.results, [])
             self.assertResponseMatchesSnapshot(response)
@@ -972,7 +1069,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_tuple_access(self):
-        with freeze_time("2020-01-10"):
+        with time_machine.travel("2020-01-10", tick=False):
             self._create_random_events()
             # sample pivot table, testing tuple access
             query = """
@@ -1001,7 +1098,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             self.assertResponseMatchesSnapshot(response)
 
     def test_null_properties(self):
-        with freeze_time("2020-01-10"):
+        with time_machine.travel("2020-01-10", tick=False):
             self._create_random_events()
             _create_event(
                 distinct_id="bla",
@@ -1046,7 +1143,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         random_uuid = f"RANDOM_TEST_ID::{UUIDT()}"
         for person in range(5):
             distinct_id = f"person_{person}_{random_uuid}"
-            with freeze_time("2020-01-10 00:00:00"):
+            with time_machine.travel("2020-01-10 00:00:00", tick=False):
                 _create_person(
                     properties={"name": f"Person {person}", "random_uuid": random_uuid},
                     team=self.team,
@@ -1060,7 +1157,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                     properties={"character": "Luigi"},
                 )
                 flush_persons_and_events()
-            with freeze_time("2020-01-10 00:10:00"):
+            with time_machine.travel("2020-01-10 00:10:00", tick=False):
                 _create_event(
                     distinct_id=distinct_id,
                     event="random bla",
@@ -1068,7 +1165,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                     properties={"character": "Luigi"},
                 )
                 flush_persons_and_events()
-            with freeze_time("2020-01-10 00:20:00"):
+            with time_machine.travel("2020-01-10 00:20:00", tick=False):
                 _create_event(
                     distinct_id=distinct_id,
                     event="random boo",
@@ -1121,7 +1218,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         random_uuid = f"RANDOM_TEST_ID::{UUIDT()}"
         for person in range(5):
             distinct_id = f"person_{person}_{random_uuid}"
-            with freeze_time("2020-01-10 00:00:00"):
+            with time_machine.travel("2020-01-10 00:00:00", tick=False):
                 _create_person(
                     properties={"name": f"Person {person}", "random_uuid": random_uuid},
                     team=self.team,
@@ -1135,7 +1232,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                     properties={"character": "Luigi"},
                 )
                 flush_persons_and_events()
-            with freeze_time("2020-01-10 00:10:00"):
+            with time_machine.travel("2020-01-10 00:10:00", tick=False):
                 _create_event(
                     distinct_id=distinct_id,
                     event="random bla",
@@ -1143,7 +1240,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                     properties={"character": "Luigi"},
                 )
                 flush_persons_and_events()
-            with freeze_time("2020-01-10 00:20:00"):
+            with time_machine.travel("2020-01-10 00:20:00", tick=False):
                 _create_event(
                     distinct_id=distinct_id,
                     event="random boo",
@@ -1248,7 +1345,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_with_pivot_table_1_level(self):
-        with freeze_time("2020-01-10"):
+        with time_machine.travel("2020-01-10", tick=False):
             self._create_random_events()
             # sample pivot table, testing tuple access
             query = """
@@ -1287,7 +1384,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_with_pivot_table_2_levels(self):
-        with freeze_time("2020-01-10"):
+        with time_machine.travel("2020-01-10", tick=False):
             self._create_random_events()
             # sample pivot table, testing tuple access
             query = """
@@ -1326,7 +1423,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             self.assertResponseMatchesSnapshot(response)
 
     def test_property_access_with_arrays(self):
-        with freeze_time("2020-01-10"):
+        with time_machine.travel("2020-01-10", tick=False):
             random_uuid = f"RANDOM_TEST_ID::{UUIDT()}"
             _create_person(team=self.team, distinct_ids=[f"P{random_uuid}"], is_identified=True)
             _create_event(
@@ -1785,7 +1882,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(response.results, [(expected,)])
 
-    @freeze_time("2026-08-06 12:00:00")
+    @time_machine.travel("2026-08-06 12:00:00", tick=False)
     def test_relative_date_variable_is_resolved_when_the_query_runs(self):
         insight_variable = InsightVariable.objects.create(
             team=self.team,
@@ -1811,7 +1908,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_hogql_query_filters(self):
-        with freeze_time("2020-01-10"):
+        with time_machine.travel("2020-01-10", tick=False):
             random_uuid = self._create_random_events()
             for i in range(10):
                 _create_event(
@@ -1883,10 +1980,27 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             OFFSET 0
         """
 
-        with freeze_time("2025-02-15 22:52:00"):
+        with time_machine.travel("2025-02-15 22:52:00", tick=False):
             response = execute_hogql_query(query, team=self.team, pretty=False)
             self.assertEqual(response.results, [])
             self.assertResponseMatchesSnapshot(response)
+
+    def test_timestamp_subtraction_is_a_numeric_duration(self):
+        # Reading the duration and converting it each failed the whole query with code 43.
+        response = execute_hogql_query(
+            "SELECT gap, toDate(gap) FROM (SELECT toDateTime(200000) - toDateTime(100000) AS gap)",
+            team=self.team,
+            pretty=False,
+        )
+        self.assertEqual(response.results, [(100000, datetime.date(1970, 1, 2))])
+
+        # An events timestamp is DateTime64, so its duration is a Decimal, rejected with code 44.
+        response = execute_hogql_query(
+            "SELECT toDate(gap) FROM (SELECT toDateTime64(200000, 6) - toDateTime64(100000, 6) AS gap)",
+            team=self.team,
+            pretty=False,
+        )
+        self.assertEqual(response.results, [(datetime.date(1970, 1, 2),)])
 
     def test_hogql_query_filters_empty_true(self):
         query = "SELECT event from events where {filters}"
@@ -1912,7 +2026,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         )
 
     def test_hogql_query_filters_alias(self):
-        with freeze_time("2020-01-10"):
+        with time_machine.travel("2020-01-10", tick=False):
             random_uuid = self._create_random_events()
             query = "SELECT event, distinct_id from events e WHERE {filters}"
             filters = HogQLFilters(
@@ -1954,7 +2068,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_hogql_query_session_filters(self):
-        with freeze_time("2024-07-05"):
+        with time_machine.travel("2024-07-05", tick=False):
             s1 = str(uuid7("2024-07-03", 42))
             s2 = str(uuid7("2024-07-04", 43))
             _create_event(
@@ -1989,7 +2103,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_hogql_query_filters_session_date_range(self):
-        with freeze_time("2024-07-05"):
+        with time_machine.travel("2024-07-05", tick=False):
             s1 = str(uuid7("2024-07-03", 42))
             s2 = str(uuid7("2024-07-05", 43))
             _create_event(
@@ -2021,18 +2135,18 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(response.results, [(s2, "https://example.com/2")])
 
     def test_events_sessions_table(self):
-        with freeze_time("2020-01-10 12:00:00"):
+        with time_machine.travel("2020-01-10 12:00:00", tick=False):
             random_uuid = self._create_random_events()
             session_id = str(uuid7())
 
-        with freeze_time("2020-01-10 12:10:00"):
+        with time_machine.travel("2020-01-10 12:10:00", tick=False):
             _create_event(
                 distinct_id=random_uuid,
                 event="random event",
                 team=self.team,
                 properties={"$session_id": session_id},
             )
-        with freeze_time("2020-01-10 12:20:00"):
+        with time_machine.travel("2020-01-10 12:20:00", tick=False):
             _create_event(
                 distinct_id=random_uuid,
                 event="random event",

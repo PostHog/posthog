@@ -27,7 +27,6 @@ const usage = {
     },
   },
   is_rate_limited: false,
-  is_pro: true,
   code_usage_subscribed: true,
   billing_period_end: "2026-09-01T00:00:00.000Z",
 } satisfies UsageOutput;

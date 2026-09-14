@@ -71,6 +71,8 @@ export type Turn = {
   firstMessageTimed?: boolean;
   /** Set once the first assistant message for this turn has been timed. */
   firstOutputTimed?: boolean;
+  /** A top-level tool call or result was observed during this turn. */
+  madeProgress?: boolean;
   settled: boolean;
   resolve: (response: PromptResponse) => void;
   reject: (error: unknown) => void;

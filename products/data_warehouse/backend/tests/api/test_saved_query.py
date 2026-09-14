@@ -2,7 +2,7 @@ import uuid
 from datetime import timedelta
 from typing import Any, cast
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest import mock
 from unittest.mock import AsyncMock, patch
@@ -691,6 +691,90 @@ class TestSavedQuery(APIBaseTest):
         assert json["count"] == 150
         assert len(json["results"]) == 150
 
+    def test_list_request_reads_neither_the_sql_body_nor_the_activity_log(self):
+        # The list page returns column metadata, never the SQL body, so reading the body of every
+        # view costs a detoast per row. The query-edit activity subquery is dead weight too: only
+        # the detail serializer returns `latest_history_id`.
+        for name in ("view_a", "view_b"):
+            DataWarehouseSavedQuery.objects.create(
+                team=self.team,
+                name=name,
+                query={"kind": "HogQLQuery", "query": "select event as event from events LIMIT 100"},
+                columns={"event": {"hogql": "StringDatabaseField", "clickhouse": "String", "valid": True}},
+            )
+
+        with CaptureQueriesContext(connection) as queries:
+            response = self.client.get(f"/api/environments/{self.team.id}/warehouse_saved_queries/")
+
+        self.assertEqual(response.status_code, 200, response.json())
+        self.assertEqual(
+            [[column["key"] for column in row["columns"]] for row in response.json()["results"]],
+            [["event"], ["event"]],
+        )
+        # Every select the request issues has to stay clear of the large columns, not only the
+        # page select. The HogQL database build reads the SQL body of every view in the team, so
+        # the list action must not build one.
+        table = DataWarehouseSavedQuery._meta.db_table
+        view_selects = [q["sql"] for q in queries.captured_queries if f'FROM "{table}"' in q["sql"]]
+        self.assertTrue(view_selects)
+        for sql in view_selects:
+            for column in ("query", "external_tables", "incremental_state"):
+                self.assertNotIn(f'"{table}"."{column}"', sql)
+
+        page_selects = [sql for sql in view_selects if f'ORDER BY "{table}"."created_at" DESC' in sql]
+        self.assertEqual(len(page_selects), 1, page_selects)
+        self.assertNotIn(ActivityLog._meta.db_table, page_selects[0])
+
+    def test_list_reads_folders_through_the_join(self):
+        # Both list serializer folder fields resolve through `instance.folder`, so a page of
+        # foldered views used to cost one folder select each, up to the 1000-view page size.
+        folder = DataWarehouseSavedQueryFolder.objects.create(team=self.team, name="Marketing")
+        for name in ("view_a", "view_b", "view_c"):
+            DataWarehouseSavedQuery.objects.create(
+                team=self.team,
+                name=name,
+                query={"kind": "HogQLQuery", "query": "select event as event from events LIMIT 100"},
+                folder=folder,
+            )
+
+        with CaptureQueriesContext(connection) as queries:
+            response = self.client.get(f"/api/environments/{self.team.id}/warehouse_saved_queries/")
+
+        self.assertEqual(response.status_code, 200, response.json())
+        self.assertEqual([row["folder_name"] for row in response.json()["results"]], ["Marketing"] * 3)
+        folder_table = DataWarehouseSavedQueryFolder._meta.db_table
+        folder_selects = [q["sql"] for q in queries.captured_queries if f'FROM "{folder_table}"' in q["sql"]]
+        self.assertEqual(folder_selects, [])
+
+    def test_retrieve_does_not_build_a_hogql_database(self):
+        # The SQL editor hits this route on every tab open and after every save. A HogQL database
+        # build selects every view in the team with its SQL body, and no field the detail
+        # serializer returns reads one.
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="view_a",
+            query={"kind": "HogQLQuery", "query": "select event as event from events LIMIT 100"},
+            columns={"event": {"hogql": "StringDatabaseField", "clickhouse": "String", "valid": True}},
+        )
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="view_b",
+            query={"kind": "HogQLQuery", "query": "select event as event from events LIMIT 100"},
+        )
+
+        with CaptureQueriesContext(connection) as queries:
+            response = self.client.get(
+                f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query.id}/",
+            )
+
+        self.assertEqual(response.status_code, 200, response.json())
+        self.assertEqual([column["key"] for column in response.json()["columns"]], ["event"])
+        # The database build is the only reader that selects the team's views ordered by name.
+        table = DataWarehouseSavedQuery._meta.db_table
+        view_selects = [q["sql"] for q in queries.captured_queries if f'FROM "{table}"' in q["sql"]]
+        self.assertTrue(view_selects)
+        self.assertEqual([sql for sql in view_selects if f'ORDER BY "{table}"."name"' in sql], [])
+
     def test_get_deleted_query(self):
         query = DataWarehouseSavedQuery.objects.create(
             team=self.team,
@@ -730,7 +814,7 @@ class TestSavedQuery(APIBaseTest):
             ("5min", "15min", timedelta(minutes=15)),
         ]
     )
-    def test_update_sync_frequency_on_tiered_v2_writes_target_through(
+    def test_update_sync_frequency_writes_target_through(
         self, sync_frequency: str, expected_frequency: str | None, expected_target: timedelta | None
     ):
         from products.data_modeling.backend.facade.api import get_declared_target, set_declared_target
@@ -742,7 +826,6 @@ class TestSavedQuery(APIBaseTest):
         reconcile_module = "products.data_modeling.backend.logic.schedule_reconcile"
 
         with (
-            patch(f"{reconcile_module}.tiered_schedules_enabled", return_value=True),
             patch(f"{reconcile_module}.maybe_reconcile_dag") as reconcile,
         ):
             response = self.client.patch(
@@ -782,7 +865,6 @@ class TestSavedQuery(APIBaseTest):
         reconcile_module = "products.data_modeling.backend.logic.schedule_reconcile"
 
         with (
-            patch(f"{reconcile_module}.tiered_schedules_enabled", return_value=True),
             patch(f"{reconcile_module}.maybe_reconcile_dag"),
         ):
             response = self.client.patch(
@@ -798,7 +880,7 @@ class TestSavedQuery(APIBaseTest):
         self.assertEqual(frequency_changes[0]["before"], expected_before)
         self.assertEqual(frequency_changes[0]["after"], expected_after)
 
-    def test_update_sync_frequency_on_tiered_v2_without_node_is_rejected(self):
+    def test_update_sync_frequency_without_node_is_rejected(self):
         from products.data_modeling.backend.facade.models import Node
 
         saved_query = self._create_saved_query_for_frequency_tests()
@@ -806,7 +888,6 @@ class TestSavedQuery(APIBaseTest):
         reconcile_module = "products.data_modeling.backend.logic.schedule_reconcile"
 
         with (
-            patch(f"{reconcile_module}.tiered_schedules_enabled", return_value=True),
             patch(f"{reconcile_module}.maybe_reconcile_dag"),
         ):
             response = self.client.patch(
@@ -819,14 +900,13 @@ class TestSavedQuery(APIBaseTest):
         updated = DataWarehouseSavedQuery.objects.get(id=saved_query["id"])
         self.assertIsNone(updated.sync_frequency_interval)
 
-    def test_update_sync_frequency_on_tiered_v2_rolls_back_invalid_target(self):
+    def test_update_sync_frequency_rolls_back_invalid_target(self):
         from products.data_modeling.backend.facade.api import UnsatisfiableFrequencyError
 
         saved_query = self._create_saved_query_for_frequency_tests()
         reconcile_module = "products.data_modeling.backend.logic.schedule_reconcile"
 
         with (
-            patch(f"{reconcile_module}.tiered_schedules_enabled", return_value=True),
             patch(
                 f"{reconcile_module}.apply_saved_query_frequency_target",
                 side_effect=UnsatisfiableFrequencyError("target is fresher than its sources deliver"),
@@ -841,23 +921,6 @@ class TestSavedQuery(APIBaseTest):
         # validation happens inside the transaction: the interval write rolls back with it
         updated = DataWarehouseSavedQuery.objects.get(id=saved_query["id"])
         self.assertIsNone(updated.sync_frequency_interval)
-
-    def test_update_sync_frequency_on_untiered_v2_stays_blocked(self):
-        saved_query = self._create_saved_query_for_frequency_tests()
-
-        with (
-            patch(
-                "products.data_modeling.backend.logic.schedule_reconcile.tiered_schedules_enabled",
-                return_value=False,
-            ),
-        ):
-            response = self.client.patch(
-                f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query['id']}",
-                {"sync_frequency": "24hour"},
-            )
-
-        self.assertEqual(response.status_code, 400)
-        self.assertIn("managed by the DAG", response.json()["detail"])
 
     def _read_sync_frequency(self, saved_query_id: str, action: str) -> str | None:
         if action == "retrieve":
@@ -919,30 +982,6 @@ class TestSavedQuery(APIBaseTest):
         node_queries = [q for q in queries.captured_queries if Node._meta.db_table in q["sql"]]
         self.assertEqual(len(node_queries), 1, node_queries)
 
-    @parameterized.expand(
-        [
-            ("single_schedule", False, True),
-            ("tiered", True, False),
-        ]
-    )
-    def test_sync_frequency_managed_by_dag_tracks_the_write_path(self, _name: str, tiered: bool, expected: bool):
-        # The frontend hides the cadence control on this flag. It must mean exactly what the
-        # write path rejects, or the control disappears from teams that can in fact edit.
-        saved_query = self._create_saved_query_for_frequency_tests()
-
-        with (
-            patch(
-                "products.data_modeling.backend.logic.schedule_reconcile.tiered_schedules_enabled",
-                return_value=tiered,
-            ),
-        ):
-            response = self.client.get(
-                f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query['id']}",
-            )
-
-        self.assertEqual(response.status_code, 200, response.json())
-        self.assertEqual(response.json()["sync_frequency_managed_by_dag"], expected)
-
     def test_sync_frequency_is_a_writable_field(self):
         # Regression: sync_frequency used to be a read-only SerializerMethodField, so it was
         # marked readOnly in the generated OpenAPI/MCP schemas and silently dropped from writes.
@@ -969,35 +1008,21 @@ class TestSavedQuery(APIBaseTest):
         set_declared_target(Node.objects.get(saved_query_id=consumer.json()["id"]), consumer_target)
         return upstream
 
-    def _read_frequency_bounds(self, saved_query_id: str, *, tiered: bool = True) -> dict:
-        with patch(
-            "products.data_modeling.backend.logic.schedule_reconcile.tiered_schedules_enabled",
-            return_value=tiered,
-        ):
-            response = self.client.get(
-                f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query_id}",
-            )
+    def _read_frequency_bounds(self, saved_query_id: str) -> dict:
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query_id}",
+        )
         self.assertEqual(response.status_code, 200, response.json())
         return response.json()["sync_frequency_bounds"]
 
-    @parameterized.expand(
-        [
-            ("single_schedule", False, "dag_schedule"),
-            ("tiered", True, "tiered"),
-        ]
-    )
-    def test_bounds_are_offered_only_where_a_per_view_cadence_is_writable(
-        self, _name: str, tiered: bool, expected_mode: str
-    ):
-        # The picker renders from this payload. Offering options to a team whose writes the DAG
-        # owns puts a control on screen that can only 400, which is the bug this field exists
-        # to close; serving none to a tiered team hides a control that does work.
+    def test_bounds_offer_the_per_view_cadence_options(self):
+        # The picker renders from this payload. Serving no options hides a control that works.
         saved_query = self._create_saved_query_for_frequency_tests()
 
-        bounds = self._read_frequency_bounds(saved_query["id"], tiered=tiered)
+        bounds = self._read_frequency_bounds(saved_query["id"])
 
-        self.assertEqual(bounds["frequency_mode"], expected_mode)
-        self.assertEqual(bool(bounds["options"]), expected_mode == "tiered")
+        self.assertEqual(bounds["frequency_mode"], "tiered")
+        self.assertTrue(bounds["options"])
 
     def test_every_offered_cadence_is_accepted_and_every_withheld_one_is_refused(self):
         # The whole point of serving bounds is that the picker and the write path cannot
@@ -1008,13 +1033,7 @@ class TestSavedQuery(APIBaseTest):
         self.assertTrue(any(not option["allowed"] for option in options))
 
         for option in options:
-            with (
-                patch(
-                    "products.data_modeling.backend.logic.schedule_reconcile.tiered_schedules_enabled",
-                    return_value=True,
-                ),
-                patch("products.data_modeling.backend.logic.schedule_reconcile.maybe_reconcile_dag"),
-            ):
+            with patch("products.data_modeling.backend.logic.schedule_reconcile.maybe_reconcile_dag"):
                 response = self.client.patch(
                     f"/api/environments/{self.team.id}/warehouse_saved_queries/{upstream['id']}",
                     {"sync_frequency": option["cadence"]},
@@ -1040,13 +1059,7 @@ class TestSavedQuery(APIBaseTest):
         # writes anyway must be told the same thing the picker would have shown.
         upstream = self._create_view_with_a_consumer(consumer_target=timedelta(hours=6))
 
-        with (
-            patch(
-                "products.data_modeling.backend.logic.schedule_reconcile.tiered_schedules_enabled",
-                return_value=True,
-            ),
-            patch("products.data_modeling.backend.logic.schedule_reconcile.maybe_reconcile_dag"),
-        ):
+        with patch("products.data_modeling.backend.logic.schedule_reconcile.maybe_reconcile_dag"):
             response = self.client.patch(
                 f"/api/environments/{self.team.id}/warehouse_saved_queries/{upstream['id']}",
                 {"sync_frequency": "24hour"},
@@ -1142,6 +1155,7 @@ class TestSavedQuery(APIBaseTest):
         )
         self.assertEqual(response.status_code, 201, response.content)
         saved_query_1_response = response.json()
+        initial_updated_at = saved_query_1_response["updated_at"]
         saved_query_1_response = self.client.patch(
             f"/api/environments/{self.team.id}/warehouse_saved_queries/" + saved_query_1_response["id"],
             {
@@ -1156,6 +1170,7 @@ class TestSavedQuery(APIBaseTest):
         self.assertEqual(saved_query_1_response.status_code, 200, saved_query_1_response.content)
         view_1 = saved_query_1_response.json()
         self.assertEqual(view_1["name"], "event_view")
+        self.assertGreater(view_1["updated_at"], initial_updated_at)
         self.assertEqual(
             view_1["columns"],
             [
@@ -2233,9 +2248,9 @@ class TestSavedQuery(APIBaseTest):
             )
             for i in range(2)
         ]
-        with freeze_time("2026-07-01T00:00:00Z"):
+        with time_machine.travel("2026-07-01T00:00:00Z", tick=False):
             mark_node_suspended(nodes[0], engine="clickhouse", reason="first failure", job_id="job-1")
-        with freeze_time("2026-07-02T00:00:00Z"):
+        with time_machine.travel("2026-07-02T00:00:00Z", tick=False):
             mark_node_suspended(nodes[1], engine="clickhouse", reason="later failure", job_id="job-2")
         for node in nodes:
             node.save()
@@ -2723,10 +2738,15 @@ class TestSavedQueryStateComesFromTheServingRun(APIBaseTest):
         self.assertEqual(body["status"], "Completed")
         self.assertIsNone(body["latest_error"])
 
-    def test_a_duckgres_shadow_does_not_stand_in_for_the_serving_run(self):
+    def test_a_managed_warehouse_shadow_does_not_stand_in_for_the_serving_run(self):
         view = self._view("shadowed")
         self._run(view, DataModelingJob.Status.FAILED, minutes_ago=30, error="the real failure")
-        self._run(view, DataModelingJob.Status.COMPLETED, minutes_ago=1, engine=DataModelingJobEngine.DUCKGRES)
+        self._run(
+            view,
+            DataModelingJob.Status.COMPLETED,
+            minutes_ago=1,
+            engine=DataModelingJobEngine.MANAGED_WAREHOUSE,
+        )
 
         body = self._detail(view)
 
@@ -2747,10 +2767,36 @@ class TestSavedQueryStateComesFromTheServingRun(APIBaseTest):
 
         self.assertEqual(self._detail(view)["status"], "Completed")
 
-    def test_modified_survives_when_the_view_has_never_run(self):
+    def test_modified_survives_when_the_view_has_never_run(self) -> None:
         view = self._view("never_ran", status=DataWarehouseSavedQuery.Status.MODIFIED)
 
         self.assertEqual(self._detail(view)["status"], "Modified")
+
+    def test_cancelled_survives_when_the_view_has_never_run(self) -> None:
+        view = self._view("cancelled_never_ran", status=DataWarehouseSavedQuery.Status.CANCELLED)
+
+        self.assertEqual(self._detail(view)["status"], "Cancelled")
+
+    @parameterized.expand(
+        [
+            (DataWarehouseSavedQuery.Status.FAILED,),
+            (DataWarehouseSavedQuery.Status.RUNNING,),
+            (DataWarehouseSavedQuery.Status.COMPLETED,),
+        ]
+    )
+    def test_a_run_state_no_code_path_writes_any_more_is_not_reported(self, frozen_status: str) -> None:
+        view = self._view(
+            f"frozen_{frozen_status}",
+            status=frozen_status,
+            latest_error="Table reference no longer exists for model.",
+            last_run_at=timezone.now() - timedelta(days=90),
+        )
+
+        body = self._detail(view)
+
+        self.assertIsNone(body["status"])
+        self.assertIsNone(body["latest_error"])
+        self.assertIsNone(body["last_run_at"])
 
     def test_the_list_route_agrees_with_the_detail_route(self):
         # the two read through different halves of _serving_run: prefetch on list, lookup on detail

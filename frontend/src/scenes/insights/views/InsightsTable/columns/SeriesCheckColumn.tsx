@@ -1,5 +1,6 @@
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
-import { IndexedTrendResult } from 'scenes/trends/types'
+
+import { IndexedTrendResult } from 'products/product_analytics/frontend/insights/trends/types'
 
 type SeriesCheckColumnTitleProps = {
     indexedResults: IndexedTrendResult[]
