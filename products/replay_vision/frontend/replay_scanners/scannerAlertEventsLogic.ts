@@ -1,7 +1,7 @@
 import { MakeLogicType, actions, afterMount, connect, kea, key, path, props } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import { apiMutator } from 'lib/api-orval-mutator'
+import api from 'lib/api'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { visionAlertsEventsList } from '../generated/api'
@@ -114,7 +114,8 @@ export const scannerAlertEventsLogic = kea<scannerAlertEventsLogicType>([
                     if (!nextUrl) {
                         return values.eventsPage
                     }
-                    const data = await apiMutator<PaginatedVisionAlertEventListApi>(nextUrl, { method: 'GET' })
+                    // nosemgrep: prefer-codegen-api -- Generated list helpers cannot follow the opaque URL returned by the API.
+                    const data = await api.get<PaginatedVisionAlertEventListApi>(nextUrl)
                     return {
                         results: [...values.eventsPage.results, ...data.results],
                         next: data.next ?? null,
