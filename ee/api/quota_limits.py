@@ -94,6 +94,7 @@ class QuotaLimitsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "project"
     required_scopes = ["project:read"]
     http_method_names = ["get", "head", "options"]
+    bypasses_active_organization_check = True
 
     def dangerously_get_permissions(self) -> list[BasePermission]:
         return [

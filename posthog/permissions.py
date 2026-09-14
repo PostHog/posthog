@@ -397,6 +397,8 @@ class ActiveOrganizationPermission(BasePermission):
         return True
 
     def _applies(self, request: Request, view) -> bool:
+        if getattr(view, "bypasses_active_organization_check", False) is True:
+            return False
         if getattr(view, "scope_object", None) in self.EXEMPT_SCOPE_OBJECTS:
             return False
         return get_authenticator_scopes(getattr(request, "successful_authenticator", None)) is not None

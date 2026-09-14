@@ -58,7 +58,7 @@ class TestQuotaLimitsAPI(APIBaseTest):
         # Org holds no billing-granted Desktop usage feature -> reads as not paying
         self.assertIs(data["code_usage_billing_active"], False)
 
-    def test_deactivated_org_reports_credit_buckets_as_limited(self) -> None:
+    def test_deactivated_org_reports_credit_buckets_as_limited_to_token_auth(self) -> None:
         self.organization.available_product_features = [
             {"key": AvailableFeature.POSTHOG_CODE_USAGE, "name": "PostHog Desktop usage billing"}
         ]
@@ -66,7 +66,18 @@ class TestQuotaLimitsAPI(APIBaseTest):
         self.organization.is_not_active_reason = "Past due invoice"
         self.organization.save()
 
-        response = self.client.get(self._url())
+        self.client.logout()
+        raw_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="quota_limits-test",
+            user=self.user,
+            secure_value=hash_key_value(raw_key),
+            scopes=["project:read"],
+        )
+        response = self.client.get(
+            self._url(),
+            headers={"authorization": f"Bearer {raw_key}"},
+        )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         limited = response.json()["limited"]
