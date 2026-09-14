@@ -13,7 +13,6 @@ from datetime import date
 from uuid import UUID
 
 from django.core.cache import cache
-from django.utils import timezone
 
 import structlog
 from celery import shared_task
@@ -232,8 +231,7 @@ def sweep_visual_review_retention() -> None:
 def send_visual_review_debt_digests() -> None:
     """Fan out to every repo, one task each.
 
-    Runs more often than the digest posts, and the child decides which kind of run this is. One
-    repo's failure must not stop the rest, and nothing is stored about what was sent, so next
+    One repo's failure must not stop the rest, and nothing is stored about what was sent, so next
     Monday's run recomputes and resends whatever is still owed.
     """
     from ..logic import debt_digest  # noqa: PLC0415 — avoids the logic/tasks circular import
@@ -250,7 +248,7 @@ def send_visual_review_debt_digests() -> None:
 )
 @with_team_scope()
 def send_visual_review_debt_digest(team_id: int, repo_id: str) -> None:
-    """Post one repo's digest on the posting day, and only warm its story index on the other days.
+    """Post one repo's digest.
 
     The lock is what stops a retried or double-scheduled run from posting the same reminders twice.
     Nothing records what was sent, so an overlapping run has no other way to tell.
@@ -267,7 +265,4 @@ def send_visual_review_debt_digest(team_id: int, repo_id: str) -> None:
         logger.warning("visual_review.debt_digest_repo_missing", repo_id=repo_id, team_id=team_id)
         return
 
-    if not debt_digest.posts_today(timezone.now()):
-        debt_digest.warm_story_index(repo)
-        return
     debt_digest.send_debt_digest(repo, mode=debt_digest.MODE_LIVE)
