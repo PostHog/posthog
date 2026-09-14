@@ -18,31 +18,37 @@ export function markAsChunkLoadError(error: unknown): void {
     markedChunkLoadErrors.add(error)
 }
 
-/** Safari's/Firefox's native network TypeError shape — ambiguous between a failed `import()` and an unrelated failed `fetch()`. */
-export function isGenericNetworkTypeError(error: unknown): boolean {
+/** Extract error name and message safely from an error-like object. */
+function getErrorInfo(error: unknown): { name: string; message: string } | null {
     if (!error || typeof error !== 'object') {
-        return false
+        return null
     }
     const err = error as { name?: string; message?: string }
-    if (err.name !== 'TypeError') {
+    const name = err.name ?? ''
+    const message = typeof err.message === 'string' ? err.message : ''
+    return { name, message }
+}
+
+/** Safari's/Firefox's native network TypeError shape — ambiguous between a failed `import()` and an unrelated failed `fetch()`. */
+export function isGenericNetworkTypeError(error: unknown): boolean {
+    const info = getErrorInfo(error)
+    if (!info || info.name !== 'TypeError') {
         return false
     }
-    const message = typeof err.message === 'string' ? err.message : ''
-    return message.includes('Load failed') || message.includes('NetworkError when attempting to fetch resource')
+    return info.message.includes('Load failed') || info.message.includes('NetworkError when attempting to fetch resource')
 }
 
 export function isChunkLoadError(error: unknown): boolean {
-    if (!error || typeof error !== 'object') {
+    const info = getErrorInfo(error)
+    if (!info) {
         return false
     }
-    const err = error as { name?: string; message?: string }
-    const message = typeof err.message === 'string' ? err.message : ''
-    const isTypeError = err.name === 'TypeError'
+    const isTypeError = info.name === 'TypeError'
     return (
         markedChunkLoadErrors.has(error) ||
-        err.name === 'ChunkLoadError' ||
-        message.includes('Failed to fetch dynamically imported module') ||
-        message.includes('Importing a module script failed') ||
-        (isTypeError && message.includes('error loading dynamically imported module'))
+        info.name === 'ChunkLoadError' ||
+        info.message.includes('Failed to fetch dynamically imported module') ||
+        info.message.includes('Importing a module script failed') ||
+        (isTypeError && info.message.includes('error loading dynamically imported module'))
     )
 }
