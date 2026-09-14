@@ -5,7 +5,7 @@ Companion to [`sql_v2_frame_store.md`](./sql_v2_frame_store.md) — that doc dec
 
 Artifacts:
 
-- [`observability/notebooks-rollout.grafana.json`](../observability/notebooks-rollout.grafana.json) — export of the live Grafana dashboard `notebooks-sqlv2-rollout` (Prometheus/VictoriaMetrics). Its "Transport A/B" row is the flag-on vs flag-off comparison. Its "Temporal queue" row shows the health of the worker queue that every notebook workflow shares with other products.
+- [`observability/notebooks-rollout.grafana.json`](../observability/notebooks-rollout.grafana.json) — export of the live Grafana dashboard `notebooks-sqlv2-rollout` (Prometheus/VictoriaMetrics). Its "Transport A/B" row is the flag-on vs flag-off comparison. Its "Temporal queue" row shows the health of the worker queue that every notebook workflow shares with other products. Its "Notebook sandboxes" row counts kernel sandboxes and shows their lifetime from Modal's own metrics.
 - [`observability/notebooks-query-log.sql`](../observability/notebooks-query-log.sql) — `query_log_archive` query pack (ClickHouse per-query cost). SQL 9 is the same comparison on the ClickHouse side.
 - Notebook `Vs0Gjpqb` in project 2 ("SQLV2 transport benchmark") — the graduated workload to run under each arm.
 
@@ -125,6 +125,28 @@ Three traps when you read or extend the row:
 - **Temporal Cloud series are not counters.** Temporal Cloud samples each `temporal_cloud_v1_*` series once a minute as a per-second rate or a gauge. Sum or divide the series directly. `rate()` over them returns wrong values.
 - **SDK histograms use milliseconds and coarse buckets.** The worker sets `durations_as_seconds=False` (`posthog/temporal/common/worker.py`). The schedule-to-start buckets are 100, 500, 1000, 5000, 10000, and 100000 ms, so a percentile over them is a guess. The panel shows the share of tasks over a bucket edge instead.
 - **No metric measures the queue wait for notebooks only.** The schedule-to-start and workflow task failure series carry `task_queue` but no workflow or activity label. Temporal Cloud has series labeled `temporal_workflow_type`, but it emits them only in minutes with events and has no activity latency per type. Its workflow latency for `notebook-sandbox-cmd-run` also includes the result grace sleep.
+
+## Notebook sandboxes from Modal
+
+Modal exports metrics for each sandbox it runs, and notebook kernels appear there as `app_name="posthog-sandbox-notebook"`, one `container_id` per sandbox.
+The dashboard's "Notebook sandboxes" row, under "Temporal queue", reads those series.
+They include every notebook sandbox, whatever code path started it, because Modal reports them and not the notebooks code.
+
+| Panel                       | Query                                                                  | Shows                               |
+| --------------------------- | ---------------------------------------------------------------------- | ----------------------------------- |
+| Notebook sandboxes alive    | `count(modal_container_running_ratio{...})`                            | Sandboxes that run now              |
+| Sandboxes in time range     | `count(count_over_time(modal_container_running_ratio{...}[$__range]))` | Distinct sandboxes in the range     |
+| Sandbox-hours in time range | `sum(lifetime(modal_container_running_ratio{...}[$__range])) / 3600`   | Total sandbox run time in the range |
+| Sandbox lifetime            | `quantile(0.5, lifetime(...))`, `max(lifetime(...))`                   | Median and longest lifetime         |
+| Sandbox CPU use             | `modal_cpu_utilization_ratio`                                          | Average and busiest sandbox         |
+| Sandbox memory use          | `modal_memory_usage_bytes`                                             | Average and busiest sandbox         |
+
+Four limits when you read or extend the row:
+
+- **`lifetime()` is a MetricsQL function.** It returns the seconds between the first and the last sample of a series, and plain Prometheus does not have it. Modal is scraped once a minute, so each lifetime is up to a minute short.
+- **A kernel has a fixed lifetime.** `NOTEBOOK_KERNEL_TTL_SECONDS`, or the notebook's `kernel_idle_timeout_seconds`, becomes the Modal sandbox `timeout`, and use of the kernel does not extend it. Lifetimes that cluster at that limit mean that idle sandboxes wait for the limit.
+- **No team, size, or price.** The Modal labels name the app and the container only. The price of a sandbox is its size multiplied by the rates in `compute_pricing.py`.
+- **No memory limit.** Memory use divided by `modal_memory_utilization_ratio` does not give a usable limit, so the row does not chart that series.
 
 ## Gaps — suggested follow-ups
 

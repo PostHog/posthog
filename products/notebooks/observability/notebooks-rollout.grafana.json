@@ -1415,6 +1415,387 @@
                 "x": 0,
                 "y": 76
             },
+            "id": 54,
+            "panels": [],
+            "title": "Notebook sandboxes \u2014 Modal (count, lifetime, CPU)",
+            "type": "row"
+        },
+        {
+            "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+            },
+            "description": "Notebook kernel sandboxes that Modal reports as running, counted by container. Modal exports these series itself, so they include every sandbox the notebook app starts, whatever code path started it. The value is 0 when no notebook sandbox runs.",
+            "fieldConfig": {
+                "defaults": {
+                    "color": {
+                        "mode": "palette-classic"
+                    },
+                    "decimals": 0,
+                    "min": 0,
+                    "unit": "short"
+                },
+                "overrides": []
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 12,
+                "x": 0,
+                "y": 77
+            },
+            "id": 55,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": {
+                    "mode": "multi",
+                    "sort": "desc"
+                }
+            },
+            "targets": [
+                {
+                    "datasource": {
+                        "type": "prometheus",
+                        "uid": "${datasource}"
+                    },
+                    "editorMode": "code",
+                    "expr": "count(modal_container_running_ratio{app_name=\"posthog-sandbox-notebook\",object_type=\"sandbox\"}) or vector(0)",
+                    "instant": false,
+                    "legendFormat": "alive",
+                    "range": true,
+                    "refId": "A"
+                }
+            ],
+            "title": "Notebook sandboxes alive",
+            "type": "timeseries"
+        },
+        {
+            "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+            },
+            "description": "Distinct notebook sandboxes that ran at any time in the selected range, including sandboxes that started before the range.",
+            "fieldConfig": {
+                "defaults": {
+                    "color": {
+                        "fixedColor": "text",
+                        "mode": "fixed"
+                    },
+                    "decimals": 0,
+                    "unit": "short"
+                },
+                "overrides": []
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 4,
+                "x": 12,
+                "y": 77
+            },
+            "id": 56,
+            "options": {
+                "colorMode": "none",
+                "graphMode": "none",
+                "justifyMode": "auto",
+                "orientation": "auto",
+                "reduceOptions": {
+                    "calcs": ["lastNotNull"],
+                    "fields": "",
+                    "values": false
+                },
+                "textMode": "auto"
+            },
+            "targets": [
+                {
+                    "datasource": {
+                        "type": "prometheus",
+                        "uid": "${datasource}"
+                    },
+                    "editorMode": "code",
+                    "expr": "count(count_over_time(modal_container_running_ratio{app_name=\"posthog-sandbox-notebook\",object_type=\"sandbox\"}[$__range])) or vector(0)",
+                    "instant": true,
+                    "legendFormat": "sandboxes",
+                    "range": false,
+                    "refId": "A"
+                }
+            ],
+            "title": "Sandboxes in time range",
+            "type": "stat"
+        },
+        {
+            "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+            },
+            "description": "Hours from the first to the last Modal sample of each sandbox, added up. Modal samples each sandbox once a minute, so each sandbox counts up to a minute short. A sandbox that runs past an edge of the range counts only its part inside the range. Multiply by the hourly price of the sandbox size for a cost estimate, because these series do not carry the size.",
+            "fieldConfig": {
+                "defaults": {
+                    "color": {
+                        "fixedColor": "text",
+                        "mode": "fixed"
+                    },
+                    "decimals": 1,
+                    "unit": "none"
+                },
+                "overrides": []
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 4,
+                "x": 16,
+                "y": 77
+            },
+            "id": 57,
+            "options": {
+                "colorMode": "none",
+                "graphMode": "none",
+                "justifyMode": "auto",
+                "orientation": "auto",
+                "reduceOptions": {
+                    "calcs": ["lastNotNull"],
+                    "fields": "",
+                    "values": false
+                },
+                "textMode": "auto"
+            },
+            "targets": [
+                {
+                    "datasource": {
+                        "type": "prometheus",
+                        "uid": "${datasource}"
+                    },
+                    "editorMode": "code",
+                    "expr": "(sum(lifetime(modal_container_running_ratio{app_name=\"posthog-sandbox-notebook\",object_type=\"sandbox\"}[$__range])) / 3600) or vector(0)",
+                    "instant": true,
+                    "legendFormat": "sandbox-hours",
+                    "range": false,
+                    "refId": "A"
+                }
+            ],
+            "title": "Sandbox-hours in time range",
+            "type": "stat"
+        },
+        {
+            "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+            },
+            "description": "Median and longest sandbox lifetime in the range. A notebook kernel has a fixed lifetime that use does not extend, 1 hour unless the notebook sets another value. Values near that limit mean the sandboxes ran until the limit, not until the work finished.",
+            "fieldConfig": {
+                "defaults": {
+                    "color": {
+                        "fixedColor": "text",
+                        "mode": "fixed"
+                    },
+                    "decimals": 0,
+                    "unit": "m"
+                },
+                "overrides": []
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 4,
+                "x": 20,
+                "y": 77
+            },
+            "id": 58,
+            "options": {
+                "colorMode": "none",
+                "graphMode": "none",
+                "justifyMode": "auto",
+                "orientation": "auto",
+                "reduceOptions": {
+                    "calcs": ["lastNotNull"],
+                    "fields": "",
+                    "values": false
+                },
+                "textMode": "auto"
+            },
+            "targets": [
+                {
+                    "datasource": {
+                        "type": "prometheus",
+                        "uid": "${datasource}"
+                    },
+                    "editorMode": "code",
+                    "expr": "quantile(0.5, lifetime(modal_container_running_ratio{app_name=\"posthog-sandbox-notebook\",object_type=\"sandbox\"}[$__range])) / 60",
+                    "instant": true,
+                    "legendFormat": "median",
+                    "range": false,
+                    "refId": "A"
+                },
+                {
+                    "datasource": {
+                        "type": "prometheus",
+                        "uid": "${datasource}"
+                    },
+                    "editorMode": "code",
+                    "expr": "max(lifetime(modal_container_running_ratio{app_name=\"posthog-sandbox-notebook\",object_type=\"sandbox\"}[$__range])) / 60",
+                    "instant": true,
+                    "legendFormat": "longest",
+                    "range": false,
+                    "refId": "B"
+                }
+            ],
+            "title": "Sandbox lifetime",
+            "type": "stat"
+        },
+        {
+            "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+            },
+            "description": "Modal's CPU utilization ratio across running notebook sandboxes. Values above 1 occur, so the unit is probably cores in use and not a share of the reserved CPU. A line near 0 while sandboxes are alive means that the sandboxes are idle and still cost money.",
+            "fieldConfig": {
+                "defaults": {
+                    "color": {
+                        "mode": "palette-classic"
+                    },
+                    "decimals": 2,
+                    "min": 0,
+                    "unit": "none"
+                },
+                "overrides": []
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 8,
+                "x": 0,
+                "y": 85
+            },
+            "id": 59,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": {
+                    "mode": "multi",
+                    "sort": "desc"
+                }
+            },
+            "targets": [
+                {
+                    "datasource": {
+                        "type": "prometheus",
+                        "uid": "${datasource}"
+                    },
+                    "editorMode": "code",
+                    "expr": "avg(modal_cpu_utilization_ratio{app_name=\"posthog-sandbox-notebook\",object_type=\"sandbox\"})",
+                    "instant": false,
+                    "legendFormat": "average",
+                    "range": true,
+                    "refId": "A"
+                },
+                {
+                    "datasource": {
+                        "type": "prometheus",
+                        "uid": "${datasource}"
+                    },
+                    "editorMode": "code",
+                    "expr": "max(modal_cpu_utilization_ratio{app_name=\"posthog-sandbox-notebook\",object_type=\"sandbox\"})",
+                    "instant": false,
+                    "legendFormat": "busiest sandbox",
+                    "range": true,
+                    "refId": "B"
+                }
+            ],
+            "title": "Sandbox CPU use",
+            "type": "timeseries"
+        },
+        {
+            "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+            },
+            "description": "Memory in use per notebook sandbox, as Modal reports it. Compare the busiest sandbox with the provisioned size of the notebook's compute preset to see the headroom.",
+            "fieldConfig": {
+                "defaults": {
+                    "color": {
+                        "mode": "palette-classic"
+                    },
+                    "min": 0,
+                    "unit": "bytes"
+                },
+                "overrides": []
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 8,
+                "x": 8,
+                "y": 85
+            },
+            "id": 60,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": {
+                    "mode": "multi",
+                    "sort": "desc"
+                }
+            },
+            "targets": [
+                {
+                    "datasource": {
+                        "type": "prometheus",
+                        "uid": "${datasource}"
+                    },
+                    "editorMode": "code",
+                    "expr": "avg(modal_memory_usage_bytes{app_name=\"posthog-sandbox-notebook\",object_type=\"sandbox\"})",
+                    "instant": false,
+                    "legendFormat": "average",
+                    "range": true,
+                    "refId": "A"
+                },
+                {
+                    "datasource": {
+                        "type": "prometheus",
+                        "uid": "${datasource}"
+                    },
+                    "editorMode": "code",
+                    "expr": "max(modal_memory_usage_bytes{app_name=\"posthog-sandbox-notebook\",object_type=\"sandbox\"})",
+                    "instant": false,
+                    "legendFormat": "busiest sandbox",
+                    "range": true,
+                    "refId": "B"
+                }
+            ],
+            "title": "Sandbox memory use",
+            "type": "timeseries"
+        },
+        {
+            "gridPos": {
+                "h": 8,
+                "w": 8,
+                "x": 16,
+                "y": 85
+            },
+            "id": 61,
+            "options": {
+                "content": "- **No team, size, or cost.** The Modal labels name the app and the container, not the PostHog team or the compute preset. For cost, multiply sandbox-hours by the hourly price of the size in `compute_pricing.py`.\n- **Lifetimes are sampled.** Modal is scraped once a minute. A very short sandbox can miss every sample, and each lifetime is up to a minute short.\n- **No start rate.** These panels count sandboxes alive and sandboxes in a range. A start rate needs events from the notebooks code.\n- **One Grafana only.** Modal is scraped here and nowhere else, and the labels do not show which region started a sandbox.",
+                "mode": "markdown"
+            },
+            "title": "What the Modal series cannot show",
+            "type": "text"
+        },
+        {
+            "collapsed": false,
+            "gridPos": {
+                "h": 1,
+                "w": 24,
+                "x": 0,
+                "y": 93
+            },
             "id": 20,
             "panels": [],
             "title": "Transport A/B \u2014 worker relay vs ClickHouse writes",
@@ -1447,7 +1828,7 @@
                 "h": 8,
                 "w": 12,
                 "x": 0,
-                "y": 77
+                "y": 94
             },
             "id": 21,
             "options": {
@@ -1516,7 +1897,7 @@
                 "h": 8,
                 "w": 12,
                 "x": 12,
-                "y": 77
+                "y": 94
             },
             "id": 22,
             "options": {
@@ -1575,7 +1956,7 @@
                 "h": 8,
                 "w": 24,
                 "x": 0,
-                "y": 85
+                "y": 102
             },
             "id": 23,
             "options": {
@@ -1612,7 +1993,7 @@
                 "h": 1,
                 "w": 24,
                 "x": 0,
-                "y": 93
+                "y": 110
             },
             "id": 24,
             "panels": [],
@@ -1646,7 +2027,7 @@
                 "h": 8,
                 "w": 8,
                 "x": 0,
-                "y": 94
+                "y": 111
             },
             "id": 25,
             "options": {
@@ -1682,7 +2063,7 @@
                 "h": 8,
                 "w": 8,
                 "x": 8,
-                "y": 94
+                "y": 111
             },
             "id": 26,
             "options": {
@@ -1726,7 +2107,7 @@
                 "h": 8,
                 "w": 8,
                 "x": 16,
-                "y": 94
+                "y": 111
             },
             "id": 27,
             "options": {
@@ -1763,7 +2144,7 @@
                 "h": 1,
                 "w": 24,
                 "x": 0,
-                "y": 102
+                "y": 119
             },
             "id": 28,
             "panels": [],
@@ -1797,7 +2178,7 @@
                 "h": 8,
                 "w": 8,
                 "x": 0,
-                "y": 103
+                "y": 120
             },
             "id": 29,
             "options": {
@@ -1863,7 +2244,7 @@
                 "h": 8,
                 "w": 4,
                 "x": 8,
-                "y": 103
+                "y": 120
             },
             "id": 30,
             "options": {
@@ -1930,7 +2311,7 @@
                 "h": 8,
                 "w": 4,
                 "x": 12,
-                "y": 103
+                "y": 120
             },
             "id": 31,
             "options": {
@@ -1988,7 +2369,7 @@
                 "h": 8,
                 "w": 8,
                 "x": 16,
-                "y": 103
+                "y": 120
             },
             "id": 32,
             "options": {
@@ -2025,7 +2406,7 @@
                 "h": 1,
                 "w": 24,
                 "x": 0,
-                "y": 111
+                "y": 128
             },
             "id": 33,
             "panels": [],
@@ -2059,7 +2440,7 @@
                 "h": 8,
                 "w": 12,
                 "x": 0,
-                "y": 112
+                "y": 129
             },
             "id": 34,
             "options": {
@@ -2139,7 +2520,7 @@
                 "h": 8,
                 "w": 12,
                 "x": 12,
-                "y": 112
+                "y": 129
             },
             "id": 35,
             "options": {
@@ -2197,7 +2578,7 @@
                 "h": 8,
                 "w": 12,
                 "x": 0,
-                "y": 120
+                "y": 137
             },
             "id": 36,
             "options": {
@@ -2266,7 +2647,7 @@
                 "h": 8,
                 "w": 12,
                 "x": 12,
-                "y": 120
+                "y": 137
             },
             "id": 37,
             "options": {
@@ -2325,7 +2706,7 @@
                 "h": 1,
                 "w": 24,
                 "x": 0,
-                "y": 128
+                "y": 145
             },
             "id": 38,
             "panels": [],
@@ -2359,7 +2740,7 @@
                 "h": 8,
                 "w": 12,
                 "x": 0,
-                "y": 129
+                "y": 146
             },
             "id": 39,
             "options": {
@@ -2417,7 +2798,7 @@
                 "h": 8,
                 "w": 12,
                 "x": 12,
-                "y": 129
+                "y": 146
             },
             "id": 40,
             "options": {
@@ -2454,7 +2835,7 @@
                 "h": 1,
                 "w": 24,
                 "x": 0,
-                "y": 137
+                "y": 154
             },
             "id": 41,
             "panels": [],
@@ -2488,7 +2869,7 @@
                 "h": 8,
                 "w": 12,
                 "x": 0,
-                "y": 138
+                "y": 155
             },
             "id": 42,
             "options": {
@@ -2546,7 +2927,7 @@
                 "h": 8,
                 "w": 12,
                 "x": 12,
-                "y": 138
+                "y": 155
             },
             "id": 43,
             "options": {
@@ -2603,7 +2984,7 @@
                 "h": 8,
                 "w": 24,
                 "x": 0,
-                "y": 146
+                "y": 163
             },
             "id": 44,
             "options": {
