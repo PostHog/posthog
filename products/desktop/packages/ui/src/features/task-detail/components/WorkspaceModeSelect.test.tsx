@@ -77,7 +77,9 @@ describe("WorkspaceModeSelect", () => {
 
     expect(await screen.findByText("Run location")).toBeInTheDocument();
     expect(
-      screen.getByText("Runs on PostHog servers. Your local files do not change."),
+      screen.getByText(
+        "Runs on PostHog servers. Your local files do not change.",
+      ),
     ).toBeInTheDocument();
     expect(screen.getByText("Requires GitHub")).toBeInTheDocument();
 
