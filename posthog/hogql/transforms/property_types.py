@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Literal, Optional, cast
+from typing import Literal, Optional
 
 from posthog.hogql import ast
 from posthog.hogql.constants import EXCEPTION_STRING_ARRAY_PROPERTIES
@@ -146,6 +146,8 @@ class PropertySwapper(CloningVisitor):
         ast.CompareOperationOp.LtEq,
     }
 
+    # IN / NOT IN are left alone: ClickHouse converts the set to the column's type, so a String property
+    # already matches numeric constants as string membership without erroring.
     _COERCIBLE_OPS: set[str] = {
         ast.CompareOperationOp.Eq,
         ast.CompareOperationOp.NotEq,
@@ -153,8 +155,6 @@ class PropertySwapper(CloningVisitor):
         ast.CompareOperationOp.GtEq,
         ast.CompareOperationOp.Lt,
         ast.CompareOperationOp.LtEq,
-        ast.CompareOperationOp.In,
-        ast.CompareOperationOp.NotIn,
     }
 
     # ClickHouse string-parsing conversions (toFloat64OrZero, toInt64OrZero,
@@ -570,7 +570,7 @@ class PropertySwapper(CloningVisitor):
             semantic_type = metadata_constant_type(field.type, self.context)
             if semantic_type is not None and not isinstance(semantic_type, ast.StringType):
                 continue
-            coercion_type = self._comparison_value_coercion_type(node.op, value_side)
+            coercion_type = self._comparison_value_coercion_type(value_side)
             if coercion_type is None:
                 continue
             converted: ast.Expr = self._field_type_to_property_call(field, coercion_type)
@@ -586,29 +586,16 @@ class PropertySwapper(CloningVisitor):
         return None
 
     @staticmethod
-    def _comparison_value_coercion_type(op: ast.CompareOperationOp, value_expr: ast.Expr) -> str | None:
+    def _comparison_value_coercion_type(value_expr: ast.Expr) -> str | None:
         """Return the property conversion ('Float' or 'Boolean') matching the constant on
         the value side of a comparison, or None when no coercion applies."""
         if isinstance(value_expr, ast.Alias):
             value_expr = value_expr.expr
-
-        values: list[object]
-        if isinstance(value_expr, ast.Constant):
-            values = [value_expr.value]
-        elif op in (ast.CompareOperationOp.In, ast.CompareOperationOp.NotIn) and isinstance(
-            value_expr, (ast.Tuple, ast.Array)
-        ):
-            if not all(isinstance(expr, ast.Constant) for expr in value_expr.exprs):
-                return None
-            values = [cast(ast.Constant, expr).value for expr in value_expr.exprs]
-        else:
+        if not isinstance(value_expr, ast.Constant):
             return None
-
-        if not values:
-            return None
-        if all(isinstance(value, bool) for value in values):
+        if isinstance(value_expr.value, bool):
             return "Boolean"
-        if all(isinstance(value, (int, float)) and not isinstance(value, bool) for value in values):
+        if isinstance(value_expr.value, (int, float)):
             return "Float"
         return None
 

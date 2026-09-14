@@ -1655,6 +1655,17 @@ class TestUntypedPropertyNumericComparison(ClickhouseTestMixin, BaseTest):
         response = execute_hogql_query(team=self.team, query=f"select count() from events where {condition}")
         assert response.results == [(expected_count,)]
 
+    def test_in_list_keeps_string_membership(self):
+        # ClickHouse converts the IN set to the column's type, so IN already runs on a String property and
+        # keeps string semantics; only the operators that would otherwise error are coerced to numbers.
+        _create_event(team=self.team, distinct_id="d1", event="e", properties={"status": "200.0"})
+        in_list = execute_hogql_query(
+            team=self.team, query="select count() from events where properties.status in (200)"
+        )
+        equals = execute_hogql_query(team=self.team, query="select count() from events where properties.status = 200")
+        assert in_list.results == [(0,)]
+        assert equals.results == [(1,)]
+
     def test_untyped_person_property_compared_to_int(self):
         create_person(team=self.team, distinct_ids=["d1"], properties={"seat_count": 5})
         _create_event(team=self.team, distinct_id="d1", event="e")
