@@ -10,7 +10,8 @@ The count uses distinct series whose latest metadata timestamp is at or after th
 It does not read raw metric samples or enforce the selected end time.
 Counts are informational and most useful for recent series.
 Metadata updates can lag samples, so this is not an exact count for the selected time window.
-It does not limit the results to the selected metric.
+When a metric is selected, it only lists attributes from that metric.
+When no metric is selected, it lists attributes from all metrics in the project.
 The count includes both metric attributes and resource attributes.
 An attribute that occurs in both scopes counts once per series.
 The `service_name` item uses the same count and order as other attributes.
