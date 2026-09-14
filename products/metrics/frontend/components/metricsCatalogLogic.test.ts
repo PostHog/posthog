@@ -20,19 +20,20 @@ const CATALOG_ITEMS = [
     {
         name: 'http.server.duration',
         metric_type: 'histogram',
-        unit: 'ms',
-        last_seen: '2026-09-03T10:00:00+00:00',
-        sparkline: [1, 2, 3],
     },
     {
         name: 'queue.depth',
         metric_type: 'gauge',
-        unit: '',
-        last_seen: '2026-09-03T10:00:00+00:00',
-        sparkline: [3, 2, 1],
     },
-    { name: 'jobs.processed', metric_type: 'sum', unit: '', last_seen: '2026-09-03T09:00:00+00:00', sparkline: [0, 1] },
+    { name: 'jobs.processed', metric_type: 'sum' },
 ]
+
+const SPARKLINE_ITEM = {
+    ...CATALOG_ITEMS[0],
+    unit: 'ms',
+    last_seen: '2026-09-03T10:00:00+00:00',
+    sparkline: [1, 2, 3],
+}
 
 describe('metricsCatalogLogic', () => {
     let logic: ReturnType<typeof metricsCatalogLogic.build>
@@ -47,7 +48,7 @@ describe('metricsCatalogLogic', () => {
         } as AppContext
         initKeaTests()
         jest.mocked(metricsValuesRetrieve).mockReset()
-        jest.mocked(metricsValuesRetrieve).mockResolvedValue({ results: CATALOG_ITEMS } as any)
+        jest.mocked(metricsValuesRetrieve).mockResolvedValue({ results: [SPARKLINE_ITEM] } as any)
         jest.mocked(metricsNamesRetrieve).mockResolvedValue({ results: CATALOG_ITEMS } as any)
     })
 
@@ -55,13 +56,98 @@ describe('metricsCatalogLogic', () => {
         logic?.unmount()
     })
 
-    it('loads catalog items from the metric names endpoint', async () => {
+    it('loads catalog names without requesting sparklines', async () => {
         logic = metricsCatalogLogic()
         logic.mount()
 
         await expectLogic(logic).toDispatchActions(['loadCatalogSuccess']).toMatchValues({
             catalogItems: CATALOG_ITEMS,
         })
+    })
+
+    it('loads a card sparkline only when that card enters view', async () => {
+        logic = metricsCatalogLogic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadCatalogSuccess'])
+
+        await expectLogic(logic, () => {
+            logic.actions.loadSparkline(CATALOG_ITEMS[0])
+        }).toDispatchActions(['loadSparklineSuccess'])
+
+        expect(jest.mocked(metricsValuesRetrieve)).toHaveBeenCalledWith(
+            expect.any(String),
+            expect.objectContaining({ value: 'http.server.duration', limit: 1 })
+        )
+        expect(logic.values.catalogItemDetails['http.server.duration']).toEqual(SPARKLINE_ITEM)
+    })
+
+    it('retries a sparkline after a transient failure', async () => {
+        jest.mocked(metricsValuesRetrieve)
+            .mockRejectedValueOnce(new Error('temporary error'))
+            .mockResolvedValueOnce({ results: [SPARKLINE_ITEM] } as any)
+        logic = metricsCatalogLogic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadCatalogSuccess'])
+
+        await expectLogic(logic, () => {
+            logic.actions.loadSparkline(CATALOG_ITEMS[0])
+        }).toDispatchActions(['loadSparklineFailure'])
+        expect(logic.values.catalogItemDetailsFailed['http.server.duration']).toBe(true)
+
+        await expectLogic(logic, () => {
+            logic.actions.retrySparkline(CATALOG_ITEMS[0])
+        }).toDispatchActions(['loadSparklineSuccess'])
+
+        expect(logic.values.catalogItemDetailsFailed['http.server.duration']).toBe(false)
+        expect(jest.mocked(metricsValuesRetrieve)).toHaveBeenCalledTimes(2)
+    })
+
+    it('keeps every in-flight card when more cards scroll into view', async () => {
+        // Several cards cross the viewport at once. Each one is its own request,
+        // so a later card must not cancel or fail an earlier one still in flight.
+        jest.mocked(metricsValuesRetrieve).mockImplementation(
+            (_teamId: any, params: any) =>
+                new Promise((resolve) =>
+                    setTimeout(() => resolve({ results: [{ ...SPARKLINE_ITEM, name: params.value }] } as any), 0)
+                ) as any
+        )
+        logic = metricsCatalogLogic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadCatalogSuccess'])
+
+        await expectLogic(logic, () => {
+            logic.actions.loadSparkline(CATALOG_ITEMS[0])
+            logic.actions.loadSparkline(CATALOG_ITEMS[1])
+        }).toFinishAllListeners()
+
+        expect(logic.values.catalogItemDetailsFailed).toEqual({})
+        expect(Object.keys(logic.values.catalogItemDetails).sort()).toEqual([
+            CATALOG_ITEMS[0].name,
+            CATALOG_ITEMS[1].name,
+        ])
+    })
+
+    it('a rejection from the old service scope does not fail the same card in the new scope', async () => {
+        // A card in scope A fails after the person has entered scope B. The name
+        // can exist in both, and the new card must still get to ask for itself.
+        let rejectFirst: (error: Error) => void = () => {}
+        jest.mocked(metricsValuesRetrieve).mockImplementationOnce(
+            () => new Promise((_resolve, reject) => (rejectFirst = reject)) as any
+        )
+        metricNamePickerLogic.mount()
+        logic = metricsCatalogLogic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadCatalogSuccess'])
+
+        logic.actions.loadSparkline(CATALOG_ITEMS[0])
+        metricNamePickerLogic.actions.setServices(['api'])
+        await expectLogic(logic).toDispatchActions(['loadCatalogSuccess'])
+
+        rejectFirst(new Error('boom'))
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.catalogItemDetailsFailed).toEqual({})
+        expect(logic.values.catalogItemDetailsLoading[CATALOG_ITEMS[0].name]).toBeUndefined()
     })
 
     it('narrows the visible cards by a search substring', async () => {
@@ -86,7 +172,7 @@ describe('metricsCatalogLogic', () => {
 
         await expectLogic(logic).toDispatchActions(['loadCatalogSuccess'])
 
-        expect(jest.mocked(metricsValuesRetrieve)).toHaveBeenCalledWith(
+        expect(jest.mocked(metricsNamesRetrieve)).toHaveBeenCalledWith(
             expect.any(String),
             expect.objectContaining({ service: 'api' })
         )
@@ -98,7 +184,7 @@ describe('metricsCatalogLogic', () => {
 
         await expectLogic(logic).toDispatchActions(['loadCatalogSuccess'])
 
-        const call = jest.mocked(metricsValuesRetrieve).mock.calls[0][1]
+        const call = jest.mocked(metricsNamesRetrieve).mock.calls[0][1]
         expect(call).not.toHaveProperty('service')
     })
 
