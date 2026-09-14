@@ -174,7 +174,7 @@ class PostHogSCIMUser(SCIMUser):
         active = data.get("active", True)
 
         with transaction.atomic():
-            user = User.objects.filter(email__iexact=email).first()
+            user = EmailLookupHandler.get_user_by_email(email, is_active=None)
 
             # Check if already SCIM-provisioned for this IdP config
             if user and SCIMProvisionedUser.objects.record_for(user=user, config=config) is not None:
