@@ -211,6 +211,49 @@ describe('IngestionConsumer', () => {
         jest.useRealTimers()
     })
 
+    describe('$session_id validation', () => {
+        it('produces an invalid_event_session_id warning for a non-UUID $session_id, without dropping the event', async () => {
+            const messages = createKafkaMessages([createEvent({ properties: { $session_id: 'not-a-valid-uuid' } })])
+
+            const { backgroundTask } = await ingester.handleKafkaBatch(messages)
+            await backgroundTask
+
+            // A warning is a soft signal: the event is still ingested.
+            expect(
+                mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_events_json_test')
+            ).not.toHaveLength(0)
+
+            const warningMessages = mockProducerObserver.getProducedKafkaMessagesForTopic(
+                'clickhouse_ingestion_warnings_test'
+            )
+            const sessionIdWarning = warningMessages.find(
+                (m) => (m.value as Record<string, unknown>).type === 'invalid_event_session_id'
+            )
+            expect(sessionIdWarning).toBeDefined()
+            expect(sessionIdWarning!.value).toMatchObject({
+                team_id: team.id,
+                type: 'invalid_event_session_id',
+            })
+            expect((sessionIdWarning!.value as Record<string, unknown>).details).toEqual(
+                expect.stringContaining('not-a-valid-uuid')
+            )
+        })
+
+        it('produces no invalid_event_session_id warning for a valid UUID $session_id', async () => {
+            const messages = createKafkaMessages([createEvent({ properties: { $session_id: new UUIDT().toString() } })])
+
+            const { backgroundTask } = await ingester.handleKafkaBatch(messages)
+            await backgroundTask
+
+            const warningMessages = mockProducerObserver.getProducedKafkaMessagesForTopic(
+                'clickhouse_ingestion_warnings_test'
+            )
+            expect(
+                warningMessages.find((m) => (m.value as Record<string, unknown>).type === 'invalid_event_session_id')
+            ).toBeUndefined()
+        })
+    })
+
     describe('general', () => {
         it('should have the correct config', () => {
             expect(ingester['name']).toMatchInlineSnapshot(`"ingestion-consumer-events_plugin_ingestion_test"`)
