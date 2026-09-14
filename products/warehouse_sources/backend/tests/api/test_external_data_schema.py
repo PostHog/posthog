@@ -600,6 +600,16 @@ class TestExternalDataSchema(APIBaseTest):
             ("columns_unknown", [], None, None, True, ""),
             ("clearing_an_existing_key", [{"name": "amount"}], ["order_id"], [], False, "no primary key"),
             ("key_naming_a_missing_column", [{"name": "amount"}], None, ["nope"], False, "no column named"),
+            ("already_incremental_reenable_passes", [{"name": "amount"}], None, None, True, "", "incremental"),
+            (
+                "already_incremental_clearing_key_is_refused",
+                [{"name": "amount"}],
+                ["order_id"],
+                [],
+                False,
+                "no primary key",
+                "incremental",
+            ),
         ]
     )
     def test_switching_to_incremental_requires_a_key_the_merge_can_use(
@@ -610,6 +620,7 @@ class TestExternalDataSchema(APIBaseTest):
         requested_keys: list[str] | None,
         expected_ok: bool,
         expected_error: str,
+        initial_sync_type: str = "full_refresh",
     ) -> None:
         source = ExternalDataSource.objects.create(
             team=self.team,
@@ -620,18 +631,18 @@ class TestExternalDataSchema(APIBaseTest):
             name="orders",
             team=self.team,
             source=source,
-            should_sync=True,
-            sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+            should_sync=False,
+            sync_type=initial_sync_type,
             sync_type_config={
                 **({"primary_key_columns": persisted_keys} if persisted_keys else {}),
                 "schema_metadata": {"columns": columns},
             },
         )
-        payload: dict[str, Any] = {
-            "sync_type": "incremental",
-            "incremental_field": "created_at",
-            "incremental_field_type": "datetime",
-        }
+        payload: dict[str, Any] = {"should_sync": True}
+        if initial_sync_type != "incremental":
+            payload.update(
+                {"sync_type": "incremental", "incremental_field": "created_at", "incremental_field_type": "datetime"}
+            )
         if requested_keys is not None:
             payload["primary_key_columns"] = requested_keys
 

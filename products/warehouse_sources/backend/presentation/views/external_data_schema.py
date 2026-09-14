@@ -879,7 +879,15 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         # An incremental sync merges rows on a primary key. A schema saved without one syncs once
         # and then fails on every later run, so the switch is refused rather than accepted and
         # broken at the second sync. `id` counts, because discovery falls back to it.
-        if resulting_sync_type == ExternalDataSchema.SyncType.INCREMENTAL:
+        # Only the request that makes the table incremental, or edits its key, is judged. A table
+        # already incremental keeps taking unrelated edits and a re-enable after a fix at the source.
+        switches_to_incremental = (
+            resulting_sync_type == ExternalDataSchema.SyncType.INCREMENTAL
+            and instance.sync_type != ExternalDataSchema.SyncType.INCREMENTAL
+        )
+        if switches_to_incremental or (
+            resulting_sync_type == ExternalDataSchema.SyncType.INCREMENTAL and "primary_key_columns" in data
+        ):
             metadata = instance.schema_metadata or {}
             metadata_columns = metadata.get("columns") if isinstance(metadata, dict) else None
             known_columns = metadata_columns if isinstance(metadata_columns, list) else []
