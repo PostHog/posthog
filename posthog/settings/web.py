@@ -90,6 +90,7 @@ PRODUCTS_APPS = [
     "products.mcp_analytics.backend.apps.McpAnalyticsConfig",
     "products.mcp_registry.backend.apps.McpRegistryConfig",
     "products.platform_features.backend.apps.PlatformFeaturesConfig",
+    "products.security.backend.apps.SecurityConfig",
     "products.streamlit_apps.backend.apps.StreamlitAppsConfig",
     "products.legal_documents.backend.apps.LegalDocumentsConfig",
     "products.access_control.backend.apps.AccessControlConfig",
