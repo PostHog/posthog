@@ -327,6 +327,22 @@ _NARROWED_TURBO_WITH_ROUTES = {
     },
 }
 
+_NARROWED_TURBO_WITH_CONSUMERS = {
+    "extends": ["//"],
+    "tasks": {
+        "backend:contract-check": {
+            "inputs": [
+                "backend/facade/**",
+                "backend/presentation/**",
+                "backend/webhook_consumers.py",
+                "backend/migrations/**",
+            ],
+            "outputs": [],
+            "cache": True,
+        }
+    },
+}
+
 chain_check = IsolationChainCheck()
 
 
@@ -440,6 +456,41 @@ class TestIsolationChainRoutes:
         (ctx.backend_dir / "routes.py").write_text("")
         result = chain_check.run(ctx)
         assert not any("routes.py" in i for i in result.issues)
+
+
+class TestIsolationChainWebhookConsumers:
+    @pytest.mark.parametrize(
+        "turbo, reported",
+        [
+            pytest.param(_NARROWED_TURBO, True, id="narrowed_without_the_consumer_input"),
+            pytest.param(_NARROWED_TURBO_WITH_CONSUMERS, False, id="narrowed_with_the_consumer_input"),
+            pytest.param(None, False, id="unnarrowed_still_watches_all_of_backend"),
+        ],
+    )
+    def test_unwatched_consumer_module_is_reported_when_not_eligible(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, turbo: dict | None, reported: bool
+    ) -> None:
+        # No tach interface, so the product is not externally sealed and not eligible for isolated
+        # tests — needs_turn_on stays silent. An unwatched consumer module is also what makes
+        # has_narrowed False, so every other turbo-omission issue is silent too. The consumer
+        # omission must still be reported, or the narrowing that skips the Django suite on a
+        # consumer change goes unmentioned by the whole check.
+        import hogli_commands.product.isolation as isolation_module
+
+        monkeypatch.setattr(isolation_module, "has_tach_interface", lambda *_a, **_k: False)
+        monkeypatch.setattr(isolation_module, "has_legacy_interface_leaks", lambda *_a, **_k: False)
+        monkeypatch.setattr(isolation_module, "presentation_bypass_entries", lambda *_a, **_k: [])
+        ctx = _make_product(tmp_path, scripts=_WITH_SCRIPT, isolated=True)
+        (ctx.backend_dir / "webhook_consumers.py").write_text("")
+        if turbo is not None:
+            (ctx.product_dir / "turbo.json").write_text(json.dumps(turbo))
+
+        result = chain_check.run(ctx)
+
+        assert any("webhook_consumers.py" in i for i in result.issues) is reported
+        assert not any("inert" in i for i in result.issues)
+        if reported:
+            assert result.file == "products/my_product/turbo.json"
 
 
 class TestNarrowedTurboDetection:

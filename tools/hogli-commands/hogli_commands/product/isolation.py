@@ -421,6 +421,20 @@ def has_narrowed_turbo_inputs(
     )
 
 
+def webhook_consumers_unwatched(product_dir: Path) -> bool:
+    """True when a product that narrows contract-check inputs declares webhook consumers and
+    lists no input that watches the module.
+
+    Reported on its own by the lint rather than only inside the narrowing verdict. An unwatched
+    consumer module is what makes has_narrowed_turbo_inputs() answer False, and every other
+    turbo-omission issue is gated on a narrowed product, so the omission that silenced them would
+    otherwise be the one thing nobody says out loud."""
+    inputs = [i for i in contract_check_inputs(product_dir) if not i.startswith("!")]
+    if not inputs:
+        return False
+    return _webhook_consumers_unwatched(product_dir, inputs)
+
+
 def _uncovered_locations(product_dir: Path, targets_to_prefixes: dict[str, tuple[str, ...]]) -> set[str]:
     """Targets whose accepted input forms match no narrowed contract-check input.
 

@@ -34,6 +34,7 @@ from .isolation import (
     names_from_pattern as _names_from_pattern,
     pattern_targets_public_surface as _pattern_targets_public_surface,
     routes_in_turbo_inputs,
+    webhook_consumers_unwatched,
 )
 from .paths import TACH_TOML, get_tach_block
 
@@ -880,6 +881,21 @@ class IsolationChainCheck(ProductCheck):
                 f'routes-only change would skip the Django suite. Add "{routes_glob}" to the contract-check inputs'
             )
 
+        # Watching the consumer declarations: posthog/ingress/ imports webhook_consumers.py by name
+        # on the first delivery, so a consumer change a narrowing does not watch would skip the
+        # Django suite. Reported on its own condition, not folded into needs_turn_on: an unwatched
+        # consumer module is itself what makes has_narrowed False, so every other turbo-omission
+        # issue goes quiet with it, and needs_turn_on is ANDed with eligibility, sealing and the
+        # facade-violation gate — any one of those would hide the omission that caused the silence.
+        consumers_unwatched = webhook_consumers_unwatched(ctx.product_dir)
+        if consumers_unwatched:
+            result.issues.append(
+                "turbo.json narrows contract-check inputs but omits backend/webhook_consumers.py — "
+                "posthog/ingress imports the module by name on the first delivery, so a consumer "
+                "change (a new handler, a new event type) would skip the Django suite. Add "
+                '"backend/webhook_consumers.py" to the contract-check inputs'
+            )
+
         # Watching the permanent-interface exposures: a marked [[interfaces]] block lets core
         # depend on these modules outside the import graph (ClickHouse DDL in the schema registry
         # and frozen migrations). That coupling can't be sealed, so the skip stays sound only if a
@@ -943,11 +959,11 @@ class IsolationChainCheck(ProductCheck):
         # PackageJsonScriptsCheck — the skip can't be enabled until the wave empties them.
 
         if result.issues or result.warnings:
-            # needs_turn_on and routes_unwatched both point at turbo.json. needs_turn_on can't
-            # co-occur with the facade/turbo mismatch issues above (it requires a real facade, a
-            # script, and no narrowing). routes_unwatched can co-occur with them (it only needs
-            # has_narrowed + a routes module), but turbo.json is still where the routes omission is
-            # fixed, so it wins; the co-firing mismatch issues still print in the lint output.
+            # needs_turn_on, routes_unwatched and consumers_unwatched all point at turbo.json.
+            # needs_turn_on can't co-occur with the facade/turbo mismatch issues above (it requires
+            # a real facade, a script, and no narrowing). routes_unwatched and consumers_unwatched
+            # can co-occur with them, but turbo.json is still where those omissions are fixed, so
+            # they win; the co-firing mismatch issues still print in the lint output.
             # An unqualified permanent exposure is a defect in the tach.toml marker itself, so point
             # there; it takes precedence because it's the most fundamental of these issues.
             turbo_omission = has_narrowed and (
@@ -955,7 +971,7 @@ class IsolationChainCheck(ProductCheck):
             )
             if status.unqualified_permanent_exposures:
                 result.file = "tach.toml"
-            elif needs_turn_on or routes_unwatched or turbo_omission:
+            elif needs_turn_on or routes_unwatched or consumers_unwatched or turbo_omission:
                 result.file = f"products/{ctx.name}/turbo.json"
             else:
                 result.file = f"products/{ctx.name}/backend/facade/api.py"

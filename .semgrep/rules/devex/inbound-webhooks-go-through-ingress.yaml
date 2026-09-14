@@ -7,8 +7,8 @@ rules:
           scheme and the delivery parsing, hand it to `build_webhook_view()` in the URLconf,
           and register the handlers in `products/<product>/backend/webhook_consumers.py`.
           An endpoint that genuinely needs DRF team scoping (Customer.io) keeps its view and
-          subclasses `posthog.auth.WebhookSignatureAuthentication`, which verifies through the
-          same code. `docs/internal/inbound-webhooks.md` holds the transport contract.
+          subclasses `WebhookSignatureAuthentication`; that class moves onto the ingress schemes
+          in its own PR. `docs/internal/inbound-webhooks.md` holds the transport contract.
 
           Why: a hand-rolled verifier repeats the parts that are easy to get wrong, the
           constant-time compare, the replay window and the exact signed input, and it lands
@@ -104,10 +104,8 @@ rules:
               - /posthog/**/*.py
               - /products/**/*.py
           exclude:
-              # Ingress is the sanctioned implementation, and posthog/auth.py is the DRF
-              # adapter that delegates to it.
+              # Ingress is the sanctioned implementation.
               - /posthog/ingress/**
-              - /posthog/auth.py
               # A test builds a signature to send; it does not verify an inbound one.
               - '**/test/**'
               - '**/tests/**'
@@ -119,6 +117,7 @@ rules:
               - /ee/api/vercel/vercel_webhooks.py
               - /ee/partners/stripe/api/provisioning/signature.py
               - /posthog/api/github_webhooks/signature.py
+              - /posthog/auth.py
               - /posthog/models/integration/slack.py
               - /products/conversations/backend/api/github_events.py
               - /products/conversations/backend/api/slack_events.py
