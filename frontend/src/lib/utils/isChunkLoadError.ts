@@ -2,10 +2,14 @@
  * Recognizes the various shapes a failed `import(...)` can take across bundlers and browsers:
  *   - webpack: `Error` with `name === 'ChunkLoadError'`
  *   - esbuild/Vite: message contains `'Failed to fetch dynamically imported module'`
- *   - Safari: native `TypeError: Load failed` (no JS stack — see load-failed.tsx known exception)
- *   - Firefox: native `TypeError: NetworkError when attempting to fetch resource.`
  *   - Firefox: native `TypeError: error loading dynamically imported module: <url>` (deferred import of a now-deleted chunk after a deploy)
  *   - WebKit/Safari: `Importing a module script failed.` (module script fails to load, e.g. transient network failure)
+ *
+ * Safari's native `TypeError: Load failed` and Firefox's native `TypeError: NetworkError when
+ * attempting to fetch resource.` are also shapes a failed `import()` can take in those browsers,
+ * but the message is indistinguishable from an ordinary failed `fetch()` unrelated to any import
+ * (see `isGenericNetworkTypeError`). So they only count here once `retryImport` has marked them,
+ * having caught them coming out of a wrapped `import()` call.
  */
 const markedChunkLoadErrors = new WeakSet<object>()
 
@@ -14,6 +18,19 @@ export function markAsChunkLoadError(error: unknown): void {
         return
     }
     markedChunkLoadErrors.add(error)
+}
+
+/** Safari's/Firefox's native network TypeError shape — ambiguous between a failed `import()` and an unrelated failed `fetch()`. */
+export function isGenericNetworkTypeError(error: unknown): boolean {
+    if (!error || typeof error !== 'object') {
+        return false
+    }
+    const err = error as { name?: string; message?: string }
+    if (err.name !== 'TypeError') {
+        return false
+    }
+    const message = typeof err.message === 'string' ? err.message : ''
+    return message.includes('Load failed') || message.includes('NetworkError when attempting to fetch resource')
 }
 
 export function isChunkLoadError(error: unknown): boolean {
@@ -28,8 +45,6 @@ export function isChunkLoadError(error: unknown): boolean {
         err.name === 'ChunkLoadError' ||
         message.includes('Failed to fetch dynamically imported module') ||
         message.includes('Importing a module script failed') ||
-        (isTypeError && message.includes('Load failed')) ||
-        (isTypeError && message.includes('NetworkError when attempting to fetch resource')) ||
         (isTypeError && message.includes('error loading dynamically imported module'))
     )
 }

@@ -62,4 +62,21 @@ describe('retryImport', () => {
         await expect(retryImport(factory)).rejects.toThrow('undefined is not a function')
         expect(factory).toHaveBeenCalledTimes(1)
     })
+
+    it('retries a generic network TypeError and marks it as a chunk load error once exhausted', async () => {
+        // Safari/Firefox report a failed `import()` as a bare network TypeError, indistinguishable by
+        // message from an unrelated failed `fetch()`. retryImport treats it as a chunk load candidate
+        // (since it came from the wrapped import factory) and marks it so downstream boundaries still
+        // recognize it once retries are exhausted.
+        const error = new TypeError('Load failed')
+        const factory = jest.fn().mockRejectedValue(error)
+
+        const promise = retryImport(factory)
+        void promise.catch(() => {})
+        await jest.runAllTimersAsync()
+
+        await expect(promise).rejects.toBe(error)
+        expect(factory).toHaveBeenCalledTimes(3)
+        expect(isChunkLoadError(error)).toBe(true)
+    })
 })
