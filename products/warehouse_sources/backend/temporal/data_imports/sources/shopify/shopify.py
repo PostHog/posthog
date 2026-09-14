@@ -134,6 +134,13 @@ SHOPIFY_PAYMENT_REQUIRED_ERROR_MESSAGE = (
     "the import will resume."
 )
 
+# 404 from the Admin API GraphQL endpoint itself (as opposed to the OAuth token endpoint above) —
+# Shopify serves no Admin API at a subdomain with no live store behind it, so the store closed or
+# was renamed after the source was connected. Retrying can't bring it back, so
+# `ShopifySource.get_non_retryable_errors` matches on the stable status text (not the per-store URL)
+# to fail the job fast, with the same copy the token endpoint's 404 uses.
+SHOPIFY_GRAPHQL_NOT_FOUND_ERROR_MATCH = "404 Client Error: Not Found"
+
 # 401 from the Admin API GraphQL endpoint itself (as opposed to the OAuth token endpoint
 # above) — the token was accepted when minted but is no longer valid for the store, e.g. the
 # app was uninstalled or the token revoked mid-sync. Re-minting on retry can't fix that, so
