@@ -667,6 +667,7 @@ describe('taskTrackerSceneLogic', () => {
             finishCreation = resolve
         })
         let createCount = 0
+        let warmCount = 0
         useMocks({
             post: {
                 '/api/projects/:team/tasks/': async ({ request }) => {
@@ -674,8 +675,13 @@ describe('taskTrackerSceneLogic', () => {
                     createBody = (await request.json()) as Record<string, unknown>
                     return creation
                 },
+                '/api/projects/:team/tasks/warm/': () => {
+                    warmCount++
+                    return [200, { task_id: 'unused-task', run_id: 'unused-run' }]
+                },
             },
         })
+        jest.useFakeTimers()
         router.actions.push(urls.ai(undefined, 'analyze churn'))
         const unmountBridge = phaiAiComposerSeedLogic().mount()
         try {
@@ -684,6 +690,9 @@ describe('taskTrackerSceneLogic', () => {
             expect(runStreamLogic({ streamKey }).values.threadItems).toEqual([
                 expect.objectContaining({ type: 'human_message', text: 'analyze churn' }),
             ])
+            await jest.advanceTimersByTimeAsync(300)
+            jest.useRealTimers()
+            expect(warmCount).toBe(0)
             if (destination) {
                 router.actions.push(destination)
                 expect(logic.values.activeCreation).toBeNull()
@@ -703,6 +712,7 @@ describe('taskTrackerSceneLogic', () => {
                 expect(router.values.searchParams).toEqual({ task: 'new-task' })
             }
         } finally {
+            jest.useRealTimers()
             finishCreation([200, { id: 'new-task', latest_run: { id: 'run-1' } }])
             unmountBridge()
         }
