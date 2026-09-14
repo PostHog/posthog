@@ -211,7 +211,8 @@ export interface ExperimentRecordingsListRenderedContext extends ExperimentRecor
  * say whether the feature finds anything in the wild: all zeros on most experiments would mean the
  * evidence floors are set too high to ever show a card. The compared-population fields are what
  * `empty_reason` has to be read against, because the same reason asks for a different answer over a
- * few dozen people than over thousands.
+ * few dozen people than over thousands. They count session-linked people, not enrollment, which the
+ * response does not carry.
  */
 export interface ExperimentWatchShelfContext {
     too_early: boolean
@@ -226,11 +227,14 @@ export interface ExperimentWatchShelfContext {
     used_exposure_fallback: boolean
     /** Wall-clock time of the request, which is the heaviest read on the tab. */
     duration_ms: number
-    /** Exposed people the comparison covered, over every variant. The denominator the card counts
-     * and the empty reasons are missing on their own. */
+    /** Exposed people the comparison found a session for, over every variant. The denominator the
+     * card counts are missing on their own. Zero on every 'no_session_linked_exposures' shelf,
+     * because that reason means no session was found for anyone, so it cannot size the enrollment
+     * behind that reason. */
     compared_persons: number
-    /** Variants with enough exposed people to be compared at all; one means the comparison had
-     * nothing to compare that variant against. */
+    /** Variants with enough of those people to be compared at all. One means the comparison had
+     * nothing to compare that variant against, and zero means no variant had a session-linked
+     * person. */
     compared_variants: number
     /** Hours of enrollment the comparison covered. What the person cap and the day budget bind, so
      * a busy experiment reads hours here and one that stopped enrolling reads its last day. */
