@@ -309,7 +309,6 @@ class TestEEAuthenticationAPI(APILicensedTest):
 
     @patch("social_core.backends.base.BaseAuth.request")
     def test_google_login_returns_to_saved_insight(self, mock_request):
-        """The OAuth callback must retain the deep link saved before Google redirects back."""
         UserSocialAuth.objects.create(user=self.user, provider="google-oauth2", uid="google-sub-123")
         insight_url = "/project/1/insights/test-insight"
 
