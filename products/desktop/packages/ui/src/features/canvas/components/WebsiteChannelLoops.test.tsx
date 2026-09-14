@@ -1,5 +1,4 @@
 import { render, screen } from "@testing-library/react";
-import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => {
@@ -15,7 +14,11 @@ const mocks = vi.hoisted(() => {
     personalSpace,
     channels: [personalSpace],
     channelsLoading: false,
-    useLoops: vi.fn(() => ({ data: [], isLoading: false, isError: false })),
+    useLoops: vi.fn(() => ({
+      data: [] as unknown[],
+      isLoading: false,
+      isError: false,
+    })),
   };
 });
 
@@ -57,21 +60,13 @@ vi.mock("@posthog/ui/features/loops/components/LoopFallbacks", () => ({
   LoopsSkeleton: () => <div>Loading loops</div>,
 }));
 vi.mock("@posthog/ui/features/loops/components/LoopRow", () => ({
-  LoopRow: () => null,
+  LoopRow: ({ loop }: { loop: { name: string } }) => <div>{loop.name}</div>,
 }));
 vi.mock("@posthog/ui/features/loops/components/LoopsEmptyState", () => ({
   LoopsEmptyState: () => null,
 }));
 vi.mock("@posthog/ui/features/loops/components/LoopTemplatesSection", () => ({
   LoopTemplatesSection: () => null,
-}));
-vi.mock("@posthog/ui/features/loops/components/LoopsListView", () => ({
-  LoopsListView: ({ headerContent }: { headerContent?: ReactNode }) => (
-    <div>
-      {headerContent}
-      Project loops registry
-    </div>
-  ),
 }));
 
 import { WebsiteChannelLoops } from "./WebsiteChannelLoops";
@@ -80,14 +75,34 @@ describe("WebsiteChannelLoops", () => {
   beforeEach(() => {
     mocks.channels = [mocks.personalSpace];
     mocks.channelsLoading = false;
-    mocks.useLoops.mockClear();
+    mocks.useLoops.mockReset();
+    mocks.useLoops.mockReturnValue({
+      data: [],
+      isLoading: false,
+      isError: false,
+    });
   });
 
-  it("shows the project loops registry in the personal space", () => {
+  it("shows only loops attached to the personal space", () => {
+    mocks.useLoops.mockReturnValue({
+      data: [
+        {
+          id: "a",
+          name: "Mine",
+          context_target: { folder_id: "personal-space" },
+        },
+        { id: "b", name: "Unattached", context_target: null },
+        { id: "c", name: "Elsewhere", context_target: { folder_id: "other" } },
+      ],
+      isLoading: false,
+      isError: false,
+    });
+
     render(<WebsiteChannelLoops channelId="personal-space" />);
 
-    expect(screen.getByText("Project loops registry")).toBeInTheDocument();
-    expect(screen.getByText("Personal space header")).toBeInTheDocument();
+    expect(screen.getByText("Mine")).toBeInTheDocument();
+    expect(screen.queryByText("Unattached")).not.toBeInTheDocument();
+    expect(screen.queryByText("Elsewhere")).not.toBeInTheDocument();
   });
 
   it("waits for the Personal space to resolve before choosing a list", () => {
@@ -97,9 +112,6 @@ describe("WebsiteChannelLoops", () => {
     render(<WebsiteChannelLoops channelId="personal-space" />);
 
     expect(screen.getByText("Loading loops")).toBeInTheDocument();
-    expect(
-      screen.queryByText("Project loops registry"),
-    ).not.toBeInTheDocument();
     expect(mocks.useLoops).not.toHaveBeenCalled();
   });
 });
