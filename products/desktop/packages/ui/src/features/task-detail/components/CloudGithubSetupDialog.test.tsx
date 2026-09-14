@@ -56,7 +56,9 @@ describe("CloudGithubSetupDialog", () => {
       screen.getByText("GitHub authentication required"),
     ).toBeInTheDocument();
     expect(
-      screen.getByText("Cloud tasks require GitHub authentication."),
+      screen.getByText(
+        "GitHub gives PostHog read access to current repository code and keeps background work current.",
+      ),
     ).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Connect GitHub" }));
 

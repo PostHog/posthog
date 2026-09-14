@@ -1,6 +1,8 @@
 import {
   describeGithubConnectError,
+  GITHUB_CLOUD_TASK_CONNECTION_REQUIRED_MESSAGE,
   GITHUB_CONNECT_TIMEOUT_MESSAGE,
+  GITHUB_CONNECTION_REQUIRED_MESSAGE,
   GITHUB_INSTALL_PENDING_MESSAGE,
 } from "@posthog/core/integrations/connectErrors";
 import {
@@ -70,7 +72,7 @@ export function GithubConnectionRequiredRecovery({
       );
       setOpen(false);
     } catch {
-      toast.error("GitHub connected, but the investigation could not restart", {
+      toast.error("GitHub connected, but the task could not restart", {
         description: "Open the task again and retry.",
       });
     }
@@ -116,6 +118,11 @@ export function GithubConnectionRequiredRecovery({
       open={open}
       isConnecting={isConnecting}
       connectionMessage={connectionMessage}
+      requirementMessage={
+        task.signal_report
+          ? GITHUB_CONNECTION_REQUIRED_MESSAGE
+          : GITHUB_CLOUD_TASK_CONNECTION_REQUIRED_MESSAGE
+      }
       approvalPending={isPending}
       canRunLocally={localWorkspaces && !!localFolder}
       onOpenChange={setOpen}

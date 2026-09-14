@@ -1,5 +1,6 @@
 import {
   describeGithubConnectError,
+  GITHUB_CODE_CONTEXT_MESSAGE,
   GITHUB_CONNECT_TIMEOUT_MESSAGE,
   GITHUB_INSTALL_PENDING_MESSAGE,
 } from "@posthog/core/integrations/connectErrors";
@@ -142,7 +143,7 @@ export function CloudGithubSetupDialog({
                 : waitingForGithub
                   ? "Finish authorizing in your browser, then return here."
                   : (connectionMessage ??
-                    "Cloud tasks require GitHub authentication.")
+                    GITHUB_CODE_CONTEXT_MESSAGE)
             }
             descriptionClassName={
               hasError || isTimedOut ? "text-destructive" : undefined

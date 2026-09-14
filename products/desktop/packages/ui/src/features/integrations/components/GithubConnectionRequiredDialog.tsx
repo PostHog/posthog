@@ -1,7 +1,8 @@
 import { Check, Copy } from "@phosphor-icons/react";
 import {
   GITHUB_ADMIN_ACCESS_REQUEST,
-  GITHUB_CONNECTION_REQUIRED_MESSAGE,
+  GITHUB_CLOUD_TASK_CONNECTION_REQUIRED_MESSAGE,
+  GITHUB_CODE_CONTEXT_MESSAGE,
 } from "@posthog/core/integrations/connectErrors";
 import {
   Button,
@@ -18,6 +19,7 @@ interface GithubConnectionRequiredDialogProps {
   open: boolean;
   isConnecting: boolean;
   connectionMessage?: string;
+  requirementMessage?: string;
   approvalPending?: boolean;
   canRunLocally: boolean;
   onOpenChange: (open: boolean) => void;
@@ -29,6 +31,7 @@ export function GithubConnectionRequiredDialog({
   open,
   isConnecting,
   connectionMessage,
+  requirementMessage = GITHUB_CLOUD_TASK_CONNECTION_REQUIRED_MESSAGE,
   approvalPending = false,
   canRunLocally,
   onOpenChange,
@@ -59,9 +62,7 @@ export function GithubConnectionRequiredDialog({
       <DialogContent className="max-w-lg">
         <DialogHeader>
           <DialogTitle>Connect GitHub</DialogTitle>
-          <DialogDescription>
-            {GITHUB_CONNECTION_REQUIRED_MESSAGE}
-          </DialogDescription>
+          <DialogDescription>{requirementMessage}</DialogDescription>
         </DialogHeader>
 
         {connectionMessage ? (
@@ -78,10 +79,7 @@ export function GithubConnectionRequiredDialog({
 
         {showWhy || approvalPending ? (
           <div className="flex flex-col gap-2 rounded-(--radius-2) border border-(--gray-6) bg-(--gray-2) p-3">
-            <p className="m-0 text-sm">
-              GitHub gives PostHog current code context for this investigation
-              and later background runs.
-            </p>
+            <p className="m-0 text-sm">{GITHUB_CODE_CONTEXT_MESSAGE}</p>
             <div className="flex items-start gap-2 rounded-(--radius-2) bg-(--gray-3) p-2">
               <p className="m-0 min-w-0 flex-1 select-text text-sm">
                 {GITHUB_ADMIN_ACCESS_REQUEST}
@@ -102,8 +100,8 @@ export function GithubConnectionRequiredDialog({
 
         {canRunLocally ? (
           <p className="m-0 text-(--gray-11) text-sm">
-            A local snapshot can run now, but its result can become stale.
-            GitHub is required for ongoing background investigations.
+            A local run can use this folder now, but its result can become
+            stale. GitHub is required for ongoing background work.
           </p>
         ) : null}
 
