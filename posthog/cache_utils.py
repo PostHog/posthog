@@ -32,12 +32,22 @@ class CachedFunction(Generic[P, R]):
     _cache: dict[CacheKey, tuple[datetime, R]] = field(default_factory=dict, init=False, repr=False)
     _refreshing: dict[CacheKey, datetime | None] = field(default_factory=dict, init=False, repr=False)
     _refresh_failed_at: dict[CacheKey, datetime] = field(default_factory=dict, init=False, repr=False)
+    # Guards the bookkeeping dicts. It is never held while the wrapped function runs.
+    _lock: threading.Lock = field(default_factory=threading.Lock, init=False, repr=False)
 
     def _refresh_is_backed_off(self, key: CacheKey, current_time: datetime) -> bool:
         failed_at = self._refresh_failed_at.get(key)
         if failed_at is None:
             return False
         return current_time - failed_at < min(self._cache_time, MAX_REFRESH_BACKOFF)
+
+    def _claim_background_refresh(self, key: CacheKey, current_time: datetime) -> bool:
+        # Two callers can pass an unguarded check together and each start a refresh of the same key.
+        with self._lock:
+            if self._refreshing.get(key) or self._refresh_is_backed_off(key, current_time):
+                return False
+            self._refreshing[key] = current_time
+            return True
 
     def __call__(self, *args: Any, **kwargs: Any) -> R:
         use_cache = cast(bool, kwargs.pop("use_cache", not TEST))
@@ -50,25 +60,27 @@ class CachedFunction(Generic[P, R]):
         def refresh(in_background: bool) -> None:
             try:
                 value = self._fn(*args, **kwargs)
+            except Exception:
+                with self._lock:
+                    if in_background:
+                        self._refresh_failed_at[key] = now()
+                    self._refreshing[key] = None
+                if not in_background:
+                    raise
+                # The caller already has the previously cached value, so there is nobody to raise to.
+                logger.exception("cache_for_background_refresh_failed", fn=getattr(self._fn, "__qualname__", None))
+                return
+
+            with self._lock:
                 self._cache[key] = (now(), value)
                 self._refresh_failed_at.pop(key, None)
                 self._refreshing[key] = None
-            except Exception:
-                if not in_background:
-                    self._refreshing[key] = None
-                    raise
-                # The caller already has the previously cached value, so there is nobody to raise to.
-                # Record the failure before the slot is free, so a concurrent call sees the backoff.
-                self._refresh_failed_at[key] = now()
-                self._refreshing[key] = None
-                logger.exception("cache_for_background_refresh_failed", fn=getattr(self._fn, "__qualname__", None))
 
         if key not in self._cache:
             refresh(in_background=False)
         elif current_time - self._cache[key][0] > self._cache_time:
             if self._background_refresh:
-                if not self._refreshing.get(key) and not self._refresh_is_backed_off(key, current_time):
-                    self._refreshing[key] = current_time
+                if self._claim_background_refresh(key, current_time):
                     t = threading.Thread(
                         target=refresh,
                         kwargs={"in_background": True},
