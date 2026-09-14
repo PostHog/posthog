@@ -21,12 +21,14 @@ _SKIP_TYPE = "Skip"
 _MERGE_TREE_READ = "ReadFromMergeTree"
 
 # ClickHouse prints each timestamp clause of the Min-Max condition as `timestamp in [A, +Inf)`,
-# `timestamp in (-Inf, B]` or `timestamp in [A, B]`, in unix seconds. A DateTime constant prints
-# bare, but a DateTime64 constant prints quoted and can carry a fractional part, as in
-# `['1788818422.100868', +Inf)`. HogQL prints now() as now64 and every date literal as toDateTime64,
-# so the quoted form is what every insight and SQL-editor query produces. A range with a start and
-# an end comes as two clauses under `and(...)`, the end first, so every clause is read.
-_BOUND_RE = re.compile(r"in\s*[\[\(]\s*([^,\[\(]+?)\s*,\s*([^\]\)]+?)\s*[\]\)]")
+# `timestamp in (-Inf, B]` or `timestamp in [A, B]`. A bound is unix seconds: bare for a DateTime
+# constant, single-quoted for a DateTime64 constant, with a fractional part when the constant is
+# now64, as in `['1788818422.100868', +Inf)`. HogQL prints now() as now64 and every date literal as
+# toDateTime64, so the quoted form is what every insight and SQL-editor query produces. A range with
+# a start and an end comes as two clauses under `and(...)`, the end first, so every clause is read.
+_SECONDS = r"'?(-?\d+(?:\.\d+)?)'?"
+_INFINITY = r"[-+]Inf"
+_BOUND_RE = re.compile(rf"in\s*[\[\(]\s*(?:{_INFINITY}|{_SECONDS})\s*,\s*(?:{_INFINITY}|{_SECONDS})\s*[\]\)]")
 
 
 @frozen
@@ -189,24 +191,18 @@ def _parse_timestamp_bounds(condition: str) -> TimestampBounds:
     lowers: list[int] = []
     uppers: list[int] = []
     for match in _BOUND_RE.finditer(condition):
-        lower = _bound_value(match.group(1))
-        upper = _bound_value(match.group(2))
+        lower, upper = match.groups()
         if lower is not None:
-            lowers.append(lower)
+            lowers.append(_whole_seconds(lower))
         if upper is not None:
-            uppers.append(upper)
+            uppers.append(_whole_seconds(upper))
     # The clauses are ANDed, so the range they describe is their intersection.
     return TimestampBounds(lower=max(lowers, default=None), upper=min(uppers, default=None))
 
 
-def _bound_value(token: str) -> int | None:
-    token = token.strip().strip("'\"")
-    if token.lstrip("+-").lower() == "inf":
-        return None
-    try:
-        return int(float(token))
-    except ValueError:
-        return None
+def _whole_seconds(seconds: str) -> int:
+    # The fraction is dropped because the range denominator re-runs the bound through toDateTime.
+    return int(float(seconds))
 
 
 def _as_int(value: object) -> int | None:

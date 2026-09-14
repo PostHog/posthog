@@ -1,12 +1,17 @@
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from posthog.test.base import BaseTest
+from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event
 from unittest import mock
 
 from parameterized import parameterized
 
 from posthog.schema import QueryScanMode
+
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.parser import parse_select
+from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
 
 from posthog.errors import InternalCHQueryError
 from posthog.query_scan import slot
@@ -31,25 +36,28 @@ def _plan(name: str) -> str:
     return (FIXTURES / f"{name}.json").read_text()
 
 
+def _fake_job_boundaries(test: BaseTest, stored: dict[str, Any]) -> mock.Mock:
+    """Fake the slot store, the flag and the analytics capture around the job, and return the capture."""
+    redis = mock.Mock()
+    redis.get.side_effect = lambda key: stored.get(key)
+    redis.set.side_effect = lambda key, value, ex=None, nx=False: stored.__setitem__(key, value)
+    redis_patcher = mock.patch("posthog.query_scan.slot.query_cache_raw_client", return_value=redis)
+    flag_patcher = mock.patch("posthog.query_scan.job.get_query_scan_flag", return_value=FLAG)
+    capture_patcher = mock.patch("posthog.query_scan.job.ph_scoped_capture")
+    for patcher in (redis_patcher, flag_patcher):
+        patcher.start()
+        test.addCleanup(patcher.stop)
+    capture = capture_patcher.start().return_value.__enter__.return_value
+    test.addCleanup(capture_patcher.stop)
+    return capture
+
+
 class TestQueryScanJob(BaseTest):
     def setUp(self) -> None:
         super().setUp()
         self.calls: list[tuple[str, dict[str, Any]]] = []
         self.stored: dict[str, Any] = {}
-        redis = mock.Mock()
-        redis.get.side_effect = lambda key: self.stored.get(key)
-        redis.set.side_effect = lambda key, value, ex=None, nx=False: self.stored.__setitem__(key, value)
-        patcher = mock.patch("posthog.query_scan.slot.query_cache_raw_client", return_value=redis)
-        patcher.start()
-        self.addCleanup(patcher.stop)
-
-        flag_patcher = mock.patch("posthog.query_scan.job.get_query_scan_flag", return_value=FLAG)
-        flag_patcher.start()
-        self.addCleanup(flag_patcher.stop)
-
-        capture_patcher = mock.patch("posthog.query_scan.job.ph_scoped_capture")
-        self.capture = capture_patcher.start().return_value.__enter__.return_value
-        self.addCleanup(capture_patcher.stop)
+        self.capture = _fake_job_boundaries(self, self.stored)
 
     def _run(
         self,
@@ -165,3 +173,52 @@ class TestQueryScanJob(BaseTest):
         stored = slot.get(self.team.pk, "cache_key_1", thresholds=FLAG.thresholds_fingerprint)
         assert stored is not None and stored.status == "done"
         assert [str(finding.kind) for finding in stored.findings] == ["persons_join"]
+
+
+class TestQueryScanJobOnClickhouse(ClickhouseTestMixin, BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.capture = _fake_job_boundaries(self, {})
+
+    def test_a_hogql_date_range_is_read_from_the_real_plan(self) -> None:
+        # The bounds are parsed from ClickHouse's rendering of the constants HogQL prints, and a
+        # fixture freezes both sides, so only a real plan catches either side changing its format.
+        _create_event(
+            team=self.team, event="$pageview", distinct_id="user_1", timestamp=datetime.now(UTC) - timedelta(days=1)
+        )
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+        tree = prepare_ast_for_printing(
+            parse_select(
+                "SELECT count() FROM events WHERE event = '$pageview' "
+                "AND timestamp >= now() - interval 7 day AND timestamp < now()"
+            ),
+            context,
+            dialect="clickhouse",
+        )
+        assert tree is not None
+        job = QueryScanJob(
+            team=self.team,
+            cache_key="cache_key_1",
+            executions=(
+                Execution(
+                    stubbed_sql=print_prepared_ast(tree, context, dialect="clickhouse"),
+                    subqueries=(),
+                    values=context.values,
+                    rows_read=500_000,
+                ),
+            ),
+            rows_read=500_000,
+            duration_ms=19_000,
+            trigger="fresh",
+            query_kind="HogQLQuery",
+            open_filters_placeholder=False,
+        )
+
+        run_query_scan(job)
+
+        stored = slot.get(self.team.pk, "cache_key_1", thresholds=FLAG.thresholds_fingerprint)
+        assert stored is not None and stored.status == "done"
+        assert self.capture.call_args.kwargs["properties"]["explain_ok"] is True
+        # A share proves the plan's events read was found; no finding proves its bounds were read.
+        assert stored.range_share is not None
+        assert [str(finding.kind) for finding in stored.findings] == []
