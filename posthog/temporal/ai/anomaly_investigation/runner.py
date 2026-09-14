@@ -25,6 +25,7 @@ from langchain_core.runnables import RunnableConfig
 from posthoganalytics.ai.langchain.callbacks import CallbackHandler
 from pydantic import BaseModel, ValidationError
 
+from posthog.dataclasses import frozen
 from posthog.models import Team, User
 from posthog.temporal.ai.anomaly_investigation.prompts import SYSTEM_PROMPT
 from posthog.temporal.ai.anomaly_investigation.report import InvestigationReport, salvage_report
@@ -62,6 +63,13 @@ class InvestigationRunResult:
     report: InvestigationReport
     tool_calls_used: int
     model: str
+
+
+@frozen
+class _ToolCallHandling:
+    result: InvestigationRunResult | None
+    tool_calls_used: int
+    should_stop: bool
 
 
 def _result(report: InvestigationReport, tool_calls_used: int) -> InvestigationRunResult:
@@ -151,6 +159,87 @@ def _add_report_correction_messages(messages: list[Any], tool_calls: list[dict[s
         )
 
 
+async def _handle_tool_calls(
+    *,
+    tool_calls: list[dict[str, Any]],
+    handlers: dict[str, ToolHandler],
+    messages: list[Any],
+    report_args_history: list[dict[str, Any]],
+    tool_calls_used: int,
+) -> _ToolCallHandling:
+    report_error: str | None = None
+    report_args = _final_report_args(tool_calls)
+    if report_args is not None:
+        report_args_history.append(report_args)
+        try:
+            return _ToolCallHandling(
+                result=_result(InvestigationReport.model_validate(report_args), tool_calls_used),
+                tool_calls_used=tool_calls_used,
+                should_stop=False,
+            )
+        except ValidationError as err:
+            report_error = _validation_error_summary(err)
+            logger.warning("anomaly_investigation.report_validation_error", extra={"error": report_error})
+    if not tool_calls:
+        return _ToolCallHandling(result=None, tool_calls_used=tool_calls_used, should_stop=True)
+    return await _run_tool_calls(
+        tool_calls=tool_calls,
+        handlers=handlers,
+        messages=messages,
+        report_error=report_error,
+        tool_calls_used=tool_calls_used,
+    )
+
+
+async def _run_tool_calls(
+    *,
+    tool_calls: list[dict[str, Any]],
+    handlers: dict[str, ToolHandler],
+    messages: list[Any],
+    report_error: str | None,
+    tool_calls_used: int,
+) -> _ToolCallHandling:
+    for call in tool_calls:
+        content, tool_calls_used = await _run_tool_call(
+            call=call,
+            handlers=handlers,
+            report_error=report_error,
+            tool_calls_used=tool_calls_used,
+        )
+        if isinstance(content, str) and len(content) > MAX_TOOL_RESULT_CHARS:
+            content = content[:MAX_TOOL_RESULT_CHARS] + "\n[truncated — narrow the query for more]"
+        messages.append(ToolMessage(content=content, tool_call_id=call.get("id") or call.get("tool_call_id") or ""))
+    return _ToolCallHandling(result=None, tool_calls_used=tool_calls_used, should_stop=False)
+
+
+async def _run_tool_call(
+    *,
+    call: dict[str, Any],
+    handlers: dict[str, ToolHandler],
+    report_error: str | None,
+    tool_calls_used: int,
+) -> tuple[str, int]:
+    name = call.get("name")
+    if name == FINAL_REPORT_TOOL_NAME:
+        return (
+            f"Final report tool call was invalid ({report_error or 'missing required fields'}). "
+            "Submit it again: hypotheses must be a JSON array of objects with title, "
+            "rationale and evidence keys; recommendations must be a JSON array of strings.",
+            tool_calls_used,
+        )
+    if tool_calls_used >= MAX_TOOL_CALLS:
+        return "[skipped — tool call budget exhausted]", tool_calls_used
+    tool_calls_used += 1
+    handler = handlers.get(name)
+    if handler is None:
+        return f"Unknown tool: {name}", tool_calls_used
+    try:
+        return await handler(call.get("args") or {}), tool_calls_used
+    except Exception as err:
+        logger.warning("anomaly_investigation.tool_error", extra={"tool": name, "error": str(err)})
+        return f"Tool {name} failed: {err}", tool_calls_used
+
+
 def _fallback_report(reason: str) -> InvestigationReport:
     return InvestigationReport(
         verdict="inconclusive",
@@ -158,6 +247,30 @@ def _fallback_report(reason: str) -> InvestigationReport:
         hypotheses=[],
         recommendations=["Review the insight manually — the agent could not produce a structured report."],
     )
+
+
+def _finish_investigation(
+    *, messages: list[Any], report_args_history: list[dict[str, Any]], tool_calls_used: int
+) -> InvestigationRunResult:
+    content = getattr(messages[-1], "content", "")
+    report = _parse_report_text(content)
+    if report is None:
+        report = _salvage_from_history(report_args_history)
+        if report is not None:
+            logger.warning(
+                "anomaly_investigation.report_salvaged",
+                extra={"hypotheses_kept": len(report.hypotheses), "recommendations_kept": len(report.recommendations)},
+            )
+    if report is None:
+        text = _stringify(content).strip()
+        # Log the length only because the message can contain tenant event data.
+        logger.warning("anomaly_investigation.no_parsable_report", extra={"content_length": len(text)})
+        report = _fallback_report(
+            "Agent returned no final message."
+            if not text
+            else "Agent final message was not valid InvestigationReport JSON."
+        )
+    return _result(report, tool_calls_used)
 
 
 async def run_investigation(
@@ -316,73 +429,24 @@ async def run_investigation(
         messages.append(response)
 
         tool_calls = getattr(response, "tool_calls", None) or []
-        report_error: str | None = None
-        report_args = _final_report_args(tool_calls)
-        if report_args is not None:
-            report_args_history.append(report_args)
-            try:
-                structured_report = InvestigationReport.model_validate(report_args)
-                return _result(structured_report, tool_calls_used)
-            except ValidationError as err:
-                report_error = _validation_error_summary(err)
-                logger.warning("anomaly_investigation.report_validation_error", extra={"error": report_error})
-        if not tool_calls:
+        handling = await _handle_tool_calls(
+            tool_calls=tool_calls,
+            handlers=handlers,
+            messages=messages,
+            report_args_history=report_args_history,
+            tool_calls_used=tool_calls_used,
+        )
+        tool_calls_used = handling.tool_calls_used
+        if handling.result is not None:
+            return handling.result
+        if handling.should_stop:
             break
 
-        for call in tool_calls:
-            name = call.get("name")
-            args = call.get("args") or {}
-            tool_call_id = call.get("id") or call.get("tool_call_id") or ""
-            # Enforce the cap per-call, not just per-turn — a single assistant
-            # response can emit several parallel tool_use blocks.
-            if name == FINAL_REPORT_TOOL_NAME:
-                content = (
-                    f"Final report tool call was invalid ({report_error or 'missing required fields'}). "
-                    "Submit it again: hypotheses must be a JSON array of objects with title, "
-                    "rationale and evidence keys; recommendations must be a JSON array of strings."
-                )
-            elif tool_calls_used >= MAX_TOOL_CALLS:
-                content = "[skipped — tool call budget exhausted]"
-            else:
-                tool_calls_used += 1
-                handler = handlers.get(name)
-                if handler is None:
-                    content = f"Unknown tool: {name}"
-                else:
-                    try:
-                        content = await handler(args)
-                    except Exception as err:
-                        logger.warning("anomaly_investigation.tool_error", extra={"tool": name, "error": str(err)})
-                        content = f"Tool {name} failed: {err}"
-            # Guard against runaway tool responses pushing the conversation past
-            # the model's context window. Keep the first slice; if the
-            # agent needs more it can issue a narrower query.
-            if isinstance(content, str) and len(content) > MAX_TOOL_RESULT_CHARS:
-                content = content[:MAX_TOOL_RESULT_CHARS] + "\n[truncated — narrow the query for more]"
-            messages.append(ToolMessage(content=content, tool_call_id=tool_call_id))
-
-    final_message = messages[-1]
-    content = getattr(final_message, "content", "")
-    report: InvestigationReport | None = _parse_report_text(content)
-    if report is None:
-        report = _salvage_from_history(report_args_history)
-        if report is not None:
-            logger.warning(
-                "anomaly_investigation.report_salvaged",
-                extra={"hypotheses_kept": len(report.hypotheses), "recommendations_kept": len(report.recommendations)},
-            )
-    if report is None:
-        text = _stringify(content).strip()
-        # Log only length, not content: the agent's final message can echo customer event
-        # data, which must not land in centralized worker logs. The full output stays
-        # available in the run's LLM analytics trace.
-        logger.warning("anomaly_investigation.no_parsable_report", extra={"content_length": len(text)})
-        report = _fallback_report(
-            "Agent returned no final message."
-            if not text
-            else "Agent final message was not valid InvestigationReport JSON."
-        )
-    return _result(report, tool_calls_used)
+    return _finish_investigation(
+        messages=messages,
+        report_args_history=report_args_history,
+        tool_calls_used=tool_calls_used,
+    )
 
 
 def _build_callbacks(*, team: Team, alert: AlertConfiguration | None) -> list[BaseCallbackHandler]:
