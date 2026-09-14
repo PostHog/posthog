@@ -134,5 +134,5 @@ class Command(BaseCommand):
         )
         multivariate_details = f" (multivariate: {', '.join(flag_type)})" if isinstance(flag_type, list) else ""
         print(
-            f"Created feature flag '{flag} for team {team.id} {' - ' + team.name if team.name else ''}{multivariate_details}"
+            f"Created feature flag '{flag}' for team {team.id} {' - ' + team.name if team.name else ''}{multivariate_details}"
         )
