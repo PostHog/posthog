@@ -103,6 +103,8 @@ export const IntegrationsChannelsRetrieveParams = () => zod.object({
         ),
 })
 
+export const integrationsChannelsRetrieveQueryChannelIdDefault = ``
+export const integrationsChannelsRetrieveQueryForceRefreshDefault = false
 export const integrationsChannelsRetrieveQueryLimitDefault = 50
 export const integrationsChannelsRetrieveQueryLimitMax = 200
 
@@ -112,6 +114,18 @@ export const integrationsChannelsRetrieveQueryOffsetMin = 0
 export const integrationsChannelsRetrieveQuerySearchDefault = ``
 
 export const IntegrationsChannelsRetrieveQueryParams = () => zod.object({
+    channel_id: zod
+        .string()
+        .default(integrationsChannelsRetrieveQueryChannelIdDefault)
+        .describe(
+            'Look up one channel directly by Slack channel ID (e.g. C0123ABC). When set, `search`, `limit`, and `offset` are ignored and the response holds at most that channel.'
+        ),
+    force_refresh: zod
+        .boolean()
+        .default(integrationsChannelsRetrieveQueryForceRefreshDefault)
+        .describe(
+            "Bypass the 1 hour channel cache, including for a `channel_id` lookup, which is how a caller reads the channel's current membership after inviting the app to it. Honored only for browser session callers; API key, OAuth, and MCP callers always read through the cache."
+        ),
     limit: zod
         .number()
         .min(1)
