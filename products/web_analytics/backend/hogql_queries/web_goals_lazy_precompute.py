@@ -9,11 +9,10 @@ via `web_lazy_precompute_common`. The precomputed table stores one row per
 - `action_id = <real id>` carries the per-action conversion: sum of match
   counts plus unique converting persons.
 
-The action set (the top-5 actions returned by
-`Action.objects…order_by('pinned_at', '-last_calculated_at')[:5]`) is part
-of the INSERT AST and therefore the lazy_computation cache key — a different
-top-5 set yields a different job_id, so the runner's hard `[:5]` slice is
-mirrored without further coordination.
+The action set (the goals `select_goal_actions` returns, which the live
+runner reads too) is part of the INSERT AST and therefore the
+lazy_computation cache key — a different set yields a different job_id, so
+the two paths stay aligned without further coordination.
 """
 
 import time
@@ -33,11 +32,11 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 
-from products.actions.backend.models.action import Action
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
     LazyComputationResult,
     LazyComputationTable,
 )
+from products.web_analytics.backend.hogql_queries.web_goals_actions import select_goal_actions
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import (
     LAZY_TTL_SECONDS,
     SESSION_FORWARD_PAD_MINUTES,
@@ -63,12 +62,6 @@ _FAMILY = "web_goals"
 # Sentinel action_id used for the per-hour denominator row. Real Django
 # `Action.id` values are positive auto-increment integers, so -1 is safe.
 DENOMINATOR_ACTION_ID = -1
-
-# Maximum number of actions the precompute will cover. Matches the runner's
-# hard `Action.objects…[:5]` slice exactly — precomputing more would be
-# wasted INSERT work the runner never reads. If the live UX ever expands
-# beyond 5 actions, bump both this constant and the runner's slice together.
-MAX_ACTIONS = 5
 
 
 _KNOWN_FAILED_ERROR_TYPES: set[str] = {
@@ -103,7 +96,7 @@ WEB_GOALS_LAZY_EMPTY = Counter(
 
 WEB_GOALS_LAZY_ACTIONS = Histogram(
     "web_goals_lazy_precompute_actions",
-    "Number of actions the precompute job covered (cap at MAX_ACTIONS).",
+    "Number of actions the precompute job covered (cap at MAX_GOAL_ACTIONS).",
     buckets=(1, 2, 3, 4, 5),
 )
 
@@ -150,7 +143,7 @@ _RUNNER_ACTIONS_CACHE_ATTR = "_lazy_goals_actions"
 
 
 def _select_actions(runner: "WebGoalsQueryRunner") -> list:
-    """Top-N actions, matching the live runner's hard `[:5]` slice exactly.
+    """Top-N actions, from the same selection the live runner uses.
 
     Memoized on the runner instance: this function is called from both the
     eligibility check (`_check_eligible`) and the orchestrator
@@ -169,10 +162,7 @@ def _select_actions(runner: "WebGoalsQueryRunner") -> list:
     cached = getattr(runner, _RUNNER_ACTIONS_CACHE_ATTR, None)
     if cached is not None:
         return cached
-    qs = Action.objects.filter(team__project_id=runner.team.project_id, deleted=False).order_by(
-        "pinned_at", "-last_calculated_at"
-    )[:MAX_ACTIONS]
-    fetched = list(qs)
+    fetched = [action for action, _ in select_goal_actions(runner.team)]
     setattr(runner, _RUNNER_ACTIONS_CACHE_ATTR, fetched)
     return fetched
 
