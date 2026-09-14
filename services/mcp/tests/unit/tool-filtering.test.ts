@@ -1251,19 +1251,19 @@ describe('Tool Filtering - Entitlements (access control family)', () => {
 
 describe('getReadOnlyGatedTools', () => {
     it('reports a write tool a read-only connection hides, so a caller learns it exists', () => {
-        const gated = getReadOnlyGatedTools({ readOnly: true }).map((tool) => tool.name)
+        const gated = getReadOnlyGatedTools(['*'], { readOnly: true }).map((tool) => tool.name)
 
         expect(gated).toContain('cohorts-create')
         expect(gated).not.toContain('cohorts-list')
     })
 
     it('reports nothing when the connection serves write tools', () => {
-        expect(getReadOnlyGatedTools({})).toEqual([])
-        expect(getReadOnlyGatedTools({ readOnly: false })).toEqual([])
+        expect(getReadOnlyGatedTools(['*'], {})).toEqual([])
+        expect(getReadOnlyGatedTools(['*'], { readOnly: false })).toEqual([])
     })
 
     it('leaves out a tool another filter already hid, so the hint stays reachable', () => {
-        const gated = getReadOnlyGatedTools({
+        const gated = getReadOnlyGatedTools(['*'], {
             readOnly: true,
             features: ['cohorts'],
             excludeTools: ['cohorts-partial-update'],
@@ -1272,5 +1272,19 @@ describe('getReadOnlyGatedTools', () => {
         expect(gated).toContain('cohorts-create')
         expect(gated).not.toContain('cohorts-partial-update')
         expect(gated).not.toContain('experiment-create')
+    })
+
+    it('leaves out a tool a server-minted scope gates, which no reconnect unlocks', () => {
+        const userKey = getReadOnlyGatedTools(['*'], { readOnly: true, features: ['signals'] }).map((tool) => tool.name)
+
+        expect(userKey).toContain('scout-create')
+        expect(userKey).not.toContain('scout-emit-report')
+
+        const serverKey = getReadOnlyGatedTools(['*', 'signal_scout_report:write'], {
+            readOnly: true,
+            features: ['signals'],
+        }).map((tool) => tool.name)
+
+        expect(serverKey).toContain('scout-emit-report')
     })
 })

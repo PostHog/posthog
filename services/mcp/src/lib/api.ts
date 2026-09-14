@@ -8,14 +8,21 @@ const SERVER_MINT_ONLY_SCOPE_OBJECTS = new Set([
     'signal_scratchpad_internal',
 ])
 
-export const hasScope = (scopes: string[], requiredScope: string): boolean => {
+/**
+ * Whether only the server mints this scope. A user token never carries one,
+ * not even a full-access `*` key, so a tool that requires it stays uncallable
+ * however the user reconnects.
+ */
+export const isServerMintOnlyScope = (requiredScope: string): boolean => {
     const scopeObject = requiredScope.split(':', 1)[0]
-    const isServerMintOnly = scopeObject !== undefined && SERVER_MINT_ONLY_SCOPE_OBJECTS.has(scopeObject)
+    return scopeObject !== undefined && SERVER_MINT_ONLY_SCOPE_OBJECTS.has(scopeObject)
+}
 
+export const hasScope = (scopes: string[], requiredScope: string): boolean => {
     // A user-consented `*` must never reach a server-minted scope object. Only the wildcard is
     // withheld — the read/write rule below still applies, so this stays in step with the Django
     // permission layer (`posthog/permissions.py`), which authorizes the same tokens server-side.
-    if (!isServerMintOnly && scopes.includes('*')) {
+    if (!isServerMintOnlyScope(requiredScope) && scopes.includes('*')) {
         return true
     }
 

@@ -254,7 +254,7 @@ export class RequestStateResolver {
         const scopeGatedTools = useSingleExec ? getScopeGatedTools(apiKeyScopes, filterOptions) : []
         // Only exec redirects a call to a gated tool; tools mode just omits it.
         const flagGatedTools = useSingleExec ? getFlagGatedTools(filterOptions) : []
-        const readOnlyGatedTools = useSingleExec ? getReadOnlyGatedTools(filterOptions) : []
+        const readOnlyGatedTools = useSingleExec ? getReadOnlyGatedTools(apiKeyScopes, filterOptions) : []
 
         const [groupTypes, metadata, metadataCompact] = await Promise.all([
             cachedProjectId && hasScope(apiKeyScopes, 'group:read')

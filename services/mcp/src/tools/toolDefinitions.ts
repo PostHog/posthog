@@ -1,6 +1,6 @@
 import z from 'zod'
 
-import { hasScope, hasScopes } from '@/lib/api'
+import { hasScope, hasScopes, isServerMintOnlyScope } from '@/lib/api'
 import { OAUTH_SCOPES_SUPPORTED } from '@/lib/oauth-scopes.generated'
 import type { EvaluatedFlags } from '@/lib/posthog/flags'
 import { isStaffOnlyTool } from '@/lib/staff-only-tools'
@@ -438,8 +438,12 @@ export interface ReadOnlyGatedTool {
  * exec dispatcher reads this so an agent on such a connection learns the tool
  * exists and the connection cannot call it. Without the hint the agent reads the
  * absence as a capability PostHog never shipped, and reports it as missing.
+ *
+ * `scopes` are the current key's scopes, read only to drop tools no reconnect
+ * can unlock. An ordinary missing scope does not drop a tool here, because
+ * read-only is the outer cause and the exec dispatcher reports it first.
  */
-export function getReadOnlyGatedTools(options?: ToolFilterOptions): ReadOnlyGatedTool[] {
+export function getReadOnlyGatedTools(scopes: string[], options?: ToolFilterOptions): ReadOnlyGatedTool[] {
     if (!options?.readOnly) {
         return []
     }
@@ -450,8 +454,15 @@ export function getReadOnlyGatedTools(options?: ToolFilterOptions): ReadOnlyGate
         if (excluded.has(name) || definition.annotations.readOnlyHint === true) {
             continue
         }
+        const required = definition.required_scopes ?? []
         // Never hint at staff-only tools, for the reason {@link getScopeGatedTools} gives.
-        if (isStaffOnlyTool(definition.required_scopes ?? [])) {
+        if (isStaffOnlyTool(required)) {
+            continue
+        }
+        // A tool behind a scope only the server mints stays out too. The hint tells the
+        // agent to reconnect without read-only mode, and after that reconnect the same
+        // tool fails the scope gate, so the hint would name a second dead end.
+        if (required.some((scope) => isServerMintOnlyScope(scope) && !hasScope(scopes, scope))) {
             continue
         }
         gated.push({ name, title: definition.title, description: definition.description })
