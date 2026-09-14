@@ -58,6 +58,7 @@ export interface taxonomicExampleBrowserLogicValues {
     exampleIndex: number
     exampleSource: ExampleSource | null
     examples: Example[]
+    examplesError: string | null
     examplesLoading: boolean
     exploreUrl: string | null
     hasNextExample: boolean
@@ -98,7 +99,7 @@ export interface taxonomicExampleBrowserLogicActions {
         payload?: any
     ) => {
         examples: Example[]
-        payload?: any
+        payload?: ExampleSource | null | undefined
     }
     openExampleBrowser: () => {
         value: true
@@ -131,7 +132,7 @@ export interface taxonomicExampleBrowserLogicActions {
 export interface taxonomicExampleBrowserLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
-        exampleSource: (arg: any) => ExampleSource | null
+        exampleSource: (arg: any, arg2: any) => ExampleSource | null
         isAvailable: (featureFlags: FeatureFlagsSet, exampleSource: ExampleSource | null) => boolean
         supportsValueSelection: (arg: any, arg2: any) => boolean
         currentExample: (examples: Example[], exampleIndex: number) => Example | null
@@ -141,7 +142,8 @@ export interface taxonomicExampleBrowserLogicMeta {
             currentExample: Example | null,
             hidePostHogProperties: boolean,
             isCloudOrDev: boolean | undefined,
-            searchQuery: string
+            searchQuery: string,
+            taxonomicGroups: TaxonomicFilterGroup[]
         ) => ExampleProperty[]
         exploreUrl: (exampleSource: ExampleSource | null) => string | null
     }
@@ -154,7 +156,9 @@ export type taxonomicExampleBrowserLogicType = MakeLogicType<
     taxonomicExampleBrowserLogicMeta
 >
 
-export function exampleSourceFor(props: TaxonomicFilterLogicProps): ExampleSource | null {
+export function exampleSourceFor(
+    props: Pick<TaxonomicFilterLogicProps, 'eventNames' | 'taxonomicGroupTypes'>
+): ExampleSource | null {
     if (props.eventNames?.length && props.taxonomicGroupTypes.includes(TaxonomicFilterGroupType.EventProperties)) {
         return { kind: 'event', eventNames: props.eventNames }
     }
@@ -199,7 +203,7 @@ export const taxonomicExampleBrowserLogic: LogicWrapper<taxonomicExampleBrowserL
             examples: [
                 [] as Example[],
                 {
-                    loadExamples: async () => {
+                    loadExamples: async (_, breakpoint) => {
                         const source = values.exampleSource
                         if (!source) {
                             return []
@@ -213,6 +217,10 @@ export const taxonomicExampleBrowserLogic: LogicWrapper<taxonomicExampleBrowserL
                             ...eventNamesFilter(source.eventNames),
                         }
                         const response = await api.query(query)
+                        await breakpoint()
+                        if (!eventNamesAreEqual(source.eventNames, values.exampleSource?.eventNames)) {
+                            return values.examples
+                        }
                         return response.results.map(([event]: EventType[]) => exampleFromEvent(event))
                     },
                 },
@@ -222,6 +230,13 @@ export const taxonomicExampleBrowserLogic: LogicWrapper<taxonomicExampleBrowserL
             examples: {
                 resetExamples: () => [],
             },
+            examplesError: [
+                null as string | null,
+                {
+                    loadExamples: () => null,
+                    loadExamplesFailure: (_, { error }) => error,
+                },
+            ],
             isOpen: [
                 false,
                 {
@@ -247,8 +262,9 @@ export const taxonomicExampleBrowserLogic: LogicWrapper<taxonomicExampleBrowserL
         }),
         selectors({
             exampleSource: [
-                () => [(_, props) => props],
-                (props: TaxonomicFilterLogicProps): ExampleSource | null => exampleSourceFor(props),
+                () => [(_, props) => props.eventNames, (_, props) => props.taxonomicGroupTypes],
+                (eventNames, taxonomicGroupTypes): ExampleSource | null =>
+                    exampleSourceFor({ eventNames, taxonomicGroupTypes }),
             ],
             isAvailable: [
                 (s) => [s.featureFlags, s.exampleSource],
@@ -274,16 +290,19 @@ export const taxonomicExampleBrowserLogic: LogicWrapper<taxonomicExampleBrowserL
                 (examples: Example[], exampleIndex: number): boolean => exampleIndex < examples.length - 1,
             ],
             visibleProperties: [
-                (s) => [s.currentExample, s.hidePostHogProperties, s.isCloudOrDev, s.searchQuery],
+                (s) => [s.currentExample, s.hidePostHogProperties, s.isCloudOrDev, s.searchQuery, s.taxonomicGroups],
                 (
                     currentExample: Example | null,
                     hidePostHogProperties: boolean,
                     isCloudOrDev: boolean | undefined,
-                    searchQuery: string
+                    searchQuery: string,
+                    taxonomicGroups: TaxonomicFilterGroup[]
                 ): ExampleProperty[] => {
                     const query = searchQuery.trim().toLowerCase()
+                    const group = eventPropertiesGroup(taxonomicGroups)
                     return Object.entries(currentExample?.properties ?? {})
                         .filter(([key]) => !hidePostHogProperties || !isPostHogProperty(key, isCloudOrDev))
+                        .filter(([key]) => isExamplePropertyAllowed(key, group))
                         .filter(([key, value]) => !query || matchesQuery(key, value, query))
                         .sort(([a], [b]) => a.localeCompare(b))
                 },
@@ -322,13 +341,13 @@ export const taxonomicExampleBrowserLogic: LogicWrapper<taxonomicExampleBrowserL
             },
             selectExampleKey: ({ key }) => {
                 const group = eventPropertiesGroup(values.taxonomicGroups)
-                if (group) {
+                if (group && isExamplePropertyAllowed(key, group)) {
                     actions.selectItem(group, key, { name: key }, { wasFromExample: true })
                 }
             },
             selectExampleValue: ({ key, value }) => {
                 const group = eventPropertiesGroup(values.taxonomicGroups)
-                if (!group || !values.supportsValueSelection) {
+                if (!group || !isExamplePropertyAllowed(key, group) || !values.supportsValueSelection) {
                     return
                 }
                 const item: QuickFilterItem = {
@@ -344,8 +363,7 @@ export const taxonomicExampleBrowserLogic: LogicWrapper<taxonomicExampleBrowserL
             },
         })),
         propsChanged(({ actions, props }, oldProps) => {
-            // A series that swaps its event needs examples of the new event, not the old one.
-            if (props.eventNames !== oldProps.eventNames) {
+            if (!eventNamesAreEqual(props.eventNames, oldProps.eventNames)) {
                 actions.resetExamples()
                 actions.closeExampleBrowser()
             }
@@ -360,6 +378,21 @@ function eventNamesFilter(eventNames: string[]): Pick<EventsQuery, 'event' | 'pr
 
 function eventPropertiesGroup(taxonomicGroups: TaxonomicFilterGroup[]): TaxonomicFilterGroup | undefined {
     return taxonomicGroups.find((group) => group.type === TaxonomicFilterGroupType.EventProperties)
+}
+
+function isExamplePropertyAllowed(key: string, group: TaxonomicFilterGroup | undefined): boolean {
+    return (
+        !!group &&
+        !group.excludedProperties?.includes(key) &&
+        (group.propertyAllowList === undefined || group.propertyAllowList.includes(key))
+    )
+}
+
+function eventNamesAreEqual(first: string[] | undefined, second: string[] | undefined): boolean {
+    return (
+        first === second ||
+        (first?.length === second?.length && first?.every((name, index) => name === second?.[index]))
+    )
 }
 
 function matchesQuery(key: string, value: unknown, query: string): boolean {

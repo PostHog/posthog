@@ -134,6 +134,29 @@ describe('taxonomicExampleBrowserLogic', () => {
         expect(logic.values.visibleProperties).toEqual([['plan', 'pro']])
     })
 
+    it('does not show or select excluded properties outside the allowlist', async () => {
+        const logic = buildLogic({
+            excludedProperties: { [TaxonomicFilterGroupType.EventProperties]: ['cart'] },
+            propertyAllowList: { [TaxonomicFilterGroupType.EventProperties]: ['plan', 'cart'] },
+        })
+        await expectLogic(logic, () => logic.actions.openExampleBrowser()).toDispatchActions(['loadExamplesSuccess'])
+
+        expect(logic.values.visibleProperties.map(([key]) => key)).toEqual(['plan'])
+
+        logic.actions.selectExampleKey('cart')
+        expect(onChange).not.toHaveBeenCalled()
+    })
+
+    it('records a load error until the user tries again', async () => {
+        const logic = buildLogic()
+
+        logic.actions.loadExamplesFailure('Could not load examples')
+        expect(logic.values.examplesError).toBe('Could not load examples')
+
+        await expectLogic(logic, () => logic.actions.loadExamples()).toDispatchActions(['loadExamplesSuccess'])
+        expect(logic.values.examplesError).toBeNull()
+    })
+
     it('pages between examples and stops at both ends', async () => {
         const logic = buildLogic()
         await expectLogic(logic, () => logic.actions.openExampleBrowser()).toDispatchActions(['loadExamplesSuccess'])
@@ -197,5 +220,28 @@ describe('taxonomicExampleBrowserLogic', () => {
         const url = decodeURIComponent(logic.values.exploreUrl ?? '')
         expect(url).toContain('/activity/explore')
         expect(url).toContain('"event":"checkout completed"')
+    })
+
+    it('keeps the browser open when event names have the same contents', async () => {
+        const logic = buildLogic()
+        await expectLogic(logic, () => logic.actions.openExampleBrowser()).toDispatchActions(['loadExamplesSuccess'])
+
+        taxonomicExampleBrowserLogic({ ...logic.props, eventNames: ['checkout completed'] })
+
+        expect(logic.values.isOpen).toBe(true)
+        expect(logic.values.exampleSource?.eventNames).toEqual(['checkout completed'])
+    })
+
+    it('uses the new event context after event names change', async () => {
+        const logic = buildLogic()
+        await expectLogic(logic, () => logic.actions.openExampleBrowser()).toDispatchActions(['loadExamplesSuccess'])
+
+        taxonomicExampleBrowserLogic({ ...logic.props, eventNames: ['checkout started'] })
+
+        expect(logic.values.isOpen).toBe(false)
+        expect(logic.values.exampleSource?.eventNames).toEqual(['checkout started'])
+
+        await expectLogic(logic, () => logic.actions.openExampleBrowser()).toDispatchActions(['loadExamplesSuccess'])
+        expect(queryBodies.at(-1)?.query).toMatchObject({ event: 'checkout started' })
     })
 })

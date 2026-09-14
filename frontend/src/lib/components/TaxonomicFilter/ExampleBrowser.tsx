@@ -13,6 +13,7 @@ export function ExampleBrowser(): JSX.Element {
     const {
         exampleSource,
         examples,
+        examplesError,
         examplesLoading,
         currentExample,
         exampleIndex,
@@ -30,6 +31,7 @@ export function ExampleBrowser(): JSX.Element {
         setHidePostHogProperties,
         selectExampleKey,
         selectExampleValue,
+        loadExamples,
     } = useActions(taxonomicExampleBrowserLogic)
 
     const eventNoun =
@@ -87,6 +89,13 @@ export function ExampleBrowser(): JSX.Element {
                 {examplesLoading ? (
                     <div className="flex items-center justify-center h-full py-8">
                         <Spinner className="text-3xl" />
+                    </div>
+                ) : examplesError ? (
+                    <div className="flex flex-col gap-1 items-center text-center text-secondary py-8">
+                        <span>Couldn't load recent events.</span>
+                        <LemonButton size="xsmall" type="secondary" onClick={() => loadExamples()}>
+                            Try again
+                        </LemonButton>
                     </div>
                 ) : !currentExample ? (
                     <div className="flex flex-col gap-1 items-center text-center text-secondary py-8">
