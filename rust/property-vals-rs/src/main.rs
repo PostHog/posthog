@@ -139,48 +139,89 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let produce_timeout = Duration::from_secs(config.kafka_produce_timeout_secs);
     let connect_retry_budget = Duration::from_secs(config.kafka_connect_retry_budget_secs);
 
-    let events_consumer = SingleTopicConsumer::new(config.kafka.clone(), config.consumer.clone())?;
-    let events_producer = AggregatedProducer::new(
-        &config.kafka,
-        events_handle.clone(),
-        config.intermediate_topic.clone(),
-        produce_timeout,
-        config.intermediate_topic_encoding,
-        config.intermediate_topic_format,
-        connect_retry_budget,
-    )
-    .await?;
+    // The monitor traps the signals from here on, so a SIGTERM only cancels the
+    // token — it no longer kills the process. The connect below can retry for
+    // minutes, so it has to stop as soon as shutdown starts.
+    let kafka_setup = async {
+        let events_consumer =
+            SingleTopicConsumer::new(config.kafka.clone(), config.consumer.clone())?;
+        let events_producer = AggregatedProducer::new(
+            &config.kafka,
+            events_handle.clone(),
+            config.intermediate_topic.clone(),
+            produce_timeout,
+            config.intermediate_topic_encoding,
+            config.intermediate_topic_format,
+            connect_retry_budget,
+        )
+        .await?;
 
-    let mut groups_consumer_config = config.consumer.clone();
-    groups_consumer_config.kafka_consumer_topic = config.groups_kafka_consumer_topic.clone();
-    groups_consumer_config.kafka_consumer_group = config.groups_kafka_consumer_group.clone();
-    let groups_consumer = SingleTopicConsumer::new(config.kafka.clone(), groups_consumer_config)?;
-    let groups_producer = AggregatedProducer::new(
-        &config.kafka,
-        groups_handle.clone(),
-        config.intermediate_topic.clone(),
-        produce_timeout,
-        config.intermediate_topic_encoding,
-        config.intermediate_topic_format,
-        connect_retry_budget,
-    )
-    .await?;
+        let mut groups_consumer_config = config.consumer.clone();
+        groups_consumer_config.kafka_consumer_topic = config.groups_kafka_consumer_topic.clone();
+        groups_consumer_config.kafka_consumer_group = config.groups_kafka_consumer_group.clone();
+        let groups_consumer =
+            SingleTopicConsumer::new(config.kafka.clone(), groups_consumer_config)?;
+        let groups_producer = AggregatedProducer::new(
+            &config.kafka,
+            groups_handle.clone(),
+            config.intermediate_topic.clone(),
+            produce_timeout,
+            config.intermediate_topic_encoding,
+            config.intermediate_topic_format,
+            connect_retry_budget,
+        )
+        .await?;
 
-    let mut merger_consumer_config = config.consumer.clone();
-    merger_consumer_config.kafka_consumer_topic = config.intermediate_topic.clone();
-    merger_consumer_config.kafka_consumer_group = config.merger_consumer_group.clone();
-    let merger_consumer = SingleTopicConsumer::new(config.kafka.clone(), merger_consumer_config)?;
-    // Output topic is read by ClickHouse, which expects raw rows — never encode.
-    let merger_producer = AggregatedProducer::new(
-        &config.kafka,
-        merger_handle.clone(),
-        config.output_topic.clone(),
-        produce_timeout,
-        EnvelopeEncoding::None,
-        WireFormat::Json,
-        connect_retry_budget,
-    )
-    .await?;
+        let mut merger_consumer_config = config.consumer.clone();
+        merger_consumer_config.kafka_consumer_topic = config.intermediate_topic.clone();
+        merger_consumer_config.kafka_consumer_group = config.merger_consumer_group.clone();
+        let merger_consumer =
+            SingleTopicConsumer::new(config.kafka.clone(), merger_consumer_config)?;
+        // Output topic is read by ClickHouse, which expects raw rows — never encode.
+        let merger_producer = AggregatedProducer::new(
+            &config.kafka,
+            merger_handle.clone(),
+            config.output_topic.clone(),
+            produce_timeout,
+            EnvelopeEncoding::None,
+            WireFormat::Json,
+            connect_retry_budget,
+        )
+        .await?;
+
+        Ok::<_, Box<dyn std::error::Error>>((
+            events_consumer,
+            events_producer,
+            groups_consumer,
+            groups_producer,
+            merger_consumer,
+            merger_producer,
+        ))
+    };
+
+    let kafka = tokio::select! {
+        result = kafka_setup => Some(result?),
+        _ = events_handle.shutdown_signal() => None,
+    };
+
+    let Some((
+        events_consumer,
+        events_producer,
+        groups_consumer,
+        groups_producer,
+        merger_consumer,
+        merger_producer,
+    )) = kafka
+    else {
+        info!("Shutdown started before Kafka answered; stopping without starting the workers");
+        drop(events_handle);
+        drop(groups_handle);
+        drop(merger_handle);
+        guard.wait().await?;
+        server.await?;
+        info!("property-vals-rs stopped");
+        return Ok(());
+    };
 
     info!(
         "Subscribed to topic: {}",
