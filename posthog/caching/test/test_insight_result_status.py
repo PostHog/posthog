@@ -18,6 +18,11 @@ NOT_COMPUTED = NothingInCacheResult(cache_key="cache_key")
     [
         (COMPUTED, InsightResultStatus.OK),
         (replace(COMPUTED, query_status={"id": "abc", "complete": True}), InsightResultStatus.OK),
+        (replace(COMPUTED, query_status={"id": "abc", "complete": False}), InsightResultStatus.OK),
+        (
+            replace(COMPUTED, result=None, query_status={"id": "abc", "complete": False}),
+            InsightResultStatus.QUERY_PENDING,
+        ),
         (replace(COMPUTED, result=None, query_status={"id": "abc", "error": True}), InsightResultStatus.ERROR),
         (NOT_COMPUTED, InsightResultStatus.CACHE_MISS),
         (
