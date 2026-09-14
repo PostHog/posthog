@@ -66,7 +66,7 @@ rules:
                                   ...
                       - metavariable-regex:
                             metavariable: $HEADER
-                            regex: (?i)^["'](http[_-])?(x[_-](hub[_-]signature[_-]256|slack[_-]signature|pandadoc[_-]signature|cio[_-]signature|vapi[_-]signature)|stripe[_-]signature)["']$
+                            regex: (?i)^["'](http[_-])?(x[_-](hub[_-]signature[_-]256|slack[_-]signature|pandadoc[_-]signature|cio[_-]signature|vapi[_-]signature|vercel[_-]signature)|stripe[_-]signature)["']$
                 # The verifier often sits in its own module, away from the header read, so
                 # catch it by what it is called. Both name shapes a verifier takes: a verb
                 # first (`verify_signature`), or a predicate (`signature_ok`,

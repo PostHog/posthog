@@ -367,8 +367,18 @@ def _input_covers(input_glob: str, accepted: str) -> bool:
         return input_glob.startswith(accepted)
     if input_glob == accepted:
         return True
-    directory = input_glob.removesuffix("/**")
-    return directory != input_glob and "*" not in directory and accepted.startswith(directory + "/")
+    base, _, pattern = input_glob.rpartition("/")
+    if pattern == "**":
+        return "*" not in base and accepted.startswith(base + "/")
+    # `dir/**/*.py` and `dir/*.py` are the two glob shapes turbo.json inputs use for a file set.
+    if pattern.startswith("*.") and "*" not in pattern[1:]:
+        if not accepted.endswith(pattern[1:]):
+            return False
+        if base.endswith("/**"):
+            root = base.removesuffix("/**")
+            return "*" not in root and accepted.startswith(root + "/")
+        return "*" not in base and accepted.rpartition("/")[0] == base
+    return False
 
 
 def _webhook_consumers_unwatched(product_dir: Path, inputs: list[str]) -> bool:
