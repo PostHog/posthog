@@ -9,6 +9,8 @@ A claimed close or merge holds the report open and queues a GitHub read instead 
 The read stores the real state, which then completes the report or leaves it open.
 A report resolved on a merge GitHub later contradicts returns to ready.
 To verify stored states in bulk, run `python manage.py reconcile_report_pull_requests --team-id <id>`.
+That sweep reads stored `SignalReportPullRequest` rows only.
+A legacy assignment PR link has no such row until `backfill_report_pull_requests` imports it, so run the backfill first for a complete sweep.
 
 Attaching a new open, draft, or unknown PR to a resolved report returns it to ready.
 The shared PR-linking service applies this rule to task outputs and agent attachments.

@@ -30,7 +30,11 @@ def reconcile_report_pull_requests(*, team_id: int, after: str | None, batch_siz
 
 
 class Command(BaseCommand):
-    help = "Verify stored pull request states against GitHub and reopen falsely resolved reports. Safe to rerun."
+    help = (
+        "Verify stored pull request states against GitHub and reopen falsely resolved reports. Safe to rerun. "
+        "Reads stored pull request rows only, so run backfill_report_pull_requests first to import legacy "
+        "assignment links."
+    )
 
     def add_arguments(self, parser: ArgumentParser) -> None:
         parser.add_argument("--team-id", type=int, required=True)
