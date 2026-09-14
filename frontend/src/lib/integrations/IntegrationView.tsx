@@ -12,6 +12,7 @@ import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/User
 import { TeamMembershipLevel } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { GitHubRepoSummary } from 'lib/integrations/GitHubRepoSummary'
+import { IntegrationAccessNotice } from 'lib/integrations/IntegrationAccessNotice'
 import { IntegrationScopesWarning } from 'lib/integrations/IntegrationScopesWarning'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -218,7 +219,12 @@ export function IntegrationView({
                     </LemonBanner>
                 </div>
             ) : (
-                <IntegrationScopesWarning integration={integration} schema={schema} />
+                <>
+                    <div className="px-2 pb-2 empty:hidden">
+                        <IntegrationAccessNotice kind={integration.kind} />
+                    </div>
+                    <IntegrationScopesWarning integration={integration} schema={schema} />
+                </>
             )}
         </div>
     )

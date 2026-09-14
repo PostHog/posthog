@@ -269,7 +269,12 @@ class GoogleAdsSource(
             featured=True,
             keywords=["adwords"],
             label="Google Ads",
-            caption="Ensure you have granted PostHog access to your Google Ads account, learn how to do this in [the docs](https://posthog.com/docs/cdp/sources/google-ads).",
+            caption=(
+                "Ensure you have granted PostHog access to your Google Ads account, learn how to do this in "
+                "[the docs](https://posthog.com/docs/cdp/sources/google-ads). Google publishes no read-only scope "
+                "for Google Ads, so the consent screen asks for write access even though this import only reads "
+                "from your account."
+            ),
             releaseStatus=ReleaseStatus.GA,
             iconPath="/static/services/google-ads.png",
             docsUrl="https://posthog.com/docs/cdp/sources/google-ads",

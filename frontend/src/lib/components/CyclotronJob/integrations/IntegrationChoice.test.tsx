@@ -138,4 +138,21 @@ describe('IntegrationChoice', () => {
             expect(screen.getByText(/no longer available/)).toBeInTheDocument()
         })
     })
+
+    it.each([
+        { kind: 'google-ads', label: 'Google Ads', hasNotice: true },
+        { kind: 'linear', label: 'Linear', hasNotice: false },
+    ])('$kind: shows an access notice before connecting = $hasNotice', async ({ kind, label, hasNotice }) => {
+        // The Google Ads consent screen asks for read and write access. The reason has to reach the
+        // user here, before they leave PostHog for that screen.
+        render(
+            <Provider>
+                <IntegrationChoice integration={kind} onChange={jest.fn()} />
+            </Provider>
+        )
+
+        await screen.findByText(`Choose ${label} connection`)
+
+        expect(screen.queryByText(/Google publishes no read-only scope/) !== null).toBe(hasNotice)
+    })
 })
