@@ -809,6 +809,46 @@ class TestReleaseConditionTransforms:
 
         assert result["groups"] == [{"properties": [], "rollout_percentage": 100}]
 
+    @parameterized.expand(
+        [
+            ("absent", {"properties": []}),
+            ("null", {"properties": [], "rollout_percentage": None}),
+        ]
+    )
+    def test_roll_out_to_everyone_treats_an_implicit_full_rollout_as_a_catch_all(self, _name, leading):
+        # The matcher reads an absent or null rollout_percentage as 100, and nothing on the
+        # write path fills it in, so a stored flag can lead with either form.
+        filters: dict[str, Any] = {"groups": [leading, {"properties": [], "rollout_percentage": 10}]}
+
+        result = roll_out_to_everyone(filters)
+
+        assert result["groups"] == filters["groups"]
+
+    @parameterized.expand(
+        [
+            ("condition_matches_the_flag", 3, 3, 1),
+            ("group_condition_on_a_person_flag", None, 3, 2),
+            ("person_condition_on_a_group_flag", 3, None, 2),
+        ]
+    )
+    def test_roll_out_to_everyone_prepends_unless_the_leading_condition_covers_the_flag(
+        self, _name, flag_aggregation, condition_aggregation, expected_groups
+    ):
+        # The matcher skips a condition whose group type the evaluation does not supply, so one
+        # aggregating differently from the flag serves only part of the population.
+        filters: dict[str, Any] = {
+            "groups": [
+                {"properties": [], "rollout_percentage": 100, "aggregation_group_type_index": condition_aggregation}
+            ]
+        }
+        if flag_aggregation is not None:
+            filters["aggregation_group_type_index"] = flag_aggregation
+
+        result = roll_out_to_everyone(filters)
+
+        assert len(result["groups"]) == expected_groups
+        assert result["groups"][-1] == filters["groups"][0]
+
     def test_roll_out_to_everyone_replaces_a_leading_condition_that_pins_a_variant(self):
         # A `variant` override at 100% serves that variant to everyone whatever the distribution
         # says, so keeping it would silently ignore the variant the caller asked to roll out.

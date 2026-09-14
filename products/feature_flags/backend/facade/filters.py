@@ -230,12 +230,25 @@ def _leads_with_unconditional_rollout(current_filters: dict) -> bool:
     A condition carrying a ``variant`` override does not count, even at 100%: it pins one
     variant for everyone it matches and so overrides the variant distribution rather than
     deferring to it.
+
+    An absent or null ``rollout_percentage`` counts as 100, because that is what the matcher
+    reads it as, and nothing on the write path fills the default in.
+
+    A condition that aggregates by a different group type than the flag does not count. The
+    matcher resolves aggregation per condition and skips one whose group type the evaluation
+    does not supply, so such a condition does not serve everyone the flag otherwise would.
     """
     groups = current_filters.get("groups") or []
     if not groups:
         return False
     first = groups[0]
-    return not first.get("properties") and first.get("rollout_percentage") == 100 and not first.get("variant")
+    if first.get("properties") or first.get("variant"):
+        return False
+    rollout_percentage = first.get("rollout_percentage")
+    if rollout_percentage is not None and rollout_percentage != 100:
+        return False
+    flag_aggregation = current_filters.get("aggregation_group_type_index")
+    return first.get("aggregation_group_type_index", flag_aggregation) == flag_aggregation
 
 
 def roll_out_to_everyone(current_filters: dict, *, variant_key: str | None = None) -> dict:
