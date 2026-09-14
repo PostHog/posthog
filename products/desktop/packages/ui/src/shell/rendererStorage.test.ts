@@ -40,6 +40,39 @@ function jsonStorageOf(module: RendererStorageModule) {
 }
 
 describe("rendererStorage", () => {
+  it("persists an import after an older write already in flight", async () => {
+    const { module, backend } = await setupRegisteredBackend();
+    let finish!: () => void;
+    backend.setItem.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    await module.stateStorage.setItem("settings-storage", "old");
+    const flushing = module.flushRendererStateWrites();
+    await vi.waitFor(() => expect(backend.setItem).toHaveBeenCalled());
+    const importing = module.persistRendererStateNow(
+      "settings-storage",
+      "imported",
+    );
+    expect(backend.setItem).toHaveBeenCalledTimes(1);
+    finish();
+    await Promise.all([flushing, importing]);
+    expect(await backend.getItem("settings-storage")).toBe("imported");
+  });
+
+  it("reports a failed import save and preserves the pending settings write", async () => {
+    const { module, backend } = await setupRegisteredBackend();
+    await module.stateStorage.setItem("settings-storage", "local settings");
+    backend.setItem.mockRejectedValueOnce(new Error("Disk full"));
+    await expect(
+      module.persistRendererStateNow("settings-storage", "imported"),
+    ).rejects.toThrow("Disk full");
+    await module.flushRendererStateWrites();
+    expect(await backend.getItem("settings-storage")).toBe("local settings");
+  });
+
   afterEach(() => {
     vi.useRealTimers();
   });

@@ -39,6 +39,23 @@ interface PendingWrite {
 }
 
 const pendingWrites = new Map<string, PendingWrite>();
+const inFlightWrites = new Map<string, Promise<void>>();
+
+async function writeThroughStorage(key: string, value: string): Promise<void> {
+  const previous = inFlightWrites.get(key) ?? Promise.resolve();
+  const write = previous
+    .catch(() => {})
+    .then(async () => {
+      const storage = await resolveHostStorage();
+      await storage.setItem(key, value);
+    });
+  inFlightWrites.set(key, write);
+  try {
+    await write;
+  } finally {
+    if (inFlightWrites.get(key) === write) inFlightWrites.delete(key);
+  }
+}
 
 /** Detach and return the pending write for a key, cancelling its timer. */
 function takePendingWrite(key: string): PendingWrite | undefined {
@@ -58,8 +75,7 @@ async function flushPendingWrite(key: string): Promise<void> {
     return;
   }
   try {
-    const storage = await resolveHostStorage();
-    await storage.setItem(key, pending.value);
+    await writeThroughStorage(key, pending.value);
   } catch (error) {
     // zustand persist fires writes without awaiting them; a rejection here
     // would only surface as an unhandled rejection.
@@ -171,3 +187,18 @@ export const stateStorage: StateStorage = {
 };
 
 export const electronStorage = createJSONStorage(() => stateStorage);
+
+/** Backup imports must report disk failures before publishing imported state. */
+export async function persistRendererStateNow(
+  key: string,
+  value: string,
+): Promise<void> {
+  const pending = takePendingWrite(key);
+  try {
+    await writeThroughStorage(key, value);
+  } catch (error) {
+    if (pending && !pendingWrites.has(key))
+      queuePendingWrite(key, pending.value);
+    throw error;
+  }
+}

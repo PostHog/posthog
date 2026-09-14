@@ -6,6 +6,7 @@ const NO_HIDDEN: ReadonlySet<SettingsCategory> = new Set();
 
 describe("searchSettings", () => {
   it.each([
+    ["finds backups by export", "export sounds", "Back up settings and sounds"],
     ["matches labels case-insensitively", "THEME", "Theme"],
     [
       "matches keywords the label doesn't contain",

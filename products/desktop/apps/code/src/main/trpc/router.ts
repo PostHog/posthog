@@ -43,6 +43,7 @@ import { processTrackingRouter } from "@posthog/host-router/routers/process-trac
 import { provisioningRouter } from "@posthog/host-router/routers/provisioning.router";
 import { releaseFeedRouter } from "@posthog/host-router/routers/release-feed.router";
 import { secureStoreRouter } from "@posthog/host-router/routers/secure-store.router";
+import { settingsBackupRouter } from "@posthog/host-router/routers/settings-backup.router";
 import { shellRouter } from "@posthog/host-router/routers/shell.router";
 import { skillsRouter } from "@posthog/host-router/routers/skills.router";
 import { slackIntegrationRouter } from "@posthog/host-router/routers/slack-integration.router";
@@ -104,6 +105,7 @@ export const trpcRouter = router({
   oauth: oauthRouter,
   logs: logsRouter,
   os: osRouter,
+  settingsBackup: settingsBackupRouter,
   piSession: piSessionRouter,
   processTracking: processTrackingRouter,
   provisioning: provisioningRouter,

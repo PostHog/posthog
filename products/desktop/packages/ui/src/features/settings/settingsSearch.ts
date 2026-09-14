@@ -277,6 +277,18 @@ const SETTINGS_SEARCH_INDEX: SettingsSearchEntry[] = [
 
   {
     category: "advanced",
+    label: "Back up settings and sounds",
+    keywords: [
+      "backup",
+      "export",
+      "import",
+      "restore",
+      "transfer",
+      "custom sounds",
+    ],
+  },
+  {
+    category: "advanced",
     label: "Always create pull requests for cloud runs",
     keywords: ["auto publish", "draft pr", "pull request"],
   },

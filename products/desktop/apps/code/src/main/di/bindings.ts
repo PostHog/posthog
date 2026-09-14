@@ -135,6 +135,10 @@ import type { MAIN_WINDOW_SERVICE } from "@posthog/platform/main-window";
 import type { NOTIFIER_SERVICE } from "@posthog/platform/notifier";
 import type { POWER_MANAGER_SERVICE } from "@posthog/platform/power-manager";
 import type { SECURE_STORAGE_SERVICE } from "@posthog/platform/secure-storage";
+import type {
+  ISettingsBackupFiles,
+  SETTINGS_BACKUP_FILES,
+} from "@posthog/platform/settings-backup-files";
 import type { STORAGE_PATHS_SERVICE } from "@posthog/platform/storage-paths";
 import type { UPDATER_SERVICE } from "@posthog/platform/updater";
 import type { URL_LAUNCHER_SERVICE } from "@posthog/platform/url-launcher";
@@ -329,6 +333,7 @@ import type {
 } from "./tokens";
 
 export interface MainBindings {
+  [SETTINGS_BACKUP_FILES]: ISettingsBackupFiles;
   // Platform adapters
   [URL_LAUNCHER_SERVICE]: ElectronUrlLauncher;
   [STORAGE_PATHS_SERVICE]: ElectronStoragePaths;

@@ -42,6 +42,7 @@ import { processTrackingRouter } from "./routers/process-tracking.router";
 import { provisioningRouter } from "./routers/provisioning.router";
 import { releaseFeedRouter } from "./routers/release-feed.router";
 import { secureStoreRouter } from "./routers/secure-store.router";
+import { settingsBackupRouter } from "./routers/settings-backup.router";
 import { shellRouter } from "./routers/shell.router";
 import { skillsRouter } from "./routers/skills.router";
 import { slackIntegrationRouter } from "./routers/slack-integration.router";
@@ -92,6 +93,7 @@ export const hostRouter = router({
   notification: notificationRouter,
   oauth: oauthRouter,
   os: osRouter,
+  settingsBackup: settingsBackupRouter,
   piSession: piSessionRouter,
   processTracking: processTrackingRouter,
   provisioning: provisioningRouter,

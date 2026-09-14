@@ -1,3 +1,5 @@
+import { SETTINGS_BACKUP_FILES } from "@posthog/platform/settings-backup-files";
+import { ElectronSettingsBackupFiles } from "../platform-adapters/electron-settings-backup-files";
 import "reflect-metadata";
 
 import { readFile as fsReadFile, stat as fsStat } from "node:fs/promises";
@@ -356,6 +358,7 @@ container.bind(URL_LAUNCHER_SERVICE).to(ElectronUrlLauncher);
 container.bind(STORAGE_PATHS_SERVICE).to(ElectronStoragePaths);
 container.bind(APP_META_SERVICE).to(ElectronAppMeta);
 container.bind(DIALOG_SERVICE).to(ElectronDialog);
+container.bind(SETTINGS_BACKUP_FILES).to(ElectronSettingsBackupFiles);
 container.bind(CLIPBOARD_SERVICE).to(ElectronClipboard);
 container.bind(CRYPTO_SERVICE).to(ElectronCrypto);
 container.bind(ANALYTICS_SERVICE).toConstantValue(posthogNodeAnalytics);
