@@ -80,12 +80,14 @@ jobs:
                       echo "::notice::Only the depot shadow changed. That is allowed (e.g. tuning a depot-only knob), but worth a glance from the reviewer."
                   fi
                   for action in $equal_mirrors $delta_mirrors; do
-                      if echo "$changed" | grep -q "^\.github/actions/$action/" && \
-                         ! echo "$changed" | grep -q "^\.depot/actions/$action/"; then
-                          echo "::error::Canonical .github/actions/$action changed without a matching update to .depot/actions/$action."
-                          echo "Mirror the action change so the Depot workflow runs the same steps."
-                          exit 1
-                      fi
+                      for canonical_file in $(echo "$changed" | grep "^\.github/actions/$action/" || true); do
+                          mirror_file=".depot/actions/$action/${canonical_file#".github/actions/$action/"}"
+                          if ! echo "$changed" | grep -Fxq "$mirror_file"; then
+                              echo "::error::Canonical $canonical_file changed without a matching update to $mirror_file."
+                              echo "Mirror the action change so the Depot workflow runs the same steps."
+                              exit 1
+                          fi
+                      done
                   done
                   for action in $equal_mirrors; do
                       if ! diff -qr ".github/actions/$action" ".depot/actions/$action"; then
