@@ -35,18 +35,6 @@ class TestCheckProxyIsLive(TestCase):
         self.input = CheckActivityInput(proxy_record_id=self.proxy_record.id)
 
     @pytest.mark.asyncio
-    @patch("posthog.temporal.proxy_service.monitor.get_record")
-    async def test_check_proxy_is_live_success_live(self, mock_get_record):
-        """Live test against us.i.posthog.com"""
-        mock_get_record.return_value = self.proxy_record
-
-        result = await check_proxy_is_live(self.input)
-
-        # Should succeed without errors or warnings
-        self.assertEqual(result.errors, [])
-        self.assertEqual(result.warnings, [])
-
-    @pytest.mark.asyncio
     @time_machine.travel("2024-01-16 10:00:00", tick=False)  # Frozen at Jan 16, cert expires Feb 15 (30 days later)
     @patch("posthog.temporal.proxy_service.monitor.socket.create_connection")
     @patch("posthog.temporal.proxy_service.monitor.ssl.create_default_context")
