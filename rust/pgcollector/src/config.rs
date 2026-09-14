@@ -13,6 +13,8 @@ pub struct Config {
     pub http: HttpConfig,
     #[serde(default)]
     pub servers: Vec<ServerConfig>,
+    #[serde(default)]
+    pub ownership: OwnershipConfig,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -118,6 +120,28 @@ pub struct LogsConfig {
 }
 fn default_prefix() -> String {
     "%t:%r:%u@%d:[%p]:".into()
+}
+
+/// Table -> team ownership: the generated `table_owners.json` plus `overrides.yaml`,
+/// compiled in unless `dir` points at replacements.
+#[derive(Debug, Deserialize, Clone)]
+pub struct OwnershipConfig {
+    /// Directory with `table_owners.json` / `overrides.yaml` replacing the compiled-in ones.
+    pub dir: Option<std::path::PathBuf>,
+    /// Rotation for anything no team owns.
+    #[serde(default = "ownership_fallback_rotation")]
+    pub fallback_rotation: String,
+}
+impl Default for OwnershipConfig {
+    fn default() -> Self {
+        Self {
+            dir: None,
+            fallback_rotation: ownership_fallback_rotation(),
+        }
+    }
+}
+fn ownership_fallback_rotation() -> String {
+    "infra".into()
 }
 
 #[derive(Debug, Deserialize, Clone, Default)]

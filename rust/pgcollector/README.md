@@ -59,6 +59,28 @@ diffs) are Rust in `src/collectors/` implementing the same `Collector` trait.
 Validate a `log_line_prefix` against a log file:
 `pgcollector --parse-log postgresql.log --log-line-prefix '%t:%r:%u@%d:[%p]:%Q:'`.
 
+## Table ownership
+
+`src/ownership/` maps a table, and from there a SQL statement, to the PostHog
+team that owns it, so a finding can reach the right rotation and Slack channel.
+
+`ownership/table_owners.json` is generated from the Django model registry and
+the repo's `owners.yaml` files: run `hogli owners:tables` after adding or
+moving a model (a repo invariant test fails when it is stale; `--report` lists
+unowned tables). `ownership/overrides.yaml` adds hubs, tables created by Rust
+migrations, the team -> incident.io rotation map, and channel overrides. Both
+are compiled into the binary; `[ownership] dir` replaces them at runtime.
+
+Attribution of a statement, first match wins: `databases` in `overrides.yaml`
+(whole database or server), an `owner='team-x'` marker in a leading SQL
+comment, then the tables the statement touches. The DML target wins, else the
+driving table of the outermost `FROM`, joins after it; hub tables (`posthog_team`,
+`posthog_user`, ...) only decide when nothing else does. Ask it directly:
+
+```sh
+pgcollector --attribute "SELECT * FROM posthog_survey WHERE team_id = 1" --datname posthog
+```
+
 ## Local testing
 
 `test/setup-local.sh` starts a throwaway PG16 with `pg_stat_statements`,

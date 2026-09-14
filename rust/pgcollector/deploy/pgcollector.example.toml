@@ -23,3 +23,10 @@ databases = ["posthog"]
 [servers.overrides]
 activity = { interval = "5s" }
 sizes = { enabled = false }
+
+# Table -> team ownership, used to route findings. The compiled-in map comes from
+# `hogli owners:tables` plus ownership/overrides.yaml; `dir` replaces both at runtime.
+[ownership]
+fallback_rotation = "infra"
+# dir = "/etc/pgcollector/ownership"   # table_owners.json + overrides.yaml overlay
+
