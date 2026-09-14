@@ -115,6 +115,10 @@ Sibling courtesy: raw log-line rate/level shifts belong to the logs scout; LLM `
 ## Disqualifiers (skip these)
 
 - **Single user, single session, single occurrence** — almost always a personal browser quirk. Confirmed via low `count` AND low `distinct_users`.
+- **Local development against the production key** — an issue whose stack frames are all either the interactive console (frame source `<console>`, no file) or a throwaway script under a temporary scratchpad path (a per-session directory below `/tmp` or `/private/tmp`), **and** which reports no `$exception_release`. Somebody is iterating on their own machine: they paste a draft function into a shell, or they run a one-off agent script. No user is affected.
+  - The origin discriminates here, not the reach. The frames can name real product modules, and each issue holds one or two events with no session, so the shape reads as a fresh per-request server path — the strongest signal in the table above. Check the frame source before you trust that reading.
+  - Read the symbol before you skip the issue, because a console frame can still name shipped code. Then judge the raise: a validation error from a draft function, or a `NameError` for a name the shell never imported, is the expected behavior of code under development.
+  - Every new crash shape opens its own issue, so the class arrives as a slow drip of single-event issues, never as a burst. Size it once, then remember it under `noise:error_tracking:local-dev` so the next run skips it in one read. Filter `$exception` on `position(toString(properties.$exception_sources), '<console>')` for the console shape, and on the scratchpad path prefix inside `toString(properties.$exception_list)` for the script shape. `JSONExtract` to `Array(String)` fails on both columns, because they are nullable.
 - **Sandbox-internal exceptions** — KEA store-path errors, Docker `TimeoutExpired`, `agentsh` failures. Internal harness operations, not user-facing.
 - **Known upstream provider errors** — Anthropic / OpenAI rate limits, third-party API outages already covered by past memory. Skip unless volume / shape changes meaningfully.
 
