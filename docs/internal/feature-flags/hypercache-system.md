@@ -398,10 +398,13 @@ Read the branches below per key.
 An absent payload beside a present ETag on the endpoint the reader served is the reading that
 every ETag-only check calls healthy. The handler reads the ETag key on every request and answers
 304 before it fetches the payload, so a team whose SDKs poll with a matching `If-None-Match`
-keeps the ETag key recent while the payload ages toward eviction. Read repair rewarms the payload
-from S3 on the first poll that misses it, so this state clears itself within one poll. A team that
-stays in it has repair off (`HYPERCACHE_READ_REPAIR_TTL_SECONDS=0` or `SKIP_WRITES`) or no S3 copy
-either; rebuild it with `update_flag_caches`.
+keeps the ETag key recent while the payload ages toward eviction. Read repair does not end the
+state through those polls: the 304 returns before the payload lookup, so no read reaches S3 and
+no repair runs. Only a poll that sends no ETag, or a stale one, reaches the payload, misses, and
+rewarms both keys. A team whose polls all match therefore stays in this state with repair fully
+on, until the ETag key expires too or the writer rewrites the pair on the team's next flag change
+or TTL refresh. Repair that is off (`HYPERCACHE_READ_REPAIR_TTL_SECONDS=0` or `SKIP_WRITES`), or
+an absent S3 copy, holds a team there as well; rebuild it with `update_flag_caches`.
 
 An absent ETag beside a present payload serves a 200 with the full payload on every poll, so
 it writes no `source="s3"` record and raises no alert. `redis_missing` climbing with no matching
@@ -421,13 +424,14 @@ Present on the dedicated cluster and absent on both shared endpoints isolates th
 mirror rather than to the writer. Absent everywhere means the entry was never built or has
 aged out; rebuild it with `update_flag_caches` and look at step 3.
 
-A shared copy that is absent while the dedicated copy is present does not come back on its
-own. Read repair follows a miss on the endpoint the reader serves, so a fresh dedicated entry
-means no read reaches S3 and nothing rewarms the shared copy. The hourly verifier reads only
-the primary, and the refresh task selects teams by an expiry score stamped from the primary,
-so a team whose dedicated entry is fresh is never revisited. The team keeps reading from S3 until
-its next flag change, or until the primary entry nears its TTL. `update_flag_caches` writes
-both tiers and ends it sooner.
+A shared copy that is absent while the dedicated copy is present comes back only through a pod
+whose reader serves the shared endpoint. That pod misses, reads S3, and repairs the shared
+primary, so the copy returns with the repair TTL and ages out again. A pod on the dedicated
+endpoint gets a fresh hit, so no read of its reaches S3 and nothing rewarms the shared copy
+through it. The hourly verifier reads only the primary, and the refresh task selects teams by an
+expiry score stamped from the primary, so a team whose dedicated entry is fresh is never
+revisited. The shared copy stays short-lived until the team's next flag change, or until the
+primary entry nears its TTL. `update_flag_caches` writes both tiers and ends it sooner.
 
 **3. Confirm the writer runs.** Check the success and duration signals for the
 flag-definitions refresh and verification tasks. Tasks that run at their normal cadence and
