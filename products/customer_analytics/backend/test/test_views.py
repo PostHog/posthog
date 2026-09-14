@@ -1316,6 +1316,15 @@ class TestAccountNotebookViewSet(APIBaseTest):
             ("empty_rich_text_doc", {"title": "Empty doc", "content": {"type": "doc", "content": []}}, ""),
             ("neither_field", {"title": "Empty"}, ""),
             ("empty_text_content", {"title": "Empty body", "text_content": ""}, ""),
+            (
+                "markdown_content_with_stale_text",
+                {
+                    "title": "Markdown",
+                    "content": build_markdown_notebook_content("# Current"),
+                    "text_content": "stale search text",
+                },
+                "# Current",
+            ),
         ]
     )
     def test_create_stores_a_markdown_notebook(self, _name: str, payload: dict, expected_markdown: str) -> None:
@@ -1326,6 +1335,16 @@ class TestAccountNotebookViewSet(APIBaseTest):
         notebook = Notebook.objects.get(short_id=response.json()["short_id"])
         self.assertEqual(notebook.content, build_markdown_notebook_content(expected_markdown))
         self.assertEqual(notebook.text_content, expected_markdown)
+
+    def test_create_rejects_content_that_cannot_be_converted(self):
+        broken_content = {
+            "type": "doc",
+            "content": [{"type": "paragraph", "content": [{"type": "text", "text": "x", "marks": 1}]}],
+        }
+        response = self.client.post(self.endpoint_base, {"title": "Broken", "content": broken_content}, format="json")
+
+        self.assertEqual(status.HTTP_400_BAD_REQUEST, response.status_code, response.json())
+        self.assertEqual(response.json()["attr"], "content")
 
     def test_create_with_empty_dict_content_falls_back_to_markdown(self):
         response = self.client.post(

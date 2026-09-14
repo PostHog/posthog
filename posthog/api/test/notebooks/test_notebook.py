@@ -90,9 +90,9 @@ class TestNotebooks(APIBaseTest, QueryMatchingTest):
                 "# Test\n\nBody",
             ),
             (
-                "with_markdown_content",
+                "with_markdown_content_and_stale_text",
                 build_markdown_notebook_content("# Test\n\nBody"),
-                "# Test\n\nBody",
+                "stale search text",
                 "# Test\n\nBody",
             ),
         ]
@@ -262,22 +262,35 @@ class TestNotebooks(APIBaseTest, QueryMatchingTest):
             in stored_markdown
         )
 
-    def test_create_notebook_rejects_insight_viz_wrapping_unknown_kind(self) -> None:
-        bad_content = {
-            "type": "doc",
-            "content": [
+    @parameterized.expand(
+        [
+            (
+                "insight_viz_wrapping_unknown_kind",
                 {
-                    "type": "ph-query",
-                    "attrs": {
-                        "nodeId": "n1",
-                        "query": {
-                            "kind": "InsightVizNode",
-                            "source": {"kind": "DefinitelyNotAQuery"},
+                    "type": "doc",
+                    "content": [
+                        {
+                            "type": "ph-query",
+                            "attrs": {
+                                "nodeId": "n1",
+                                "query": {"kind": "InsightVizNode", "source": {"kind": "DefinitelyNotAQuery"}},
+                            },
                         },
-                    },
+                    ],
                 },
-            ],
-        }
+                "DefinitelyNotAQuery",
+            ),
+            (
+                "rich_text_that_cannot_convert",
+                {
+                    "type": "doc",
+                    "content": [{"type": "paragraph", "content": [{"type": "text", "text": "x", "marks": 1}]}],
+                },
+                "cannot be stored as a markdown notebook",
+            ),
+        ]
+    )
+    def test_create_notebook_rejects_invalid_content(self, _, bad_content: dict, expected_detail: str) -> None:
         response = self.client.post(
             f"/api/projects/{self.team.id}/notebooks",
             data={"content": bad_content},
@@ -285,7 +298,8 @@ class TestNotebooks(APIBaseTest, QueryMatchingTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         body = response.json()
         assert body["attr"] == "content"
-        assert "DefinitelyNotAQuery" in body["detail"]
+        assert expected_detail in body["detail"]
+        assert not Notebook.objects.filter(team=self.team).exists()
 
     def test_update_notebook_normalizes_invalid_query_node(self) -> None:
         create = self.client.post(f"/api/projects/{self.team.id}/notebooks", data={})

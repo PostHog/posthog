@@ -70,7 +70,11 @@ from products.notebooks.backend.facade.compute_pricing import (
     find_matching_preset,
     get_compute_rates,
 )
-from products.notebooks.backend.facade.contracts import NotebookRunBusy, TeamRunCapacityFull
+from products.notebooks.backend.facade.contracts import (
+    NotebookContentNotConvertible,
+    NotebookRunBusy,
+    TeamRunCapacityFull,
+)
 from products.notebooks.backend.facade.sql_v2 import acquire_run_slots, release_run_slots
 from products.notebooks.backend.facade.widgets import (
     WidgetConflictError,
@@ -349,10 +353,16 @@ class NotebookSerializer(NotebookMinimalSerializer):
         # Counted before conversion, so the event keeps reporting the size of the document the caller sent.
         node_count = notebook_node_count(validated_data.get("content"))
         # The cell tools and the editor work on markdown notebooks only, so a create never stores rich text.
-        markdown_content = to_markdown_notebook_content(validated_data.get("content"), team_id=team.id)
+        try:
+            markdown_content = to_markdown_notebook_content(
+                validated_data.get("content"), organization_id=team.organization_id
+            )
+        except NotebookContentNotConvertible as err:
+            raise serializers.ValidationError({"content": str(err)})
         if markdown_content is not None:
             validated_data["content"] = markdown_content
-            validated_data["text_content"] = markdown_collab.get_markdown_notebook_markdown(markdown_content)
+        # Search reads text_content, so it mirrors the stored markdown, as a markdown save does.
+        validated_data["text_content"] = markdown_collab.get_markdown_notebook_markdown(validated_data["content"])
 
         created_by = validated_data.pop("created_by", request.user)
         notebook = Notebook.objects.create(

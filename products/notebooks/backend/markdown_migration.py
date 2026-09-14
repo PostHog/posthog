@@ -1,6 +1,7 @@
 from collections.abc import Callable
 from datetime import timedelta
 from typing import Any, cast
+from uuid import UUID
 
 from django.db import transaction
 from django.db.models import Q, QuerySet
@@ -16,6 +17,7 @@ from products.notebooks.backend.facade.contracts import (
     MarkdownNotebookMigrationPreview,
     MarkdownNotebookMigrationResult,
     MarkdownNotebookMigrationStats,
+    NotebookContentNotConvertible,
 )
 from products.notebooks.backend.markdown_conversion import (
     JSONContent,
@@ -63,7 +65,7 @@ def migrate_notebooks_to_markdown(
         try:
             next_content = to_markdown_notebook_content(
                 notebook.content,
-                team_id=notebook.team_id,
+                organization_id=notebook.team.organization_id,
                 comment_replies_by_mark_id=_build_comment_replies_by_mark_id(notebook),
             )
             if next_content is None:
@@ -231,32 +233,36 @@ def _comment_to_reply(comment: Comment) -> dict[str, Any]:
 def to_markdown_notebook_content(
     content: Any,
     *,
-    team_id: int,
+    organization_id: UUID,
     comment_replies_by_mark_id: dict[str, list[Any]] | None = None,
 ) -> JSONContent | None:
     """Convert a rich-text notebook document into a markdown notebook document.
 
     Returns None when the content already is a markdown notebook document. The admin migration and
     notebook creation both call this, so a notebook created from rich text matches a migrated one.
+    Raises NotebookContentNotConvertible when the document is malformed, for example when a node's
+    marks are not a list.
     """
     if is_markdown_notebook_content(content):
         return None
-    markdown = convert_notebook_content_to_markdown(
-        content,
-        NotebookMarkdownConversionOptions(
-            comment_replies_by_mark_id=comment_replies_by_mark_id,
-            get_mention_label=_build_mention_label_getter(content, team_id),
-        ),
+    options = NotebookMarkdownConversionOptions(
+        comment_replies_by_mark_id=comment_replies_by_mark_id,
+        get_mention_label=_build_mention_label_getter(content, organization_id),
     )
+    try:
+        markdown = convert_notebook_content_to_markdown(content, options)
+    except (AttributeError, KeyError, RecursionError, TypeError, ValueError) as err:
+        raise NotebookContentNotConvertible(
+            "Notebook content is not a valid rich-text document, so it cannot be stored as a markdown notebook."
+        ) from err
     return build_markdown_notebook_content(markdown)
 
 
-def _build_mention_label_getter(content: Any, team_id: int) -> Callable[[int], str | None]:
+def _build_mention_label_getter(content: Any, organization_id: UUID) -> Callable[[int], str | None]:
     user_ids = _collect_mention_user_ids(content)
     if not user_ids:
         return lambda user_id: None
 
-    organization_id = Team.objects.filter(id=team_id).values_list("organization_id", flat=True).first()
     users = User.objects.filter(
         id__in=user_ids,
         organization_membership__organization_id=organization_id,
