@@ -45,7 +45,7 @@ class BugsnagResumeConfig:
     parent_id: str | None = None
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class _FanOutParent:
     # Id used to resolve the endpoint path and to bookmark resume position.
     resume_id: str
@@ -235,11 +235,14 @@ def _resolve_parents(
 
         if config.scope == BugsnagScope.PER_PROJECT:
             parents.append(_FanOutParent(resume_id=project_id, path_kwargs={"project_id": project_id}, inject=inject))
-        elif config.scope == BugsnagScope.PER_PROJECT_RELEASE_STAGE:
+            continue
+
+        project_parents: list[_FanOutParent] = []
+        if config.scope == BugsnagScope.PER_PROJECT_RELEASE_STAGE:
             # A project reports the stages it has seen events for; one with none has no release
             # groups to list, and the endpoint rejects a request without a stage.
             for stage in project.get("release_stages") or []:
-                parents.append(
+                project_parents.append(
                     _FanOutParent(
                         resume_id=f"{project_id}:{stage}",
                         path_kwargs={"project_id": project_id},
@@ -251,13 +254,24 @@ def _resolve_parents(
             pivots_url = _build_url(f"{BUGSNAG_BASE_URL}/projects/{project_id}/pivots", {"per_page": PAGE_SIZE})
             for pivot in _iter_all_pages(session, pivots_url, headers, logger):
                 display_id = pivot["event_field_display_id"]
-                parents.append(
+                project_parents.append(
                     _FanOutParent(
                         resume_id=f"{project_id}:{display_id}",
                         path_kwargs={"project_id": project_id, "event_field_display_id": display_id},
                         inject={**inject, "event_field_display_id": display_id},
                     )
                 )
+
+        cap = config.max_parents_per_project
+        if cap is not None and len(project_parents) > cap:
+            # Each parent is a paginated collection of its own, so an inflated count turns one
+            # project into an unbounded sync. Take a deterministic prefix and say so.
+            logger.warning(
+                f"BugSnag: project={project_id} offers {len(project_parents)} fan-out parents for "
+                f"{config.name}; syncing the first {cap}"
+            )
+            project_parents = project_parents[:cap]
+        parents.extend(project_parents)
     return parents
 
 

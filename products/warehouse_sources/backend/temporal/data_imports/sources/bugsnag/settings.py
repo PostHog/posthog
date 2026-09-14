@@ -28,7 +28,7 @@ class BugsnagScope(Enum):
     PER_PROJECT_PIVOT = "per_project_pivot"
 
 
-@dataclass
+@dataclass(frozen=True)
 class BugsnagEndpointConfig:
     name: str
     scope: BugsnagScope
@@ -57,6 +57,10 @@ class BugsnagEndpointConfig:
     # Hard page cap per fan-out parent. Guards endpoints whose result size follows the cardinality
     # of user-supplied data rather than anything the API bounds.
     max_pages: Optional[int] = None
+    # Cap on how many fan-out parents a single project contributes. Release stages and pivots are
+    # both derived from client-reported event data, so nothing in the API bounds how many a project
+    # accumulates — a misconfigured reporter alone can add one per build.
+    max_parents_per_project: Optional[int] = None
     # The menu of incremental cursor candidates advertised to the user. Empty = full refresh only.
     incremental_fields: list[IncrementalField] = field(default_factory=list)
     # Whether the table is selected for sync by default in the connection wizard.
@@ -179,6 +183,7 @@ BUGSNAG_ENDPOINTS: dict[str, BugsnagEndpointConfig] = {
         partition_key="first_released_at",
         # The endpoint documents 30 per page and no maximum, so stay on the documented value.
         page_size=30,
+        max_parents_per_project=25,
     ),
     # The breakdown values behind each pivot. Cardinality follows the underlying event field — a
     # user-id pivot has a value per user — so it is off by default and capped per pivot.
@@ -192,6 +197,7 @@ BUGSNAG_ENDPOINTS: dict[str, BugsnagEndpointConfig] = {
         # the API documents `unsorted` as the way to read a pivot's values in full.
         params={"sort": "unsorted"},
         max_pages=100,
+        max_parents_per_project=25,
         should_sync_default=False,
     ),
 }

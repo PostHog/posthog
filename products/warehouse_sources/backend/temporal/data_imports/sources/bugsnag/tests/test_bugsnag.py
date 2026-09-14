@@ -552,6 +552,22 @@ class TestReleaseGroups:
             {"id": "rg2", "organization_id": "o1", "project_id": "p1"},
         ]
 
+    def test_release_stage_count_is_capped_per_project(self, monkeypatch: Any) -> None:
+        # Release stages come from client-reported event data, so a project can accumulate any
+        # number of them and each is a paginated collection. Only the capped prefix is requested —
+        # the stage past the cap is absent from `pages`, so requesting it would raise.
+        capped = dataclasses.replace(BUGSNAG_ENDPOINTS["release_groups"], max_parents_per_project=2)
+        monkeypatch.setitem(BUGSNAG_ENDPOINTS, "release_groups", capped)
+        base = "https://api.bugsnag.com/projects/p1/release_groups?per_page=30&release_stage_name="
+        pages: dict[str, tuple[list[dict], str | None]] = {
+            _ORGS_URL: ([{"id": "o1"}], None),
+            _PROJECTS_URL: ([{"id": "p1", "release_stages": ["s1", "s2", "s3"]}], None),
+            f"{base}s1": ([{"id": "rg1"}], None),
+            f"{base}s2": ([{"id": "rg2"}], None),
+        }
+        rows = _collect("release_groups", pages, _FakeResumableManager(), monkeypatch)
+        assert [row["id"] for row in rows] == ["rg1", "rg2"]
+
     def test_project_without_release_stages_is_skipped(self, monkeypatch: Any) -> None:
         # A project that has seen no events has no stages, and the endpoint rejects a request
         # without one — so it must not be requested at all.
