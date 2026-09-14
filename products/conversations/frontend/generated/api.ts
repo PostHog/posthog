@@ -102,7 +102,7 @@ export const getConversationsPatternAiScanReportsListUrl = (projectId: string) =
 }
 
 /**
- * What the AI scan has found, newest first. Empty when the scan is off or has found nothing.
+ * What the AI scan has found, newest first. Turning the scan off pauses the scout, so its past findings stay in this list. Empty when nothing has been found.
  */
 export const conversationsPatternAiScanReportsList = async (
     projectId: string,

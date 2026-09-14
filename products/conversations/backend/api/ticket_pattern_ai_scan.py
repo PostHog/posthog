@@ -176,7 +176,10 @@ class TicketPatternAiScanViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
     @extend_schema(
         responses=AiScanReportSerializer(many=True),
-        description="What the AI scan has found, newest first. Empty when the scan is off or has found nothing.",
+        description=(
+            "What the AI scan has found, newest first. Turning the scan off pauses the scout, so its past "
+            "findings stay in this list. Empty when nothing has been found."
+        ),
     )
     @action(methods=["GET"], detail=False)
     def reports(self, request: Request, **kwargs: Any) -> Response:
