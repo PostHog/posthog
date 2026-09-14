@@ -62,19 +62,6 @@ class Actor:
         return cls(source=AccountRelationshipSource.HUMAN, user=user)
 
 
-# Writers with no person deciding. They may fill or change a role the account does not manage,
-# never a managed one: transfers and clears of managed roles are human acts. Reviewed adoption
-# reaches a managed role only through ``enroll_role``, which is the act of taking it over.
-_AUTONOMOUS_SOURCES = frozenset(
-    {
-        AccountRelationshipSource.WORKFLOW,
-        AccountRelationshipSource.AI,
-        AccountRelationshipSource.SALESFORCE_CLAIM,
-        AccountRelationshipSource.MIGRATION,
-    }
-)
-
-
 @dataclasses.dataclass(frozen=True)
 class AccountRelationshipActivityContext(ActivityContextBase):
     """Provenance stored beside the change so a reader can tell which writer acted, through which
@@ -520,8 +507,16 @@ def _managed_role(account: Account, role: ownership.OwnershipRole | None) -> own
 
 
 def _enforce_managed_role_policy(account: Account, role: ownership.OwnershipRole | None, actor: Actor) -> None:
+    """Only a person may change a role the account manages.
+
+    Transfers and clears of managed roles are human acts. An autonomous writer may still fill or
+    change a role the account does not manage. Reviewed adoption reaches a managed role only
+    through ``enroll_role``, which is the act of taking the role over. A new kind of writer must be
+    authorized here explicitly before it can alter a reviewed role decision. That is why the check
+    names the one allowed source rather than the refused ones.
+    """
     managed = _managed_role(account, role)
-    if managed is not None and actor.source in _AUTONOMOUS_SOURCES:
+    if managed is not None and actor.source != AccountRelationshipSource.HUMAN:
         raise ManagedRolePolicyError(
             f"A {actor.source} writer cannot change the {managed.upper()} role on an account where it is managed"
         )

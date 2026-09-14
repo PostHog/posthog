@@ -411,11 +411,10 @@ class TestCommercialRolePolicy(BaseTest):
 
     @parameterized.expand(
         [
-            (AccountRelationshipSource.WORKFLOW, "assign"),
-            (AccountRelationshipSource.AI, "assign"),
-            (AccountRelationshipSource.SALESFORCE_CLAIM, "assign"),
-            (AccountRelationshipSource.WORKFLOW, "end_active"),
-            (AccountRelationshipSource.AI, "end_active"),
+            (source, operation)
+            for source in AccountRelationshipSource
+            if source != AccountRelationshipSource.HUMAN
+            for operation in ("assign", "end_active")
         ]
     )
     def test_autonomous_writer_cannot_change_a_managed_role(self, source, operation):
