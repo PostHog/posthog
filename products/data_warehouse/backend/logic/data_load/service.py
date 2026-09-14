@@ -556,7 +556,17 @@ def sync_cdc_extraction_schedule(source: ExternalDataSource, create: bool = Fals
     )
 
     if create:
-        create_schedule(temporal, id=schedule_id, schedule=schedule, trigger_immediately=True)
+        try:
+            create_schedule(temporal, id=schedule_id, schedule=schedule, trigger_immediately=True)
+        except ScheduleAlreadyRunningError:
+            update_schedule(temporal, id=schedule_id, schedule=schedule)
+        except temporalio.service.RPCError as e:
+            # The SDK only maps ALREADY_EXISTS onto `ScheduleAlreadyRunningError` when the
+            # failure carries the matching gRPC detail, so the raw error reaches us too.
+            if e.status == temporalio.service.RPCStatusCode.ALREADY_EXISTS:
+                update_schedule(temporal, id=schedule_id, schedule=schedule)
+            else:
+                raise
     else:
         try:
             update_schedule(temporal, id=schedule_id, schedule=schedule)

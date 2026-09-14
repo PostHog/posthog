@@ -14,6 +14,7 @@ from parameterized import parameterized
 from temporalio.client import (
     Client as TemporalClient,
     ScheduleActionStartWorkflow,
+    ScheduleAlreadyRunningError,
 )
 from temporalio.service import RPCError, RPCStatusCode
 
@@ -37,6 +38,7 @@ from products.data_warehouse.backend.logic.data_load.service import (
     get_sync_schedule,
     is_cdc_extraction_schedule_paused,
     pause_external_data_schedule,
+    sync_cdc_extraction_schedule,
     unpause_external_data_schedule,
 )
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema, ExternalDataSource
@@ -457,6 +459,52 @@ def test_bulk_sync_cdc_reraises_non_not_found_rpc_errors():
     # a non-NOT_FOUND error is a failure, not a silent create
     assert [sid for sid, _ in failures] == [str(source.id)]
     assert create_mock.call_count == 0
+
+
+# --- sync_cdc_extraction_schedule (create=True upserts, so enabling CDC twice is safe) ---
+
+
+def _cdc_source_with_schema():
+    team = _sync_team()
+    source = _make_source(team)
+    _make_schema(team, source, sync_type=ExternalDataSchema.SyncType.CDC)
+    return source
+
+
+@parameterized.expand(
+    [
+        ("sdk_error", ScheduleAlreadyRunningError()),
+        ("raw_rpc_error", RPCError("schedule already exists", RPCStatusCode.ALREADY_EXISTS, b"")),
+    ]
+)
+def test_sync_cdc_create_falls_back_to_update_when_the_schedule_exists(_name, create_error):
+    # `enable_cdc` calls this with create=True on a source whose schemas can already be CDC.
+    # Without the fallback the caller reports the schedules as not ready and skips the
+    # global slot cleanup schedule, leaving a replication slot unwatched.
+    source = _cdc_source_with_schema()
+
+    with (
+        patch(f"{SERVICE}.sync_connect"),
+        patch(f"{SERVICE}.create_schedule", side_effect=create_error),
+        patch(f"{SERVICE}.update_schedule") as update_mock,
+    ):
+        sync_cdc_extraction_schedule(source, create=True)
+
+    update_mock.assert_called_once()
+
+
+def test_sync_cdc_create_reraises_other_rpc_errors():
+    source = _cdc_source_with_schema()
+
+    with (
+        patch(f"{SERVICE}.sync_connect"),
+        patch(f"{SERVICE}.create_schedule", side_effect=RPCError("unavailable", RPCStatusCode.UNAVAILABLE, b"")),
+        patch(f"{SERVICE}.update_schedule") as update_mock,
+        pytest.raises(RPCError),
+    ):
+        sync_cdc_extraction_schedule(source, create=True)
+
+    update_mock.assert_not_called()
 
 
 # --- bulk_update_external_data_job_schedules (update-only; missing => skipped) ---
