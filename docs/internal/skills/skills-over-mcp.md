@@ -11,15 +11,15 @@ So `allowed_tools` is a request for access, not a grant of it.
 
 ## The delivery paths
 
-| Path                                                | Skill reaches the harness as     | `allowed_tools` effect                                      |
-| --------------------------------------------------- | -------------------------------- | ----------------------------------------------------------- |
-| Zip export (`…/export`)                             | A file on disk                   | Pre-approved, as the Agent Skills spec says                 |
-| Git marketplace (`…/marketplace.git`)               | A file on disk after `git clone` | Pre-approved                                                |
-| Skill bundle, `content=full` (`…/bundle`)           | A file on disk                   | Pre-approved                                                |
+| Path                                                | Skill reaches the harness as     | `allowed_tools` effect                                       |
+| --------------------------------------------------- | -------------------------------- | ------------------------------------------------------------ |
+| Zip export (`…/export`)                             | A file on disk                   | Pre-approved, as the Agent Skills spec says                  |
+| Git marketplace (`…/marketplace.git`)               | A file on disk after `git clone` | Pre-approved                                                 |
+| Skill bundle, `content=full` (`…/bundle`)           | A file on disk                   | Pre-approved                                                 |
 | Skill bundle, `content=stub`, and sandbox run state | A pointer file, then MCP         | No grant. The stub omits the list, then `skill-get` sends it |
-| MCP `skill-get`                                     | An MCP response                  | No grant. The list arrives as data                          |
-| `learn project:<skill>`                             | An MCP response                  | No grant. The list never reaches the client                 |
-| PostHog AI `get_llm_skill`                          | Text in the model's context      | No grant. The list is printed as text                       |
+| MCP `skill-get`                                     | An MCP response                  | No grant. The list arrives as data                           |
+| `learn project:<skill>`                             | An MCP response                  | No grant. The list never reaches the client                  |
+| PostHog AI `get_llm_skill`                          | Text in the model's context      | No grant. The list is printed as text                        |
 
 Watch the stub path.
 `render_skill_stub_md` writes only the name, the description, and `metadata`, so the pointer file never carries `allowed-tools`.
