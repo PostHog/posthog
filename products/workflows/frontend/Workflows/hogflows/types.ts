@@ -97,6 +97,13 @@ export interface HogFlow extends z.infer<typeof HogFlowSchema> {
     draft_updated_at?: string | null
 }
 
+// What the detail endpoint returns: the workflow plus its schedules, which the schedules
+// sub-resource also serves. Kept off HogFlow because the form edits HogFlow, and schedules
+// are read-only server state.
+export interface HogFlowWithSchedules extends HogFlow {
+    schedules?: HogFlowSchedule[]
+}
+
 export interface HogFlowEdge extends z.infer<typeof HogFlowEdgeSchema> {}
 export interface HogFlowActionEdge extends Edge<{ edge: HogFlowEdge; label?: string }> {}
 

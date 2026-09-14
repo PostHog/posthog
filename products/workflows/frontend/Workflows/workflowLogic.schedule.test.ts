@@ -1,9 +1,12 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { dayjs } from 'lib/dayjs'
+
+import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { DEFAULT_STATE, ONE_TIME_RRULE } from './hogflows/steps/components/rrule-helpers'
-import { HogFlowSchedule } from './hogflows/types'
+import { HogFlowSchedule, HogFlowWithSchedules } from './hogflows/types'
 import { workflowLogic } from './workflowLogic'
 
 const WEEKLY_MONDAY_RRULE = 'FREQ=WEEKLY;INTERVAL=1;BYDAY=MO'
@@ -15,6 +18,48 @@ const makeSchedule = (overrides: Partial<HogFlowSchedule> = {}): HogFlowSchedule
     starts_at: STARTS_AT,
     timezone: 'UTC',
     ...overrides,
+})
+
+const WORKFLOW_ID = 'wf-schedule-1'
+
+const makeScheduledWorkflow = (overrides: Partial<HogFlowWithSchedules> = {}): HogFlowWithSchedules =>
+    ({
+        id: WORKFLOW_ID,
+        name: 'Scheduled workflow',
+        actions: [],
+        edges: [],
+        status: 'active',
+        team_id: 1,
+        trigger: { type: 'batch', filters: {} },
+        created_at: STARTS_AT,
+        updated_at: STARTS_AT,
+        ...overrides,
+    }) as HogFlowWithSchedules
+
+describe('workflowLogic schedules from the workflow response', () => {
+    let logic: ReturnType<typeof workflowLogic.build>
+
+    it('keeps the schedule when the schedules sub-resource read fails', async () => {
+        useMocks({
+            get: {
+                '/api/environments/:team_id/hog_flows/:id/': () => [
+                    200,
+                    makeScheduledWorkflow({ schedules: [makeSchedule({ next_run_at: '2099-01-04T09:00:00.000Z' })] }),
+                ],
+                '/api/environments/:team_id/hog_flows/:id/schedules': () => [500, { error: 'nope' }],
+                '/api/projects/:team_id/hog_function_templates/': { results: [], count: 0 },
+            },
+        })
+        initKeaTests()
+        logic = workflowLogic({ id: WORKFLOW_ID })
+        logic.mount()
+
+        await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess', 'setSchedules'])
+
+        expect(logic.values.nextScheduledRun).toEqual({ at: '2099-01-04T09:00:00.000Z', timezone: 'UTC' })
+        // A seeded schedule must not read as an edit, or saving would delete it.
+        expect(logic.values.pendingSchedule).toBe(false)
+    })
 })
 
 describe('workflowLogic schedule reducers', () => {
@@ -69,6 +114,77 @@ describe('workflowLogic schedule reducers', () => {
                 isScheduleRepeating: false,
                 scheduleState: DEFAULT_STATE,
             })
+        })
+    })
+
+    describe('nextScheduledRun selector', () => {
+        const FUTURE_RUN = '2099-01-04T09:00:00.000Z'
+
+        beforeEach(() => {
+            logic.actions.setWorkflowValue('status', 'active')
+        })
+
+        it('is null when the workflow has no schedule', () => {
+            expect(logic.values.nextScheduledRun).toBeNull()
+        })
+
+        it('reports the next run from next_run_at', () => {
+            logic.actions.setSchedules([makeSchedule({ next_run_at: FUTURE_RUN })])
+
+            expect(logic.values.nextScheduledRun).toEqual({ at: FUTURE_RUN, timezone: 'UTC' })
+        })
+
+        it('expands the rrule while next_run_at is still empty', () => {
+            logic.actions.setSchedules([makeSchedule()])
+
+            const nextScheduledRun = logic.values.nextScheduledRun
+            expect(nextScheduledRun).not.toBeNull()
+            expect(dayjs(nextScheduledRun!.at).isAfter(dayjs())).toBe(true)
+        })
+
+        it.each([
+            {
+                label: 'a daily rule that started months ago',
+                rrule: 'FREQ=DAILY;INTERVAL=1',
+                startedDaysAgo: 120,
+                maxWaitHours: 24,
+            },
+            {
+                label: 'an hourly rule the picker cannot express',
+                rrule: 'FREQ=HOURLY;INTERVAL=1',
+                startedDaysAgo: 30,
+                maxWaitHours: 1,
+            },
+        ])('expands $label while next_run_at is still empty', ({ rrule, startedDaysAgo, maxWaitHours }) => {
+            logic.actions.setSchedules([
+                makeSchedule({ rrule, starts_at: dayjs().subtract(startedDaysAgo, 'day').toISOString() }),
+            ])
+
+            const nextScheduledRun = logic.values.nextScheduledRun
+            expect(nextScheduledRun).not.toBeNull()
+            expect(dayjs(nextScheduledRun!.at).isAfter(dayjs())).toBe(true)
+            expect(dayjs(nextScheduledRun!.at).isBefore(dayjs().add(maxWaitHours, 'hour').add(1, 'minute'))).toBe(true)
+        })
+
+        it('keeps an explicit month day that the picker cannot express', () => {
+            logic.actions.setSchedules([
+                makeSchedule({ rrule: 'FREQ=MONTHLY;BYMONTHDAY=15', starts_at: '2026-01-03T09:00:00.000Z' }),
+            ])
+
+            expect(dayjs(logic.values.nextScheduledRun!.at).utc().date()).toBe(15)
+        })
+
+        it.each(['paused', 'completed'])('is null when the schedule is %s', (status) => {
+            logic.actions.setSchedules([makeSchedule({ status, next_run_at: FUTURE_RUN })])
+
+            expect(logic.values.nextScheduledRun).toBeNull()
+        })
+
+        it('is null when the workflow is not active', () => {
+            logic.actions.setWorkflowValue('status', 'draft')
+            logic.actions.setSchedules([makeSchedule({ next_run_at: FUTURE_RUN })])
+
+            expect(logic.values.nextScheduledRun).toBeNull()
         })
     })
 
