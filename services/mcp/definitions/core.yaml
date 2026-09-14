@@ -426,12 +426,12 @@ tools:
                     `blockSelector` (string), or null to clear it. No other keys are accepted.
             session_recording_trigger_groups:
                 description: >
-                    Replay trigger groups, which take precedence over the legacy trigger fields. Shape:
-                    `{"version": 2, "fallbackSampleRate": 0-1 (optional), "groups": [...]}`. Each group needs `id`,
-                    `sampleRate` (0-1) and `conditions`, and accepts `name` and `minDurationMs` (0-30000).
-                    `conditions` accepts `matchType` ("any" or "all"), `events` (event names, or objects with `name`
-                    and `properties`), `urls` (objects with `url` as a regex and `matching` set to "regex"), `flag`
-                    (a flag key or an object with `key`) and `properties`.
+                    Replay trigger groups, which take precedence over the legacy trigger fields. Shape: `{"version": 2,
+                    "fallbackSampleRate": 0-1 (optional), "groups": [...]}`. Each group needs `id`, `sampleRate` (0-1)
+                    and `conditions`, and accepts `name` and `minDurationMs` (0-30000). `conditions` accepts `matchType`
+                    ("any" or "all"), `events` (event names, or objects with `name` and `properties`), `urls` (objects
+                    with `url` as a regex and `matching` set to "regex"), `flag` (a flag key or an object with `key`)
+                    and `properties`.
             customer_analytics_config:
                 description: >
                     Customer analytics event mapping. Each event field takes an events node object, for example
