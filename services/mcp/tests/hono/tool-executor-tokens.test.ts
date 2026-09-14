@@ -242,6 +242,37 @@ describe('ToolExecutor token estimates', () => {
             expect(execCall[4].output_tokens).not.toBe(estimateTokens(response))
         })
 
+        it('caps an oversized inner result to the client budget and records the pre-cap size', async () => {
+            const tools = catalog
+                .getPreBuiltEntries()
+                .map((entry) => toolFromPreBuilt(catalog.getToolByName(entry.name)!, entry))
+            const target = tools.find((t) => t.name === 'docs-search')! as any
+            const oversized = Array.from({ length: 5_000 }, (_, i) => `line ${i}: ${'x'.repeat(80)}`).join('\n')
+            target.handler = vi.fn(async () => oversized)
+            const state = makeState(tools as any, {
+                useSingleExec: true,
+                clientProfile: {
+                    capabilities: { supportsInstructions: false, maxResponseTokens: 9_000 },
+                    isCliModeEnabled: vi.fn(() => true),
+                    isClaudeUiHost: vi.fn(() => false),
+                    isInlineExecUiHost: vi.fn(() => false),
+                    isClaudeChatHost: vi.fn(() => false),
+                } as any,
+            })
+
+            const response = (await executor.handleToolCall(
+                { name: 'exec', arguments: { command: 'call docs-search {"query":"hi"}' } },
+                state
+            )) as any
+
+            // Regression: measuring the overflow and returning the full payload anyway is
+            // what left Codex truncating the result mid-value.
+            expect(estimateTokens(joinedText(response))).toBeLessThanOrEqual(9_000)
+            const innerCall = mockTrackToolCall.mock.calls.find((call) => call[0] === 'docs-search')!
+            expect(innerCall[4].output_tokens).toBe(estimateTokens(joinedText(response)))
+            expect(innerCall[4].response_overflow_tokens).toBeGreaterThan(9_000)
+        })
+
         it('attributes the canonical event to the inner tool via the standard $mcp_tool_name', async () => {
             // Full catalog tools (real names, so the instructions builder resolves them),
             // with the target handler stubbed to keep dispatch offline + deterministic.
