@@ -2,8 +2,10 @@ import { MakeLogicType, connect, kea, path, selectors } from 'kea'
 
 import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 
 import { groupsModel } from '~/models/groupsModel'
+import type { Noun } from '~/models/groupsModel'
 import { MathType } from '~/queries/schema/schema-general'
 import {
     BaseMathType,
@@ -14,10 +16,7 @@ import {
     HogQLMathType,
     PropertyMathType,
 } from '~/types'
-
-import type { FeatureFlagsSet } from '../../lib/logic/featureFlagLogic'
-import type { Noun } from '../../models/groupsModel'
-import type { GroupType, GroupTypeIndex } from '../../types'
+import type { GroupType, GroupTypeIndex } from '~/types'
 
 export enum MathCategory {
     EventCount,
