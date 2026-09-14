@@ -1,3 +1,4 @@
+import type { LoopSchemas } from "@posthog/api-client/loops";
 import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -15,7 +16,7 @@ const mocks = vi.hoisted(() => {
     channels: [personalSpace],
     channelsLoading: false,
     useLoops: vi.fn(() => ({
-      data: [] as unknown[],
+      data: [] as LoopSchemas.Loop[],
       isLoading: false,
       isError: false,
     })),
@@ -71,6 +72,18 @@ vi.mock("@posthog/ui/features/loops/components/LoopTemplatesSection", () => ({
 
 import { WebsiteChannelLoops } from "./WebsiteChannelLoops";
 
+function loop(
+  id: string,
+  name: string,
+  folderId: string | null,
+): LoopSchemas.Loop {
+  return {
+    id,
+    name,
+    context_target: folderId ? { folder_id: folderId, name: folderId } : null,
+  } as LoopSchemas.Loop;
+}
+
 describe("WebsiteChannelLoops", () => {
   beforeEach(() => {
     mocks.channels = [mocks.personalSpace];
@@ -86,13 +99,9 @@ describe("WebsiteChannelLoops", () => {
   it("shows only loops attached to the personal space", () => {
     mocks.useLoops.mockReturnValue({
       data: [
-        {
-          id: "a",
-          name: "Mine",
-          context_target: { folder_id: "personal-space" },
-        },
-        { id: "b", name: "Unattached", context_target: null },
-        { id: "c", name: "Elsewhere", context_target: { folder_id: "other" } },
+        loop("a", "Mine", "personal-space"),
+        loop("b", "Unattached", null),
+        loop("c", "Elsewhere", "other"),
       ],
       isLoading: false,
       isError: false,
