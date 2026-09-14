@@ -1,3 +1,4 @@
+import django.db.models.deletion
 from django.db import migrations, models
 
 import posthog.helpers.encrypted_fields
@@ -27,7 +28,16 @@ class Migration(migrations.Migration):
                     ),
                 ),
                 ("user_id", models.BigIntegerField(null=True)),
-                ("team_id", models.BigIntegerField(null=True)),
+                (
+                    "team",
+                    models.ForeignKey(
+                        db_constraint=False,
+                        null=True,
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="cli_device_authorizations",
+                        to="posthog.team",
+                    ),
+                ),
                 ("scopes", models.JSONField(default=list)),
                 ("label", models.CharField(blank=True, max_length=40)),
                 (

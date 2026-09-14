@@ -105,6 +105,7 @@ rules:
                               |ChannelInstructions
                               |ChannelMembership
                               |ChannelStar
+                              |CLIDeviceAuthorization
                               |ClusteringConfig
                               |ClusteringJob
                               |Cohort
@@ -518,6 +519,7 @@ rules:
                         |ChannelInstructions
                         |ChannelMembership
                         |ChannelStar
+                        |CLIDeviceAuthorization
                         |ClusteringConfig
                         |ClusteringJob
                         |Cohort

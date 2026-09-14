@@ -1,9 +1,10 @@
 from django.db import models
 
 from posthog.helpers.encrypted_fields import EncryptedCharField
+from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 
 
-class CLIDeviceAuthorization(models.Model):
+class CLIDeviceAuthorization(TeamScopedRootMixin):
     class Status(models.TextChoices):
         PENDING = "pending"
         AUTHORIZED = "authorized"
@@ -13,7 +14,13 @@ class CLIDeviceAuthorization(models.Model):
     user_code = models.CharField(max_length=9, unique=True)
     status = models.CharField(max_length=16, choices=Status.choices, default=Status.PENDING)
     user_id = models.BigIntegerField(null=True)
-    team_id = models.BigIntegerField(null=True)
+    team = models.ForeignKey(
+        "posthog.Team",
+        db_constraint=False,
+        null=True,
+        on_delete=models.CASCADE,
+        related_name="cli_device_authorizations",
+    )
     scopes = models.JSONField(default=list)
     label = models.CharField(max_length=40, blank=True)
     personal_api_key_value = EncryptedCharField(max_length=255, null=True, blank=True)

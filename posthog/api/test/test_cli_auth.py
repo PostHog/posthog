@@ -79,7 +79,7 @@ class TestCLIAuthDeviceCodeEndpoint(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
     def test_device_code_cleans_up_expired_authorizations(self):
-        expired = CLIDeviceAuthorization.objects.create(
+        expired = CLIDeviceAuthorization.objects.unscoped().create(
             device_code="expired-device-code",
             user_code="EXPR-0001",
             expires_at=timezone.now() - timedelta(seconds=1),
@@ -88,7 +88,7 @@ class TestCLIAuthDeviceCodeEndpoint(APIBaseTest):
         response = self.client.post("/api/cli-auth/device-code/")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertFalse(CLIDeviceAuthorization.objects.filter(pk=expired.pk).exists())
+        self.assertFalse(CLIDeviceAuthorization.objects.unscoped().filter(pk=expired.pk).exists())
 
     def test_device_code_is_rate_limited_by_ip(self):
         for _ in range(10):

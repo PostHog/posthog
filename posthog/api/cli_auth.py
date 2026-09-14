@@ -176,15 +176,16 @@ class CLIAuthViewSet(viewsets.ViewSet):
 
         now = timezone.now()
         expired_ids = list(
-            CLIDeviceAuthorization.objects.filter(expires_at__lt=now)
+            CLIDeviceAuthorization.objects.unscoped()
+            .filter(expires_at__lt=now)
             .order_by("expires_at")
             .values_list("id", flat=True)[:MAX_EXPIRED_DEVICE_AUTHORIZATIONS_CLEANED]
         )
         if expired_ids:
-            CLIDeviceAuthorization.objects.filter(id__in=expired_ids).delete()
+            CLIDeviceAuthorization.objects.unscoped().filter(id__in=expired_ids).delete()
 
         expires_at = now + timedelta(seconds=DEVICE_CODE_EXPIRY_SECONDS)
-        CLIDeviceAuthorization.objects.create(
+        CLIDeviceAuthorization.objects.unscoped().create(
             device_code=device_code,
             user_code=user_code,
             expires_at=expires_at,
@@ -254,7 +255,7 @@ class CLIAuthViewSet(viewsets.ViewSet):
             )
 
         try:
-            authorization = CLIDeviceAuthorization.objects.get(user_code=user_code)
+            authorization = CLIDeviceAuthorization.objects.unscoped().get(user_code=user_code)
         except CLIDeviceAuthorization.DoesNotExist:
             return Response(
                 {"error": "invalid_code", "error_description": "User code not found or expired"},
@@ -286,7 +287,7 @@ class CLIAuthViewSet(viewsets.ViewSet):
             )
 
         with transaction.atomic():
-            authorization = CLIDeviceAuthorization.objects.select_for_update().get(pk=authorization.pk)
+            authorization = CLIDeviceAuthorization.objects.unscoped().select_for_update().get(pk=authorization.pk)
             if authorization.expires_at <= timezone.now():
                 return Response(
                     {"error": "invalid_code", "error_description": "User code not found or expired"},
@@ -332,7 +333,7 @@ class CLIAuthViewSet(viewsets.ViewSet):
 
             authorization.status = CLIDeviceAuthorization.Status.AUTHORIZED
             authorization.user_id = user.id
-            authorization.team_id = team.id
+            authorization.team = team
             authorization.scopes = scopes
             authorization.label = label
             authorization.personal_api_key_value = api_key_value
@@ -341,7 +342,7 @@ class CLIAuthViewSet(viewsets.ViewSet):
                 update_fields=[
                     "status",
                     "user_id",
-                    "team_id",
+                    "team",
                     "scopes",
                     "label",
                     "personal_api_key_value",
@@ -388,7 +389,7 @@ class CLIAuthViewSet(viewsets.ViewSet):
         device_code = serializer.validated_data["device_code"]
 
         try:
-            authorization = CLIDeviceAuthorization.objects.get(device_code=device_code)
+            authorization = CLIDeviceAuthorization.objects.unscoped().get(device_code=device_code)
         except CLIDeviceAuthorization.DoesNotExist:
             return Response(
                 {"status": "expired", "error": "expired_token", "error_description": "Device code expired"},
@@ -406,7 +407,7 @@ class CLIAuthViewSet(viewsets.ViewSet):
 
         if authorization.status == CLIDeviceAuthorization.Status.AUTHORIZED:
             with transaction.atomic():
-                authorization = CLIDeviceAuthorization.objects.select_for_update().get(pk=authorization.pk)
+                authorization = CLIDeviceAuthorization.objects.unscoped().select_for_update().get(pk=authorization.pk)
                 if authorization.status != CLIDeviceAuthorization.Status.AUTHORIZED:
                     return Response(
                         {"status": "expired", "error": "expired_token", "error_description": "Device code expired"},
