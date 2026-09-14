@@ -141,10 +141,16 @@ class Command(BaseCommand):
             LLMSkill.objects.filter(pk=skill_id).update(updated_at=timezone.now())
 
     def _rows_by_skill(self, team_id: int | None) -> Iterator[SkillFileRows]:
-        """Stream `(skill id, rows)`, holding one skill's paths in memory at a time.
+        """Yield each skill's `(row id, path)` pairs as one group.
 
         Ordering by skill id makes the rows arrive grouped, so collision checking sees a whole
         skill without one query per skill.
+
+        `chunk_size` bounds the fetch only where server-side cursors are on. Cloud sets
+        `DISABLE_SERVER_SIDE_CURSORS` behind PgBouncer, so `.iterator()` buffers the whole result
+        set and an unfiltered run holds one tuple per file row. `LLMSkillFile` is per-team authored
+        config with a per-skill file cap, not an event table, so that is acceptable for a one-off
+        operator command. Pass `--team-id` to bound a run.
         """
         files = LLMSkillFile.objects.all()
         if team_id is not None:
