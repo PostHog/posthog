@@ -8,14 +8,14 @@ It is a property of every table that stores rows attributable to a person.
 
 ## The sweeps
 
-| Sweep                    | Entry point                      | Predicate columns                          |
-| ------------------------ | -------------------------------- | ------------------------------------------ |
-| Person deletion (async)  | `deletes_job` → `delete_events`  | `team_id`, `person_id`, `timestamp`        |
-| Team deletion            | `deletes_job` → `delete_events`  | `team_id`                                  |
-| Queued uuid drain        | `deletes_job` → `delete_events`  | `team_id`, `uuid`                          |
-| Person removal request   | `delete_person_events_op`        | `team_id`, `person_id`, `timestamp`        |
-| Event removal request    | `execute_event_deletion`         | `team_id`, `timestamp`, `event`, + HogQL   |
-| Property removal request | `process_property_removal_shard` | `properties`, `person_properties`, + HogQL |
+| Sweep                    | Entry point                      | Predicate columns                                  |
+| ------------------------ | -------------------------------- | -------------------------------------------------- |
+| Person deletion (async)  | `deletes_job` → `delete_events`  | `team_id`, `person_id`, `timestamp`, `inserted_at` |
+| Team deletion            | `deletes_job` → `delete_events`  | `team_id`                                          |
+| Queued uuid drain        | `deletes_job` → `delete_events`  | `team_id`, `uuid`, `inserted_at`                   |
+| Person removal request   | `delete_person_events_op`        | `team_id`, `person_id`, `timestamp`                |
+| Event removal request    | `execute_event_deletion`         | `team_id`, `timestamp`, `event`, + HogQL           |
+| Property removal request | `process_property_removal_shard` | `properties`, `person_properties`, + HogQL         |
 
 The first four use only columns every target declares, so they apply unchanged to any registered table.
 The last two need more, which is what the capability fields on `DeletionTarget` express.
