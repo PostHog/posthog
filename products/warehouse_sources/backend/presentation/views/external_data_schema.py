@@ -880,20 +880,26 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         # and then fails on every later run, so the switch is refused rather than accepted and
         # broken at the second sync. `id` counts, because discovery falls back to it.
         if resulting_sync_type == ExternalDataSchema.SyncType.INCREMENTAL:
-            requested_keys = data.get("primary_key_columns") if "primary_key_columns" in data else None
             metadata = instance.schema_metadata or {}
             metadata_columns = metadata.get("columns") if isinstance(metadata, dict) else None
             known_columns = metadata_columns if isinstance(metadata_columns, list) else []
-            has_id_column = any(
-                isinstance(column, dict) and str(column.get("name", "")).lower() == "id" for column in known_columns
-            )
+            column_names = {str(column.get("name", "")).lower() for column in known_columns if isinstance(column, dict)}
+            # The key this request leaves in force, not the one it replaces: clearing an existing
+            # key leaves the same unmergeable table as never setting one.
+            requested_keys = data["primary_key_columns"] if "primary_key_columns" in data else None
+            merge_keys = requested_keys if "primary_key_columns" in data else instance.primary_key_columns
             # Only when the schema's columns are known. Without them there is nothing to say the
             # table has no key, and the sync-time guard still covers it.
-            if known_columns and not requested_keys and not instance.primary_key_columns and not has_id_column:
+            if known_columns and not merge_keys and "id" not in column_names:
                 raise ValidationError(
                     f"'{instance.name}' has no primary key to sync incrementally on. "
                     "Set primary_key_columns for it, or choose full_refresh."
                 )
+            # Only the names this request supplies. A key stored against older metadata must not
+            # block an edit that leaves it alone.
+            unknown_keys = [key for key in (requested_keys or []) if str(key).lower() not in column_names]
+            if column_names and unknown_keys:
+                raise ValidationError(f"'{instance.name}' has no column named {', '.join(unknown_keys)} to merge on.")
 
         trigger_refresh = False
         # Update the validated_data with incremental fields

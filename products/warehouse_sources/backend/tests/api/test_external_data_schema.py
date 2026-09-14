@@ -587,15 +587,30 @@ class TestExternalDataSchema(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("no_key_and_no_id_column", [{"name": "amount"}], None, False),
-            ("id_column_is_the_fallback", [{"name": "id"}, {"name": "amount"}], None, True),
-            ("key_supplied_in_the_request", [{"name": "amount"}], ["order_id"], True),
-            ("columns_unknown", [], None, True),
+            ("no_key_and_no_id_column", [{"name": "amount"}], None, None, False, "no primary key"),
+            ("id_column_is_the_fallback", [{"name": "id"}, {"name": "amount"}], None, None, True, ""),
+            (
+                "key_supplied_in_the_request",
+                [{"name": "amount"}, {"name": "order_id"}],
+                None,
+                ["order_id"],
+                True,
+                "",
+            ),
+            ("columns_unknown", [], None, None, True, ""),
+            ("clearing_an_existing_key", [{"name": "amount"}], ["order_id"], [], False, "no primary key"),
+            ("key_naming_a_missing_column", [{"name": "amount"}], None, ["nope"], False, "no column named"),
         ]
     )
     def test_switching_to_incremental_requires_a_key_the_merge_can_use(
-        self, _name: str, columns: list[dict[str, str]], requested_keys: list[str] | None, expected_ok: bool
-    ):
+        self,
+        _name: str,
+        columns: list[dict[str, str]],
+        persisted_keys: list[str] | None,
+        requested_keys: list[str] | None,
+        expected_ok: bool,
+        expected_error: str,
+    ) -> None:
         source = ExternalDataSource.objects.create(
             team=self.team,
             source_type=ExternalDataSourceType.STRIPE,
@@ -607,7 +622,10 @@ class TestExternalDataSchema(APIBaseTest):
             source=source,
             should_sync=True,
             sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
-            sync_type_config={"schema_metadata": {"columns": columns}},
+            sync_type_config={
+                **({"primary_key_columns": persisted_keys} if persisted_keys else {}),
+                "schema_metadata": {"columns": columns},
+            },
         )
         payload: dict[str, Any] = {
             "sync_type": "incremental",
@@ -637,7 +655,7 @@ class TestExternalDataSchema(APIBaseTest):
             assert response.status_code == 200, response.content
         else:
             assert response.status_code == 400, response.content
-            assert "no primary key" in str(response.json()).lower()
+            assert expected_error in str(response.json()).lower()
 
     def test_update_schema_sync_type_is_logged_to_activity(self):
         source = ExternalDataSource.objects.create(
