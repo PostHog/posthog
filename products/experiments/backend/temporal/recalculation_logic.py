@@ -63,7 +63,6 @@ logger = structlog.get_logger(__name__)
 # Cap stored/returned error messages so a pathological traceback can't bloat the Temporal payload (~2 MiB cap).
 _MAX_ERROR_MESSAGE_LENGTH = 2000
 
-# Statuses a recalc row never leaves. Reaching one means the run is over, whatever its activities still think.
 _TERMINAL_RECALC_STATUSES = frozenset(
     {ExperimentMetricsRecalculation.Status.COMPLETED, ExperimentMetricsRecalculation.Status.FAILED}
 )
@@ -498,42 +497,41 @@ def _store_result(
     error_message: str | None,
     query_id: str | None = None,
 ) -> None:
-    # A terminal recalc row means the run was superseded or already finalized, but its in-flight calc can
-    # still reach here because sync_to_async cannot stop a thread mid-query. The upsert below keys on
-    # (experiment, metric_uuid, query_to), which is the same key the superseding run writes, so a late write
-    # from the abandoned run would overwrite the fresh result.
-    current_status = (
-        ExperimentMetricsRecalculation.objects.unscoped()
-        .filter(id=recalculation_id)
-        .values_list("status", flat=True)
-        .first()
-    )
-    if current_status in _TERMINAL_RECALC_STATUSES:
-        logger.warning(
-            "Skipping experiment metric result write for a recalculation that is already terminal",
-            recalculation_id=recalculation_id,
-            metric_uuid=metric_uuid,
-            recalculation_status=current_status,
+    with transaction.atomic():
+        # Match request_recalculation's lock order; result inserts also take an experiment FK lock.
+        Experiment.objects.select_for_update(no_key=True).filter(id=experiment_id).exists()
+        current_status = (
+            ExperimentMetricsRecalculation.objects.select_for_update()
+            .filter(id=recalculation_id, experiment_id=experiment_id)
+            .values_list("status", flat=True)
+            .first()
         )
-        return
+        if current_status is None or current_status in _TERMINAL_RECALC_STATUSES:
+            logger.warning(
+                "Skipping experiment metric result write for a terminal or missing recalculation",
+                recalculation_id=recalculation_id,
+                metric_uuid=metric_uuid,
+                recalculation_status=current_status,
+            )
+            return
 
-    # Upsert on the true unique key (experiment, metric_uuid, query_to); fingerprint goes in defaults so a row
-    # already occupying that key under a different fingerprint is updated in place, not inserted as a colliding
-    # duplicate. This heals rows written under the old per-run fingerprint scheme.
-    ExperimentMetricResult.objects.update_or_create(
-        experiment_id=experiment_id,
-        metric_uuid=metric_uuid,
-        query_to=query_to,
-        defaults={
-            "fingerprint": recalc_fp,
-            "query_from": query_from,
-            "status": status,
-            "result": result,
-            "query_id": query_id,
-            "completed_at": timezone.now() if status == ExperimentMetricResult.Status.COMPLETED else None,
-            "error_message": error_message,
-        },
-    )
+        # Upsert on the true unique key (experiment, metric_uuid, query_to); fingerprint goes in defaults so a row
+        # already occupying that key under a different fingerprint is updated in place, not inserted as a colliding
+        # duplicate. This heals rows written under the old per-run fingerprint scheme.
+        ExperimentMetricResult.objects.update_or_create(
+            experiment_id=experiment_id,
+            metric_uuid=metric_uuid,
+            query_to=query_to,
+            defaults={
+                "fingerprint": recalc_fp,
+                "query_from": query_from,
+                "status": status,
+                "result": result,
+                "query_id": query_id,
+                "completed_at": timezone.now() if status == ExperimentMetricResult.Status.COMPLETED else None,
+                "error_message": error_message,
+            },
+        )
 
 
 def _fail(recalculation_id: str, metric_uuid: str, step: str, message: str) -> MetricRecalculationResult:

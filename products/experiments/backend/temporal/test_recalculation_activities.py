@@ -1077,15 +1077,16 @@ class TestCalculateActivity(BaseTest):
         [
             (ExperimentMetricsRecalculation.Status.FAILED,),
             (ExperimentMetricsRecalculation.Status.COMPLETED,),
+            (None,),
         ]
     )
-    def test_store_result_skips_a_recalculation_that_already_went_terminal(self, status: str):
-        # The staleness sweep force-fails a superseded run's row and cancels its workflow, but sync_to_async
-        # cannot stop a thread mid-query, so that run's calc can still reach _store_result afterwards. Without
-        # the terminal check it overwrites the superseding run's result on the shared upsert key.
+    def test_store_result_skips_a_terminal_or_missing_recalculation(self, status: str | None) -> None:
         exp = self._experiment(flag_key="store-superseded", metrics=[_mean_metric("m1")])
         recalc = self._recalc(exp, metric_uuids=["m1"])
-        ExperimentMetricsRecalculation.objects.filter(id=recalc.id).update(status=status)
+        if status is None:
+            ExperimentMetricsRecalculation.objects.filter(id=recalc.id).delete()
+        else:
+            ExperimentMetricsRecalculation.objects.filter(id=recalc.id).update(status=status)
         query_to = datetime.fromisoformat(_QUERY_TO)
         ExperimentMetricResult.objects.create(
             experiment=exp,
@@ -1260,18 +1261,20 @@ class TestMissingRecalcRow:
 
 
 class TestCalculateActivityCancellation:
-    # The calc body runs through sync_to_async, which cannot stop its worker thread once it has started. A
-    # plain `await` returns the moment Temporal cancels the activity and leaves the ClickHouse query, its DB
-    # connection and the runner's result buffers alive and unsupervised.
-    async def test_cancellation_drains_the_body_before_propagating(self):
+    @pytest.mark.parametrize("cancellations", [1, 2])
+    @pytest.mark.parametrize("body_fails", [False, True])
+    async def test_cancellation_drains_the_body_before_propagating(self, cancellations: int, body_fails: bool) -> None:
         started = asyncio.Event()
+        release = asyncio.Event()
         body_finished = False
 
-        async def _slow_body(*args, **kwargs):
+        async def _slow_body(*args: object, **kwargs: object) -> MetricRecalculationResult:
             nonlocal body_finished
             started.set()
-            await asyncio.sleep(0.05)
+            await release.wait()
             body_finished = True
+            if body_fails:
+                raise RuntimeError("calculation failed during cleanup")
             return MetricRecalculationResult(metric_uuid="m1", success=True)
 
         with (
@@ -1281,16 +1284,52 @@ class TestCalculateActivityCancellation:
             ),
             patch("temporalio.activity.info", return_value=SimpleNamespace(attempt=1)),
         ):
-            task = asyncio.ensure_future(
-                calculate_experiment_metric_for_recalculation(1, "m1", "r1", _QUERY_TO)  # type: ignore[arg-type]
-            )
+            task = asyncio.create_task(calculate_experiment_metric_for_recalculation(1, "m1", "r1", _QUERY_TO))
             await started.wait()
-            task.cancel()
+            try:
+                for cancellation in range(cancellations):
+                    task.cancel(f"cancel-{cancellation}")
+                    await asyncio.sleep(0)
+                    assert not task.done()
+            finally:
+                release.set()
 
-            with pytest.raises(asyncio.CancelledError):
+            with pytest.raises(asyncio.CancelledError, match="cancel-0"):
                 await task
 
         assert body_finished is True
+
+    async def test_cancellation_drain_has_a_deadline(self) -> None:
+        started = asyncio.Event()
+        release = asyncio.Event()
+        body_finished = asyncio.Event()
+
+        async def _slow_body(*args: object, **kwargs: object) -> MetricRecalculationResult:
+            started.set()
+            await release.wait()
+            body_finished.set()
+            return MetricRecalculationResult(metric_uuid="m1", success=True)
+
+        with (
+            patch(
+                "products.experiments.backend.temporal.recalculation_activities._calculate_experiment_metric_for_recalculation_sync",
+                _slow_body,
+            ),
+            patch("temporalio.activity.info", return_value=SimpleNamespace(attempt=1)),
+            patch(
+                "products.experiments.backend.temporal.recalculation_activities.METRIC_CALC_ACTIVITY_TIMEOUT_SECONDS", 0
+            ),
+        ):
+            task = asyncio.create_task(calculate_experiment_metric_for_recalculation(1, "m1", "r1", _QUERY_TO))
+            await started.wait()
+            try:
+                task.cancel("original cancellation")
+                with pytest.raises(asyncio.CancelledError, match="original cancellation"):
+                    await asyncio.wait_for(task, timeout=5)
+                assert not body_finished.is_set()
+            finally:
+                release.set()
+                await asyncio.wait_for(body_finished.wait(), timeout=5)
 
 
 @contextmanager

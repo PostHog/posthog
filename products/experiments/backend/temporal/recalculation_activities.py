@@ -71,17 +71,21 @@ async def calculate_experiment_metric_for_recalculation(
     try:
         return await asyncio.shield(task)
     except asyncio.CancelledError:
-        # sync_to_async cannot stop its worker thread. Returning here leaves the ClickHouse query, its DB
-        # connection and the runner's result buffers alive and unsupervised, so the worker keeps paying for
-        # an attempt Temporal has already given up on. Wait the thread out first, bounded by the activity's
-        # own per-attempt budget because the body cannot outlive that by design.
-        try:
-            await asyncio.wait_for(asyncio.shield(task), timeout=METRIC_CALC_ACTIVITY_TIMEOUT_SECONDS)
-        except Exception:
-            logger.warning(
-                "experiment_metric_recalculation_drain_after_cancel_failed",
-                metric_uuid=metric_uuid,
-                recalculation_id=recalculation_id,
-                exc_info=True,
-            )
+        # Keep the worker slot while the uncancellable thread finishes, but bound shutdown cleanup.
+        drain = asyncio.create_task(asyncio.wait_for(asyncio.shield(task), METRIC_CALC_ACTIVITY_TIMEOUT_SECONDS))
+        while True:
+            try:
+                await asyncio.shield(drain)
+                break
+            except asyncio.CancelledError:
+                if drain.cancelled():
+                    break
+            except Exception:
+                logger.warning(
+                    "experiment_metric_recalculation_drain_after_cancel_failed",
+                    metric_uuid=metric_uuid,
+                    recalculation_id=recalculation_id,
+                    exc_info=True,
+                )
+                break
         raise
