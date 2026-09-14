@@ -1,6 +1,6 @@
 import abc
 import uuid
-from collections.abc import Callable, Sequence
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
 from functools import partial
@@ -328,7 +328,7 @@ class AdhocEventDeletesDictionary(Dictionary):
 # Statuses under which a run's mutations may still land on the cluster: STARTING and STARTED are
 # executing, and a CANCELING run's last mutation keeps applying server-side. QUEUED and
 # NOT_STARTED are left out on purpose. A queued run has done nothing yet, and its own guard will
-# rank it against this run once it starts.
+# see this run once it starts.
 _EXECUTING_RUN_STATUSES = [
     dagster.DagsterRunStatus.STARTING,
     dagster.DagsterRunStatus.STARTED,
@@ -336,44 +336,33 @@ _EXECUTING_RUN_STATUSES = [
 ]
 
 
-def _runs_blocking_start(records: Sequence[dagster.RunRecord], current_run_id: str) -> list[str]:
-    """Ids of executing runs that outrank ``current_run_id`` for the right to continue.
-
-    Ranked by creation time with the run id as the tiebreak, so two runs that each see the
-    other compute the same loser and exactly one survives. When the current run is missing
-    from ``records``, every other run blocks, which fails conservatively rather than electing
-    on incomplete data.
-    """
-    created_by_id = {record.dagster_run.run_id: record.create_timestamp for record in records}
-    mine = created_by_id.get(current_run_id)
-    if mine is None:
-        return sorted(run_id for run_id in created_by_id)
-    return sorted(run_id for run_id, created in created_by_id.items() if (created, run_id) < (mine, current_run_id))
-
-
 @dagster.op(out=dagster.Out(dagster.Nothing))
 def ensure_no_concurrent_deletes_run(context: dagster.OpExecutionContext) -> None:
-    """Fail this run when an earlier run of the same job, or any squash run, is executing.
+    """Fail this run when another run of the same job, or any squash run, is executing.
 
     Concurrent deletes runs share their dictionary names, so each run's delete mutations read
     whichever contents the other run loaded last, and mark_deletions_verified then claims
-    deletions the sweep may not have performed. The election in _runs_blocking_start fails only
-    the later starter, so the earlier run finishes undisturbed and the failed run's requests
-    stay pending for the next one.
+    deletions the sweep may not have performed. Any other executing run blocks, deliberately
+    without an election: ranking by creation time lets a run that was queued early and started
+    late outrank a run already past this guard, and two runs then proceed together. Two racing
+    starts can both fail here, which is safe and visible; the run-queue limit named on the job's
+    concurrency tag is what removes that annoyance, not a smarter guard.
 
-    A squash run blocks too, whatever its age. The weekly chain serializes squash before
-    deletes because both issue heavy mutations on the same tables, and manual_deletes_job's
-    preflight can go stale between its check and the sensor launching this run, so the launched
-    run checks again here. This covers direct launchpad starts as well.
+    A squash run blocks too. The weekly chain serializes squash before deletes because both
+    issue heavy mutations on the same tables, and manual_deletes_job's preflight can go stale
+    between its check and the sensor launching this run, so the launched run checks again here.
+    This covers direct launchpad starts as well.
     """
-    records = context.instance.get_run_records(
-        dagster.RunsFilter(job_name=context.job_name, statuses=_EXECUTING_RUN_STATUSES)
-    )
-    blockers = [f"{context.job_name} run {run_id}" for run_id in _runs_blocking_start(records, context.run_id)]
-    squash_records = context.instance.get_run_records(
-        dagster.RunsFilter(job_name=squash_person_overrides.name, statuses=_EXECUTING_RUN_STATUSES)
-    )
-    blockers.extend(f"{squash_person_overrides.name} run {record.dagster_run.run_id}" for record in squash_records)
+    blockers: list[str] = []
+    for job_name in (context.job_name, squash_person_overrides.name):
+        records = context.instance.get_run_records(
+            dagster.RunsFilter(job_name=job_name, statuses=_EXECUTING_RUN_STATUSES)
+        )
+        blockers.extend(
+            f"{job_name} run {record.dagster_run.run_id}"
+            for record in records
+            if record.dagster_run.run_id != context.run_id
+        )
     if blockers:
         raise dagster.Failure(
             description="This run yields to: " + "; ".join(blockers) + ". "
@@ -575,7 +564,9 @@ def capture_sweep_started_at(cluster: dagster.ResourceParam[ClickhouseCluster]) 
     run's dictionary contents. As the ingestion watermark in mark_deletions_verified it scopes
     the survivor count to rows the sweep was responsible for: a row inserted after this instant
     was not necessarily in any part the mutations covered, so counting it would let backdated
-    ingestion during the run fail verification for every tenant.
+    ingestion during the run fail verification for every tenant. Every request in the run was
+    created before the dictionaries were snapshotted, so a count scoped by this reading still
+    covers everything those requests promise to remove.
     """
     return _mutation_reuse_floor(cluster)
 
@@ -806,12 +797,13 @@ def _rows_per_shard(cluster: ClickhouseCluster, query: Query) -> list:
 
 _SURVIVOR_COUNT_ATTEMPTS = 3
 
-# The delete predicate scoped to rows the sweep was responsible for. A mutation only rewrites
-# parts that existed when it was created, so a row inserted after the sweep started can survive
-# no matter how well the sweep worked, and counting it would let a tenant that keeps ingesting
-# backdated events for a pending deletion fail verification for every tenant. NULL inserted_at
-# predates the column and always counts. The delete predicate itself stays unbounded, so the
-# next run's mutation still removes late rows.
+# The delete predicate scoped to rows the sweep was responsible for. A deletion request covers
+# the rows present in ClickHouse when it was made, and every request in a run has created_at
+# before the watermark, so a row inserted after the sweep started is outside every request being
+# verified; removing it takes a new request. Counting such rows would also let a tenant that
+# keeps ingesting backdated events for a pending deletion fail verification for every tenant. A
+# mutation only rewrites parts that existed when it was created, which is why a late row survives
+# even a correct sweep. NULL inserted_at predates the column and always counts.
 _SURVIVOR_COUNT_PREDICATE = f"({_DELETE_PREDICATE}) AND (inserted_at IS NULL OR inserted_at <= %(sweep_started_at)s)"
 
 
@@ -984,7 +976,15 @@ def cleanup_delete_assets(
     return True
 
 
-@dagster.job(tags={"owner": JobOwners.TEAM_CLICKHOUSE.value})
+@dagster.job(
+    tags={
+        "owner": JobOwners.TEAM_CLICKHOUSE.value,
+        # For a run-queue limit of 1 in Dagster deployment settings, so a second run queues
+        # instead of racing the guard; clickhouse_deletion_sweep_concurrency is the matched
+        # example. ensure_no_concurrent_deletes_run enforces mutual exclusion regardless.
+        "deletes_job_concurrency": "v1",
+    }
+)
 def deletes_job():
     """Job that handles deletion of events."""
     # Prepare requested deletions data
