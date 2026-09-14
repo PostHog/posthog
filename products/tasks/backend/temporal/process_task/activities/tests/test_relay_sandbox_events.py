@@ -43,7 +43,7 @@ from products.tasks.backend.temporal.process_task.workflow import (
     ProcessTaskWorkflow,
 )
 
-from ee.hogai.sandbox import TURN_COMPLETE_METHOD, is_turn_complete
+from ee.hogai.sandbox import PI_RUNTIME_ERROR_MESSAGE, TURN_COMPLETE_METHOD, is_turn_complete, pi_turn_error
 
 relay_sandbox_events_module = importlib.import_module(
     "products.tasks.backend.temporal.process_task.activities.relay_sandbox_events"
@@ -78,10 +78,44 @@ class TestIsTurnComplete:
                 {"type": "pi_event", "event": {"type": "turn_completed"}},
                 True,
             ),
+            (
+                "pi_turn_complete_with_a_runtime_error",
+                {"type": "pi_event", "event": {"type": "turn_completed", "stopReason": "error"}},
+                True,
+            ),
         ]
     )
     def test_is_turn_complete(self, _name: str, event_data: dict, expected: bool):
         assert is_turn_complete(event_data) == expected
+
+
+class TestPiTurnError:
+    @parameterized.expand(
+        [
+            (
+                "normal_pi_turn_complete",
+                {"type": "pi_event", "event": {"type": "turn_completed"}},
+                False,
+            ),
+            (
+                "pi_turn_complete_with_a_runtime_error",
+                {"type": "pi_event", "event": {"type": "turn_completed", "stopReason": "error"}},
+                True,
+            ),
+            (
+                "pi_turn_complete_with_a_non_error_stop_reason",
+                {"type": "pi_event", "event": {"type": "turn_completed", "stopReason": "cancelled"}},
+                False,
+            ),
+            (
+                "acp_end_turn_is_not_a_pi_error",
+                {"type": "notification", "notification": {"result": {"stopReason": "error"}}},
+                False,
+            ),
+        ]
+    )
+    def test_pi_turn_error(self, _name: str, event_data: dict, expected: bool):
+        assert pi_turn_error(event_data) == expected
 
 
 class TestIsSessionUpdate:
@@ -822,6 +856,60 @@ class TestRelaySandboxEventsErrorHandling:
         redis_stream.release_first_agent_command.assert_not_awaited()
         redis_stream.release_first_agent_activity.assert_not_awaited()
         assert redis_stream.claim_first_agent_activity.await_count == 2
+
+    async def test_relay_fails_the_run_instead_of_completing_it_on_a_pi_runtime_error(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        redis_stream = SimpleNamespace(
+            write_event=AsyncMock(),
+            mark_complete=AsyncMock(),
+            mark_error=AsyncMock(),
+            claim_first_agent_command=AsyncMock(return_value=False),
+            release_first_agent_command=AsyncMock(),
+            claim_first_agent_activity=AsyncMock(return_value=False),
+            release_first_agent_activity=AsyncMock(),
+        )
+        events = [
+            {"type": "pi_event", "event": {"type": "turn_completed", "stopReason": "error"}},
+            {"type": "notification", "notification": {"method": "_posthog/task_complete"}},
+        ]
+
+        class SuccessfulEventSource:
+            response = SimpleNamespace(raise_for_status=lambda: None)
+
+            async def __aenter__(self) -> "SuccessfulEventSource":
+                return self
+
+            async def __aexit__(self, *_args: object) -> None:
+                return None
+
+            async def aiter_sse(self):
+                for event in events:
+                    yield SimpleNamespace(data=json.dumps(event))
+
+        handle = SimpleNamespace(signal=AsyncMock())
+        client = SimpleNamespace(get_workflow_handle=MagicMock(return_value=handle))
+
+        monkeypatch.setattr(
+            relay_sandbox_events_module.httpx_sse, "aconnect_sse", lambda *_args, **_kwargs: SuccessfulEventSource()
+        )
+        monkeypatch.setattr(relay_sandbox_events_module, "_background_heartbeat", AsyncMock())
+        monkeypatch.setattr(
+            relay_sandbox_events_module.activity, "info", lambda: SimpleNamespace(workflow_id="workflow-1")
+        )
+        monkeypatch.setattr("posthog.temporal.common.client.async_connect", AsyncMock(return_value=client))
+
+        await _relay_loop(
+            events_url="https://sandbox.example/events",
+            headers={"Authorization": "Bearer token"},
+            params={},
+            redis_stream=cast(TaskRunRedisStream, redis_stream),
+            run_id="run-id",
+            task_id="task-id",
+        )
+
+        assert call("complete_task", args=["failed", PI_RUNTIME_ERROR_MESSAGE]) in handle.signal.await_args_list
+        assert call("agent_state_changed", arg=False) not in handle.signal.await_args_list
 
     @parameterized.expand(
         [

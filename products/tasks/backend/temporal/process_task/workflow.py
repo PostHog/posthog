@@ -3498,6 +3498,10 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             # A delivered message opens a turn: the first heartbeat may lag or be throttled away.
             if outcome != STEER_DECLINED_OUTCOME and _turn_opens_on_dispatch():
                 self._end_of_turn_received = False
+                # The ingest plane never reports a turn active, only inactive at its close, so a
+                # stale `False` from the turn that just ended must not carry into this one — it
+                # would permanently hide a lost agent for every later turn of the run.
+                self._agent_active = None
             return outcome
         except Exception as e:
             error_properties = self._activity_error_properties(e)

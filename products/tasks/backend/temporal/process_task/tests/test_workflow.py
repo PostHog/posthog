@@ -1776,6 +1776,9 @@ class TestProcessTaskWorkflowUnit:
         workflow = ProcessTaskWorkflow()
         workflow._context = _build_context(github_integration_id=123)
         workflow._end_of_turn_received = True
+        # Stale evidence from the turn that just closed — a second turn opening on an
+        # ingest-only run must not inherit it, or a lost agent later this turn is hidden.
+        workflow._agent_active = False
         monkeypatch.setattr(process_task_workflow_module.workflow, "logger", Mock())
         monkeypatch.setattr(process_task_workflow_module.workflow, "patched", Mock(return_value=True))
         monkeypatch.setattr(process_task_workflow_module.workflow, "uuid4", Mock(return_value="uuid"))
@@ -1786,6 +1789,7 @@ class TestProcessTaskWorkflowUnit:
         await workflow._send_followup_to_sandbox("go", [])
 
         assert workflow._end_of_turn_received is expected
+        assert workflow._agent_active is (None if outcome is None else False)
 
     async def test_credential_refresh_exit_marks_sandbox_gone(self, monkeypatch):
         workflow = ProcessTaskWorkflow()
