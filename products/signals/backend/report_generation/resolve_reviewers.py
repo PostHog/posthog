@@ -7,7 +7,7 @@ from collections.abc import Iterable, Mapping
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, Literal
+from typing import Any, Literal
 from uuid import UUID
 
 from django.db.models import Expression, Prefetch, Q, QuerySet, Subquery, Value
@@ -25,6 +25,7 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.models.user_integration import UserIntegration
 
+from products.signals.backend.contracts import RelevantCommit
 from products.signals.backend.report_generation.repo_activity import (
     ACTIVITY_WINDOW_DAYS,
     REPO_WIDE_AREA,
@@ -36,9 +37,6 @@ from products.signals.backend.report_generation.repo_activity import (
 )
 
 from ..models import SignalReportArtefact
-
-if TYPE_CHECKING:
-    from products.signals.backend.contracts import RelevantCommit
 
 logger = logging.getLogger(__name__)
 
@@ -369,10 +367,6 @@ def resolve_suggested_reviewers_with_diagnostics(
                 lookups_rate_limited += 1
                 logger.info("GitHub rate limited during commit author lookups for %s", repository)
 
-    from products.signals.backend.contracts import (  # noqa: PLC0415 — keeps the contracts module off the django.setup() path
-        RelevantCommit,
-    )
-
     # Weight earlier commits more heavily (position-based weighting)
     login_weights: Counter[str] = Counter()
     login_commits: dict[str, list[RelevantCommit]] = {}
@@ -473,10 +467,6 @@ def _rank_scored_candidates(
     *,
     allow_crowd_fallback: bool = False,
 ) -> list[_ResolvedReviewer]:
-    from products.signals.backend.contracts import (  # noqa: PLC0415 — keeps the contracts module off the django.setup() path
-        RelevantCommit,
-    )
-
     scores = _score_candidates(login_weights, activity_by_login, allow_crowd_fallback=allow_crowd_fallback)
 
     def rank_key(item: tuple[str, float]) -> tuple[float, int, str]:

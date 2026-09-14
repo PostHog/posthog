@@ -17,6 +17,7 @@ from products.signals.backend.scout_harness.note_targets import (
     PIPELINE_AUDIENCE_IMPLEMENTATION,
     PIPELINE_AUDIENCE_REPORT_RESEARCH,
 )
+from products.tasks.backend.facade import api as tasks_facade
 
 # The `ai_stage` each stage stamps on its task. Shared with the two call sites that write them
 # (`report_generation/research.py`, `auto_start.py`) so the write and this read can't drift —
@@ -40,11 +41,6 @@ def pipeline_writer_identity(*, task_id: UUID | None, team_id: int) -> str | Non
     """
     if task_id is None:
         return None
-
-    from products.tasks.backend.facade import (  # noqa: PLC0415 — keeps the tasks facade off the django.setup() path
-        api as tasks_facade,
-    )
-
     stage = tasks_facade.signal_report_pipeline_stage(task_id, team_id)
     if stage is None:
         return None

@@ -10,6 +10,7 @@ from posthog.redis import get_client
 from posthog.storage import object_storage
 
 from products.tasks.backend.metrics import LOG_APPEND_UNSERIALIZED_TOTAL
+from products.tasks.backend.storage_errors import TaskRunLogAppendUnserialized
 
 logger = structlog.get_logger(__name__)
 
@@ -41,10 +42,6 @@ def _append_lock(object_storage_key: str, attempts: int) -> Iterator[None]:
         return
 
     if not acquired:
-        from products.tasks.backend.facade.contracts import (  # noqa: PLC0415 — keeps the contracts module off the django.setup() path
-            TaskRunLogAppendUnserialized,
-        )
-
         LOG_APPEND_UNSERIALIZED_TOTAL.labels(reason="contended").inc()
         raise TaskRunLogAppendUnserialized()
 
