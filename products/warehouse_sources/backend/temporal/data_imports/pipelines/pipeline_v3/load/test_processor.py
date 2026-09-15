@@ -604,6 +604,10 @@ class TestPostImportTrigger:
             ("start_failure_is_captured", RuntimeError("no temporal"), True),
             # An id collision means a register is already in flight for this schema.
             ("already_started_is_benign", WorkflowAlreadyStartedError("wf-id", "wf-type"), False),
+            # A genuine cancellation must not be mistaken for the client-side timeout that also
+            # reports CANCELLED — only the "Timeout expired" / "operation was canceled" phrases
+            # are transient, so this one is captured on the first attempt, not retried.
+            ("genuine_cancel_is_captured", RPCError("Cancelled by caller", RPCStatusCode.CANCELLED, b""), True),
         ]
     )
     @patch(f"{_PROCESSOR}.capture_exception")
@@ -642,10 +646,22 @@ class TestPostImportTrigger:
         signal.source_id = "source-1"
         return signal
 
+    @parameterized.expand(
+        [
+            ("deadline_exceeded", RPCError("Timeout expired", RPCStatusCode.DEADLINE_EXCEEDED, b"")),
+            # tonic cancels a call that outruns the client's own RPC deadline and reports it as
+            # CANCELLED with this message, not DEADLINE_EXCEEDED — the status a bare-frontend
+            # timeout produces. Must be ridden out the same way, not dropped on the first blip.
+            ("client_side_cancel", RPCError("Timeout expired", RPCStatusCode.CANCELLED, b"")),
+            ("lost_connection", RPCError("operation was canceled", RPCStatusCode.CANCELLED, b"")),
+        ]
+    )
     @patch(f"{_PROCESSOR}.capture_exception")
     @patch("posthog.temporal.common.client.async_connect", new_callable=AsyncMock)
     def test_transient_rpc_timeout_is_retried_and_recovers(
         self,
+        _case: str,
+        error: RPCError,
         mock_connect: AsyncMock,
         mock_capture: MagicMock,
     ) -> None:
@@ -653,9 +669,7 @@ class TestPostImportTrigger:
         # none of the server-side retry a `workflow.start_child_workflow` command would
         # have — a single transient timeout must not drop the trigger permanently.
         client = MagicMock()
-        client.start_workflow = AsyncMock(
-            side_effect=[RPCError("Timeout expired", RPCStatusCode.DEADLINE_EXCEEDED, b""), None]
-        )
+        client.start_workflow = AsyncMock(side_effect=[error, None])
         mock_connect.return_value = client
 
         _trigger_post_import_workflow(self._signal())
