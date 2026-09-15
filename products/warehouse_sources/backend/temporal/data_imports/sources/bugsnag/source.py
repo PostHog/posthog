@@ -99,6 +99,8 @@ You can generate a personal auth token in the **My Account** section of your [Bu
         def _description(endpoint: str) -> str | None:
             if endpoint == "events":
                 return "One row per captured event. Can be very large — full refresh only, off by default."
+            if endpoint == "pivot_values":
+                return "One row per value of each pivot. As wide as the underlying event field — off by default."
             return None
 
         def _build_schema(endpoint: str) -> SourceSchema:

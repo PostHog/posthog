@@ -1,6 +1,6 @@
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, replace
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
 import pytest
@@ -35,6 +35,7 @@ def _stub_child_resource() -> Mock:
     stub = Mock()
     stub.name = "children"
     stub.add_map.return_value = stub
+    stub.add_filter.return_value = stub
     return stub
 
 
@@ -302,11 +303,13 @@ def test_build_dependent_resource_threads_resume_state(mock_rest_api_resources) 
     assert kwargs["initial_paginator_state"] == initial_state
 
 
+@pytest.mark.parametrize("extra_kwarg", ["parent_endpoint_extra", "child_endpoint_extra"])
 @patch("products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout.rest_api_resources")
-def test_build_dependent_resource_rejects_params_in_endpoint_extras(mock_rest_api_resources) -> None:
+def test_build_dependent_resource_rejects_params_in_endpoint_extras(mock_rest_api_resources, extra_kwarg) -> None:
     mock_rest_api_resources.return_value = [_stub_child_resource()]
+    endpoint_extra: dict[str, Any] = {extra_kwarg: {"params": {"limit": 1}}}
 
-    with pytest.raises(ValueError, match="Do not pass 'params' in child_endpoint_extra"):
+    with pytest.raises(ValueError, match=f"Do not pass 'params' in {extra_kwarg}"):
         build_dependent_resource(
             endpoint_configs=_build_endpoint_configs(),
             child_endpoint="children",
@@ -321,7 +324,7 @@ def test_build_dependent_resource_rejects_params_in_endpoint_extras(mock_rest_ap
             team_id=1,
             job_id="job-1",
             db_incremental_field_last_value=None,
-            child_endpoint_extra={"params": {"limit": 1}},
+            **endpoint_extra,
         )
 
 
@@ -752,6 +755,230 @@ def test_warehouse_parent_drives_child_without_parent_http(mock_reader, _mock_re
         "/parents/p2/children",
         "/parents/p3/children",
     ]
+
+
+@patch("products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout.rest_api_resources")
+def test_path_format_values_bind_both_the_parent_and_the_child_path(mock_rest_api_resources) -> None:
+    mock_rest_api_resources.return_value = [_stub_child_resource()]
+    endpoint_configs = _build_endpoint_configs()
+    endpoint_configs["parents"].path = "/orgs/{org_id}/parents"
+    endpoint_configs["children"].path = "/orgs/{org_id}/parents/{parent_id}/children"
+
+    build_dependent_resource(
+        endpoint_configs=endpoint_configs,
+        child_endpoint="children",
+        fanout=DependentEndpointConfig(
+            parent_name="parents",
+            resolve_param="parent_id",
+            resolve_field="id",
+            include_from_parent=["id"],
+        ),
+        client_config={"base_url": "https://example.com"},
+        path_format_values={"org_id": "acme"},
+        team_id=1,
+        job_id="job-1",
+        db_incremental_field_last_value=None,
+    )
+
+    config = mock_rest_api_resources.call_args.args[0]
+    assert config["resources"][0]["endpoint"]["path"] == "/orgs/acme/parents"
+    # {parent_id} stays a template: the child transformer binds it per parent row, not here.
+    assert config["resources"][1]["endpoint"]["path"] == "/orgs/acme/parents/{parent_id}/children"
+
+
+@patch("products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout.rest_api_resources")
+def test_parent_data_map_reaches_the_parent_resource(mock_rest_api_resources) -> None:
+    mock_rest_api_resources.return_value = [_stub_child_resource()]
+    derive_resolve_field = Mock()
+
+    build_dependent_resource(
+        endpoint_configs=_build_endpoint_configs(),
+        child_endpoint="children",
+        fanout=DependentEndpointConfig(
+            parent_name="parents",
+            resolve_param="parent_id",
+            resolve_field="id",
+            include_from_parent=["id"],
+        ),
+        client_config={"base_url": "https://example.com"},
+        path_format_values={},
+        team_id=1,
+        job_id="job-1",
+        db_incremental_field_last_value=None,
+        parent_data_map=derive_resolve_field,
+    )
+
+    config = mock_rest_api_resources.call_args.args[0]
+    assert config["resources"][0]["data_map"] is derive_resolve_field
+    assert "data_map" not in config["resources"][1]
+
+
+@patch("products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout.rest_api_resources")
+def test_child_params_extra_win_over_fanout_child_params(mock_rest_api_resources) -> None:
+    mock_rest_api_resources.return_value = [_stub_child_resource()]
+    build_dependent_resource(
+        endpoint_configs=_build_endpoint_configs(),
+        child_endpoint="children",
+        fanout=DependentEndpointConfig(
+            parent_name="parents",
+            resolve_param="parent_id",
+            resolve_field="id",
+            include_from_parent=["id"],
+            child_params={"full": "true", "expand": "none"},
+        ),
+        client_config={"base_url": "https://example.com"},
+        path_format_values={},
+        team_id=1,
+        job_id="job-1",
+        db_incremental_field_last_value=None,
+        child_params_extra={"expand": "items", "since": "2026-01-01"},
+    )
+
+    child_params = mock_rest_api_resources.call_args.args[0]["resources"][1]["endpoint"]["params"]
+    assert child_params == {
+        "parent_id": {"type": "resolve", "resource": "parents", "field": "id"},
+        "limit": 7,
+        "full": "true",
+        # The per-run value has to beat the static config value, or a caller cannot narrow a request.
+        "expand": "items",
+        "since": "2026-01-01",
+    }
+
+
+@patch("products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout.rest_api_resources")
+def test_incremental_config_is_bound_to_the_child_request(mock_rest_api_resources) -> None:
+    mock_rest_api_resources.return_value = [_stub_child_resource()]
+    endpoint_configs = _build_endpoint_configs()
+    endpoint_configs["children"].incremental_fields = [{"field": "created_at"}]
+    endpoint_configs["children"].default_incremental_field = "created_at"
+    cursor_paths: list[str] = []
+
+    def factory(cursor_path: str) -> dict[str, Any]:
+        cursor_paths.append(cursor_path)
+        return {"cursor_path": cursor_path, "start_param": "since"}
+
+    build_dependent_resource(
+        endpoint_configs=endpoint_configs,
+        child_endpoint="children",
+        fanout=DependentEndpointConfig(
+            parent_name="parents",
+            resolve_param="parent_id",
+            resolve_field="id",
+            include_from_parent=["id"],
+        ),
+        client_config={"base_url": "https://example.com"},
+        path_format_values={},
+        team_id=1,
+        job_id="job-1",
+        db_incremental_field_last_value="2026-01-01T00:00:00Z",
+        should_use_incremental_field=True,
+        incremental_config_factory=cast(Any, factory),
+    )
+
+    assert cursor_paths == ["created_at"]
+    child_resource = mock_rest_api_resources.call_args.args[0]["resources"][1]
+    assert child_resource["endpoint"]["incremental"] == {"cursor_path": "created_at", "start_param": "since"}
+    assert child_resource["write_disposition"] == {"disposition": "merge", "strategy": "upsert"}
+
+
+@patch("products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout.rest_api_resources")
+def test_incremental_fanout_without_a_factory_is_rejected(mock_rest_api_resources) -> None:
+    mock_rest_api_resources.return_value = [_stub_child_resource()]
+    endpoint_configs = _build_endpoint_configs()
+    endpoint_configs["children"].incremental_fields = [{"field": "created_at"}]
+
+    with pytest.raises(ValueError, match="incremental_config_factory is required"):
+        build_dependent_resource(
+            endpoint_configs=endpoint_configs,
+            child_endpoint="children",
+            fanout=DependentEndpointConfig(
+                parent_name="parents",
+                resolve_param="parent_id",
+                resolve_field="id",
+                include_from_parent=["id"],
+            ),
+            client_config={"base_url": "https://example.com"},
+            path_format_values={},
+            team_id=1,
+            job_id="job-1",
+            db_incremental_field_last_value=None,
+            should_use_incremental_field=True,
+        )
+
+
+_SNAPSHOT_AT = datetime(2026, 3, 1, tzinfo=UTC)
+
+
+def _build_with_snapshot_cap(endpoint_configs: dict[str, _EndpointConfig], **kwargs: Any) -> Any:
+    return build_dependent_resource(
+        endpoint_configs=endpoint_configs,
+        child_endpoint="children",
+        fanout=_WAREHOUSE_FANOUT,
+        client_config={"base_url": "https://example.com"},
+        path_format_values={},
+        team_id=1,
+        job_id="job-1",
+        db_incremental_field_last_value=None,
+        source_id="source-1",
+        use_warehouse_parent=True,
+        parent_snapshot_at=_SNAPSHOT_AT,
+        **kwargs,
+    )
+
+
+@patch("products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout.rest_api_resources")
+@patch(
+    "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.warehouse_parent.resolve_parent_table_ref",
+    return_value=ParentTableRef(uri="s3://bucket/team_1_x_y/parents", version=7),
+)
+def test_warehouse_parent_caps_child_rows_at_the_snapshot(_mock_resolve, mock_rest_api_resources) -> None:
+    stub = _stub_child_resource()
+    mock_rest_api_resources.return_value = [stub]
+    endpoint_configs = _build_endpoint_configs()
+    endpoint_configs["children"].default_incremental_field = "updated_at"
+
+    _build_with_snapshot_cap(endpoint_configs)
+
+    keep = stub.add_filter.call_args.args[0]
+    # A row the snapshot could not account for would push the watermark past the snapshot.
+    assert keep({"updated_at": "2026-02-01T00:00:00Z"}) is True
+    assert keep({"updated_at": "2026-04-01T00:00:00Z"}) is False
+    # No cursor value is no recency signal, so the row is kept, as the parent row filter does.
+    assert keep({}) is True
+
+
+@patch("products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout.rest_api_resources")
+@patch(
+    "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.warehouse_parent.resolve_parent_table_ref",
+    return_value=ParentTableRef(uri="s3://bucket/team_1_x_y/parents", version=7),
+)
+def test_snapshot_cap_without_a_cursor_field_is_rejected(_mock_resolve, mock_rest_api_resources) -> None:
+    mock_rest_api_resources.return_value = [_stub_child_resource()]
+
+    with pytest.raises(ValueError, match="declares no incremental field to cap on"):
+        _build_with_snapshot_cap(_build_endpoint_configs())
+
+
+@patch(
+    "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.warehouse_parent.resolve_parent_table_ref"
+)
+@patch("products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout.rest_api_resources")
+def test_api_parent_fallback_leaves_the_child_uncapped(mock_rest_api_resources, mock_resolve) -> None:
+    # The cap exists to match a stale snapshot. The API parent is not stale, so capping it here
+    # would drop rows that path has every reason to sync.
+    from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.warehouse_parent import (
+        WarehouseParentTableNotFoundError,
+    )
+
+    mock_resolve.side_effect = WarehouseParentTableNotFoundError("table gone")
+    stub = _stub_child_resource()
+    mock_rest_api_resources.return_value = [stub]
+    endpoint_configs = _build_endpoint_configs()
+    endpoint_configs["children"].default_incremental_field = "updated_at"
+
+    _build_with_snapshot_cap(endpoint_configs)
+
+    stub.add_filter.assert_not_called()
 
 
 class _ConfigWithFanout:

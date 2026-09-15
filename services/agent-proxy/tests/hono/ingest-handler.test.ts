@@ -1348,7 +1348,33 @@ describe('ingest-handler', () => {
             global.fetch = originalFetch
         })
 
+        it.each([
+            ['a normal pi turn_completed', { type: 'pi_event', event: { type: 'turn_completed' } }, 'awaiting_input'],
+            [
+                'a pi turn_completed with stopReason "error"',
+                { type: 'pi_event', event: { type: 'turn_completed', stopReason: 'error' } },
+                'turn_failed',
+            ],
+        ])('fires %s as %s', async (_label, event, expectedKind) => {
+            const fired: { kind: string }[] = []
+            const originalFetch = global.fetch
+            global.fetch = vi.fn(async (_, init) => {
+                fired.push(JSON.parse(String((init as RequestInit).body)))
+                return new Response('', { status: 200 })
+            }) as typeof fetch
+
+            const config = makeConfig({ djangoCallbackBaseUrl: 'http://django' })
+            await heartbeatWorkflowIfNeeded(redisStream, RUN_ID, event, TASK_ID, TEAM_ID, 'tok', config)
+
+            expect(await redisStream.getAgentActive()).toBe(false)
+            await new Promise((r) => setTimeout(r, 0))
+            expect(fired.some((f) => f.kind === expectedKind)).toBe(true)
+
+            global.fetch = originalFetch
+        })
+
         const turnComplete = { type: 'notification', notification: { method: '_posthog/turn_complete' } }
+        const piTurnError = { type: 'pi_event', event: { type: 'turn_completed', stopReason: 'error' } }
         const sessionUpdate = { type: 'notification', notification: { method: 'session/update', params: {} } }
         const networkFailure = Object.assign(new TypeError('fetch failed'), { cause: { code: 'ECONNRESET' } })
 
@@ -1356,6 +1382,8 @@ describe('ingest-handler', () => {
             ['awaiting_input', turnComplete, 'network failure', networkFailure, 2],
             ['awaiting_input', turnComplete, '503', new Response('', { status: 503 }), 2],
             ['awaiting_input', turnComplete, '400', new Response('', { status: 400 }), 1],
+            ['turn_failed', piTurnError, 'network failure', networkFailure, 2],
+            ['turn_failed', piTurnError, '503', new Response('', { status: 503 }), 2],
             ['heartbeat', sessionUpdate, 'network failure', networkFailure, 1],
             ['heartbeat', sessionUpdate, '503', new Response('', { status: 503 }), 1],
         ])(

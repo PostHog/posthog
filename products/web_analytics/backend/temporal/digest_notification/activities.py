@@ -27,17 +27,16 @@ from products.notifications.backend.facade.api import (
     TargetType,
     create_notification,
 )
-from products.web_analytics.backend.temporal.digest_common import paginate_index, paginate_keyset
+from products.web_analytics.backend import weekly_digest
+from products.web_analytics.backend.temporal.digest_common import OrgBatchPageResult, paginate_index, paginate_keyset
 from products.web_analytics.backend.temporal.digest_notification.types import (
     DigestBatchInput,
     DigestBatchResult,
     NotificationDigestOutcome,
     OrgBatchPageInput,
-    OrgBatchPageResult,
     OrgDigestNotificationCounts,
     SendTestDigestNotificationInput,
 )
-from products.web_analytics.backend.weekly_digest import build_team_digest
 
 logger = structlog.get_logger(__name__)
 
@@ -273,17 +272,6 @@ def _expose_and_notify_user(
     return _send_digest_notification(user=user, org=org, team_digest_data=accessible, variant=variant)
 
 
-def _build_team_digest_data(org: Organization) -> tuple[dict[int, dict], int, float]:
-    build_start = time.monotonic()
-    team_digest_data: dict[int, dict] = {}
-    for team in Team.objects.filter(organization_id=org.id):
-        digest = build_team_digest(team)
-        if (digest["visitors"]["current"] or 0) > 0:
-            team_digest_data[team.id] = digest
-    build_duration = time.monotonic() - build_start
-    return team_digest_data, len(team_digest_data), build_duration
-
-
 def _build_and_send_for_org(org_id: str, flag_key: str, dry_run: bool = False) -> OrgDigestNotificationCounts:
     close_old_connections()
 
@@ -304,8 +292,17 @@ def _build_and_send_for_org(org_id: str, flag_key: str, dry_run: bool = False) -
         counts.skipped_reason = "no_teams"
         return counts
 
-    team_digest_data, counts.team_count, counts.build_duration = _build_team_digest_data(org)
+    build_start = time.monotonic()
+    build = weekly_digest.build_team_digests(Team.objects.filter(organization_id=org.id))
+    team_digest_data = {
+        team_id: digest for team_id, digest in build.digests.items() if (digest["visitors"]["current"] or 0) > 0
+    }
+    counts.build_duration = time.monotonic() - build_start
+    counts.team_count = len(team_digest_data)
+    counts.teams_failed = len(build.failed_teams)
     if not team_digest_data:
+        if build.failed_teams:
+            raise RuntimeError("WA digest notification: no team with web analytics data could be built")
         counts.skipped_reason = "no_wa_data"
         return counts
 
@@ -350,6 +347,7 @@ def _build_and_send_for_org(org_id: str, flag_key: str, dry_run: bool = False) -
         skipped_no_data=counts.skipped_no_data,
         failed=counts.failed,
         team_count=counts.team_count,
+        teams_failed=counts.teams_failed,
     )
     return counts
 
@@ -383,6 +381,7 @@ def _run_wa_digest_notification_batch(input: DigestBatchInput) -> DigestBatchRes
         totals.control_exposed += org_counts.control
         totals.skipped_no_data += org_counts.skipped_no_data
         totals.failed += org_counts.failed
+        totals.teams_failed += org_counts.teams_failed
         totals.build_duration += org_counts.build_duration
         totals.send_duration += org_counts.send_duration
 
@@ -441,7 +440,7 @@ def _send_test_digest_notification(email: str, team_id: int | None = None) -> No
         if not membership:
             raise PermissionError(f"User {email} is not a member of the organization that owns team {team_id}")
 
-        digest = build_team_digest(team)
+        digest = weekly_digest.build_team_digest(team)
         accessible = _accessible_team_data(user, team.organization, membership, {team.id: digest})
         if not accessible:
             raise PermissionError(f"User {email} does not have access to team {team_id}")
@@ -474,7 +473,9 @@ def _send_test_digest_notification(email: str, team_id: int | None = None) -> No
     sent_count = 0
     for membership in memberships:
         org = membership.organization
-        team_digest_data = {t.id: build_team_digest(t) for t in Team.objects.filter(organization_id=org.id)}
+        team_digest_data = {
+            t.id: weekly_digest.build_team_digest(t) for t in Team.objects.filter(organization_id=org.id)
+        }
         accessible = _accessible_team_data(user, org, membership, team_digest_data)
         if not accessible:
             continue
