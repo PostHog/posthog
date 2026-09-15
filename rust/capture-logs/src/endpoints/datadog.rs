@@ -1,5 +1,5 @@
 use crate::authorizer::Signal;
-use crate::log_record::{override_timestamp, KafkaLogRow};
+use crate::log_record::{ensure_service_name_attribute, override_timestamp, KafkaLogRow};
 use crate::service::{decode_body_if_gzip_magic, Service};
 use axum::{
     extract::State,
@@ -192,6 +192,7 @@ pub fn datadog_log_to_kafka_row(
     if let Some(ref service_val) = service {
         resource_attributes.insert("service.name".to_string(), json!(service_val).to_string());
     }
+    ensure_service_name_attribute(&mut resource_attributes);
     if let Some(ref hostname_val) = hostname {
         resource_attributes.insert("host.name".to_string(), json!(hostname_val).to_string());
     }
