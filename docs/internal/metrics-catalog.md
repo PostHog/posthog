@@ -27,7 +27,7 @@ They do not wait for every loading placeholder to disappear: offscreen cards sta
 
 ## Metadata migration
 
-Migration `0322_metrics_metadata3_dual_write` adds two metadata tables on the logs cluster.
+Migration `0322_metrics_metadata3_dual_write` adds three metadata tables on the logs cluster.
 `metric_series3` partitions by `toDate(last_seen)` and keeps `ReplacingMergeTree(last_seen)`.
 Merges retain the latest labelled row for each series within each day.
 The expiry timestamp still controls row retention.
@@ -36,7 +36,16 @@ The expiry timestamp still controls row retention.
 Both metric attributes and resource attributes include the metric name.
 The hourly buckets, expiry partitions, label filter, and attribute length limits match `metric_attributes2`.
 
-Three new materialized views read `metrics2_input` and write to the new tables.
+`metric_names3` stores metric names in hourly activity buckets, partitioned by day.
+Its sort key is `(team_id, time_bucket, metric_name)` to support recent name lists for one project.
+Its materialized view reads only samples where `has_labels` is true, including samples with empty attribute maps.
+`AggregatingMergeTree` combines rows across series and services, and retains the maximum original expiry timestamp for each project, hour, and name.
+The table records activity from labelled samples, not every sample.
+Time filters use the hourly buckets, so discovery can include activity outside the requested range within its boundary hours.
+Later readers must use `DISTINCT metric_name` because merges are asynchronous and names repeat across hours.
+Queries with other label filters still need series data.
+
+Four new materialized views read `metrics2_input` and write to the new tables.
 The existing views continue to write to `metric_series2` and `metric_attributes2`.
 The distributed tables and HogQL schemas still read the existing tables.
 This phase adds storage and insert work; it does not improve query speed until reads move to the new tables.
@@ -44,7 +53,7 @@ This phase adds storage and insert work; it does not improve query speed until r
 ### Backfill and read cutover
 
 The migration does not copy historical rows.
-Backfill the new destination tables directly after all three materialized views exist on each logs replica.
+Backfill the new destination tables directly after all four materialized views exist on each logs replica.
 Do not replay a backfill through `metrics2_input`, because its existing views would also write the raw samples and old metadata again.
 
 Use a source boundary that excludes rows already written by the new views.
@@ -57,6 +66,12 @@ Copying it cannot restore earlier daily activity.
 Use retained samples and the matching series labels to restore those days.
 `metric_attributes2` does not retain metric names, so it cannot supply the new attribute rows alone.
 Preserve the `has_labels` filter when rebuilding attribute counts from samples.
+
+For `metric_names3`, use only source samples with `has_labels` set.
+Group by project, metric name, and the sample timestamp rounded to the start of its hour.
+Keep the maximum original expiry timestamp for each group.
+Repeated catalog rows merge with `max`, so overlapping catalog batches do not add counts or shorten retention.
+The latest series rows alone cannot restore earlier hourly activity.
 
 Before a read cutover, compare metric names, label pairs, daily series activity, and retention for the same source range.
 Check insert latency, materialized view errors, part counts, and storage growth during this phase.

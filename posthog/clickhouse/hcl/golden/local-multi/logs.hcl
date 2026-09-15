@@ -1597,6 +1597,31 @@ SQL
     }
   }
 
+  table "metric_names3" {
+    order_by     = ["team_id", "time_bucket", "metric_name"]
+    partition_by = "toDate(time_bucket)"
+    ttl          = "original_expiry_timestamp"
+    settings = {
+      index_granularity = "8192"
+    }
+    column "team_id" {
+      type = "Int32"
+    }
+    column "metric_name" {
+      type = "LowCardinality(String)"
+    }
+    column "time_bucket" {
+      type = "DateTime64(0)"
+    }
+    column "original_expiry_timestamp" {
+      type = "SimpleAggregateFunction(max, DateTime64(6))"
+    }
+    engine "replicated_aggregating_merge_tree" {
+      zoo_path     = "/clickhouse/tables/noshard/posthog.metric_names3"
+      replica_name = "{replica}-{shard}"
+    }
+  }
+
   table "metric_samples" {
     column "team_id" {
       type = "Int32"
@@ -4299,6 +4324,34 @@ SQL
     }
     column "attribute_count" {
       type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+  }
+
+  materialized_view "metrics2_input_to_metric_names3" {
+    to_table = "posthog.metric_names3"
+    query    = <<SQL
+SELECT
+  team_id,
+  metric_name,
+  toStartOfHour(timestamp) AS time_bucket,
+  maxSimpleState(original_expiry_timestamp) AS original_expiry_timestamp
+FROM posthog.metrics2_input
+WHERE has_labels
+GROUP BY
+  team_id, time_bucket, metric_name
+SQL
+
+    column "team_id" {
+      type = "Int32"
+    }
+    column "metric_name" {
+      type = "LowCardinality(String)"
+    }
+    column "time_bucket" {
+      type = "DateTime64(0)"
+    }
+    column "original_expiry_timestamp" {
+      type = "SimpleAggregateFunction(max, DateTime64(6))"
     }
   }
 

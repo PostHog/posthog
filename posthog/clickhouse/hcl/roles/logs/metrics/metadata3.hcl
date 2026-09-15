@@ -1,4 +1,44 @@
 database "posthog" {
+  table "metric_names3" {
+    partition_by = "toDate(time_bucket)"
+    order_by     = ["team_id", "time_bucket", "metric_name"]
+    ttl          = "original_expiry_timestamp"
+    settings = {
+      index_granularity = "8192"
+    }
+    column "team_id" {
+      type = "Int32"
+    }
+    column "metric_name" {
+      type = "LowCardinality(String)"
+    }
+    column "time_bucket" {
+      type = "DateTime64(0)"
+    }
+    column "original_expiry_timestamp" {
+      type = "SimpleAggregateFunction(max, DateTime64(6))"
+    }
+    engine "replicated_aggregating_merge_tree" {
+      zoo_path     = "/clickhouse/tables/noshard/posthog.metric_names3"
+      replica_name = "{replica}-{shard}"
+    }
+  }
+  materialized_view "metrics2_input_to_metric_names3" {
+    to_table = "posthog.metric_names3"
+    query    = file("sql/metrics2_input_to_metric_names3.sql")
+    column "team_id" {
+      type = "Int32"
+    }
+    column "metric_name" {
+      type = "LowCardinality(String)"
+    }
+    column "time_bucket" {
+      type = "DateTime64(0)"
+    }
+    column "original_expiry_timestamp" {
+      type = "SimpleAggregateFunction(max, DateTime64(6))"
+    }
+  }
   table "metric_series3" {
     partition_by = "toDate(last_seen)"
     order_by = ["team_id", "metric_name", "series_fingerprint"]

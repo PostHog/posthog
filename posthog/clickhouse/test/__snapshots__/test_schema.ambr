@@ -4160,6 +4160,24 @@
 # name: test_create_table_query[metric_attributes_distributed]
   "CREATE TABLE IF NOT EXISTS posthog_test.metric_attributes_distributed AS posthog_test.metric_attributes2 ENGINE = Distributed('posthog_single_shard', 'posthog_test', 'metric_attributes2')"
 # ---
+# name: test_create_table_query[metric_names3]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS posthog_test.metric_names3
+  (
+      `team_id` Int32,
+      `metric_name` LowCardinality(String),
+      `time_bucket` DateTime64(0),
+      `original_expiry_timestamp` SimpleAggregateFunction(max, DateTime64(6))
+  )
+  ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.metric_names3', '{replica}-{shard}')
+  PARTITION BY toDate(time_bucket)
+  ORDER BY (team_id, time_bucket, metric_name)
+  TTL original_expiry_timestamp
+  SETTINGS index_granularity = 8192
+  
+  '''
+# ---
 # name: test_create_table_query[metric_samples1]
   '''
   
@@ -4561,6 +4579,27 @@
           service_name,
           filtered_attributes
   )
+  
+  '''
+# ---
+# name: test_create_table_query[metrics2_input_to_metric_names3]
+  '''
+  
+  CREATE MATERIALIZED VIEW IF NOT EXISTS posthog_test.metrics2_input_to_metric_names3 TO posthog_test.metric_names3
+  (
+      `team_id` Int32,
+      `metric_name` LowCardinality(String),
+      `time_bucket` DateTime64(0),
+      `original_expiry_timestamp` SimpleAggregateFunction(max, DateTime64(6))
+  )
+  AS SELECT
+      team_id,
+      metric_name,
+      toStartOfHour(timestamp) AS time_bucket,
+      maxSimpleState(original_expiry_timestamp) AS original_expiry_timestamp
+  FROM posthog_test.metrics2_input
+  WHERE has_labels
+  GROUP BY team_id, time_bucket, metric_name
   
   '''
 # ---
@@ -11412,6 +11451,24 @@
   SETTINGS
       deduplicate_merge_projection_mode = 'drop',
       index_granularity = 8192
+  
+  '''
+# ---
+# name: test_create_table_query_replicated_and_storage[metric_names3]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS posthog_test.metric_names3
+  (
+      `team_id` Int32,
+      `metric_name` LowCardinality(String),
+      `time_bucket` DateTime64(0),
+      `original_expiry_timestamp` SimpleAggregateFunction(max, DateTime64(6))
+  )
+  ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.metric_names3', '{replica}-{shard}')
+  PARTITION BY toDate(time_bucket)
+  ORDER BY (team_id, time_bucket, metric_name)
+  TTL original_expiry_timestamp
+  SETTINGS index_granularity = 8192
   
   '''
 # ---
