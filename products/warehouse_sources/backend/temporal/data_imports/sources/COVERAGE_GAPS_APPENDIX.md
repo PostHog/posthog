@@ -664,7 +664,7 @@ Note: The wiki.awin.com URLs in the source config are dead - they now 302 to the
 
 ## AzureDevOps — **thin**
 
-Today (11): `builds`, `commits`, `projects`, `pull_request_reviewers`, `pull_request_thread_comments`, `pull_request_threads`, `pull_requests`, `repositories`, `team_members`, `teams`, `work_item_revisions`
+Today (16): `build_definitions`, `build_timeline_records`, `builds`, `commits`, `projects`, `pull_request_reviewers`, `pull_request_thread_comments`, `pull_request_threads`, `pull_requests`, `release_deployments`, `releases`, `repositories`, `team_members`, `teams`, `test_runs`, `work_item_revisions`
 
 Diffed against: <https://github.com/MicrosoftDocs/vsts-rest-api-specs/tree/master/specification>
 
@@ -673,16 +673,16 @@ Diffed against: <https://github.com/MicrosoftDocs/vsts-rest-api-specs/tree/maste
 - [x] `git Pull Request Reviewers (and Pull Request Iteration Statuses)` — approval votes per reviewer; the membership table that turns pull_requests into review analytics (high)
 - [x] `core Teams (GET /_apis/teams, /projects/{projectId}/teams) and Team Members` — lookup resolving team ownership for projects, work items and boards (high)
 - [ ] `git Pull Request Iteration Statuses (GET .../pullRequests/{pullRequestId}/iterations/{iterationId}/statuses)` — per-iteration policy and status checks; needs a fan-out one level deeper than the reviewers table above (medium)
-- [ ] `build Definitions (GET /{project}/_apis/build/definitions)` — lookup resolving definition.id carried on every build row we already sync (high)
-- [ ] `build Timeline (GET /{project}/_apis/build/builds/{buildId}/timeline/{timelineId})` — per-job/step records and durations - where build time actually goes (high)
-- [ ] `release Releases + release Deployments` — deployment frequency and environment promotion history; entirely absent today (high)
-- [ ] `testResults Runs + Resultsbybuild` — test pass/fail results per build - the standard quality metric alongside builds (high)
+- [x] `build Definitions (GET /{project}/_apis/build/definitions)` — lookup resolving definition.id carried on every build row we already sync (high)
+- [x] `build Timeline (GET /{project}/_apis/build/builds/{buildId}/timeline/{timelineId})` — per-job/step records and durations - where build time actually goes (high)
+- [x] `release Releases + release Deployments` — deployment frequency and environment promotion history; entirely absent today (high)
+- [x] `testResults Runs + Resultsbybuild` — test pass/fail results per build - the standard quality metric alongside builds (high); landed as `test_runs` from the generally available `test` area. `testResults` Resultsbybuild is preview-only at every API version and sits on a third host, and its shallow per-case rows would need an unbounded per-build fan-out, so it is still open
 - [ ] `work Iterations (GET /{project}/{team}/_apis/work/teamsettings/iterations)` — sprint lookup resolving the iteration path on work item revisions (high)
 - [ ] `wit Work Item Types + Work Item Type States (and Classification Nodes)` — lookup tables resolving type and state values on work_item_revisions, including state category (medium)
 - [ ] `pipelines Pipelines + Runs (GET /{project}/_apis/pipelines, /{pipelineId}/runs)` — the current YAML pipelines model; builds alone misses pipeline-level run data (medium)
 - [ ] `git Pull Request Work Items` — join table linking PRs to the work items they close - connects the two halves we already sync (medium)
 
-Note: Azure DevOps is one of the largest APIs in this batch (47 spec areas in the official MicrosoftDocs/vsts-rest-api-specs repo), so the tables here are still a small fraction. The organization-wide `GET /_apis/teams` is preview-only, so teams are read per project through the generally available Core endpoint instead. Diffed against the 7.1 specs for build, core, git, wit, work, release, pipelines, testResults, testPlan, policy, graph, audit and memberEntitlementManagement. Also notable but below the cut: policy Evaluations, git Pushes, graph Users/userentitlements, audit auditlog, testPlan Plans/Suites.
+Note: Azure DevOps is one of the largest APIs in this batch (47 spec areas in the official MicrosoftDocs/vsts-rest-api-specs repo), so the tables here are still a small fraction. The organization-wide `GET /_apis/teams` is preview-only, so teams are read per project through the generally available Core endpoint instead. Release Management is served from `vsrm.dev.azure.com` rather than `dev.azure.com`, so `releases` and `release_deployments` address their own host. Build definition listings filter on build times only, never on when the definition changed, so `build_definitions` is full refresh, and the release listing filters on creation time only, so `releases` is too. `build_timeline_records` has no filter of its own and pushes the watermark onto the parent build listing, ordered by finish time so a running or retried build is read again. Diffed against the 7.1 specs for build, core, git, wit, work, release, pipelines, testResults, testPlan, policy, graph, audit and memberEntitlementManagement. Also notable but below the cut: policy Evaluations, git Pushes, graph Users/userentitlements, audit auditlog, testPlan Plans/Suites.
 
 ## Babelforce — gaps
 
@@ -707,7 +707,7 @@ Note: The developer hub serves a Swagger UI whose visible initializer points at 
 
 ## BambooHR — **thin**
 
-Today (13): `employee_compensation`, `employee_employment_status`, `employee_job_info`, `employee_time_off_balances`, `employee_time_off_policies`, `employees`, `meta_fields`, `meta_lists`, `meta_users`, `time_off_policies`, `time_off_requests`, `time_off_types`, `timesheet_entries`
+Today (22): `applicant_statuses`, `application_details`, `applications`, `ats_locations`, `employee_compensation`, `employee_employment_status`, `employee_goal_comments`, `employee_goals`, `employee_job_info`, `employee_time_off_balances`, `employee_time_off_policies`, `employees`, `job_openings`, `locations`, `meta_fields`, `meta_lists`, `meta_users`, `time_off_policies`, `time_off_requests`, `time_off_types`, `timesheet_entries`, `whos_out`
 
 Diffed against: <https://documentation.bamboohr.com/sitemap.xml>
 
@@ -715,10 +715,10 @@ Diffed against: <https://documentation.bamboohr.com/sitemap.xml>
 - [x] `GET time off policies + employee time off policies` — lookup resolving the policy behind time_off_requests and accrual rules (high)
 - [x] `GET time off balance` — current accrued balance per employee - the headline time-off metric, absent even though requests and types are synced (high)
 - [x] `GET timesheet entries / time tracking records` — hours worked, the core fact table for the whole time-tracking product (high)
-- [ ] `GET applications, application details, job summaries, statuses (ATS)` — recruiting funnel - candidates, applications and stage; an entire product area with zero coverage (high)
-- [ ] `GET company locations / list locations` — lookup resolving the location ID on employees (high)
-- [ ] `GET who's out` — resolved out-of-office calendar, commonly wanted alongside time_off_requests (medium)
-- [ ] `GET goals + goal comments` — performance goals and progress updates per employee (medium)
+- [x] `GET applications, application details, job summaries, statuses (ATS)` — recruiting funnel - candidates, applications and stage; an entire product area with zero coverage (high)
+- [x] `GET company locations / list locations` — lookup resolving the location ID on employees (high)
+- [x] `GET who's out` — resolved out-of-office calendar, commonly wanted alongside time_off_requests (medium)
+- [x] `GET goals + goal comments` — performance goals and progress updates per employee (medium)
 - [ ] `GET employee trainings + training types + training categories` — completion facts plus the lookup tables that name them (medium)
 - [ ] `GET company benefits, employee benefits, benefit coverages, deduction types` — benefits enrollment and its lookup tables - a major HRIS reporting area (medium)
 - [ ] `GET list datasets + get data from dataset (Workforce Analytics)` — the vendor's own analytics datasets, discoverable at sync time (medium)
@@ -818,7 +818,7 @@ Note: BigMailer's public API exposes no per-recipient engagement or event endpoi
 
 ## Bitbucket — gaps
 
-Today (10): `commits`, `deployments`, `environments`, `pipelines`, `projects`, `pull_request_activity`, `pull_request_comments`, `pull_requests`, `repositories`, `workspace_members`
+Today (13): `branches`, `commit_statuses`, `commits`, `deployments`, `environments`, `pipeline_steps`, `pipelines`, `projects`, `pull_request_activity`, `pull_request_comments`, `pull_requests`, `repositories`, `workspace_members`
 
 Diffed against: <https://api.bitbucket.org/swagger.json>
 
@@ -826,14 +826,18 @@ Diffed against: <https://api.bitbucket.org/swagger.json>
 - [x] `repositories/{workspace}/{repo}/pullrequests/{id}/comments` — code review comment volume and latency (high)
 - [x] `repositories/{workspace}/{repo}/environments` — lookup resolving the environment referenced by the deployments we already sync (high)
 - [x] `workspaces/{workspace}/projects` — lookup grouping the repositories we already sync under a project key (high)
-- [ ] `repositories/{workspace}/{repo}/pipelines/{uuid}/steps` — per-step CI durations and outcomes; the pipelines row alone gives no breakdown (high)
-- [ ] `repositories/{workspace}/{repo}/issues` — repo issue tracker records (medium)
-- [ ] `repositories/{workspace}/{repo}/commit/{commit}/statuses` — external build/check status per commit we already sync (medium)
-- [ ] `repositories/{workspace}/{repo}/refs/branches` — branch lookup resolving branch names on PRs, pipelines and deployments (medium)
+- [x] `repositories/{workspace}/{repo}/pipelines/{uuid}/steps` — per-step CI durations and outcomes; the pipelines row alone gives no breakdown (high)
+- [ ] `repositories/{workspace}/{repo}/issues` — repo issue tracker records (medium). Removed by Atlassian: the endpoint returns 410 Gone (changelog CHANGE-3071), so there is nothing to sync.
+- [x] `repositories/{workspace}/{repo}/commit/{commit}/statuses` — external build/check status per commit we already sync (medium)
+- [x] `repositories/{workspace}/{repo}/refs/branches` — branch lookup resolving branch names on PRs, pipelines and deployments (medium)
 - [ ] `repositories/{workspace}/{repo}/pullrequests/{id}/commits` — PR-to-commit join enabling change-size metrics (medium)
 - [ ] `repositories/{workspace}/{repo}/pipelines/{uuid}/steps/{uuid}/test_reports/test_cases` — per-test-case CI results for flakiness analysis (medium)
-- [ ] `repositories/{workspace}/{repo}/issues/{id}/comments` — issue discussion volume (medium)
-- [ ] `repositories/{workspace}/{repo}/issues/{id}/changes` — issue state transition history (low)
+- [ ] `repositories/{workspace}/{repo}/issues/{id}/comments` — issue discussion volume (medium). Removed with the rest of the issue tracker API (CHANGE-3071).
+- [ ] `repositories/{workspace}/{repo}/issues/{id}/changes` — issue state transition history (low). Removed with the rest of the issue tracker API (CHANGE-3071).
+
+Note: `pipeline_steps` and `commit_statuses` cost one request per parent row, so their parent walk
+is bounded — by the incremental watermark once a table has synced, and by a per-repository cap on the
+first sync. `commit_statuses` is not selected by default for that reason.
 
 Note: `pull_request_activity` syncs the repo-level `pullrequests/activity` feed rather than the
 per-pull-request path listed above. Both return the same entries; the repo-level feed covers every
