@@ -128,8 +128,8 @@
 #   depot-exempt. Login is best-effort because these jobs only pull public images and can
 #   fall back to anonymous pulls, which canonical relies on too.
 # - Path-filter persons-SQL is folded into migrations
-# - Snapshot mode matches canonical, but snapshot patch upload/commit is stripped;
-#   canonical's per-schema-leg patch scoping (legacy legs exclude *.new_events_schema.ambr,
+# - Snapshot mode is pinned to check, because the snapshot patch upload/commit is stripped.
+#   Canonical's per-schema-leg patch scoping (legacy legs exclude *.new_events_schema.ambr,
 #   events_json legs ship only those) is therefore depot-exempt too
 # - Test durations restored from Depot Cache (posthog-test-durations- prefix), refreshed by
 #   .depot/workflows/ci-backend-update-test-timing.yml, so shard counts match GitHub Actions.
@@ -586,31 +586,14 @@ jobs:
         outputs:
             mode: ${{ steps.detect.outputs.mode }}
         steps:
+            # Always check, never update. The steps that upload the snapshot patch and
+            # commit it back are not ported here, so an update-mode run would rewrite the
+            # snapshots on the runner, throw them away, and pass. A routed PR with stale
+            # snapshots goes red here instead of merging stale. Restore canonical's mode
+            # detection once handle-snapshots is ported.
             - name: Detect mode
               id: detect
-              env:
-                  PR_REPO: ${{ github.event.pull_request.head.repo.full_name }}
-                  REPO: ${{ github.repository }}
-                  HAS_NO_SNAPSHOT_LABEL: ${{ contains(github.event.pull_request.labels.*.name, 'no-snapshot-update') }}
-                  AUTHOR: ${{ github.actor }}
-              run: |
-                  if [ "$PR_REPO" != "$REPO" ] && [ -n "$PR_REPO" ]; then
-                    echo "mode=check" >> "$GITHUB_OUTPUT"
-                    echo "Fork detected - running in check mode"
-                  elif [ "$HAS_NO_SNAPSHOT_LABEL" == "true" ]; then
-                    echo "mode=check" >> "$GITHUB_OUTPUT"
-                    echo "No-snapshot label detected - running in check mode"
-                  else
-                    echo "Workflow triggered by: $AUTHOR"
-                    if [[ "$AUTHOR" != "dependabot[bot]" ]] && \
-                       { [[ "$AUTHOR" == *"github-actions"* ]] || [[ "$AUTHOR" == *"[bot]"* ]] || [[ "$AUTHOR" == "posthog-bot" ]]; }; then
-                      echo "mode=check" >> "$GITHUB_OUTPUT"
-                      echo "Bot actor detected - running in check mode"
-                    else
-                      echo "mode=update" >> "$GITHUB_OUTPUT"
-                      echo "Running in update mode"
-                    fi
-                  fi
+              run: echo "mode=check" >> "$GITHUB_OUTPUT"
 
     # Fast pre-job: determines which products need testing and if Django should run
     # Only needs pnpm + node — no Python, Docker, or services
