@@ -45,6 +45,21 @@ let registeredAppVersion: string | null = null;
 let registeredHostInfo: HostInfoProperties | null = null;
 const registeredSubscriptions = new Map<Adapter, AdapterSubscriptionState>();
 
+// The desktop app's own backend host (e.g. https://us.posthog.com), known only
+// once a cloud region is chosen — see networkMetricPath.
+let registeredApiBaseHost: string | null = null;
+
+/**
+ * Record the desktop app's own backend host, so the network-duration metric's
+ * path attribution (networkMetricPath) can recognize the app's own requests.
+ * Call this whenever an authenticated API client is built for a cloud region
+ * (see createAuthenticatedClient) — it's a runtime, per-session value, not a
+ * build-time one, so it can't be read from an env var at init time.
+ */
+export function registerApiBaseHost(host: string): void {
+  registeredApiBaseHost = host;
+}
+
 // posthog.reset() wipes super properties, so these are re-registered after each reset.
 function registerPersistentSuperProperties(): void {
   posthog.register({
@@ -118,16 +133,26 @@ const SESSION_IDLE_TIMEOUT_SECONDS = 36_000;
  * user-controlled filename — see `_build_artifact_storage_path` in
  * products/tasks/backend/facade/api.py) or any other non-API request would leak
  * that filename into the shared Metrics project. Only requests to the app's own
- * API host get path-based attribution; everything else collapses to a fixed
+ * backend host get path-based attribution; everything else collapses to a fixed
  * value.
+ *
+ * `apiBaseHost` is the desktop app's own backend (registerApiBaseHost), not the
+ * `api_host` passed to posthog.init() below — that's the separate analytics
+ * ingestion endpoint posthog-js itself talks to, and posthog-js already excludes
+ * its own requests from this metric. `apiBaseHost` is `null` until a cloud
+ * region is chosen, so nothing is treated as the app's own host yet.
  */
 export function networkMetricPath(
   request: NetworkMetricsRequest,
-  apiHost: string,
+  apiBaseHost: string | null,
 ): string | undefined {
+  if (apiBaseHost === null) {
+    return "external";
+  }
+
   try {
     const requestHost = new URL(request.url).host;
-    const appHost = new URL(apiHost).host;
+    const appHost = new URL(apiBaseHost).host;
     return requestHost === appHost ? undefined : "external";
   } catch {
     return "external";
@@ -165,10 +190,10 @@ export function initializePostHog(sessionId?: string) {
       // keyed by method/host/path (posthog-js templates numeric and uuid-like
       // path segments to `:id` before dimensioning). posthog-js's own capture/flags/session-recording
       // requests are excluded automatically. `attributes` keeps path-based
-      // attribution to this app's own API — see `networkMetricPath`.
+      // attribution to this app's own backend — see `networkMetricPath`.
       network: {
         attributes: (request) => {
-          const path = networkMetricPath(request, apiHost);
+          const path = networkMetricPath(request, registeredApiBaseHost);
           return path === undefined ? undefined : { path };
         },
       },

@@ -222,17 +222,14 @@ describe("track", () => {
 });
 
 describe("networkMetricPath", () => {
-  const apiHost = "https://internal-c.posthog.com";
+  const apiBaseHost = "https://us.posthog.com";
 
-  it("leaves the path undefined for the app's own API host", async () => {
+  it("leaves the path undefined for the app's own backend host", async () => {
     const { networkMetricPath } = await loadAnalytics();
 
     const path = networkMetricPath(
-      {
-        url: "https://internal-c.posthog.com/api/projects/1/tasks/",
-        method: "GET",
-      },
-      apiHost,
+      { url: "https://us.posthog.com/api/projects/1/tasks/", method: "GET" },
+      apiBaseHost,
     );
 
     expect(path).toBeUndefined();
@@ -246,7 +243,7 @@ describe("networkMetricPath", () => {
         url: "https://s3.example.com/bucket/artifacts/ab12cd34_customer-roadmap.pdf?X-Amz-Signature=abc",
         method: "GET",
       },
-      apiHost,
+      apiBaseHost,
     );
 
     expect(path).toBe("external");
@@ -257,7 +254,21 @@ describe("networkMetricPath", () => {
 
     const path = networkMetricPath(
       { url: "not a url", method: "GET" },
-      apiHost,
+      apiBaseHost,
+    );
+
+    expect(path).toBe("external");
+  });
+
+  // Before a cloud region is chosen (early boot, signed out) there's no backend
+  // host to compare against — collapsing keeps that window failing closed
+  // instead of matching every host.
+  it("collapses the path when no backend host is registered yet", async () => {
+    const { networkMetricPath } = await loadAnalytics();
+
+    const path = networkMetricPath(
+      { url: "https://us.posthog.com/api/projects/1/tasks/", method: "GET" },
+      null,
     );
 
     expect(path).toBe("external");
@@ -265,25 +276,33 @@ describe("networkMetricPath", () => {
 });
 
 describe("metrics.network.attributes callback", () => {
-  it("returns undefined for requests to the app's own API host", async () => {
-    const { initializePostHog } = await loadAnalytics();
+  // The callback must read the *current* registered backend host on every call,
+  // not one captured when posthog.init() ran: initializePostHog() runs at boot,
+  // before the user's cloud region (and therefore the app's real backend host)
+  // is known, so registerApiBaseHost() always lands after init.
+  it("reflects a backend host registered after init, without re-initializing", async () => {
+    const { initializePostHog, registerApiBaseHost } = await loadAnalytics();
 
     initializePostHog();
-
     const attributesCallback =
       mockPosthog.init.mock.calls[0][1].metrics.network.attributes;
-    const result = attributesCallback({
-      url: "https://internal-c.posthog.com/api/projects/1/tasks/",
+    const request = {
+      url: "https://us.posthog.com/api/projects/1/tasks/",
       method: "GET",
-    });
+    };
 
-    expect(result).toBeUndefined();
+    expect(attributesCallback(request)).toEqual({ path: "external" });
+
+    registerApiBaseHost("https://us.posthog.com");
+
+    expect(attributesCallback(request)).toBeUndefined();
   });
 
   it("returns { path: 'external' } for requests to other hosts", async () => {
-    const { initializePostHog } = await loadAnalytics();
+    const { initializePostHog, registerApiBaseHost } = await loadAnalytics();
 
     initializePostHog();
+    registerApiBaseHost("https://us.posthog.com");
 
     const attributesCallback =
       mockPosthog.init.mock.calls[0][1].metrics.network.attributes;
