@@ -666,7 +666,7 @@ function PullRequestGenerationRow(): JSX.Element {
 export function SelfDrivingSection(): JSX.Element {
     // The Settings tab wraps this in its own card; the legacy setup rail does not.
     const redesign = useFeatureFlag('INBOX_REDESIGN')
-    const { teamConfig, teamConfigLoading, autostartEnabled } = useValues(signalTeamConfigLogic)
+    const { teamConfig, teamConfigLoading } = useValues(signalTeamConfigLogic)
 
     if (teamConfigLoading && teamConfig === null) {
         return <LemonSkeleton className="h-20 w-full rounded" />
@@ -690,7 +690,7 @@ export function SelfDrivingSection(): JSX.Element {
                 title="Your overrides"
                 description="For reports that suggest you as reviewer, in every project you belong to. These override the project settings."
             >
-                {autostartEnabled && <MyThresholdRow />}
+                <MyThresholdRow />
                 <MyPullRequestStateRow />
                 <GitHubAssignmentRow />
             </AutonomySettingGroup>
