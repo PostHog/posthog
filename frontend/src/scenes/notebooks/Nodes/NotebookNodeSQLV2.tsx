@@ -10,6 +10,8 @@ import { Query } from '~/queries/Query/Query'
 import { DataVisualizationNode, HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
 import { ChartDisplayType } from '~/types'
 
+import { notebookCodeCellLogic } from 'products/notebooks/frontend/notebookCodeCellLogic'
+
 import { NotebookNodeAttributeProperties, NotebookNodeProps, NotebookNodeType } from '../types'
 import { NotebookCellOutputHeader } from './components/NotebookCellOutputHeader'
 import { NotebookCellOutputNameFooter } from './components/NotebookCellOutputNameFooter'
@@ -22,7 +24,7 @@ import { NotebookCodeSQLEditorSettings } from './components/NotebookSQLEditor'
 import { NotebookStaleCellBanner } from './components/NotebookStaleCellBanner'
 import { notebookNodeLogic } from './notebookNodeLogic'
 import { initialSizedRunId, outputHeightForShape } from './notebookNodeOutputHeight'
-import { SQL_V2_DEFAULT_PAGE_SIZE, notebookNodeSQLV2Logic } from './notebookNodeSQLV2Logic'
+import { SQL_V2_DEFAULT_PAGE_SIZE } from './notebookNodeSQLV2Logic'
 import { NotebookDataframeResult } from './pythonExecution'
 
 export type NotebookNodeSQLV2Media = { mime_type: string; data: string }
@@ -144,16 +146,7 @@ const Component = ({
     const { navigateToNode } = useActions(nodeLogic)
     const notebookShortId = notebookLogic.props.shortId
 
-    const dataLogic = notebookNodeSQLV2Logic({
-        nodeId,
-        notebookShortId,
-        updateAttributes,
-        runId: attributes.runId ?? null,
-        hasResult: Array.isArray(attributes.result?.first_page),
-        hasResultMetadata: !!attributes.result,
-        getContent: () => notebookLogic.values.content ?? null,
-        getVariables: () => notebookLogic.values.runnableVariables,
-    })
+    const dataLogic = notebookCodeCellLogic(nodeId, notebookLogic, attributes, updateAttributes)
     const {
         isRunning,
         runError,
@@ -395,18 +388,8 @@ const Settings = ({
 }: NotebookNodeAttributeProperties<NotebookNodeSQLV2Attributes>): JSX.Element => {
     const nodeLogic = useMountedLogic(notebookNodeLogic)
     const { nodeId, notebookLogic } = useValues(nodeLogic)
-    const notebookShortId = notebookLogic.props.shortId
 
-    const dataLogic = notebookNodeSQLV2Logic({
-        nodeId,
-        notebookShortId,
-        updateAttributes,
-        runId: attributes.runId ?? null,
-        hasResult: Array.isArray(attributes.result?.first_page),
-        hasResultMetadata: !!attributes.result,
-        getContent: () => notebookLogic.values.content ?? null,
-        getVariables: () => notebookLogic.values.runnableVariables,
-    })
+    const dataLogic = notebookCodeCellLogic(nodeId, notebookLogic, attributes, updateAttributes)
     const { isRunning } = useValues(dataLogic)
     const { runNode } = useActions(dataLogic)
 
