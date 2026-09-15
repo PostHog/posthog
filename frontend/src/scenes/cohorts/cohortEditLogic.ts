@@ -835,7 +835,7 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
         },
     })),
 
-    loaders(({ actions, values, key, props }) => ({
+    loaders(({ actions, values, props }) => ({
         cohort: [
             NEW_COHORT,
             {
@@ -939,7 +939,7 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                     actions.setCohort(cohort)
                     refreshTreeItem('cohort', cohort.id)
                     lemonToast.success('Cohort saved. Please wait up to a few minutes for it to be calculated', {
-                        toastId: `cohort-saved-${key}`,
+                        toastId: `cohort-saved-${cohort.id}`,
                     })
                     actions.checkIfFinishedCalculating(cohort)
                     if (existingCohort.id === 'new') {
