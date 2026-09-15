@@ -14,6 +14,30 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 configure({ asyncUtilTimeout: 5000 });
 
 const saveMock = vi.hoisted(() => vi.fn());
+const resetMock = vi.hoisted(() => vi.fn());
+const flagState = vi.hoisted(() => ({ enabled: true }));
+const settingsState = vi.hoisted(() => ({
+  lastUsedAgentRuntime: "acp" as "acp" | "pi",
+  lastUsedPiModel: null as string | null,
+  setLastUsedAgentRuntime: vi.fn(),
+  setLastUsedPiModel: vi.fn(),
+}));
+const piCatalogState = vi.hoisted(() => ({
+  models: [
+    {
+      provider: "openai",
+      id: "gpt-5.6",
+      name: "GPT-5.6",
+      isDefault: true,
+    },
+    {
+      provider: "anthropic",
+      id: "claude-opus-4-8",
+      name: "Claude Opus 4.8",
+      isDefault: false,
+    },
+  ],
+}));
 const previewState = vi.hoisted(() => ({
   lastAdapter: null as string | null,
   setConfigOption: vi.fn(),
@@ -43,7 +67,16 @@ vi.mock("@posthog/ui/features/auth/store", () => ({
     }),
 }));
 vi.mock("@posthog/ui/features/feature-flags/useFeatureFlag", () => ({
-  useFeatureFlag: () => true,
+  useFeatureFlag: () => flagState.enabled,
+}));
+vi.mock("@posthog/ui/features/settings/settingsStore", () => ({
+  useSettingsStore: () => settingsState,
+}));
+vi.mock("@posthog/ui/features/pi-sessions/usePiModelCatalog", () => ({
+  usePiModelCatalog: () => ({
+    data: piCatalogState.models,
+    isPending: false,
+  }),
 }));
 vi.mock("@posthog/ui/features/settings/hooks/useTaskAgentDefaults", () => ({
   useTaskAgentDefaults: () => ({
@@ -62,7 +95,7 @@ vi.mock("@posthog/ui/features/settings/hooks/useTaskAgentDefaults", () => ({
     isLoading: false,
     isSaving: false,
     save: saveMock,
-    reset: vi.fn(),
+    reset: resetMock,
   }),
 }));
 vi.mock("@posthog/ui/features/task-detail/hooks/usePreviewConfig", () => ({
@@ -121,6 +154,20 @@ async function openSub(user: ReturnType<typeof userEvent.setup>, name: RegExp) {
 describe("TaskAgentDefaultsSettings", () => {
   beforeEach(() => {
     saveMock.mockClear();
+    resetMock.mockClear();
+    settingsState.setLastUsedAgentRuntime.mockClear();
+    settingsState.setLastUsedPiModel.mockClear();
+    settingsState.lastUsedAgentRuntime = "acp";
+    settingsState.lastUsedPiModel = null;
+    settingsState.setLastUsedAgentRuntime.mockImplementation(
+      (runtime: "acp" | "pi") => {
+        settingsState.lastUsedAgentRuntime = runtime;
+      },
+    );
+    settingsState.setLastUsedPiModel.mockImplementation((model: string) => {
+      settingsState.lastUsedPiModel = model;
+    });
+    flagState.enabled = true;
     previewState.setConfigOption.mockClear();
     previewState.lastAdapter = null;
     defaultsState.myPreferences = {
@@ -246,5 +293,115 @@ describe("TaskAgentDefaultsSettings", () => {
     // (Claude) harness rather than staying on Codex.
     await waitFor(() => expect(previewState.lastAdapter).toBe("claude"));
     expect(trigger).toHaveTextContent("Default ·");
+  });
+
+  it("selects Pi as a device-local runtime and model without saving a server preference", async () => {
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    const { rerender } = render(
+      <Theme>
+        <TaskAgentDefaultsSettings />
+      </Theme>,
+    );
+
+    await user.click(
+      screen.getByRole("button", { name: /Model and reasoning/ }),
+    );
+    await openSub(user, /^Harness/);
+    fireEvent.click(screen.getByRole("menuitemradio", { name: "Pi" }));
+
+    expect(saveMock).not.toHaveBeenCalled();
+    expect(settingsState.setLastUsedAgentRuntime).toHaveBeenCalledWith("pi");
+    expect(settingsState.lastUsedAgentRuntime).toBe("pi");
+
+    rerender(
+      <Theme>
+        <TaskAgentDefaultsSettings />
+      </Theme>,
+    );
+
+    await user.click(screen.getByRole("button", { name: /Model: GPT-5.6/ }));
+    await openSub(user, /^Model/);
+    fireEvent.click(
+      screen.getByRole("menuitemradio", { name: "Claude Opus 4.8" }),
+    );
+
+    expect(saveMock).not.toHaveBeenCalled();
+    expect(settingsState.setLastUsedPiModel).toHaveBeenCalledWith(
+      "claude-opus-4-8",
+    );
+    expect(settingsState.lastUsedPiModel).toBe("claude-opus-4-8");
+  });
+
+  it("hides Pi when the harness flag is off", async () => {
+    flagState.enabled = false;
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    render(
+      <Theme>
+        <TaskAgentDefaultsSettings />
+      </Theme>,
+    );
+
+    await user.click(
+      screen.getByRole("button", { name: /Model and reasoning/ }),
+    );
+    await openSub(user, /^Harness/);
+
+    expect(screen.queryByRole("menuitemradio", { name: "Pi" })).toBeNull();
+  });
+
+  it("switches from Pi to an ACP harness before saving its model preference", async () => {
+    settingsState.lastUsedAgentRuntime = "pi";
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    const { rerender } = render(
+      <Theme>
+        <TaskAgentDefaultsSettings />
+      </Theme>,
+    );
+
+    await user.click(screen.getByRole("button", { name: /Model: GPT-5.6/ }));
+    await openSub(user, /^Harness/);
+    fireEvent.click(screen.getByRole("menuitemradio", { name: "Codex" }));
+
+    expect(saveMock).not.toHaveBeenCalled();
+    expect(settingsState.setLastUsedAgentRuntime).toHaveBeenCalledWith("acp");
+
+    rerender(
+      <Theme>
+        <TaskAgentDefaultsSettings />
+      </Theme>,
+    );
+
+    expect(previewState.lastAdapter).toBe("codex");
+    await user.click(
+      screen.getByRole("button", { name: /Model and reasoning/ }),
+    );
+    await user.click(await screen.findByRole("button", { name: "Advanced" }));
+    await openSub(user, /^Model/);
+    fireEvent.click(
+      await screen.findByRole("menuitemradio", { name: /GPT-5.6 Terra/ }),
+    );
+
+    expect(saveMock).toHaveBeenCalledWith({
+      runtime_adapter: "codex",
+      model: "gpt-5.6-terra",
+      reasoning_effort: null,
+    });
+  });
+
+  it("resets Pi to ACP and clears the server preference", async () => {
+    settingsState.lastUsedAgentRuntime = "pi";
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    render(
+      <Theme>
+        <TaskAgentDefaultsSettings />
+      </Theme>,
+    );
+
+    await user.click(
+      screen.getByRole("button", { name: "Use project default" }),
+    );
+
+    expect(settingsState.setLastUsedAgentRuntime).toHaveBeenCalledWith("acp");
+    expect(resetMock).toHaveBeenCalledTimes(1);
   });
 });
