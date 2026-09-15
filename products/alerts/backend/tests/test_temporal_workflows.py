@@ -391,3 +391,16 @@ async def test_probe_workflow_cancellation_does_not_start_delivery() -> None:
     ):
         await AlertsProductCheckDueWorkflow().run(AlertsProductInputs())
     start_delivery.assert_not_awaited()
+
+
+def test_every_source_cycle_binding_names_a_registered_workflow() -> None:
+    from posthog.management.commands.start_temporal_worker import WORKFLOWS_DICT
+
+    from products.alerts.backend.temporal.sources import source_cycle_bindings
+
+    for binding in source_cycle_bindings():
+        registered = {workflow_cls.get_name() for workflow_cls in WORKFLOWS_DICT[binding.task_queue]}
+        assert binding.workflow_name in registered, (
+            f"No worker on {binding.task_queue} registers {binding.workflow_name}, "
+            f"so every {binding.source_kind} cycle would wait until it times out."
+        )
