@@ -116,27 +116,27 @@ export function DataQualityOverview(): JSX.Element {
     return (
         <BindLogic logic={dataQualityCheckEditorLogic} props={editorProps}>
             <div className="flex flex-col gap-3">
-                <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
-                    <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto">
+                <div className="flex flex-wrap items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2 grow basis-full @2xl/main-content:basis-0">
                         <LemonInput
                             type="search"
+                            size="small"
                             placeholder="Search checks"
                             value={filters.search}
                             onChange={(search) => setFilters({ search })}
-                            className="w-full md:w-64"
+                            className="flex-1 min-w-40 max-w-64"
                         />
                         <LemonSegmentedButton
                             size="small"
                             value={filters.status}
                             onChange={(status) => setFilters({ status })}
                             options={STATUS_FILTERS}
-                            className="w-full md:w-auto"
                         />
                     </div>
-                    <div className="flex flex-wrap items-center gap-2">
-                        <DataQualityGateToggle />
+                    <div className="flex flex-wrap items-center gap-2 ml-auto">
                         <LemonButton
                             type="secondary"
+                            size="small"
                             onClick={() => runChecks({ kind: 'all' })}
                             loading={runningAll}
                             disabledReason={
@@ -153,6 +153,7 @@ export function DataQualityOverview(): JSX.Element {
                         <LemonButton
                             id={NEW_CHECK_ACTION_ID}
                             type="primary"
+                            size="small"
                             onClick={addCheck}
                             data-attr="data-quality-overview-new-check"
                         >
@@ -161,7 +162,10 @@ export function DataQualityOverview(): JSX.Element {
                     </div>
                 </div>
 
-                {overviewSummary && <p className="mb-0 text-secondary">{overviewSummary}</p>}
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-2 empty:hidden">
+                    {overviewSummary && <p className="mb-0 text-secondary flex-1 min-w-0">{overviewSummary}</p>}
+                    <DataQualityGateToggle />
+                </div>
 
                 {overviewError && snapshotLoaded && (
                     <LemonBanner type="warning" action={{ children: 'Retry', onClick: loadOverview }}>
