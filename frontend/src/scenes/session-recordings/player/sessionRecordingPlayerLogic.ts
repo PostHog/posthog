@@ -636,6 +636,7 @@ export interface sessionRecordingPlayerLogicValues {
     isSkippingToMatchingEvent: boolean
     isWaitingForIngestion: boolean
     jumpTimeMs: number
+    leadingRecoveryTimestamp: number | null
     leadingUnplayableMs: number
     logicProps: SessionRecordingPlayerLogicProps
     maskingWindow: boolean
@@ -1129,15 +1130,16 @@ export interface sessionRecordingPlayerLogicMeta {
             sessionPlayerData: SessionPlayerData,
             storeVersion: number
         ) => (timestamp: number) => SeekRenderability
-        leadingUnplayableMs: (
+        leadingRecoveryTimestamp: (
             sessionPlayerData: SessionPlayerData,
             seekRenderability: (timestamp: number) => SeekRenderability
-        ) => number
-        hasLateFullSnapshot: (leadingUnplayableMs: number) => boolean
+        ) => number | null
+        leadingUnplayableMs: (sessionPlayerData: SessionPlayerData, leadingRecoveryTimestamp: number | null) => number
+        hasLateFullSnapshot: (sessionPlayerData: SessionPlayerData, leadingRecoveryTimestamp: number | null) => boolean
         unrenderableWindowSpans: (
             sessionPlayerData: SessionPlayerData,
             seekRenderability: (timestamp: number) => SeekRenderability,
-            leadingUnplayableMs: number
+            leadingRecoveryTimestamp: number | null
         ) => UnplayableSpan[]
         unrenderableWindowMs: (unrenderableWindowSpans: UnplayableSpan[]) => number
         hasUnrenderableWindow: (unrenderableWindowMs: number) => boolean
@@ -1925,30 +1927,30 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             },
         ],
 
-        // The leading span playback can't render — when the initial full snapshot was lost or arrived
-        // late, this is the offset from start to the FullSnapshot the player clamps the playhead to.
-        // Derived from seekRenderability so the scrubber marker matches where playback actually starts,
-        // window-aware and excluding the no-full-snapshot-anywhere case (handled by the unplayable takeover).
-        // The `clampToFullSnapshot` verdict already requires the data before the recovery point to be
-        // loaded (and so can't later flip to `renderable`), so it gates itself — surfacing the marker as
-        // soon as playback would clamp rather than waiting for the whole recording to finish loading.
-        leadingUnplayableMs: [
+        // Where the leading span playback can't render hands over — when the initial full snapshot was
+        // lost or arrived late, this is the FullSnapshot the player clamps the playhead to, or null when
+        // there is no such span. Derived from seekRenderability so the scrubber marker matches where
+        // playback actually starts, window-aware and excluding the no-full-snapshot-anywhere case
+        // (handled by the unplayable takeover). The `clampToFullSnapshot` verdict already requires the
+        // data before the recovery point to be loaded (and so can't later flip to `renderable`), so it
+        // gates itself — surfacing the marker as soon as playback would clamp rather than waiting for the
+        // whole recording to finish loading.
+        leadingRecoveryTimestamp: [
             (s) => [s.sessionPlayerData, s.seekRenderability],
             (
                 sessionPlayerData: SessionPlayerData,
                 seekRenderability: (timestamp: number) => SeekRenderability
-            ): number => {
-                const start = sessionPlayerData.start?.valueOf()
-                if (start == null) {
-                    return 0
+            ): number | null => {
+                if (sessionPlayerData.start == null) {
+                    return null
                 }
                 const firstWindowSegment = sessionPlayerData.segments.find((segment) => segment.kind === 'window')
                 if (!firstWindowSegment) {
-                    return 0
+                    return null
                 }
                 const renderability = seekRenderability(firstWindowSegment.startTimestamp)
                 if (renderability.kind !== 'clampToFullSnapshot') {
-                    return 0
+                    return null
                 }
                 // A backdated `sessionIdle` Custom event pulls `start` back over the idle span, and the SDK
                 // drops everything else while idle, so a Custom-only span is empty rather than lost.
@@ -1960,17 +1962,40 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                             break
                         }
                         if (event.type !== EventType.Custom) {
-                            return recoveryTimestamp - start
+                            return recoveryTimestamp
                         }
                     }
                 }
-                return 0
+                return null
             },
         ],
 
+        leadingUnplayableMs: [
+            (s) => [s.sessionPlayerData, s.leadingRecoveryTimestamp],
+            (sessionPlayerData: SessionPlayerData, leadingRecoveryTimestamp: number | null): number => {
+                const start = sessionPlayerData.start?.valueOf()
+                if (start == null || leadingRecoveryTimestamp == null) {
+                    return 0
+                }
+                // `durationMs` is capped by the metadata duration, so a skewed start can put the recovery
+                // point past the end of the timeline. A span longer than the recording it belongs to is
+                // impossible, so report at most the whole recording.
+                return Math.min(leadingRecoveryTimestamp - start, sessionPlayerData.durationMs)
+            },
+        ],
+
+        // The threshold reads the unclamped offset, not `leadingUnplayableMs`. The clamped span can
+        // never exceed the recording length, so a recording no longer than the threshold would always
+        // fall under it and silence its own warning, which is the worst case rather than a mild one.
         hasLateFullSnapshot: [
-            (s) => [s.leadingUnplayableMs],
-            (leadingUnplayableMs: number): boolean => leadingUnplayableMs > LATE_FULL_SNAPSHOT_THRESHOLD_MS,
+            (s) => [s.sessionPlayerData, s.leadingRecoveryTimestamp],
+            (sessionPlayerData: SessionPlayerData, leadingRecoveryTimestamp: number | null): boolean => {
+                const start = sessionPlayerData.start?.valueOf()
+                if (start == null || leadingRecoveryTimestamp == null) {
+                    return false
+                }
+                return leadingRecoveryTimestamp - start > LATE_FULL_SNAPSHOT_THRESHOLD_MS
+            },
         ],
 
         // Spans of a window that opened without ever sending its initial DOM. rrweb draws its own
@@ -1980,11 +2005,11 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         // One check per window is enough: once a window has a FullSnapshot, rrweb keeps its DOM for
         // every later segment of that window.
         unrenderableWindowSpans: [
-            (s) => [s.sessionPlayerData, s.seekRenderability, s.leadingUnplayableMs],
+            (s) => [s.sessionPlayerData, s.seekRenderability, s.leadingRecoveryTimestamp],
             (
                 sessionPlayerData: SessionPlayerData,
                 seekRenderability: (timestamp: number) => SeekRenderability,
-                leadingUnplayableMs: number
+                leadingRecoveryTimestamp: number | null
             ): UnplayableSpan[] => {
                 // A recording where no window ever rendered belongs to the unplayable takeover, which
                 // replaces the player instead of warning over it. Leaving it out also keeps this
@@ -2005,9 +2030,9 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 }
 
                 const firstWindowSegment = sessionPlayerData.segments.find((segment) => segment.kind === 'window')
-                // Where the leading span hands over. Its recovery point can be another window's
+                // The leading span hands over at its recovery point, which can be another window's
                 // FullSnapshot, so the first window can go blank again after it and still needs a span.
-                const leadingRecoveryTimestamp = (sessionPlayerData.start?.valueOf() ?? 0) + leadingUnplayableMs
+                const handoverTimestamp = leadingRecoveryTimestamp ?? sessionPlayerData.start?.valueOf() ?? 0
                 const spans: UnplayableSpan[] = []
                 const checkedWindows = new Set<number>()
                 for (const segment of sessionPlayerData.segments) {
@@ -2015,10 +2040,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                         continue
                     }
                     const windowId = segment.windowId
-                    if (
-                        windowId === firstWindowSegment?.windowId &&
-                        segment.startTimestamp < leadingRecoveryTimestamp
-                    ) {
+                    if (windowId === firstWindowSegment?.windowId && segment.startTimestamp < handoverTimestamp) {
                         continue
                     }
                     if (checkedWindows.has(windowId)) {
@@ -2067,7 +2089,14 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                         if (blankSegment.windowId !== windowId) {
                             continue
                         }
-                        const spanStart = Math.max(blankSegment.startTimestamp, segment.startTimestamp)
+                        // The leading span already claims every millisecond before the handover, so a
+                        // blank stretch that starts earlier keeps only the part after it. Without this
+                        // the banner and the telemetry report the same lost time twice.
+                        const spanStart = Math.max(
+                            blankSegment.startTimestamp,
+                            segment.startTimestamp,
+                            handoverTimestamp
+                        )
                         const spanEnd = Math.min(blankSegment.endTimestamp, endTimestamp)
                         if (spanEnd <= spanStart) {
                             continue
