@@ -973,7 +973,14 @@ export interface ContextWikiActiveDreamRun {
 export interface ContextWikiDreamList {
   head_sha: string;
   active_run: ContextWikiActiveDreamRun | null;
+  unpublished_run?: ContextWikiUnpublishedDreamRun | null;
   dreams: ContextWikiDreamRun[];
+}
+
+export interface ContextWikiUnpublishedDreamRun {
+  task_url: string;
+  run_status: string;
+  started_at: string;
 }
 
 export interface ContextWikiDreamFile {
