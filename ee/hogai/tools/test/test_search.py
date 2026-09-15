@@ -12,6 +12,7 @@ from parameterized import parameterized
 from ee.hogai.context.context import AssistantContextManager
 from ee.hogai.tool_errors import MaxToolFatalError, MaxToolRetryableError
 from ee.hogai.tools.search import (
+    BK_SEARCH_NO_RESULTS_TEMPLATE,
     DOC_ITEM_TEMPLATE,
     DOCS_SEARCH_NO_RESULTS_TEMPLATE,
     DOCS_SEARCH_RESULTS_TEMPLATE,
@@ -63,6 +64,21 @@ class TestSearchTool(ClickhouseTestMixin, NonAtomicBaseTest):
             mock_docs_tool.execute.assert_called_once_with("How to use feature flags?", self.tool_call_id)
             self.assertEqual(result, "")
             self.assertIsNotNone(artifact)
+
+    async def test_run_business_knowledge_search_checks_access_off_the_event_loop(self):
+        self.tool._has_business_knowledge = True
+
+        with (
+            patch(
+                "ee.hogai.tools.search.async_generate_embedding",
+                AsyncMock(side_effect=RuntimeError("embedding unavailable")),
+            ),
+            patch("ee.hogai.tools.search.search_knowledge", return_value=[]),
+        ):
+            result, artifact = await self.tool._arun_impl(kind="business-knowledge", query="what is our pricing?")
+
+        self.assertEqual(result, BK_SEARCH_NO_RESULTS_TEMPLATE)
+        self.assertIsNone(artifact)
 
     async def test_run_unknown_kind(self):
         with self.assertRaises(MaxToolRetryableError) as context:

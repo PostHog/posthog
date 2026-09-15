@@ -166,7 +166,10 @@ class SearchTool(MaxTool):
                 raise MaxToolFatalError(
                     "Business knowledge search is not available: this project has no ready knowledge sources."
                 )
-            if not self.user_access_control.check_access_level_for_resource("business_knowledge", "viewer"):
+            has_access = await database_sync_to_async(
+                self.user_access_control.check_access_level_for_resource, thread_sensitive=False
+            )("business_knowledge", "viewer")
+            if not has_access:
                 raise MaxToolAccessDeniedError("business_knowledge", "viewer", action="search")
             return await self._search_business_knowledge(query), None
 
