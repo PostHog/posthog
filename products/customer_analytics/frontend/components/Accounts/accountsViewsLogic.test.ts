@@ -13,6 +13,7 @@ import { initKeaTests } from '~/test/init'
 
 import { ColumnConfigurationApi } from 'products/product_analytics/frontend/generated/api.schemas'
 
+import { customerAnalyticsSceneLogic } from '../../customerAnalyticsSceneLogic'
 import { ACCOUNTS_DEFAULT_COLUMNS, accountsColumnConfigLogic } from './accountsColumnConfigLogic'
 import { accountsLogic, SEARCH_DEBOUNCE_MS } from './accountsLogic'
 import { accountsOverviewTilesLogic } from './accountsOverviewTilesLogic'
@@ -109,6 +110,78 @@ describe('accountsViewsLogic', () => {
         expect(accountsColumnConfigLogic.values.selectColumns).toEqual(['name', 'csm'])
         expect(accountsLogic.values.searchQuery).toEqual('acme')
     })
+
+    it.each([
+        [false, 'views', true],
+        [true, 'views', true],
+        [false, 'relationships', true],
+        [true, 'relationships', true],
+        [true, 'views', false],
+        [true, 'relationships', false],
+    ] as const)(
+        'restores a fresh tab with mineOnly=%s, %s loading first, and savedView=%s',
+        async (mineOnly, firstResponse, savedView) => {
+            customerAnalyticsSceneLogic.mount()
+            customerAnalyticsSceneLogic.actions.setMineOnly(mineOnly)
+            let releaseViews!: () => void
+            let releaseRelationships!: () => void
+            const viewsReady = new Promise<void>((resolve) => {
+                releaseViews = resolve
+            })
+            const relationshipsReady = new Promise<void>((resolve) => {
+                releaseRelationships = resolve
+            })
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/column_configurations/': async () => {
+                        await viewsReady
+                        return { count: 1, results: [buildView()] }
+                    },
+                    '/api/projects/:team_id/account_relationship_definitions/': async () => {
+                        await relationshipsReady
+                        return {
+                            count: 1,
+                            results: [
+                                {
+                                    id: '11111111-2222-3333-4444-555555555555',
+                                    name: 'CSM',
+                                    description: null,
+                                    is_single_holder: true,
+                                },
+                            ],
+                        }
+                    },
+                },
+            })
+            if (savedView) {
+                localStorage.setItem(
+                    `customerAnalytics.accounts.accountsViewsLogic.${MOCK_DEFAULT_TEAM.id}.currentViewId`,
+                    JSON.stringify('view-1')
+                )
+            }
+            mountAll()
+
+            if (firstResponse === 'views') {
+                releaseViews()
+                await expectLogic(logic).toDispatchActions(['loadViewsSuccess'])
+                releaseRelationships()
+            } else {
+                releaseRelationships()
+                await expectLogic(accountsColumnConfigLogic).toDispatchActions(['loadRelationshipDefinitionsSuccess'])
+                releaseViews()
+            }
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(accountsColumnConfigLogic.values.selectColumns).toEqual(
+                savedView ? ['name', 'csm'] : [...ACCOUNTS_DEFAULT_COLUMNS, 'csm']
+            )
+            expect(accountsLogic.values.searchQuery).toBe(savedView ? 'acme' : '')
+            expect(accountsLogic.values.assignedToFilter).toEqual(savedView ? [1] : [CURRENT_USER_ID])
+            expect(accountsLogic.values.awaitingSavedView).toBe(false)
+            expect(logic.values.currentViewId).toBe(savedView ? 'view-1' : null)
+            expect(logic.values.isDirty).toBe(false)
+        }
+    )
 
     it('opens the gate when loading views fails, so the list still fetches', async () => {
         useMocks({ get: { '/api/projects/:team_id/column_configurations/': () => [500, {}] } })
