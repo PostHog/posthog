@@ -585,6 +585,10 @@ class _WarehouseParentRows:
                 yield row
 
 
+def _fixed_state(position: StripeResumeConfig) -> Callable[[pa.Table], StripeResumeConfig]:
+    return lambda _table: position
+
+
 def _flush_staging_state(
     batcher: Batcher,
     resumable_source_manager: ResumableSourceManager[StripeResumeConfig],
@@ -1007,9 +1011,7 @@ def get_rows(
                 if parents_since_checkpoint >= NESTED_SWEEP_CHECKPOINT_PARENTS and last_finished_parent is not None:
                     position = _resume_state(last_finished_position, last_finished_parent)
                     if batcher.should_yield(include_incomplete_chunk=True):
-                        yield from _flush_staging_state(
-                            batcher, resumable_source_manager, lambda _table, position=position: position
-                        )
+                        yield from _flush_staging_state(batcher, resumable_source_manager, _fixed_state(position))
                     else:
                         resumable_source_manager.save_state(position)
                         resumable_source_manager.commit()
