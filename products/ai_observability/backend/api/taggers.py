@@ -29,7 +29,7 @@ from posthog.clickhouse.query_tagging import (
     tag_queries,
 )
 from posthog.event_usage import report_user_action
-from posthog.permissions import AccessControlPermission
+from posthog.permissions import AccessControlPermission, PostHogFeatureFlagPermission
 from posthog.temporal.ai_observability.message_utils import extract_text_from_messages
 from posthog.temporal.ai_observability.run_evaluation import extract_event_io
 from posthog.temporal.ai_observability.run_tagger import run_hog_tagger
@@ -391,7 +391,8 @@ class TestHogTaggerResponseSerializer(serializers.Serializer):
 
 class TaggerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     scope_object = "tagger"
-    permission_classes = [IsAuthenticated, AccessControlPermission]
+    permission_classes = [IsAuthenticated, AccessControlPermission, PostHogFeatureFlagPermission]
+    posthog_feature_flag = "llm-analytics-tags"
     serializer_class = TaggerSerializer
     queryset = Tagger.objects.all()
     filter_backends = [DjangoFilterBackend]

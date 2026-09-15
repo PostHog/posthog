@@ -253,6 +253,7 @@ export type MinimalAppMetric = {
         | 'email_bounce_prevented'
         | 'email_suppressed'
         | 'email_suspended'
+        | 'email_paused'
         | 'email_blocked'
         | 'email_unsubscribed'
         | 'email_untracked'
@@ -383,6 +384,7 @@ export type CyclotronJobInvocationHogFunctionContext = {
     firstScheduledAt?: string
     actionId?: string // The hogflow action node ID, used for metrics instance_id when executing within a workflow
     actionStepCount?: number
+    customerTaskIdempotencyVersion?: 1
 }
 
 export type WorkflowStepResumeStatus = 'completed' | 'failed' | 'cancelled'
@@ -430,6 +432,8 @@ export type HogFlowInvocationContext = {
     // rather than to a wrong one.
     flowVersion?: number
     actionStepCount: number
+    // Missing on legacy runs, which must keep run:action keys even when no function state was persisted.
+    customerTaskIdempotencyVersion?: 1
     currentAction?: {
         id: string
         startedAtTimestamp: number
@@ -457,6 +461,9 @@ export type HogFlowInvocationContext = {
         // it (scheduled=now). The wait handler consumes it to attribute the re-check outcome
         // (advanced vs re-parked) to the re-key, so the wasted-re-park churn is observable.
         rekeyWake?: boolean
+        // Set when a distinct_id's first mapping fills a parked wait's missing person anchor and wakes
+        // it. A matcher wake carrying no eventMatched, so the handler consumes it like rekeyWake.
+        anchorWake?: boolean
         // Set by hog-function action handler when it returns `finished: false` without an
         // explicit `queueScheduledAt` — i.e. the reschedule is purely to move the job onto a
         // dedicated queue (e.g. 'email' for SES rate-limit gating) and the next dequeue will
@@ -478,7 +485,13 @@ export type HogFlowInvocationContext = {
         // ever catches a wake the subscription streams missed, gating its eventual removal.
         pollReparked?: boolean
         // A step parked on an external run: cleared when the matcher writes a matching `resumeResult`.
-        awaitingResume?: { key: string; deadlineAt: string; dispatch: Record<string, unknown>; label?: string }
+        awaitingResume?: {
+            key: string
+            deadlineAt: string
+            dispatch: Record<string, unknown>
+            label?: string
+            parkedAt?: string
+        }
         resumeResult?: { key: string; status: WorkflowStepResumeStatus; result?: Record<string, unknown> }
     }
     // Set by the subscription matcher consumer when an incoming event matched the
@@ -564,6 +577,7 @@ export type HogFunctionTypeType =
     | 'source_webhook'
     | 'warehouse_source_webhook'
     | 'site_destination'
+    | 'legacy_destination'
 
 // Function types a cyclotron worker actually executes, so a rerun can safely re-enqueue
 // the stored invocation onto the cyclotron hog queue and have it run. Every other type

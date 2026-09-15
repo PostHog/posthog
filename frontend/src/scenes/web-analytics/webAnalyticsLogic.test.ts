@@ -429,6 +429,28 @@ describe('webAnalyticsLogic URL restoration', () => {
         expect(logic.values.dateFilter).toMatchObject({ dateFrom: '-30d', dateTo: '-1d', interval: 'week' })
     })
 
+    it('keeps a date range and interval that equal the defaults when another filter changes', async () => {
+        // Arrive off the defaults, so the URL carries all three date params.
+        router.actions.push('/web', { date_from: '-30d', date_to: '-1d', interval: 'hour' })
+        await expectLogic(logic).toFinishAllListeners()
+
+        // Back onto the defaults: '-7d' with no end date, grouped by day. Every date param must drop
+        // out of the URL instead of keeping its previous value.
+        logic.actions.setDates('-7d', null)
+        logic.actions.setDateInterval('day')
+        await expectLogic(logic).toFinishAllListeners()
+        expect(router.values.searchParams.date_from).toBeUndefined()
+        expect(router.values.searchParams.date_to).toBeUndefined()
+        expect(router.values.searchParams.interval).toBeUndefined()
+
+        // Any later URL write runs urlToAction again. A param left behind is restored here and
+        // silently undoes what the user picked.
+        logic.actions.setCompareFilter({ compare: false })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.dateFilter).toMatchObject({ dateFrom: '-7d', dateTo: null, interval: 'day' })
+    })
+
     it.each<[string, Record<string, string>]>([
         ['tab params', { device_tab: 'BROWSER', source_tab: 'REFERRING_DOMAIN', path_tab: 'INITIAL_PATH' }],
         ['cross-logic filter params', { domain: 'example.com', device_type: 'Desktop', percentile: 'p99' }],

@@ -3,7 +3,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from unittest.mock import MagicMock, patch
 
 import requests
@@ -251,7 +251,7 @@ class TestGetRows:
             )
         session.post.assert_not_called()
 
-    @freeze_time(NOW)
+    @time_machine.travel(NOW, tick=False)
     def test_walks_windows_without_double_counting_boundaries(self) -> None:
         watermark = NOW - timedelta(hours=2)
         boundary = NOW - timedelta(hours=1)
@@ -282,7 +282,7 @@ class TestGetRows:
         assert saved == [_format_datetime(boundary), _format_datetime(NOW)]
         manager.clear_state.assert_called_once()
 
-    @freeze_time(NOW)
+    @time_machine.travel(NOW, tick=False)
     def test_bisects_windows_that_hit_the_row_cap(self) -> None:
         start = NOW - timedelta(hours=2)
         server = _FakeServer(
@@ -304,7 +304,7 @@ class TestGetRows:
         assert server.calls[0]["start"] == server.calls[1]["start"]  # first bisection retried the cursor
         assert server.calls[1]["end"] - server.calls[1]["start"] < server.calls[0]["end"] - server.calls[0]["start"]
 
-    @freeze_time(NOW)
+    @time_machine.travel(NOW, tick=False)
     def test_min_window_cap_warns_and_advances(self) -> None:
         # A window at the minimum size that still hits the cap must warn (no silent truncation)
         # and advance — not bisect forever.
@@ -318,7 +318,7 @@ class TestGetRows:
         assert logger.warning.call_count == 1
         assert "cap" in logger.warning.call_args.args[0]
 
-    @freeze_time(NOW)
+    @time_machine.travel(NOW, tick=False)
     def test_resumes_inclusively_from_saved_state(self) -> None:
         watermark = NOW - timedelta(hours=2)
         synced_until = NOW - timedelta(hours=1)
@@ -341,7 +341,7 @@ class TestGetRows:
         assert server.calls[0]["start"] == synced_until
         assert logids == ["at-resume-point"]
 
-    @freeze_time(NOW)
+    @time_machine.travel(NOW, tick=False)
     def test_initial_sync_covers_the_default_lookback_contiguously(self) -> None:
         server = _FakeServer([])
 

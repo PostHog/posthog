@@ -3,7 +3,7 @@ from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from unittest.mock import MagicMock, patch
 
 import requests
@@ -89,8 +89,12 @@ def _window_params(calls: list[str]) -> list[tuple[date, date]]:
     return windows
 
 
-@freeze_time("2026-07-15")
 class TestUsageCostWindowing:
+    @pytest.fixture(autouse=True)
+    def _frozen_clock(self):
+        with time_machine.travel("2026-07-15", tick=False):
+            yield
+
     def test_full_refresh_windows_are_contiguous_and_capped_at_31_days(self, monkeypatch: Any) -> None:
         # A window longer than 31 days is rejected by the API with a 400, and overlapping windows
         # would yield duplicate rows within a single sync (merge only dedupes across syncs).

@@ -43,6 +43,10 @@ class CloseSource(ResumableSource[CloseSourceConfig, CloseResumeConfig]):
         return {
             "401 Client Error: Unauthorized for url": "Close authentication failed. Please check your API key.",
             "403 Client Error: Forbidden for url": "Your Close API key does not have access to this resource. Please check the key's permissions.",
+            # Close rejects an over-long `_fields` list this way. The search now asks for custom
+            # fields with a single selector, so this should not recur, but a stuck sync must stop
+            # rather than let Temporal retry a request that can never succeed.
+            "List is too long.": "Close rejected the request because the field list was too long. This can happen on an account with a very large number of custom fields. Contact PostHog support so we can adjust how the Close source requests them.",
         }
 
     def get_retryable_errors(self) -> set[str]:

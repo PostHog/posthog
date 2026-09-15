@@ -33,7 +33,7 @@ describe('phaiSidePanelComposerSeedLogic', () => {
             get: {
                 '/api/projects/:team/tasks/': { results: [], count: 0 },
                 '/api/projects/:team/tasks/repositories/': { repositories: [] },
-                '/api/environments/:team/integrations/': { results: [] },
+                '/api/projects/:team/integrations/': { results: [] },
             },
             post: {
                 '/api/projects/:team/tasks/': async ({ request }) => {

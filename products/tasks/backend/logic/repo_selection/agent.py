@@ -495,6 +495,7 @@ async def select_repository(
     model: str | None = None,
     runtime_adapter: str | None = None,
     reasoning_effort: str | None = None,
+    service_tier: str | None = None,
     past_corrections: str | None = None,
 ) -> RepoSelectionResult:
     """Select the most relevant repository for a free-form request context.
@@ -576,6 +577,7 @@ async def select_repository(
         model=model,
         runtime_adapter=runtime_adapter,
         reasoning_effort=reasoning_effort,
+        service_tier=service_tier,
     )
 
     session, result = await MultiTurnSession.start(

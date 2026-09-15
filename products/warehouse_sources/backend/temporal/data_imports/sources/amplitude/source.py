@@ -128,7 +128,7 @@ class AmplitudeSource(ResumableSource[AmplitudeSourceConfig, AmplitudeResumeConf
             caption=(
                 "Connect Amplitude with your project's **API key** and **secret key**, found in Amplitude under "
                 "**Settings → Organization settings → Projects**. These authenticate the Export API (raw events), "
-                "the Cohorts API, and the Annotations API.\n\n"
+                "the Cohorts API, the Annotations API, and the Taxonomy API (event and property definitions).\n\n"
                 "The events stream uses Amplitude's Export API, which enforces a ~2 hour data latency and only "
                 "syncs the last 30 days on the initial sync."
             ),

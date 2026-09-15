@@ -70,7 +70,7 @@ class TestSignalScoutCreateAPI(APIBaseTest):
         assert config.emit is False
         assert config.run_cron_schedule == "30 9 * * 1-5"
         assert config.output_destinations == {
-            "slack": {**payload["config"]["output_destinations"]["slack"], "thread_reports": False}
+            "slack": {**payload["config"]["output_destinations"]["slack"], "thread_reports": True}
         }
         assert response.json()["config"]["description"] == payload["description"]
 
@@ -105,6 +105,42 @@ class TestSignalScoutCreateAPI(APIBaseTest):
         config = SignalScoutConfig.all_teams.get(team=self.team, skill_name=payload["name"])
         assert config.enabled is False
         assert config.emit is False
+
+    def test_matching_definition_retry_preserves_omitted_slack_thread_opt_out(self) -> None:
+        integration = Integration.objects.create(team=self.team, kind=Integration.IntegrationKind.SLACK)
+        payload = self._payload()
+        first = self.client.post(
+            self._url(),
+            data={
+                **payload,
+                "config": {
+                    "output_destinations": {
+                        "slack": {
+                            "integration_id": integration.id,
+                            "channel": "COLD|#old",
+                            "thread_reports": False,
+                        }
+                    }
+                },
+            },
+            format="json",
+        )
+        assert first.status_code == status.HTTP_201_CREATED, first.json()
+
+        response = self.client.post(
+            self._url(),
+            data={
+                **payload,
+                "config": {
+                    "output_destinations": {"slack": {"integration_id": integration.id, "channel": "CNEW|#new"}}
+                },
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        config = SignalScoutConfig.all_teams.get(team=self.team, skill_name=payload["name"])
+        assert config.output_destinations["slack"]["thread_reports"] is False
 
     @parameterized.expand(
         [

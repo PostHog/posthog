@@ -4,6 +4,7 @@ from typing import Any, TypeVar
 
 from django.conf import settings
 from django.db import transaction
+from django.db.models import Q
 
 import structlog
 import temporalio
@@ -25,7 +26,7 @@ from products.signals.backend.agent_runtime import STEP_RESEARCH, resolve_agent_
 from products.signals.backend.artefact_schemas import ArtefactContent, RelatedTo, SuggestedReviewers
 from products.signals.backend.auto_start import ReviewerContent
 from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact
-from products.signals.backend.repo_corrections import WRONG_REPO_CONTENT_NEEDLE
+from products.signals.backend.repo_corrections import SCOUT_REPOSITORY_CONTENT_NEEDLE, WRONG_REPO_CONTENT_NEEDLE
 from products.signals.backend.report_charts import ReportChart, chart_batch_error
 from products.signals.backend.report_generation.research import (
     ActionabilityAssessment,
@@ -45,6 +46,7 @@ from products.signals.backend.report_generation.reviewer_telemetry import (
     capture_suggested_reviewers_unresolved,
 )
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
+from products.signals.backend.report_metrics import ReportMetric, metric_batch_error
 from products.signals.backend.report_steering import ReportSteering, load_research_steering
 from products.signals.backend.temporal.agentic import (
     SIGNALS_REPORT_RESEARCH_ENV_NAME,
@@ -71,7 +73,7 @@ class RunAgenticReportInput:
     repo_selection_as_of: datetime | None = None
 
 
-@dataclass
+@frozen
 class RunAgenticReportOutput:
     title: str
     summary: str
@@ -85,6 +87,13 @@ class RunAgenticReportOutput:
     # matching title/summary, so charts and their prose land in one transaction. Defaults to `None`
     # (the safe skip value) so an older workflow history that predates this field replays cleanly.
     charts: list[dict[str, Any]] | None = None
+    # Resolved impact-metric payload, with the same replay-safe replace/clear/preserve semantics as
+    # charts. The transition activity writes it with the matching title and summary.
+    metrics: list[dict[str, Any]] | None = None
+    # Whether the rollout let this run author charts at all. Carried so telemetry can tell a run
+    # that chose not to chart apart from one that was never allowed to, which would otherwise read
+    # as the agent's charting rate moving on every rollout step. `None` predates the field.
+    charts_enabled: bool | None = None
 
 
 _ArtefactContentT = TypeVar("_ArtefactContentT", bound=BaseModel)
@@ -105,9 +114,13 @@ def _parse_artefact_content(
         ) from error
 
 
-async def _load_previous_research(report_id: str) -> ReportResearchOutput | None:
+async def _load_previous_research(team_id: int, report_id: str) -> ReportResearchOutput | None:
     """Reconstruct the previous report state."""
-    report = await SignalReport.objects.filter(id=report_id).only("title", "summary", "charts").afirst()
+    report = (
+        await SignalReport.objects.filter(team_id=team_id, id=report_id)
+        .only("title", "summary", "charts", "metrics")
+        .afirst()
+    )
     if report is None or not report.title or not report.summary:
         logger.info(
             "load previous research: no report or missing title/summary, treating as first run",
@@ -117,6 +130,7 @@ async def _load_previous_research(report_id: str) -> ReportResearchOutput | None
         return None
 
     artefacts_qs = SignalReportArtefact.objects.filter(
+        team_id=team_id,
         report_id=report_id,
         # Only types we care about for the agentic report generation
         type__in=[
@@ -161,6 +175,7 @@ async def _load_previous_research(report_id: str) -> ReportResearchOutput | None
         # chart that no longer validates (a tightened schema, a legacy shape) is dropped from the
         # context rather than failing the run — the agent just won't be offered that one to re-send.
         charts=_parse_stored_charts(report.charts, report_id),
+        metrics=_parse_stored_metrics(report.metrics, report_id),
         # Reconstructed from already-persisted artefacts, so everything is "old" — a re-research that
         # reuses these writes nothing; only what it changes lands in new_artefacts.
         old_artefacts=[*findings, actionability, *([priority] if priority else [])],
@@ -177,6 +192,19 @@ def _parse_stored_charts(raw: object, report_id: str) -> list[ReportChart]:
             parsed.append(ReportChart.model_validate(entry))
         except ValidationError:
             logger.warning("skipping unparseable stored chart", report_id=report_id)
+    return parsed
+
+
+def _parse_stored_metrics(raw: object, report_id: str) -> list[ReportMetric]:
+    """Best-effort parse of stored metrics so one legacy row cannot block re-research."""
+    if not isinstance(raw, list):
+        return []
+    parsed: list[ReportMetric] = []
+    for entry in raw:
+        try:
+            parsed.append(ReportMetric.model_validate(entry))
+        except ValidationError:
+            logger.warning("skipping unparseable stored metric", report_id=report_id)
     return parsed
 
 
@@ -308,10 +336,11 @@ def _report_has_live_suggested_reviewers(report_id: str) -> bool:
 
 
 def _reviewer_selection_written_since(team_id: int, report_id: str, since: datetime) -> bool:
-    """Whether a reviewer superseded the run's repo selection after `since` — a wrong-repo
-    dismissal's correction or clear that landed while the run was in flight.
+    """Whether someone superseded the run's repo selection after `since` — a wrong-repo
+    dismissal's correction or clear, or a scout's `edit_report` correction, that landed while the
+    run was in flight.
 
-    Two shapes count. A person editing the selection directly (a repo_selection artefact through
+    Three shapes count. A person editing the selection directly (a repo_selection artefact through
     the artefacts API) carries a non-null `created_by`. A wrong-repo dismissal filed through the
     state API records its correction on a `dismissal` artefact under the request's attribution —
     which is null-`created_by` for an agent call, since the forwarded task id attributes the row and
@@ -320,14 +349,22 @@ def _reviewer_selection_written_since(team_id: int, report_id: str, since: datet
     false-positive on the activity's own retry (whose `repo_selection_as_of` does not advance past
     its first attempt) because the pipeline never writes `dismissal` artefacts — only the
     state-transition path does.
+
+    A scout repointing a live report through `edit_report` writes a repo_selection artefact under
+    its own task, so it carries a null `created_by` too and files no dismissal. It is matched on the
+    reason its content records, which only that write path sets. The run's own selection cannot
+    false-positive on it, because the pipeline never writes that reason.
     """
-    reviewer_edited_selection = SignalReportArtefact.objects.filter(
-        team_id=team_id,
-        report_id=report_id,
-        type=SignalReportArtefact.ArtefactType.REPO_SELECTION,
-        created_at__gt=since,
-        created_by__isnull=False,
-    ).exists()
+    reviewer_edited_selection = (
+        SignalReportArtefact.objects.filter(
+            team_id=team_id,
+            report_id=report_id,
+            type=SignalReportArtefact.ArtefactType.REPO_SELECTION,
+            created_at__gt=since,
+        )
+        .filter(Q(created_by__isnull=False) | Q(content__contains=SCOUT_REPOSITORY_CONTENT_NEEDLE))
+        .exists()
+    )
     if reviewer_edited_selection:
         return True
     return SignalReportArtefact.objects.filter(
@@ -391,6 +428,27 @@ def _resolve_report_charts_payload(
     return [chart.model_dump(mode="json") for chart in charts]
 
 
+def _resolve_report_metrics_payload(
+    metrics: list[ReportMetric], metrics_enabled: bool, *, report_id: str, team_id: int
+) -> list[dict[str, Any]] | None:
+    """Resolve authored metrics using their own rollout and replace/clear/preserve semantics."""
+    if not metrics_enabled:
+        return None
+    if not metrics:
+        return []
+    batch_error = metric_batch_error(metrics)
+    if batch_error:
+        logger.warning(
+            "clearing report metrics: %s",
+            batch_error,
+            report_id=report_id,
+            team_id=team_id,
+            metric_count=len(metrics),
+        )
+        return []
+    return [metric.model_dump(mode="json") for metric in metrics]
+
+
 async def _persist_agentic_report_artefacts(
     team_id: int,
     report_id: str,
@@ -428,19 +486,22 @@ async def _persist_agentic_report_artefacts(
         else ArtefactAttribution.system()
     )
     # Everything the run flagged as new gets persisted; the artefact type derives from each content
-    # model. Reviewers are derived from findings, so they're only re-persisted when a finding changed.
+    # model. The verification note is fresh output from the final turn of every actionable research
+    # run, so it is appended as a log entry rather than folded into the latest-wins research state.
+    # Reviewers are derived from findings, so they're only re-persisted when a finding changed.
     has_new_finding = any(isinstance(content, SignalFinding) for content in result.new_artefacts)
 
-    # A reviewer can rewrite the selection while this run is in flight (a wrong-repo dismissal
-    # correcting or clearing it). The run's value predates that decision, so persisting it would
-    # bury the reviewer's row (latest-wins), handing the rejected repository to the next run and
-    # to settle-time auto-start, which reads the report's current artefacts.
-    superseded_by_reviewer = repo_selection_as_of is not None and await database_sync_to_async(
+    # A reviewer or a scout can rewrite the selection while this run is in flight (a wrong-repo
+    # dismissal correcting or clearing it, or a scout repointing the report). The run's value
+    # predates that decision, so persisting it would bury the newer row (latest-wins), handing the
+    # rejected repository to the next run and to settle-time auto-start, which reads the report's
+    # current artefacts.
+    superseded_mid_run = repo_selection_as_of is not None and await database_sync_to_async(
         _reviewer_selection_written_since, thread_sensitive=False
     )(team_id, report_id, repo_selection_as_of)
-    if superseded_by_reviewer:
+    if superseded_mid_run:
         logger.info(
-            "signals repo selection persist skipped: a reviewer rewrote the selection mid-run",
+            "signals repo selection persist skipped: the selection was rewritten mid-run",
             report_id=report_id,
             team_id=team_id,
             repository=repo_selection.repository,
@@ -449,11 +510,13 @@ async def _persist_agentic_report_artefacts(
     artefacts = [
         *(
             []
-            if superseded_by_reviewer
+            if superseded_mid_run
             else [ArtefactDraft(content=repo_selection, attribution=repo_selection_attribution)]
         ),
         *(ArtefactDraft(content=content, attribution=research_attribution) for content in result.new_artefacts),
     ]
+    if result.verification_note is not None:
+        artefacts.append(ArtefactDraft(content=result.verification_note, attribution=research_attribution))
     if reviewers_content and has_new_finding:
         artefacts.append(
             ArtefactDraft(
@@ -534,7 +597,7 @@ def _team_report_charts_enabled(team_id: int) -> bool:
     Gated by the `signals-report-charts` flag, org-keyed, evaluated fresh per run so a flip takes
     effect immediately. Off by default everywhere so this ships dark on the fleet-wide research path;
     on locally so `analyze_report` exercises it. Fails closed to False — a flag-service hiccup must
-    not start charting reports on a team that isn't opted in."""
+    not add charts to reports for a team that isn't opted in."""
     if settings.DEBUG:
         return True
     try:
@@ -548,6 +611,29 @@ def _team_report_charts_enabled(team_id: int) -> bool:
         )
     except Exception:
         logger.warning("report-charts availability check failed", team_id=team_id, exc_info=True)
+        return False
+
+
+def _team_report_metrics_enabled(team_id: int) -> bool:
+    """Whether the research agent may author impact metrics for this team's reports.
+
+    Metrics have their own organization-level rollout so a team's chart rollout cannot accidentally
+    decide whether the main report pipeline measures user impact. The flag is evaluated for every
+    run, is on in DEBUG for local coverage, and fails closed on flag-service errors.
+    """
+    if settings.DEBUG:
+        return True
+    try:
+        team = Team.objects.get(id=team_id)
+        return feature_enabled_or_false(
+            "signals-report-metrics",
+            str(team.organization_id),
+            groups={"organization": str(team.organization_id)},
+            group_properties={"organization": {"id": str(team.organization_id)}},
+            send_feature_flag_events=False,
+        )
+    except Exception:
+        logger.warning("report-metrics availability check failed", team_id=team_id, exc_info=True)
         return False
 
 
@@ -624,13 +710,17 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
                 model=agent_runtime.model,
                 runtime_adapter=agent_runtime.runtime_adapter,
                 reasoning_effort=agent_runtime.reasoning_effort,
+                service_tier=agent_runtime.service_tier,
             )
             has_bk = await database_sync_to_async(_team_has_business_knowledge, thread_sensitive=False)(input.team_id)
             charts_enabled = await database_sync_to_async(_team_report_charts_enabled, thread_sensitive=False)(
                 input.team_id
             )
+            metrics_enabled = await database_sync_to_async(_team_report_metrics_enabled, thread_sensitive=False)(
+                input.team_id
+            )
             # 2. Load previous research if this is a re-promoted report
-            previous_research = await _load_previous_research(input.report_id)
+            previous_research = await _load_previous_research(input.team_id, input.report_id)
             # 2b. Load the resolved report this one recurred from, if any, as extra research context
             resolved_report_title, resolved_report_summary = await _load_resolved_report_context(
                 input.team_id, input.report_id
@@ -654,6 +744,7 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
                 resolved_report_title=resolved_report_title,
                 resolved_report_summary=resolved_report_summary,
                 charts_enabled=charts_enabled,
+                metrics_enabled=metrics_enabled,
                 steering_section=steering.section,
             )
             # 4. Persist artefacts, avoid partial data from failed runs
@@ -672,6 +763,9 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
         charts_payload = _resolve_report_charts_payload(
             result.charts, charts_enabled, report_id=input.report_id, team_id=input.team_id
         )
+        metrics_payload = _resolve_report_metrics_payload(
+            result.metrics, metrics_enabled, report_id=input.report_id, team_id=input.team_id
+        )
         logger.info(
             "signals agentic report completed",
             report_id=input.report_id,
@@ -688,6 +782,8 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
             already_addressed=actionability.already_addressed,
             repository=repository,
             charts=charts_payload,
+            metrics=metrics_payload,
+            charts_enabled=charts_enabled,
         )
     except Exception as error:
         logger.exception(

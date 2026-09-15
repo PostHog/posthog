@@ -31,6 +31,9 @@ The system provisions the sandbox, clones a GitHub repo, starts an agent server,
 
 The run thread shows startup state in a progress accordion, with completed steps available in its history.
 Before progress arrives, it shows "Setting up sandbox", including when resuming a finished run.
+The full task composer remains available during startup.
+Follow-up messages collect in "Up next" and send after the first response finishes.
+Once the agent starts, Steer can send them before the current turn ends.
 The thread hides empty and whitespace-only assistant messages during streaming and history replay.
 
 ```text
@@ -102,6 +105,21 @@ class OriginProduct(models.TextChoices):
 ```
 
 Then create and run a Django migration.
+
+### Starting a task from a deep link
+
+In the new PostHog AI view, `/ai?ask=...` hands the prompt to the task composer once.
+The handoff removes `ask` from the current browser history entry while preserving other query parameters and the hash.
+Changing the panel state or remounting the view therefore does not submit the prompt again.
+Without organization-level AI data-processing consent, the prompt only prefills the composer.
+
+## Task navigation
+
+Task links in shared AI history open `/ai?task=<task-id>` and render the task runner, regardless of the saved chat view preference.
+The task stays selected on reload and when navigating back or forward.
+Existing `/tasks/<task-id>` links still open the standalone runner.
+Task headers keep horizontal padding around the title and run metadata.
+In the AI chat view, the staff options menu sits beside the task actions, including **Open in PostHog Desktop**.
 
 ## Fine-grained access tokens
 
@@ -481,6 +499,19 @@ The flow, driven from the PostHog Desktop Environments → Cloud tab:
    falling back to the standard base if the image can't be loaded.
    Repo-setup snapshots are skipped for custom-image runs; resume snapshots still apply.
 
+## Composer prewarming
+
+The task composer can warm a sandbox while the user types.
+Submission stops pending warm-up timers before creating a task or resuming a run, so a delayed warm-up cannot create an extra task after the backend has checked the warm pool.
+The submission takes ownership of held and pending warm-ups before sending, so closing the composer cannot cancel a run while its first message is being delivered.
+Each response reconciles only its own submission's warm-up, including one whose response arrives later.
+Once submission returns, the composer keeps the activated run and releases an unused warm-up if no later submission could have activated it.
+Overlapping submissions leave earlier warm-ups to the server reaper because either request might deliver to the same run.
+If the response is lost, the server reaper handles unused warm-ups because the composer cannot tell whether the message reached the run.
+Releases use `only_if_awaiting_first_message` and claim the run under the same row lock as activation.
+Activation claims the run before delivering its first message, so another composer or browser tab cannot cancel delivery in progress.
+A release that claims the run first prevents subsequent activation.
+
 ## Continuing after sandbox inactivity
 
 When a sandbox expires, a new user message starts the next turn with the preserved
@@ -501,6 +532,29 @@ Pi runs keep their snapshot, because the Pi server starts no turn of its own and
 its session history from the API.
 Publish the updated agent and rebuild sandbox images before deploying the stricter
 backend capability gate, so the fallback supplies a compatible agent.
+
+## Recovering task messages after a refresh
+
+The task page and side panel save unsent queue text and composer drafts in browser
+local storage once a task has an ID. The cache is scoped to the signed-in user,
+project, and task, expires after seven days, and does not sync between browsers.
+The latest edit wins across tabs; another tab's edits do not replace an open composer.
+
+Opening the task again restores queued messages followed by the unfinished draft
+into one editable draft, separated by blank lines. The queue starts empty. The
+user must review and submit the restored draft; sandbox readiness, turn completion,
+and permission responses cannot send it or start a run. An active optimistic
+handoff keeps its live queue and does not perform draft recovery.
+
+Messages awaiting a send acknowledgement remain cached. If a page closes before
+confirmation, recovery asks the user to check the conversation before sending again.
+Successful sends clear the submitted text while preserving newer edits. Storage
+failures do not block composing or sending; those drafts cannot survive a refresh.
+
+While a sandbox starts, the conversation displays its first submitted message from
+the run's saved `pending_user_message` when logs do not yet contain it. This is a
+display fallback: it strips context wrappers, gives way to the selected run's log
+or stream echo, and never submits the message again.
 
 ## Local development
 

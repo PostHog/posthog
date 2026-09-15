@@ -15,6 +15,7 @@ import {
   TabsTrigger,
 } from "@posthog/quill";
 import { LOOPS_FLAG } from "@posthog/shared";
+import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { ChannelBackRow } from "@posthog/ui/features/canvas/components/ChannelBackRow";
 import { ChannelItemsPane } from "@posthog/ui/features/canvas/components/ChannelItemsPane";
 import { ChannelsFab } from "@posthog/ui/features/canvas/components/ChannelsFab";
@@ -28,6 +29,7 @@ import { SHORTCUTS } from "@posthog/ui/features/command/keyboard-shortcuts";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import { SidebarKbdHint } from "@posthog/ui/features/sidebar/components/items/SidebarKbdHint";
 import { SidebarItem } from "@posthog/ui/features/sidebar/components/SidebarItem";
+import { track } from "@posthog/ui/shell/analytics";
 import { useNavigate, useRouterState } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 
@@ -128,7 +130,17 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
     tab: "task" as ChannelTab,
   });
   const tab = chosenTab.channelId === channelId ? chosenTab.tab : "task";
-  const setTab = (next: ChannelTab) => setChosenTab({ channelId, tab: next });
+  const setTab = (next: ChannelTab) => {
+    setChosenTab({ channelId, tab: next });
+    // Only a real change, the way the list's own grouping control reports.
+    if (next === tab) return;
+    track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
+      action_type: "space_tab_change",
+      surface: "sidebar",
+      channel_id: channelId,
+      tab: next,
+    });
+  };
 
   const { channels } = useChannels();
   // By type, not by name: the list relabels the personal channel on the way in,
@@ -152,6 +164,16 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
     return task ? `task:${task[1]}` : null;
   }, [pathname]);
 
+  const navigateTo = (target: string, go: () => void) => () => {
+    track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
+      action_type: "nav_click",
+      surface: "sidebar",
+      channel_id: channelId,
+      nav_target: target,
+    });
+    go();
+  };
+
   // Label comes from the shared space-page table, so a sidebar row and the
   // header breadcrumb for the same page can never disagree. No icon: this is a
   // short list of words, and glyphs here only compete with the status dots
@@ -165,7 +187,8 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
       depth={0}
       label={channelPageLabel(page)}
       isActive={pathname === to}
-      onClick={onClick}
+      // The page key, not its label: renaming a row shouldn't split the series.
+      onClick={navigateTo(page, onClick)}
     />
   );
 
@@ -180,12 +203,12 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
           depth={0}
           label="New session"
           isActive={pathname === `${base}/new`}
-          onClick={() =>
+          onClick={navigateTo("new_session", () => {
             void navigate({
               to: "/spaces/$channelId/new",
               params: { channelId },
-            })
-          }
+            });
+          })}
           // ⌘N inside a space lands on this same route (openTaskInput scopes to
           // the channel you're in), so the row can claim the key.
           endHint={<SidebarKbdHint keys={SHORTCUTS.NEW_TASK} />}

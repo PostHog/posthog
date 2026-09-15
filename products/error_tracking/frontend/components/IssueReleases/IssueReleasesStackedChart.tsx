@@ -1,7 +1,7 @@
 import { useValues } from 'kea'
 import { useMemo } from 'react'
 
-import { DefaultTooltip, TimeSeriesBarChart, createXAxisTickCallback } from '@posthog/quill-charts'
+import { DefaultTooltip, TimeSeriesBarChart } from '@posthog/quill-charts'
 import type { PointClickData, Series, TimeSeriesBarChartConfig } from '@posthog/quill-charts'
 
 import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
@@ -34,14 +34,13 @@ export function IssueReleasesStackedChart({
             })),
         [releases, theme.colors]
     )
-    const tickFormatter = useMemo(() => createXAxisTickCallback({ timezone, allDays: labels }), [labels, timezone])
     const config = useChartConfig<TimeSeriesBarChartConfig>(
         () => ({
             barLayout: 'stacked',
             barCornerRadius: 2,
             bandPadding: 0.15,
             margins: { top: 4 },
-            xAxis: { tickFormatter },
+            xAxis: { timezone },
             yAxis: { hide: true },
             showAxisLines: { x: true, y: false },
             showTickMarks: false,
@@ -49,7 +48,7 @@ export function IssueReleasesStackedChart({
             showGrid: false,
             tooltip: { placement: 'cursor', pinnable: false, hitArea: 'band' },
         }),
-        [tickFormatter]
+        [timezone]
     )
 
     const onPointClick = ({ series: clicked }: PointClickData<IssueReleaseStrip>): void => {

@@ -37,12 +37,14 @@ async fn delete_status(request: DeletePersonsRequest) -> Code {
             attempt_alert_threshold: 5,
             gc_batch_limit: 10_000,
         },
+        personhog_identity::config::IdentityTables::real(),
     ));
     let tables = IdentityTables::real();
     let service = PersonHogLifecycleService::new(
         engine,
-        Arc::new(SimLeader::new(pool, tables.person.clone())),
+        Arc::new(SimLeader::new(pool, tables.clone())),
         tables,
+        common::FAN_OUT_CONCURRENCY,
     );
     service
         .delete_persons(Request::new(request))
