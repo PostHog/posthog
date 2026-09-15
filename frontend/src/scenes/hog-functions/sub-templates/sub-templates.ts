@@ -1771,39 +1771,30 @@ export const getSubTemplate = (
     return HOG_FUNCTION_SUB_TEMPLATES[subTemplateId].find((x) => x.template_id === template.id) || null
 }
 
+const EVENT_TO_HOG_FUNCTION_CONTEXT_ID = new Map<string, HogFunctionConfigurationContextId>([
+    ['$error_tracking_issue_created', 'error-tracking'],
+    ['$error_tracking_issue_reopened', 'error-tracking'],
+    ['$error_tracking_issue_spiking', 'error-tracking'],
+    ['$error_tracking_issue_resolved', 'error-tracking'],
+    ['$error_tracking_issue_suppressed', 'error-tracking'],
+    ['$error_tracking_issue_assigned', 'error-tracking'],
+    ['$error_tracking_issue_unassigned', 'error-tracking'],
+    ['$error_tracking_issue_merged', 'error-tracking'],
+    ['$error_tracking_issue_split', 'error-tracking'],
+    ['$insight_alert_firing', 'insight-alerts'],
+    ['$experiment_metric_significant', 'experiment-alerts'],
+    ['$activity_log_entry_created', 'activity-log'],
+    ['$discussion_mention_created', 'discussion-mention'],
+    ['$logs_alert_firing', 'logs-alerting'],
+    ['$logs_alert_resolved', 'logs-alerting'],
+    ['$logs_alert_auto_disabled', 'logs-alerting'],
+    ['$logs_alert_errored', 'logs-alerting'],
+    ['$health_check_issue_firing', 'health-alerts'],
+    ['$health_check_issue_resolved', 'health-alerts'],
+    ['$batch_export_run_failed', 'batch-export-alerts'],
+    ['$warehouse_source_sync_failed', 'warehouse-source-alerts'],
+])
+
 export const eventToHogFunctionContextId = (event: string | undefined): HogFunctionConfigurationContextId => {
-    switch (event) {
-        case '$error_tracking_issue_created':
-        case '$error_tracking_issue_reopened':
-        case '$error_tracking_issue_spiking':
-        case '$error_tracking_issue_resolved':
-        case '$error_tracking_issue_suppressed':
-        case '$error_tracking_issue_assigned':
-        case '$error_tracking_issue_unassigned':
-        case '$error_tracking_issue_merged':
-        case '$error_tracking_issue_split':
-            return 'error-tracking'
-        case '$insight_alert_firing':
-            return 'insight-alerts'
-        case '$experiment_metric_significant':
-            return 'experiment-alerts'
-        case '$activity_log_entry_created':
-            return 'activity-log'
-        case '$discussion_mention_created':
-            return 'discussion-mention'
-        case '$logs_alert_firing':
-        case '$logs_alert_resolved':
-        case '$logs_alert_auto_disabled':
-        case '$logs_alert_errored':
-            return 'logs-alerting'
-        case '$health_check_issue_firing':
-        case '$health_check_issue_resolved':
-            return 'health-alerts'
-        case '$batch_export_run_failed':
-            return 'batch-export-alerts'
-        case '$warehouse_source_sync_failed':
-            return 'warehouse-source-alerts'
-        default:
-            return 'standard'
-    }
+    return (event && EVENT_TO_HOG_FUNCTION_CONTEXT_ID.get(event)) || 'standard'
 }
