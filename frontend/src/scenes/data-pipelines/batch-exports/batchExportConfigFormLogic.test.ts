@@ -9,7 +9,7 @@ import { urls } from 'scenes/urls'
 import { useMocks } from '~/mocks/jest'
 import { MockResolverInfo } from '~/mocks/utils'
 import { initKeaTests } from '~/test/init'
-import { BatchExportConfiguration } from '~/types'
+import { BatchExportConfiguration, BatchExportServiceSnowflake } from '~/types'
 
 import {
     BatchExportConfigFormLogicProps,
@@ -151,24 +151,27 @@ const SNOWFLAKE_BATCH_EXPORT = fixture('fixture-snowflake', 'Snowflake Export', 
 
 // A migrated export: credentials moved to the integration, but the account and authentication
 // values they came with are still in the stored config. The stale keys are deliberate.
+const SNOWFLAKE_STALE_CONFIG = {
+    database: 'sf-db',
+    warehouse: 'sf-wh',
+    schema: 'public',
+    table_name: 'events',
+    role: null,
+    exclude_events: [],
+    include_events: [],
+    account: 'sf-account',
+    user: 'sf-user',
+    authentication_type: 'password',
+    password: 'sf-pass',
+    private_key: null,
+    private_key_passphrase: null,
+    // `satisfies` keeps the real fields checked; the index signature admits the stale keys.
+} satisfies BatchExportServiceSnowflake['config'] & Record<string, unknown>
+
 const SNOWFLAKE_STALE_BATCH_EXPORT = fixture('fixture-snowflake-stale', 'Snowflake Stale Export', {
     type: 'Snowflake',
     integration: 51,
-    config: {
-        account: 'sf-account',
-        database: 'sf-db',
-        warehouse: 'sf-wh',
-        user: 'sf-user',
-        authentication_type: 'password',
-        password: 'sf-pass',
-        private_key: null,
-        private_key_passphrase: null,
-        schema: 'public',
-        table_name: 'events',
-        role: null,
-        exclude_events: [],
-        include_events: [],
-    } as any,
+    config: SNOWFLAKE_STALE_CONFIG,
 })
 
 // Note: `authorization_mode` is intentionally absent from these Redshift fixtures' config —
