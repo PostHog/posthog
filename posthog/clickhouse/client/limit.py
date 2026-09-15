@@ -9,6 +9,11 @@ from typing import Optional
 
 from celery import current_task
 from prometheus_client import Counter
+from redis_lua_py import (
+    Key,
+    redis as r,
+    script,
+)
 
 from posthog import redis, settings
 from posthog.clickhouse.cluster import ExponentialBackoff
@@ -40,30 +45,21 @@ CONCURRENT_TASKS_LIMIT_EXCEEDED_COUNTER = Counter(
     ["task_name", "limit", "limit_name"],
 )
 
-# Lua script for atomic check, remove expired if limit hit, and increment with TTL
-lua_script = """
-local key = KEYS[1]
-local current_time = tonumber(ARGV[1])
-local task_id = ARGV[2]
-local max_concurrent_tasks = tonumber(ARGV[3])
-local ttl = tonumber(ARGV[4])
-local expiration_time = current_time + ttl
 
--- Check the number of current running tasks
-local running_tasks_count = redis.call('ZCARD', key)
-if running_tasks_count >= max_concurrent_tasks then
-    -- Remove expired tasks if limit is hit
-    redis.call('ZREMRANGEBYSCORE', key, '-inf', current_time)
-    running_tasks_count = redis.call('ZCARD', key)
-    if running_tasks_count >= max_concurrent_tasks then
-        return 0
-    end
-end
+# Atomic check, remove expired if limit hit, and add the new task with its expiration time
+@script
+def _acquire_task_slot(
+    running_tasks_key: Key, current_time: int, task_id: str, max_concurrent_tasks: int, ttl: int
+) -> int:
+    # Check the number of current running tasks
+    if r.zcard(running_tasks_key) >= max_concurrent_tasks:
+        # Remove expired tasks if limit is hit
+        r.zremrangebyscore(running_tasks_key, "-inf", current_time)
+        if r.zcard(running_tasks_key) >= max_concurrent_tasks:
+            return 0
 
--- Add the new task with its expiration time
-redis.call('ZADD', key, expiration_time, task_id)
-return 1
-"""
+    r.zadd(running_tasks_key, current_time + ttl, task_id)
+    return 1
 
 
 def _is_in_temporal() -> bool:
@@ -163,8 +159,13 @@ class RateLimit:
         wait_total = 0.0
         # Atomically check, remove expired if limit hit, and add the new task
         while (
-            self.redis_client.eval(
-                lua_script, 1, running_tasks_key, int(self.get_time()), task_id, max_concurrency, self.ttl
+            _acquire_task_slot(
+                self.redis_client,
+                running_tasks_key=running_tasks_key,
+                current_time=int(self.get_time()),
+                task_id=task_id,
+                max_concurrent_tasks=max_concurrency,
+                ttl=self.ttl,
             )
             == 0
         ):
@@ -440,7 +441,14 @@ def limit_concurrency(
 
             # Atomically check, remove expired if limit hit, and add the new task
             if (
-                redis_client.eval(lua_script, 1, running_tasks_key, current_time, task_id, max_concurrent_tasks, ttl)
+                _acquire_task_slot(
+                    redis_client,
+                    running_tasks_key=running_tasks_key,
+                    current_time=current_time,
+                    task_id=task_id,
+                    max_concurrent_tasks=max_concurrent_tasks,
+                    ttl=ttl,
+                )
                 == 0
             ):
                 CONCURRENT_TASKS_LIMIT_EXCEEDED_COUNTER.labels(

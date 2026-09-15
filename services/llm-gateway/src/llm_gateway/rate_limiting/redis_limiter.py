@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import math
 import time
 
 import structlog
 from redis.asyncio import Redis
+from redis_lua_py import Key, redis, script
 
 from llm_gateway.metrics.prometheus import REDIS_FALLBACK
 from llm_gateway.rate_limiting.token_bucket import TokenBucketLimiter
@@ -11,6 +13,38 @@ from llm_gateway.rate_limiting.token_bucket import TokenBucketLimiter
 logger = structlog.get_logger(__name__)
 
 IN_MEMORY_LIMIT_DIVIDER = 10  # When Redis unavailable, use limit / 10
+
+
+@script
+def _release_tokens(bucket_key: Key, tokens: float) -> int:
+    """Atomically decrement without going below 0.
+
+    Only updates a key that exists and has a TTL, so this never creates a stale key.
+    """
+    if redis.ttl(bucket_key) <= 0:
+        return 0
+    current = redis.get(bucket_key)
+    if current is None:
+        return 0
+    new_value = max(0, float(current) - tokens)
+    redis.set(bucket_key, new_value, "KEEPTTL")
+    # Redis truncates a number returned from Lua to an integer; floor says so.
+    return math.floor(new_value)
+
+
+@script
+def _add_cost(bucket_key: Key, cost: float, window_seconds: int) -> int:
+    """Atomically add to the accumulated cost, starting the window on the first addition."""
+    new_value = cost
+    current = redis.get(bucket_key)
+    if current is not None:
+        new_value += float(current)
+    if redis.ttl(bucket_key) < 0:
+        redis.set(bucket_key, new_value, "EX", window_seconds)
+    else:
+        redis.set(bucket_key, new_value, "KEEPTTL")
+    # Redis truncates a number returned from Lua to an integer; floor says so.
+    return math.floor(new_value)
 
 
 class RateLimiter:
@@ -165,19 +199,7 @@ class TokenRateLimiter:
             return
 
         try:
-            redis_key = f"ratelimit:{key}"
-            # Use Lua script to atomically decrement without going below 0
-            # Only update if key exists and has a TTL (avoid creating stale keys)
-            script = """
-            local ttl = redis.call('TTL', KEYS[1])
-            if ttl <= 0 then return 0 end
-            local current = redis.call('GET', KEYS[1])
-            if not current then return 0 end
-            local new_val = math.max(0, tonumber(current) - tonumber(ARGV[1]))
-            redis.call('SET', KEYS[1], new_val, 'KEEPTTL')
-            return new_val
-            """
-            await self.redis.eval(script, 1, redis_key, tokens)
+            await _release_tokens(self.redis, bucket_key=f"ratelimit:{key}", tokens=tokens)
         except Exception:
             logger.exception("redis_release_failed", key=key)
             self._fallback.release(key, float(tokens))
@@ -251,20 +273,8 @@ class CostRateLimiter:
             return self._fallback.incr(key, cost)
 
         try:
-            redis_key = f"ratelimit:{key}"
-            script = """
-            local current = redis.call('GET', KEYS[1])
-            local new_val = tonumber(current or 0) + tonumber(ARGV[1])
-            local ttl = redis.call('TTL', KEYS[1])
-            if ttl < 0 then
-                redis.call('SET', KEYS[1], new_val, 'EX', ARGV[2])
-            else
-                redis.call('SET', KEYS[1], new_val, 'KEEPTTL')
-            end
-            return new_val
-            """
-            new_val = await self.redis.eval(script, 1, redis_key, str(cost), self.window)
-            return float(new_val) <= self.limit
+            new_val = await _add_cost(self.redis, bucket_key=f"ratelimit:{key}", cost=cost, window_seconds=self.window)
+            return new_val <= self.limit
         except Exception:
             logger.exception("redis_cost_incr_failed", key=key)
             REDIS_FALLBACK.inc()

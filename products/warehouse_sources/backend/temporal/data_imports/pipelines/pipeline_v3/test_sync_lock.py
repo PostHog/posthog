@@ -100,15 +100,21 @@ class TestReleaseV3PipelineLock:
         ],
         ids=["released", "token_mismatch"],
     )
+    @patch("products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.sync_lock._release_lock")
     @patch("products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.sync_lock._get_redis_client")
-    def test_release_result(self, mock_ctx: MagicMock, eval_return: int, expected: bool) -> None:
+    def test_release_result(
+        self, mock_ctx: MagicMock, mock_release: MagicMock, eval_return: int, expected: bool
+    ) -> None:
         mock_redis = MagicMock()
-        mock_redis.eval.return_value = eval_return
+        mock_release.return_value = eval_return
         mock_ctx.return_value.__enter__ = MagicMock(return_value=mock_redis)
         mock_ctx.return_value.__exit__ = MagicMock(return_value=False)
 
         result = release_v3_pipeline_lock(1, "s-1", "tok-1")
         assert result is expected
+        mock_release.assert_called_once_with(
+            mock_redis, lock_key=_lock_key(1, "s-1"), meta_key="v3_pipeline_lock_meta:1:s-1", token="tok-1"
+        )
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.sync_lock._get_redis_client")
     def test_returns_false_on_redis_unavailable(self, mock_ctx: MagicMock) -> None:
@@ -117,10 +123,13 @@ class TestReleaseV3PipelineLock:
 
         assert release_v3_pipeline_lock(1, "s-1", "tok-1") is False
 
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.sync_lock._release_lock",
+        side_effect=Exception("connection lost"),
+    )
     @patch("products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.sync_lock._get_redis_client")
-    def test_returns_false_on_eval_exception(self, mock_ctx: MagicMock) -> None:
+    def test_returns_false_on_eval_exception(self, mock_ctx: MagicMock, _mock_release: MagicMock) -> None:
         mock_redis = MagicMock()
-        mock_redis.eval.side_effect = Exception("connection lost")
         mock_ctx.return_value.__enter__ = MagicMock(return_value=mock_redis)
         mock_ctx.return_value.__exit__ = MagicMock(return_value=False)
 

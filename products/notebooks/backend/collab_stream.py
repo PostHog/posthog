@@ -20,6 +20,7 @@ from collections.abc import AsyncGenerator
 
 import structlog
 import redis.exceptions as redis_exceptions
+from redis_lua_py import Key, redis, script
 
 from posthog import redis as redis_module
 
@@ -43,6 +44,7 @@ DATA_KEY = b"data"
 KEEPALIVE_COMMENT = b": keepalive\n\n"
 UPDATE_EVENT_TYPE = "update"
 
+
 # Atomically append N content entries if the current stream version equals last_seen_version.
 #
 # When the stream is empty (TTL expired / evicted / never written) we cannot trust the caller's
@@ -51,57 +53,48 @@ UPDATE_EVENT_TYPE = "update"
 # against last_saved_version (the value durably stored in Postgres): only accept if they match
 # exactly, otherwise force the client to reload.
 #
-# ARGV:
-#   1: last_seen_version (int)         -- confirmed version on the client
-#   2: last_saved_version (int)        -- notebook.version from Postgres, fetched by the caller
-#   3: ttl_seconds (int)
-#   4: max_length (int)
-#   5..N: entry JSON strings (one per step / update event)
+# Arguments:
+#   last_seen_version                  -- confirmed version on the client
+#   last_saved_version                 -- notebook.version from Postgres, fetched by the caller
+#   entries                            -- entry JSON strings (one per step / update event)
 #
 # Returns:
-#   {0, current_stream_version}        -- conflict, caller should fetch the missed range
-#   {1, new_version}                   -- accepted
-#   {2, last_saved_version}            -- stream lost + client baseline disagrees with Postgres → stale
-APPEND_ENTRIES_LUA = """
-local stream_key = KEYS[1]
-local last_seen_version = tonumber(ARGV[1])
-local last_saved_version = tonumber(ARGV[2])
-local ttl = tonumber(ARGV[3])
-local max_length = tonumber(ARGV[4])
+#   [0, current_stream_version]        -- conflict, caller should fetch the missed range
+#   [1, new_version]                   -- accepted
+#   [2, last_saved_version]            -- stream lost + client baseline disagrees with Postgres → stale
+@script
+def append_entries(
+    stream_key: Key,
+    last_seen_version: int,
+    last_saved_version: int,
+    ttl_seconds: int,
+    max_length: int,
+    entries: list[str],
+) -> list[int]:
+    current_stream_version = last_seen_version
+    last = redis.xrevrange(stream_key, "+", "-", "COUNT", 1)
+    if len(last) > 0:
+        # The stream id is `<version>-<seq>`
+        current_stream_version = int(last[0][0].split("-")[0])
+    elif last_seen_version != last_saved_version:
+        return [2, last_saved_version]
 
-local current_stream_version = last_seen_version
-local last = redis.call('XREVRANGE', stream_key, '+', '-', 'COUNT', 1)
-local stream_empty = (#last == 0)
-if not stream_empty then
-    local id_str = last[1][1]
-    local dash = string.find(id_str, '-')
-    current_stream_version = tonumber(string.sub(id_str, 1, dash - 1))
-end
+    if current_stream_version != last_seen_version:
+        # A failed XADD (publish errors are logged, not raised) can leave the stream behind
+        # Postgres. When the caller's baseline matches Postgres, resync forward instead of
+        # rejecting every save against a permanently lagging stream.
+        if current_stream_version < last_seen_version and last_seen_version == last_saved_version:
+            current_stream_version = last_seen_version
+        else:
+            return [0, current_stream_version]
 
-if stream_empty and last_seen_version ~= last_saved_version then
-    return {2, last_saved_version}
-end
+    next_version = current_stream_version
+    for entry in entries:
+        next_version += 1
+        redis.xadd(stream_key, "MAXLEN", "~", max_length, f"{next_version}-0", "data", entry)
 
-if current_stream_version ~= last_seen_version then
-    -- A failed XADD (publish errors are logged, not raised) can leave the stream behind
-    -- Postgres. When the caller's baseline matches Postgres, resync forward instead of
-    -- rejecting every save against a permanently lagging stream.
-    if current_stream_version < last_seen_version and last_seen_version == last_saved_version then
-        current_stream_version = last_seen_version
-    else
-        return {0, current_stream_version}
-    end
-end
-
-local next_version = current_stream_version
-for i = 5, #ARGV do
-    next_version = next_version + 1
-    redis.call('XADD', stream_key, 'MAXLEN', '~', max_length, next_version .. '-0', 'data', ARGV[i])
-end
-
-redis.call('EXPIRE', stream_key, ttl)
-return {1, next_version}
-"""
+    redis.expire(stream_key, ttl_seconds)
+    return [1, next_version]
 
 
 async def stream_collab_sse(

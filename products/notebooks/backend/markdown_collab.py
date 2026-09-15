@@ -17,12 +17,12 @@ import redis.exceptions as redis_exceptions
 from posthog import redis as redis_module
 
 from products.notebooks.backend.collab_stream import (
-    APPEND_ENTRIES_LUA,
     DATA_KEY,
     STREAM_KEY_PATTERN,
     STREAM_MAX_LENGTH,
     STREAM_TTL_SECONDS,
     UPDATE_EVENT_TYPE,
+    append_entries,
 )
 
 logger = structlog.get_logger(__name__)
@@ -228,10 +228,14 @@ def submit_markdown_update(
     presence = {k: v for k, v in (("user_id", user_id), ("user_name", user_name), ("cursor", cursor)) if v is not None}
     payload.update(presence)
 
-    script = client.register_script(APPEND_ENTRIES_LUA)
-    accepted, version = script(
-        keys=[stream_key],
-        args=[last_seen_version, last_saved_version, STREAM_TTL_SECONDS, STREAM_MAX_LENGTH, json.dumps(payload)],
+    accepted, version = append_entries(
+        client,
+        stream_key=stream_key,
+        last_seen_version=last_seen_version,
+        last_saved_version=last_saved_version,
+        ttl_seconds=STREAM_TTL_SECONDS,
+        max_length=STREAM_MAX_LENGTH,
+        entries=[json.dumps(payload)],
     )
 
     if accepted == 1:

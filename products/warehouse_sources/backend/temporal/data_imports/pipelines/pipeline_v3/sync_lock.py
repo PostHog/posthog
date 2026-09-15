@@ -8,6 +8,11 @@ from django.conf import settings
 
 import redis
 import structlog
+from redis_lua_py import (
+    Key,
+    redis as r,
+    script,
+)
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from posthog.exceptions_capture import capture_exception
@@ -21,18 +26,18 @@ LOCK_KEY_PREFIX = "v3_pipeline_lock"
 LOCK_META_KEY_PREFIX = "v3_pipeline_lock_meta"
 LOCK_TTL_SECONDS = 7 * 24 * 60 * 60  # 7 days, matching max workflow duration
 
+
 # Atomic check-and-delete: prevents a race where workflow A's expired lock is
 # acquired by workflow B, then A's delayed consumer releases B's lock.
 # Replaceable with DELEX once we upgrade to Redis >= 8.4.
 # Meta is deleted in the same script so it can't outlive its lock; readers must
 # still ignore mismatched-run_id meta (old pods release without deleting it).
-_RELEASE_LOCK_SCRIPT = """
-if redis.call("get", KEYS[1]) == ARGV[1] then
-    redis.call("del", KEYS[2])
-    return redis.call("del", KEYS[1])
-end
-return 0
-"""
+@script
+def _release_lock(lock_key: Key, meta_key: Key, token: str) -> int:
+    if r.get(lock_key) == token:
+        r.delete(meta_key)
+        return r.delete(lock_key)
+    return 0
 
 
 def _lock_key(team_id: int, schema_id: str) -> str:
@@ -169,8 +174,8 @@ def release_v3_pipeline_lock(team_id: int, schema_id: str, token: str) -> bool:
             return False
 
         try:
-            result = client.eval(
-                _RELEASE_LOCK_SCRIPT, 2, _lock_key(team_id, schema_id), _lock_meta_key(team_id, schema_id), token
+            result = _release_lock(
+                client, lock_key=_lock_key(team_id, schema_id), meta_key=_lock_meta_key(team_id, schema_id), token=token
             )
             return bool(result)
         except Exception as e:

@@ -24,6 +24,7 @@ from typing import Any, Optional
 from django.conf import settings
 
 from prometheus_client import Counter
+from redis_lua_py import Key, redis, script
 
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
@@ -83,50 +84,52 @@ def _bucket_key(team_id: str) -> str:
     return f"{BUDGET_KEY_PREFIX}team/{team_id}"
 
 
-# KEYS[1] bucket, ARGV[1] now in seconds, ARGV[2] bytes per hour, ARGV[3] capacity, ARGV[4] ttl.
 # A missing bucket starts full. The floor is one hour of refill. Capacity and floor are stored so
 # a debit that arrives before any read (a chargeable query that did not go through the query
-# runner) can use them.
-_REFILL_AND_READ = """
-local tokens = tonumber(redis.call('HGET', KEYS[1], 'tokens'))
-local refilled_at = tonumber(redis.call('HGET', KEYS[1], 'refilled_at'))
-local now = tonumber(ARGV[1])
-local floor = tonumber(ARGV[2])
-local capacity = tonumber(ARGV[3])
-if tokens == nil then tokens = capacity end
-if refilled_at == nil then refilled_at = now end
-tokens = math.min(capacity, tokens + math.max(0, now - refilled_at) / 3600 * floor)
-tokens = math.max(tokens, -floor)
-redis.call('HSET', KEYS[1], 'tokens', tokens, 'refilled_at', now, 'capacity', capacity, 'floor', floor)
-redis.call('EXPIRE', KEYS[1], ARGV[4])
-return tostring(tokens)
-"""
+# runner) can use them. Both return the balance as a string, so it keeps its fraction.
+@script
+def _refill_and_read_bucket(bucket: Key, now: float, bytes_per_hour: float, capacity: float, ttl: int) -> bytes:
+    stored_tokens, stored_refilled_at = redis.hmget(bucket, "tokens", "refilled_at")
+    tokens = capacity
+    if stored_tokens is not None:
+        tokens = float(stored_tokens)
+    refilled_at = now
+    if stored_refilled_at is not None:
+        refilled_at = float(stored_refilled_at)
+    tokens = min(capacity, tokens + max(0, now - refilled_at) / 3600 * bytes_per_hour)
+    tokens = max(tokens, -bytes_per_hour)
+    redis.hset(bucket, "tokens", tokens, "refilled_at", now, "capacity", capacity, "floor", bytes_per_hour)
+    redis.expire(bucket, ttl)
+    return str(tokens).encode()
 
-# KEYS[1] bucket, ARGV[1] bytes, ARGV[2] fallback capacity, ARGV[3] fallback floor, ARGV[4] ttl.
-_DEBIT = """
-local tokens = tonumber(redis.call('HGET', KEYS[1], 'tokens'))
-local capacity = tonumber(redis.call('HGET', KEYS[1], 'capacity'))
-local floor = tonumber(redis.call('HGET', KEYS[1], 'floor'))
-if capacity == nil then capacity = tonumber(ARGV[2]) end
-if floor == nil then floor = tonumber(ARGV[3]) end
-if tokens == nil then tokens = capacity end
-tokens = math.max(tokens - tonumber(ARGV[1]), -floor)
-redis.call('HSET', KEYS[1], 'tokens', tokens, 'capacity', capacity, 'floor', floor)
-redis.call('EXPIRE', KEYS[1], ARGV[4])
-return tostring(tokens)
-"""
+
+@script
+def _debit_bucket(bucket: Key, bytes_read: int, fallback_capacity: float, fallback_floor: float, ttl: int) -> bytes:
+    stored_tokens, stored_capacity, stored_floor = redis.hmget(bucket, "tokens", "capacity", "floor")
+    capacity = fallback_capacity
+    if stored_capacity is not None:
+        capacity = float(stored_capacity)
+    floor = fallback_floor
+    if stored_floor is not None:
+        floor = float(stored_floor)
+    tokens = capacity
+    if stored_tokens is not None:
+        tokens = float(stored_tokens)
+    tokens = max(tokens - bytes_read, -floor)
+    redis.hset(bucket, "tokens", tokens, "capacity", capacity, "floor", floor)
+    redis.expire(bucket, ttl)
+    return str(tokens).encode()
 
 
 def refill_and_read(team_id: str, spec: BudgetSpec, now: Optional[float] = None) -> Optional[float]:
     try:
-        result = get_client().eval(
-            _REFILL_AND_READ,
-            1,
-            _bucket_key(team_id),
-            now if now is not None else time.time(),
-            spec.bytes_per_hour,
-            spec.capacity_bytes,
-            BUDGET_TTL_SECONDS,
+        result = _refill_and_read_bucket(
+            get_client(),
+            bucket=_bucket_key(team_id),
+            now=now if now is not None else time.time(),
+            bytes_per_hour=spec.bytes_per_hour,
+            capacity=spec.capacity_bytes,
+            ttl=BUDGET_TTL_SECONDS,
         )
         return float(result)
     except Exception as e:
@@ -142,14 +145,13 @@ def debit(team_id: str, bytes_read: int) -> Optional[float]:
         return None
     free = _free_spec()
     try:
-        result = get_client().eval(
-            _DEBIT,
-            1,
-            _bucket_key(team_id),
-            int(bytes_read),
-            free.capacity_bytes,
-            free.bytes_per_hour,
-            BUDGET_TTL_SECONDS,
+        result = _debit_bucket(
+            get_client(),
+            bucket=_bucket_key(team_id),
+            bytes_read=int(bytes_read),
+            fallback_capacity=free.capacity_bytes,
+            fallback_floor=free.bytes_per_hour,
+            ttl=BUDGET_TTL_SECONDS,
         )
         return float(result)
     except Exception as e:

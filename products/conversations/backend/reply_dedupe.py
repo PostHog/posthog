@@ -24,9 +24,11 @@ from typing import Any
 from django.utils import timezone
 
 import structlog
+from redis_lua_py import Key, redis, script
 
 from posthog.models.comment import Comment
 from posthog.redis import get_client
+from posthog.redis_scripts import delete_if_owner
 
 logger = structlog.get_logger(__name__)
 
@@ -49,22 +51,16 @@ _KEY_PREFIX = "conversations:reply_dedupe:v1:"
 _IN_FLIGHT_VALUE_PREFIX = "inflight:"
 _COMMENT_VALUE_PREFIX = "comment:"
 
-# Compare the owner token before writing, so a creator that stalled past its own TTL cannot
-# overwrite or delete the reservation a later attempt has since taken.
-_PUBLISH_SCRIPT = """
-if redis.call('GET', KEYS[1]) ~= ARGV[1] then
-    return 0
-end
-redis.call('SET', KEYS[1], ARGV[2], 'EX', ARGV[3])
-return 1
-"""
 
-_RELEASE_SCRIPT = """
-if redis.call('GET', KEYS[1]) ~= ARGV[1] then
-    return 0
-end
-return redis.call('DEL', KEYS[1])
-"""
+# Compare the owner token before writing, so a creator that stalled past its own TTL cannot
+# overwrite or delete the reservation a later attempt has since taken. Release uses the shared
+# `delete_if_owner` for the same reason.
+@script
+def _publish_if_owner(key: Key, token: str, value: str, ttl: int) -> int:
+    if redis.get(key) != token:
+        return 0
+    redis.set(key, value, "EX", ttl)
+    return 1
 
 
 class ReservationState(Enum):
@@ -306,8 +302,8 @@ def publish(reservation: Reservation, comment_id: Any) -> None:
     value = f"{_COMMENT_VALUE_PREFIX}{comment_id}"
     for attempt in range(2):
         try:
-            get_client().eval(
-                _PUBLISH_SCRIPT, 1, reservation.key, reservation.owner_token, value, REPLAY_WINDOW_SECONDS
+            _publish_if_owner(
+                get_client(), key=reservation.key, token=reservation.owner_token, value=value, ttl=REPLAY_WINDOW_SECONDS
             )
             return
         except Exception:
@@ -323,7 +319,7 @@ def release(reservation: Reservation) -> None:
     if reservation.owner_token is None:
         return
     try:
-        get_client().eval(_RELEASE_SCRIPT, 1, reservation.key, reservation.owner_token)
+        delete_if_owner(get_client(), key=reservation.key, token=reservation.owner_token)
     except Exception:
         logger.warning("conversations_reply_dedupe_release_error", key=reservation.key, exc_info=True)
 

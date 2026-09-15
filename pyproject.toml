@@ -207,6 +207,7 @@ dependencies = [
     "limits==5.8.0",
     "deltalite==0.1.7",
     "posthog-hogland==0.4.1",
+    "redis-lua-py==0.8.0",
 ]
 
 [dependency-groups]
@@ -307,7 +308,9 @@ exclude-newer = "7 days"
 # 2.8.1 because it fixes a lost-wakeup race in workers shutdown, which our
 # multi-worker pools hit constantly via worker recycling. Drop this entry and
 # re-lock once the cutoff passes; the resolved version does not change.
-exclude-newer-package = { granian = false, hogql-parser = false, hogql-parser-rs = false, deltalite = false, posthoganalytics = false, pixelhog = false, django = false, modal = false, posthog-hogland = false, google-ads = false }
+# redis-lua-py 0.8.0 was published 2026-09-13, so the cutoff hides it until
+# 2026-09-20. Drop its entry and re-lock after that; the resolved version does not change.
+exclude-newer-package = { granian = false, hogql-parser = false, hogql-parser-rs = false, deltalite = false, posthoganalytics = false, pixelhog = false, django = false, modal = false, posthog-hogland = false, google-ads = false, redis-lua-py = false }
 
 [tool.uv.workspace]
 members = ["tools/hogli", "tools/owners"]

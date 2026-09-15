@@ -10,6 +10,11 @@ import time
 from uuid import UUID
 
 import structlog
+from redis_lua_py import (
+    Key,
+    redis as r,
+    script,
+)
 
 from posthog import redis
 
@@ -34,33 +39,25 @@ _TEAM_KEY_PREFIX = "@posthog/replay-vision/enqueued-team"
 _SCANNER_KEY_PREFIX = "@posthog/replay-vision/enqueued-scanner"
 _BACKFILL_KEY_PREFIX = "@posthog/replay-vision/enqueued-backfill"
 
+
 # Re-claiming an existing member (same deterministic workflow id) never consumes a second slot.
-# Generalized over KEYS: each key is one cap the claim must fit, with its allowance in ARGV[3 + i].
-# Callers pass team and scanner; a backfill adds its own sub-cap key as a third.
-_CLAIM_LUA = """
-local now = tonumber(ARGV[1])
-local member = ARGV[2]
-local ttl = tonumber(ARGV[3])
+# Generalized over keys: each key is one cap the claim must fit, with its allowance at the same
+# position in `allowances`. Callers pass team and scanner; a backfill adds its own sub-cap key as a third.
+@script
+def _claim(cap_keys: list[Key], now: float, member: str, ttl: int, allowances: list[int]) -> int:
+    for key in cap_keys:
+        r.zremrangebyscore(key, "-inf", now)
 
-for i, key in ipairs(KEYS) do
-    redis.call('ZREMRANGEBYSCORE', key, '-inf', now)
-end
+    if r.zscore(cap_keys[0], member) is None:
+        for i, key in enumerate(cap_keys):
+            if r.zcard(key) >= allowances[i]:
+                return 0
 
-if not redis.call('ZSCORE', KEYS[1], member) then
-    for i, key in ipairs(KEYS) do
-        if redis.call('ZCARD', key) >= tonumber(ARGV[3 + i]) then
-            return 0
-        end
-    end
-end
-
-local expiry = now + ttl
-for i, key in ipairs(KEYS) do
-    redis.call('ZADD', key, expiry, member)
-    redis.call('EXPIRE', key, ttl)
-end
-return 1
-"""
+    expiry = now + ttl
+    for key in cap_keys:
+        r.zadd(key, expiry, member)
+        r.expire(key, ttl)
+    return 1
 
 
 def _team_key(team_id: int) -> str:
@@ -103,14 +100,13 @@ def try_claim_enqueue_slot(
         keys.append(_backfill_key(backfill_id))
         allowances.append(MAX_IN_FLIGHT_APPLIES_PER_BACKFILL - backfill_in_flight_rows)
     try:
-        allowed = redis.get_client().eval(
-            _CLAIM_LUA,
-            len(keys),
-            *keys,
-            time.time(),
-            workflow_id,
-            _CLAIM_TTL_SECONDS,
-            *allowances,
+        allowed = _claim(
+            redis.get_client(),
+            cap_keys=keys,
+            now=time.time(),
+            member=workflow_id,
+            ttl=_CLAIM_TTL_SECONDS,
+            allowances=allowances,
         )
         return bool(allowed)
     except Exception:

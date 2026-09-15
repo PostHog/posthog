@@ -15,11 +15,11 @@ import structlog
 from posthog import redis as redis_module
 
 from products.notebooks.backend.collab_stream import (
-    APPEND_ENTRIES_LUA,
     DATA_KEY,
     STREAM_KEY_PATTERN,
     STREAM_MAX_LENGTH,
     STREAM_TTL_SECONDS,
+    append_entries,
 )
 
 logger = structlog.get_logger(__name__)
@@ -64,10 +64,14 @@ def submit_steps(
     # Version isn't in the payload — the stream id (N-0) IS the version, and SSE delivers it as `id:`.
     serialized = [json.dumps({"step": step, "client_id": client_id, **presence}) for step in steps_json]
 
-    script = client.register_script(APPEND_ENTRIES_LUA)
-    accepted, version = script(
-        keys=[stream_key],
-        args=[last_seen_version, last_saved_version, STREAM_TTL_SECONDS, STREAM_MAX_LENGTH, *serialized],
+    accepted, version = append_entries(
+        client,
+        stream_key=stream_key,
+        last_seen_version=last_seen_version,
+        last_saved_version=last_saved_version,
+        ttl_seconds=STREAM_TTL_SECONDS,
+        max_length=STREAM_MAX_LENGTH,
+        entries=serialized,
     )
 
     if accepted == 1:
