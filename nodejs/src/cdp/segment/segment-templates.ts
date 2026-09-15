@@ -364,8 +364,9 @@ const getFieldDescription = (field: any): string => {
         '$1'
     ) // Remove segment.com links completely, keeping only the link text
 
-    // The dictionary input takes any key the user types, but a destination that declares its keys
-    // reads back only those, so say so rather than dropping the rest without a word.
+    // The dictionary input takes any key the user types, but what a destination does with an
+    // undeclared key depends on the destination: some read only the keys they declare, others
+    // forward the whole object to their API. The copy must not promise either outcome.
     if (getFieldType(field) !== 'dictionary' || field.additionalProperties) {
         return description
     }
@@ -373,7 +374,7 @@ const getFieldDescription = (field: any): string => {
         return description
     }
 
-    const sentence = 'This destination ignores any key you add to this list.'
+    const sentence = 'A key you add to this list may be ignored, or sent to the destination as you typed it.'
     const trimmed = description.trim()
     return trimmed ? `${trimmed.replace(/[.?!]+$/, '')}. ${sentence}` : sentence
 }
