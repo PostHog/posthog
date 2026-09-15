@@ -6,7 +6,7 @@ from openai.types.shared_params import ResponseFormatJSONSchema
 from pydantic import ValidationError
 from temporalio import activity
 
-from posthog.llm.gateway_client import get_llm_client
+from posthog.llm.gateway_client import build_anthropic_client, build_openai_client
 from posthog.llm.semantic_enrichment import extract_json_object
 from posthog.models.integration import Integration, SlackIntegration
 from posthog.models.repo_routing_rule import RepoRoutingRule
@@ -176,14 +176,16 @@ def classify_task_needs_repo(
         event_text=event_text,
     )
     try:
-        client = get_llm_client("slack_app_routing")
-        response = client.chat.completions.create(
+        # Messages shape: the Go gateway refuses a Claude model on chat completions.
+        client = build_anthropic_client(product="slack_app_routing", ai_product="slack_app_routing")
+        response = client.messages.create(
             model=CLASSIFIER_MODEL,
             messages=[{"role": "user", "content": prompt}],
             max_tokens=64,
             temperature=0,
         )
-        parsed = extract_json_object(response.choices[0].message.content or "") or {}
+        reply = "".join(block.text for block in response.content if block.type == "text")
+        parsed = extract_json_object(reply) or {}
         # Haiku occasionally stringifies the bool ({"needs_repo": "false"}).
         # bool("false") is True, which would flip the defensive bias — handle
         # strings explicitly and treat any other unexpected shape as False.
@@ -288,7 +290,7 @@ def classify_message_is_agent_directed(
         event_text=event_text,
     )
     try:
-        client = get_llm_client("slack_app_routing").with_options(
+        client = build_openai_client(product="slack_app_routing", ai_product="slack_app_routing").with_options(
             timeout=AGENT_DIRECTED_TIMEOUT_SECONDS, max_retries=AGENT_DIRECTED_MAX_RETRIES
         )
         response = client.chat.completions.create(
@@ -442,7 +444,7 @@ def classify_slack_app_model_override(
     )
 
     try:
-        client = get_llm_client("slack_app_routing").with_options(
+        client = build_openai_client(product="slack_app_routing", ai_product="slack_app_routing").with_options(
             timeout=MODEL_OVERRIDE_TIMEOUT_SECONDS, max_retries=MODEL_OVERRIDE_MAX_RETRIES
         )
         response = client.chat.completions.create(
