@@ -22,6 +22,7 @@ from posthog.models import Organization, Team, User
 from posthog.models.instance_setting import override_instance_config
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import OrganizationMembership
+from posthog.security.url_validation import PinnedUrlVerdict
 
 from products.mcp_store.backend.agents import create_gateway_agent_token, sync_built_in_agents
 from products.mcp_store.backend.models import (
@@ -46,6 +47,12 @@ from products.mcp_store.backend.presentation.gateway_views import (
 from products.mcp_store.backend.presentation.views import _is_valid_posthog_code_callback_url
 
 ALLOW_URL = patch("products.mcp_store.backend.url_policy.is_url_allowed", return_value=(True, None))
+# A proxied fetch validates and pins through upstream_http instead. No pinned addresses
+# leaves the client unpinned, so a test can mock ``httpx.Client``.
+ALLOW_UPSTREAM_URL = patch(
+    "products.mcp_store.backend.upstream_http.validate_url_and_pin_ips",
+    return_value=PinnedUrlVerdict(allowed=True, reason=None, pinned_ips=set()),
+)
 
 POLICY_REQUEST_SERIALIZER_CASES = [
     ("policy_upsert", GatewayPoliciesUpsertSerializer, {}),
@@ -2156,8 +2163,8 @@ class TestMCPServiceAccountAPI(APIBaseTest):
         assert response.status_code == status.HTTP_403_FORBIDDEN
         mock_proxy.assert_not_called()
 
-    @patch("products.mcp_store.backend.url_policy.is_url_allowed", return_value=(True, None))
-    @patch("products.mcp_store.backend.proxy.httpx.Client")
+    @ALLOW_UPSTREAM_URL
+    @patch("posthog.security.pinned_httpx.httpx.Client")
     def test_agent_grant_enforces_agent_scope_policy(self, mock_http_client, _mock_is_url_allowed) -> None:
         account = self._active_scout_account()
         server = MCPGatewayServer.objects.for_team(self.team.id).create(
@@ -4642,8 +4649,8 @@ class TestMCPInstallationScopeAccess(ClickhouseTestMixin, APIBaseTest, QueryMatc
         other = User.objects.create_and_join(self.organization, "other@posthog.com", "password")
         shared = self._create_installation(user=other, scope="shared", sensitive_configuration={"api_key": "k"})
 
-        with mock_patch("products.mcp_store.backend.url_policy.is_url_allowed", return_value=(True, None)):
-            with mock_patch("products.mcp_store.backend.proxy.httpx.Client") as mock_client_cls:
+        with ALLOW_UPSTREAM_URL:
+            with mock_patch("posthog.security.pinned_httpx.httpx.Client") as mock_client_cls:
                 mock_resp = MagicMock()
                 mock_resp.status_code = 200
                 mock_resp.headers = {"content-type": "application/json"}

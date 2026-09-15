@@ -20,12 +20,14 @@ def is_internal_mcp_url(url: str, team_id: int | None) -> bool:
 
 
 def check_mcp_url_policy(url: str, team_id: int | None) -> tuple[bool, str | None]:
-    """The single entry point for MCP URL policy: shared SSRF validation,
-    overridden only by an exact team-scoped internal-allowlist match.
+    """The entry point for gating an MCP URL: shared SSRF validation, overridden
+    only by an exact team-scoped internal-allowlist match.
 
     Call sites must use this rather than composing ``is_url_allowed`` with
     ``allow_internal_mcp_url`` themselves — a caller that forgets one half (or
-    reorders the splatted positional results) silently drops the policy.
+    reorders the splatted positional results) silently drops the policy. A path
+    that then fetches the URL wants ``upstream_http.validate_upstream_url``, which
+    also returns the addresses the fetch must pin to.
     """
     return allow_internal_mcp_url(url, team_id, *is_url_allowed(url))
 
