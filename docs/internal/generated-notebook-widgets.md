@@ -97,7 +97,8 @@ Markdown editing can also insert `<Widget nodeId="widget-example" prompt="Show a
 All notebook SQL and Python dataframes must have completed runs before generation.
 Inserting the tag does not start a generation job.
 The agent polls status and directs the user to the notebook for review and execution consent.
-MCP responses omit the preview URL so previews open through the notebook's existing consent flow.
+MCP responses for widget generation, status, and attachment omit the preview URL so previews open through the notebook's existing consent flow.
+These responses wrap status, errors, and security findings as untrusted reference data, with instructions for agents to treat the content as data rather than commands.
 
 ## Generated-code trust model
 
