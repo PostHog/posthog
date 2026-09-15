@@ -74,7 +74,8 @@ The headline exports per module:
 - **`api/logics`** — **`runStreamLogic`** (SSE stream + thread projection, see §3),
   **`runInteractionLogic`** (Max-agnostic follow-up/queue facade), status helpers
   (`isTerminalRunStatus`, `INITIAL_PERMISSION_MODE`), thinking-message helpers,
-  **`attachedContextLogic`** + **`useAttachedContext`** (context injection, see §3), and
+  **`attachedContextLogic`** + **`useAttachedContext`** (context injection, see §3),
+  **`artifactActionsLogic`** (host actions on the thread's visualization cards, see §3), and
   **`toolStreamEventsLogic`** + **`useToolStreamListener`** (tool-stream subscriptions, see §3).
   Imports only `logics/*` + `hooks/*` + `utils/*` — never a component or the registry. The two hooks are a
   deliberate, mild deviation from the "no React" reading of this lane: they import `react` + `kea` but no
@@ -186,6 +187,14 @@ render **all** of `contextItems`; closing a picked chip removes it from the pick
 provider's chip dispatches `attachedContextLogic.dismissContext(key)`. Dismissal filters the key out of
 `contextItems` and **survives provider re-registration** (the scene bridge upserts on every scene read — a
 closed chip must not resurrect); re-picking the same item `undismissContext`s it.
+
+**Artifact actions (`logics/artifactActionsLogic.ts`):** the mirror image of `attachedContextLogic`. Context goes
+into a run, an artifact action takes a result back out. A host registers one `VisualizationArtifactAction` under a
+stable `providerId` (upsert, symmetric deregister, `cache.disposables` from a kea logic), and
+`VisualizationArtifactActions` renders the registered set into every visualization card's actions row through
+`VisualizationWidget`'s `extraActions` slot. `onSelect` receives the card's query, artifact content, saved-insight
+short id and tool call id. The action runs in the browser, which is what separates it from the agent writing the
+result back over MCP: no round trip, no approval prompt, and the user decides per result.
 
 **Tool-stream events (`logics/toolStreamEventsLogic.ts`):** a global bus `runStreamLogic` publishes
 tool-call lifecycle events to — `phase: started/updated/completed/failed`, with `toolName` **resolved** via

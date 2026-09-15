@@ -2,6 +2,7 @@ import { DataToolRow } from '../DataToolRow'
 import { GenericMcpToolRenderer } from '../GenericMcpToolRenderer'
 import type { ToolRendererProps } from '../toolRegistry'
 import { extractQueryResult } from './extractors'
+import { VisualizationArtifactActions } from './VisualizationArtifactActions'
 import { VisualizationWidget, getQueryOpenTarget } from './VisualizationWidget'
 
 /**
@@ -23,7 +24,18 @@ export function QueryWidget(props: ToolRendererProps): JSX.Element {
 
     return (
         <DataToolRow {...props}>
-            <VisualizationWidget content={result.content} openUrl={target.url} openTooltip={target.tooltip} />
+            <VisualizationWidget
+                content={result.content}
+                openUrl={target.url}
+                openTooltip={target.tooltip}
+                extraActions={
+                    <VisualizationArtifactActions
+                        content={result.content}
+                        toolName={message.resolvedKey}
+                        toolCallId={message.id}
+                    />
+                }
+            />
         </DataToolRow>
     )
 }
