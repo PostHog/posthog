@@ -102,7 +102,9 @@ export const cloneProgressPayload = z.object({
 
 export type CloneProgressPayload = z.infer<typeof cloneProgressPayload>;
 
-export const getChangedFilesHeadInput = directoryPathInput;
+export const getChangedFilesHeadInput = directoryPathInput.extend({
+  includeAgentFiles: z.boolean().optional(),
+});
 export const getChangedFilesHeadOutput = z.array(changedFileSchema);
 
 export const getFileAtHeadInput = z.object({

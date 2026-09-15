@@ -1,4 +1,5 @@
 import { buildTaskSpaceContextProps } from "@posthog/core/canvas/canvasAnalytics";
+import type { ChangedFile } from "@posthog/core/git/router-schemas";
 import { partitionLocalMcpServersForRun } from "@posthog/core/local-mcp/localMcpImport";
 import {
   getErrorTitle,
@@ -72,9 +73,28 @@ import { useTasks } from "../../tasks/useTasks";
 import { useTourStore } from "../../tour/tourStore";
 import { createFirstTaskTour } from "../../tour/tours/createFirstTaskTour";
 import { useExistingWorktreeConfirmStore } from "../stores/existingWorktreeConfirmStore";
+import { useLocalChangesConfirmStore } from "../stores/localChangesConfirmStore";
 import { useRemoteBranchConfirmStore } from "../stores/remoteBranchConfirmStore";
 
 const log = logger.scope("task-creation");
+
+function groupLocalChanges(files: ChangedFile[]): {
+  stagedFiles: string[];
+  unstagedFiles: string[];
+  untrackedFiles: string[];
+} {
+  return {
+    stagedFiles: files
+      .filter((file) => file.status !== "untracked" && file.staged)
+      .map((file) => file.path),
+    unstagedFiles: files
+      .filter((file) => file.status !== "untracked" && !file.staged)
+      .map((file) => file.path),
+    untrackedFiles: files
+      .filter((file) => file.status === "untracked")
+      .map((file) => file.path),
+  };
+}
 
 interface UseTaskCreationOptions {
   editorRef: React.RefObject<EditorHandle | null>;
@@ -358,6 +378,53 @@ export function useTaskCreation({
             description: "Try again in a moment.",
           });
           return false;
+        }
+
+        if (workspaceMode === "local" && selectedDirectory) {
+          let isGitRepository: boolean;
+          try {
+            isGitRepository = await hostClient.git.validateRepo.query({
+              directoryPath: selectedDirectory,
+            });
+          } catch (error) {
+            log.warn("Failed to validate local repository", { error });
+            track(ANALYTICS_EVENTS.TASK_CREATION_FAILED, {
+              error_type: "local_changes_check_failed",
+            });
+            toast.error("Cannot check this Git repository", {
+              description: "Try again before creating a task.",
+            });
+            return false;
+          }
+
+          if (isGitRepository) {
+            let changedFiles: ChangedFile[];
+            try {
+              changedFiles = await hostClient.git.getChangedFilesHead.query({
+                directoryPath: selectedDirectory,
+                includeAgentFiles: true,
+              });
+            } catch (error) {
+              log.warn("Failed to read local repository changes", { error });
+              track(ANALYTICS_EVENTS.TASK_CREATION_FAILED, {
+                error_type: "local_changes_check_failed",
+              });
+              toast.error("Cannot check local changes", {
+                description: "Try again before creating a task.",
+              });
+              return false;
+            }
+
+            if (changedFiles.length > 0) {
+              const action = await useLocalChangesConfirmStore
+                .getState()
+                .confirm({
+                  repoPath: selectedDirectory,
+                  ...groupLocalChanges(changedFiles),
+                });
+              if (action === "cancel") return false;
+            }
+          }
         }
 
         // Confirm a couple of worktree branch situations before starting the

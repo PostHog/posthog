@@ -11,14 +11,17 @@ import {
   usePendingTaskPromptStore,
 } from "@posthog/ui/shell/pendingTaskPromptStore";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, renderHook } from "@testing-library/react";
+import { act, renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { useLocalChangesConfirmStore } from "../stores/localChangesConfirmStore";
 
 const createTaskMock = vi.hoisted(() => vi.fn());
 const invalidateTasksMock = vi.hoisted(() => vi.fn());
 const openTaskMock = vi.hoisted(() => vi.fn());
 const trackMock = vi.hoisted(() => vi.fn());
+const validateRepoMock = vi.hoisted(() => vi.fn());
+const getChangedFilesHeadMock = vi.hoisted(() => vi.fn());
 const cloudSubscription = vi.hoisted(() => ({
   cloudSubscriptionOn: false,
   cloudFlagEnabled: true,
@@ -42,6 +45,10 @@ vi.mock("@posthog/host-router/react", () => ({
   }),
   useHostTRPCClient: () => ({
     workspace: { getWorktreeFileUsage: { query: vi.fn() } },
+    git: {
+      validateRepo: { query: validateRepoMock },
+      getChangedFilesHead: { query: getChangedFilesHeadMock },
+    },
   }),
 }));
 vi.mock("@posthog/ui/features/canvas/hooks/useTaskChannels", () => ({
@@ -170,8 +177,99 @@ describe("useTaskCreation prompt records", () => {
     vi.clearAllMocks();
     createTaskMock.mockReset();
     cloudSubscription.cloudSubscriptionOn = false;
+    validateRepoMock.mockResolvedValue(true);
+    getChangedFilesHeadMock.mockResolvedValue([]);
+    useLocalChangesConfirmStore.setState({
+      isOpen: false,
+      repoPath: "",
+      stagedFiles: [],
+      unstagedFiles: [],
+      untrackedFiles: [],
+      resolve: null,
+    });
     usePendingTaskPromptStore.setState({ byKey: {}, _hasHydrated: true });
     useTaskInputPrefillStore.setState({ prefill: {} });
+  });
+
+  it("cancels local task creation when local changes are not accepted", async () => {
+    getChangedFilesHeadMock.mockResolvedValue([
+      { path: "staged.ts", status: "modified", staged: true },
+    ]);
+    const { result } = renderTaskCreation(textToContent("Check the build"));
+
+    let submission!: Promise<boolean>;
+    act(() => {
+      submission = result.current.handleSubmit();
+    });
+    await waitFor(() =>
+      expect(useLocalChangesConfirmStore.getState().isOpen).toBe(true),
+    );
+    act(() => useLocalChangesConfirmStore.getState().cancel());
+
+    await act(async () => {
+      await expect(submission).resolves.toBe(false);
+    });
+    expect(createTaskMock).not.toHaveBeenCalled();
+  });
+
+  it("creates a local task after local changes are accepted", async () => {
+    getChangedFilesHeadMock.mockResolvedValue([
+      { path: "unstaged.ts", status: "modified", staged: false },
+    ]);
+    createTaskMock.mockResolvedValueOnce({
+      success: true,
+      data: { task: fakeTask(), workspace: null },
+    });
+    const { result } = renderTaskCreation(textToContent("Check the build"));
+
+    let submission!: Promise<boolean>;
+    act(() => {
+      submission = result.current.handleSubmit();
+    });
+    await waitFor(() =>
+      expect(useLocalChangesConfirmStore.getState().isOpen).toBe(true),
+    );
+    act(() => useLocalChangesConfirmStore.getState().continue());
+
+    await act(async () => {
+      await expect(submission).resolves.toBe(true);
+    });
+    expect(getChangedFilesHeadMock).toHaveBeenCalledWith({
+      directoryPath: "/repo",
+      includeAgentFiles: true,
+    });
+    expect(createTaskMock).toHaveBeenCalledOnce();
+  });
+
+  it("creates a local task without a Git preflight for a non-Git folder", async () => {
+    validateRepoMock.mockResolvedValue(false);
+    createTaskMock.mockResolvedValueOnce({
+      success: true,
+      data: { task: fakeTask(), workspace: null },
+    });
+    const { result } = renderTaskCreation(textToContent("Check the build"));
+
+    await act(async () => {
+      await expect(result.current.handleSubmit()).resolves.toBe(true);
+    });
+
+    expect(getChangedFilesHeadMock).not.toHaveBeenCalled();
+    expect(createTaskMock).toHaveBeenCalledOnce();
+  });
+
+  it("does not create a local task when the Git change check fails", async () => {
+    getChangedFilesHeadMock.mockRejectedValue(new Error("Git failed"));
+    const { result } = renderTaskCreation(textToContent("Check the build"));
+
+    await act(async () => {
+      await expect(result.current.handleSubmit()).resolves.toBe(false);
+    });
+
+    expect(createTaskMock).not.toHaveBeenCalled();
+    expect(trackMock).toHaveBeenCalledWith(
+      "Task creation failed",
+      expect.objectContaining({ error_type: "local_changes_check_failed" }),
+    );
   });
 
   it("omits subscription billing when Pi is selected", async () => {

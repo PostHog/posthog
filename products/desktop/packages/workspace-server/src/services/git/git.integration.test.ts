@@ -149,6 +149,27 @@ describe("GitService integration (git-read + git-mutate)", () => {
   });
 
   describe("staging mutation", () => {
+    it.each([
+      { includeAgentFiles: false, expected: false },
+      { includeAgentFiles: true, expected: true },
+    ])(
+      "getChangedFilesHead returns agent files: $expected",
+      async ({ includeAgentFiles, expected }) => {
+        await fs.mkdir(path.join(repo, ".claude"));
+        await fs.writeFile(path.join(repo, ".claude", "settings.json"), "{}");
+        await fs.writeFile(path.join(repo, "CLAUDE.local.md"), "local\n");
+
+        const files = await git.getChangedFilesHead(
+          repo,
+          includeAgentFiles ? { includeAgentFiles: true } : undefined,
+        );
+        const paths = files.map((file) => file.path);
+
+        expect(paths.includes(".claude/settings.json")).toBe(expected);
+        expect(paths.includes("CLAUDE.local.md")).toBe(expected);
+      },
+    );
+
     it("getChangedFilesHead lists a new untracked file", async () => {
       await fs.writeFile(path.join(repo, "new.txt"), "hello\n");
       const files = await git.getChangedFilesHead(repo);
