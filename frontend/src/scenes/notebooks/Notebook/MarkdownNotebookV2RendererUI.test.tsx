@@ -11,6 +11,7 @@ import { initKeaTests } from '~/test/init'
 import { AccessControlLevel } from '~/types'
 
 import { NotebookType } from '../types'
+import { NOTEBOOK_MARKDOWN_REGISTRY } from './markdownNotebookRegistry'
 import { buildMarkdownNotebookContent } from './markdownNotebookV2'
 import { MarkdownNotebookV2 } from './MarkdownNotebookV2Renderer'
 import { Notebook } from './Notebook'
@@ -75,6 +76,35 @@ describe('MarkdownNotebookV2Renderer UI', () => {
         logic?.unmount()
         settingsLogic?.unmount()
         jest.restoreAllMocks()
+    })
+
+    it.each([
+        ['javascript:alert(1)', null],
+        ['data:text/html,test', null],
+        ['about:blank', null],
+        ['/embedded/test', null],
+        [`${window.location.origin}/embedded/test`, 'allow-scripts allow-popups allow-forms'],
+        ['https://example.com/embed', 'allow-scripts allow-same-origin allow-popups allow-forms'],
+        [`${window.location.origin}.example.com/embed`, 'allow-scripts allow-same-origin allow-popups allow-forms'],
+    ])('applies the embed sandbox policy through the production registry for %s', (src, sandbox) => {
+        const definition = NOTEBOOK_MARKDOWN_REGISTRY.components.Embed
+        const { container } = render(
+            <BindLogic logic={notebookLogic} props={logic.props}>
+                <definition.ViewComponent
+                    node={{ id: 'embed-test', type: 'component', tagName: 'Embed', props: { src } }}
+                    mode="view"
+                    updateProps={jest.fn()}
+                    deleteNode={jest.fn()}
+                />
+            </BindLogic>
+        )
+        const iframe = container.querySelector('iframe')
+        if (sandbox === null) {
+            expect(iframe).toBeNull()
+        } else {
+            expect(iframe?.getAttribute('src')).toBe(src)
+            expect(iframe?.getAttribute('sandbox')).toBe(sandbox)
+        }
     })
 
     it('opens kernel info from the header control and closes markdown source', () => {
