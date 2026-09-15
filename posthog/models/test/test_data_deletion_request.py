@@ -651,6 +651,18 @@ def test_cached_compile_hogql_predicate_blank_predicate_skips_compile():
         assert cached_compile_hogql_predicate(request) == ("", {})
 
 
+def test_query_backed_deletion_stats_are_rejected():
+    request = DataDeletionRequest(
+        team_id=TEAM_ID,
+        request_type=RequestType.HOGQL_EVENT_REMOVAL,
+        hogql_query="SELECT uuid FROM events",
+        execution_mode="deferred",
+    )
+
+    with pytest.raises(ValueError, match="Stats are not available"):
+        ddr.fetch_deletion_stats(request)
+
+
 @time_machine.travel("2026-06-17T12:00:00Z", tick=False)
 @pytest.mark.parametrize(
     "overrides,expected_fragment",

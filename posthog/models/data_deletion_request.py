@@ -751,6 +751,8 @@ def fetch_property_deletion_stats(obj: "DataDeletionRequest", *, user_id: int | 
 
 def fetch_deletion_stats(obj: "DataDeletionRequest", *, user_id: int | None = None) -> dict:
     """Dispatch to the appropriate stats function based on request type."""
+    if obj.request_type == RequestType.HOGQL_EVENT_REMOVAL:
+        raise ValueError("Stats are not available for query-backed deletion requests yet.")
     if obj.request_type == RequestType.PROPERTY_REMOVAL:
         return fetch_property_deletion_stats(obj, user_id=user_id)
     return fetch_event_deletion_stats(obj, user_id=user_id)

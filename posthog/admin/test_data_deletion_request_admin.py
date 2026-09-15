@@ -71,6 +71,15 @@ class TestDataDeletionRequestAdminApprovalFlow(BaseTest):
         self.assertTrue(context["supports_deferred"])
         self.assertEqual(context["default_execution_mode"], ExecutionMode.DEFERRED)
 
+    def test_approve_view_rejects_query_backed_request_until_execution_is_available(self):
+        request = self._pending_request(request_type=RequestType.HOGQL_EVENT_REMOVAL)
+
+        response = self._call_approve("POST", request)
+
+        self.assertEqual(response.status_code, 302)
+        request.refresh_from_db()
+        self.assertEqual(request.status, RequestStatus.PENDING)
+
     def test_approve_view_get_hides_picker_for_property_removal(self):
         request = self._pending_request(request_type=RequestType.PROPERTY_REMOVAL, properties=["$ip"])
         response = self._call_approve("GET", request)
@@ -950,6 +959,21 @@ class TestDataDeletionRequestAdminDuplicate(BaseTest):
         else:
             # No original notes — the copy note stands alone, no trailing separator.
             self.assertFalse(copy.notes.endswith("\n"))
+
+    def test_duplicate_preserves_query_snapshot(self):
+        original = DataDeletionRequest.objects.create(
+            team_id=self.team.id,
+            request_type=RequestType.HOGQL_EVENT_REMOVAL,
+            hogql_query="SELECT uuid FROM events WHERE event = {event}",
+            hogql_variables={"event": "$pageview"},
+            execution_mode=ExecutionMode.DEFERRED,
+        )
+
+        self._call_duplicate(DataDeletionRequest.objects.filter(pk=original.pk))
+
+        copy = DataDeletionRequest.objects.exclude(pk=original.pk).get()
+        self.assertEqual(copy.hogql_query, original.hogql_query)
+        self.assertEqual(copy.hogql_variables, original.hogql_variables)
 
 
 class TestDagsterRunLink(SimpleTestCase):

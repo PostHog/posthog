@@ -32,6 +32,8 @@ CRITERIA_FIELDS = {
     "start_time",
     "end_time",
     "hogql_predicate",
+    "hogql_query",
+    "hogql_variables",
     "person_uuids",
     "person_distinct_ids",
     "person_drop_profiles",
@@ -734,6 +736,10 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
 
         if not request.user.groups.filter(name=CLICKHOUSE_TEAM_GROUP).exists():
             messages.error(request, "Only ClickHouse Team members can approve deletion requests.")
+            return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]))
+
+        if obj.request_type == RequestType.HOGQL_EVENT_REMOVAL:
+            messages.error(request, "Query-backed deletion requests cannot be approved yet.")
             return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]))
 
         supports_deferred = obj.request_type == RequestType.EVENT_REMOVAL
