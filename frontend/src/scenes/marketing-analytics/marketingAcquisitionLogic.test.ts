@@ -8,7 +8,7 @@ import { ConversionGoalFilter, NodeKind, WebAnalyticsOrderByFields } from '~/que
 import { initKeaTests } from '~/test/init'
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
-import { marketingAcquisitionLogic } from './marketingAcquisitionLogic'
+import { marketingAcquisitionLogic } from 'products/marketing_analytics/frontend/dashboard/marketingAcquisitionLogic'
 
 describe('marketingAcquisitionLogic', () => {
     it('keeps customer goal filters and falls back when a selected goal is removed or unmarked', async () => {

@@ -3,7 +3,7 @@ import { useValues } from 'kea'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 
-import { NewMarketingAnalyticsDashboard } from './NewMarketingAnalyticsDashboard'
+import { NewMarketingAnalyticsDashboard } from 'products/marketing_analytics/frontend/dashboard/NewMarketingAnalyticsDashboard'
 
 jest.mock('scenes/marketing-analytics/Setup/sectionRouting', () => ({ suggestionsForSection: () => [] }))
 
