@@ -4,6 +4,7 @@ from typing import Optional
 
 from django.core.exceptions import ObjectDoesNotExist
 
+import posthoganalytics
 from rest_framework.exceptions import ValidationError
 
 from posthog.schema import PropertyOperator
@@ -28,12 +29,50 @@ from posthog.models.property.relative_date import relative_date_parse_for_featur
 from posthog.models.team.team import Team
 
 from products.cohorts.backend.models.cohort import Cohort
+from products.feature_flags.backend.person_sampling import bounded_memory_settings, count_matching_persons
 
 
 @frozen
 class BlastRadiusResult:
     affected: int
     total: int
+
+
+BLAST_RADIUS_QUERY_V2_FLAG = "flags-blast-radius-query-v2"
+
+QUERY_TYPE_V2 = "feature_flag_blast_radius_v2"
+
+
+def use_blast_radius_query_v2(team: Team) -> bool:
+    return bool(
+        posthoganalytics.feature_enabled(
+            BLAST_RADIUS_QUERY_V2_FLAG,
+            str(team.uuid),
+            send_feature_flag_events=False,
+        )
+    )
+
+
+def sampled_person_blast_radius(team: Team, filter: Filter, query_type: str) -> BlastRadiusResult:
+    """
+    Person blast radius whose peak query memory does not grow with the size of the person table.
+
+    The exact counts dedup the person table with a hash GROUP BY that holds every matched
+    person in memory, and HogQL queries cannot spill to disk, so on a large team both counts
+    cross the per-query memory limit and the caller gets an error instead of a number. These
+    counts read a sample of the persons and extrapolate, and fall back to an exact, streaming
+    count when the sample holds too few matches to extrapolate from.
+    """
+    # One database build shared by both counts; each execute_hogql_query call would otherwise
+    # rebuild it, and the build cost scales with the team's warehouse size.
+    database = Database.create_for(team=team)
+
+    total = count_matching_persons(team, None, database, query_type=query_type)
+    if len(filter.property_groups.flat) == 0:
+        return BlastRadiusResult(affected=total, total=total)
+
+    affected = count_matching_persons(team, filter, database, query_type=query_type)
+    return BlastRadiusResult(affected=min(affected, total), total=total)
 
 
 # ClickHouse codes for "this literal can't be parsed as the column's type": 6 CANNOT_PARSE_TEXT,
@@ -148,6 +187,10 @@ def get_user_blast_radius_persons(
 
 def _get_person_blast_radius(team: Team, filter: Filter) -> BlastRadiusResult:
     """Calculate blast radius for person-based feature flags using HogQL."""
+
+    if use_blast_radius_query_v2(team):
+        tag_queries(product=Product.FEATURE_FLAGS, feature=Feature.QUERY)
+        return sampled_person_blast_radius(team, filter, query_type=QUERY_TYPE_V2)
 
     properties = filter.property_groups.flat
 
@@ -515,9 +558,12 @@ def _get_person_blast_radius_persons(team: Team, filter: Filter, cursor: Optiona
     select_query = _build_person_query(team, filter, return_count=False, cursor=cursor)
 
     tag_queries(product=Product.FEATURE_FLAGS, feature=Feature.QUERY)
+    # The page must be exact, so it cannot be sampled. In-order aggregation keeps its dedup
+    # memory-bounded instead, at the cost of a slower query.
     response = execute_hogql_query(
         query=select_query,
         team=team,
+        settings=bounded_memory_settings() if use_blast_radius_query_v2(team) else None,
     )
 
     # Extract person IDs from results
