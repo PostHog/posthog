@@ -17,7 +17,12 @@ export function DataAttributes(): JSX.Element {
         minimumAccessLevel: TeamMembershipLevel.Admin,
     })
 
-    useEffect(() => setValue(currentTeam?.data_attributes || []), [currentTeam])
+    useEffect(
+        // A value saved before the API validated this field can be a non-array, which the select
+        // cannot render. Fall back to an empty list so the team can still save a valid one.
+        () => setValue(Array.isArray(currentTeam?.data_attributes) ? currentTeam.data_attributes : []),
+        [currentTeam]
+    )
 
     if (!currentTeam) {
         return <LemonSkeleton />

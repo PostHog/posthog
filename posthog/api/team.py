@@ -1047,6 +1047,13 @@ def validate_test_account_filters(value: object) -> list[dict[str, object]]:
     return cast(list[dict[str, object]], value)
 
 
+def validate_data_attributes(value: object) -> list[str]:
+    if not isinstance(value, list) or not all(isinstance(attribute, str) for attribute in value):
+        raise exceptions.ValidationError("Must provide a list of strings.")
+
+    return cast(list[str], value)
+
+
 def _alias_backreferences(alias: str) -> list[int]:
     """Return the capture-group numbers a re2 replacement alias references (`\\1`..`\\9`, `\\0` for the
     whole match). A doubled `\\\\` is a literal backslash, not a back-reference, so it's skipped."""
@@ -1334,6 +1341,10 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
     @staticmethod
     def validate_path_cleaning_filters(value: object) -> object:
         return validate_path_cleaning_filters(value)
+
+    @staticmethod
+    def validate_data_attributes(value: object) -> list[str]:
+        return validate_data_attributes(value)
 
     @staticmethod
     def validate_revenue_analytics_config(value):
