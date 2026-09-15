@@ -397,6 +397,16 @@ describe('logsViewerDataLogic', () => {
             }).toNotHaveDispatchedActions([filtersLogic.actionCreators.bumpFacetRefresh()])
         })
 
+        it('changing the session scope triggers runQuery', async () => {
+            await expectLogic(logic, () => {
+                filtersLogic.actions.setSessionId('sess-1')
+            }).toDispatchActions(['runQuery'])
+
+            await expectLogic(logic, () => {
+                filtersLogic.actions.setSessionId(undefined)
+            }).toDispatchActions(['runQuery'])
+        })
+
         it('setFilters triggers runQuery', async () => {
             await expectLogic(logic, () => {
                 filtersLogic.actions.setFilters({ searchTerm: 'new search' })

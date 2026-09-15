@@ -9,7 +9,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 
 import { mswDecorator } from '~/mocks/browser'
 import type { Mocks } from '~/mocks/utils'
-import { NodeKind } from '~/queries/schema/schema-general'
+import { LogMessage, LogSeverityLevel, NodeKind } from '~/queries/schema/schema-general'
 
 import { TEST_EVENTS } from '../../__mocks__/events'
 import { results as batchGetResults } from '../../__mocks__/stack_frames/batch_get'
@@ -689,3 +689,111 @@ function headerActionParameters(): Record<string, unknown> {
         },
     }
 }
+
+//////////////////// Logs tab
+
+const LOGS_STORY_SESSION_ID = 'session-with-logs'
+
+// Rows either side of the exception, so the tab shows what the surrounding minutes actually look
+// like: the request that failed, the exception's own line, and the retries after it.
+function buildStoryLogs(event: ErrorEventType): LogMessage[] {
+    const center = new Date(event.timestamp).getTime()
+    const at = (deltaMs: number): string => new Date(center + deltaMs).toISOString()
+
+    const lines: { offsetMs: number; level: LogSeverityLevel; body: string }[] = [
+        { offsetMs: -42000, level: 'info', body: 'GET /api/projects/7/dashboards 200 in 84ms' },
+        { offsetMs: -21000, level: 'info', body: 'Loaded dashboard config for project 7' },
+        { offsetMs: -4200, level: 'warn', body: 'Config request took 2841ms, above the 2000ms budget' },
+        { offsetMs: -900, level: 'error', body: 'GET /api/projects/7/config 502 Bad Gateway' },
+        { offsetMs: 0, level: 'error', body: 'Uncaught TypeError: cannot read properties of undefined' },
+        { offsetMs: 3100, level: 'info', body: 'Retrying config request (attempt 1 of 3)' },
+        { offsetMs: 9400, level: 'info', body: 'GET /api/projects/7/config 200 in 131ms' },
+    ]
+
+    return lines.map(({ offsetMs, level, body }, index) => ({
+        uuid: `story-log-${index}`,
+        trace_id: 'story-trace',
+        span_id: `story-span-${index}`,
+        resource_attributes: { 'service.name': 'posthog-web' },
+        attributes: { sessionId: LOGS_STORY_SESSION_ID },
+        body,
+        timestamp: at(offsetMs),
+        observed_timestamp: at(offsetMs),
+        severity_text: level,
+        severity_number: 13,
+        level,
+        instrumentation_scope: 'any',
+        event_name: 'any',
+    }))
+}
+
+function logsTabParameters(event: ErrorEventType): Record<string, unknown> {
+    const logs = buildStoryLogs(event)
+
+    return {
+        featureFlags: [FEATURE_FLAGS.LOGS_IN_ERROR_TRACKING],
+        msw: {
+            mocks: {
+                get: {
+                    'api/projects/:team_id/logs_config/': {
+                        logs_distinct_id_attribute_key: 'posthogDistinctId',
+                        logs_distinct_id_attribute_keys: ['posthogDistinctId'],
+                        logs_session_id_attribute_keys: ['sessionId'],
+                    },
+                },
+                post: {
+                    '/api/environments/:team_id/logs/query': { results: logs, maxExportableLogs: 5000 },
+                    '/api/environments/:team_id/logs/sparkline': logs.map((log) => ({
+                        count: 1,
+                        level: log.severity_text,
+                        time: log.timestamp,
+                    })),
+                    '/api/projects/:team_id/logs/facet_values': { results: [] },
+                    '/api/projects/:team_id/logs/services': { results: [], sparkline: [], totalServices: 0 },
+                },
+            },
+        },
+    }
+}
+
+function OpenLogsTab({ children, issueId = 'issue-id' }: { children: JSX.Element; issueId?: string }): JSX.Element {
+    const { setCurrentTab } = useActions(exceptionCardLogic({ issueId, loading: false }))
+
+    useEffect(() => {
+        setCurrentTab('logs')
+    }, [setCurrentTab])
+
+    return children
+}
+
+export function ExceptionCardLogs(): JSX.Element {
+    const event = buildSessionTimelineEvent(undefined, { sessionId: LOGS_STORY_SESSION_ID })
+
+    return (
+        <div className="w-[1000px] h-[700px]">
+            <OpenLogsTab>
+                <ExceptionCard issueId="issue-id" issueName="Test Issue" loading={false} event={event} />
+            </OpenLogsTab>
+        </div>
+    )
+}
+ExceptionCardLogs.parameters = logsTabParameters(
+    buildSessionTimelineEvent(undefined, { sessionId: LOGS_STORY_SESSION_ID })
+)
+
+// Server-side exceptions usually have no session id, so the tab falls back to every log in the
+// window and the scope toggle has nothing to switch between.
+export function ExceptionCardLogsWithoutSession(): JSX.Element {
+    const event = buildSessionTimelineEvent(undefined, { sessionId: null })
+
+    return (
+        <div className="w-[1000px] h-[700px]">
+            <OpenLogsTab issueId="issue-no-session">
+                <ExceptionCard issueId="issue-no-session" issueName="Test Issue" loading={false} event={event} />
+            </OpenLogsTab>
+        </div>
+    )
+}
+ExceptionCardLogsWithoutSession.parameters = logsTabParameters(
+    buildSessionTimelineEvent(undefined, { sessionId: null })
+)

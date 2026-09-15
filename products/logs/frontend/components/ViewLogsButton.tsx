@@ -3,9 +3,8 @@ import { useActions } from 'kea'
 import { IconLive } from '@posthog/icons'
 import { LemonButton, LemonButtonProps } from '@posthog/lemon-ui'
 
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-
 import { logsViewerModalLogic } from 'products/logs/frontend/components/LogsViewer/LogsViewerModal/logsViewerModalLogic'
+import { useLogsInErrorTracking } from 'products/logs/frontend/components/useLogsInErrorTracking'
 import { buildLogsSessionScope } from 'products/logs/frontend/utils'
 
 export interface ViewLogsButtonProps extends Pick<LemonButtonProps, 'size' | 'type' | 'className' | 'data-attr'> {
@@ -21,7 +20,7 @@ export function useViewLogsButton({ sessionId, timestamp }: Pick<ViewLogsButtonP
     disabledReason: string | undefined
 } {
     const { openLogsViewerModal } = useActions(logsViewerModalLogic)
-    const enabled = useFeatureFlag('LOGS_IN_ERROR_TRACKING')
+    const enabled = useLogsInErrorTracking()
 
     const onClick = sessionId
         ? () =>

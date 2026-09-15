@@ -146,6 +146,7 @@ export interface logsViewerFiltersLogicValues {
     queryFilterGroup: UniversalFiltersGroup
     searchTerm: LogsQuery['searchTerm']
     sessionId: string | undefined
+    sessionIdScope: string
     utcDateRange: {
         date_from: string | null | undefined
         date_to: string | null | undefined
@@ -211,6 +212,7 @@ export interface logsViewerFiltersLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
         id: (id: string) => string
+        sessionId: (sessionIdScope: string) => string | undefined
         filters: (
             dateRange: DateRange,
             searchTerm: string | undefined,
@@ -345,16 +347,23 @@ export const logsViewerFiltersLogic = kea<logsViewerFiltersLogicType>([
                 setPersonId: (_, { personId }) => personId,
             },
         ],
-        sessionId: [
-            undefined as string | undefined,
+        // A kea reducer cannot return undefined, and the scope is clearable now that a scene can
+        // toggle it off, so "no session" is held as an empty string and read back through the
+        // sessionId selector below.
+        sessionIdScope: [
+            '',
             {
-                setSessionId: (_, { sessionId }) => sessionId,
+                setSessionId: (_, { sessionId }) => sessionId ?? '',
             },
         ],
     }),
 
     selectors({
         id: [(_, p) => [p.id], (id: string) => id],
+        sessionId: [
+            (s) => [s.sessionIdScope],
+            (sessionIdScope: string): string | undefined => sessionIdScope || undefined,
+        ],
         filters: [
             (s) => [s.dateRange, s.searchTerm, s.filterGroup],
             (

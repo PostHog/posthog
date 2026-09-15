@@ -9,10 +9,12 @@ import { ErrorEventType } from 'lib/components/Errors/types'
 import type { TimelineMarkerColor } from 'lib/components/SessionTimeline/SessionTimeline'
 import { Tabs, TabsList, TabsTrigger } from 'lib/ui/quill'
 
+import { useLogsInErrorTracking } from 'products/logs/frontend/components/useLogsInErrorTracking'
 import { ViewLogsButton } from 'products/logs/frontend/components/ViewLogsButton'
 
 import { ExceptionCardFooter } from './ExceptionCardFooter'
 import { exceptionCardLogic } from './exceptionCardLogic'
+import { LogsTab } from './Tabs/LogsTab/LogsTab'
 import { PropertiesTab } from './Tabs/PropertiesTab'
 import { SessionTab } from './Tabs/SessionTab'
 import { StackTraceTab } from './Tabs/StackTraceTab'
@@ -78,6 +80,7 @@ function ExceptionCardContent({
     const { currentTab } = useValues(exceptionCardLogic)
     const { sessionId } = useValues(errorPropertiesLogic)
     const { setCurrentTab } = useActions(exceptionCardLogic)
+    const logsEnabled = useLogsInErrorTracking()
     const headerRef = useRef<HTMLDivElement>(null)
 
     // Base UI scrolls the active tab into view on mount and on keyboard navigation, but not when the
@@ -108,7 +111,8 @@ function ExceptionCardContent({
                         value === 'stack_trace' ||
                         value === 'properties' ||
                         value === 'timeline' ||
-                        value === 'recording'
+                        value === 'recording' ||
+                        value === 'logs'
                     ) {
                         setCurrentTab(value)
                     }
@@ -168,6 +172,15 @@ function ExceptionCardContent({
                             >
                                 Recording
                             </TabsTrigger>
+                            {logsEnabled && (
+                                <TabsTrigger
+                                    value="logs"
+                                    className="text-sm"
+                                    style={{ '--background': 'transparent' } as CSSProperties}
+                                >
+                                    Logs
+                                </TabsTrigger>
+                            )}
                         </TabsList>
                         <div className="flex justify-end">
                             {sessionId && (currentTab === 'timeline' || currentTab === 'recording') ? (
@@ -184,6 +197,7 @@ function ExceptionCardContent({
                 <StackTraceTab value="stack_trace" renderActions={renderStackTraceActions} className="flex-1 min-h-0" />
                 <PropertiesTab value="properties" className="flex-1 min-h-0" />
                 <SessionTab timestamp={timestamp} eventMarkerColor={eventMarkerColor} />
+                {logsEnabled && <LogsTab timestamp={timestamp} />}
                 <ExceptionCardFooter eventId={eventId} fingerprint={fingerprint} label={label} timestamp={timestamp} />
             </Tabs>
         </LemonCard>

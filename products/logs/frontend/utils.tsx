@@ -258,6 +258,11 @@ export const RELATED_ERRORS_WINDOW_HOURS = 6
 // Wide enough to cover a session around a single event without drowning it in unrelated logs.
 export const SESSION_LOGS_WINDOW_MINUTES = 30
 
+// The window an embedded panel opens on, either side of the event it sits next to. Tighter than
+// SESSION_LOGS_WINDOW_MINUTES because the panel can be unscoped: with no session to narrow it, the
+// range is the only thing keeping the panel off the whole project's log volume.
+export const SURROUNDING_LOGS_WINDOW_MINUTES = 5
+
 export function buildDateRangeAround(timestamp: string, windowMinutes: number): { date_from: string; date_to: string } {
     const center = dayjs(timestamp)
     return {

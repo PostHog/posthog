@@ -974,7 +974,7 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
         ],
     }),
 
-    subscriptions(({ actions }) => ({
+    subscriptions(({ actions, values }) => ({
         // Subscribe to the combined query view rather than the user-editable filterGroup
         // so the query reruns when pinned filters change (e.g. team `logs_distinct_id_attribute_keys`
         // resolves after mount), not just when the user edits filters.
@@ -983,6 +983,15 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
                 return
             }
             actions.handleQueryChange('attributes')
+        },
+        // The session scope travels outside the filter group, so an embedding scene that swaps it
+        // while the viewer stays mounted gets no rerun from the subscription above. `hasRunQuery`
+        // skips the call this fires on mount, which the viewer's own first query already covers.
+        sessionId: (sessionId: string | undefined, oldSessionId: string | undefined) => {
+            if (sessionId === oldSessionId || !values.hasRunQuery) {
+                return
+            }
+            actions.runQuery()
         },
     })),
 
