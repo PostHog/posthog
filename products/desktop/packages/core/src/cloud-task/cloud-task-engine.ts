@@ -61,6 +61,7 @@ const MCP_RELAY_METHODS_WITHOUT_APPROVAL = new Set([
 // Authoritative end-of-stream sentinel, matched on the SSE event name (event.event, not data.type).
 // The client stops on it without consulting run status.
 const STREAM_END_EVENT_NAME = "stream-end";
+const END_EVENT_NAME = "end";
 
 interface SessionLogsPage {
   entries: StoredLogEntry[];
@@ -175,6 +176,7 @@ interface WatcherState {
   needsPostBootstrapReconnect: boolean;
   needsStopAfterBootstrap: boolean;
   streamEnded: boolean;
+  needsResync: boolean;
   // Consumes one automatic re-bootstrap recovery; re-armed by a data event or healthy connection.
   selfHealAttempted: boolean;
   // Both streamBaseUrl and streamReadToken non-null => read via the agent-proxy; either null => Django.
@@ -329,6 +331,14 @@ function relayApprovalRequest(
     rawInput: { method, params },
     mcp: { server, tool: method },
   };
+}
+
+function isResyncEndEvent(data: unknown): boolean {
+  return (
+    typeof data === "object" &&
+    data !== null &&
+    (data as { type?: string }).type === "resync"
+  );
 }
 
 function isKeepaliveEvent(event: SseEvent): boolean {
@@ -1082,6 +1092,7 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
     watcher.needsPostBootstrapReconnect = false;
     watcher.needsStopAfterBootstrap = false;
     watcher.streamEnded = false;
+    watcher.needsResync = false;
     watcher.selfHealAttempted = false;
     watcher.lastEventId = null;
     watcher.lastEventIdLeg = null;
@@ -1320,6 +1331,7 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
       needsPostBootstrapReconnect: false,
       needsStopAfterBootstrap: false,
       streamEnded: false,
+      needsResync: false,
       selfHealAttempted: false,
       streamTargetResolved: false,
       streamBaseUrl: null,
@@ -1656,6 +1668,9 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
     if (startLatest) {
       url.searchParams.set("start", "latest");
     }
+    if (usingProxy) {
+      url.searchParams.set("resync", "1");
+    }
     const headers: Record<string, string> = {
       Accept: "text/event-stream",
     };
@@ -1951,6 +1966,19 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
     // A keepalive or real event proves the transport recovered. A keepalive does not clear the
     // backend-error budget, which only a real data event below resets.
     watcher.reconnectAttempts = 0;
+
+    if (event.event === END_EVENT_NAME) {
+      if (isResyncEndEvent(event.data)) {
+        this.log.info("Cloud task stream resume position trimmed, rebuilding", {
+          key,
+          lastEventId: watcher.lastEventId,
+        });
+        watcher.lastEventId = null;
+        watcher.lastEventIdLeg = null;
+        watcher.needsResync = true;
+      }
+      return null;
+    }
 
     if (isKeepaliveEvent(event)) {
       return null;
@@ -2352,6 +2380,7 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
     // Bootstrap owns the snapshot lifecycle: stopping mid-bootstrap would discard the backlog and
     // buffered live entries. Record intent and let bootstrap finish.
     if (watcher.isBootstrapping) {
+      watcher.needsResync = false;
       if (watcher.streamEnded || !reconnectOnDisconnect) {
         watcher.needsStopAfterBootstrap = true;
       } else {
@@ -2364,6 +2393,12 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
     // it is transport churn to reconnect through; status is tracked for display only, never to stop.
     if (watcher.streamEnded) {
       await this.finalizeWatcherStop(key);
+      return;
+    }
+
+    if (watcher.needsResync) {
+      this.resetWatcherForRebootstrap(watcher);
+      void this.bootstrapWatcher(key);
       return;
     }
 
