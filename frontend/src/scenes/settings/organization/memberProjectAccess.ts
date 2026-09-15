@@ -4,13 +4,9 @@ import { urls } from 'scenes/urls'
 
 import type { MemberProjectAccessEntryApi } from 'products/access_control/frontend/generated/api.schemas'
 
-const LEVEL_ORDER: Record<string, number> = { admin: 0, member: 1 }
-
-/** The projects a member can reach, highest level first, for the table cell. */
+/** The projects a member can reach, in the order the API returns them (by project name). */
 export function accessibleProjects(entries: MemberProjectAccessEntryApi[]): MemberProjectAccessEntryApi[] {
-    return entries
-        .filter((entry) => entry.access_level !== 'none')
-        .sort((a, b) => (LEVEL_ORDER[a.access_level] ?? 9) - (LEVEL_ORDER[b.access_level] ?? 9))
+    return entries.filter((entry) => entry.access_level !== 'none')
 }
 
 export function describeProjectAccessSource(entry: MemberProjectAccessEntryApi): string {

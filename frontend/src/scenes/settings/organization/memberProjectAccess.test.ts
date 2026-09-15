@@ -28,14 +28,14 @@ function entry(
 }
 
 describe('memberProjectAccess', () => {
-    it('lists reachable projects admin first and hides no-access projects', () => {
+    it('hides no-access projects and keeps the API order', () => {
         const projects = accessibleProjects([
-            entry('Docs', 'member'),
-            entry('Marketing', 'none'),
             entry('App', 'admin'),
             entry('Billing', 'member'),
+            entry('Docs', 'member'),
+            entry('Marketing', 'none'),
         ])
-        expect(projects.map((p) => p.team_name)).toEqual(['App', 'Docs', 'Billing'])
+        expect(projects.map((p) => p.team_name)).toEqual(['App', 'Billing', 'Docs'])
     })
 
     it.each([
