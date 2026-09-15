@@ -4,6 +4,7 @@ import { mockProducerObserver } from '../../../tests/helpers/mocks/producer.mock
 
 import { HogFlow } from '~/cdp/schema/hogflow'
 import { GroupReadRepository } from '~/common/groups/repositories/group-repository.interface'
+import { DependencyUnavailableError } from '~/common/utils/db/error'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 
 import { createCdpConsumerDeps } from '../../../tests/helpers/cdp'
@@ -113,6 +114,35 @@ describe('CdpEventsConsumer', () => {
 
             const invocations2 = await processor._parseKafkaBatch(events)
             expect(invocations2).toHaveLength(2)
+        })
+    })
+
+    describe('parse failures', () => {
+        beforeEach(async () => {
+            await insertHogFunction({
+                team_id: team.id,
+                ...HOG_EXAMPLES.simple_fetch,
+                ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                ...HOG_FILTERS_EXAMPLES.no_filters,
+            })
+        })
+
+        it.each([
+            [
+                'rethrows a retriable team lookup error so the batch is retried',
+                new DependencyUnavailableError('connection reset', 'Postgres', new Error('reset')),
+                true,
+            ],
+            ['drops the message on a non-retriable team lookup error', new Error('event shape is wrong'), false],
+        ])('%s', async (_name, error, shouldRethrow) => {
+            jest.spyOn(processor['deps'].teamManager, 'getTeam').mockRejectedValue(error)
+            const messages = [createKafkaMessage(createIncomingEvent(team.id, {}))]
+
+            if (shouldRethrow) {
+                await expect(processor._parseKafkaBatch(messages)).rejects.toThrow(error)
+            } else {
+                await expect(processor._parseKafkaBatch(messages)).resolves.toEqual([])
+            }
         })
     })
 

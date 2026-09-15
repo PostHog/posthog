@@ -3,6 +3,7 @@ import { createMockJobQueue } from '../../../tests/helpers/mocks/job-queue.mock'
 import '../../../tests/helpers/mocks/producer.mock'
 
 import { HogFlow } from '~/cdp/schema/hogflow'
+import { DependencyUnavailableError } from '~/common/utils/db/error'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 
 import { createCdpConsumerDeps } from '../../../tests/helpers/cdp'
@@ -86,6 +87,15 @@ describe('CDP Internal Events Consumer', () => {
         it('should ignore message with no team', async () => {
             const events = await processor._parseKafkaBatch([createKafkaMessage(createInternalEvent(999999, {}))])
             expect(events).toHaveLength(0)
+        })
+
+        it('should fail the batch when the team lookup hits a retriable error', async () => {
+            const error = new DependencyUnavailableError('connection reset', 'Postgres', new Error('reset'))
+            jest.spyOn(processor['deps'].teamManager, 'getTeam').mockRejectedValue(error)
+
+            await expect(
+                processor._parseKafkaBatch([createKafkaMessage(createInternalEvent(team.id, {}))])
+            ).rejects.toThrow(error)
         })
 
         describe('with an existing team and hog function', () => {
