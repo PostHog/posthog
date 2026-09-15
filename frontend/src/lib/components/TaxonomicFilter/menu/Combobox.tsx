@@ -770,8 +770,7 @@ export function MenuFilterCombobox({
 
     // --- Telemetry parity ---------------------------------------------------
     // Emit the legacy `taxonomic filter *` contract so the rebuild is
-    // comparable to the control/pill variants by feature-flag value (PostHog
-    // auto-attaches the active flag to every event). The meta scopes
+    // comparable to the classic picker. The meta scopes
     // (all/recent/pinned) have no single source group, so groupType is
     // undefined there — matching how legacy reports the active content tab.
     const telemetryGroupType = useMemo<TaxonomicFilterGroupType | undefined>(() => {

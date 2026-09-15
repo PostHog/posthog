@@ -84,11 +84,20 @@ impl ServiceTestContext {
             writer.clone(),
             MergeOpExecutor::new(
                 engine,
-                MergeDriver::new(Arc::new(common::UnusedLeader), ctx.tables.clone()),
+                MergeDriver::new(
+                    Arc::new(common::UnusedLeader),
+                    ctx.tables.clone(),
+                    common::FAN_OUT_CONCURRENCY,
+                ),
             ),
         );
-        let service =
-            PersonHogIdentityService::new(ctx.storage.clone(), writer.clone(), limits, merge);
+        let service = PersonHogIdentityService::new(
+            ctx.storage.clone(),
+            writer.clone(),
+            limits,
+            merge,
+            common::FAN_OUT_CONCURRENCY,
+        );
         Self {
             ctx,
             writer,

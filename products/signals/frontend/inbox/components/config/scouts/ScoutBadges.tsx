@@ -7,6 +7,8 @@ import type {
     SignalScoutConfigApi as SignalScoutConfig,
 } from 'products/signals/frontend/generated/api.schemas'
 
+import { ScoutGroupKey } from '../../../utils/scoutGroups'
+
 /**
  * Where the scout stands with the system writers that can pause it: the failure breaker
  * (`repeated_failures`) or the inactivity sweep (`no_output` / `ignored`), plus the sweep's
@@ -63,6 +65,38 @@ export function ScoutLifecycleBadge({ config }: { config: SignalScoutConfig }): 
                 <LemonTag type="caution" size="small">
                     {ignored ? 'Pausing soon' : 'Quiet'}
                 </LemonTag>
+            </Tooltip>
+        )
+    }
+    return null
+}
+
+/**
+ * Why the inactivity sweep leaves this scout alone, in the terms the exemption came from: the role
+ * PostHog ships it with, or a choice someone made on this project. Nothing renders for a scout the
+ * sweep still judges. The role shows in any group, because it says what the scout is rather
+ * than how its run window went.
+ */
+export function ScoutExemptionBadge({
+    config,
+    group,
+}: {
+    config: SignalScoutConfig
+    group: ScoutGroupKey
+}): JSX.Element | null {
+    if (config.scout_role === 'operational') {
+        return (
+            <Tooltip title="Part of the self-driving system rather than this project's fleet. It checks whether shipped fixes held, so it keeps running and is never paused for being quiet.">
+                <LemonTag type="muted" size="small">
+                    Operational
+                </LemonTag>
+            </Tooltip>
+        )
+    }
+    if (config.auto_pause_exempt && group === 'watching') {
+        return (
+            <Tooltip title="Exempt from auto-pause, because this scout is supposed to stay quiet">
+                <LemonTag size="small">Quiet by design</LemonTag>
             </Tooltip>
         )
     }

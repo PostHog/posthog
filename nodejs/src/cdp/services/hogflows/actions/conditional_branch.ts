@@ -10,12 +10,17 @@ import { findContinueAction, findNextAction, isEvaluableCondition } from '../hog
 import { ActionHandler, ActionHandlerOptions, ActionHandlerResult } from './action.interface'
 import { calculatedScheduledAt } from './delay'
 
-const DEFAULT_WAIT_DURATION_SECONDS = 10 * 60
+// A parked conditional_branch has no matcher coverage: every parked-job lookup in the subscription
+// matcher is scoped to wait_until_condition, so this re-check is the only thing that advances a
+// delayed branch.
+const BRANCH_RECHECK_SECONDS = 10 * 60
+// A wait is woken by the matcher on a matching signal, so its re-check only has to reconcile a wake
+// lost between the condition being evaluated and the job being persisted.
+const WAIT_RECHECK_SECONDS = 60 * 60
 
-// Increments only when the 10-minute polling re-check advances a wait_until_condition that the
-// subscription matcher did NOT wake (and not an evaluate-on-entry match). This is the decisive
-// signal for removing the poll: while it sits at ~0 across teams for a sustained window, the
-// person/event/internal streams cover every wake and polling is provably redundant.
+// Increments only when the periodic re-check advances a wait_until_condition that the subscription
+// matcher did NOT wake (and not an evaluate-on-entry match). It measures how often the backstop is
+// the only thing that moved a run, which is the rate of wakes the streams lost.
 // Labelled by team and flow so a non-zero reading names the workflow still leaning on the poll; a
 // series only exists for flows that actually poll-advance, so cardinality tracks incidence.
 export const counterHogflowWaitPollOnlyAdvance = new Counter({
@@ -52,6 +57,13 @@ export class ConditionalBranchHandler implements ActionHandler {
             invocation.state.currentAction.rekeyWake = false
         }
 
+        // Same for a first-mapping anchor fill: a matcher wake that also carries no eventMatched.
+        const anchorWoken =
+            action.type === 'wait_until_condition' && invocation.state?.currentAction?.anchorWake === true
+        if (anchorWoken && invocation.state.currentAction) {
+            invocation.state.currentAction.anchorWake = false
+        }
+
         // The subscription matcher sets eventMatched when an incoming event matched this
         // step's wait condition. Honor it as a forced match and advance immediately,
         // rather than re-evaluating the stored condition against the original event.
@@ -68,7 +80,7 @@ export class ConditionalBranchHandler implements ActionHandler {
         // The person the worker read at dequeue can predate a write this wait is waiting for, and a
         // wait that parks on that read is stuck: the write already happened, so no person message
         // follows to wake it. Re-read before the first evaluation of each wait — including a wait
-        // reached later in the same dequeue. Re-checks of a wait that already parked run 10 minutes
+        // reached later in the same dequeue. Re-checks of a wait that already parked run an hour
         // apart, by when the cache has expired, so they keep the cheaper read.
         if (action.type === 'wait_until_condition' && !invocation.state?.currentAction?.pollReparked) {
             const refreshed = await invocation.refreshPerson?.()
@@ -103,7 +115,8 @@ export class ConditionalBranchHandler implements ActionHandler {
         const conditionResult = await checkConditions(
             invocation,
             conditionalAction,
-            this.createMemberCohortIdsLoader(invocation)
+            this.createMemberCohortIdsLoader(invocation),
+            action.type === 'wait_until_condition' ? WAIT_RECHECK_SECONDS : BRANCH_RECHECK_SECONDS
         )
 
         const isWait = action.type === 'wait_until_condition'
@@ -119,9 +132,9 @@ export class ConditionalBranchHandler implements ActionHandler {
             }
             return { scheduledAt: conditionResult.scheduledAt, result: { conditionResult } }
         } else if (conditionResult.nextAction) {
-            // Poll-only advance: a wait whose condition matched on a re-check (not via the matcher's
-            // eventMatched short-circuit above, and not on entry). This is the wake the streams missed.
-            if (isWait && invocation.state.currentAction?.pollReparked === true) {
+            // Poll-only advance: a wait matched on a re-check that no matcher wake caused, and not on
+            // entry. Re-key and anchor wakes arrive without eventMatched, so both must be excluded.
+            if (isWait && !rekeyWoken && !anchorWoken && invocation.state.currentAction?.pollReparked === true) {
                 counterHogflowWaitPollOnlyAdvance
                     .labels({ team_id: invocation.hogFlow.team_id, hog_flow_id: invocation.hogFlow.id })
                     .inc()
@@ -177,7 +190,10 @@ function conditionReferencesCohorts(condition: { filters?: unknown }): boolean {
 export async function checkConditions(
     invocation: CyclotronJobInvocationHogFlow,
     action: Extract<HogFlowAction, { type: 'conditional_branch' }>,
-    loadMemberCohortIds?: () => Promise<number[]>
+    loadMemberCohortIds?: () => Promise<number[]>,
+    // A wait is normalised into a conditional_branch before it gets here, so the caller decides which
+    // cap applies; the type on `action` can no longer tell the two apart.
+    recheckSeconds: number = BRANCH_RECHECK_SECONDS
 ): Promise<{
     scheduledAt?: DateTime
     nextAction?: HogFlowAction
@@ -212,13 +228,13 @@ export async function checkConditions(
     }
 
     if (action.config.delay_duration) {
-        // Re-park on the 10-minute cap so the condition is re-checked by polling. The subscription
-        // matcher also wakes the job early on a matching signal, but polling is kept as the backstop
-        // for now; removing it is a follow-up once the matcher streams are proven in production.
+        // Re-park on the cap for this step type. A wake arriving between this evaluation and the job
+        // being persisted finds no available row and is never replayed, so neither step type can rely
+        // on the matcher alone.
         const scheduledAt = calculatedScheduledAt(
             action.config.delay_duration,
             invocation.state.currentAction?.startedAtTimestamp,
-            DEFAULT_WAIT_DURATION_SECONDS
+            recheckSeconds
         )
 
         if (scheduledAt) {

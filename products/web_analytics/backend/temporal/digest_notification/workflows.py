@@ -115,6 +115,7 @@ class WADigestNotificationWorkflow(PostHogWorkflow):
             "notifications_sent": totals.notifications_sent,
             "control_exposed": totals.control_exposed,
             "failed": totals.failed,
+            "teams_failed": totals.teams_failed,
             "cumulative_duration_seconds": totals.total_duration,
         }
 

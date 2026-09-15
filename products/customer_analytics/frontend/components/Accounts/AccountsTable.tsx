@@ -51,6 +51,7 @@ import { accountsLogic, customPropertySavingKey, savingRoleKey } from './account
 import { AccountsTableNameCell } from './AccountsTableNameCell'
 import { accountsTableCell, isAccountsTableRow } from './accountsTableQuery'
 import { accountsViewsLogic } from './accountsViewsLogic'
+import { useAccountColumnAutoSizing } from './useAccountColumnAutoSizing'
 
 // Shape the name renderer uses from the keyed AccountsTableRow identity fields.
 type AccountNameCellData = { name: string; external_id: string | null; id: string; logo_domain: string | null }
@@ -896,20 +897,25 @@ export function AccountsTable(): JSX.Element {
             query: accountsQuerySource,
         } as DataNodeLogicProps)
     )
-    const contextColumns = useContextColumns()
+    const {
+        tableRef,
+        columns: contextColumns,
+        hasAutoSizedColumns,
+    } = useAccountColumnAutoSizing(useContextColumns(), response, responseLoading)
     const expandable = useExpandable()
     const dataTableContext = useMemo<QueryContext<DataTableNode>>(
         () => ({
             columns: contextColumns,
             tableLayout: 'fixed',
-            tableStyle: Object.keys(columnWidths).length > 0 ? { width: 'max-content' } : undefined,
+            tableStyle:
+                hasAutoSizedColumns || Object.keys(columnWidths).length > 0 ? { width: 'max-content' } : undefined,
             expandable,
             dataTableRowsTransformer: sortedRowsTransformer,
             dataNodeLogicKey: ACCOUNTS_TABLE_DATA_NODE_KEY,
             emptyStateHeading: 'There are no matching accounts for this query',
             emptyStateDetail: 'Try adjusting the filters or refreshing',
         }),
-        [contextColumns, columnWidths, expandable, sortedRowsTransformer]
+        [contextColumns, columnWidths, hasAutoSizedColumns, expandable, sortedRowsTransformer]
     )
     // A null source means the query is still waiting on the relationship
     // definitions — same skeleton as the initial fetch, not an empty table.
@@ -917,7 +923,7 @@ export function AccountsTable(): JSX.Element {
         return <AccountsTableSkeleton />
     }
     return (
-        <div className="@container">
+        <div ref={tableRef} className="@container">
             <DataTable
                 uniqueKey="customer-analytics-accounts-table"
                 query={accountsDataTableQuery}

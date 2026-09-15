@@ -42,11 +42,12 @@ class ClassifyInput:
     ticket_id: str = ""
 
 
-@dataclass
+@dataclass(frozen=False)
 class ClassifyOutput:
     ticket_type: str
     needs_diagnostics: bool
     seed_queries: list[str] = field(default_factory=list)
+    llm_attempts: int = 1
 
 
 @dataclass
@@ -60,9 +61,10 @@ class RefineQueriesInput:
     ticket_id: str = ""
 
 
-@dataclass
+@dataclass(frozen=False)
 class RefineQueriesOutput:
     queries: list[str]
+    llm_attempts: int = 1
 
 
 @dataclass
@@ -102,7 +104,7 @@ class DraftInput:
     auto_publishable: bool = False
 
 
-@dataclass
+@dataclass(frozen=False)
 class DraftOutput:
     reply: str
     citations: list[str]
@@ -112,6 +114,9 @@ class DraftOutput:
     sources: list[dict[str, str]] = field(default_factory=list)
     # The Tasks TaskRun id for this draft session -- join key to LLMA cost data.
     task_run_id: str = ""
+    # Wall time of the sandbox session, recorded for ai_triage.cost. Defaults so
+    # histories from before this field still deserialize.
+    sandbox_seconds: float = 0.0
 
 
 @dataclass
@@ -127,12 +132,13 @@ class ValidateInput:
     ticket_id: str = ""
 
 
-@dataclass
+@dataclass(frozen=False)
 class ValidateOutput:
     grounded: bool
     coverage: float
     confidence: float
     missing: list[str]
+    llm_attempts: int = 1
 
 
 @dataclass
@@ -161,11 +167,12 @@ class SafetyFilterInput:
     ticket_id: str = ""
 
 
-@dataclass
+@dataclass(frozen=False)
 class SafetyFilterOutput:
     safe: bool
     threat_type: str = ""
     explanation: str = ""
+    llm_attempts: int = 1
 
 
 @dataclass
@@ -179,10 +186,11 @@ class ReviewReplyInput:
     ticket_id: str = ""
 
 
-@dataclass
+@dataclass(frozen=False)
 class ReviewReplyOutput:
     safe: bool
     reason: str = ""
+    llm_attempts: int = 1
 
 
 @dataclass

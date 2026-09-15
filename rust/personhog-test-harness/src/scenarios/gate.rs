@@ -249,7 +249,8 @@ pub async fn run(args: GateArgs) -> Result<()> {
     // leftover mark would make a later run's takeover scan install a stale
     // fence for this team.
     seed::cleanup_team(&pool, &args.pg_target_table, args.team_id).await?;
-    sqlx::query("DELETE FROM lifecycle_op WHERE team_id = $1")
+    let (lifecycle_op, lifecycle_op_person) = seed::lifecycle_tables_for(&args.pg_target_table);
+    sqlx::query(&format!("DELETE FROM {lifecycle_op} WHERE team_id = $1"))
         .bind(args.team_id as i32)
         .execute(&pool)
         .await
@@ -437,21 +438,21 @@ pub async fn run(args: GateArgs) -> Result<()> {
                 // rebuilds its fences from these rows. Fencing without them
                 // would not survive a restart (the harness acts as the
                 // saga's mark step here).
-                sqlx::query(
-                    "INSERT INTO lifecycle_op (op_id, op_type, team_id, step, request) \
-                     VALUES ($1, 'delete', $2, 'started', '{}'::jsonb)",
-                )
+                sqlx::query(&format!(
+                    "INSERT INTO {lifecycle_op} (op_id, op_type, team_id, step, request) \
+                     VALUES ($1, 'delete', $2, 'started', '{{}}'::jsonb)"
+                ))
                 .bind(fence_op)
                 .bind(args.team_id as i32)
                 .execute(&pool)
                 .await
                 .context("inserting fence op row")?;
                 for &person_id in person_ids.snapshot().iter().take(args.fence_count) {
-                    sqlx::query(
-                        "INSERT INTO lifecycle_op_person \
+                    sqlx::query(&format!(
+                        "INSERT INTO {lifecycle_op_person} \
                          (op_id, team_id, person_id, person_uuid, role, status) \
-                         VALUES ($1, $2, $3, gen_random_uuid(), 'victim', 'marked')",
-                    )
+                         VALUES ($1, $2, $3, gen_random_uuid(), 'victim', 'marked')"
+                    ))
                     .bind(fence_op)
                     .bind(args.team_id as i32)
                     .bind(person_id)
@@ -506,16 +507,16 @@ pub async fn run(args: GateArgs) -> Result<()> {
                 // The op is over: settle it so the marks leave the live
                 // set (an aborted op's marks must not fence anyone after
                 // release).
-                sqlx::query(
-                    "UPDATE lifecycle_op_person SET status = 'skipped_conflict' WHERE op_id = $1",
-                )
+                sqlx::query(&format!(
+                    "UPDATE {lifecycle_op_person} SET status = 'skipped_conflict' WHERE op_id = $1"
+                ))
                 .bind(fence_op)
                 .execute(&pool)
                 .await
                 .context("settling fence marks")?;
-                sqlx::query(
-                    "UPDATE lifecycle_op SET step = 'aborted', completed_at = now() WHERE op_id = $1",
-                )
+                sqlx::query(&format!(
+                    "UPDATE {lifecycle_op} SET step = 'aborted', completed_at = now() WHERE op_id = $1"
+                ))
                 .bind(fence_op)
                 .execute(&pool)
                 .await
@@ -616,7 +617,14 @@ pub async fn run(args: GateArgs) -> Result<()> {
     // lease lapses, which is why the deadline is long.
     let mut violations = prober_violations;
     violations.extend(
-        merge::settle_unresolved(&pool, &state, unresolved_merges, Duration::from_secs(90)).await?,
+        merge::settle_unresolved(
+            &pool,
+            &args.pg_target_table,
+            &state,
+            unresolved_merges,
+            Duration::from_secs(90),
+        )
+        .await?,
     );
 
     println!("Verifying strong reads...");

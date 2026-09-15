@@ -11,6 +11,7 @@ import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Link } from 'lib/lemon-ui/Link'
 import { AuthScene, AuthSceneCard } from 'scenes/authentication/shared/authScene/AuthScene'
+import { pendingOAuthConnectionLogic, reviewAccessCopy } from 'scenes/authentication/shared/pendingOAuthConnectionLogic'
 import { getPendingVerificationEmail, isValidVerificationCode } from 'scenes/authentication/shared/verificationCode'
 import { VerificationCodeInput } from 'scenes/authentication/shared/VerificationCodeInput'
 import { urls } from 'scenes/urls'
@@ -169,6 +170,7 @@ function VerificationCodeEntry(): JSX.Element {
 
 function CheckYourInbox(): JSX.Element {
     const { uuid, user, reason, verificationEmailSent } = useValues(verifyEmailLogic)
+    const { pendingConnection } = useValues(pendingOAuthConnectionLogic)
 
     // The address that received the code. This is the new address if an email change is pending,
     // else the account address. Without a session, for example on a fresh signup, the page uses the
@@ -204,6 +206,11 @@ function CheckYourInbox(): JSX.Element {
                     <>We sent you a 6-digit code. It's valid for 30 minutes.</>
                 )}
             </p>
+            {pendingConnection && (
+                <p className="AuthScene__sub -mt-2 mb-4 text-sm text-secondary text-center text-pretty">
+                    {reviewAccessCopy(pendingConnection, 'After you verify')}
+                </p>
+            )}
             <VerificationCodeEntry />
             <div className="mt-3">
                 <NotSeeingIt />
@@ -214,6 +221,7 @@ function CheckYourInbox(): JSX.Element {
 
 export function VerifyEmailForm(): JSX.Element {
     const { view, verificationEmailSent } = useValues(verifyEmailLogic)
+    const { pendingConnection } = useValues(pendingOAuthConnectionLogic)
     const { openSupportForm } = useActions(supportLogic)
 
     const noteKey = view === 'pending' && !verificationEmailSent ? 'send_failed' : (view ?? 'pending')
@@ -226,10 +234,12 @@ export function VerifyEmailForm(): JSX.Element {
                     <div className="flex flex-col items-center text-center">
                         <HedgehogExplorer className="block w-auto mx-auto h-32" />
                         <h1 className="m-0 mt-3 font-title text-2xl font-extrabold leading-tight text-primary text-center tracking-tight">
-                            You're verified, go explore!
+                            {pendingConnection ? "You're verified" : "You're verified, go explore!"}
                         </h1>
                         <p className="AuthScene__sub mt-2 mb-5 text-sm text-secondary text-center text-pretty">
-                            Email confirmed. Next up: a quick setup. Your org, your team, your first events.
+                            {pendingConnection
+                                ? `Email confirmed. Next, review what ${pendingConnection.clientName} can access.`
+                                : 'Email confirmed. Next up: a quick setup. Your org, your team, your first events.'}
                         </p>
                         <div className="AuthScene__progress mb-4 w-full h-1.5 overflow-hidden bg-[#e0e1d9] rounded-sm">
                             <div className="AuthScene__progress-fill w-full h-full bg-warning rounded-sm" />

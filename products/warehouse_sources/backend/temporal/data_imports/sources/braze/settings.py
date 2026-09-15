@@ -1,6 +1,8 @@
 from dataclasses import dataclass, field
 from typing import Literal, Optional
 
+from posthog.dataclasses import frozen
+
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
 # Braze list endpoints paginate either with a 0-indexed ``page`` param
@@ -102,8 +104,142 @@ BRAZE_ENDPOINTS: dict[str, BrazeEndpointConfig] = {
     ),
 }
 
-ENDPOINTS = tuple(BRAZE_ENDPOINTS.keys())
+# Braze's analytics endpoints (`/*/data_series`) return a daily series instead of a page of
+# rows. Each takes a window — `ending_at` plus a `length` in days capped per endpoint — and the
+# campaign/canvas/event series also need an id from the matching list endpoint, so those fan out
+# one request per parent row.
+DataSeriesShape = Literal["list", "canvas"]
+
+# How far back a first sync (or a full refresh) of a data series reaches. Braze caps `length` at
+# 100 days, so a longer span would only mean more requests per parent for older history.
+DATA_SERIES_HISTORY_DAYS = 100
+
+# Braze restates recent days as conversions attribute back to the send date, so incremental runs
+# re-read a trailing window rather than resuming at the last day already stored.
+DATA_SERIES_LOOKBACK_SECONDS = 14 * 24 * 60 * 60
+
+
+def _date_field(name: str) -> IncrementalField:
+    return {
+        "label": name,
+        "type": IncrementalFieldType.Date,
+        "field": name,
+        "field_type": IncrementalFieldType.Date,
+    }
+
+
+DATA_SERIES_INCREMENTAL_FIELDS: list[IncrementalField] = [_date_field("time")]
+
+
+@frozen
+class BrazeDataSeriesConfig:
+    name: str
+    path: str
+    primary_keys: list[str]
+    # Braze's documented maximum for this endpoint's `length` param, in days.
+    max_length_days: int
+    # The list endpoint supplying the required id, the row field holding it, the query param it
+    # goes in, and the column it lands in. All None for the workspace-level KPI series.
+    parent: Optional[str] = None
+    parent_id_field: Optional[str] = None
+    parent_id_param: Optional[str] = None
+    parent_id_column: Optional[str] = None
+    # /canvas/data_series nests its series under `data.stats`; every other series returns `data`
+    # as a flat list.
+    shape: DataSeriesShape = "list"
+    params: dict[str, str] = field(default_factory=dict)
+    # Response fields whose keys vary per row — the per-channel `messages` map, the variant and
+    # step maps keyed by API identifier. JSON-encoded so the column keeps one type across rows.
+    json_fields: tuple[str, ...] = ()
+    # `time` is the day the row describes, so it never moves once written.
+    partition_key: Optional[str] = None
+
+
+BRAZE_DATA_SERIES_ENDPOINTS: dict[str, BrazeDataSeriesConfig] = {
+    "campaign_analytics": BrazeDataSeriesConfig(
+        name="campaign_analytics",
+        path="/campaigns/data_series",
+        primary_keys=["campaign_id", "time"],
+        max_length_days=100,
+        parent="campaigns",
+        parent_id_field="id",
+        parent_id_param="campaign_id",
+        parent_id_column="campaign_id",
+        json_fields=("messages",),
+        partition_key="time",
+    ),
+    "canvas_analytics": BrazeDataSeriesConfig(
+        name="canvas_analytics",
+        path="/canvas/data_series",
+        primary_keys=["canvas_id", "time"],
+        max_length_days=14,
+        parent="canvases",
+        parent_id_field="id",
+        parent_id_param="canvas_id",
+        parent_id_column="canvas_id",
+        shape="canvas",
+        params={"include_variant_breakdown": "true", "include_step_breakdown": "true"},
+        json_fields=("variant_stats", "step_stats"),
+        partition_key="time",
+    ),
+    "event_analytics": BrazeDataSeriesConfig(
+        name="event_analytics",
+        path="/events/data_series",
+        primary_keys=["event_name", "time"],
+        max_length_days=100,
+        parent="events",
+        parent_id_field="event_name",
+        parent_id_param="event",
+        parent_id_column="event_name",
+        partition_key="time",
+    ),
+    "kpi_dau": BrazeDataSeriesConfig(
+        name="kpi_dau",
+        path="/kpi/dau/data_series",
+        primary_keys=["time"],
+        max_length_days=100,
+    ),
+    "kpi_mau": BrazeDataSeriesConfig(
+        name="kpi_mau",
+        path="/kpi/mau/data_series",
+        primary_keys=["time"],
+        max_length_days=100,
+    ),
+    "kpi_new_users": BrazeDataSeriesConfig(
+        name="kpi_new_users",
+        path="/kpi/new_users/data_series",
+        primary_keys=["time"],
+        max_length_days=100,
+    ),
+    "kpi_uninstalls": BrazeDataSeriesConfig(
+        name="kpi_uninstalls",
+        path="/kpi/uninstalls/data_series",
+        primary_keys=["time"],
+        max_length_days=100,
+    ),
+}
+
+
+def _probe_target(config: BrazeDataSeriesConfig) -> str:
+    # A data series rejects a request missing its required params, so probe with enough of one to
+    # get a 200/401/403 back. The fan-out series need a parent id we don't have before syncing,
+    # so they probe the list endpoint their fan-out walks — a permission the sync needs anyway.
+    if config.parent is not None:
+        return f"{BRAZE_ENDPOINTS[config.parent].path}?page=0"
+    return f"{config.path}?length=1"
+
+
+# Request each endpoint's credential probe sends, path and query.
+BRAZE_PROBE_TARGETS: dict[str, str] = {
+    **{name: f"{config.path}?page=0" for name, config in BRAZE_ENDPOINTS.items()},
+    **{name: _probe_target(config) for name, config in BRAZE_DATA_SERIES_ENDPOINTS.items()},
+}
+
+DEFAULT_PROBE_TARGET = BRAZE_PROBE_TARGETS["campaigns"]
+
+ENDPOINTS = tuple(BRAZE_ENDPOINTS.keys()) + tuple(BRAZE_DATA_SERIES_ENDPOINTS.keys())
 
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
-    name: config.incremental_fields for name, config in BRAZE_ENDPOINTS.items()
+    **{name: config.incremental_fields for name, config in BRAZE_ENDPOINTS.items()},
+    **dict.fromkeys(BRAZE_DATA_SERIES_ENDPOINTS, DATA_SERIES_INCREMENTAL_FIELDS),
 }

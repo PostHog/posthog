@@ -979,6 +979,18 @@ class TestSnowflakeSourceRetryableErrors:
         is_retryable = any(pattern in error_msg for pattern in retryable)
         assert is_retryable, f"Proxy-502 backend-connection failure should be classified retryable: {error_msg}"
 
+    def test_connection_reset_mid_stream_is_retryable(self, source):
+        # The real shape from production: a ChunkedEncodingError wrapping a ConnectionResetError,
+        # raised while streaming a query result's chunked HTTP body. The errno and nested quoting vary
+        # by OS; the stable requests-library wrapper phrase is matched.
+        error_msg = (
+            "('Connection broken: ConnectionResetError(104, \"(104, 'ECONNRESET')\")', "
+            "ConnectionResetError(104, \"(104, 'ECONNRESET')\"))"
+        )
+        retryable = source.get_retryable_errors()
+        is_retryable = any(pattern in error_msg for pattern in retryable)
+        assert is_retryable, f"Mid-stream connection-reset error should be classified retryable: {error_msg}"
+
 
 class TestSnowflakeValidateCredentials:
     @pytest.fixture
