@@ -41,7 +41,7 @@ BREX_API_VERSION_V2 = "v2"
 PAGE_SIZE = 100
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class BrexResumeConfig:
     # Pre-framework fields, kept so previously saved state still parses (dataclass(**saved)).
     # `next_cursor` of the last fully-yielded page for the endpoint (or current cash account).

@@ -978,7 +978,7 @@ Diffed against: <https://developer.brex.com/llms.txt>
 - [ ] `GET /v1/linked_accounts (Payments API)` — lookup resolving the external bank accounts transfers move money to and from (medium)
 - [ ] `GET /v2/legal_entities (Team API)` — lookup for multi-entity companies, needed to split spend by entity (low)
 
-Note: developer.brex.com serves an SPA (the openapi.json URLs return HTML), but the llms.txt index plus the per-API markdown mirrors (e.g. https://developer.brex.com/openapi/team\_api.md) list every operation with its literal path. Brex ships nine APIs — Accounting, Budgets, Expenses, Fields, Onboarding, Payments, Team, Transactions, Travel — and the connector covers pieces of six. The connector now also exposes /v2/accounts/cash as its own table, alongside the fan-out it already drove.
+Note: developer.brex.com serves an SPA (the openapi.json URLs return HTML), but the llms.txt index plus the per-API markdown mirrors (e.g. https://developer.brex.com/openapi/team\_api.md) list every operation with its literal path. Brex ships ten APIs — Accounting, Budgets, Expenses, Fields, Onboarding, Payments, Team, Transactions, Travel, Webhooks — and the connector covers pieces of six. The connector now also exposes /v2/accounts/cash as its own table, alongside the fan-out it already drove.
 
 `GET /v3/accounting/records` is left unticked on purpose. The whole Accounting API is gated
 Alpha: its own overview states "To access the Accounting Alpha API, please email
@@ -988,8 +988,8 @@ by Brex based on program needs." A table nearly every connected account would ge
 also carry 15-minute presigned S3 download URLs, which would land expiring credentials in the
 warehouse. Revisit when Brex promotes the API out of Alpha. The Fields API is Beta by contrast,
 but explicitly "available for use. Customers do not need to explicitly opt-in", so /v1/fields is
-fine to sync today. /v1/fields/{field\_id}/values is a fan-out over /v1/fields, keyed on
-(field\_id, brex\_id) because Brex documents no uniqueness for brex\_id across fields. Every
+fine to sync today. /v1/fields/{field_id}/values is a fan-out over /v1/fields, keyed on
+(field_id, brex_id) because Brex documents no uniqueness for brex_id across fields. Every
 endpoint added here is full refresh: none of the four accepts a server-side timestamp filter.
 
 ## Browserbase — **thin**
