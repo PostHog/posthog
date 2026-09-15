@@ -30,8 +30,9 @@ const InitialBillingLimitNoticeContents = ({ product }: { product: BillingProduc
                 Default initial billing limit of <b className="text-accent">${initialBillingLimit}</b> active.
             </p>
             <p className="font-normal">
-                This protects you from accidentally incurring large unexpected charges. Some features may stop working
-                and data may be dropped if your usage exceeds your limit.
+                This protects you from accidentally incurring large unexpected charges. Some features stop working when
+                your usage exceeds your limit, and data sent while you are over the limit is dropped. This data is lost
+                and cannot be recovered, even after the limit resets.
             </p>
         </LemonBanner>
     ) : null
