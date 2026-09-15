@@ -449,8 +449,7 @@ export class RecordingService {
             // Expired, not deleted: the row is the only pointer to the stored object, which the expiry sweep needs.
             this.postgres.query(
                 PostgresUse.COMMON_WRITE,
-                // `= ANY` over a jsonb array, so the planner can use exportedasset_system_session;
-                // `IN (SELECT ...)` becomes a hashed subplan that cannot drive the expression index.
+                // `= ANY` over jsonb so the planner can use exportedasset_system_session; a subquery cannot.
                 `UPDATE posthog_exportedasset
                  SET expires_after = now()
                  WHERE team_id = $1

@@ -279,14 +279,12 @@ class ExportedAsset(models.Model):
             failed = set(object_storage.delete_objects([location for _, location in chunk]))
             if failed:
                 logger.warning("deleting_expired_assets_object_failures", count=len(failed))
-            # A row whose object survived stays expired and is skipped, so one bad key cannot stall
-            # the rest of the sweep; the next run retries it.
+            # Skipped, not retried here, so one bad key cannot stall the rest of the sweep.
             stalled.update(asset_id for asset_id, location in chunk if location in failed)
             deletable = [asset_id for asset_id, location in chunk if location not in failed]
             if deletable:
                 ExportedAsset.objects_including_ttl_deleted.filter(id__in=deletable).delete()
 
-        # Only rows that never stored an object.
         expired_assets.filter(Q(content_location=None) | Q(content_location="")).delete()
 
     @classmethod
