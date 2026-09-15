@@ -5,6 +5,7 @@ import { LemonCheckbox, LemonLabel, LemonTextArea } from '@posthog/lemon-ui'
 
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 
+import { navigateSurveyChoices } from './surveyKeyboardNavigation'
 import { SurveyAnswer, ratingValues } from './surveyQuestions'
 
 export function APISurveyQuestion({
@@ -22,7 +23,7 @@ export function APISurveyQuestion({
 }): JSX.Element {
     const id = useId()
     return (
-        <div className="space-y-2">
+        <div className="space-y-2" data-survey-question={question.id} onKeyDown={navigateSurveyChoices}>
             <LemonLabel htmlFor={id} showOptional={question.optional}>
                 {question.question}
             </LemonLabel>

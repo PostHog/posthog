@@ -27,6 +27,16 @@ An unsuccessful SDK queue operation leaves answers available for retry.
 Queue success does not confirm ingestion.
 This foundation does not submit partial answers or emit automatic dismissal events.
 
+## Keyboard navigation
+
+Shortcuts only act on a focused answer inside the form.
+Arrow keys select radio choices and ratings, and move between checkboxes without toggling them.
+Space toggles the focused checkbox.
+Enter moves to the next question; in text answers, Ctrl/Cmd + Enter does the same while plain Enter inserts a newline.
+After the last question, focus moves to the enabled Send feedback button, which Enter or Space activates.
+Tab and Shift+Tab keep their normal browser behavior, including leaving the survey.
+Mounting or loading a survey does not steal focus.
+
 ## Context and replay
 
 The optional `context` object is captured on the shown and sent events.
