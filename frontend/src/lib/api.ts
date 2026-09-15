@@ -4462,13 +4462,15 @@ const api = {
             return await new ApiRequest().quickFilter(id).get()
         },
         async create(
-            data: Pick<QuickFilter, 'contexts' | 'name' | 'property_name' | 'type' | 'options'>
+            data: Pick<QuickFilter, 'contexts' | 'name' | 'property_name' | 'property_type' | 'type' | 'options'>
         ): Promise<QuickFilter> {
             return await new ApiRequest().quickFilters().create({ data })
         },
         async update(
             id: string,
-            data: Partial<Pick<QuickFilter, 'name' | 'property_name' | 'type' | 'options' | 'contexts'>>
+            data: Partial<
+                Pick<QuickFilter, 'name' | 'property_name' | 'property_type' | 'type' | 'options' | 'contexts'>
+            >
         ): Promise<QuickFilter> {
             return await new ApiRequest().quickFilter(id).update({ data })
         },

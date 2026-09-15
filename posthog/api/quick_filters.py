@@ -7,13 +7,18 @@ from rest_framework.exceptions import ValidationError
 from posthog.schema import QuickFilterContext as QuickFilterContextEnum
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.models.quick_filter import QuickFilter, QuickFilterContext
+from posthog.models.quick_filter import QuickFilter, QuickFilterContext, QuickFilterPropertyType
 
 
 class QuickFilterSerializer(serializers.ModelSerializer):
     contexts = serializers.SerializerMethodField()
     name = serializers.CharField(allow_blank=False, trim_whitespace=True, max_length=200)
     property_name = serializers.CharField(allow_blank=False, trim_whitespace=True, max_length=500)
+    property_type = serializers.ChoiceField(
+        choices=QuickFilterPropertyType.choices,
+        required=False,
+        help_text="Scope of the property the filter reads: an event property or a person property.",
+    )
 
     class Meta:
         model = QuickFilter
@@ -21,6 +26,7 @@ class QuickFilterSerializer(serializers.ModelSerializer):
             "id",
             "name",
             "property_name",
+            "property_type",
             "type",
             "options",
             "contexts",
@@ -102,6 +108,7 @@ class QuickFilterSerializer(serializers.ModelSerializer):
 
         instance.name = validated_data.get("name", instance.name)
         instance.property_name = validated_data.get("property_name", instance.property_name)
+        instance.property_type = validated_data.get("property_type", instance.property_type)
         instance.type = validated_data.get("type", instance.type)
         instance.options = validated_data.get("options", instance.options)
         instance.save()

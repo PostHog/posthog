@@ -4,7 +4,7 @@ import { expectLogic } from 'kea-test-utils'
 import { useMocks } from '~/mocks/jest'
 import { QuickFilterContext } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { PropertyOperator, QuickFilter, QuickFilterOption } from '~/types'
+import { PropertyFilterType, PropertyOperator, QuickFilter, QuickFilterOption } from '~/types'
 
 import { quickFiltersLogic } from './quickFiltersLogic'
 import { quickFiltersSectionLogic } from './quickFiltersSectionLogic'
@@ -26,6 +26,7 @@ const mockQuickFilters: QuickFilter[] = [
         id: 'filter-1',
         name: 'Environment',
         property_name: '$environment',
+        property_type: PropertyFilterType.Event,
         type: 'manual-options',
         options: [mockOption1, mockOption2],
         contexts: [QuickFilterContext.ErrorTrackingIssueFilters],
@@ -36,6 +37,7 @@ const mockQuickFilters: QuickFilter[] = [
         id: 'filter-2',
         name: 'Browser',
         property_name: '$browser',
+        property_type: PropertyFilterType.Person,
         type: 'manual-options',
         options: [{ id: 'opt-chrome', value: 'Chrome', label: 'Chrome', operator: PropertyOperator.Exact }],
         contexts: [QuickFilterContext.ErrorTrackingIssueFilters],
@@ -46,6 +48,7 @@ const mockQuickFilters: QuickFilter[] = [
         id: 'filter-3',
         name: 'Region',
         property_name: '$region',
+        property_type: PropertyFilterType.Event,
         type: 'manual-options',
         options: [{ id: 'opt:with:colons', value: 'eu-west', label: 'EU West', operator: PropertyOperator.Exact }],
         contexts: [QuickFilterContext.ErrorTrackingIssueFilters],
@@ -72,12 +75,13 @@ describe('quickFiltersSectionLogic', () => {
     describe('selection state', () => {
         it('stores selection keyed by filter ID', () => {
             expectLogic(logic, () => {
-                logic.actions.setQuickFilterValue('filter-1', '$environment', mockOption1)
+                logic.actions.setQuickFilterValue('filter-1', '$environment', PropertyFilterType.Event, mockOption1)
             }).toMatchValues({
                 selectedQuickFilters: {
                     'filter-1': {
                         filterId: 'filter-1',
                         propertyName: '$environment',
+                        propertyType: PropertyFilterType.Event,
                         optionId: 'opt-1',
                         value: 'production',
                         operator: PropertyOperator.Exact,
@@ -88,7 +92,7 @@ describe('quickFiltersSectionLogic', () => {
 
         it('removes selection by filter ID', () => {
             expectLogic(logic, () => {
-                logic.actions.setQuickFilterValue('filter-1', '$environment', mockOption1)
+                logic.actions.setQuickFilterValue('filter-1', '$environment', PropertyFilterType.Event, mockOption1)
                 logic.actions.clearQuickFilter('filter-1')
             }).toMatchValues({
                 selectedQuickFilters: {},
@@ -99,13 +103,14 @@ describe('quickFiltersSectionLogic', () => {
             const chromeOption = mockQuickFilters[1].options[0]
 
             expectLogic(logic, () => {
-                logic.actions.setQuickFilterValue('filter-1', '$environment', mockOption1)
-                logic.actions.setQuickFilterValue('filter-2', '$browser', chromeOption)
+                logic.actions.setQuickFilterValue('filter-1', '$environment', PropertyFilterType.Event, mockOption1)
+                logic.actions.setQuickFilterValue('filter-2', '$browser', PropertyFilterType.Person, chromeOption)
             }).toMatchValues({
                 selectedQuickFilters: {
                     'filter-1': {
                         filterId: 'filter-1',
                         propertyName: '$environment',
+                        propertyType: PropertyFilterType.Event,
                         optionId: 'opt-1',
                         value: 'production',
                         operator: PropertyOperator.Exact,
@@ -113,6 +118,7 @@ describe('quickFiltersSectionLogic', () => {
                     'filter-2': {
                         filterId: 'filter-2',
                         propertyName: '$browser',
+                        propertyType: PropertyFilterType.Person,
                         optionId: 'opt-chrome',
                         value: 'Chrome',
                         operator: PropertyOperator.Exact,
@@ -135,6 +141,7 @@ describe('quickFiltersSectionLogic', () => {
                     'filter-1': {
                         filterId: 'filter-1',
                         propertyName: '$environment',
+                        propertyType: PropertyFilterType.Event,
                         optionId: 'opt-1',
                         value: 'production',
                         operator: PropertyOperator.Exact,
@@ -148,6 +155,7 @@ describe('quickFiltersSectionLogic', () => {
                     'filter-1': {
                         filterId: 'filter-1',
                         propertyName: '$environment',
+                        propertyType: PropertyFilterType.Event,
                         optionId: 'opt-1',
                         value: 'production',
                         operator: PropertyOperator.Exact,
@@ -155,6 +163,7 @@ describe('quickFiltersSectionLogic', () => {
                     'filter-2': {
                         filterId: 'filter-2',
                         propertyName: '$browser',
+                        propertyType: PropertyFilterType.Person,
                         optionId: 'opt-chrome',
                         value: 'Chrome',
                         operator: PropertyOperator.Exact,
@@ -168,6 +177,7 @@ describe('quickFiltersSectionLogic', () => {
                     'filter-1': {
                         filterId: 'filter-1',
                         propertyName: '$prop',
+                        propertyType: PropertyFilterType.Event,
                         optionId: 'opt:with:colons',
                         value: 'value',
                         operator: PropertyOperator.Exact,
@@ -178,12 +188,17 @@ describe('quickFiltersSectionLogic', () => {
         ])('$description', async ({ selections, expectedParam }) => {
             await expectLogic(logic, () => {
                 Object.values(selections).forEach((selection) => {
-                    logic.actions.setQuickFilterValue(selection.filterId, selection.propertyName, {
-                        id: selection.optionId,
-                        value: selection.value,
-                        label: selection.value as string,
-                        operator: selection.operator,
-                    })
+                    logic.actions.setQuickFilterValue(
+                        selection.filterId,
+                        selection.propertyName,
+                        selection.propertyType,
+                        {
+                            id: selection.optionId,
+                            value: selection.value,
+                            label: selection.value as string,
+                            operator: selection.operator,
+                        }
+                    )
                 })
             }).toMatchValues({
                 selectedQuickFilters: selections,
@@ -218,6 +233,7 @@ describe('quickFiltersSectionLogic', () => {
                     'filter-1': {
                         filterId: 'filter-1',
                         propertyName: '$environment',
+                        propertyType: PropertyFilterType.Event,
                         optionId: 'opt-1',
                         value: 'production',
                         operator: PropertyOperator.Exact,
@@ -234,6 +250,7 @@ describe('quickFiltersSectionLogic', () => {
                     'filter-1': {
                         filterId: 'filter-1',
                         propertyName: '$environment',
+                        propertyType: PropertyFilterType.Event,
                         optionId: 'opt-2',
                         value: 'staging',
                         operator: PropertyOperator.Exact,
@@ -241,6 +258,7 @@ describe('quickFiltersSectionLogic', () => {
                     'filter-2': {
                         filterId: 'filter-2',
                         propertyName: '$browser',
+                        propertyType: PropertyFilterType.Person,
                         optionId: 'opt-chrome',
                         value: 'Chrome',
                         operator: PropertyOperator.Exact,
@@ -257,6 +275,7 @@ describe('quickFiltersSectionLogic', () => {
                     'filter-3': {
                         filterId: 'filter-3',
                         propertyName: '$region',
+                        propertyType: PropertyFilterType.Event,
                         optionId: 'opt:with:colons',
                         value: 'eu-west',
                         operator: PropertyOperator.Exact,
@@ -285,7 +304,7 @@ describe('quickFiltersSectionLogic', () => {
     describe('deleteFilter clears selection', () => {
         it('clears selection when a connected filter is deleted', async () => {
             await expectLogic(logic, () => {
-                logic.actions.setQuickFilterValue('filter-1', '$environment', mockOption1)
+                logic.actions.setQuickFilterValue('filter-1', '$environment', PropertyFilterType.Event, mockOption1)
                 logic.actions.deleteFilter('filter-1')
             })
                 .toDispatchActions(['setQuickFilterValue', 'deleteFilter', 'clearQuickFilter'])
@@ -309,7 +328,7 @@ describe('quickFiltersSectionLogic', () => {
             }
 
             await expectLogic(logic, () => {
-                logic.actions.setQuickFilterValue('filter-1', '$environment', mockOption1)
+                logic.actions.setQuickFilterValue('filter-1', '$environment', PropertyFilterType.Event, mockOption1)
                 logic.actions.filterUpdated(updatedFilter)
             })
                 .toDispatchActions(['setQuickFilterValue', 'filterUpdated', 'setQuickFilterValue'])
@@ -318,6 +337,7 @@ describe('quickFiltersSectionLogic', () => {
                         'filter-1': {
                             filterId: 'filter-1',
                             propertyName: '$environment',
+                            propertyType: PropertyFilterType.Event,
                             optionId: 'opt-1',
                             value: 'production-updated',
                             operator: PropertyOperator.Exact,
@@ -333,7 +353,7 @@ describe('quickFiltersSectionLogic', () => {
             }
 
             await expectLogic(logic, () => {
-                logic.actions.setQuickFilterValue('filter-1', '$environment', mockOption1)
+                logic.actions.setQuickFilterValue('filter-1', '$environment', PropertyFilterType.Event, mockOption1)
                 logic.actions.filterUpdated(updatedFilter)
             })
                 .toDispatchActions(['setQuickFilterValue', 'filterUpdated', 'clearQuickFilter'])

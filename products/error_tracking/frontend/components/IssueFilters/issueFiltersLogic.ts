@@ -276,7 +276,7 @@ export const issueFiltersLogic = kea<issueFiltersLogicType>([
                     const filterValue = qf.value === null ? undefined : Array.isArray(qf.value) ? qf.value : [qf.value]
 
                     return {
-                        type: PropertyFilterType.Event,
+                        type: qf.propertyType ?? PropertyFilterType.Event,
                         key: qf.propertyName,
                         operator: qf.operator,
                         ...(filterValue !== undefined && { value: filterValue }),

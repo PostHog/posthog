@@ -4,7 +4,7 @@ import { useMemo } from 'react'
 import { QuickFilterSelector, quickFiltersLogic } from 'lib/components/QuickFilters'
 
 import { QuickFilterContext } from '~/queries/schema/schema-general'
-import { QuickFilter } from '~/types'
+import { PropertyFilterType, QuickFilter } from '~/types'
 
 import { QuickFiltersConfigureButton } from './QuickFiltersConfigureButton'
 import { quickFiltersSectionLogic } from './quickFiltersSectionLogic'
@@ -55,7 +55,12 @@ export function QuickFiltersSection({
                             if (option === null) {
                                 clearQuickFilter(filter.id)
                             } else {
-                                setQuickFilterValue(filter.id, filter.property_name, option)
+                                setQuickFilterValue(
+                                    filter.id,
+                                    filter.property_name,
+                                    filter.property_type ?? PropertyFilterType.Event,
+                                    option
+                                )
                             }
                         }}
                     />

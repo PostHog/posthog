@@ -3942,11 +3942,11 @@
             "label": "UTM term"
         },
         "version": {
-            "description": "The version of the app",
+            "description": "The version of the app. Mobile SDKs send this on app lifecycle events only. Most events carry App version ($app_version) instead.",
             "examples": [
                 "1.0.0"
             ],
-            "label": "App version"
+            "label": "App version (app lifecycle)"
         },
         "wbraid": {
             "description": "Google Ads, app to web",
@@ -9110,11 +9110,11 @@
             "label": "Latest UTM term"
         },
         "version": {
-            "description": "The version of the app",
+            "description": "The version of the app. Mobile SDKs send this on app lifecycle events only. Most events carry App version ($app_version) instead.",
             "examples": [
                 "1.0.0"
             ],
-            "label": "App version"
+            "label": "App version (app lifecycle)"
         },
         "wbraid": {
             "description": "Google Ads, app to web Data from the last time this user was seen.",

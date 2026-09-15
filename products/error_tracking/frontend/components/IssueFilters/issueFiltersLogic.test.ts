@@ -23,8 +23,21 @@ const mockEnvFilter: QuickFilter = {
     id: 'filter-env',
     name: 'Environment',
     property_name: '$environment',
+    property_type: PropertyFilterType.Event,
     type: 'manual-options',
     options: [{ id: 'opt-prod', value: 'production', label: 'Production', operator: PropertyOperator.Exact }],
+    contexts: [QuickFilterContext.ErrorTrackingIssueFilters],
+    created_at: '2024-01-01',
+    updated_at: '2024-01-01',
+}
+
+const mockAppVersionFilter: QuickFilter = {
+    id: 'filter-app-version',
+    name: 'App version',
+    property_name: '$app_version',
+    property_type: PropertyFilterType.Person,
+    type: 'manual-options',
+    options: [{ id: 'opt-1-2-0', value: '1.2.0', label: '1.2.0', operator: PropertyOperator.Exact }],
     contexts: [QuickFilterContext.ErrorTrackingIssueFilters],
     created_at: '2024-01-01',
     updated_at: '2024-01-01',
@@ -37,7 +50,7 @@ describe('issueFiltersLogic', () => {
     beforeEach(() => {
         useMocks({
             get: {
-                '/api/environments/:team_id/quick_filters/': { results: [mockEnvFilter] },
+                '/api/environments/:team_id/quick_filters/': { results: [mockEnvFilter, mockAppVersionFilter] },
             },
         })
         initKeaTests()
@@ -194,6 +207,7 @@ describe('issueFiltersLogic', () => {
                 quickFiltersSection.actions.setQuickFilterValue(
                     mockEnvFilter.id,
                     mockEnvFilter.property_name,
+                    mockEnvFilter.property_type,
                     mockEnvFilter.options[0]
                 )
             }).toFinishAllListeners()
@@ -226,6 +240,7 @@ describe('issueFiltersLogic', () => {
                 quickFiltersSection.actions.setQuickFilterValue(
                     mockEnvFilter.id,
                     mockEnvFilter.property_name,
+                    mockEnvFilter.property_type,
                     mockEnvFilter.options[0]
                 )
             }).toFinishAllListeners()
@@ -240,6 +255,28 @@ describe('issueFiltersLogic', () => {
                     key: mockEnvFilter.property_name,
                     operator: PropertyOperator.Exact,
                     value: ['production'],
+                },
+            ])
+        })
+
+        it('keeps the person scope of a person-scoped quick filter', async () => {
+            await expectLogic(logic, () => {
+                quickFiltersSection.actions.setQuickFilterValue(
+                    mockAppVersionFilter.id,
+                    mockAppVersionFilter.property_name,
+                    mockAppVersionFilter.property_type,
+                    mockAppVersionFilter.options[0]
+                )
+            }).toFinishAllListeners()
+
+            const merged = logic.values.mergedFilterGroup
+            const inner = merged.values[0] as UniversalFiltersGroup
+            expect(inner.values).toEqual([
+                {
+                    type: PropertyFilterType.Person,
+                    key: mockAppVersionFilter.property_name,
+                    operator: PropertyOperator.Exact,
+                    value: ['1.2.0'],
                 },
             ])
         })

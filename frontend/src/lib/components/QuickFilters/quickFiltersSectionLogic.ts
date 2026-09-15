@@ -5,7 +5,7 @@ import posthog from 'posthog-js'
 import { quickFiltersLogic } from 'lib/components/QuickFilters'
 
 import { QuickFilterContext } from '~/queries/schema/schema-general'
-import { PropertyOperator, QuickFilterOption } from '~/types'
+import { PropertyFilterType, PropertyOperator, QuickFilterOption, QuickFilterPropertyType } from '~/types'
 
 import type { QuickFilter } from '../../../types'
 import { QuickFiltersEvents } from './consts'
@@ -44,6 +44,7 @@ function deserializeQuickFilters(param: string): Record<string, string> {
 export interface SelectedQuickFilter {
     filterId: string
     propertyName: string
+    propertyType: QuickFilterPropertyType
     optionId: string
     value: string | string[] | null
     operator: PropertyOperator
@@ -56,12 +57,23 @@ export interface QuickFiltersSectionLogicProps {
 
 const applyQuickFilter = (
     state: Record<string, SelectedQuickFilter>,
-    { filterId, propertyName, option }: { filterId: string; propertyName: string; option: QuickFilterOption }
+    {
+        filterId,
+        propertyName,
+        propertyType,
+        option,
+    }: {
+        filterId: string
+        propertyName: string
+        propertyType: QuickFilterPropertyType
+        option: QuickFilterOption
+    }
 ): Record<string, SelectedQuickFilter> => ({
     ...state,
     [filterId]: {
         filterId,
         propertyName,
+        propertyType,
         optionId: option.id,
         value: option.value,
         operator: option.operator,
@@ -117,20 +129,24 @@ export interface quickFiltersSectionLogicActions {
     restoreQuickFilterValue: (
         filterId: string,
         propertyName: string,
+        propertyType: QuickFilterPropertyType,
         option: QuickFilterOption
     ) => {
         filterId: string
         option: QuickFilterOption
         propertyName: string
+        propertyType: QuickFilterPropertyType
     }
     setQuickFilterValue: (
         filterId: string,
         propertyName: string,
+        propertyType: QuickFilterPropertyType,
         option: QuickFilterOption
     ) => {
         filterId: string
         option: QuickFilterOption
         propertyName: string
+        propertyType: QuickFilterPropertyType
     }
 }
 
@@ -160,15 +176,27 @@ export const quickFiltersSectionLogic = kea<quickFiltersSectionLogicType>([
     })),
 
     actions({
-        setQuickFilterValue: (filterId: string, propertyName: string, option: QuickFilterOption) => ({
+        setQuickFilterValue: (
+            filterId: string,
+            propertyName: string,
+            propertyType: QuickFilterPropertyType,
+            option: QuickFilterOption
+        ) => ({
             filterId,
             propertyName,
+            propertyType,
             option,
         }),
         /** Internal action for URL restoration -- updates state without firing analytics */
-        restoreQuickFilterValue: (filterId: string, propertyName: string, option: QuickFilterOption) => ({
+        restoreQuickFilterValue: (
+            filterId: string,
+            propertyName: string,
+            propertyType: QuickFilterPropertyType,
+            option: QuickFilterOption
+        ) => ({
             filterId,
             propertyName,
+            propertyType,
             option,
         }),
         clearQuickFilter: (filterId: string) => ({ filterId }),
@@ -208,7 +236,12 @@ export const quickFiltersSectionLogic = kea<quickFiltersSectionLogicType>([
 
             const updatedOption = filter.options.find((o) => o.id === currentSelection.optionId)
             if (updatedOption) {
-                actions.setQuickFilterValue(filter.id, filter.property_name, updatedOption)
+                actions.setQuickFilterValue(
+                    filter.id,
+                    filter.property_name,
+                    filter.property_type ?? PropertyFilterType.Event,
+                    updatedOption
+                )
             } else {
                 actions.clearQuickFilter(filter.id)
             }
@@ -251,7 +284,12 @@ export const quickFiltersSectionLogic = kea<quickFiltersSectionLogicType>([
 
                 const currentSelection = values.selectedQuickFilters[filterId]
                 if (!currentSelection || currentSelection.optionId !== optionId) {
-                    actions.restoreQuickFilterValue(filterId, filter.property_name, option)
+                    actions.restoreQuickFilterValue(
+                        filterId,
+                        filter.property_name,
+                        filter.property_type ?? PropertyFilterType.Event,
+                        option
+                    )
                     didChange = true
                 }
             })

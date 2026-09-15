@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef } from 'react'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 
-import type { QuickFilter } from '~/types'
+import { PropertyFilterType, type QuickFilter } from '~/types'
 
 import {
     DASHBOARD_WIDGET_CATALOG,
@@ -15,7 +15,7 @@ import { WIDGET_TILE_REFRESH_DEBOUNCE_MS } from './constants'
 export type WidgetFilterDefinitionsSetup = {
     /** Loads saved property-filter definitions for tile pickers (project Quick Filter records). */
     context: DashboardWidgetTileFiltersCatalogConfig['quickFilterContext']
-    isAllowed: (filter: Pick<QuickFilter, 'name' | 'property_name'>) => boolean
+    isAllowed: (filter: Pick<QuickFilter, 'name' | 'property_name' | 'property_type'>) => boolean
 }
 
 export function widgetTileFiltersSetupFromCatalog(
@@ -26,7 +26,10 @@ export function widgetTileFiltersSetupFromCatalog(
     )
     return {
         context: config.quickFilterContext,
-        isAllowed: (filter) => allowedPropertyNames.has(filter.property_name.trim().toLowerCase()),
+        // Widget filters resolve as event properties only, so a person-scoped quick filter never reaches a tile.
+        isAllowed: (filter) =>
+            (filter.property_type ?? PropertyFilterType.Event) === PropertyFilterType.Event &&
+            allowedPropertyNames.has(filter.property_name.trim().toLowerCase()),
     }
 }
 

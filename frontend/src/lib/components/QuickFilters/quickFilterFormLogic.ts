@@ -6,7 +6,7 @@ import { propertyFilterTypeToPropertyDefinitionType } from 'lib/components/Prope
 import { uuid } from 'lib/utils/dom'
 
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { PropertyFilterType, PropertyOperator, QuickFilter, QuickFilterOption } from '~/types'
+import { PropertyFilterType, PropertyOperator, QuickFilter, QuickFilterOption, QuickFilterPropertyType } from '~/types'
 
 import type { Option } from '../../../models/propertyDefinitionsModel'
 import type { PropertyDefinitionType } from '../../../types'
@@ -20,6 +20,7 @@ export interface QuickFilterFormLogicProps extends QuickFiltersModalLogicProps {
 export interface QuickFilterFormValues {
     name: string
     propertyName: string
+    propertyType: QuickFilterPropertyType
     options: QuickFilterOption[]
 }
 
@@ -53,6 +54,7 @@ export interface quickFilterFormLogicValues {
     name: string
     options: QuickFilterOption[]
     propertyName: string
+    propertyType: QuickFilterPropertyType
     quickFilter: QuickFilterFormValues
     quickFilterAllErrors: Record<string, any>
     quickFilterChanged: boolean
@@ -155,6 +157,7 @@ export interface quickFilterFormLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         name: (quickFilter: QuickFilterFormValues) => string
         propertyName: (quickFilter: QuickFilterFormValues) => string
+        propertyType: (quickFilter: QuickFilterFormValues) => QuickFilterPropertyType
         options: (quickFilter: QuickFilterFormValues) => QuickFilterOption[]
         suggestions: (propertyName: string, propertyOptions: Record<string, Option>) => any[]
     }
@@ -193,6 +196,7 @@ export const quickFilterFormLogic: LogicWrapper<quickFilterFormLogicType> = kea<
             defaults: {
                 name: props.filter?.name || '',
                 propertyName: props.filter?.property_name || '',
+                propertyType: props.filter?.property_type || PropertyFilterType.Event,
                 options: (props.filter?.options || [
                     { id: uuid(), value: null, label: '', operator: PropertyOperator.Exact },
                 ]) as QuickFilterOption[],
@@ -205,7 +209,7 @@ export const quickFilterFormLogic: LogicWrapper<quickFilterFormLogicType> = kea<
                 }
 
                 if (!propertyName.trim()) {
-                    errors.propertyName = 'Event property is required'
+                    errors.propertyName = 'Property is required'
                 }
 
                 if (options.length === 0) {
@@ -240,10 +244,11 @@ export const quickFilterFormLogic: LogicWrapper<quickFilterFormLogicType> = kea<
 
                 return errors
             },
-            submit: async ({ name, propertyName, options }) => {
+            submit: async ({ name, propertyName, propertyType, options }) => {
                 const payload = {
                     name: name.trim(),
                     property_name: propertyName.trim(),
+                    property_type: propertyType,
                     type: 'manual-options' as const,
                     options: options.map((opt: QuickFilterOption) => ({
                         id: opt.id,
@@ -269,6 +274,7 @@ export const quickFilterFormLogic: LogicWrapper<quickFilterFormLogicType> = kea<
     selectors({
         name: [(s) => [s.quickFilter], (quickFilter: QuickFilterFormValues) => quickFilter.name],
         propertyName: [(s) => [s.quickFilter], (quickFilter: QuickFilterFormValues) => quickFilter.propertyName],
+        propertyType: [(s) => [s.quickFilter], (quickFilter: QuickFilterFormValues) => quickFilter.propertyType],
         options: [(s) => [s.quickFilter], (quickFilter: QuickFilterFormValues) => quickFilter.options],
         suggestions: [
             (s) => [s.propertyName, s.propertyOptions],
@@ -286,7 +292,7 @@ export const quickFilterFormLogic: LogicWrapper<quickFilterFormLogicType> = kea<
             if (name === 'propertyName' && value) {
                 actions.loadPropertyValues({
                     endpoint: undefined,
-                    type: propertyFilterTypeToPropertyDefinitionType(PropertyFilterType.Event),
+                    type: propertyFilterTypeToPropertyDefinitionType(values.propertyType),
                     newInput: '',
                     propertyKey: value as string,
                     eventNames: [],
