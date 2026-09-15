@@ -22106,7 +22106,7 @@ export namespace Schemas {
 
     /**
      * * `unknown` - unknown
-     * * `dashboards` - dashboards
+     * * `templates` - templates
      * * `experiments` - experiments
      * * `metrics` - metrics
      * * `onboarding` - onboarding
@@ -22117,7 +22117,7 @@ export namespace Schemas {
 
     export const SourceContextEnum = {
       Unknown: 'unknown',
-      Dashboards: 'dashboards',
+      Templates: 'templates',
       Experiments: 'experiments',
       Metrics: 'metrics',
       Onboarding: 'onboarding',
@@ -22225,7 +22225,7 @@ export namespace Schemas {
       /** First-party surface that created a dashboard from the web source.
        *
        * * `unknown` - unknown
-       * * `dashboards` - dashboards
+       * * `templates` - templates
        * * `experiments` - experiments
        * * `metrics` - metrics
        * * `onboarding` - onboarding

@@ -362,15 +362,15 @@ export const DashboardsCreateBody = /* @__PURE__ */ zod
         source_context: zod
             .union([
                 zod
-                    .enum(['unknown', 'dashboards', 'experiments', 'metrics', 'onboarding', 'posthog_ai'])
+                    .enum(['unknown', 'templates', 'experiments', 'metrics', 'onboarding', 'posthog_ai'])
                     .describe(
-                        '\* `unknown` - unknown\n\* `dashboards` - dashboards\n\* `experiments` - experiments\n\* `metrics` - metrics\n\* `onboarding` - onboarding\n\* `posthog_ai` - posthog_ai'
+                        '\* `unknown` - unknown\n\* `templates` - templates\n\* `experiments` - experiments\n\* `metrics` - metrics\n\* `onboarding` - onboarding\n\* `posthog_ai` - posthog_ai'
                     ),
                 zod.null(),
             ])
             .optional()
             .describe(
-                'First-party surface that created a dashboard from the web source.\n\n\* `unknown` - unknown\n\* `dashboards` - dashboards\n\* `experiments` - experiments\n\* `metrics` - metrics\n\* `onboarding` - onboarding\n\* `posthog_ai` - posthog_ai'
+                'First-party surface that created a dashboard from the web source.\n\n\* `unknown` - unknown\n\* `templates` - templates\n\* `experiments` - experiments\n\* `metrics` - metrics\n\* `onboarding` - onboarding\n\* `posthog_ai` - posthog_ai'
             ),
         _create_in_folder: zod.string().optional(),
     })
@@ -478,15 +478,15 @@ export const DashboardsUpdateBody = /* @__PURE__ */ zod
         source_context: zod
             .union([
                 zod
-                    .enum(['unknown', 'dashboards', 'experiments', 'metrics', 'onboarding', 'posthog_ai'])
+                    .enum(['unknown', 'templates', 'experiments', 'metrics', 'onboarding', 'posthog_ai'])
                     .describe(
-                        '\* `unknown` - unknown\n\* `dashboards` - dashboards\n\* `experiments` - experiments\n\* `metrics` - metrics\n\* `onboarding` - onboarding\n\* `posthog_ai` - posthog_ai'
+                        '\* `unknown` - unknown\n\* `templates` - templates\n\* `experiments` - experiments\n\* `metrics` - metrics\n\* `onboarding` - onboarding\n\* `posthog_ai` - posthog_ai'
                     ),
                 zod.null(),
             ])
             .optional()
             .describe(
-                'First-party surface that created a dashboard from the web source.\n\n\* `unknown` - unknown\n\* `dashboards` - dashboards\n\* `experiments` - experiments\n\* `metrics` - metrics\n\* `onboarding` - onboarding\n\* `posthog_ai` - posthog_ai'
+                'First-party surface that created a dashboard from the web source.\n\n\* `unknown` - unknown\n\* `templates` - templates\n\* `experiments` - experiments\n\* `metrics` - metrics\n\* `onboarding` - onboarding\n\* `posthog_ai` - posthog_ai'
             ),
         _create_in_folder: zod.string().optional(),
     })
@@ -3716,15 +3716,15 @@ export const DashboardsCreateFromTemplateJsonCreateBody = /* @__PURE__ */ zod
         source_context: zod
             .union([
                 zod
-                    .enum(['unknown', 'dashboards', 'experiments', 'metrics', 'onboarding', 'posthog_ai'])
+                    .enum(['unknown', 'templates', 'experiments', 'metrics', 'onboarding', 'posthog_ai'])
                     .describe(
-                        '\* `unknown` - unknown\n\* `dashboards` - dashboards\n\* `experiments` - experiments\n\* `metrics` - metrics\n\* `onboarding` - onboarding\n\* `posthog_ai` - posthog_ai'
+                        '\* `unknown` - unknown\n\* `templates` - templates\n\* `experiments` - experiments\n\* `metrics` - metrics\n\* `onboarding` - onboarding\n\* `posthog_ai` - posthog_ai'
                     ),
                 zod.null(),
             ])
             .optional()
             .describe(
-                'First-party surface that created a dashboard from the web source.\n\n\* `unknown` - unknown\n\* `dashboards` - dashboards\n\* `experiments` - experiments\n\* `metrics` - metrics\n\* `onboarding` - onboarding\n\* `posthog_ai` - posthog_ai'
+                'First-party surface that created a dashboard from the web source.\n\n\* `unknown` - unknown\n\* `templates` - templates\n\* `experiments` - experiments\n\* `metrics` - metrics\n\* `onboarding` - onboarding\n\* `posthog_ai` - posthog_ai'
             ),
         _create_in_folder: zod.string().optional(),
     })
@@ -3830,15 +3830,15 @@ export const DashboardsCreateUnlistedDashboardCreateBody = /* @__PURE__ */ zod
         source_context: zod
             .union([
                 zod
-                    .enum(['unknown', 'dashboards', 'experiments', 'metrics', 'onboarding', 'posthog_ai'])
+                    .enum(['unknown', 'templates', 'experiments', 'metrics', 'onboarding', 'posthog_ai'])
                     .describe(
-                        '\* `unknown` - unknown\n\* `dashboards` - dashboards\n\* `experiments` - experiments\n\* `metrics` - metrics\n\* `onboarding` - onboarding\n\* `posthog_ai` - posthog_ai'
+                        '\* `unknown` - unknown\n\* `templates` - templates\n\* `experiments` - experiments\n\* `metrics` - metrics\n\* `onboarding` - onboarding\n\* `posthog_ai` - posthog_ai'
                     ),
                 zod.null(),
             ])
             .optional()
             .describe(
-                'First-party surface that created a dashboard from the web source.\n\n\* `unknown` - unknown\n\* `dashboards` - dashboards\n\* `experiments` - experiments\n\* `metrics` - metrics\n\* `onboarding` - onboarding\n\* `posthog_ai` - posthog_ai'
+                'First-party surface that created a dashboard from the web source.\n\n\* `unknown` - unknown\n\* `templates` - templates\n\* `experiments` - experiments\n\* `metrics` - metrics\n\* `onboarding` - onboarding\n\* `posthog_ai` - posthog_ai'
             ),
         _create_in_folder: zod.string().optional(),
     })

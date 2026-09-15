@@ -60,7 +60,7 @@ DEFAULT_DASHBOARD_SOURCE_CONTEXT = "unknown"
 
 DASHBOARD_SOURCE_CONTEXT_CHOICES: tuple[str, ...] = (
     DEFAULT_DASHBOARD_SOURCE_CONTEXT,
-    "dashboards",
+    "templates",
     "experiments",
     "metrics",
     "onboarding",

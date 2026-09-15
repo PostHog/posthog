@@ -509,7 +509,7 @@ export interface DashboardCustomizationApi {
 
 /**
  * * `unknown` - unknown
- * * `dashboards` - dashboards
+ * * `templates` - templates
  * * `experiments` - experiments
  * * `metrics` - metrics
  * * `onboarding` - onboarding
@@ -519,7 +519,7 @@ export type SourceContextEnumApi = (typeof SourceContextEnumApi)[keyof typeof So
 
 export const SourceContextEnumApi = {
     Unknown: 'unknown',
-    Dashboards: 'dashboards',
+    Templates: 'templates',
     Experiments: 'experiments',
     Metrics: 'metrics',
     Onboarding: 'onboarding',
@@ -627,7 +627,7 @@ export interface DashboardApi {
     /** First-party surface that created a dashboard from the web source.
      *
      * * `unknown` - unknown
-     * * `dashboards` - dashboards
+     * * `templates` - templates
      * * `experiments` - experiments
      * * `metrics` - metrics
      * * `onboarding` - onboarding
