@@ -3,6 +3,7 @@ import uuid
 from unittest.mock import Mock, patch
 
 from django.core.cache import cache
+from django.db import InterfaceError, OperationalError
 from django.http import HttpResponse
 from django.test import RequestFactory, SimpleTestCase, override_settings
 
@@ -101,7 +102,7 @@ class TestGitHubDispatch(SimpleTestCase):
             response = dispatch_github_event(
                 request, "pull_request", {}, "delivery-example", [("tasks_pr_backstop", first), ("loops", second)]
             )
-        self.assertEqual(response.status_code, 204 if fails else 202)
+        self.assertEqual(response.status_code, 500 if fails else 202)
         self.assertEqual(second.call_count, 1)
         first.side_effect = None
         first.return_value = HttpResponse(status=202)
@@ -113,3 +114,36 @@ class TestGitHubDispatch(SimpleTestCase):
         self.assertEqual(second.call_count, 1)
         self.assertTrue(cache.get("github_webhook_delivery:tasks_pr_backstop:delivery-example"))
         self.assertTrue(cache.get("github_webhook_delivery:loops:delivery-example"))
+
+    @parameterized.expand(
+        [
+            ("operational_error_recovers", OperationalError("the connection is closed"), True, True, 2, 202),
+            ("interface_error_recovers", InterfaceError("connection already closed"), True, True, 2, 202),
+            ("connection_stays_down", OperationalError("the connection is closed"), True, False, 2, 500),
+            ("connection_survives_the_error", OperationalError("canceling statement"), False, False, 1, 500),
+        ]
+    )
+    def test_the_handler_runs_again_only_when_a_connection_died(
+        self,
+        _name: str,
+        error: Exception,
+        connection_died: bool,
+        recovers: bool,
+        expected_runs: int,
+        expected_status: int,
+    ) -> None:
+        # A statement timeout raises OperationalError too, and close_if_unusable_or_obsolete keeps
+        # that connection. Running the handler again would repeat its slow query for nothing.
+        request = RequestFactory().post("/webhooks/github/", data="{}", content_type="application/json")
+        handler = Mock(side_effect=[error, HttpResponse(status=202)] if recovers else error)
+        db_connection = Mock(in_atomic_block=False, connection=None if connection_died else Mock())
+        with (
+            patch("posthog.api.github_webhooks.dispatch.connections") as db_connections,
+            patch("posthog.api.github_webhooks.dispatch.capture_exception"),
+        ):
+            db_connections.all.return_value = [db_connection]
+            response = dispatch_github_event(request, "push", {}, "delivery-blip", [("loops", handler)])
+
+        self.assertEqual(handler.call_count, expected_runs)
+        self.assertEqual(response.status_code, expected_status)
+        self.assertEqual(cache.get("github_webhook_delivery:loops:delivery-blip"), True if recovers else None)

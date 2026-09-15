@@ -2357,6 +2357,8 @@ class TestGitHubWebhookFanout(TestCase):
         # The dedup mark is set before the handler runs; a handler failure must release it so
         # GitHub's redelivery of the same GUID gets processed instead of silently skipped for
         # 24h. A successful handler keeps the mark, so a duplicate delivery stays deduped.
+        # The failed delivery must also answer non-2xx, or GitHub treats it as done and never
+        # redelivers it, which is what makes the released mark useful.
         mock_secret.return_value = self.webhook_secret
         payload = {
             "action": "created",
@@ -2368,7 +2370,7 @@ class TestGitHubWebhookFanout(TestCase):
 
         with patch(loops_handler, side_effect=RuntimeError("boom")):
             first = self._make_request(payload, event_type="push", url="/webhooks/github/", delivery_id="del-retry")
-        self.assertEqual(first.status_code, 200)
+        self.assertEqual(first.status_code, 500)
 
         with patch(loops_handler) as mock_loops:
             second = self._make_request(payload, event_type="push", url="/webhooks/github/", delivery_id="del-retry")
