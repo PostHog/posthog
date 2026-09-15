@@ -1,5 +1,5 @@
 import { MakeLogicType, actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
-import { actionToUrl, router, urlToAction } from 'kea-router'
+import { actionToUrl, combineUrl, router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -11,9 +11,18 @@ import { urls } from 'scenes/urls'
 import type { HogFlowTemplate } from './hogflows/types'
 import { TRIGGER_PREFILL_PARAM } from './workflowTriggerPrefill'
 
-// pinned: URL search param - the escape hatch's deep link into the editor
+// pinned: URL search param - which surface a new workflow opens on. `editor` is the escape hatch's deep
+// link; `ai` opts into the composer. A URL that says neither opens the editor, because a caller that sends
+// someone here for a specific job (a property to write, a template to build) promises the editor and passes
+// its own context, which the composer cannot carry.
 export const EDITOR_MODE_PARAM = 'mode'
 export const EDITOR_MODE_VALUE = 'editor'
+export const AI_COMPOSER_MODE_VALUE = 'ai'
+
+/** The new-workflow URL for an entry that means "start from nothing", the only kind the composer answers. */
+export function urlForNewWorkflowComposer(): string {
+    return combineUrl(urls.workflowNew(), { [EDITOR_MODE_PARAM]: AI_COMPOSER_MODE_VALUE }).url
+}
 
 /**
  * Reading `featureFlags[key]` captures `$feature_flag_called`, which is this experiment's exposure, so the
@@ -122,8 +131,8 @@ export const newWorkflowLogic = kea<newWorkflowLogicType>([
             (featureFlags: FeatureFlagsSet, sceneIntegrationEnabled: boolean): boolean =>
                 sceneIntegrationEnabled && isAiFirstVariant(featureFlags),
         ],
-        // Template, template-edit and trigger-prefill deep links already carry a starting point, and the
-        // escape hatch marks its own route, so all of those land in the editor as before. The route is
+        // The composer answers an entry that marked itself as one. Template, template-edit and trigger-prefill
+        // deep links carry a starting point, so they stay on the editor whatever the URL says. The route is
         // checked here rather than in the scene, because the editor reads this value for every workflow
         // it opens: see `isAiFirstVariant` for what an early flag read costs the experiment.
         aiComposerAvailable: [
@@ -139,7 +148,7 @@ export const newWorkflowLogic = kea<newWorkflowLogicType>([
                 !searchParams.templateId &&
                 !searchParams.editTemplateId &&
                 !searchParams[TRIGGER_PREFILL_PARAM] &&
-                searchParams[EDITOR_MODE_PARAM] !== EDITOR_MODE_VALUE &&
+                searchParams[EDITOR_MODE_PARAM] === AI_COMPOSER_MODE_VALUE &&
                 isAiFirstVariant(featureFlags),
         ],
     }),
@@ -152,7 +161,7 @@ export const newWorkflowLogic = kea<newWorkflowLogicType>([
                 posthog.getFeatureFlag(FEATURE_FLAGS.WORKFLOWS_AI_FIRST_NEW)
             }
             if (values.aiFirstNewEnabled) {
-                router.actions.push(urls.workflowNew())
+                router.actions.push(urls.workflowNew(), { [EDITOR_MODE_PARAM]: AI_COMPOSER_MODE_VALUE })
             } else {
                 actions.showNewWorkflowModal()
             }

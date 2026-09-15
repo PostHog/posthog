@@ -66,6 +66,8 @@ describe('newWorkflowLogic', () => {
             expect(removeProjectIdIfPresent(router.values.location.pathname)).toBe(
                 routed ? '/workflows/new/workflow' : '/workflows'
             )
+            // The composer answers a marked entry only, so the click has to mark its own route.
+            expect(router.values.searchParams).toEqual(routed ? { mode: 'ai' } : {})
             expect(recordExposure.mock.calls.map(([flag]) => flag)).toEqual(
                 exposed ? [FEATURE_FLAGS.WORKFLOWS_AI_FIRST_NEW] : []
             )
@@ -75,18 +77,25 @@ describe('newWorkflowLogic', () => {
         // Template and prefill deep links, and the escape hatch's own route, must keep landing in the
         // editor, otherwise the composer swallows a starting point the user already chose.
         it.each([
-            { name: 'plain new URL', path: '/workflows/new/workflow', search: {}, available: true },
-            { name: 'a template', path: '/workflows/new/workflow', search: { templateId: 'tpl-1' }, available: false },
+            { name: 'an AI entry', path: '/workflows/new/workflow', search: { mode: 'ai' }, available: true },
+            // Other products open the plain URL for a specific job and tell the person the editor is there.
+            { name: 'a plain new URL', path: '/workflows/new/workflow', search: {}, available: false },
+            {
+                name: 'a template',
+                path: '/workflows/new/workflow',
+                search: { mode: 'ai', templateId: 'tpl-1' },
+                available: false,
+            },
             {
                 name: 'a template edit',
                 path: '/workflows/new/workflow',
-                search: { editTemplateId: 'tpl-1' },
+                search: { mode: 'ai', editTemplateId: 'tpl-1' },
                 available: false,
             },
             {
                 name: 'a trigger prefill',
                 path: '/workflows/new/workflow',
-                search: { [TRIGGER_PREFILL_PARAM]: 'x' },
+                search: { mode: 'ai', [TRIGGER_PREFILL_PARAM]: 'x' },
                 available: false,
             },
             {
@@ -97,7 +106,12 @@ describe('newWorkflowLogic', () => {
             },
             // The editor scene reads this for every workflow it opens. An existing workflow must answer
             // false without reading the flag, or opening any editor joins the experiment's exposure.
-            { name: 'an existing workflow', path: '/workflows/wf-1/workflow', search: {}, available: false },
+            {
+                name: 'an existing workflow',
+                path: '/workflows/wf-1/workflow',
+                search: { mode: 'ai' },
+                available: false,
+            },
         ])('aiComposerAvailable is $available for $name', ({ path, search, available }) => {
             setFlags(AI_FIRST_FLAGS)
             const logic = newWorkflowLogic()
