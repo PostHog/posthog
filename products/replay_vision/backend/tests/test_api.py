@@ -1,5 +1,5 @@
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, cast
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import MagicMock, patch
@@ -12,20 +12,27 @@ from django.utils import timezone
 
 import requests
 from parameterized import parameterized
+from prometheus_client import REGISTRY
+from rest_framework.exceptions import ValidationError as DRFValidationError
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
+from posthog.schema import ProductIntentContext, ProductKey
+
 from posthog.api.tagged_item import set_tags_on_object
+from posthog.event_usage import EventSource
 from posthog.models import Organization, PersonalAPIKey, Team, User
+from posthog.models.activity_logging.activity_log import ActivityLog, changes_between, replay_scanner_machine_fields
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication
+from posthog.models.product_intent.product_intent import ProductIntent
 from posthog.models.tagged_item import TaggedItem
 from posthog.models.utils import generate_random_token_personal, hash_key_value, uuid7
 from posthog.redis import get_client
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 
 from products.experiments.backend.models.experiment import Experiment
-from products.replay_vision.backend.api.scanners import ReplayScannerSerializer
+from products.replay_vision.backend.api.scanners import ReplayScannerSerializer, WatchFeedQuerySerializer
 from products.replay_vision.backend.api.trigger import WorkflowStartOutcome, start_apply_scanner_workflow
 from products.replay_vision.backend.billing import observation_credits_for_model
-from products.replay_vision.backend.digest import SCANNER_DIGEST_RRULE
 from products.replay_vision.backend.enqueue_claims import _scanner_key, _team_key, pending_enqueue_claims_for_team
 from products.replay_vision.backend.models.replay_observation import (
     ObservationStatus,
@@ -42,7 +49,6 @@ from products.replay_vision.backend.models.replay_scanner import (
     ScannerType,
 )
 from products.replay_vision.backend.models.replay_scanner_backfill import ReplayScannerBackfill
-from products.replay_vision.backend.models.vision_action import VisionAction
 from products.replay_vision.backend.queries import ESTIMATE_STALE_AFTER, SAVE_ESTIMATE_BUDGET
 from products.replay_vision.backend.queries.scanner_candidate_query import SETTLE_INTERVAL
 from products.replay_vision.backend.quota import BillingPeriod, _current_period_bounds
@@ -87,10 +93,13 @@ class _VisionAPITestCase(APIBaseTest):
             "name": "my-scanner",
             "scanner_type": ScannerType.MONITOR,
             "scanner_config": {"prompt": "did the user check out?"},
-            "model": ScannerModel.GEMINI_3_7_FLASH,
+            "model": ScannerModel.GEMINI_3_8_FLASH,
         }
         defaults.update(overrides)
         return ReplayScanner.objects.create(**defaults)
+
+    def _captured(self, capture: Any, event: str) -> list[dict[str, Any]]:
+        return [call.kwargs["properties"] for call in capture.call_args_list if call.kwargs.get("event") == event]
 
 
 class TestReplayScannerViewSet(_VisionAPITestCase):
@@ -101,7 +110,7 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
                 "name": "checkout-monitor",
                 "scanner_type": ScannerType.MONITOR,
                 "scanner_config": {"prompt": "did checkout complete?"},
-                "model": ScannerModel.GEMINI_3_7_FLASH,
+                "model": ScannerModel.GEMINI_3_8_FLASH,
             },
             format="json",
         )
@@ -121,7 +130,7 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
                 "name": "watermark-seed",
                 "scanner_type": ScannerType.MONITOR,
                 "scanner_config": {"prompt": "did checkout complete?"},
-                "model": ScannerModel.GEMINI_3_7_FLASH,
+                "model": ScannerModel.GEMINI_3_8_FLASH,
             },
             format="json",
         )
@@ -135,7 +144,7 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
             "name": f"missing-{missing_field}",
             "scanner_type": ScannerType.MONITOR,
             "scanner_config": {"prompt": "p"},
-            "model": ScannerModel.GEMINI_3_7_FLASH,
+            "model": ScannerModel.GEMINI_3_8_FLASH,
         }
         del payload[missing_field]
         resp = self.client.post(self.scanners_url, data=payload, format="json")
@@ -149,7 +158,7 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
                 "name": "explicit-provider",
                 "scanner_type": ScannerType.MONITOR,
                 "scanner_config": {"prompt": "p"},
-                "model": ScannerModel.GEMINI_3_7_FLASH,
+                "model": ScannerModel.GEMINI_3_8_FLASH,
                 "provider": ScannerProvider.GOOGLE,
             },
             format="json",
@@ -165,7 +174,7 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
                 "name": f"rate-{value}",
                 "scanner_type": ScannerType.MONITOR,
                 "scanner_config": {"prompt": "p"},
-                "model": ScannerModel.GEMINI_3_7_FLASH,
+                "model": ScannerModel.GEMINI_3_8_FLASH,
                 "sampling_rate": value,
             },
             format="json",
@@ -181,13 +190,31 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
                 "name": f"rate-ok-{value}",
                 "scanner_type": ScannerType.MONITOR,
                 "scanner_config": {"prompt": "p"},
-                "model": ScannerModel.GEMINI_3_7_FLASH,
+                "model": ScannerModel.GEMINI_3_8_FLASH,
                 "sampling_rate": value,
             },
             format="json",
         )
         self.assertEqual(resp.status_code, 201)
         self.assertEqual(resp.json()["sampling_rate"], value)
+
+    def test_create_without_ai_consent_returns_tagged_400(self) -> None:
+        # The code is a contract the experiment wizard reads to keep this expected 400 out of error
+        # tracking, so it must stay stable, not just the status.
+        self.organization.is_ai_data_processing_approved = False
+        self.organization.save()
+        resp = self.client.post(
+            self.scanners_url,
+            data={
+                "name": "needs-consent",
+                "scanner_type": ScannerType.MONITOR,
+                "scanner_config": {"prompt": "p"},
+                "model": ScannerModel.GEMINI_3_8_FLASH,
+            },
+            format="json",
+        )
+        self.assertEqual(resp.status_code, 400, resp.json())
+        self.assertEqual(resp.json()["code"], "ai_data_processing_not_approved")
 
     def test_create_duplicate_name_rejected(self) -> None:
         self._create_scanner(name="dup")
@@ -197,7 +224,7 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
                 "name": "dup",
                 "scanner_type": ScannerType.MONITOR,
                 "scanner_config": {"prompt": "p"},
-                "model": ScannerModel.GEMINI_3_7_FLASH,
+                "model": ScannerModel.GEMINI_3_8_FLASH,
             },
             format="json",
         )
@@ -212,7 +239,7 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
             name="theirs",
             scanner_type=ScannerType.MONITOR,
             scanner_config={"prompt": "p"},
-            model=ScannerModel.GEMINI_3_7_FLASH,
+            model=ScannerModel.GEMINI_3_8_FLASH,
         )
         resp = self.client.get(self.scanners_url)
         self.assertEqual(resp.status_code, 200)
@@ -264,7 +291,7 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
                 "name": f"valid-{label}",
                 "scanner_type": scanner_type,
                 "scanner_config": scanner_config,
-                "model": ScannerModel.GEMINI_3_7_FLASH,
+                "model": ScannerModel.GEMINI_3_8_FLASH,
             },
             format="json",
         )
@@ -288,7 +315,7 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
                 "name": f"invalid-{label}",
                 "scanner_type": scanner_type,
                 "scanner_config": scanner_config,
-                "model": ScannerModel.GEMINI_3_7_FLASH,
+                "model": ScannerModel.GEMINI_3_8_FLASH,
             },
             format="json",
         )
@@ -398,7 +425,7 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
                 "name": f"invalid-{label}",
                 "scanner_type": scanner_type,
                 "scanner_config": scanner_config,
-                "model": ScannerModel.GEMINI_3_7_FLASH,
+                "model": ScannerModel.GEMINI_3_8_FLASH,
             },
             format="json",
         )
@@ -467,7 +494,7 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
                 "name": "with-query",
                 "scanner_type": ScannerType.MONITOR,
                 "scanner_config": {"prompt": "p"},
-                "model": ScannerModel.GEMINI_3_7_FLASH,
+                "model": ScannerModel.GEMINI_3_8_FLASH,
                 "query": {"filter_test_accounts": True},
             },
             format="json",
@@ -483,7 +510,7 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
                 "name": "stripped",
                 "scanner_type": ScannerType.MONITOR,
                 "scanner_config": {"prompt": "p"},
-                "model": ScannerModel.GEMINI_3_7_FLASH,
+                "model": ScannerModel.GEMINI_3_8_FLASH,
                 "query": {"date_from": "-7d", "date_to": "-1d", "filter_test_accounts": True},
             },
             format="json",
@@ -508,7 +535,7 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
                 "name": "bad-query",
                 "scanner_type": ScannerType.MONITOR,
                 "scanner_config": {"prompt": "p"},
-                "model": ScannerModel.GEMINI_3_7_FLASH,
+                "model": ScannerModel.GEMINI_3_8_FLASH,
                 "query": query,
             },
             format="json",
@@ -524,18 +551,23 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
 
     @parameterized.expand(
         [
-            ("enabled", "disabled", 1),
-            ("enabled", "enabled,disabled", 2),
-            ("enabled", "true", 1),
-            ("enabled", "false", 1),
-            ("enabled", "1", 1),
-            ("enabled", "0", 1),
-            ("scanner_type", ScannerType.CLASSIFIER, 1),
-            ("scanner_type", f"{ScannerType.CLASSIFIER},{ScannerType.MONITOR}", 2),
-            ("emits_signals", "true", 1),
+            ("enabled", "enabled", ["enabled-scanner"]),
+            ("enabled", "disabled", ["disabled-scanner"]),
+            ("enabled", "enabled,disabled", ["disabled-scanner", "enabled-scanner"]),
+            ("enabled", "true", ["enabled-scanner"]),
+            ("enabled", "false", ["disabled-scanner"]),
+            ("enabled", "1", ["enabled-scanner"]),
+            ("enabled", "0", ["disabled-scanner"]),
+            ("scanner_type", ScannerType.CLASSIFIER, ["classifier-scanner"]),
+            (
+                "scanner_type",
+                f"{ScannerType.CLASSIFIER},{ScannerType.MONITOR}",
+                ["classifier-scanner", "monitor-scanner"],
+            ),
+            ("emits_signals", "true", ["loud"]),
         ]
     )
-    def test_filterset(self, field: str, value: str, expected_count: int) -> None:
+    def test_filterset(self, field: str, value: str, expected_names: list[str]) -> None:
         if field == "enabled":
             self._create_scanner(name="enabled-scanner")
             self._create_scanner(name="disabled-scanner", enabled=False)
@@ -547,7 +579,7 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
             self._create_scanner(name="loud", emits_signals=True)
         resp = self.client.get(f"{self.scanners_url}?{field}={value}")
         self.assertEqual(resp.status_code, 200)
-        self.assertEqual(len(resp.json()["results"]), expected_count)
+        self.assertEqual(sorted(r["name"] for r in resp.json()["results"]), expected_names)
 
     @parameterized.expand(
         [
@@ -702,7 +734,7 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
                     "name": "needs-recording-read",
                     "scanner_type": ScannerType.MONITOR,
                     "scanner_config": {"prompt": "p"},
-                    "model": ScannerModel.GEMINI_3_7_FLASH,
+                    "model": ScannerModel.GEMINI_3_8_FLASH,
                 },
                 format="json",
             )
@@ -736,13 +768,174 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
         self.assertIn("cohort", resp.json()["detail"])
 
 
+class TestScannerScoutCallerRules(_VisionAPITestCase):
+    def setUp(self) -> None:
+        super().setUp()
+        application = OAuthApplication.objects.create(
+            name="Signals scout sandbox",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            algorithm="RS256",
+            redirect_uris="https://example.com/callback",
+            organization=self.organization,
+            user=self.user,
+        )
+        self.scout_token = OAuthAccessToken.objects.create(
+            user=self.user,
+            application=application,
+            token="pha_scanner_scout_rules_test",
+            scope="signal_scout_internal:write replay_scanner:read replay_scanner:write session_recording:read",
+            expires=timezone.now() + timedelta(hours=1),
+            scoped_teams=[self.team.id],
+        )
+
+    def _authenticate_as_scout(self) -> None:
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {self.scout_token.token}")
+
+    def _payload(self, name: str, **extra: Any) -> dict[str, Any]:
+        return {
+            "name": name,
+            "scanner_type": ScannerType.MONITOR,
+            "scanner_config": {"prompt": "did checkout complete?"},
+            "model": ScannerModel.GEMINI_3_8_FLASH,
+            **extra,
+        }
+
+    def test_scout_create_without_a_credit_limit_is_rejected(self) -> None:
+        self._authenticate_as_scout()
+
+        resp = self.client.post(self.scanners_url, data=self._payload("uncapped"), format="json")
+
+        self.assertEqual(resp.status_code, 400, resp.json())
+        self.assertEqual(resp.json()["attr"], "credit_limit")
+        self.assertFalse(ReplayScanner.objects.filter(team=self.team, name="uncapped").exists())
+
+    @parameterized.expand(
+        [
+            ("within_quota", 1000, 500, 201),
+            ("above_quota", 1000, 2147483647, 400),
+            ("without_quota", None, 500, 400),
+            ("zero_quota", 0, 500, 400),
+        ]
+    )
+    def test_scout_create_respects_the_organization_quota(
+        self, _name: str, organization_limit: int | None, credit_limit: int, expected_status: int
+    ) -> None:
+        self.organization.usage = {"replay_vision_credits": {"limit": organization_limit}}
+        self.organization.save(update_fields=["usage"])
+        self._authenticate_as_scout()
+
+        resp = self.client.post(
+            self.scanners_url, data=self._payload("capped", credit_limit=credit_limit), format="json"
+        )
+
+        self.assertEqual(resp.status_code, expected_status, resp.json())
+        self.assertEqual(ReplayScanner.objects.filter(team=self.team, name="capped").exists(), expected_status == 201)
+
+    def test_scout_cannot_clear_a_credit_limit(self) -> None:
+        scanner = self._create_scanner(name="capped", credit_limit=500)
+        self._authenticate_as_scout()
+
+        resp = self.client.patch(f"{self.scanners_url}{scanner.id}/", data={"credit_limit": None}, format="json")
+
+        self.assertEqual(resp.status_code, 400, resp.json())
+        scanner.refresh_from_db()
+        self.assertEqual(scanner.credit_limit, 500)
+
+    def test_scout_delete_is_refused_and_the_scanner_survives(self) -> None:
+        scanner = self._create_scanner(name="keep-me")
+        self._authenticate_as_scout()
+
+        resp = self.client.delete(f"{self.scanners_url}{scanner.id}/")
+
+        self.assertEqual(resp.status_code, 403, resp.content)
+        self.assertTrue(ReplayScanner.objects.filter(pk=scanner.pk).exists())
+
+    @parameterized.expand(
+        [
+            ("inline", "inline_scan/"),
+            ("single", "{scanner_id}/observe/"),
+            ("bulk", "{scanner_id}/bulk_observe/"),
+            ("retry", "{scanner_id}/observations/{observation_id}/retry/"),
+            ("backfill", "{scanner_id}/backfills/"),
+            ("evaluate_prompt", "{scanner_id}/prompt_suggestions/00000000-0000-0000-0000-000000000001/evaluate/"),
+            ("resume_backfill", "{scanner_id}/backfills/00000000-0000-0000-0000-000000000001/resume/"),
+        ]
+    )
+    def test_scout_cannot_start_manual_scans(self, _name: str, path: str) -> None:
+        scanner = self._create_scanner(name="manual")
+        observation = ReplayObservation.objects.create(
+            scanner=scanner,
+            session_id="session-1",
+            scanner_snapshot=_snapshot_for(scanner),
+            triggered_by=ObservationTrigger.SCHEDULE,
+            status=ObservationStatus.FAILED,
+            completed_at=timezone.now(),
+        )
+        self._authenticate_as_scout()
+
+        resp = self.client.post(
+            self.scanners_url + path.format(scanner_id=scanner.id, observation_id=observation.id),
+            data={},
+            format="json",
+        )
+
+        self.assertEqual(resp.status_code, 403, resp.content)
+        self.assertIn("Scouts cannot start manual scans", resp.json()["detail"])
+        observation.refresh_from_db()
+        self.assertEqual(observation.status, ObservationStatus.FAILED)
+
+    @parameterized.expand(
+        [
+            ("uncapped", None, 400, 1000),
+            ("capped", 500, 201, 1000),
+            ("above_quota", 1001, 400, 1000),
+            ("without_quota", 500, 400, None),
+        ]
+    )
+    def test_scout_duplicate_requires_a_credit_limit(
+        self, _name: str, credit_limit: int | None, expected_status: int, organization_limit: int | None
+    ) -> None:
+        self.organization.usage = {"replay_vision_credits": {"limit": organization_limit}}
+        self.organization.save(update_fields=["usage"])
+        scanner = self._create_scanner(name="source", credit_limit=credit_limit)
+        self._authenticate_as_scout()
+
+        resp = self.client.post(f"{self.scanners_url}{scanner.id}/duplicate/")
+
+        self.assertEqual(resp.status_code, expected_status, resp.content)
+        self.assertEqual(ReplayScanner.objects.filter(team=self.team).count(), 2 if expected_status == 201 else 1)
+
+    def test_scout_cannot_widen_an_enabled_scanner_without_a_credit_limit(self) -> None:
+        scanner = self._create_scanner(name="uncapped", enabled=True, credit_limit=None, sampling_rate=0.1)
+        self._authenticate_as_scout()
+
+        resp = self.client.patch(f"{self.scanners_url}{scanner.id}/", data={"sampling_rate": 1.0}, format="json")
+
+        self.assertEqual(resp.status_code, 400, resp.content)
+        self.assertEqual(resp.json()["attr"], "credit_limit")
+        scanner.refresh_from_db()
+        self.assertEqual(scanner.sampling_rate, 0.1)
+
+    def test_the_person_is_untouched_by_the_scout_rules(self) -> None:
+        # The same two calls a scout is refused, from the session the rules must not reach.
+        created = self.client.post(self.scanners_url, data=self._payload("uncapped-by-hand"), format="json")
+        self.assertEqual(created.status_code, 201, created.json())
+        self.assertIsNone(created.json()["credit_limit"])
+
+        deleted = self.client.delete(f"{self.scanners_url}{created.json()['id']}/")
+
+        self.assertEqual(deleted.status_code, 204, deleted.content)
+
+
 class TestReplayScannerTags(_VisionAPITestCase):
     def _scanner_payload(self, name: str, **extra: Any) -> dict[str, Any]:
         return {
             "name": name,
             "scanner_type": ScannerType.MONITOR,
             "scanner_config": {"prompt": "did checkout complete?"},
-            "model": ScannerModel.GEMINI_3_7_FLASH,
+            "model": ScannerModel.GEMINI_3_8_FLASH,
             **extra,
         }
 
@@ -881,7 +1074,7 @@ class TestScannerExperimentTargeting(_VisionAPITestCase):
             "name": name,
             "scanner_type": ScannerType.MONITOR,
             "scanner_config": {"prompt": "p"},
-            "model": ScannerModel.GEMINI_3_7_FLASH,
+            "model": ScannerModel.GEMINI_3_8_FLASH,
             **extra,
         }
 
@@ -898,6 +1091,43 @@ class TestScannerExperimentTargeting(_VisionAPITestCase):
         )
         self.assertEqual(resp.status_code, 200, resp.json())
         self.assertIsNone(resp.json()["experiment_targeting"])
+
+    def test_draft_experiment_targeting_saves_without_an_estimate_error(self) -> None:
+        # The create wizard makes a scanner next to a fresh draft, so the exposed population cannot
+        # resolve yet. The real estimate call runs here, because that is what must stay quiet.
+        labels = {"outcome": "experiment_linkage_unresolved"}
+        before = REGISTRY.get_sample_value("replay_vision_estimate_outcomes_total", labels) or 0.0
+        self.refresh_estimate_patcher.stop()
+        try:
+            with patch("products.replay_vision.backend.api.scanners.logger") as mock_logger:
+                resp = self.client.post(
+                    self.scanners_url,
+                    data=self._create_payload("draft-target", experiment_targeting=self.targeting),
+                    format="json",
+                )
+        finally:
+            self.mock_refresh_estimate = self.refresh_estimate_patcher.start()
+
+        self.assertEqual(resp.status_code, 201, resp.json())
+        self.assertEqual(resp.json()["experiment_targeting"], self.targeting)
+        self.assertIsNone(resp.json()["estimated_monthly_observations"])
+        mock_logger.exception.assert_not_called()
+        # The save path records the skip, so the scanner is visible before the first hourly tick.
+        self.assertEqual(REGISTRY.get_sample_value("replay_vision_estimate_outcomes_total", labels), before + 1)
+
+    def test_unbuildable_query_keeps_the_estimate_failure_loud(self) -> None:
+        # A deleted action or a bad cohort reference in the scanner's own query does not heal at
+        # launch, so it must stay in error tracking instead of the quiet linkage outcome.
+        self.mock_refresh_estimate.side_effect = DRFValidationError("Action ID 424242 does not exist!")
+        labels = {"outcome": "experiment_linkage_unresolved"}
+        before = REGISTRY.get_sample_value("replay_vision_estimate_outcomes_total", labels) or 0.0
+
+        with patch("products.replay_vision.backend.api.scanners.logger") as mock_logger:
+            resp = self.client.post(self.scanners_url, data=self._create_payload("broken-query"), format="json")
+
+        self.assertEqual(resp.status_code, 201, resp.json())
+        mock_logger.exception.assert_called_once()
+        self.assertEqual(REGISTRY.get_sample_value("replay_vision_estimate_outcomes_total", labels) or 0.0, before)
 
     @parameterized.expand(
         [
@@ -977,7 +1207,7 @@ class TestScannerLifecycleTelemetry(_VisionAPITestCase):
                     "name": "telemetry-create",
                     "scanner_type": ScannerType.MONITOR,
                     "scanner_config": {"prompt": "did checkout complete?"},
-                    "model": ScannerModel.GEMINI_3_7_FLASH,
+                    "model": ScannerModel.GEMINI_3_8_FLASH,
                     "sampling_rate": 0.25,
                     "query": {"kind": "RecordingsQuery", "events": [{"id": "$pageview"}]},
                 },
@@ -991,14 +1221,152 @@ class TestScannerLifecycleTelemetry(_VisionAPITestCase):
         self.assertEqual(len(created), 1)
         properties = created[0].kwargs["properties"]
         self.assertEqual(properties["scanner_type"], ScannerType.MONITOR)
-        self.assertEqual(properties["model"], ScannerModel.GEMINI_3_7_FLASH)
+        self.assertEqual(properties["model"], ScannerModel.GEMINI_3_8_FLASH)
         self.assertEqual(properties["credits_per_observation"], 15)
         self.assertEqual(properties["sampling_rate"], 0.25)
         self.assertTrue(properties["has_filters"])
+        self.assertFalse(properties["has_experiment_targeting"])
         self.assertTrue(properties["enabled"])
         self.assertEqual(properties["organization_id"], str(self.team.organization_id))
         # Session auth resolves to "web" (the app UI), MCP callers to "mcp".
         self.assertEqual(properties["source"], "web")
+
+    def test_create_with_experiment_targeting_reports_a_filtered_scanner(self) -> None:
+        # The population lives in experiment_targeting, not in query keys, so an experiment-scoped
+        # scanner must not read as unfiltered on launch dashboards.
+        experiment = create_experiment(self.team, "telemetry-targeting")
+        with patch("posthoganalytics.capture") as capture:
+            resp = self.client.post(
+                self.scanners_url,
+                data={
+                    "name": "telemetry-targeting",
+                    "scanner_type": ScannerType.MONITOR,
+                    "scanner_config": {"prompt": "p"},
+                    "model": ScannerModel.GEMINI_3_8_FLASH,
+                    "experiment_targeting": {"experiment_id": experiment.id, "variant": None},
+                    "query": {"kind": "RecordingsQuery", "filter_test_accounts": True},
+                },
+                format="json",
+            )
+
+        self.assertEqual(resp.status_code, 201, resp.json())
+        created = [
+            call for call in capture.call_args_list if call.kwargs.get("event") == "replay_vision_scanner_created"
+        ]
+        self.assertEqual(len(created), 1)
+        properties = created[0].kwargs["properties"]
+        self.assertTrue(properties["has_filters"])
+        self.assertTrue(properties["has_experiment_targeting"])
+
+    @parameterized.expand([("test_arm", "test"), ("control_arm", "control"), ("flag_off", False)])
+    def test_create_reports_the_experiment_arm(self, _name: str, flag_value: str | bool) -> None:
+        # The creation-flow experiment splits its conversion metric on this property. Dropping it
+        # leaves the metric computable but arm-blind, so the analysis reads as valid and is not.
+        with (
+            patch("products.replay_vision.backend.api.scanners.get_feature_flag_or_none", return_value=flag_value),
+            patch("posthoganalytics.capture") as capture,
+        ):
+            resp = self.client.post(
+                self.scanners_url,
+                data={
+                    "name": f"telemetry-arm-{_name}",
+                    "scanner_type": ScannerType.MONITOR,
+                    "scanner_config": {"prompt": "did checkout complete?"},
+                    "model": ScannerModel.GEMINI_3_8_FLASH,
+                },
+                format="json",
+            )
+
+        self.assertEqual(resp.status_code, 201, resp.json())
+        created = [
+            call for call in capture.call_args_list if call.kwargs.get("event") == "replay_vision_scanner_created"
+        ]
+        # A flag that is off carries no arm, so the metric can exclude the unenrolled rather than
+        # counting them as a third arm.
+        expected = flag_value if isinstance(flag_value, str) else None
+        self.assertEqual(created[0].kwargs["properties"]["creation_flow_variant"], expected)
+
+    @parameterized.expand(
+        [
+            ("app", {}, "ai", "ai"),
+            ("wizard", {"HTTP_USER_AGENT": "posthog/wizard 1.2.3"}, "scratch", "wizard"),
+        ]
+    )
+    def test_create_reports_how_the_scanner_was_built(
+        self, _name: str, headers: dict[str, Any], claimed: str, expected: str
+    ) -> None:
+        # The arm says which flow the person was offered; this says what they did with it. Someone
+        # offered the AI flow can still fill the form by hand, so a metric comparing AI-built against
+        # hand-built scanners needs this and cannot read it off the arm.
+        #
+        # Only the app has a form, so a caller that has none reports its surface instead of what it
+        # claims. Resolved from a real user agent, since the question is whether a caller's surface
+        # reaches the serializer at all — a patched source asserts only that the branch exists.
+        with patch("posthoganalytics.capture") as capture:
+            resp = self.client.post(
+                self.scanners_url,
+                data={
+                    "name": f"telemetry-method-{_name}",
+                    "scanner_type": ScannerType.MONITOR,
+                    "scanner_config": {"prompt": "did checkout complete?"},
+                    "model": ScannerModel.GEMINI_3_8_FLASH,
+                    "creation_method": claimed,
+                },
+                format="json",
+                **headers,
+            )
+
+        self.assertEqual(resp.status_code, 201, resp.json())
+        created = [
+            call for call in capture.call_args_list if call.kwargs.get("event") == "replay_vision_scanner_created"
+        ]
+        self.assertEqual(created[0].kwargs["properties"]["creation_method"], expected)
+        # Telemetry only: it must not reach the model, whose constructor would reject it.
+        self.assertFalse(hasattr(ReplayScanner.objects.get(id=resp.json()["id"]), "creation_method"))
+
+    def test_create_without_a_request_reports_the_declared_surface(self) -> None:
+        # Max reaches the serializer directly, so there is no request to derive a surface from and
+        # nothing would be reported at all. It declares one in the context instead, the same way it
+        # passes `user`. Left unattributed, its scanners land in the same bucket as the app's.
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+        serializer = ReplayScannerSerializer(
+            data={
+                "name": "telemetry-surface-max",
+                "scanner_type": ScannerType.MONITOR,
+                "scanner_config": {"prompt": "did checkout complete?"},
+                "model": ScannerModel.GEMINI_3_8_FLASH,
+            },
+            context={
+                "get_team": lambda: self.team,
+                "user": self.user,
+                "event_source": EventSource.POSTHOG_AI,
+            },
+        )
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        with patch("posthoganalytics.capture") as capture:
+            serializer.save()
+
+        created = [
+            call for call in capture.call_args_list if call.kwargs.get("event") == "replay_vision_scanner_created"
+        ]
+        self.assertEqual(created[0].kwargs["properties"]["creation_method"], "posthog_ai")
+
+    def test_update_ignores_how_the_scanner_was_built(self):
+        # The UI PATCHes the whole form back, so an edit resends this. A scanner is built once, and
+        # an unpopped value would land in the edit diff and report a change that never happened.
+        scanner = self._create_scanner()
+
+        with patch("posthoganalytics.capture") as capture:
+            resp = self.client.patch(
+                f"{self.scanners_url}{scanner.id}/",
+                data={"name": "renamed", "creation_method": "template"},
+                format="json",
+            )
+
+        self.assertEqual(resp.status_code, 200, resp.json())
+        edited = [call for call in capture.call_args_list if call.kwargs.get("event") == "replay_vision_scanner_edited"]
+        self.assertNotIn("creation_method", edited[0].kwargs["properties"])
 
     @parameterized.expand(
         [
@@ -1046,12 +1414,18 @@ class TestScannerLifecycleTelemetry(_VisionAPITestCase):
 
     @parameterized.expand(
         [
-            ("drafted", None, 200, True),
-            ("model_failed", DraftError(), 503, False),
+            ("drafted", None, 200, True, None),
+            ("model_failed", DraftError("model_call_failed"), 503, False, "model_call_failed"),
+            ("bad_draft", DraftError("config_invalid", "tags are required"), 503, False, "config_invalid"),
         ]
     )
     def test_draft_reports_outcome(
-        self, _name: str, error: Exception | None, expected_status: int, expected_success: bool
+        self,
+        _name: str,
+        error: Exception | None,
+        expected_status: int,
+        expected_success: bool,
+        expected_reason: str | None,
     ) -> None:
         # A draft that reports nothing would read as user abandonment instead of a model failure.
         self.organization.is_ai_data_processing_approved = True
@@ -1081,35 +1455,10 @@ class TestScannerLifecycleTelemetry(_VisionAPITestCase):
         properties = drafted_events[0].args[2]
         self.assertEqual(properties["success"], expected_success)
         self.assertEqual(properties["goal_length"], len(goal))
+        # A uniform 503 can't be triaged, so the failure mode has to reach telemetry.
+        self.assertEqual(properties.get("failure_reason"), expected_reason)
         # The goal is customer text; only its length may ride along.
         self.assertNotIn("goal", properties)
-
-
-class TestScannerDigestProvisioning(_VisionAPITestCase):
-    _CREATE_BODY = {
-        "name": "checkout-monitor",
-        "scanner_type": ScannerType.MONITOR,
-        "scanner_config": {"prompt": "did checkout complete?"},
-        "model": ScannerModel.GEMINI_3_7_FLASH,
-    }
-
-    def test_create_provisions_daily_digest(self) -> None:
-        resp = self.client.post(self.scanners_url, data=self._CREATE_BODY, format="json")
-        self.assertEqual(resp.status_code, 201, resp.json())
-        digest = VisionAction.objects.for_team(self.team.id).get(scanner_id=resp.json()["id"], is_scanner_digest=True)
-        self.assertEqual(digest.name, "Featured digest: checkout-monitor")
-        self.assertEqual(digest.trigger_config["rrule"], SCANNER_DIGEST_RRULE)
-        self.assertEqual(digest.trigger_config["timezone"], self.team.timezone)
-        self.assertEqual(digest.delivery_config, [])
-        # Synthesis aborts on a null creator, so the digest must carry the scanner's creator.
-        self.assertEqual(digest.created_by_id, self.user.id)
-        self.assertTrue(digest.enabled)
-
-    def test_scanner_creation_survives_digest_failure(self) -> None:
-        with patch("products.replay_vision.backend.digest.digest_name_for_scanner", side_effect=RuntimeError("boom")):
-            resp = self.client.post(self.scanners_url, data=self._CREATE_BODY, format="json")
-        self.assertEqual(resp.status_code, 201, resp.json())
-        self.assertFalse(VisionAction.objects.for_team(self.team.id).filter(scanner_id=resp.json()["id"]).exists())
 
 
 class TestScannerDuplicateAction(_VisionAPITestCase):
@@ -1199,13 +1548,12 @@ class TestScannerDuplicateAction(_VisionAPITestCase):
         self.assertIn("editor access", resp.json()["detail"])
         self.assertEqual(ReplayScanner.objects.filter(team=self.team).count(), 1)
 
-    def test_duplicate_provisions_no_digest_and_reports_a_distinct_event(self) -> None:
+    def test_duplicate_reports_a_distinct_event(self) -> None:
         source = self._create_scanner(name="my-scanner")
         with patch("products.replay_vision.backend.api.scanners.report_user_action") as report:
             resp = self._duplicate(source.id)
         self.assertEqual(resp.status_code, 201, resp.json())
         copy_id = resp.json()["id"]
-        self.assertFalse(VisionAction.objects.for_team(self.team.id).filter(scanner_id=copy_id).exists())
         report.assert_called_once()
         self.assertEqual(report.call_args.args[1], "replay_vision_scanner_duplicated")
         properties = report.call_args.args[2]
@@ -1220,7 +1568,7 @@ class TestScannerEstimatePersistence(_VisionAPITestCase):
             "name": "estimate-persistence",
             "scanner_type": ScannerType.MONITOR,
             "scanner_config": {"prompt": "p"},
-            "model": ScannerModel.GEMINI_3_7_FLASH,
+            "model": ScannerModel.GEMINI_3_8_FLASH,
         }
         payload.update(overrides)
         return payload
@@ -1242,11 +1590,29 @@ class TestScannerEstimatePersistence(_VisionAPITestCase):
 
     def test_response_exposes_estimated_monthly_observations(self) -> None:
         scanner = self._create_scanner()
+        estimated_at = timezone.now()
+        ReplayScanner.objects.filter(pk=scanner.pk).update(estimated_monthly_observations=42, estimated_at=estimated_at)
+        body = self.client.get(f"{self.scanners_url}{scanner.id}/").json()
+        self.assertEqual(body["estimated_monthly_observations"], 42)
+        self.assertEqual(body["estimated_at"], estimated_at.isoformat().replace("+00:00", "Z"))
+
+    @parameterized.expand(
+        [
+            ("no_limit", None, None),
+            ("limit_above_projection", 10_000, None),
+            ("limit_below_projection", 100, 100),
+        ]
+    )
+    def test_estimated_monthly_credits_clamp_to_the_scanner_credit_limit(
+        self, _name: str, credit_limit: int | None, clamped_to: int | None
+    ) -> None:
+        scanner = self._create_scanner()
         ReplayScanner.objects.filter(pk=scanner.pk).update(
-            estimated_monthly_observations=42, estimated_at=timezone.now()
+            estimated_monthly_observations=42, estimated_at=timezone.now(), credit_limit=credit_limit
         )
-        resp = self.client.get(f"{self.scanners_url}{scanner.id}/")
-        self.assertEqual(resp.json()["estimated_monthly_observations"], 42)
+        body = self.client.get(f"{self.scanners_url}{scanner.id}/").json()
+        expected = clamped_to if clamped_to is not None else 42 * observation_credits_for_model(scanner.model)
+        self.assertEqual(body["estimated_monthly_credits"], expected)
 
     @parameterized.expand(
         [
@@ -1307,7 +1673,7 @@ class TestScannerSignalSourceEnablement(_VisionAPITestCase):
             "name": "signal-enablement",
             "scanner_type": ScannerType.MONITOR,
             "scanner_config": {"prompt": "p"},
-            "model": ScannerModel.GEMINI_3_7_FLASH,
+            "model": ScannerModel.GEMINI_3_8_FLASH,
         }
         payload.update(overrides)
         return payload
@@ -1361,6 +1727,11 @@ class TestReplayObservationViewSet(_VisionAPITestCase):
         resp = self.client.get(f"{self.observations_url(str(self.scanner.id))}?date_to=-1h")
         self.assertEqual(resp.status_code, 200, resp.json())
         self.assertEqual([r["session_id"] for r in resp.json()["results"]], ["old"])
+
+        # `now` is an accepted upper bound, so a caller can bound a query at the current time.
+        resp = self.client.get(f"{self.observations_url(str(self.scanner.id))}?date_from=-7d&date_to=now")
+        self.assertEqual(resp.status_code, 200, resp.json())
+        self.assertEqual([r["session_id"] for r in resp.json()["results"]], ["recent"])
 
     def test_list_date_range_bounds_use_project_timezone(self) -> None:
         self.team.timezone = "US/Pacific"
@@ -1450,7 +1821,7 @@ class TestReplayObservationViewSet(_VisionAPITestCase):
             name="theirs",
             scanner_type=ScannerType.MONITOR,
             scanner_config={"prompt": "p"},
-            model=ScannerModel.GEMINI_3_7_FLASH,
+            model=ScannerModel.GEMINI_3_8_FLASH,
         )
         resp = self.client.get(self.observations_url(str(other_scanner.id)))
         self.assertEqual(resp.status_code, 404)
@@ -1726,57 +2097,6 @@ class TestReplayObservationViewSet(_VisionAPITestCase):
         self.assertEqual(sorted(body["available_tags"]), ["onboarding", "support", "surprise"])
         self.assertIsNone(body["monitor"])
         self.assertIsNone(body["scorer"])
-        self.assertIsNone(body["summarizer"])
-
-    def test_stats_summarizer_facet_rankings(self) -> None:
-        summarizer = self._create_scanner(
-            name="journeys",
-            scanner_type=ScannerType.SUMMARIZER,
-            scanner_config={"prompt": "p", "length": "medium"},
-        )
-        for idx, (friction, keywords) in enumerate(
-            [
-                # Stored rows can repeat a term within one summary; rankings must count it once.
-                (["checkout stalls", "checkout stalls"], ["checkout", "checkout"]),
-                (["checkout stalls", "filter reset"], ["checkout", "filters"]),
-                # Keywords without friction: the friction rate's numerator and denominator must differ here.
-                ([], ["browsing"]),
-                ([], []),
-            ]
-        ):
-            ReplayObservation.objects.create(
-                scanner=summarizer,
-                session_id=f"sess-{idx}",
-                scanner_snapshot=_snapshot_for(summarizer),
-                triggered_by=ObservationTrigger.SCHEDULE,
-                status=ObservationStatus.SUCCEEDED,
-                completed_at=timezone.now(),
-                scanner_result={
-                    "model_output": {
-                        "scanner_type": "summarizer",
-                        "title": "t",
-                        "summary": "s",
-                        "friction_points": friction,
-                        "keywords": keywords,
-                        "confidence": 0.5,
-                    },
-                    "signals_count": 0,
-                },
-            )
-        resp = self.client.get(f"{self.observations_url(str(summarizer.id))}stats/")
-        self.assertEqual(resp.status_code, 200)
-        body = resp.json()
-        self.assertEqual(body["summarizer"]["total_with_facets"], 3)
-        self.assertEqual(body["summarizer"]["total_with_friction"], 2)
-        self.assertEqual(
-            body["summarizer"]["friction_ranked"],
-            [{"term": "checkout stalls", "count": 2}, {"term": "filter reset", "count": 1}],
-        )
-        self.assertEqual(
-            body["summarizer"]["keyword_ranked"],
-            [{"term": "checkout", "count": 2}, {"term": "browsing", "count": 1}, {"term": "filters", "count": 1}],
-        )
-        self.assertIsNone(body["classifier"])
 
     def test_filterset_status_multi_value(self) -> None:
         self._create_observation(session_id="ok", status=ObservationStatus.SUCCEEDED, completed_at=timezone.now())
@@ -2006,7 +2326,11 @@ class TestReplayObservationViewSet(_VisionAPITestCase):
             scanner_type=ScannerType.SCORER,
             scanner_config={"prompt": "p", "scale": {"min": 0, "max": 10}},
         )
-        for idx, score in enumerate([1.0, 2.0, 3.0, 4.0, 5.0]):
+        # Schema drift can leave `score` a string or absent; those rows must drop out, not 500 the stats.
+        for idx, score in enumerate([1.0, 2.0, 3.0, 4.0, 5.0, "not-a-number", None]):
+            model_output: dict[str, Any] = {"scanner_type": "scorer", "reasoning": "r", "confidence": 0.5}
+            if score is not None:
+                model_output["score"] = score
             ReplayObservation.objects.create(
                 scanner=scorer,
                 session_id=f"sess-{idx}",
@@ -2014,10 +2338,7 @@ class TestReplayObservationViewSet(_VisionAPITestCase):
                 triggered_by=ObservationTrigger.SCHEDULE,
                 status=ObservationStatus.SUCCEEDED,
                 completed_at=timezone.now(),
-                scanner_result={
-                    "model_output": {"scanner_type": "scorer", "score": score, "reasoning": "r", "confidence": 0.5},
-                    "signals_count": 0,
-                },
+                scanner_result={"model_output": model_output, "signals_count": 0},
             )
         resp = self.client.get(f"{self.observations_url(str(scorer.id))}stats/")
         self.assertEqual(resp.status_code, 200)
@@ -2473,6 +2794,16 @@ class TestBulkObserveAction(_VisionAPITestCase):
         events = [call.args[1] for call in report.call_args_list]
         self.assertEqual(events, ["replay_vision_bulk_scan_started", "replay_vision_quota_exhausted"])
         self.assertEqual(report.call_args.args[2]["trigger"], "bulk")
+        # `requested` minus `started` says two sessions produced nothing but never that quota was why.
+        bulk_properties = report.call_args_list[0].args[2]
+        self.assertEqual(bulk_properties["outcome_skipped_quota"], 1)
+        self.assertEqual(bulk_properties["outcome_started"], 1)
+        # Every outcome is reported, so an untaken path is a measured zero rather than a missing key.
+        self.assertEqual(bulk_properties["outcome_already_scanned"], 0)
+        self.assertEqual(
+            sum(value for key, value in bulk_properties.items() if key.startswith("outcome_")),
+            bulk_properties["requested"],
+        )
 
     def test_bulk_observe_reports_the_scanner_limit_as_the_skip_reason(
         self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
@@ -3019,7 +3350,7 @@ class TestSessionReplayObservationViewSet(_VisionAPITestCase):
             name="theirs",
             scanner_type=ScannerType.MONITOR,
             scanner_config={"prompt": "p"},
-            model=ScannerModel.GEMINI_3_7_FLASH,
+            model=ScannerModel.GEMINI_3_8_FLASH,
         )
         ReplayObservation.objects.create(
             scanner=other_scanner,
@@ -3155,6 +3486,8 @@ class TestSessionReplayObservationViewSet(_VisionAPITestCase):
 class TestObservationSearchAction(_VisionAPITestCase):
     def setUp(self) -> None:
         super().setUp()
+        # Query vectors are cached by text, so a mocked embedding must not leak between tests.
+        cache.clear()
         self.scanner = self._create_scanner(name="searchable")
 
     @property
@@ -3182,14 +3515,40 @@ class TestObservationSearchAction(_VisionAPITestCase):
             ("min_score_above_max_score", "?q=checkout&min_score=5&max_score=1"),
             ("nan_score", "?q=checkout&min_score=nan"),
             ("infinite_score", "?q=checkout&max_score=inf"),
+            ("unparsable_date", "?q=checkout&date_from=last%20week"),
         ]
     )
     def test_search_rejects_bad_params(self, _name: str, query_string: str) -> None:
         resp = self.client.get(f"{self.search_url}{query_string}")
         self.assertEqual(resp.status_code, 400)
 
-    @patch("products.replay_vision.backend.api.observations.rank_observations")
-    @patch("products.replay_vision.backend.api.observations.generate_embedding")
+    @patch("products.replay_vision.backend.search.rank_observations", return_value=[])
+    @patch("products.replay_vision.backend.search.generate_embedding")
+    def test_search_date_bounds_reach_the_ranking_filters(self, mock_embed: MagicMock, mock_rank: MagicMock) -> None:
+        mock_embed.return_value = MagicMock(embedding=[0.1])
+        resp = self.client.get(f"{self.search_url}?q=anything&date_from=-7d&date_to=2026-09-01")
+        self.assertEqual(resp.status_code, 200, resp.json())
+        filters = mock_rank.call_args[0][5]
+        self.assertIsNotNone(filters.date_from)
+        # A date-only upper bound covers its whole day, like the observation list filter.
+        self.assertEqual((filters.date_to.hour, filters.date_to.minute, filters.date_to.second), (23, 59, 59))
+
+        # `now` is an accepted upper bound here too, and reaches the filters as the current time.
+        before = timezone.now()
+        resp = self.client.get(f"{self.search_url}?q=anything&date_from=-7d&date_to=now")
+        self.assertEqual(resp.status_code, 200, resp.json())
+        self.assertGreaterEqual(mock_rank.call_args[0][5].date_to, before)
+
+    @patch("products.replay_vision.backend.search.rank_observations", return_value=[])
+    @patch("products.replay_vision.backend.search.generate_embedding")
+    def test_search_reuses_the_query_vector_for_a_repeated_query(self, mock_embed: MagicMock, _rank: MagicMock) -> None:
+        mock_embed.return_value = MagicMock(embedding=[0.1])
+        for _ in range(2):
+            self.assertEqual(self.client.get(f"{self.search_url}?q=same words").status_code, 200)
+        mock_embed.assert_called_once()
+
+    @patch("products.replay_vision.backend.search.rank_observations")
+    @patch("products.replay_vision.backend.search.generate_embedding")
     def test_search_returns_results_in_rank_order(self, mock_embed: MagicMock, mock_rank: MagicMock) -> None:
         first = self._create_succeeded_observation("sess-1")
         second = self._create_succeeded_observation("sess-2")
@@ -3210,8 +3569,8 @@ class TestObservationSearchAction(_VisionAPITestCase):
         )
         self.assertFalse(resp.json()["truncated"])
 
-    @patch("products.replay_vision.backend.api.observations.rank_observations")
-    @patch("products.replay_vision.backend.api.observations.generate_embedding")
+    @patch("products.replay_vision.backend.search.rank_observations")
+    @patch("products.replay_vision.backend.search.generate_embedding")
     def test_search_overfetches_then_slices_to_limit_and_flags_truncation(
         self, mock_embed: MagicMock, mock_rank: MagicMock
     ) -> None:
@@ -3233,8 +3592,8 @@ class TestObservationSearchAction(_VisionAPITestCase):
         self.assertEqual([r["observation"]["id"] for r in resp.json()["results"]], [str(first.id)])
         self.assertTrue(resp.json()["truncated"])
 
-    @patch("products.replay_vision.backend.api.observations.rank_observations")
-    @patch("products.replay_vision.backend.api.observations.generate_embedding")
+    @patch("products.replay_vision.backend.search.rank_observations")
+    @patch("products.replay_vision.backend.search.generate_embedding")
     def test_search_drops_rows_whose_snapshot_experiment_is_restricted(
         self, mock_embed: MagicMock, mock_rank: MagicMock
     ) -> None:
@@ -3262,8 +3621,8 @@ class TestObservationSearchAction(_VisionAPITestCase):
         self.assertEqual(resp.status_code, 200, resp.json())
         self.assertEqual([r["observation"]["id"] for r in resp.json()["results"]], [str(visible.id)])
 
-    @patch("products.replay_vision.backend.api.observations.rank_observations", return_value=[])
-    @patch("products.replay_vision.backend.api.observations.generate_embedding")
+    @patch("products.replay_vision.backend.search.rank_observations", return_value=[])
+    @patch("products.replay_vision.backend.search.generate_embedding")
     def test_search_hides_scanner_targeting_a_restricted_experiment(
         self, mock_embed: MagicMock, mock_rank: MagicMock
     ) -> None:
@@ -3297,7 +3656,7 @@ class TestObservationSearchAction(_VisionAPITestCase):
     )
     def test_search_returns_503_when_embedding_unavailable(self, _name: str, exception_class: type) -> None:
         with patch(
-            "products.replay_vision.backend.api.observations.generate_embedding",
+            "products.replay_vision.backend.search.generate_embedding",
             side_effect=exception_class("embedding service down"),
         ):
             resp = self.client.get(f"{self.search_url}?q=anything")
@@ -3307,7 +3666,7 @@ class TestObservationSearchAction(_VisionAPITestCase):
     def test_search_returns_400_when_ai_consent_is_off(self, _mock_consent: MagicMock) -> None:
         resp = self.client.get(f"{self.search_url}?q=anything")
         self.assertEqual(resp.status_code, 400)
-        self.assertIn("allow AI analysis", resp.json()["detail"])
+        self.assertEqual(resp.json()["code"], "ai_data_processing_not_approved")
 
     def test_search_with_unknown_scanner_returns_404(self) -> None:
         resp = self.client.get(f"{self.search_url}?q=anything&scanner_id={uuid7()}")
@@ -3317,8 +3676,8 @@ class TestObservationSearchAction(_VisionAPITestCase):
     # `get_throttles()`, or the endpoint ships with no throttle at all.
     @patch("posthog.rate_limit.ReplayVisionSearchBurstRateThrottle.rate", new="2/minute")
     @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
-    @patch("products.replay_vision.backend.api.observations.rank_observations", return_value=[])
-    @patch("products.replay_vision.backend.api.observations.generate_embedding")
+    @patch("products.replay_vision.backend.search.rank_observations", return_value=[])
+    @patch("products.replay_vision.backend.search.generate_embedding")
     def test_search_is_rate_limited(
         self, mock_embed: MagicMock, _mock_rank: MagicMock, _mock_enabled: MagicMock
     ) -> None:
@@ -3411,7 +3770,7 @@ class TestReplayScannerEstimateAction(ClickhouseTestMixin, _VisionAPITestCase):
                 name=name,
                 scanner_type=ScannerType.MONITOR,
                 scanner_config={"prompt": "p"},
-                model=ScannerModel.GEMINI_3_7_FLASH,
+                model=ScannerModel.GEMINI_3_8_FLASH,
                 enabled=enabled,
                 estimated_monthly_observations=estimate,
             )
@@ -3436,7 +3795,7 @@ class TestReplayScannerEstimateAction(ClickhouseTestMixin, _VisionAPITestCase):
             name="backfilled",
             scanner_type=ScannerType.MONITOR,
             scanner_config={"prompt": "p"},
-            model=ScannerModel.GEMINI_3_7_FLASH,
+            model=ScannerModel.GEMINI_3_8_FLASH,
         )
         ReplayScannerBackfill.objects.for_team(self.team.id).create(
             scanner=scanner,
@@ -3465,7 +3824,7 @@ class TestReplayScannerEstimateAction(ClickhouseTestMixin, _VisionAPITestCase):
             name="theirs",
             scanner_type=ScannerType.MONITOR,
             scanner_config={"prompt": "p"},
-            model=ScannerModel.GEMINI_3_7_FLASH,
+            model=ScannerModel.GEMINI_3_8_FLASH,
             enabled=True,
             estimated_monthly_observations=500,
         )
@@ -3644,9 +4003,9 @@ class TestCurrentPeriodBounds(SimpleTestCase):
                 (datetime(2026, 7, 10, tzinfo=UTC), datetime(2026, 8, 10, tzinfo=UTC)),
             ),
             (
-                "stale_billing_period_falls_back_to_month",
+                "stale_billing_period_rolls_forward_on_its_cadence",
                 {"period": ["2026-05-10T00:00:00+00:00", "2026-06-10T00:00:00+00:00"]},
-                MONTH_BOUNDS,
+                (datetime(2026, 7, 10, tzinfo=UTC), datetime(2026, 8, 10, tzinfo=UTC)),
             ),
             (
                 "naive_timestamps_treated_as_utc",
@@ -3705,6 +4064,28 @@ class TestInlineScanAction(_VisionAPITestCase):
             status=ObservationStatus.SUCCEEDED,
             completed_at=timezone.now(),
         )
+
+    def test_a_fully_refused_scan_still_reports_the_request(
+        self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
+    ) -> None:
+        # A batch where nothing starts mints no scanner, but the request still happened. The endpoint must
+        # report it, or the refused batches drop out of the request count and bias every rate built on it.
+        mock_sync_connect.return_value = MagicMock()
+        mock_async_to_sync.return_value = MagicMock()
+
+        with patch("products.replay_vision.backend.quota.MONTHLY_CREDIT_QUOTA", 0):
+            with patch("products.replay_vision.backend.api.scanners.report_user_action") as report:
+                resp = self._scan()
+
+        self.assertEqual(resp.status_code, 202, resp.json())
+        self.assertIsNone(resp.json()["scan_id"])
+        events = [call.args[1] for call in report.call_args_list]
+        self.assertIn("replay_vision_inline_scan_requested", events)
+        properties = report.call_args_list[events.index("replay_vision_inline_scan_requested")].args[2]
+        self.assertIsNone(properties["scan_id"])
+        self.assertEqual(properties["started"], 0)
+        self.assertEqual(properties["requested"], 1)
+        self.assertEqual(properties["outcome_skipped_quota"], 1)
 
     def test_same_prompt_reuses_one_scan_and_a_different_prompt_gets_its_own(
         self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
@@ -3838,6 +4219,504 @@ class TestInlineScanAction(_VisionAPITestCase):
         start_workflow.assert_not_called()
 
 
+class TestWatchFeedQueryValidation(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("empty_scanner_ids", {"scanner_ids": ""}),
+            ("not_uuid", {"scanner_ids": "not-a-uuid"}),
+            ("bad_scanner_type", {"scanner_type": "nonsense"}),
+            ("limit_too_high", {"limit": "51"}),
+            ("limit_zero", {"limit": "0"}),
+        ]
+    )
+    def test_rejects_invalid_query(self, _name: str, params: dict[str, str]) -> None:
+        serializer = WatchFeedQuerySerializer(data=params)
+        assert not serializer.is_valid()
+
+    def test_defaults_apply(self) -> None:
+        serializer = WatchFeedQuerySerializer(data={})
+        assert serializer.is_valid()
+        assert serializer.validated_data["date_from"] == "-7d"
+        assert serializer.validated_data["limit"] == 20
+
+
+class TestWatchFeedAPI(_VisionAPITestCase):
+    @property
+    def feed_url(self) -> str:
+        return f"{self.scanners_url}watch_feed/"
+
+    def _succeeded_observation(
+        self,
+        scanner: ReplayScanner,
+        session_id: str,
+        minutes_ago: int,
+        scanner_result: dict[str, Any] | None = None,
+    ) -> ReplayObservation:
+        obs = ReplayObservation.objects.create(
+            scanner=scanner,
+            session_id=session_id,
+            scanner_snapshot=_snapshot_for(scanner),
+            triggered_by=ObservationTrigger.SCHEDULE,
+            status=ObservationStatus.SUCCEEDED,
+            completed_at=timezone.now(),
+            scanner_result=scanner_result
+            or {
+                "model_output": {"scanner_type": "monitor", "verdict": "no", "reasoning": "r", "confidence": 0.5},
+                "signals_count": 0,
+            },
+        )
+        # auto_now_add ignores a passed created_at, so stagger recency with an update.
+        ReplayObservation.objects.filter(pk=obs.pk).update(created_at=timezone.now() - timedelta(minutes=minutes_ago))
+        return obs
+
+    def _monitor_result(self, verdict: str, signals: int = 0) -> dict[str, Any]:
+        return {
+            "model_output": {"scanner_type": "monitor", "verdict": verdict, "reasoning": "r", "confidence": 0.9},
+            "signals_count": signals,
+        }
+
+    def test_ranks_signal_then_hit_then_friction_then_recency_with_reasons(self) -> None:
+        scanner = self._create_scanner(name="m")
+        summarizer = self._create_scanner(
+            name="s", scanner_type=ScannerType.SUMMARIZER, scanner_config={"prompt": "p", "length": "short"}
+        )
+        plain_new = self._succeeded_observation(scanner, "plain-new", 1, self._monitor_result("no"))
+        hit = self._succeeded_observation(scanner, "hit", 10, self._monitor_result("yes"))
+        signal = self._succeeded_observation(scanner, "signal", 20, self._monitor_result("no", signals=2))
+        plain_old = self._succeeded_observation(scanner, "plain-old", 30, self._monitor_result("no"))
+        # Friction prose outranks a fresher happy-path row, despite being older.
+        self._succeeded_observation(
+            scanner,
+            "friction-sess",
+            25,
+            {
+                "model_output": {
+                    "scanner_type": "summarizer",
+                    "title": "Checkout gone wrong",
+                    "summary": "The user hit an error at checkout and retried payment twice.",
+                    "confidence": 0.9,
+                },
+                "signals_count": 0,
+            },
+        )
+        assert summarizer
+
+        resp = self.client.get(self.feed_url)
+        self.assertEqual(resp.status_code, 200, resp.json())
+        items = resp.json()["results"]
+        self.assertEqual(
+            [item["observation"]["session_id"] for item in items],
+            ["signal", "hit", "friction-sess", "plain-new", "plain-old"],
+        )
+        self.assertEqual(items[0]["reason"], {"kind": "signal_emitted", "signals_count": 2})
+        self.assertEqual(items[1]["reason"], {"kind": "verdict_yes"})
+        self.assertEqual(items[2]["reason"], {"kind": "friction"})
+        self.assertEqual(items[3]["reason"], {"kind": "unviewed_recent"})
+        assert plain_new and hit and signal and plain_old
+
+    def test_minority_verdict_is_the_hit_regardless_of_prompt_polarity(self) -> None:
+        # "Was the experience good?" answers yes almost always, so its rare "no" is the notable
+        # one; a majority "yes" must not rank as a hit just for being yes.
+        scanner = self._create_scanner(name="good-experience")
+        for i in range(6):
+            self._succeeded_observation(scanner, f"good-{i}", 10 + i, self._monitor_result("yes"))
+        self._succeeded_observation(scanner, "bad-one", 1, self._monitor_result("no"))
+
+        resp = self.client.get(f"{self.feed_url}?limit=50")
+        items = resp.json()["results"]
+        self.assertEqual(items[0]["observation"]["session_id"], "bad-one")
+        self.assertEqual(items[0]["reason"]["kind"], "unusual_verdict")
+        self.assertEqual(items[0]["reason"]["verdict"], "no")
+        reasons = {item["observation"]["session_id"]: item["reason"]["kind"] for item in items}
+        self.assertEqual(reasons["good-0"], "unviewed_recent")
+
+    def test_no_verdict_monitor_negation_is_not_friction(self) -> None:
+        # "Did they struggle? No" reasoning restates the question; keyword matching must not
+        # read the negation as a friction hit.
+        scanner = self._create_scanner(name="m")
+        self._succeeded_observation(
+            scanner,
+            "calm",
+            1,
+            {
+                "model_output": {
+                    "scanner_type": "monitor",
+                    "verdict": "no",
+                    "reasoning": "The user did not struggle and saw no errors.",
+                    "confidence": 0.9,
+                },
+                "signals_count": 0,
+            },
+        )
+        resp = self.client.get(self.feed_url)
+        self.assertEqual(resp.json()["results"][0]["reason"], {"kind": "unviewed_recent"})
+
+    def test_viewed_orders_within_tiers_but_never_sinks_a_signal_below_plain_rows(self) -> None:
+        # Seen-state is a within-tier order, not a top-level one: a signal the reader saw yesterday
+        # still outranks unviewed routine rows, while among plain rows unviewed comes first.
+        scanner = self._create_scanner(name="m")
+        viewed_signal = self._succeeded_observation(scanner, "viewed-signal", 1, self._monitor_result("no", signals=3))
+        viewed_plain = self._succeeded_observation(scanner, "viewed-plain", 10, self._monitor_result("no"))
+        self._succeeded_observation(scanner, "fresh-plain", 30, self._monitor_result("no"))
+        for viewed in (viewed_signal, viewed_plain):
+            self.assertEqual(
+                self.client.post(f"{self.observations_url(str(scanner.id))}{viewed.id}/viewed/").status_code, 204
+            )
+
+        resp = self.client.get(self.feed_url)
+        items = resp.json()["results"]
+        self.assertEqual(
+            [item["observation"]["session_id"] for item in items],
+            ["viewed-signal", "fresh-plain", "viewed-plain"],
+        )
+        self.assertEqual(items[0]["reason"]["kind"], "signal_emitted")
+        self.assertTrue(items[0]["observation"]["viewed"])
+
+    def test_outlier_score_and_rare_tag_reasons(self) -> None:
+        scorer = self._create_scanner(
+            name="s", scanner_type=ScannerType.SCORER, scanner_config={"prompt": "p", "scale": {"min": 0, "max": 10}}
+        )
+        for i in range(5):
+            self._succeeded_observation(
+                scorer,
+                f"score-{i}",
+                10 + i,
+                {
+                    "model_output": {"scanner_type": "scorer", "score": 5.0, "reasoning": "r", "confidence": 0.9},
+                    "signals_count": 0,
+                },
+            )
+        self._succeeded_observation(
+            scorer,
+            "score-outlier",
+            1,
+            {
+                "model_output": {"scanner_type": "scorer", "score": 9.5, "reasoning": "r", "confidence": 0.9},
+                "signals_count": 0,
+            },
+        )
+        classifier = self._create_scanner(
+            name="c",
+            scanner_type=ScannerType.CLASSIFIER,
+            scanner_config={"prompt": "p", "tags": ["common", "rare"], "multi_label": True},
+        )
+        for i in range(9):
+            self._succeeded_observation(
+                classifier,
+                f"tag-{i}",
+                10 + i,
+                {
+                    "model_output": {
+                        "scanner_type": "classifier",
+                        "tags": ["common"],
+                        "reasoning": "r",
+                        "confidence": 0.9,
+                    },
+                    "signals_count": 0,
+                },
+            )
+        self._succeeded_observation(
+            classifier,
+            "tag-rare",
+            1,
+            {
+                "model_output": {
+                    "scanner_type": "classifier",
+                    "tags": ["common", "rare"],
+                    "reasoning": "r",
+                    "confidence": 0.9,
+                },
+                "signals_count": 0,
+            },
+        )
+
+        summarizer = self._create_scanner(
+            name="sum-novel",
+            scanner_type=ScannerType.SUMMARIZER,
+            scanner_config={"prompt": "p", "length": "short"},
+        )
+        for i in range(5):
+            self._succeeded_observation(
+                summarizer,
+                f"sum-{i}",
+                10 + i,
+                {
+                    "model_output": {
+                        "scanner_type": "summarizer",
+                        "title": "Browsed the pricing page",
+                        "summary": "The user browsed the pricing page and compared the available plans.",
+                        "confidence": 0.9,
+                    },
+                    "signals_count": 0,
+                },
+            )
+        self._succeeded_observation(
+            summarizer,
+            "sum-novel-sess",
+            1,
+            {
+                "model_output": {
+                    "scanner_type": "summarizer",
+                    "title": "Deleted every project",
+                    "summary": "Removed all workspaces then immediately churned out.",
+                    "confidence": 0.9,
+                },
+                "signals_count": 0,
+            },
+        )
+
+        resp = self.client.get(f"{self.feed_url}?limit=50")
+        reasons = {item["observation"]["session_id"]: item["reason"] for item in resp.json()["results"]}
+        self.assertEqual(reasons["score-outlier"]["kind"], "outlier_score")
+        self.assertEqual(reasons["score-outlier"]["score"], 9.5)
+        self.assertEqual(reasons["tag-rare"]["kind"], "rare_tag")
+        self.assertEqual(reasons["tag-rare"]["tag"], "rare")
+        self.assertEqual(reasons["sum-novel-sess"]["kind"], "novel_summary")
+        # Near-identical summaries are the baseline, not novel.
+        self.assertEqual(reasons["sum-0"]["kind"], "unviewed_recent")
+        self.assertEqual(reasons["score-0"]["kind"], "unviewed_recent")
+
+    def test_singleton_tag_is_rare_even_in_a_thin_window(self) -> None:
+        # A pure share cutoff makes rarity impossible below 10 rows and then fire on every singleton
+        # at exactly 10 — the feed would change character as a scanner accumulates data.
+        classifier = self._create_scanner(
+            name="c-thin",
+            scanner_type=ScannerType.CLASSIFIER,
+            scanner_config={"prompt": "p", "tags": ["common", "rare"], "multi_label": True},
+        )
+        for i in range(4):
+            self._succeeded_observation(
+                classifier,
+                f"thin-{i}",
+                10 + i,
+                {
+                    "model_output": {
+                        "scanner_type": "classifier",
+                        "tags": ["common"],
+                        "reasoning": "r",
+                        "confidence": 0.9,
+                    },
+                    "signals_count": 0,
+                },
+            )
+        self._succeeded_observation(
+            classifier,
+            "thin-rare",
+            1,
+            {
+                "model_output": {
+                    "scanner_type": "classifier",
+                    "tags": ["common", "rare"],
+                    "reasoning": "r",
+                    "confidence": 0.9,
+                },
+                "signals_count": 0,
+            },
+        )
+        resp = self.client.get(f"{self.feed_url}?limit=50")
+        reasons = {item["observation"]["session_id"]: item["reason"] for item in resp.json()["results"]}
+        self.assertEqual(reasons["thin-rare"]["kind"], "rare_tag")
+        self.assertEqual(reasons["thin-rare"]["tag"], "rare")
+
+    def test_rare_tag_suppressed_when_the_vocabulary_never_repeats(self) -> None:
+        # Freeform tagging that never repeats makes every tag a singleton; rarity means nothing
+        # there, and without the guard every row would rank as a top-tier hit.
+        classifier = self._create_scanner(
+            name="c-chaos",
+            scanner_type=ScannerType.CLASSIFIER,
+            scanner_config={"prompt": "p", "tags": [], "multi_label": True, "allow_freeform_tags": True},
+        )
+        for i in range(5):
+            self._succeeded_observation(
+                classifier,
+                f"chaos-{i}",
+                10 + i,
+                {
+                    "model_output": {
+                        "scanner_type": "classifier",
+                        "tags": [],
+                        "tags_freeform": [f"unique_{i}"],
+                        "reasoning": "r",
+                        "confidence": 0.9,
+                    },
+                    "signals_count": 0,
+                },
+            )
+        resp = self.client.get(f"{self.feed_url}?limit=50")
+        kinds = {item["reason"]["kind"] for item in resp.json()["results"]}
+        self.assertEqual(kinds, {"unviewed_recent"})
+
+    def test_per_scanner_cap_keeps_quiet_scanners_in_the_candidate_slice(self) -> None:
+        # Without the per-scanner cap a busy scanner fills the global slice and quiet scanners lose
+        # both feed slots and their own baselines.
+        busy = self._create_scanner(name="busy")
+        quiet = self._create_scanner(name="quiet")
+        for i in range(4):
+            self._succeeded_observation(busy, f"busy-{i}", i, self._monitor_result("no"))
+        self._succeeded_observation(quiet, "quiet-sess", 30, self._monitor_result("no"))
+
+        with patch("products.replay_vision.backend.api.scanners.WATCH_FEED_PER_SCANNER_CAP", 2):
+            resp = self.client.get(f"{self.feed_url}?limit=50")
+        sessions = [item["observation"]["session_id"] for item in resp.json()["results"]]
+        self.assertIn("quiet-sess", sessions)
+        self.assertEqual(len([s for s in sessions if s.startswith("busy-")]), 2)
+
+    def test_window_type_filter_and_limit(self) -> None:
+        monitor = self._create_scanner(name="m")
+        summarizer = self._create_scanner(
+            name="sum", scanner_type=ScannerType.SUMMARIZER, scanner_config={"prompt": "p", "length": "short"}
+        )
+        self._succeeded_observation(monitor, "in-window", 60, self._monitor_result("no"))
+        old = self._succeeded_observation(monitor, "too-old", 1, self._monitor_result("yes"))
+        ReplayObservation.objects.filter(pk=old.pk).update(created_at=timezone.now() - timedelta(days=10))
+        self._succeeded_observation(
+            summarizer,
+            "summary",
+            5,
+            {
+                "model_output": {"scanner_type": "summarizer", "title": "t", "summary": "s", "confidence": 0.9},
+                "signals_count": 0,
+            },
+        )
+
+        resp = self.client.get(self.feed_url)
+        sessions = [item["observation"]["session_id"] for item in resp.json()["results"]]
+        self.assertEqual(sessions, ["summary", "in-window"])
+
+        # The wider window admits the old row, whose verdict-yes hit outranks plain recency.
+        resp = self.client.get(f"{self.feed_url}?date_from=-30d&scanner_type=monitor")
+        sessions = [item["observation"]["session_id"] for item in resp.json()["results"]]
+        self.assertEqual(sessions, ["too-old", "in-window"])
+
+        resp = self.client.get(f"{self.feed_url}?limit=1")
+        self.assertEqual(len(resp.json()["results"]), 1)
+
+    def test_scanner_ids_filter_restricts_between_readable_scanners(self) -> None:
+        wanted = self._create_scanner(name="wanted")
+        other = self._create_scanner(name="other")
+        self._succeeded_observation(wanted, "wanted-sess", 1, self._monitor_result("no"))
+        self._succeeded_observation(other, "other-sess", 2, self._monitor_result("no"))
+
+        resp = self.client.get(f"{self.feed_url}?scanner_ids={wanted.id}")
+        self.assertEqual(
+            [item["observation"]["session_id"] for item in resp.json()["results"]],
+            ["wanted-sess"],
+        )
+
+    def test_date_to_excludes_newer_observations(self) -> None:
+        scanner = self._create_scanner(name="m")
+        self._succeeded_observation(scanner, "inside", 120, self._monitor_result("no"))
+        self._succeeded_observation(scanner, "after-cutoff", 1, self._monitor_result("no"))
+        cutoff = (timezone.now() - timedelta(minutes=60)).isoformat()
+
+        resp = self.client.get(self.feed_url, {"date_to": cutoff})
+        self.assertEqual(
+            [item["observation"]["session_id"] for item in resp.json()["results"]],
+            ["inside"],
+        )
+
+    def test_global_candidate_cap_keeps_the_newest_rows(self) -> None:
+        scanner = self._create_scanner(name="m")
+        for i in range(3):
+            self._succeeded_observation(scanner, f"sess-{i}", i + 1, self._monitor_result("no"))
+
+        with patch("products.replay_vision.backend.api.scanners.WATCH_FEED_CANDIDATE_CAP", 2):
+            resp = self.client.get(f"{self.feed_url}?limit=50")
+        self.assertEqual(
+            [item["observation"]["session_id"] for item in resp.json()["results"]],
+            ["sess-0", "sess-1"],
+        )
+
+    def test_window_wider_than_the_maximum_is_rejected(self) -> None:
+        resp = self.client.get(f"{self.feed_url}?date_from=-365d")
+        self.assertEqual(resp.status_code, 400, resp.json())
+        self.assertIn("at most", resp.json()["detail"])
+
+    def test_personal_api_key_needs_both_read_scopes(self) -> None:
+        scanner = self._create_scanner(name="m")
+        self._succeeded_observation(scanner, "scoped-sess", 1, self._monitor_result("no"))
+        value = generate_random_token_personal()
+        key = PersonalAPIKey.objects.create(
+            label="feed-scope-test",
+            user=self.user,
+            secure_value=hash_key_value(value),
+            scopes=["replay_scanner:read"],
+        )
+
+        denied = self.client.get(self.feed_url, HTTP_AUTHORIZATION=f"Bearer {value}")
+        self.assertEqual(denied.status_code, 403, denied.json())
+
+        key.scopes = ["replay_scanner:read", "session_recording:read"]
+        key.save()
+        allowed = self.client.get(self.feed_url, HTTP_AUTHORIZATION=f"Bearer {value}")
+        self.assertEqual(allowed.status_code, 200, allowed.json())
+        self.assertEqual(allowed.json()["results"][0]["observation"]["session_id"], "scoped-sess")
+
+    def test_malformed_scanner_result_ranks_by_recency_instead_of_500(self) -> None:
+        scanner = self._create_scanner(name="m")
+        self._succeeded_observation(scanner, "broken", 1, {"model_output": "not-a-dict"})
+        resp = self.client.get(self.feed_url)
+        self.assertEqual(resp.status_code, 200, resp.json())
+        self.assertEqual(resp.json()["results"][0]["reason"]["kind"], "unviewed_recent")
+
+    def test_unreadable_and_cross_team_scanners_are_dropped_silently(self) -> None:
+        visible = self._create_scanner(name="visible")
+        hidden = self._create_scanner(name="hidden")
+        self._succeeded_observation(visible, "visible-sess", 1, self._monitor_result("no"))
+        self._succeeded_observation(hidden, "hidden-sess", 1, self._monitor_result("no"))
+        other_team = Team.objects.create(organization=self.organization, name="other")
+        foreign = ReplayScanner.objects.create(
+            team=other_team,
+            name="foreign",
+            scanner_type=ScannerType.MONITOR,
+            scanner_config={"prompt": "p"},
+            model=ScannerModel.GEMINI_3_8_FLASH,
+        )
+        with patch(
+            "products.access_control.backend.facade.user_access_control.UserAccessControl.filter_queryset_by_access_level",
+            side_effect=lambda qs, **_: qs.exclude(pk=hidden.pk) if qs.model is ReplayScanner else qs,
+        ):
+            resp = self.client.get(f"{self.feed_url}?scanner_ids={visible.id},{hidden.id},{foreign.id}")
+        self.assertEqual(resp.status_code, 200, resp.json())
+        self.assertEqual([item["observation"]["session_id"] for item in resp.json()["results"]], ["visible-sess"])
+
+    def test_restricted_snapshot_rows_are_excluded(self) -> None:
+        experiment = create_experiment(self.team, "restricted-flag")
+        scanner = self._create_scanner(name="retargeted", experiment_targeting={"experiment_id": experiment.id})
+        self._succeeded_observation(scanner, "restricted-sess", 1, self._monitor_result("yes"))
+        scanner.experiment_targeting = None
+        scanner.save()
+        self._succeeded_observation(scanner, "open-sess", 2, self._monitor_result("no"))
+
+        with patch(
+            "products.access_control.backend.facade.user_access_control.UserAccessControl.filter_queryset_by_access_level",
+            side_effect=lambda qs, **_: qs.exclude(pk=experiment.pk) if qs.model is Experiment else qs,
+        ):
+            resp = self.client.get(self.feed_url)
+        self.assertEqual([item["observation"]["session_id"] for item in resp.json()["results"]], ["open-sess"])
+
+    def test_requires_session_recording_read(self) -> None:
+        with patch(
+            "products.access_control.backend.facade.user_access_control.UserAccessControl.check_access_level_for_resource",
+            return_value=False,
+        ):
+            resp = self.client.get(self.feed_url)
+        self.assertEqual(resp.status_code, 403, resp.json())
+
+    def test_query_count_stays_flat_as_data_grows(self) -> None:
+        scanner = self._create_scanner(name="m")
+        self._succeeded_observation(scanner, "s-0", 1, self._monitor_result("no"))
+        self.client.get(self.feed_url)  # warm request-scoped caches
+        with CaptureQueriesContext(connection) as one:
+            self.assertEqual(self.client.get(self.feed_url).status_code, 200)
+        for i in range(1, 6):
+            other = self._create_scanner(name=f"m{i}")
+            self._succeeded_observation(other, f"s-{i}", i, self._monitor_result("yes", signals=i % 2))
+        with CaptureQueriesContext(connection) as six:
+            self.assertEqual(self.client.get(self.feed_url).status_code, 200)
+        self.assertEqual(len(one.captured_queries), len(six.captured_queries))
+
+
 class TestScannerSelfDrivingStatsAPI(_VisionAPITestCase):
     def test_returns_the_scanners_signal_outcomes(self) -> None:
         # Wiring guard: the endpoint must query the signals facade for this scanner's slice and
@@ -3861,3 +4740,254 @@ class TestScannerSelfDrivingStatsAPI(_VisionAPITestCase):
         assert kwargs["source_product"] == "replay_vision"
         assert kwargs["source_type"] == "scanner_finding"
         assert kwargs["extra_equals"] == {"scanner_id": str(scanner.id)}
+
+
+@patch("products.replay_vision.backend.api.trigger.async_to_sync")
+@patch("products.replay_vision.backend.api.trigger.sync_connect")
+class TestReplayVisionProductIntent(_VisionAPITestCase):
+    def setUp(self) -> None:
+        super().setUp()
+        self.scanner = self._create_scanner()
+        get_client().delete(_team_key(self.team.id), _scanner_key(self.scanner.id))
+
+    def observe_url(self, scanner_id: str) -> str:
+        return f"{self.scanners_url}{scanner_id}/observe/"
+
+    def bulk_url(self, scanner_id: str) -> str:
+        return f"{self.scanners_url}{scanner_id}/bulk_observe/"
+
+    def _intent(self) -> ProductIntent | None:
+        return ProductIntent.objects.filter(team=self.team, product_type=ProductKey.REPLAY_VISION).first()
+
+    def test_no_intent_before_anyone_touches_the_product(
+        self, _mock_sync_connect: MagicMock, _mock_async_to_sync: MagicMock
+    ) -> None:
+        # Guards the baseline the other tests rest on: `_create_scanner` writes the row directly, so
+        # only requests through the API register intent.
+        self.assertIsNone(self._intent())
+
+    def test_creating_a_scanner_registers_intent(
+        self, _mock_sync_connect: MagicMock, _mock_async_to_sync: MagicMock
+    ) -> None:
+        resp = self.client.post(
+            self.scanners_url,
+            data={
+                "name": "intent-create",
+                "scanner_type": ScannerType.MONITOR,
+                "scanner_config": {"prompt": "did checkout complete?"},
+                "model": ScannerModel.GEMINI_3_8_FLASH,
+            },
+            format="json",
+        )
+        self.assertEqual(resp.status_code, 201, resp.json())
+
+        intent = self._intent()
+        assert intent is not None
+        self.assertEqual(intent.contexts, {ProductIntentContext.REPLAY_VISION_SCANNER_CREATED: 1})
+
+    def test_on_demand_scan_registers_intent(self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock) -> None:
+        mock_sync_connect.return_value = MagicMock()
+        mock_async_to_sync.return_value = MagicMock()
+
+        resp = self.client.post(
+            self.observe_url(str(self.scanner.id)), data={"session_id": "sess-intent"}, format="json"
+        )
+        self.assertEqual(resp.status_code, 202, resp.json())
+
+        intent = self._intent()
+        assert intent is not None
+        self.assertEqual(intent.contexts, {ProductIntentContext.REPLAY_VISION_SCAN_TRIGGERED: 1})
+
+    def test_bulk_scan_registers_intent_once_for_the_batch(
+        self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
+    ) -> None:
+        # The load-bearing assertion in this file: `register()` writes the intent row on every call,
+        # and a bulk scan can carry hundreds of session ids. Registering per session would turn one
+        # click into hundreds of writes on a request path that already fans out to Temporal.
+        mock_sync_connect.return_value = MagicMock()
+        mock_async_to_sync.return_value = MagicMock()
+
+        resp = self.client.post(
+            self.bulk_url(str(self.scanner.id)),
+            data={"session_ids": ["sess-a", "sess-b", "sess-c", "sess-d"]},
+            format="json",
+        )
+        self.assertEqual(resp.status_code, 202, resp.json())
+
+        intent = self._intent()
+        assert intent is not None
+        self.assertEqual(intent.contexts, {ProductIntentContext.REPLAY_VISION_SCAN_TRIGGERED: 1})
+
+    def test_intent_records_the_calling_surface(
+        self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
+    ) -> None:
+        # `source` is what makes "do agent-triggered scans count toward activation" a filter rather
+        # than a re-instrumentation, so it has to reach the emitted event.
+        mock_sync_connect.return_value = MagicMock()
+        mock_async_to_sync.return_value = MagicMock()
+
+        with patch("posthoganalytics.capture") as capture:
+            resp = self.client.post(
+                self.observe_url(str(self.scanner.id)),
+                data={"session_id": "sess-source"},
+                format="json",
+                HTTP_X_POSTHOG_CLIENT="mcp",
+            )
+        self.assertEqual(resp.status_code, 202, resp.json())
+
+        intent_events = [
+            call for call in capture.call_args_list if call.kwargs.get("event") == "user showed product intent"
+        ]
+        self.assertEqual(len(intent_events), 1)
+        properties = intent_events[0].kwargs["properties"]
+        self.assertEqual(properties["product_key"], ProductKey.REPLAY_VISION)
+        self.assertEqual(properties["intent_context"], ProductIntentContext.REPLAY_VISION_SCAN_TRIGGERED)
+        self.assertEqual(properties["source"], "mcp")
+        self.assertTrue(properties["is_first_intent_for_product"])
+
+    def test_repeat_actions_accumulate_contexts_without_moving_the_clock(
+        self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
+    ) -> None:
+        # One row per (team, product), so `created_at` must stay put across later actions — it's the
+        # funnel start date. The per-context counters are what activation criteria read.
+        mock_sync_connect.return_value = MagicMock()
+        mock_async_to_sync.return_value = MagicMock()
+
+        self.client.post(self.observe_url(str(self.scanner.id)), data={"session_id": "sess-1"}, format="json")
+        first = self._intent()
+        assert first is not None
+        created_at = first.created_at
+
+        self.client.post(self.observe_url(str(self.scanner.id)), data={"session_id": "sess-2"}, format="json")
+        self.client.post(
+            self.scanners_url,
+            data={
+                "name": "intent-second-action",
+                "scanner_type": ScannerType.MONITOR,
+                "scanner_config": {"prompt": "did checkout complete?"},
+                "model": ScannerModel.GEMINI_3_8_FLASH,
+            },
+            format="json",
+        )
+
+        self.assertEqual(ProductIntent.objects.filter(team=self.team, product_type=ProductKey.REPLAY_VISION).count(), 1)
+        intent = self._intent()
+        assert intent is not None
+        self.assertEqual(intent.created_at, created_at)
+        self.assertEqual(
+            intent.contexts,
+            {
+                ProductIntentContext.REPLAY_VISION_SCAN_TRIGGERED: 2,
+                ProductIntentContext.REPLAY_VISION_SCANNER_CREATED: 1,
+            },
+        )
+
+    def test_impersonated_session_does_not_register_intent(
+        self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
+    ) -> None:
+        # Staff impersonating a customer would otherwise start that team's activation clock.
+        mock_sync_connect.return_value = MagicMock()
+        mock_async_to_sync.return_value = MagicMock()
+
+        with patch("products.replay_vision.backend.api.scanners.is_impersonated_session", return_value=True):
+            resp = self.client.post(
+                self.observe_url(str(self.scanner.id)), data={"session_id": "sess-impersonated"}, format="json"
+            )
+
+        self.assertEqual(resp.status_code, 202, resp.json())
+        self.assertIsNone(self._intent())
+
+    def test_intent_failure_does_not_fail_the_request(
+        self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
+    ) -> None:
+        # Intent is registered after the workflow has started; a 500 here would make the caller
+        # retry a scan that already ran.
+        mock_sync_connect.return_value = MagicMock()
+        mock_async_to_sync.return_value = MagicMock()
+
+        with patch.object(ProductIntent, "register", side_effect=Exception("intent backend down")):
+            resp = self.client.post(
+                self.observe_url(str(self.scanner.id)), data={"session_id": "sess-intent-down"}, format="json"
+            )
+
+        self.assertEqual(resp.status_code, 202, resp.json())
+        self.assertIsNone(self._intent())
+
+
+class TestScannerActivityLogging(_VisionAPITestCase):
+    def _logs(self, scanner_id: str) -> list[ActivityLog]:
+        return list(
+            ActivityLog.objects.filter(team_id=self.team.id, scope="ReplayScanner", item_id=str(scanner_id)).order_by(
+                "created_at"
+            )
+        )
+
+    def test_api_crud_is_audited(self) -> None:
+        resp = self.client.post(
+            self.scanners_url,
+            data={
+                "name": "checkout-monitor",
+                "scanner_type": ScannerType.MONITOR,
+                "scanner_config": {"prompt": "did the user check out?"},
+                "model": ScannerModel.GEMINI_3_8_FLASH,
+            },
+            format="json",
+        )
+        self.assertEqual(resp.status_code, 201, resp.json())
+        scanner_id = resp.json()["id"]
+
+        self.client.patch(
+            f"{self.scanners_url}{scanner_id}/",
+            data={"scanner_config": {"prompt": "did the user abandon the cart?"}},
+            format="json",
+        )
+        self.client.delete(f"{self.scanners_url}{scanner_id}/")
+
+        logs = self._logs(scanner_id)
+        self.assertEqual([log.activity for log in logs], ["created", "updated", "deleted"])
+        self.assertEqual(logs[0].user, self.user)
+
+        detail = cast(dict[str, Any], logs[1].detail)
+        changed_fields = {change["field"] for change in detail["changes"]}
+        self.assertEqual(changed_fields, {"scanner_config"})
+
+    def test_machine_owned_writes_are_not_audited(self) -> None:
+        scanner = self._create_scanner()
+        ActivityLog.objects.all().delete()
+
+        scanner.feedback_themes = {"themes": []}
+        scanner.save(update_fields=["feedback_themes"])
+
+        self.assertEqual(self._logs(str(scanner.id)), [])
+
+    def test_inline_scanners_are_not_audited(self) -> None:
+        scanner = self._create_scanner(name="", origin=ScannerOrigin.INLINE, inline_key="fingerprint")
+
+        self.assertEqual(self._logs(str(scanner.id)), [])
+
+    def test_the_audit_diff_does_not_read_a_scanner_s_observations(self) -> None:
+        # changes_between walks reverse relations and reads each one in full, so an unexcluded
+        # `observations` would scan the whole table on every edit, under the save's row lock.
+        scanner = self._create_scanner()
+        ReplayObservation.objects.create(
+            scanner=scanner,
+            team=self.team,
+            session_id="sess-audit-diff",
+            status=ObservationStatus.SUCCEEDED,
+            completed_at=timezone.now(),
+            triggered_by=ObservationTrigger.SCHEDULE,
+        )
+        previous = ReplayScanner.objects.get(pk=scanner.pk)
+        current = ReplayScanner.objects.get(pk=scanner.pk)
+        current.scanner_config = {"prompt": "did the user abandon the cart?"}
+
+        with CaptureQueriesContext(connection) as queries:
+            changes = changes_between("ReplayScanner", previous=previous, current=current)
+
+        self.assertEqual({change.field for change in changes}, {"scanner_config"})
+        observation_reads = [q for q in queries.captured_queries if "replay_vision_replayobservation" in q["sql"]]
+        self.assertEqual(observation_reads, [])
+
+    def test_every_machine_owned_field_is_excluded(self) -> None:
+        # A machine-written column that misses the registry turns every sweep into an audit row.
+        self.assertEqual(set(ReplayScanner._MACHINE_OWNED_FIELDS) - set(replay_scanner_machine_fields), set())

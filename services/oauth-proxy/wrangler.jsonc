@@ -1,32 +1,31 @@
 {
     "$schema": "node_modules/wrangler/config-schema.json",
-    "name": "auth-proxy",
+    "name": "oauth-proxy",
+    // Secrets are set with `wrangler secret put` and cannot be declared here. The worker reads
+    // OIDC_SIGNING_KEY, OIDC_SIGNING_KEY_INACTIVE_1 and OIDC_SIGNING_KEY_INACTIVE_2; see the
+    // README section on ID tokens and the `Env` interface in src/index.ts.
     "main": "src/index.ts",
     "compatibility_date": "2025-03-10",
-    "compatibility_flags": [
-        "nodejs_compat"
-    ],
+    "compatibility_flags": ["nodejs_compat"],
     "observability": {
         "enabled": true,
         "logs": {
             "enabled": true,
             "head_sampling_rate": 1.0,
-            "persist": true
-        }
+            "persist": true,
+        },
     },
     "rules": [
         {
             "type": "Text",
-            "globs": [
-                "src/static/**/*.html"
-            ],
-            "fallthrough": true
-        }
+            "globs": ["src/static/**/*.html"],
+            "fallthrough": true,
+        },
     ],
     "kv_namespaces": [
         {
             "binding": "AUTH_KV",
-            "id": "3ac9a85816994f3ea94f98364de4732a"
-        }
-    ]
+            "id": "3ac9a85816994f3ea94f98364de4732a",
+        },
+    ],
 }

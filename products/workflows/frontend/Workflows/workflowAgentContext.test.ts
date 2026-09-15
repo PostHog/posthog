@@ -218,17 +218,17 @@ describe('workflowAgentContext', () => {
             expect(pinned).toContain('editing_email_action_id')
             expect(pinned).toContain('workflows-patch-action-email')
             expect(pinned).not.toContain('e1')
-            // The dedicated attached item, not the passing mention inside a base tool's description.
-            expect(
-                instructionValues(items).some((value) => value.startsWith('MCP tool workflows-patch-email-template'))
-            ).toBe(true)
-            // The visible skill chip and its embedded content ride along.
+            // The visible skill chip and the instruction that names the skill and template tools ride along.
             expect(
                 items.some((item) => item.type === 'skill' && item.label === 'Designing email templates skill')
             ).toBe(true)
-            expect(instructionValues(items).some((value) => value.startsWith('Skill designing-email-templates'))).toBe(
-                true
-            )
+            expect(
+                instructionValues(items).some(
+                    (value) =>
+                        value.includes('designing-email-templates skill') &&
+                        value.includes('workflows-patch-email-template')
+                )
+            ).toBe(true)
         })
 
         it('reopening an email re-points the agent through a value that is never deduplicated (A, B, A)', () => {
@@ -281,9 +281,7 @@ describe('workflowAgentContext', () => {
             const items = buildWorkflowAgentContext(workflowWith({}), id, templatesById, editingEmailActionId)
 
             expect(instructionValues(items).some((value) => value.includes('email editor open'))).toBe(false)
-            expect(
-                instructionValues(items).some((value) => value.startsWith('MCP tool workflows-patch-email-template'))
-            ).toBe(false)
+            expect(instructionValues(items).some((value) => value.includes('designing-email-templates'))).toBe(false)
         })
     })
 })

@@ -108,7 +108,8 @@ def _current_rate() -> float:
 def _rate_policy(_key: str) -> RatePolicy:
     """Resolve the live global budget. Registered as a provider so a constance change to the rate
     takes effect without a restart (read on each acquire, not frozen at import)."""
-    return RatePolicy(limits=((max(1, int(_current_rate())), 1.0),), in_memory_divider=_IN_MEMORY_DIVIDER)
+    # Flat: this consumer is the budget's only caller, so no higher lane needs reserved headroom.
+    return RatePolicy(limits=((max(1, int(_current_rate())), 1.0),), in_memory_divider=_IN_MEMORY_DIVIDER, reserve={})
 
 
 register_policy(_RATE_DOMAIN, _rate_policy)

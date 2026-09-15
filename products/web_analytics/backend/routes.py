@@ -1,6 +1,7 @@
 from posthog.api.routing import RouterRegistry
 
 from products.web_analytics.backend.api import WebAnalyticsViewSet
+from products.web_analytics.backend.api.custom_bot_rules import CustomBotRuleViewSet
 from products.web_analytics.backend.api.heatmaps_api import (
     HeatmapScreenshotViewSet,
     HeatmapViewSet,
@@ -11,6 +12,11 @@ from products.web_analytics.backend.api.web_analytics_achievements import WebAna
 from products.web_analytics.backend.api.web_analytics_filter_preset import WebAnalyticsFilterPresetViewSet
 from products.web_analytics.backend.api.web_analytics_path_cleaning_suggestions import (
     WebAnalyticsPathCleaningSuggestionViewSet,
+)
+from products.web_analytics.backend.presentation.views.content_autopilot import (
+    ContentAutopilotProposalViewSet,
+    ContentAutopilotRunViewSet,
+    ContentAutopilotSiteProfileViewSet,
 )
 
 
@@ -29,6 +35,24 @@ def register_routes(routers: RouterRegistry) -> None:
     )
     routers.projects.register(r"web_analytics", WebAnalyticsViewSet, "project_web_analytics", ["team_id"])
     routers.projects.register(
+        r"web_analytics_content_autopilot_profiles",
+        ContentAutopilotSiteProfileViewSet,
+        "project_web_analytics_content_autopilot_profiles",
+        ["team_id"],
+    )
+    routers.projects.register(
+        r"web_analytics_content_autopilot_runs",
+        ContentAutopilotRunViewSet,
+        "project_web_analytics_content_autopilot_runs",
+        ["team_id"],
+    )
+    routers.projects.register(
+        r"web_analytics_content_autopilot_proposals",
+        ContentAutopilotProposalViewSet,
+        "project_web_analytics_content_autopilot_proposals",
+        ["team_id"],
+    )
+    routers.projects.register(
         r"web_analytics_achievements",
         WebAnalyticsAchievementsViewSet,
         "project_web_analytics_achievements",
@@ -38,5 +62,11 @@ def register_routes(routers: RouterRegistry) -> None:
         r"web_analytics_path_cleaning_suggestions",
         WebAnalyticsPathCleaningSuggestionViewSet,
         "project_web_analytics_path_cleaning_suggestions",
+        ["team_id"],
+    )
+    routers.projects.register(
+        r"web_analytics_bot_rules",
+        CustomBotRuleViewSet,
+        "project_web_analytics_bot_rules",
         ["team_id"],
     )

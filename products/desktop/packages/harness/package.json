@@ -48,6 +48,10 @@
       "types": "./dist/extensions/product-engineer/index.d.ts",
       "import": "./dist/extensions/product-engineer/index.js"
     },
+    "./extensions/current-work": {
+      "types": "./dist/extensions/current-work/extension.d.ts",
+      "import": "./dist/extensions/current-work/extension.js"
+    },
     "./extensions/web-access": {
       "types": "./dist/extensions/web-access/index.d.ts",
       "import": "./dist/extensions/web-access/index.js"
@@ -67,6 +71,10 @@
     "./extensions/mcp/schema": {
       "types": "./dist/extensions/mcp/schema.d.ts",
       "import": "./dist/extensions/mcp/schema.js"
+    },
+    "./extensions/mcp/tool-bridge": {
+      "types": "./dist/extensions/mcp/tool-bridge.d.ts",
+      "import": "./dist/extensions/mcp/tool-bridge.js"
     },
     "./extensions/footer-focus-demo": {
       "types": "./dist/extensions/footer-focus-demo/index.d.ts",

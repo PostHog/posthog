@@ -37,7 +37,12 @@ function progressMsg(
   };
 }
 
-function userPromptMsg(ts: number, id: number, text: string): AcpMessage {
+function userPromptMsg(
+  ts: number,
+  id: number,
+  text: string,
+  messageId?: string,
+): AcpMessage {
   return {
     type: "acp_message",
     ts,
@@ -45,19 +50,29 @@ function userPromptMsg(ts: number, id: number, text: string): AcpMessage {
       jsonrpc: "2.0",
       id,
       method: "session/prompt",
-      params: { prompt: [{ type: "text", text }] },
+      params: {
+        prompt: [{ type: "text", text }],
+        ...(messageId ? { _meta: { messageId } } : {}),
+      },
     },
   };
 }
 
-function promptResponseMsg(ts: number, id: number): AcpMessage {
+function promptResponseMsg(
+  ts: number,
+  id: number,
+  traceId?: string,
+): AcpMessage {
   return {
     type: "acp_message",
     ts,
     message: {
       jsonrpc: "2.0",
       id,
-      result: { stopReason: "end_turn" },
+      result: {
+        stopReason: "end_turn",
+        ...(traceId ? { _meta: { traceId } } : {}),
+      },
     },
   };
 }
@@ -227,6 +242,39 @@ describe("buildConversationItems", () => {
     ]);
   });
 
+  it("renders one user message when a delivery is retried", () => {
+    const result = buildConversationItems(
+      [
+        userPromptMsg(1, 1, "do the thing", "delivery-1"),
+        userPromptMsg(2, 2, "do the thing", "delivery-1"),
+        agentMessageMsg(3, "Done"),
+        promptResponseMsg(4, 2),
+      ],
+      null,
+    );
+
+    expect(result.items.filter((item) => item.type === "user_message")).toEqual(
+      [expect.objectContaining({ content: "do the thing" })],
+    );
+  });
+
+  it("keeps the prompt response's trace id on the turn for its rating", () => {
+    const result = buildConversationItems(
+      [
+        userPromptMsg(1, 1, "hi"),
+        agentMessageMsg(2, "hello"),
+        promptResponseMsg(3, 1, "trace-1"),
+      ],
+      null,
+    );
+
+    const update = result.items.find((item) => item.type === "session_update");
+    expect(update?.turnContext).toMatchObject({
+      turnComplete: true,
+      traceId: "trace-1",
+    });
+  });
+
   it("keeps item ids stable when older history is prepended", () => {
     const older: AcpMessage[] = [
       userPromptMsg(1, 1, "first question"),
@@ -251,6 +299,54 @@ describe("buildConversationItems", () => {
     expect(tailIds.length).toBeGreaterThan(0);
     expect(fullIds.slice(-tailIds.length)).toEqual(tailIds);
   });
+
+  it.each([
+    {
+      name: "while the start is still the newest thing",
+      trailing: [],
+      expected: 0,
+    },
+    {
+      name: "once the agent speaks after it",
+      trailing: [agentMessageMsg(6, "Hi")],
+      expected: 1,
+    },
+    {
+      name: "once per burst when content separates them",
+      trailing: [
+        agentMessageMsg(6, "Hi"),
+        statusMsg(7, "setup_hooks"),
+        statusMsg(8, "sdk_initialization"),
+        agentMessageMsg(9, "Back"),
+      ],
+      expected: 2,
+    },
+  ])(
+    "collapses a startup burst into one agent_started row $name",
+    ({ trailing, expected }) => {
+      const result = buildConversationItems(
+        [
+          userPromptMsg(1, 1, "go"),
+          statusMsg(2, "setup_hooks"),
+          statusMsg(3, "sdk_initialization"),
+          statusMsg(4, "setup_hooks"),
+          statusMsg(5, "sdk_initialization"),
+          ...trailing,
+        ],
+        false,
+      );
+      const statuses = result.items.filter(
+        (i): i is Extract<ConversationItem, { type: "session_update" }> =>
+          i.type === "session_update" && i.update.sessionUpdate === "status",
+      );
+      expect(statuses).toHaveLength(expected);
+      for (const item of statuses) {
+        expect((item.update as { status: string }).status).toBe(
+          "agent_started",
+        );
+      }
+    },
+  );
 
   it("clears the compacting spinner on a successful completion status, without duplicating the row", () => {
     // A successful compaction sends a terminal `status: compacting, isComplete:

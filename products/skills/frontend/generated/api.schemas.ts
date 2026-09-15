@@ -12,9 +12,10 @@
  * * `verified` - Verified
  * * `community` - Community
  */
-export type TrustTierEnumApi = (typeof TrustTierEnumApi)[keyof typeof TrustTierEnumApi]
+export type CommunitySkillTrustTierEnumApi =
+    (typeof CommunitySkillTrustTierEnumApi)[keyof typeof CommunitySkillTrustTierEnumApi]
 
-export const TrustTierEnumApi = {
+export const CommunitySkillTrustTierEnumApi = {
     Official: 'official',
     Verified: 'verified',
     Community: 'community',
@@ -54,7 +55,7 @@ export interface CommunitySkillListApi {
     readonly license: string
     /** Environment requirements declared by the skill. */
     readonly compatibility: string
-    /** Tools the skill declares it may use. Surface these to the user before install. */
+    /** Tools the skill asks to use. Surface these to the user before install. The list is a request, not a grant: a harness that loads the installed skill over MCP ignores it until the user approves that grant. */
     allowed_tools?: string[]
     /** Arbitrary key-value metadata carried from the skill's frontmatter. */
     metadata?: CommunitySkillListApiMetadata
@@ -65,7 +66,7 @@ export interface CommunitySkillListApi {
      * * `official` - Official
      * * `verified` - Verified
      * * `community` - Community */
-    trust_tier: TrustTierEnumApi
+    trust_tier: CommunitySkillTrustTierEnumApi
     /** GitHub handle (or name) of the contributor who published the skill. */
     readonly author_handle: string
     /** Link to the skill's source directory on GitHub. */
@@ -122,7 +123,7 @@ export interface CommunitySkillApi {
     readonly license: string
     /** Environment requirements declared by the skill. */
     readonly compatibility: string
-    /** Tools the skill declares it may use. Surface these to the user before install. */
+    /** Tools the skill asks to use. Surface these to the user before install. The list is a request, not a grant: a harness that loads the installed skill over MCP ignores it until the user approves that grant. */
     allowed_tools?: string[]
     /** Arbitrary key-value metadata carried from the skill's frontmatter. */
     metadata?: CommunitySkillApiMetadata
@@ -133,7 +134,7 @@ export interface CommunitySkillApi {
      * * `official` - Official
      * * `verified` - Verified
      * * `community` - Community */
-    trust_tier: TrustTierEnumApi
+    trust_tier: CommunitySkillTrustTierEnumApi
     /** GitHub handle (or name) of the contributor who published the skill. */
     readonly author_handle: string
     /** Link to the skill's source directory on GitHub. */
@@ -239,6 +240,20 @@ export interface LLMSkillFileManifestApi {
     path: string
     /** @maxLength 100 */
     content_type?: string
+    /** Number of lines in the file content. */
+    line_count: number
+    /** Number of characters in the file content. */
+    char_count: number
+    /**
+     * Size of the file content in bytes. Null on rows written before digests were stamped.
+     * @nullable
+     */
+    size: number | null
+    /**
+     * Hex SHA-256 of the file content. Null on rows written before digests were stamped.
+     * @nullable
+     */
+    sha256: string | null
 }
 
 export interface LLMSkillOutlineEntryApi {
@@ -250,6 +265,18 @@ export interface LLMSkillOutlineEntryApi {
     level: number
     /** Heading text. */
     text: string
+}
+
+export interface LLMSkillSpecProblemApi {
+    /** Stable machine-readable code for the problem, e.g. description_too_long or file_path_collides. */
+    code: string
+    /** What is wrong and what to change, written for the skill's author. */
+    message: string
+    /**
+     * The bundled file the problem is about. Null when it is about the skill itself.
+     * @nullable
+     */
+    file_path: string | null
 }
 
 export interface LLMSkillApi {
@@ -283,7 +310,7 @@ export interface LLMSkillApi {
      * @maxLength 500
      */
     compatibility?: string
-    /** List of pre-approved tools the skill may use. Tool names cannot contain whitespace. */
+    /** Tools the skill asks to use. Tool names cannot contain whitespace. A harness that reads the skill from a file (zip export, git marketplace, a content=full bundle) treats the list as pre-approved. A harness that loads the skill over MCP, including the default content=stub bundle, ignores the list until the user approves that grant. */
     allowed_tools?: string[]
     /** Arbitrary key-value metadata. */
     metadata?: LLMSkillApiMetadata
@@ -291,10 +318,12 @@ export interface LLMSkillApi {
     readonly category: string
     /** Users who own this skill, seed-creator first. Ownership is keyed on the logical skill (not a version), so it's stable across edits. Prefer this over created_by to learn who to route reviews or questions to. Set via the owners field on create/update (a list of user UUIDs). Empty for scout sandbox fetches of skills that haven't opted into the report channel. */
     readonly owners: readonly UserBasicApi[]
-    /** Bundled files manifest. Each entry is path + content_type only; fetch content via /llm_skills/name/{name}/files/{path}/. */
+    /** Bundled files manifest. Each entry carries path, content_type, and line/char counts — no content; fetch content via /llm_skills/name/{name}/files/{path}/. */
     readonly files: readonly LLMSkillFileManifestApi[]
     /** Flat list of markdown headings parsed from the skill body. Useful as a lightweight table of contents. */
     readonly outline: readonly LLMSkillOutlineEntryApi[]
+    /** Why this skill is left out of the skills bundle and the plugin marketplace, as stable codes with author-facing messages. Empty when the skill packages cleanly. */
+    readonly spec_problems: readonly LLMSkillSpecProblemApi[]
     readonly version: number
     /**
      * Optional note describing what changed in this version. Set when the version is published.
@@ -348,7 +377,7 @@ export interface LLMSkillListApi {
      * @maxLength 500
      */
     compatibility?: string
-    /** List of pre-approved tools the skill may use. Tool names cannot contain whitespace. */
+    /** Tools the skill asks to use. Tool names cannot contain whitespace. A harness that reads the skill from a file (zip export, git marketplace, a content=full bundle) treats the list as pre-approved. A harness that loads the skill over MCP, including the default content=stub bundle, ignores the list until the user approves that grant. */
     allowed_tools?: string[]
     /** Arbitrary key-value metadata. */
     metadata?: LLMSkillListApiMetadata
@@ -358,6 +387,8 @@ export interface LLMSkillListApi {
     readonly owners: readonly UserBasicApi[]
     /** Flat list of markdown headings parsed from the skill body. Useful as a lightweight table of contents. */
     readonly outline: readonly LLMSkillOutlineEntryApi[]
+    /** Why this skill is left out of the skills bundle and the plugin marketplace, as stable codes with author-facing messages. Empty when the skill packages cleanly. */
+    readonly spec_problems: readonly LLMSkillSpecProblemApi[]
     readonly version: number
     /**
      * Optional note describing what changed in this version. Set when the version is published.
@@ -437,7 +468,7 @@ export interface LLMSkillCreateApi {
      * @maxLength 500
      */
     compatibility?: string
-    /** List of pre-approved tools the skill may use. Tool names cannot contain whitespace. */
+    /** Tools the skill asks to use. Tool names cannot contain whitespace. A harness that reads the skill from a file (zip export, git marketplace, a content=full bundle) treats the list as pre-approved. A harness that loads the skill over MCP, including the default content=stub bundle, ignores the list until the user approves that grant. */
     allowed_tools?: string[]
     /** Arbitrary key-value metadata. */
     metadata?: LLMSkillCreateApiMetadata
@@ -452,6 +483,8 @@ export interface LLMSkillCreateApi {
     files?: LLMSkillFileInputApi[]
     /** Flat list of markdown headings parsed from the skill body. Useful as a lightweight table of contents. */
     readonly outline: readonly LLMSkillOutlineEntryApi[]
+    /** Why this skill is left out of the skills bundle and the plugin marketplace, as stable codes with author-facing messages. Empty when the skill packages cleanly. */
+    readonly spec_problems: readonly LLMSkillSpecProblemApi[]
     readonly version: number
     /**
      * Optional note describing what changed in this version. Set when the version is published.
@@ -590,7 +623,7 @@ export interface PatchedLLMSkillPublishApi {
      * @maxLength 500
      */
     compatibility?: string
-    /** List of pre-approved tools the skill may use. Tool names cannot contain whitespace. */
+    /** Tools the skill asks to use. Tool names cannot contain whitespace. A harness that reads the skill from a file (zip export, git marketplace, a content=full bundle) treats the list as pre-approved. A harness that loads the skill over MCP, including the default content=stub bundle, ignores the list until the user approves that grant. */
     allowed_tools?: string[]
     /** Arbitrary key-value metadata. */
     metadata?: PatchedLLMSkillPublishApiMetadata
@@ -670,6 +703,13 @@ export interface LLMSkillFileApi {
 }
 
 export interface LLMSkillPublishToCommunityApi {
+    /** Immutable ID of the skill version that the publisher reviewed. */
+    expected_skill_id: string
+    /**
+     * Skill version that the publisher reviewed. The request returns 409 if the latest version changed.
+     * @minimum 1
+     */
+    expected_version: number
     /** Human-friendly display name for the community listing. Defaults to a title-cased skill slug. Must be a single line: it is used as the pull request title and commit message. */
     display_name?: string
     /**
@@ -690,6 +730,44 @@ export interface CommunitySkillPublishResultApi {
     branch: string
 }
 
+export interface LLMSkillPublishConflictApi {
+    /** Reason that the reviewed skill version can no longer be published. */
+    detail: string
+}
+
+export interface LLMSkillRenameApi {
+    /**
+     * New name for the skill. Must be unique in the project, and must not start with 'signals-scout-' or 'review-hog-'.
+     * @maxLength 64
+     */
+    new_name: string
+}
+
+export type LLMSkillMarkdownApiFrontmatterMetadata = { [key: string]: string }
+
+/**
+ * The frontmatter block of content as a JSON object. Equal to yaml.safe_load of that block, so a listing can carry the same fields the file carries.
+ */
+export type LLMSkillMarkdownApiFrontmatter = {
+    name: string
+    description: string
+    license?: string
+    compatibility?: string
+    metadata: LLMSkillMarkdownApiFrontmatterMetadata
+    'allowed-tools'?: string
+}
+
+export interface LLMSkillMarkdownApi {
+    /** Name of the skill, which is also its directory name. */
+    name: string
+    /** Version of the skill that this SKILL.md was rendered from. */
+    version: number
+    /** The complete SKILL.md file: the YAML frontmatter block, a blank line, then the skill body. Serve these bytes as the file; a digest must be taken over this exact string. */
+    content: string
+    /** The frontmatter block of content as a JSON object. Equal to yaml.safe_load of that block, so a listing can carry the same fields the file carries. */
+    frontmatter: LLMSkillMarkdownApiFrontmatter
+}
+
 export interface LLMSkillVersionSummaryApi {
     readonly id: string
     readonly version: number
@@ -704,6 +782,64 @@ export interface LLMSkillResolveResponseApi {
     skill: LLMSkillApi
     versions: LLMSkillVersionSummaryApi[]
     has_more: boolean
+}
+
+/**
+ * * `name` - name
+ * * `description` - description
+ * * `body` - body
+ * * `file_path` - file_path
+ * * `file_content` - file_content
+ */
+export type MatchedFieldEnumApi = (typeof MatchedFieldEnumApi)[keyof typeof MatchedFieldEnumApi]
+
+export const MatchedFieldEnumApi = {
+    Name: 'name',
+    Description: 'description',
+    Body: 'body',
+    FilePath: 'file_path',
+    FileContent: 'file_content',
+} as const
+
+export interface LLMSkillSearchMatchApi {
+    /** Skill field that matched the search query.
+     *
+     * * `name` - name
+     * * `description` - description
+     * * `body` - body
+     * * `file_path` - file_path
+     * * `file_content` - file_content */
+    matched_field: MatchedFieldEnumApi
+    /** Skill-relative file path for body or bundled-file matches. Omitted for name and description matches. */
+    path?: string
+    /**
+     * One-based line containing the match when the result came from a body or bundled file.
+     * @minimum 1
+     */
+    line?: number
+    /** Short excerpt showing why this skill matched. */
+    excerpt: string
+}
+
+export interface LLMSkillSearchResultApi {
+    /** Unique skill name. */
+    name: string
+    /** What this skill does and when to use it. */
+    description: string
+    /** Up to two locations that matched the search query, ordered by field relevance. */
+    matches: LLMSkillSearchMatchApi[]
+}
+
+export interface LLMSkillSearchResponseApi {
+    /** Number of matching skills returned, capped at 10. */
+    count: number
+    /** Matching ordinary skills in relevance order. */
+    results: LLMSkillSearchResultApi[]
+}
+
+export interface LLMSkillSearchErrorApi {
+    /** Explanation of why the skill search could not complete. */
+    detail: string
 }
 
 export type CommunitySkillsListParams = {
@@ -796,7 +932,7 @@ export type LlmSkillsBundleRetrieveParams = {
      */
     content?: LlmSkillsBundleRetrieveContent
     /**
-     * Maximum number of skills in the zip, newest first; default 20, at most 100. Every skill in the zip costs the agent prompt context on each turn, so pick what the harness can usefully carry. Skills past the limit are reported in X-Skills-Dropped.
+     * Maximum number of skills in the zip, newest first; default 50, at most 100. Every skill in the zip costs the agent prompt context on each turn, so pick what the harness can usefully carry. Skills past the limit are reported in X-Skills-Dropped.
      * @minimum 1
      * @maximum 100
      */
@@ -853,6 +989,14 @@ export type LlmSkillsNameFilesDestroyParams = {
     base_version?: number
 }
 
+export type LlmSkillsNameSkillMdRetrieveParams = {
+    /**
+     * Specific skill version to fetch. If omitted, the latest version is returned.
+     * @minimum 1
+     */
+    version?: number
+}
+
 export type LlmSkillsResolveNameRetrieveParams = {
     /**
      * Return versions older than this version number. Mutually exclusive with offset.
@@ -879,4 +1023,13 @@ export type LlmSkillsResolveNameRetrieveParams = {
      * Exact skill version UUID to resolve.
      */
     version_id?: string
+}
+
+export type LlmSkillsSearchRetrieveParams = {
+    /**
+     * Case-insensitive substring to search across ordinary skill names, descriptions, bodies, file paths, and Markdown file contents.
+     * @minLength 1
+     * @maxLength 200
+     */
+    query: string
 }

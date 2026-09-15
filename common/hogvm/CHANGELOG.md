@@ -1,5 +1,32 @@
 # HogQL bytecode changelog
 
+## 2026-09-07 - 1.0.70
+
+Eleven standard library functions accept the trailing arguments that HogQL accepts. No bytecode
+operations changed.
+
+Version 1.0.69 started to enforce a `maxArgs` limit that no dispatch path had ever checked. Several
+limits were below the HogQL signature for the same name, so a call that runs in an insight failed in
+Hog:
+
+```bash
+round(19.99, 2)          # and floor
+now('UTC')               # and toString, toStartOfDay, toStartOfWeek, dateTrunc
+position('abc', 'b', 1)  # and positionCaseInsensitive
+arraySort(arr, x)        # and arrayReverseSort
+```
+
+Each of these runs again. The trailing argument is accepted and ignored, which is what the VM did
+before 1.0.69.
+
+`range` keeps its limit of two arguments. HogQL takes a step argument, and neither VM implements one.
+
+`JSONHas` also accepts a single argument with no path components, matching HogQL and the existing
+implementation.
+
+See [Hog function argument counts](../../../docs/internal/hog-function-arities.md) for the remaining
+differences from HogQL.
+
 ## 2026-08-27 - 1.0.69
 
 The VM checks the argument count of a standard library function before it calls it. No bytecode

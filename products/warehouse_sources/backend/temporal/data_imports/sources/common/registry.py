@@ -47,10 +47,33 @@ class SourceRegistry:
         return source_class
 
     @classmethod
+    def _load_one(cls, source_type: ExternalDataSourceType) -> None:
+        # Importing every source module costs seconds per process, and a request typically
+        # needs a handful of types. Import only the module for this type; `get_source` falls
+        # back to the full load when that leaves the type unregistered.
+        if cls._loaded or source_type in cls._sources:
+            return
+        from products.warehouse_sources.backend.temporal.data_imports.sources import load_source  # noqa: PLC0415
+
+        load_source(source_type)
+
+    @classmethod
     def get_source(cls, source_type: ExternalDataSourceType) -> "AnySource":
         """Get a source instance by type"""
 
-        cls._ensure_loaded()
+        # Callers may hand us the raw string value (e.g. an `oauth_accounts` query param). The
+        # str-mixin enum compares equal to its value, so the `in cls._sources` checks below still
+        # work, but the lazy single-module load reads `source_type.name`, which a plain str lacks.
+        # Coerce to a real enum member first so both the lazy and full-load paths resolve, and so
+        # an unknown value surfaces as ValueError rather than AttributeError.
+        try:
+            source_type = ExternalDataSourceType(source_type)
+        except ValueError:
+            raise ValueError(f"Unknown source type: {source_type}")
+
+        cls._load_one(source_type)
+        if source_type not in cls._sources:
+            cls._ensure_loaded()
         if source_type not in cls._sources:
             raise ValueError(f"Unknown source type: {source_type}")
         return cls._sources[source_type]

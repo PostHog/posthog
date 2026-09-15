@@ -5,7 +5,7 @@ import secrets
 from typing import Any
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
@@ -99,7 +99,7 @@ class TestGetEmailFromIdToken(BaseTest):
         ]
     )
     # Freeze so the token iat and the validation now() share one instant.
-    @freeze_time("2025-01-01T00:00:00Z")
+    @time_machine.travel("2025-01-01T00:00:00Z", tick=False)
     def test_iat_bounds_checking(self, name, iat_offset, expected_success):
         payload = {**self.base_payload, "iat": int(time.time()) + iat_offset}
         token = self.jwt_helper.create_id_token(payload)

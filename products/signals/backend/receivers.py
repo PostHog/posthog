@@ -4,9 +4,12 @@ Kept in one place so cross-cutting side effects of report state changes have a s
 rather than being sprinkled across every dismissal entrypoint (Slack, REST, bulk, …).
 """
 
+from __future__ import annotations
+
 import json
 from datetime import datetime, timedelta
-from typing import Any
+from functools import partial
+from typing import TYPE_CHECKING, Any
 
 from django.db import transaction
 from django.db.models import QuerySet
@@ -19,14 +22,17 @@ import posthoganalytics
 
 from posthog.event_usage import groups
 
-from products.signals.backend.implementation_pr import PrCloseReason
 from products.signals.backend.models import SignalReport, SignalReportArtefact
 from products.signals.backend.report_embeddings import (
-    emit_report_embedding,
+    emit_report_embeddings,
     emit_report_tombstone,
-    render_report_document,
+    render_report_documents,
 )
-from products.signals.backend.tasks import close_dismissed_report_pr
+from products.signals.backend.scout_harness.suggestions import mark_stale_if_fleet_changed
+from products.tasks.backend.facade.task_run_signals import connect_task_run_post_save
+
+if TYPE_CHECKING:
+    from products.signals.backend.implementation_pr import PrCloseReason
 
 logger = structlog.get_logger(__name__)
 
@@ -35,6 +41,65 @@ _SNOOZE_SOURCE_STATUSES = frozenset({SignalReport.Status.READY, SignalReport.Sta
 # The fields the embedded report document is rendered from. A save touching none of them cannot
 # change the document, so it skips both the prior-state read and the re-embed.
 _DOCUMENT_FIELDS = frozenset({"title", "summary"})
+
+
+def connect_task_run_assignment_sync() -> None:
+    connect_task_run_post_save(
+        sync_task_run_pr_to_assignments,
+        dispatch_uid="signals_sync_task_run_pr_to_assignments",
+    )
+
+
+def sync_task_run_pr_to_assignments(sender: type, instance: Any, created: bool, **kwargs: Any) -> None:
+    """Copy a PR reported by a PR-bearing task run onto its signal report assignments."""
+    try:
+        update_fields = kwargs.get("update_fields")
+        if update_fields is not None and "output" not in update_fields:
+            return
+        output = instance.output if isinstance(instance.output, dict) else {}
+        # Function-local: the assignment sync reaches the tasks facade and the task module reaches
+        # the signals contracts, both forbidden at django.setup() by the startup-import-budget test.
+        from products.signals.backend.pull_requests import apply_report_completion
+        from products.signals.backend.report_assignments import sync_task_pull_request_to_assignments  # noqa: PLC0415
+        from products.signals.backend.tasks import link_report_tracker_issues  # noqa: PLC0415
+        from products.tasks.backend.facade.api import read_pr_urls
+
+        pr_urls = read_pr_urls(output)
+        if not pr_urls:
+            return
+        ai_stage = (instance.state or {}).get("ai_stage")
+        if ai_stage in {"research", "repo_selection"} or (isinstance(ai_stage, str) and ai_stage.startswith("scout:")):
+            return
+        with transaction.atomic():
+            reports = list(
+                SignalReport.objects.select_for_update()
+                .filter(team_id=instance.team_id)
+                .filter(SignalReport.reports_for_task_filter(str(instance.task_id)))
+                .order_by("id")
+            )
+            for pr_url in pr_urls:
+                primary = pr_url == output.get("pr_url")
+                updated = sync_task_pull_request_to_assignments(
+                    team_id=instance.team_id,
+                    task_id=str(instance.task_id),
+                    pr_url=pr_url,
+                    pr_state=output.get("pr_state") if primary and isinstance(output.get("pr_state"), str) else None,
+                    pr_merged=primary and output.get("pr_merged") is True,
+                )
+                if updated:
+                    # Dispatch after commit so a rolled-back sync never edits a pull request body.
+                    transaction.on_commit(
+                        partial(
+                            link_report_tracker_issues.delay,
+                            team_id=instance.team_id,
+                            task_id=str(instance.task_id),
+                            pr_url=pr_url,
+                        )
+                    )
+            for report in reports:
+                apply_report_completion(report)
+    except Exception:
+        logger.exception("signals.task_run_pr_assignment_sync_failed", task_run_id=str(instance.id))
 
 
 def _schedule_tombstone(*, team_id: int, report_id: str, created_at: datetime, reason: str) -> None:
@@ -114,7 +179,7 @@ def capture_prior_state(
     # _state.adding to tell an unsaved row (no prior status) from an update.
     if instance._state.adding:
         instance._prior_status = None  # type: ignore[attr-defined]
-        instance._prior_document = None  # type: ignore[attr-defined]
+        instance._prior_documents = None  # type: ignore[attr-defined]
         return
 
     update_fields = kwargs.get("update_fields")
@@ -122,7 +187,7 @@ def capture_prior_state(
     wants_document = update_fields is None or bool(_DOCUMENT_FIELDS & set(update_fields))
     if not wants_status and not wants_document:
         instance._prior_status = None  # type: ignore[attr-defined]
-        instance._prior_document = None  # type: ignore[attr-defined]
+        instance._prior_documents = None  # type: ignore[attr-defined]
         return
 
     # Project only what this save needs. The bulk-state endpoint transitions up to 100 reports per
@@ -138,9 +203,26 @@ def capture_prior_state(
     # edit look unchanged on the final save and skip re-emitting A over the B vector already published.
     prior = sender.objects.using("default").filter(pk=instance.pk).values(*fields).first()
     instance._prior_status = prior["status"] if prior and wants_status else None  # type: ignore[attr-defined]
-    instance._prior_document = (  # type: ignore[attr-defined]
-        render_report_document(prior["title"], prior["summary"]) if prior and wants_document else None
+    instance._prior_documents = (  # type: ignore[attr-defined]
+        render_report_documents(prior["title"], prior["summary"]) if prior and wants_document else None
     )
+
+
+def _status_changed_on_this_save(
+    instance: SignalReport,
+    *,
+    created: bool,
+    update_fields: set[str] | None,
+    prior_status: str | None,
+) -> bool:
+    """Whether this save is the one that moved the report to another status."""
+    if created:
+        # Reports born SUPPRESSED by the scout safety/actionability judge never surfaced a PR.
+        return False
+    # React only to the save that performed the transition, not later edits.
+    if update_fields is not None and "status" not in update_fields:
+        return False
+    return prior_status is not None and prior_status != instance.status
 
 
 def _pr_close_reason(
@@ -150,13 +232,12 @@ def _pr_close_reason(
     update_fields: set[str] | None,
     prior_status: str | None,
 ) -> PrCloseReason | None:
-    if created:
-        # Reports born SUPPRESSED by the scout safety/actionability judge never surfaced a PR.
+    if not _status_changed_on_this_save(
+        instance, created=created, update_fields=update_fields, prior_status=prior_status
+    ):
         return None
-    # React only to the save that performed the transition, not later edits.
-    if update_fields is not None and "status" not in update_fields:
-        return None
-    if prior_status is None or prior_status == instance.status:
+    # The pull request's own observed state drove this transition, so there is nothing left to close.
+    if getattr(instance, "_status_from_pr_state", False):
         return None
 
     if instance.status == SignalReport.Status.SUPPRESSED:
@@ -189,7 +270,15 @@ def close_pr_when_report_dismissed(
     hooking the model here covers them all without each caller opting in. A resolve closes the PR
     only when the state API flagged it (see ``_pr_close_reason``).
     """
+    # Function-local: the task module reaches the signals contracts, which the
+    # startup-import-budget test forbids at django.setup().
+    from products.signals.backend.tasks import close_dismissed_report_pr, close_report_tracker_issue  # noqa: PLC0415
+
     prior_status = getattr(instance, "_prior_status", None)
+    # The person who asked for this transition, when a caller set it before the save. GitHub
+    # credits the App for the close, so the comment left beside it is the only place they appear.
+    # Absent on every automated transition (PR webhook, judges, temporal), which stays unattributed.
+    actor_user_id = getattr(instance, "_transition_actor_user_id", None)
     reason = _pr_close_reason(
         instance,
         created=created,
@@ -197,6 +286,26 @@ def close_pr_when_report_dismissed(
         prior_status=prior_status,
     )
     if reason is None:
+        if not _status_changed_on_this_save(
+            instance, created=created, update_fields=update_fields, prior_status=prior_status
+        ):
+            return
+        team_id = instance.team_id
+        report_id = str(instance.id)
+        if getattr(instance, "_status_from_pr_state", False) and instance.status == SignalReport.Status.RESOLVED:
+            transaction.on_commit(
+                lambda: close_report_tracker_issue.delay(
+                    report_id=report_id, team_id=team_id, completed=True, actor_user_id=actor_user_id
+                )
+            )
+        elif instance.status == SignalReport.Status.DELETED:
+            # A deleted report leaves the inbox for good, so nothing will ever answer its work
+            # item. The issue closes as not done, because no pull request completed the work.
+            transaction.on_commit(
+                lambda: close_report_tracker_issue.delay(
+                    report_id=report_id, team_id=team_id, completed=False, actor_user_id=actor_user_id
+                )
+            )
         return
 
     team_id = instance.team_id
@@ -207,6 +316,7 @@ def close_pr_when_report_dismissed(
             report_id=report_id,
             team_id=team_id,
             reason=reason,
+            actor_user_id=actor_user_id,
         )
     )
 
@@ -248,18 +358,30 @@ def emit_report_embedding_on_document_change(
         _schedule_tombstone(team_id=team_id, report_id=report_id, created_at=created_at, reason="unreviewed edit")
         return
 
+    # The inverse marker: a judged rewrite that re-sent the exact stored document. The text is
+    # unchanged, but the current embedding row may be a tombstone from an earlier unreviewed edit, so
+    # the no-op shortcut below must not skip this save. Consumed like `_unreviewed_edit`: it
+    # describes the one save it was set for.
+    reviewed_reindex = getattr(instance, "_reviewed_reindex", False)
+    if reviewed_reindex:
+        instance._reviewed_reindex = False  # type: ignore[attr-defined]
+
     # An edit can still land on a deleted report: `update_scout_report` gates on team ownership, not
     # status. Emitting a live row for one would supersede the deletion tombstone and make the report
     # visible to embedding queries again.
     if instance.status == SignalReport.Status.DELETED:
         return
 
-    content = render_report_document(instance.title, instance.summary)
-    if content is None:
-        return
+    documents = render_report_documents(instance.title, instance.summary)
+    prior_documents = getattr(instance, "_prior_documents", None) or {}
+    removed_renderings = tuple(rendering for rendering in prior_documents if rendering not in documents)
     # A save can touch title/summary without changing them: the grouping pipeline rewrites `title`
     # for every signal that joins the report. Re-embedding identical text would spend an embedding
     # call to write a row identical to the one already stored.
+    #
+    # Applied per rendering, because each one is a separate row under its own key: a summary-only edit
+    # changes the composed document while the title rendering stays byte-identical, and only the
+    # changed one is worth an embedding call.
     #
     # Restricted to saves that carry no status transition, because unchanged text does not imply a live
     # row. An unreviewed edit tombstones the report while Postgres keeps the edited text, so when the
@@ -272,16 +394,24 @@ def emit_report_embedding_on_document_change(
     # bare `save()` is what Django admin does, so treating it as judged would let re-saving a report in
     # admin republish text an edit had retracted, under a verdict that predates it.
     carries_status_transition = update_fields is not None and "status" in update_fields
-    if not carries_status_transition and getattr(instance, "_prior_document", None) == content:
+    if not carries_status_transition and not reviewed_reindex:
+        documents = {
+            rendering: content for rendering, content in documents.items() if prior_documents.get(rendering) != content
+        }
+    if not documents and not removed_renderings:
         return
 
     def _emit() -> None:
         try:
+            if removed_renderings:
+                emit_report_tombstone(
+                    team_id=team_id, report_id=report_id, created_at=created_at, renderings=removed_renderings
+                )
             # Checked post-commit, because a scout report's safety verdict is written as an artefact
             # in the same transaction as the report row it judges, so it is only visible from here.
-            if _is_safety_suppressed(report_id, team_id):
+            if not documents or _is_safety_suppressed(report_id, team_id):
                 return
-            emit_report_embedding(team_id=team_id, report_id=report_id, content=content, created_at=created_at)
+            emit_report_embeddings(team_id=team_id, report_id=report_id, documents=documents, created_at=created_at)
         except Exception:
             # A missing vector costs the ranking model one feature row. It must never fail the write
             # that produced the report.
@@ -554,6 +684,7 @@ _SNAPSHOT_ARTEFACT_FIELDS = [
     (SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT, "priority", "priority"),
     (SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT, "actionability", "actionability"),
     (SignalReportArtefact.ArtefactType.DISMISSAL, "reason", "dismissal_reason"),
+    (SignalReportArtefact.ArtefactType.DISMISSAL, "corrected_repository", "dismissal_corrected_repository"),
 ]
 
 
@@ -614,3 +745,19 @@ def _classification_snapshot(
                 value = None
         snapshot[prop] = value if isinstance(value, str) else None
     return snapshot
+
+
+@receiver(post_save, sender="signals.SignalScoutConfig")
+@receiver(post_delete, sender="signals.SignalScoutConfig")
+def mark_scout_suggestions_stale_on_fleet_change(sender: Any, instance: Any, **kwargs: Any) -> None:
+    """A suggestion batch describes gaps in the fleet it was generated against, so a scout being
+    enabled, disabled, or removed flips a `fresh` batch to `stale`; regeneration waits for the
+    normal refresh. Saves that cannot change the enabled set (`update_fields` without `enabled`)
+    skip the read entirely, and nothing here may fail the config write."""
+    update_fields = kwargs.get("update_fields")
+    if update_fields is not None and "enabled" not in update_fields:
+        return
+    try:
+        mark_stale_if_fleet_changed(instance.team_id)
+    except Exception:
+        logger.warning("scout_suggestions: failed to mark batch stale", team_id=instance.team_id, exc_info=True)

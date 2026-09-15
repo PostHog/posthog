@@ -38,13 +38,13 @@ from products.notebooks.backend.util import (
     _iter_markdown_component_blocks,
     _parse_markdown_component_props,
 )
+from products.notebooks.backend.widget_analytics import record_reusable_widget_operation
+from products.notebooks.backend.widget_models import MAX_WIDGET_EFFECTIVE_PROMPT_LENGTH, MAX_WIDGET_PROMPT_LENGTH
 
 logger = logging.getLogger(__name__)
 
 GENERATOR_VERSION = "4"
 MAX_INPUT_NAME_LENGTH = 128
-MAX_PROMPT_LENGTH = 20_000
-MAX_EFFECTIVE_PROMPT_LENGTH = 50_000
 MAX_COLUMNS = 100
 MAX_CELL_STRING_LENGTH = 4_096
 MAX_FRAME_BYTES = 512 * 1_024
@@ -129,12 +129,18 @@ class WidgetStatus:
     error_detail: str | None
     artifact_url: str | None
     frame_names: list[str]
+    input_bindings: dict[str, object]
+    input_contract: list[dict[str, object]]
     current_version_id: UUID | None
+    pinned_version_id: UUID | None
     widget_id: UUID | None
     instance_id: UUID | None
     has_versions: bool
     active_job: WidgetJobState | None
     security_review: WidgetSecurityReviewState | None
+    is_reusable: bool
+    error_code: str | None = None
+    failure_phase: str | None = None
     build_hash: str | None = None
 
 
@@ -234,12 +240,17 @@ def _security_review_state(version: GeneratedWidgetVersion) -> WidgetSecurityRev
     )
 
 
-def normalize_widget_prompt(prompt: str) -> str:
+def normalize_widget_prompt(prompt: str, operation: str) -> str:
     normalized = prompt.strip()
     if not normalized:
         raise WidgetError("Add instructions before generating the widget.", "missing_prompt")
-    if len(normalized) > MAX_PROMPT_LENGTH:
-        raise WidgetError("The widget instructions are too long.", "prompt_too_long")
+    max_length = (
+        MAX_WIDGET_EFFECTIVE_PROMPT_LENGTH
+        if operation == GeneratedWidgetVersion.Operation.REGENERATE
+        else MAX_WIDGET_PROMPT_LENGTH
+    )
+    if len(normalized) > max_length:
+        raise WidgetError(f"Keep widget instructions to {max_length:,} characters or fewer.", "prompt_too_long")
     return normalized
 
 
@@ -263,7 +274,7 @@ def _widget_node_ids(content: object) -> set[str]:
     if markdown is not None:
         occurrences: dict[str, int] = {}
         for tag_name, raw, _next_line_index in _iter_markdown_component_blocks(markdown):
-            if tag_name not in {"Widget", "GeneratedWidget", "GenUI"}:
+            if tag_name != "Widget":
                 continue
             props = _parse_markdown_component_props(raw)
             fingerprint = _get_markdown_component_fingerprint(tag_name, props)
@@ -420,6 +431,7 @@ def _version_input_contract(contract: list[dict[str, object]]) -> list[dict[str,
         {
             "slot": item.get("slot"),
             "sourceName": item.get("sourceName"),
+            "columns": item.get("columns", []),
             "schemaHash": item.get("schemaHash"),
         }
         for item in contract
@@ -505,7 +517,6 @@ def _ensure_widget_instance(*, notebook: Notebook, node_id: str, prompt: str, us
             user_id=user_id,
             channel_id=channel_id,
             name=_display_name(prompt),
-            context=prompt,
         )
         widget = GeneratedWidget.objects.for_team(notebook.team_id).create(
             team_id=notebook.team_id,
@@ -556,6 +567,7 @@ def _validate_generation_retry(
     prompt: str,
     model: str,
     operation: str,
+    expected_current_version_id: UUID | None,
 ) -> None:
     if job.team_id != notebook.team_id or job.instance.notebook_id != notebook.id or job.instance.node_id != node_id:
         raise WidgetConflictError("This generation identifier belongs to another widget.", "generation_id_conflict")
@@ -567,6 +579,11 @@ def _validate_generation_retry(
     if job.prompt != prompt or job.model != model or job.operation != expected_operation:
         raise WidgetConflictError(
             "This generation identifier was already used with different instructions.",
+            "generation_id_conflict",
+        )
+    if operation == GeneratedWidgetVersion.Operation.IMPROVE and job.base_version_id != expected_current_version_id:
+        raise WidgetConflictError(
+            "This generation identifier was already used for a different widget version.",
             "generation_id_conflict",
         )
 
@@ -645,9 +662,13 @@ def start_widget_generation(
     model: str,
     generation_id: UUID,
     operation: str,
+    expected_current_version_id: UUID | None = None,
+    allow_reusable: bool = False,
+    origin: str = "server",
+    input_contract_override: list[dict[str, object]] | None = None,
 ) -> WidgetStatus:
     assert_widget_node_exists(notebook, node_id)
-    normalized_prompt = normalize_widget_prompt(prompt)
+    normalized_prompt = normalize_widget_prompt(prompt, operation)
     if not Team.objects.filter(id=notebook.team_id, organization__is_ai_data_processing_approved=True).exists():
         raise WidgetError(
             "Approve AI data processing in organization settings before generating widgets.",
@@ -662,6 +683,7 @@ def start_widget_generation(
             prompt=normalized_prompt,
             model=model,
             operation=operation,
+            expected_current_version_id=expected_current_version_id,
         )
         _dispatch_widget_generation(existing_job.id, existing_job.team_id)
         return get_widget_status(notebook=notebook, node_id=node_id)
@@ -683,6 +705,7 @@ def start_widget_generation(
                 prompt=normalized_prompt,
                 model=model,
                 operation=operation,
+                expected_current_version_id=expected_current_version_id,
             )
             return get_widget_status(notebook=notebook, node_id=node_id)
         _fail_stale_generation_jobs(notebook.team_id)
@@ -702,26 +725,61 @@ def start_widget_generation(
         locked_instance = (
             NotebookWidgetInstance.objects.for_team(notebook.team_id)
             .select_for_update(of=("self", "widget"))
-            .select_related("widget", "widget__current_version")
+            .select_related("widget", "widget__current_version", "widget__pending_version")
             .get(id=instance.id)
         )
         if (
+            locked_instance.widget.publication_status != GeneratedWidget.PublicationStatus.PRIVATE
+            and not allow_reusable
+        ):
+            raise WidgetConflictError(
+                "Open this reusable widget from the widget catalog to change it, or fork it in this notebook.",
+                "reusable_widget_shared",
+            )
+        if (
             GeneratedWidgetGenerationJob.objects.for_team(notebook.team_id)
-            .filter(instance=locked_instance, status__in=GeneratedWidgetGenerationJob.ACTIVE_STATUSES)
+            .filter(widget=locked_instance.widget, status__in=GeneratedWidgetGenerationJob.ACTIVE_STATUSES)
             .exists()
         ):
             raise WidgetConflictError(
                 "This widget is already being generated. Cancel it before starting another version.",
                 "generation_in_progress",
             )
+        if allow_reusable and locked_instance.widget.pending_version_id is not None:
+            raise WidgetConflictError(
+                "Review or discard the pending version before generating another update.",
+                "review_pending",
+            )
         base_version = locked_instance.widget.current_version
-        if operation == GeneratedWidgetVersion.Operation.IMPROVE and base_version is None:
-            raise WidgetConflictError("Generate the widget before improving it.", "version_missing")
+        if allow_reusable and (
+            base_version is None
+            or expected_current_version_id is None
+            or base_version.id != expected_current_version_id
+        ):
+            raise WidgetConflictError(
+                "This reusable widget changed since you opened it. Reload the latest version before updating it.",
+                "generation_conflict",
+            )
+        if operation == GeneratedWidgetVersion.Operation.IMPROVE:
+            if base_version is None:
+                raise WidgetConflictError("Generate the widget before improving it.", "version_missing")
+            if expected_current_version_id is None or base_version.id != expected_current_version_id:
+                raise WidgetConflictError(
+                    "This widget changed since you opened it. Reload the latest version before improving it.",
+                    "generation_conflict",
+                )
+            next_prompt_history = _extend_prompt_history(_prompt_history(base_version), normalized_prompt)
+            if len(_materialize_prompt_history(next_prompt_history)) > MAX_WIDGET_EFFECTIVE_PROMPT_LENGTH:
+                raise WidgetError(
+                    "The widget's full instructions are too long to improve. Regenerate it with shorter instructions first.",
+                    "effective_prompt_too_long",
+                )
         resolved_operation = operation
         if base_version is None:
             resolved_operation = GeneratedWidgetVersion.Operation.INITIAL
         elif operation == GeneratedWidgetVersion.Operation.INITIAL:
             resolved_operation = GeneratedWidgetVersion.Operation.REGENERATE
+        input_contract = input_contract_override if input_contract_override is not None else inspection.contract
         job = GeneratedWidgetGenerationJob.objects.for_team(notebook.team_id).create(
             idempotency_key=generation_id,
             team_id=notebook.team_id,
@@ -732,9 +790,21 @@ def start_widget_generation(
             prompt=normalized_prompt,
             model=model,
             base_version=base_version,
-            input_contract=inspection.contract,
-            schema_hash=inspection.schema_hash,
+            input_contract=input_contract,
+            schema_hash=_json_hash(input_contract),
         )
+        if allow_reusable:
+            record_reusable_widget_operation(
+                widget=locked_instance.widget,
+                operation="generate",
+                version_id=job.base_version_id,
+                user_id=user_id,
+                origin=origin,
+                notebook_id=notebook.id,
+                node_id=node_id,
+                generation_id=generation_id,
+                generation_operation=resolved_operation,
+            )
         transaction.on_commit(lambda: _dispatch_widget_generation(job.id, notebook.team_id))
     return get_widget_status(notebook=notebook, node_id=node_id)
 
@@ -820,7 +890,7 @@ def _materialize_prompt_history(history: list[str]) -> str:
 
 def _extend_prompt_history(history: list[str], prompt: str) -> list[str]:
     bounded = [*history, prompt]
-    while len(bounded) > 2 and len(_materialize_prompt_history(bounded)) > MAX_EFFECTIVE_PROMPT_LENGTH:
+    while len(bounded) > 2 and len(_materialize_prompt_history(bounded)) > MAX_WIDGET_EFFECTIVE_PROMPT_LENGTH:
         del bounded[1]
     return bounded
 
@@ -829,7 +899,7 @@ def _materialize_effective_prompt(version: GeneratedWidgetVersion) -> str:
     return _materialize_prompt_history(_prompt_history(version))
 
 
-def _mark_job_failed(job_id: UUID, team_id: int, error: WidgetError) -> None:
+def _mark_job_failed(job_id: UUID, team_id: int, error: WidgetError, failure_phase: str | None = None) -> None:
     GeneratedWidgetGenerationJob.objects.for_team(team_id).filter(
         id=job_id, status__in=GeneratedWidgetGenerationJob.ACTIVE_STATUSES
     ).update(
@@ -838,11 +908,54 @@ def _mark_job_failed(job_id: UUID, team_id: int, error: WidgetError) -> None:
             if error.code == "generation_canceled"
             else GeneratedWidgetGenerationJob.Status.FAILED
         ),
-        phase="canceled" if error.code == "generation_canceled" else "failed",
+        phase=(
+            "canceled"
+            if error.code == "generation_canceled"
+            else f"failed_{failure_phase}"
+            if failure_phase
+            else "failed"
+        ),
         error_code=error.code,
         error_detail=error.detail,
         finished_at=timezone.now(),
         heartbeat_at=timezone.now(),
+    )
+
+
+def _record_job_step_failure(
+    job: GeneratedWidgetGenerationJob,
+    *,
+    failure_phase: str,
+    error: Exception,
+    error_code: str,
+    error_detail: str,
+) -> None:
+    logger.warning(
+        "notebook_widget_generation_step_failed",
+        extra={
+            "job_id": str(job.id),
+            "team_id": job.team_id,
+            "failure_phase": failure_phase,
+            "error_code": error_code,
+            "exception_type": type(error).__name__,
+            "upstream_status_code": getattr(error, "status_code", None),
+            "upstream_request_id": getattr(error, "request_id", None),
+        },
+    )
+    _mark_job_failed(
+        job.id,
+        job.team_id,
+        WidgetError(error_detail, error_code),
+        failure_phase=failure_phase,
+    )
+
+
+def _job_failure_phase(job: GeneratedWidgetGenerationJob | None) -> str | None:
+    if job is None or job.status != GeneratedWidgetGenerationJob.Status.FAILED:
+        return None
+    failure_phase = job.phase.removeprefix("failed_")
+    return (
+        failure_phase if failure_phase in {"generating_source", "reviewing_source", "publishing_source"} else "unknown"
     )
 
 
@@ -1003,6 +1116,7 @@ def run_widget_generation_job(job_id: UUID, team_id: int) -> None:
         )
         if not reviewing:
             raise WidgetError("This generation is no longer active.", "generation_abandoned")
+        job.phase = "reviewing_source"
         security_review = review_widget_source(
             team_id=job.team_id,
             trace_id=f"notebook-widget-security-review-{job.id}",
@@ -1030,6 +1144,7 @@ def run_widget_generation_job(job_id: UUID, team_id: int) -> None:
         )
         if not publishing:
             raise WidgetError("This generation is no longer active.", "generation_abandoned")
+        job.phase = "publishing_source"
         prepared_source = canvas_facade.prepare_notebook_canvas_source(
             team_id=job.team_id,
             canvas_id=job.widget.canvas_id,
@@ -1042,7 +1157,7 @@ def run_widget_generation_job(job_id: UUID, team_id: int) -> None:
                 job.base_version.canvas_source_version_id if job.base_version is not None else None
             ),
         )
-        with transaction.atomic():
+        with canvas_facade.notebook_canvas_source_transaction(team_id=job.team_id, prepared=prepared_source):
             locked_job = (
                 GeneratedWidgetGenerationJob.objects.for_team(job.team_id)
                 .select_for_update()
@@ -1060,10 +1175,19 @@ def run_widget_generation_job(job_id: UUID, team_id: int) -> None:
                     "This widget changed while the new version was being generated.",
                     "generation_conflict",
                 )
-            publication = canvas_facade.publish_prepared_notebook_canvas_source(
-                team_id=job.team_id,
-                user_id=job.requested_by.id,
-                prepared=prepared_source,
+            is_reusable = widget.publication_status == GeneratedWidget.PublicationStatus.PUBLISHED
+            publication = (
+                canvas_facade.publish_prepared_notebook_canvas_draft(
+                    team_id=job.team_id,
+                    user_id=job.requested_by.id,
+                    prepared=prepared_source,
+                )
+                if is_reusable
+                else canvas_facade.publish_prepared_notebook_canvas_source(
+                    team_id=job.team_id,
+                    user_id=job.requested_by.id,
+                    prepared=prepared_source,
+                )
             )
             prompt_history = (
                 _extend_prompt_history(_prompt_history(job.base_version), job.prompt)
@@ -1082,6 +1206,12 @@ def run_widget_generation_job(job_id: UUID, team_id: int) -> None:
                 model=job.model,
                 generator_version=GENERATOR_VERSION,
                 input_contract=_version_input_contract(job.input_contract),
+                demo_data=(
+                    job.base_version.demo_data
+                    if widget.publication_status == GeneratedWidget.PublicationStatus.PUBLISHED
+                    and job.base_version is not None
+                    else {}
+                ),
                 schema_hash=job.schema_hash,
                 security_review_severity=security_review.severity,
                 security_review_summary=security_review.summary,
@@ -1098,11 +1228,23 @@ def run_widget_generation_job(job_id: UUID, team_id: int) -> None:
                 security_reviewed_at=security_reviewed_at,
                 created_by=job.requested_by,
             )
-            widget.current_version = version
-            widget.name = title
-            widget.save(update_fields=["current_version", "name"])
-            instance.pinned_version = version
-            instance.save(update_fields=["pinned_version"])
+            if is_reusable:
+                if widget.pending_version_id is not None:
+                    raise WidgetConflictError(
+                        "Another reusable widget version is already waiting for review.",
+                        "review_pending",
+                    )
+                widget.pending_version = version
+                widget_update_fields = ["pending_version"]
+            else:
+                widget.current_version = version
+                widget_update_fields = ["current_version"]
+                widget.name = title
+                widget_update_fields.append("name")
+            widget.save(update_fields=widget_update_fields)
+            if widget.publication_status == GeneratedWidget.PublicationStatus.PRIVATE and instance.pinned_version_id:
+                instance.pinned_version = version
+                instance.save(update_fields=["pinned_version"])
             locked_job.status = GeneratedWidgetGenerationJob.Status.COMPLETED
             locked_job.phase = "completed"
             locked_job.result_version = version
@@ -1111,40 +1253,90 @@ def run_widget_generation_job(job_id: UUID, team_id: int) -> None:
             locked_job.save(update_fields=["status", "phase", "result_version", "finished_at", "heartbeat_at"])
     except WidgetSourceGenerationCancelled:
         _mark_job_failed(job.id, job.team_id, WidgetError("Widget generation was canceled.", "generation_canceled"))
-    except WidgetSourceGenerationTimedOut:
+    except WidgetSourceGenerationTimedOut as error:
+        _record_job_step_failure(
+            job,
+            failure_phase="generating_source",
+            error=error,
+            error_code="source_generation_timed_out",
+            error_detail="Source generation took too long. Try a faster model or a more focused request.",
+        )
+    except WidgetSourceGenerationError as error:
+        _record_job_step_failure(
+            job,
+            failure_phase="generating_source",
+            error=error,
+            error_code=error.code,
+            error_detail=error.detail,
+        )
+    except WidgetSecurityReviewError as error:
+        _record_job_step_failure(
+            job,
+            failure_phase="reviewing_source",
+            error=error,
+            error_code=error.code,
+            error_detail=error.detail,
+        )
+    except canvas_facade.NotebookCanvasVersionConflictError as error:
+        _record_job_step_failure(
+            job,
+            failure_phase="publishing_source",
+            error=error,
+            error_code="generation_conflict",
+            error_detail="The widget changed before its generated source could be published. Generate it again.",
+        )
+    except canvas_facade.NotebookCanvasBuildCapacityError as error:
+        _record_job_step_failure(
+            job,
+            failure_phase="publishing_source",
+            error=error,
+            error_code="build_capacity",
+            error_detail="The source was generated and reviewed, but build capacity is full. Try again shortly.",
+        )
+    except canvas_facade.NotebookCanvasError as error:
+        _record_job_step_failure(
+            job,
+            failure_phase="publishing_source",
+            error=error,
+            error_code="build_failed",
+            error_detail="The source was generated and reviewed, but the widget build failed. Try again.",
+        )
+    except WidgetError as error:
+        failure_phase = (
+            job.phase if job.phase in {"generating_source", "reviewing_source", "publishing_source"} else None
+        )
+        if failure_phase:
+            _record_job_step_failure(
+                job,
+                failure_phase=failure_phase,
+                error=error,
+                error_code=error.code,
+                error_detail=error.detail,
+            )
+        else:
+            _mark_job_failed(job.id, job.team_id, error)
+    except Exception:
+        failure_phase = (
+            job.phase if job.phase in {"generating_source", "reviewing_source", "publishing_source"} else "unknown"
+        )
+        failure_step = {
+            "generating_source": "source generation",
+            "reviewing_source": "security review",
+            "publishing_source": "publishing",
+            "unknown": "an unknown step",
+        }[failure_phase]
+        logger.exception(
+            "notebook_widget_generation_failed",
+            extra={"job_id": str(job.id), "team_id": job.team_id, "failure_phase": failure_phase},
+        )
         _mark_job_failed(
             job.id,
             job.team_id,
             WidgetError(
-                "Widget generation took too long. Try a faster model or a more focused request.", "generation_timed_out"
+                f"The widget failed during {failure_step}. Try again, and contact support if it keeps happening.",
+                "generation_unexpected_error",
             ),
-        )
-    except WidgetSourceGenerationError:
-        _mark_job_failed(
-            job.id, job.team_id, WidgetError("The widget could not be generated. Try again.", "generation_failed")
-        )
-    except WidgetSecurityReviewError:
-        _mark_job_failed(
-            job.id,
-            job.team_id,
-            WidgetError("The widget security review could not be completed. Try again.", "security_review_failed"),
-        )
-    except canvas_facade.NotebookCanvasVersionConflictError:
-        _mark_job_failed(
-            job.id, job.team_id, WidgetError("This widget changed during generation.", "generation_conflict")
-        )
-    except canvas_facade.NotebookCanvasBuildCapacityError:
-        _mark_job_failed(
-            job.id, job.team_id, WidgetError("Widget build capacity is full. Try again shortly.", "build_capacity")
-        )
-    except canvas_facade.NotebookCanvasError:
-        _mark_job_failed(job.id, job.team_id, WidgetError("The widget could not be built. Try again.", "build_failed"))
-    except WidgetError as error:
-        _mark_job_failed(job.id, job.team_id, error)
-    except Exception:
-        logger.exception("notebook_widget_generation_failed", extra={"job_id": str(job.id)})
-        _mark_job_failed(
-            job.id, job.team_id, WidgetError("The widget could not be generated. Try again.", "generation_failed")
+            failure_phase=failure_phase,
         )
     finally:
         cache.delete(_cancellation_key(job.team_id, job.id))
@@ -1168,7 +1360,7 @@ def get_widget_status(*, notebook: Notebook, node_id: str) -> WidgetStatus:
     assert_widget_node_exists(notebook, node_id)
     instance = (
         NotebookWidgetInstance.objects.for_team(notebook.team_id)
-        .select_related("widget", "widget__current_version", "pinned_version")
+        .select_related("widget", "widget__current_version", "widget__pending_version", "pinned_version")
         .filter(notebook=notebook, node_id=node_id)
         .first()
     )
@@ -1178,12 +1370,18 @@ def get_widget_status(*, notebook: Notebook, node_id: str) -> WidgetStatus:
             error_detail=None,
             artifact_url=None,
             frame_names=[],
+            input_bindings={},
+            input_contract=[],
             current_version_id=None,
+            pinned_version_id=None,
             widget_id=None,
             instance_id=None,
             has_versions=False,
             active_job=None,
             security_review=None,
+            is_reusable=False,
+            error_code=None,
+            failure_phase=None,
             build_hash=None,
         )
     job = _latest_job(instance)
@@ -1215,12 +1413,18 @@ def get_widget_status(*, notebook: Notebook, node_id: str) -> WidgetStatus:
             error_detail=job.error_detail if job and job.status == GeneratedWidgetGenerationJob.Status.FAILED else None,
             artifact_url=None,
             frame_names=[],
+            input_bindings=instance.input_bindings if isinstance(instance.input_bindings, dict) else {},
+            input_contract=[],
             current_version_id=None,
+            pinned_version_id=instance.pinned_version_id,
             widget_id=instance.widget_id,
             instance_id=instance.id,
             has_versions=False,
             active_job=active_job,
             security_review=None,
+            is_reusable=instance.widget.publication_status == GeneratedWidget.PublicationStatus.PUBLISHED,
+            error_code=job.error_code if job and job.status == GeneratedWidgetGenerationJob.Status.FAILED else None,
+            failure_phase=_job_failure_phase(job),
             build_hash=None,
         )
     state = canvas_facade.get_canvas_generation_state(team_id=notebook.team_id, canvas_id=instance.widget.canvas_id)
@@ -1239,49 +1443,68 @@ def get_widget_status(*, notebook: Notebook, node_id: str) -> WidgetStatus:
     build_hash: str | None = None
     lifecycle = "building"
     error_detail = job.error_detail if job and job.status == GeneratedWidgetGenerationJob.Status.FAILED else None
+    error_code = job.error_code if job and job.status == GeneratedWidgetGenerationJob.Status.FAILED else None
+    failure_phase = _job_failure_phase(job)
     if state is None:
         lifecycle = "failed"
-        error_detail = "The widget preview is unavailable. Generate a new version."
+        error_detail = error_detail or "The widget preview is unavailable. Generate a new version."
     elif state.current_source_version_id == current_version.canvas_source_version_id:
         if state.build_status == "ready" and state.artifact_url:
             lifecycle = "generating" if active_job is not None else "ready"
             artifact_url = state.artifact_url
             build_hash = state.build_hash
             error_detail = None
+            error_code = None
+            failure_phase = None
         elif state.build_status == "ready":
             lifecycle = "failed"
-            error_detail = "The widget preview is unavailable. Reload it, or generate a new version."
+            error_detail = error_detail or "The widget preview is unavailable. Reload it, or generate a new version."
         elif state.build_status == "failed":
             lifecycle = "failed"
-            error_detail = "The widget preview couldn't be built. Regenerate it or view the source to make changes."
+            error_detail = (
+                error_detail
+                or "The widget preview couldn't be built. Regenerate it or view the source to make changes."
+            )
     elif selected_canvas_version is None:
         lifecycle = "failed"
-        error_detail = "The widget preview is unavailable. Generate a new version."
+        error_detail = error_detail or "The widget preview is unavailable. Generate a new version."
     elif selected_canvas_version.build_status == "ready" and selected_canvas_version.artifact_url:
         lifecycle = "generating" if active_job is not None else "ready"
         artifact_url = selected_canvas_version.artifact_url
         build_hash = selected_canvas_version.build_hash
         error_detail = None
+        error_code = None
+        failure_phase = None
     elif selected_canvas_version.build_status == "ready":
         lifecycle = "failed"
-        error_detail = "The widget preview is unavailable. Reload it, or generate a new version."
+        error_detail = error_detail or "The widget preview is unavailable. Reload it, or generate a new version."
     elif selected_canvas_version.build_status == "failed":
         lifecycle = "failed"
-        error_detail = "The widget preview couldn't be built. Regenerate it or view the source to make changes."
+        error_detail = (
+            error_detail or "The widget preview couldn't be built. Regenerate it or view the source to make changes."
+        )
     if active_job is not None:
         lifecycle = "generating"
         error_detail = None
+        error_code = None
+        failure_phase = None
     return WidgetStatus(
         lifecycle_status=lifecycle,
         error_detail=error_detail,
         artifact_url=artifact_url,
         frame_names=frame_names,
+        input_bindings=instance.input_bindings if isinstance(instance.input_bindings, dict) else {},
+        input_contract=[item for item in current_version.input_contract if isinstance(item, dict)],
         current_version_id=current_version.id,
+        pinned_version_id=instance.pinned_version_id,
         widget_id=instance.widget_id,
         instance_id=instance.id,
         has_versions=True,
         active_job=active_job,
         security_review=_security_review_state(current_version),
+        is_reusable=instance.widget.publication_status == GeneratedWidget.PublicationStatus.PUBLISHED,
+        error_code=error_code,
+        failure_phase=failure_phase,
         build_hash=build_hash,
     )
 
@@ -1301,6 +1524,12 @@ def list_widget_versions(*, notebook: Notebook, node_id: str, offset: int = 0, l
     if instance is None:
         return WidgetVersionPage(results=[], count=0, next_offset=None)
     queryset = GeneratedWidgetVersion.objects.for_team(notebook.team_id).filter(widget=instance.widget)
+    pending_version_id = instance.widget.pending_version_id
+    if (
+        instance.widget.publication_status == GeneratedWidget.PublicationStatus.PUBLISHED
+        and pending_version_id is not None
+    ):
+        queryset = queryset.exclude(id=pending_version_id)
     count = queryset.count()
     versions = list(queryset.order_by("-created_at")[offset : offset + limit])
     canvas_versions = canvas_facade.list_notebook_canvas_versions(
@@ -1339,6 +1568,37 @@ def list_widget_versions(*, notebook: Notebook, node_id: str, offset: int = 0, l
     return WidgetVersionPage(results=results, count=count, next_offset=next_offset)
 
 
+def set_widget_instance_version(
+    *, team_id: int, notebook_id: UUID, node_id: str, version_id: UUID | None
+) -> WidgetStatus:
+    notebook = Notebook.objects.get(team_id=team_id, id=notebook_id, deleted=False)
+    assert_widget_node_exists(notebook, node_id)
+    with transaction.atomic():
+        instance = (
+            NotebookWidgetInstance.objects.for_team(notebook.team_id)
+            .select_for_update()
+            .select_related("widget")
+            .filter(notebook=notebook, node_id=node_id)
+            .first()
+        )
+        if instance is None:
+            raise WidgetError("Generate the widget before choosing a version.", "version_missing")
+        if version_id is not None:
+            versions = GeneratedWidgetVersion.objects.for_team(notebook.team_id).filter(
+                id=version_id, widget_id=instance.widget_id
+            )
+            if instance.widget.pending_version_id is not None:
+                versions = versions.exclude(id=instance.widget.pending_version_id)
+            version = versions.first()
+            if version is None:
+                raise WidgetError("This widget version does not exist.", "version_missing")
+        else:
+            version = None
+        instance.pinned_version = version
+        instance.save(update_fields=["pinned_version"])
+    return get_widget_status(notebook=notebook, node_id=node_id)
+
+
 def _get_instance_and_version(
     notebook: Notebook, node_id: str, version_id: UUID | None
 ) -> tuple[NotebookWidgetInstance, GeneratedWidgetVersion]:
@@ -1352,11 +1612,12 @@ def _get_instance_and_version(
     if instance is None:
         raise WidgetError("Generate the widget before viewing its source.", "version_missing")
     if version_id is not None:
-        version = (
-            GeneratedWidgetVersion.objects.for_team(notebook.team_id)
-            .filter(id=version_id, widget=instance.widget)
-            .first()
+        versions = GeneratedWidgetVersion.objects.for_team(notebook.team_id).filter(
+            id=version_id, widget=instance.widget
         )
+        if instance.widget.pending_version_id is not None:
+            versions = versions.exclude(id=instance.widget.pending_version_id)
+        version = versions.first()
     else:
         version = instance.pinned_version or instance.widget.current_version
     if version is None:
@@ -1393,6 +1654,11 @@ def revert_widget_version(
     )
 
     instance, target = _get_instance_and_version(notebook, node_id, version_id)
+    if instance.widget.publication_status != GeneratedWidget.PublicationStatus.PRIVATE:
+        raise WidgetConflictError(
+            "Open this reusable widget from the widget catalog to change it, or fork it in this notebook.",
+            "reusable_widget_shared",
+        )
     current = instance.pinned_version or instance.widget.current_version
     if current is None or current.id != expected_current_version_id:
         raise WidgetConflictError("This widget changed before the version could be restored.", "revert_conflict")
@@ -1423,7 +1689,7 @@ def revert_widget_version(
         raise WidgetError("The selected widget version is no longer available.", "version_missing") from error
     except canvas_facade.NotebookCanvasError as error:
         raise WidgetError("The widget preview could not be updated. Try again.", "build_failed") from error
-    with transaction.atomic():
+    with canvas_facade.notebook_canvas_source_transaction(team_id=notebook.team_id, prepared=prepared_source):
         widget = GeneratedWidget.objects.for_team(notebook.team_id).select_for_update().get(id=instance.widget_id)
         locked_instance = (
             NotebookWidgetInstance.objects.for_team(notebook.team_id).select_for_update().get(id=instance.id)
@@ -1470,8 +1736,9 @@ def revert_widget_version(
         widget.current_version = version
         widget.name = title
         widget.save(update_fields=["current_version", "name"])
-        locked_instance.pinned_version = version
-        locked_instance.save(update_fields=["pinned_version"])
+        if locked_instance.pinned_version_id:
+            locked_instance.pinned_version = version
+            locked_instance.save(update_fields=["pinned_version"])
     return get_widget_status(notebook=notebook, node_id=node_id)
 
 
@@ -1552,14 +1819,20 @@ def read_widget_frame(
     offset: int = 0,
     limit: int = 100,
 ) -> WidgetFrameRead:
-    _instance, version = _get_instance_and_version(notebook, node_id, version_id)
+    instance, version = _get_instance_and_version(notebook, node_id, version_id)
     contract_item = next(
         (item for item in version.input_contract if isinstance(item, dict) and item.get("slot") == frame_name),
         None,
     )
     if contract_item is None:
         raise WidgetError("This dataframe is not available to this widget version.", "frame_not_allowed")
-    source_name = str(contract_item.get("sourceName") or frame_name)
+    bindings = instance.input_bindings if isinstance(instance.input_bindings, dict) else {}
+    binding = bindings.get(frame_name)
+    source_name = (
+        str(binding.get("source"))
+        if isinstance(binding, dict) and isinstance(binding.get("source"), str)
+        else str(contract_item.get("sourceName") or frame_name)
+    )
     owners = _dataframe_owners(notebook)
     node_id_for_frame = owners.get(source_name)
     if node_id_for_frame is None:
@@ -1575,7 +1848,7 @@ def read_widget_frame(
     authorize_run(run)
     envelope = run.envelope if isinstance(run.envelope, dict) else {}
     columns = _columns_from_metadata(envelope.get("types"), envelope.get("columns"))
-    expected_schema_hash = contract_item.get("schemaHash")
+    expected_schema_hash = None if isinstance(binding, dict) and binding.get("hog") else contract_item.get("schemaHash")
     if expected_schema_hash and _json_hash({"columns": columns}) != expected_schema_hash:
         raise WidgetConflictError(
             f'The columns in "{source_name}" changed. Generate a new widget version to use the new schema.',

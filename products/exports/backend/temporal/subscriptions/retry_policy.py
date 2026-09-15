@@ -19,3 +19,8 @@ SUBSCRIPTION_DELIVER_RETRY_POLICY = RetryPolicy(
     maximum_interval=dt.timedelta(minutes=5),
     maximum_attempts=5,
 )
+
+# One attempt of the delivery activity. Temporal stops waiting once this elapses and retries the
+# activity while the send it gave up on can still be running, so each channel derives its own send
+# timeout from this and stays below it.
+SUBSCRIPTION_DELIVER_ATTEMPT_TIMEOUT = dt.timedelta(minutes=5)

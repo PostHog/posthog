@@ -52,7 +52,7 @@ export const AllProducts: Story = {
                         <PushCard
                             key={productKey}
                             productKey={productKey}
-                            title={humanizeProductKey(productKey)}
+                            title={display.label ?? humanizeProductKey(productKey)}
                             display={display}
                         />
                     )

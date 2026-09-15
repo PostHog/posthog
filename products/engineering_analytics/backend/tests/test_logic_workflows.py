@@ -13,6 +13,7 @@ from products.engineering_analytics.backend.facade import api
 from products.engineering_analytics.backend.facade.contracts import DeliveryStage
 from products.engineering_analytics.backend.logic import build_workflow_health
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
+from products.engineering_analytics.backend.logic.queries._workflow_filters import UNPAGED_SCAN_LIMIT
 from products.engineering_analytics.backend.logic.queries.pr_cost import query_cost_per_merge_series
 from products.engineering_analytics.backend.logic.sources import GitHubTables
 from products.engineering_analytics.backend.logic.views.source_schema import (
@@ -61,7 +62,8 @@ class TestWorkflowEndpointMapping(BaseTest):
             if query_type == "engineering_analytics.default_branch":
                 return _resp([(0, 12)])
             assert query_type == "engineering_analytics.current_branch_health"
-            assert "LIMIT" not in sql.upper()
+            # HogQL caps a query with no LIMIT at 100 rows, so the query must name the ceiling.
+            assert f"LIMIT {UNPAGED_SCAN_LIMIT}" in sql
             return _resp(workflow_rows)
 
         with mock.patch(_RUN_QUERY, side_effect=run):
@@ -75,7 +77,7 @@ class TestWorkflowEndpointMapping(BaseTest):
     def test_workflow_health_maps_and_nulls_empty_window(self) -> None:
         # Columns: owner, name, workflow, run_count, successful_run_count, conclusive_run_count,
         # percentile_run_count, success_rate, p50, p95, last_failure_at, completed_count, latest_failed,
-        # latest_conclusion, latest_run_id, latest_run_attempt, rerun_cycles.
+        # latest_conclusion, latest_run_id, latest_run_attempt, rerun_cycles, merge_queue_run_count.
         rows = [
             (
                 "PostHog",
@@ -95,11 +97,12 @@ class TestWorkflowEndpointMapping(BaseTest):
                 4321,
                 1,
                 3,
+                2,
             ),
             # No completed runs: success_rate is NULL and quantileIf returns NaN — both map to None,
             # latest_run_failed is None (the completed_count guard), and latest_run_conclusion is None too
             # despite argMaxIf's '' default.
-            ("PostHog", "posthog", "Deploy", 2, 0, 0, 0, None, float("nan"), float("nan"), None, 0, 0, "", 0, 0, 0),
+            ("PostHog", "posthog", "Deploy", 2, 0, 0, 0, None, float("nan"), float("nan"), None, 0, 0, "", 0, 0, 0, 0),
         ]
         # A -30d window buckets by day. Must land inside the window (relative to now). Columns:
         # owner, name, workflow, bucket_start, run_count, completed, successes, failures.
@@ -117,6 +120,7 @@ class TestWorkflowEndpointMapping(BaseTest):
         assert items[0].latest_run_id == 4321 and items[0].latest_run_attempt == 1
         assert items[1].latest_run_id is None and items[1].latest_run_attempt is None
         assert items[0].rerun_cycles == 3
+        assert items[0].merge_queue_run_count == 2
         assert items[0].success_rate_prev == 0.95
         assert items[1].success_rate_prev is None
         # The series spans the whole window, zero-filled except the bucket with runs.
@@ -623,6 +627,11 @@ class TestWorkflowEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
         assert ci.last_failure_at is not None
         assert ci.billable_minutes is None  # no jobs source seeded → no cost figure
 
+        assert len(items) > 1
+        scoped = api.list_workflow_health(team=self.team, date_from="-30d", workflow_name="CI")
+        assert [item.workflow_name for item in scoped] == ["CI"]
+        assert scoped[0].run_count == ci.run_count
+
     def test_workflow_health_prev_window_survives_raw_scan_floor(self) -> None:
         # The prev-window query's raw-string scan floor must come from prev_from, not date_from.
         # A run in [prev_from, date_from) sits below the date_from floor; if that floor leaked into
@@ -690,37 +699,86 @@ class TestWorkflowEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
         guard = next(item for item in health if item.workflow_name == "Guard")
         assert guard.p50_seconds == pytest.approx(4)
 
-    def test_workflow_health_pull_request_scope_excludes_default_branch_and_unattributed_runs(self) -> None:
+    # The scenario matrix: PR attribution × head branch, plus one corroborated merge-queue gate run.
+    # No run lands in two narrow scopes, and 9104 (off-default, unattributed) lands in none of them,
+    # so the three narrow counts sum to one below the `all` count.
+    _RUN_SCOPE_MATRIX = [
+        (9101, "sha-pr", 91, "feature/pr", "alice"),
+        (9102, "sha-master", None, "master", "alice"),
+        (9103, "sha-master-pr", 91, "master", "alice"),
+        (9104, "sha-branch", None, "feature/no-pr", "alice"),
+        (9105, "sha-main-pr", 91, "main", "alice"),
+        (9106, "sha-gate", None, "trunk-merge/pr-91/aaaa", "trunk-io[bot]"),
+    ]
+
+    def _seed_run_scope_matrix(self) -> None:
         self._create_table(
             "github_pull_requests",
             PULL_REQUESTS_COLUMNS,
             [_pr_row(91, "alice", "open", 0, _ago(1), head_sha="sha91")],
         )
-        # The scenario matrix: PR-attributed × head branch. Only the attributed feature-branch
-        # run belongs in the pull_request scope.
         self._create_table(
             "github_workflow_runs",
             WORKFLOW_RUNS_COLUMNS,
             [
-                _run_row(run_id, "CI", sha, "completed", "success", _ago(1), _ago(1), pr_number=pr, head_branch=head)
-                for run_id, sha, pr, head in [
-                    (9101, "sha-pr", 91, "feature/pr"),
-                    (9102, "sha-master", None, "master"),
-                    (9103, "sha-master-pr", 91, "master"),
-                    (9104, "sha-branch", None, "feature/no-pr"),
-                    (9105, "sha-main-pr", 91, "main"),
-                ]
+                _run_row(
+                    run_id,
+                    "CI",
+                    sha,
+                    "completed",
+                    "success",
+                    _ago(1),
+                    _ago(1),
+                    pr_number=pr,
+                    head_branch=head,
+                    actor=actor,
+                )
+                for run_id, sha, pr, head, actor in self._RUN_SCOPE_MATRIX
             ],
         )
 
-        pull_request = next(
+    @parameterized.expand(
+        [
+            ("pull_request", 1),
+            ("default_branch", 3),
+            ("merge_queue", 1),
+            ("all", 6),
+        ]
+    )
+    def test_workflow_health_run_scopes_partition_the_run_population(self, scope: str, expected: int) -> None:
+        self._seed_run_scope_matrix()
+
+        ci = next(
             item
-            for item in api.list_workflow_health(team=self.team, date_from="-30d", run_scope="pull_request")
+            for item in api.list_workflow_health(team=self.team, date_from="-30d", run_scope=scope)
             if item.workflow_name == "CI"
         )
 
-        # 1 exactly: over-exclusion drops to 0, a leaked master/main/unattributed row raises it above 1.
-        assert pull_request.run_count == 1
+        assert ci.run_count == expected
+        # The gating count ignores the active scope, so the list can rank queue-gating workflows
+        # under every scope. A scope-filtered count would read 0 here under pull_request.
+        assert ci.merge_queue_run_count == 1
+
+    @parameterized.expand(
+        [
+            ("pull_request", [9101]),
+            ("default_branch", [9102, 9103, 9105]),
+            ("merge_queue", [9106]),
+            ("all", [9101, 9102, 9103, 9104, 9105, 9106]),
+        ]
+    )
+    def test_workflow_runs_honor_run_scope(self, scope: str, expected_ids: list[int]) -> None:
+        self._seed_run_scope_matrix()
+
+        runs = api.list_workflow_runs(
+            team=self.team,
+            repo="PostHog/posthog",
+            workflow_name="CI",
+            date_from="-30d",
+            run_scope=scope,
+        )
+
+        assert sorted(run.id for run in runs) == expected_ids
 
     def test_workflow_health_includes_cost_when_jobs_synced(self) -> None:
         # With the jobs source synced, each workflow carries its windowed billable cost + minutes.
@@ -1067,6 +1125,19 @@ class TestWorkflowEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
         )
         assert (all_jobs, main_jobs) == (3, 2)
 
+        # A run scope narrows the same two job-level surfaces. The jobs source carries no branch
+        # attribution of its own, so job_aggregates scopes through a run-id subquery; this is the one
+        # place that subquery and the runner-cost scope clause run against a warehouse.
+        default_branch_jobs = sum(
+            c.job_count
+            for c in api.get_workflow_runner_costs(
+                team=self.team, repo=repo, workflow_name=workflow, run_scope="default_branch"
+            )
+        )
+        assert default_branch_jobs == 2
+        aggregates = api.list_job_aggregates(team=self.team, workflow_name=workflow, run_scope="default_branch")
+        assert [(a.job_name, a.job_count) for a in aggregates] == [("build", 2)]
+
         # The activity chart honors the same branch scope as the runs list, so it can't plot other
         # branches' runs under an applied branch filter.
         all_activity = api.get_workflow_run_activity(team=self.team, repo=repo, workflow_name=workflow)
@@ -1105,6 +1176,47 @@ class TestWorkflowEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
         # github-hosted runner isn't billable → no cost estimate, and the provider reads as github_hosted.
         e2e = next(j for j in jobs if j.name == "e2e")
         assert e2e.runner_provider == "github_hosted" and e2e.estimated_cost_usd is None
+
+    def test_job_aggregates_rate_and_queue_time_use_verdicts(self) -> None:
+        self._create_table(
+            "github_pull_requests",
+            PULL_REQUESTS_COLUMNS,
+            [_pr_row(64, "alice", "open", 0, _ago(1), head_sha="sha64")],
+        )
+        self._create_table(
+            "github_workflow_runs",
+            WORKFLOW_RUNS_COLUMNS,
+            [_run_row(9700, "CI", "sha64", "completed", "failure", _ago(1), _ago(1), pr_number=64)],
+        )
+        started, completed = _ago_with_duration(1, 120)
+
+        def queued_for(seconds: int) -> str:
+            return _ago_offset_with_duration(1, -seconds, 0)[0]
+
+        self._create_table(
+            "github_workflow_jobs",
+            WORKFLOW_JOBS_COLUMNS,
+            [
+                {
+                    **_job_row(97000, 9700, "build (1/4)", "success", started=started, completed=completed),
+                    "created_at": queued_for(60),
+                },
+                {
+                    **_job_row(97001, 9700, "build (2/4)", "failure", started=started, completed=completed),
+                    "created_at": queued_for(120),
+                },
+                {
+                    **_job_row(97002, 9700, "build (3/4)", "cancelled", started=started, completed=completed),
+                    "created_at": queued_for(180),
+                },
+                # GitHub stamps a skipped job started_at = created_at: no queue time and no verdict.
+                _job_row(97003, 9700, "build (4/4)", "skipped", started=started, completed=started),
+            ],
+        )
+        [build] = api.list_job_aggregates(team=self.team, workflow_name="CI")
+        assert (build.job_name, build.job_count) == ("build", 4)
+        assert build.failure_rate == 0.5  # one failure over the two jobs with a verdict
+        assert build.queue_p50_seconds == 120  # the skipped job's zero-second queue is not a sample
 
     def test_workflow_run_detail_handles_null_timestamps(self) -> None:
         # A queued/barely-started run lands with empty timestamps; the mapper must yield None, not raise

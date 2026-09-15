@@ -329,6 +329,11 @@ describe("sourceLine", () => {
     },
     { product: "sentry", type: "issue", expected: "Sentry · issue" },
     {
+      product: "conversations",
+      type: "ticket",
+      expected: "Conversations · Ticket",
+    },
+    {
       product: "mystery_source",
       type: "thing",
       expected: "mystery source · thing",

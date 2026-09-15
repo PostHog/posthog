@@ -1,8 +1,4 @@
-"""CH insert helpers for surfacing_scoring_sweep integration tests.
-
-Partial inserts into writable_session_replay_events fail on argMin LC/String
-type mismatches — use sharded_session_replay_events with argMinState instead.
-"""
+"""CH insert helpers for surfacing_scoring_sweep integration tests."""
 
 from __future__ import annotations
 
@@ -21,6 +17,7 @@ INSERT INTO sharded_session_replay_events (
     first_url,
     snapshot_source,
     snapshot_library,
+    snapshot_mode_v2,
     event_count,
     surfacing_score
 )
@@ -31,7 +28,8 @@ SELECT
     now64(6) - INTERVAL 1 HOUR,
     now64(6),
     argMinState(cast(NULL, 'Nullable(String)'), now64(6) - INTERVAL 1 HOUR),
-    argMinState(cast(NULL, 'LowCardinality(Nullable(String))'), now64(6) - INTERVAL 1 HOUR),
+    argMinState(cast(NULL, 'Nullable(String)'), now64(6) - INTERVAL 1 HOUR),
+    argMinState(cast(NULL, 'Nullable(String)'), now64(6) - INTERVAL 1 HOUR),
     argMinState(cast(NULL, 'Nullable(String)'), now64(6) - INTERVAL 1 HOUR),
     %(event_count)s,
     %(surfacing_score)s
@@ -47,6 +45,7 @@ INSERT INTO sharded_session_replay_events (
     first_url,
     snapshot_source,
     snapshot_library,
+    snapshot_mode_v2,
     event_count,
     surfacing_score
 )
@@ -57,7 +56,8 @@ SELECT
     toDateTime64(%(start)s, 6, 'UTC'),
     toDateTime64(%(end)s, 6, 'UTC'),
     argMinState(cast(NULL, 'Nullable(String)'), toDateTime64(%(start)s, 6, 'UTC')),
-    argMinState(cast(NULL, 'LowCardinality(Nullable(String))'), toDateTime64(%(start)s, 6, 'UTC')),
+    argMinState(cast(NULL, 'Nullable(String)'), toDateTime64(%(start)s, 6, 'UTC')),
+    argMinState(cast(NULL, 'Nullable(String)'), toDateTime64(%(start)s, 6, 'UTC')),
     argMinState(cast(NULL, 'Nullable(String)'), toDateTime64(%(start)s, 6, 'UTC')),
     %(event_count)s,
     %(surfacing_score)s

@@ -16,6 +16,7 @@ from collections.abc import Mapping
 from datetime import timedelta
 from typing import TYPE_CHECKING, Any
 
+from django.db import models
 from django.db.models import CharField, F, OrderBy, Q, QuerySet
 from django.db.models.functions import Cast
 from django.utils import timezone
@@ -58,7 +59,14 @@ VALID_CHANNEL_VALUES = frozenset(c.value for c in Channel)
 # ChannelEnum/SlaEnum/OrderEnum in the shared OpenAPI namespace.
 TICKET_CHANNEL_FILTER_CHOICES = [*(c.value for c in Channel), "all"]
 TICKET_SLA_FILTER_CHOICES = [*SLA_FILTER_VALUES, "all"]
-TICKET_TAGS_MATCH_CHOICES = ["any", "all"]
+
+
+class TicketTagsMatch(models.TextChoices):
+    ANY = "any", "any"
+    ALL = "all", "all"
+
+
+TICKET_TAGS_MATCH_CHOICES = list(TicketTagsMatch.values)
 # Tuple pairs, not bare ints: drf-spectacular's override loader only accepts strings
 # in plain value lists and crashes on anything else.
 TICKET_SORT_ORDER_CHOICES = [(1, 1), (-1, -1)]
@@ -179,8 +187,9 @@ class TicketViewFiltersSerializer(serializers.Serializer):
     assignee = TicketViewAssigneeFilterField(
         required=False,
         help_text="Assignees to match (any of): 'unassigned', 'me' (resolved to the requesting user), "
-        "or an object with type ('user' or 'role') and id. The legacy single-value shape is accepted "
-        "and normalized to a list.",
+        "or an object with type ('user' or 'role') and id. Send a list. Views saved earlier can hold a "
+        "single value instead of a list, or the value 'all'. Wrap a single value in a list, and replace "
+        "'all' with an empty list to apply no assignee filter.",
     )
     tags = serializers.ListField(
         child=serializers.CharField(),

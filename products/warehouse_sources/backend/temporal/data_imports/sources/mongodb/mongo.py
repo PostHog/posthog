@@ -293,6 +293,43 @@ def mongo_client(connection_string: str, team_id: int) -> Iterator[MongoClient]:
         client.close()
 
 
+def get_server_metadata(connection_string: str, team_id: int) -> dict[str, Any]:
+    """Probe the cluster for the MongoDB version it reports, and for its wire version.
+
+    The driver refuses any server below its own wire-version floor, and that floor rises across
+    pymongo releases, so whether a source survives a driver upgrade is a property of the source
+    and not of our code. Nothing else records it, which makes the question unanswerable before an
+    upgrade ships. AWS DocumentDB and Azure Cosmos DB's Mongo API report the MongoDB version they
+    emulate, and that emulated version is what the driver gates on.
+    """
+    with mongo_client(connection_string, team_id) as client:
+        # buildInfo is answered by every server version we accept and by the DocumentDB and Cosmos
+        # DB Mongo APIs, whereas `hello` was added in MongoDB 5.0 and is missing from the older
+        # emulation levels this probe most needs to identify. Asking for it also completes the
+        # handshake that fills in the wire versions read below, so they cost no extra round trip.
+        server_version = str(client.server_info().get("version") or "")
+        # A node pymongo has not handshaked with reports wire version 0, which would read as older
+        # than any real server and hide the true floor.
+        descriptions = list(client.topology_description.server_descriptions().values())
+        handshaked = [description for description in descriptions if description.is_server_type_known]
+
+    metadata: dict[str, Any] = {
+        "engine": "mongodb",
+        "server_version": server_version,
+        # Server selection returns as soon as one node is usable, so a replica set can still hold
+        # members this probe never handshaked with. Both counts are recorded because a reading that
+        # skipped an older secondary would otherwise pass as an all-clear: it is complete only
+        # where the two agree.
+        "handshaked_nodes": len(handshaked),
+        "topology_nodes": len(descriptions),
+    }
+    # pymongo rejects a whole topology when any single node sits below its floor, so the weakest
+    # node is what decides whether an upgrade cuts this source off.
+    if handshaked:
+        metadata["wire_version"] = min(description.max_wire_version for description in handshaked)
+    return metadata
+
+
 def _get_partition_settings(
     collection: Collection, collection_name: str, partition_size_bytes: int = DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES
 ) -> PartitionSettings | None:
@@ -589,6 +626,28 @@ MONGO_DOCUMENT_MISSING_ID_ERROR = (
     "view whose pipeline removes _id. Sync the underlying collection instead, or add _id to the view."
 )
 
+# A cluster signs every command reply with a cluster-time HMAC, keyed off a key document the config
+# servers rotate. While a rotation is in flight, a command fails with OperationFailure code 211
+# (KeyNotFound), and the cluster clears that on its own. Match the code rather than the message,
+# whose key id and cluster time vary per occurrence, and raise our own text instead: pymongo's
+# str() appends the whole server response. The source's get_retryable_errors matches this phrase to
+# keep the occurrence out of error tracking.
+_KEY_NOT_FOUND_ERROR_CODE = 211
+
+MONGO_KEYS_UNAVAILABLE_ERROR = (
+    "PostHog couldn't read this MongoDB collection because the cluster's signing keys were briefly "
+    "unavailable. This clears by itself, and the sync will run again automatically."
+)
+
+# MongoDB OperationFailure code 50 (MaxTimeMSExpired / pymongo's ExecutionTimeout): the server killed
+# a getMore because it ran past an execution time limit. We never set maxTimeMS ourselves on this
+# query, so this is the limit enforced by the cluster itself — notably Atlas free/shared/flex tiers,
+# which cap total operation time regardless of client options (the same tiers already special-cased
+# above for rejecting no_cursor_timeout). The cursor is _id-ordered, so last_id is a safe resume point
+# exactly as for CursorNotFound; a getMore killed before yielding anything would hit the identical
+# limit on retry, so that case re-raises instead of looping forever.
+_EXECUTION_TIMEOUT_ERROR_CODE = 50
+
 
 def mongo_source(
     connection_string: str,
@@ -664,8 +723,10 @@ def mongo_source(
             # 10-minute idle-cursor timeout — the server then kills it, and the next getMore raises
             # CursorNotFound. no_cursor_timeout disables that server-side expiry; we close the cursor
             # explicitly in the finally block below so it doesn't linger on the server instead.
-            cursor = read_collection.find(query, batch_size=chunk_size, no_cursor_timeout=True)
-            no_cursor_timeout_honored = True
+            # Sorting by _id makes last_id a safe resume point for any CursorNotFound, whether
+            # the server-side timeout fired or the cursor was killed by another server-side event
+            # (primary election, Atlas maintenance, admin killCursors).
+            cursor = read_collection.find(query, batch_size=chunk_size, no_cursor_timeout=True).sort("_id", ASCENDING)
             rows_since_cursor_opened = 0
 
             try:
@@ -700,20 +761,32 @@ def mongo_source(
                             yield result
                         return
                     except CursorNotFound:
-                        # Only reachable once the server-side timeout is back in play, i.e. after the
-                        # fallback below dropped no_cursor_timeout. That read is _id-ordered, so pick
-                        # up after the last document instead of failing the whole sync. Requiring
-                        # progress since the cursor opened stops a cursor that dies immediately from
-                        # looping forever on the same query.
-                        if no_cursor_timeout_honored or rows_since_cursor_opened == 0:
+                        # Both reads (initial and resumable) are _id-ordered, so last_id is always
+                        # a safe resume point. A cursor killed before yielding anything has no safe
+                        # resume point — re-raise so Temporal retries the whole activity.
+                        if rows_since_cursor_opened == 0:
                             raise
                         logger.debug(
-                            f"MongoDB: cursor expired for collection={collection_name}; resuming after _id={last_id}"
+                            f"MongoDB: cursor killed for collection={collection_name}; resuming after _id={last_id}"
                         )
                         cursor.close()
                         cursor = open_resumable_cursor()
                         rows_since_cursor_opened = 0
                     except OperationFailure as e:
+                        if e.code == _KEY_NOT_FOUND_ERROR_CODE:
+                            raise OperationFailure(MONGO_KEYS_UNAVAILABLE_ERROR, e.code) from e
+                        if e.code == _EXECUTION_TIMEOUT_ERROR_CODE:
+                            if rows_since_cursor_opened == 0:
+                                raise
+                            logger.debug(
+                                f"MongoDB: operation exceeded time limit for collection={collection_name}; "
+                                f"resuming after _id={last_id}"
+                            )
+                            cursor.close()
+                            cursor = open_resumable_cursor()
+                            rows_since_cursor_opened = 0
+                            continue
+
                         # The option is rejected when the cursor is opened, before any document is
                         # yielded, so retrying without it can't duplicate rows. The tradeoff is that
                         # the server-side idle timeout applies again — hence the CursorNotFound
@@ -724,7 +797,6 @@ def mongo_source(
                             f"MongoDB: no_cursor_timeout disallowed for collection={collection_name}; retrying without it"
                         )
                         cursor.close()
-                        no_cursor_timeout_honored = False
                         cursor = open_resumable_cursor()
                         rows_since_cursor_opened = 0
             finally:

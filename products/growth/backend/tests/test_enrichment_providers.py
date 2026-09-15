@@ -1,7 +1,7 @@
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from products.growth.backend.enrichment.providers import HarmonicEnrichmentProvider
+from products.growth.backend.enrichment.providers import EnrichmentProvider, HarmonicEnrichmentProvider, ProviderLookup
 
 from ee.billing.salesforce_enrichment.harmonic_client import HarmonicCompanyLookup
 
@@ -165,3 +165,59 @@ async def test_enrichment_status_for_returns_none_when_urn_is_absent_from_the_re
         status = await HarmonicEnrichmentProvider().enrichment_status_for("urn:harmonic:enrichment:abc")
 
     assert status is None
+
+
+@pytest.mark.asyncio
+async def test_enrichment_statuses_for_returns_a_dict_keyed_by_urn():
+    cm, client = _fake_status_client(
+        {
+            "urn:harmonic:enrichment:a": {"status": "COMPLETE"},
+            "urn:harmonic:enrichment:b": {"status": "QUEUED"},
+        }
+    )
+    with patch("products.growth.backend.enrichment.providers.AsyncHarmonicClient", return_value=cm):
+        statuses = await HarmonicEnrichmentProvider().enrichment_statuses_for(
+            ["urn:harmonic:enrichment:a", "urn:harmonic:enrichment:b"]
+        )
+
+    assert statuses == {"urn:harmonic:enrichment:a": "COMPLETE", "urn:harmonic:enrichment:b": "QUEUED"}
+    client.get_enrichment_status.assert_awaited_once_with(["urn:harmonic:enrichment:a", "urn:harmonic:enrichment:b"])
+
+
+@pytest.mark.asyncio
+async def test_enrichment_statuses_for_omits_urns_missing_or_malformed_in_the_response():
+    cm, _ = _fake_status_client(
+        {
+            "urn:harmonic:enrichment:a": {"status": "COMPLETE"},
+            "urn:harmonic:enrichment:b": {"no_status_key": True},
+            "urn:harmonic:enrichment:c": "not a dict",
+        }
+    )
+    with patch("products.growth.backend.enrichment.providers.AsyncHarmonicClient", return_value=cm):
+        statuses = await HarmonicEnrichmentProvider().enrichment_statuses_for(
+            ["urn:harmonic:enrichment:a", "urn:harmonic:enrichment:b", "urn:harmonic:enrichment:c"]
+        )
+
+    assert statuses == {"urn:harmonic:enrichment:a": "COMPLETE"}
+
+
+@pytest.mark.asyncio
+async def test_enrichment_statuses_for_returns_empty_dict_for_no_urns_without_calling_the_client():
+    cm, client = _fake_status_client({})
+    with patch("products.growth.backend.enrichment.providers.AsyncHarmonicClient", return_value=cm):
+        statuses = await HarmonicEnrichmentProvider().enrichment_statuses_for([])
+
+    assert statuses == {}
+    client.get_enrichment_status.assert_not_called()
+
+
+class _NoOpProvider(EnrichmentProvider):
+    name = "noop"
+
+    async def enrich_by_domain(self, domain: str) -> ProviderLookup:
+        raise NotImplementedError
+
+
+@pytest.mark.asyncio
+async def test_enrichment_statuses_for_defaults_to_an_empty_dict_for_a_provider_without_tracking():
+    assert await _NoOpProvider().enrichment_statuses_for(["urn:harmonic:enrichment:abc"]) == {}

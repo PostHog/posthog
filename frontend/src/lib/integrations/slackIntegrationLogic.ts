@@ -26,8 +26,8 @@ const SLACK_INTEGRATION_INACTIVE_FALLBACK_MESSAGE =
 export interface slackIntegrationLogicValues {
     preflight: PreflightStatus | null // preflightLogic
     siteUrlMisconfigured: boolean // preflightLogic
-    _fetchedSlackChannelById: SlackChannelType | null
     _fetchedSlackChannels: SlackChannelType[]
+    _fetchedSlackChannelsById: Record<string, SlackChannelType>
     _fetchedSlackUsersById: Record<string, SlackUserApi>
     allSlackChannels: {
         channels: SlackChannelType[]
@@ -37,6 +37,7 @@ export interface slackIntegrationLogicValues {
     allSlackChannelsLoading: boolean
     allSlackUsers: SlackUsersResponseApi | null
     allSlackUsersLoading: boolean
+    attemptedSlackChannelIds: Record<string, true>
     attemptedSlackUserIds: Record<string, true>
     getChannelRefreshButtonDisabledReason: () => string
     getUsersRefreshButtonDisabledReason: () => string
@@ -178,7 +179,7 @@ export interface slackIntegrationLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         slackChannels: (
             _fetchedSlackChannels: SlackChannelType[],
-            _fetchedSlackChannelById: SlackChannelType | null
+            _fetchedSlackChannelsById: Record<string, SlackChannelType>
         ) => SlackChannelType[]
         slackUsers: (
             allSlackUsers: SlackUsersResponseApi | null,
@@ -310,8 +311,7 @@ export const slackIntegrationLogic = kea<slackIntegrationLogicType>([
         slackChannelById: [
             null as SlackChannelType | null,
             {
-                loadSlackChannelById: async ({ channelId }, breakpoint) => {
-                    await breakpoint(500)
+                loadSlackChannelById: async ({ channelId }) => {
                     try {
                         const res = await api.integrations.slackChannelsById(props.id, channelId)
                         // The by-id endpoint always calls Slack live, so a success is real proof
@@ -339,10 +339,18 @@ export const slackIntegrationLogic = kea<slackIntegrationLogicType>([
                 loadAllSlackChannelsSuccess: (prev, { allSlackChannels }) => allSlackChannels?.channels ?? prev,
             },
         ],
-        _fetchedSlackChannelById: [
-            null as SlackChannelType | null,
+        attemptedSlackChannelIds: [
+            {} as Record<string, true>,
             {
-                loadSlackChannelByIdSuccess: (_, { slackChannelById }) => slackChannelById,
+                loadSlackChannelById: (state, { channelId }) => ({ ...state, [channelId]: true }),
+                loadAllSlackChannels: (state, { forceRefresh }) => (forceRefresh ? {} : state),
+            },
+        ],
+        _fetchedSlackChannelsById: [
+            {} as Record<string, SlackChannelType>,
+            {
+                loadSlackChannelByIdSuccess: (state, { slackChannelById }) =>
+                    slackChannelById ? { ...state, [slackChannelById.id]: slackChannelById } : state,
             },
         ],
         attemptedSlackUserIds: [
@@ -387,16 +395,16 @@ export const slackIntegrationLogic = kea<slackIntegrationLogicType>([
 
     selectors({
         slackChannels: [
-            (s) => [s._fetchedSlackChannels, s._fetchedSlackChannelById],
+            (s) => [s._fetchedSlackChannels, s._fetchedSlackChannelsById],
             (
                 _fetchedSlackChannels: SlackChannelType[],
-                _fetchedSlackChannelById: SlackChannelType | null
+                _fetchedSlackChannelsById: Record<string, SlackChannelType>
             ): SlackChannelType[] => {
-                const channels = [..._fetchedSlackChannels]
-                if (_fetchedSlackChannelById && !channels.find((x) => x.id === _fetchedSlackChannelById.id)) {
-                    channels.push(_fetchedSlackChannelById)
-                }
-                return channels
+                const listedIds = new Set(_fetchedSlackChannels.map((channel) => channel.id))
+                return [
+                    ..._fetchedSlackChannels,
+                    ...Object.values(_fetchedSlackChannelsById).filter((channel) => !listedIds.has(channel.id)),
+                ]
             },
         ],
         slackUsers: [

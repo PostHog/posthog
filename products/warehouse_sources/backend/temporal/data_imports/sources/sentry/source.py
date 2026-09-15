@@ -24,6 +24,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.sentry import SentrySourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry import (
+    SENTRY_RATE_LIMITED_MESSAGE,
     STATS_SUMMARY_REJECTED_MESSAGE,
     SentryResumeConfig,
     _normalize_organization_slug,
@@ -134,13 +135,16 @@ class SentrySource(ResumableSource[SentrySourceConfig, SentryResumeConfig]):
         }
 
     def get_retryable_errors(self) -> set[str]:
-        # `_request_with_retry` (sentry.py) already retries a dropped connection, read timeout, or
-        # persistent 429/5xx before re-raising once that budget is exhausted. urllib3 wraps all of
-        # those as "... Max retries exceeded with url: ..." regardless of the underlying cause, so
-        # match that stable prefix rather than the per-request URL or nested error detail. Temporal
-        # then retries the whole activity, so the failure is transient and self-recovering. Mirrors
-        # Close's equivalent case.
-        return {"Max retries exceeded with url"}
+        # `_request_with_retry` (sentry.py) retries dropped connections and read timeouts at the
+        # urllib3 level; once that budget is exhausted, urllib3 re-raises with the stable "Max
+        # retries exceeded with url" prefix regardless of the underlying cause.
+        #
+        # A 429 that outlives tenacity's budget surfaces two ways. The `issue_tag_values` fan-out
+        # raises SENTRY_RATE_LIMITED_MESSAGE, a credential-safe string that keeps the org slug out
+        # of error tracking; every other path still reaches `raise_for_status()`, which raises
+        # `HTTPError: 429 Client Error: Too Many Requests`. Match both so persistent rate-limiting
+        # lets Temporal retry instead of being reported to error tracking as a bug.
+        return {"Max retries exceeded with url", SENTRY_RATE_LIMITED_MESSAGE, "429 Client Error"}
 
     def get_required_parent_schemas(self, schema_name: str) -> list[str]:
         # issue_tag_values fans out over issues through its custom two-level iterator, so it

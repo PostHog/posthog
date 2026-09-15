@@ -1,6 +1,6 @@
 import typing
 import dataclasses
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 
 from django.db import close_old_connections
 
@@ -8,7 +8,10 @@ from structlog.contextvars import bind_contextvars
 from temporalio import activity
 
 from posthog.models.team.team import Team
+from posthog.settings.base_variables import TEST
 from posthog.temporal.common.logger import get_logger
+
+from products.warehouse_sources.backend.billing import FREE_HISTORICAL_WINDOW, FREE_PERIOD_END, FREE_PERIOD_START
 
 from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, is_team_limited
 
@@ -55,9 +58,15 @@ def check_billing_limits_activity(inputs: CheckBillingLimitsActivityInputs) -> b
         logger.info("Skipping billing limits check for non-billable job")
         return False
 
-    if source.created_at >= datetime.now(UTC) - timedelta(days=7):
+    if source.created_at >= datetime.now(UTC) - FREE_HISTORICAL_WINDOW:
         logger.info(
             f"Skipping billing limits check for newly created data source for 7-days free rows. source.created_at = {source.created_at}"
+        )
+        return False
+
+    if not TEST and datetime.now(UTC) >= FREE_PERIOD_START and datetime.now(UTC) <= FREE_PERIOD_END:
+        logger.info(
+            f"Skipping billing limits check for data synced during free period from {FREE_PERIOD_START} to {FREE_PERIOD_END}."
         )
         return False
 

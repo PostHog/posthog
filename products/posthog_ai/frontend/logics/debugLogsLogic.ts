@@ -54,7 +54,7 @@ export const debugLogsLogic = kea<debugLogsLogicType>([
     reducers({
         debugLogsEnabled: [
             false,
-            { persist: true, storageKey: 'posthog_ai.debugLogsEnabled' },
+            { persist: true, storageKey: 'posthog_ai.debugLogsOptIn' },
             {
                 setDebugLogsEnabled: (_, { enabled }) => enabled,
             },

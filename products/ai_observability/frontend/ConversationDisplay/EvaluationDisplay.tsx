@@ -1,3 +1,5 @@
+import { useValues } from 'kea'
+
 import { Link } from '@posthog/lemon-ui'
 
 import { lowercaseFirstLetter } from 'lib/utils/strings'
@@ -7,14 +9,17 @@ import { EventType } from '~/types'
 
 import { EvaluationResultTag } from '../components/EvaluationResultTag'
 import { MetadataTag } from '../components/MetadataTag'
+import { llmEvaluationsLogic } from '../evaluations/llmEvaluationsLogic'
 import { normalizeEvaluationResultProperties } from '../utils'
 
 export function EvaluationDisplay({ eventProperties }: { eventProperties: EventType['properties'] }): JSX.Element {
+    const { detectorEvaluationIds } = useValues(llmEvaluationsLogic)
     const reasoning = eventProperties.$ai_evaluation_reasoning
     const evaluationName = eventProperties.$ai_evaluation_name
     const model = eventProperties.$ai_model ?? eventProperties.$ai_evaluation_model
     const traceId = eventProperties.$ai_trace_id
     const targetEventId = eventProperties.$ai_target_event_id
+    const evaluationId = eventProperties.$ai_evaluation_id
     const resultRun = {
         status: 'completed' as const,
         ...normalizeEvaluationResultProperties({
@@ -30,7 +35,7 @@ export function EvaluationDisplay({ eventProperties }: { eventProperties: EventT
     return (
         <div className="space-y-4">
             <div className="flex flex-wrap gap-2">
-                <EvaluationResultTag run={resultRun} />
+                <EvaluationResultTag run={resultRun} trueIsFailure={detectorEvaluationIds.includes(evaluationId)} />
                 {evaluationName && (
                     <MetadataTag label="Evaluation" textToCopy={evaluationName}>
                         {evaluationName}

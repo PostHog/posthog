@@ -174,6 +174,15 @@ class LLMPromptListQuerySerializer(serializers.Serializer):
         required=False,
         help_text="Filter prompts by the ID of the user who created them.",
     )
+    label = serializers.CharField(  # type: ignore[assignment]
+        required=False,
+        max_length=PROMPT_LABEL_NAME_MAX_LENGTH,
+        help_text=(
+            "Return each prompt at the version this label points to, e.g. 'production'. "
+            "Prompts that do not carry the label are omitted. "
+            "If omitted, the latest version of every prompt is returned."
+        ),
+    )
     order_by = serializers.ChoiceField(
         choices=list(ALLOWED_LIST_ORDERINGS),
         required=False,
@@ -186,6 +195,9 @@ class LLMPromptListQuerySerializer(serializers.Serializer):
         default="full",
         help_text=CONTENT_MODE_HELP,
     )
+
+    def validate_label(self, value: str) -> str:
+        return validate_prompt_label_name_value(value)
 
 
 class LLMPromptResolveQuerySerializer(LLMPromptFetchQuerySerializer):
@@ -468,8 +480,9 @@ class LLMPromptListSerializer(LLMPromptSerializer):
 
     @extend_schema_field(LLMPromptLabelSummarySerializer(many=True))
     def get_all_labels(self, instance: LLMPrompt) -> list[dict[str, Any]]:
-        # The list queryset holds latest-version rows, whose own `labels` miss labels
-        # pointing at older versions; the viewset injects the full per-prompt map.
+        # A list row is one version (latest by default, the labeled one with ?label=),
+        # so its own `labels` miss labels pointing at the prompt's other versions;
+        # the viewset injects the full per-prompt map.
         return self.context.get("prompt_labels_by_name", {}).get(instance.name, [])
 
     def get_prompt_preview(self, instance: LLMPrompt) -> str:

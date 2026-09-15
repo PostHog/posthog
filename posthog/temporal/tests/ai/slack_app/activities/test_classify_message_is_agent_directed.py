@@ -5,10 +5,14 @@ from parameterized import parameterized
 from posthog.temporal.ai.slack_app.activities.classifiers import classify_message_is_agent_directed
 from posthog.temporal.ai.slack_app.posthog_code_slack_mention import POSTHOG_CODE_SLACK_MENTION_TIMEOUT_SECONDS
 
+from products.slack_app.backend.services.slack_messages import SlackThreadMessage
+
 TASK_TITLE = "Fix the checkout button not firing autocapture events"
 THREAD = [
-    {"user": "alice", "text": "@PostHog autocapture isn't picking up clicks on our checkout button", "ts": "1.0"},
-    {"user": "posthog", "text": "Looking into it — checking how the button is rendered.", "ts": "2.0"},
+    SlackThreadMessage(
+        user="alice", text="@PostHog autocapture isn't picking up clicks on our checkout button", ts="1.0"
+    ),
+    SlackThreadMessage(user="posthog", text="Looking into it — checking how the button is rendered.", ts="2.0"),
 ]
 
 
@@ -86,7 +90,7 @@ class TestClassifyMessageIsAgentDirected:
         # that rendered the reply alone would grade a different classifier.
         prompt = self._render_prompt("it only happens for logged-out users")
         assert TASK_TITLE in prompt
-        assert THREAD[0]["text"] in prompt
+        assert THREAD[0].text in prompt
         assert "it only happens for logged-out users" in prompt
 
     def _render_prompt(self, text: str) -> str:

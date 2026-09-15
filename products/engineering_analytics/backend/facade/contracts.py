@@ -21,10 +21,12 @@ read layer maps them into these types. Reviewers and file paths are
 intentionally absent until the warehouse data that backs them lands.
 """
 
+from collections.abc import Mapping
 from dataclasses import field
 from datetime import date, datetime
 from enum import StrEnum
 
+from posthog_owners.schema import TeamEntry
 from pydantic.dataclasses import dataclass
 
 from posthog.hogql.database.models import FieldOrTable
@@ -105,8 +107,24 @@ class MetricQuality(StrEnum):
 
 
 class WorkflowHealthRunScope(StrEnum):
+    """Which population of runs a workflow surface reports on.
+
+    - ``all``: every run in the window.
+    - ``default_branch``: runs whose head branch is master or main.
+    - ``pull_request``: runs on a non-default branch that carry PR attribution and are not
+      merge-queue gate runs.
+    - ``merge_queue``: gate runs the merge queue fired before a merge landed.
+
+    The three narrow values never overlap, so a caller can compare them without double-counting.
+    They do not cover ``all``: a run on a non-default branch with no PR attribution (a fork PR,
+    a release branch) appears only under ``all``, because GitHub does not associate a fork PR
+    with its runs.
+    """
+
     ALL = "all"
+    DEFAULT_BRANCH = "default_branch"
     PULL_REQUEST = "pull_request"
+    MERGE_QUEUE = "merge_queue"
 
 
 class BrokenTestState(StrEnum):
@@ -322,6 +340,8 @@ class WorkflowRunDetail:
     # This is the only PR attribution a default-branch push has, since its `pull_requests`
     # association is empty by then, so consumers read `pr_number` first and fall back to this (SPEC §6).
     commit_pr_number: int | None
+    # A merge-queue gate attempt landing `pr_number`. Counts as CI; not as a push the author made.
+    is_merge_queue: bool
 
 
 @dataclass(frozen=True)
@@ -628,14 +648,17 @@ class FlakyTestList:
 # expires a quarantine, so this deadline is the product's own accountability bar.
 TRUNK_QUARANTINE_TTL_DAYS = 15
 
+# The first-class team every unattributed test aggregates under, on every surface here.
+UNOWNED_TEAM = "unowned"
+
 
 @dataclass(frozen=True)
 class TrunkQuarantinedTest:
     """One test Trunk currently quarantines, aged against ``TRUNK_QUARANTINE_TTL_DAYS``.
 
-    Rows come from the synced TrunkIo ``QuarantinedTests`` warehouse table. Ownership rides the
-    per-test CI spans (the emitter stamps ``test.owner_team``); a quarantined test with no
-    in-retention span aggregates under ``'unowned'``.
+    Rows come from the synced TrunkIo ``QuarantinedTests`` warehouse table. Ownership is the
+    repository's own, resolved from ``owners.yaml`` / ``product.yaml`` for the test's file: a test
+    the repository does not place, or whose path no team claims, aggregates under ``'unowned'``.
     """
 
     # Runner label derived from Trunk's uploader-specific 'parent' field: 'pytest', 'jest',
@@ -644,6 +667,7 @@ class TrunkQuarantinedTest:
     runner: str
     # Runner-native test id reconstructed from Trunk's (file, classname, name) key.
     nodeid: str
+    # Repo-relative path of the test's file, empty when neither the repository nor Trunk places it.
     file: str
     owner_team: str
     # Trunk's health verdict on the test, e.g. 'FLAKY' or 'BROKEN'.
@@ -674,6 +698,9 @@ class TrunkQuarantineDebt:
     no TrunkIo source has the QuarantinedTests endpoint synced — that is not an error."""
 
     available: bool
+    # False when the repository's ownership files could not be read, which leaves every test
+    # 'unowned'. A board that says so beats one that reads as "nobody owns this debt".
+    owners_resolved: bool
     ttl_days: int
     # The 'owner/name' repository the debt was read for; test file paths are relative to it.
     repository: str
@@ -681,6 +708,9 @@ class TrunkQuarantineDebt:
     trunk_url: str | None
     teams: list[TrunkQuarantineTeamDebt]
     tests: list[TrunkQuarantinedTest]
+    # ``teams`` rolls up only the returned ``tests``, so when ``truncated`` its counts are lower bounds.
+    truncated: bool
+    limit: int
 
 
 @dataclass(frozen=True)
@@ -694,7 +724,7 @@ class TeamCIHealthItem:
     every figure is an absolute count, never a rate.
     """
 
-    # Owning team slug (CODEOWNERS handle minus '@PostHog/'), or 'unowned' for unstamped spans.
+    # Owning team slug from the repo's owners.yaml map, or 'unowned' for unstamped spans.
     owner_team: str
     # Owned tests one commit was seen both failing and passing: the same proof, and the same word,
     # the test-health queue's `confirmed_flake` uses.
@@ -711,8 +741,18 @@ class TeamCIHealthItem:
     # Runs where an owned test recorded a tolerated failure while quarantined: already masked, still failing.
     quarantined_failed_run_count: int
     quarantined_failed_run_count_prior: int
-    # Most recent failure, recovery, or quarantined-failure run across the team's owned tests, either window.
-    last_seen_at: datetime
+    # Most recent failure, recovery, or quarantined-failure run across the team's owned tests,
+    # either window. None for a team present only through the census (no CI signal recorded).
+    last_seen_at: datetime | None
+    # Test files the team owns per the daily owners.yaml census; None until a census event
+    # exists for the repository.
+    test_file_count: int | None = None
+    # The latest census value at or before the window start, for the trend.
+    test_file_count_prior: int | None = None
+    # Merged PRs authored by the team's members in the window, bots excluded; None when the
+    # team_members snapshot isn't synced.
+    merged_pr_count: int | None = None
+    merged_pr_count_prior: int | None = None
 
 
 @dataclass(frozen=True)
@@ -791,6 +831,9 @@ class CIStatusRollup:
     passing: int
     failing: int
     pending: int
+    # Completed without a verdict (cancelled, skipped, neutral, action_required). The four counts
+    # partition `runs`, so an all-cancelled PR is not mistaken for a passing one.
+    inconclusive: int
     # The workflow names behind `failing`, sorted — what the UI names under the CI tag.
     failing_workflows: list[str] = field(default_factory=list)
 
@@ -1025,6 +1068,10 @@ class WorkflowHealthItem:
     # runs excluded). Distinct from `successful_run_count`, which counts those no-op successes too, so
     # a duration comparison should size its min-sample gate on this, not on `successful_run_count`.
     percentile_run_count: int = 0
+    # Runs on merge-queue gate branches in the window, counted regardless of the branch/run_scope
+    # filter, so the list can rank queue-gating workflows (the closest proxy for a required check)
+    # even when a scope is active.
+    merge_queue_run_count: int = 0
 
 
 @dataclass(frozen=True)
@@ -1288,12 +1335,15 @@ class LeadTimeBucket:
     # PRs whose first post-merge successful deployment landed in this bucket.
     deployed_pr_count: int
     # Distribution of the stage's duration, in seconds, over those PRs — the six-number
-    # summary a box plot draws (box p25→p75, median line, mean marker, whiskers).
+    # summary a box plot draws (box p25→p75, median line, mean marker, whiskers), plus
+    # p5/p95, the whisker pair the outlier-excluding view draws instead of min/max.
     min_seconds: float | None
+    p05_seconds: float | None
     p25_seconds: float | None
     p50_seconds: float | None
     mean_seconds: float | None
     p75_seconds: float | None
+    p95_seconds: float | None
     max_seconds: float | None
 
 
@@ -1316,17 +1366,12 @@ class DoraOverview:
 
     # False when the deployments/deployment_statuses tables aren't synced for the selected repo.
     deploy_data_available: bool
-    # What the environment filter resolved to: 'production' (deployments GitHub marks
-    # production_environment), an exact environment name (the one the caller passed, or —
-    # when nothing is marked production — the busiest persistent environment, so a multi-region
-    # repo doesn't multiply every count), or 'persistent' (no persistent environment deployed in
-    # the window at all, so every non-transient one counts). Transient environments (ephemeral
-    # per-PR previews) never join a default scope. The scope resolves from deployments in the
-    # scan window, so two different windows can resolve different scopes and are not always comparable.
+    # Display label only; selected_environments carries the exact names without delimiter ambiguity.
     environment_scope: str
     # Distinct persistent environments deployed to in the scan window, most-deployed first — the
     # picker's options. Transient environments are omitted but stay reachable by exact name.
     environments: list[str]
+    selected_environments: list[str]
     # True when the optional team-membership snapshot is synced (the github_team filter's substrate).
     has_membership_data: bool
     # Distinct GitHub team slugs from the membership snapshot, sorted — the team picker's options.
@@ -1342,6 +1387,10 @@ class DoraOverview:
     # (bots/drafts excluded; narrowed by github_team when given). Keyed on deploy time.
     median_merge_to_deploy_seconds: float | None
     median_merge_to_deploy_seconds_prev: float | None
+    # Median seconds from a PR's open to the first successful deployment containing it — the
+    # full-span twin of the merge-to-deploy median over the same deployed-PR population.
+    median_open_to_deploy_seconds: float | None
+    median_open_to_deploy_seconds_prev: float | None
     # PRs first deployed in the window (the population behind the medians and the box plot).
     deployed_pr_count: int
     deployed_pr_count_prev: int
@@ -1378,7 +1427,8 @@ class DoraOverview:
     # Open-to-deploy distribution over the same deployed PRs and buckets: the full open → first
     # successful deploy span the two stages above compose into.
     open_to_deploy_series: list[LeadTimeBucket]
-    # Bucket width of every series, chosen to fit the window: 'hour', 'day', or 'week'.
+    # Bucket width of every series: the caller's granularity when given, else chosen to fit
+    # the window: 'hour', 'day', or 'week'.
     series_granularity: str
 
 
@@ -1486,7 +1536,7 @@ class RunFailureLogs:
 class WorkflowJobAggregate:
     """Per-job aggregates for one workflow over a window, one row per de-sharded job name
     (matrix ``(G/N)`` suffix stripped; unexpanded ``${{ matrix.* }}`` templates collapsed).
-    ``failure_rate`` is over completed jobs; ``p50_seconds``/``p95_seconds`` are over
+    ``failure_rate`` is decisive failures over conclusive jobs; ``p50_seconds``/``p95_seconds`` are over
     successful jobs only (cancelled and failed instances end early and would bias a
     duration percentile low); cost is None when every instance ran on an unknown tier."""
 
@@ -1507,3 +1557,201 @@ class WorkflowJobAggregate:
     retry_job_count: int
     billable_minutes: float | None
     estimated_cost_usd: float | None
+
+
+@dataclass(frozen=True)
+class PathOwnership:
+    """Which team owns each of a set of repository paths, plus the repo's Slack registry.
+
+    The registry rides along because the caller that asks who owns a path usually has to reach
+    that team next, and the root ``owners.yaml`` answers both questions in one read.
+
+    ``resolved`` is false when the ownership files could not be read, which leaves every path
+    ``UNOWNED_TEAM`` and the registry empty. A caller that says so beats one that reads the blind
+    answer as "nobody owns this".
+    """
+
+    team_by_path: Mapping[str, str]
+    registry: Mapping[str, TeamEntry]
+    resolved: bool
+
+
+class DeliveryScopeKind(StrEnum):
+    """Which pull requests a delivery read covers. A scope is always exactly one author, one GitHub
+    team, or one pull request, so no delivery read puts people side by side (SPEC §2)."""
+
+    AUTHOR = "author"
+    GITHUB_TEAM = "github_team"
+    PULL_REQUEST = "pull_request"
+
+
+@dataclass(frozen=True)
+class ScopeRepoFigure:
+    """One figure measured twice over the same window: over the pull requests in scope, and over
+    every non-bot pull request in the repository (the scope included). None means the population
+    had nothing to measure, never zero."""
+
+    scope: float | None
+    repo: float | None
+
+
+@dataclass(frozen=True)
+class DurationDistribution:
+    """The box-plot summary of one per-PR duration, in seconds, over ``pr_count`` pull requests.
+    Every statistic is None when ``pr_count`` is 0."""
+
+    pr_count: int
+    min_seconds: float | None
+    p05_seconds: float | None
+    p25_seconds: float | None
+    p50_seconds: float | None
+    mean_seconds: float | None
+    p75_seconds: float | None
+    p95_seconds: float | None
+    max_seconds: float | None
+
+
+@dataclass(frozen=True)
+class ScopeRepoDistribution:
+    scope: DurationDistribution
+    repo: DurationDistribution
+
+
+@dataclass(frozen=True)
+class DeliveryLeadTime:
+    """Lead time to deploy for one scope against the repository, over the DORA deployed-PR
+    population (bots and drafts excluded, containment resolved through the deploy's head commit).
+
+    The distributions cover PRs whose first containing deploy succeeded in the window, so the
+    three stages compose. The coverage pair counts PRs merged in the window instead:
+    ``deployed_merged_pr_count`` of ``merged_pr_count`` reached a deploy. Deploy failure share and
+    recovery are per deploy and one deploy ships many PRs, so they are not attributable to an
+    author or a team and are not part of this type.
+    """
+
+    deploy_data_available: bool
+    # The environment names the lead time was scoped to (production by default).
+    environment_scope: str
+    merged_pr_count: int
+    deployed_merged_pr_count: int
+    open_to_deploy: ScopeRepoDistribution
+    open_to_merge: ScopeRepoDistribution
+    merge_to_deploy: ScopeRepoDistribution
+
+
+@dataclass(frozen=True)
+class DeliverySummary:
+    """Delivery and CI friction for one author's or one GitHub team's pull requests, each figure
+    against the repository.
+
+    Populations: PRs merged in the window, bots and drafts excluded, unless a field says otherwise.
+    Medians are per merged PR. The ``*_available`` flags say which optional source backs a figure;
+    a figure whose source is missing is None rather than a fake zero.
+    """
+
+    scope_kind: DeliveryScopeKind
+    # The author login or the GitHub team slug.
+    scope: str
+    # A team scope needs the membership table; without it the scope matches no pull requests.
+    has_membership_data: bool
+    # The optional sources behind the figures.
+    jobs_available: bool
+    review_data_available: bool
+    ready_data_available: bool
+    # Plain counts: no repo figure, because comparing volume ranks people.
+    opened_pr_count: int
+    merged_pr_count: int
+    open_pr_count: int
+    draft_pr_count: int
+    # CI spend. Cost includes merge-queue gate runs, which the PR's landing paid for.
+    cost_per_merged_pr_usd: ScopeRepoFigure
+    billable_minutes_per_merged_pr: ScopeRepoFigure
+    cost_per_push_usd: ScopeRepoFigure
+    total_cost_usd: float | None
+    total_billable_minutes: float | None
+    push_count: int
+    # Getting merged.
+    median_ready_to_merge_seconds: ScopeRepoFigure
+    p90_ready_to_merge_seconds: ScopeRepoFigure
+    median_ready_to_first_approval_seconds: ScopeRepoFigure
+    median_first_approval_to_merge_seconds: ScopeRepoFigure
+    before_first_approval_share: ScopeRepoFigure
+    pushes_after_approval_per_merged_pr: ScopeRepoFigure
+    merge_queue_attempts_per_merged_pr: ScopeRepoFigure
+    failed_merge_queue_share: ScopeRepoFigure
+    lead_time: DeliveryLeadTime
+
+
+class PRTimelineSegmentKind(StrEnum):
+    """What a pull request was waiting on during one stretch of its timeline, most specific first.
+
+    CI and queue states win over review states: a red check blocks a merge whatever the review
+    says. The red variants name what turned the check green, which is evidence about the cause,
+    not proof of it.
+    """
+
+    DRAFT = "draft"
+    WAITING_FOR_REVIEW = "waiting_for_review"
+    CHANGES_REQUESTED = "changes_requested"
+    APPROVED_NOT_ENQUEUED = "approved_not_enqueued"
+    # Review state without review data: the stretch is neither CI nor the queue, but who it waits on
+    # is unknown.
+    REVIEW_STATE_UNKNOWN = "review_state_unknown"
+    CI_RUNNING = "ci_running"
+    RED_PASSED_ON_RERUN = "red_passed_on_rerun"
+    RED_MASTER_BROKEN = "red_master_broken"
+    RED_FIXED_BY_PUSH = "red_fixed_by_push"
+    RED_NOT_PROVABLE = "red_not_provable"
+    MERGE_QUEUE = "merge_queue"
+    OUT_OF_MERGE_QUEUE = "out_of_merge_queue"
+
+
+@dataclass(frozen=True)
+class PRTimelineSegment:
+    kind: PRTimelineSegmentKind
+    started_at: datetime
+    ended_at: datetime
+
+
+@dataclass(frozen=True)
+class PRTimeline:
+    """One pull request's delivery timeline, from the moment it was ready for review (or opened,
+    for a draft) to its merge, its close, or now, as consecutive segments with no gaps."""
+
+    number: int
+    title: str
+    author: Author
+    repo: RepoRef
+    state: PRState
+    is_draft: bool
+    created_at: datetime
+    # Where the segments start: the last ready_for_review before the end, else created_at.
+    started_at: datetime
+    merged_at: datetime | None
+    # Distinct head commits that triggered CI, merge-queue gate runs excluded.
+    pushes: int
+    estimated_cost_usd: float | None
+    billable_minutes: float | None
+    segments: list[PRTimelineSegment]
+
+
+@dataclass(frozen=True)
+class PullRequestTimelines:
+    """The pull requests in one scope on a shared clock. An author or team scope lists every PR
+    still open plus every PR merged in the window (closed-unmerged PRs are not listed); a pull
+    request scope returns that one PR whatever its state. Capped at ``limit`` with ``truncated``."""
+
+    scope_kind: DeliveryScopeKind
+    # The author login, the GitHub team slug, or "owner/name#number".
+    scope: str
+    # A team scope needs the membership table; without it the scope matches no pull requests.
+    has_membership_data: bool
+    review_data_available: bool
+    jobs_available: bool
+    # True when the Trunk merge-queue table is synced, so an open PR out of the queue is visible.
+    merge_queue_state_available: bool
+    # The "now" every open PR's last segment ends at.
+    generated_at: datetime
+    items: list[PRTimeline]
+    truncated: bool
+    limit: int
