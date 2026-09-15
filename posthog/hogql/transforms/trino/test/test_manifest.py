@@ -60,6 +60,38 @@ def test_transpiles_core_table_with_values_without_django_queries(
     assert (result.sql, result.values, result.hogql) == snapshot
 
 
+@pytest.mark.parametrize(
+    "expression",
+    [
+        "date('2026-01-01')",
+        "Date('2026-01-01')",
+        "ifNotFinite(1, 2)",
+        "medianExactWeighted(3, 2)",
+        "medianExactWeightedIf(3, 2, true)",
+        "quantiles(0.25, 0.75)(3)",
+        "quantilesIf(0.25, 0.75)(3, true)",
+    ],
+)
+@pytest.mark.parametrize("alias", ["", " AS result"])
+def test_hogql_diagnostics_accept_trino_signatures(expression: str, alias: str) -> None:
+    query = f"SELECT {expression}{alias}"
+    result = transpile_hogql_to_trino(query, manifest=_manifest(), include_hogql=True)
+    without_hogql = transpile_hogql_to_trino(query, manifest=_manifest())
+
+    assert (result.sql, result.values) == (without_hogql.sql, without_hogql.values)
+    assert result.hogql is not None
+    expected_expression = "toDate" + expression[4:] if expression[:4].lower() == "date" else expression
+    assert result.print_columns == (("result" if alias else expected_expression),)
+    round_trip = transpile_hogql_to_trino(result.hogql, manifest=_manifest())
+    assert (round_trip.sql, round_trip.values) == (result.sql, result.values)
+
+
+@pytest.mark.parametrize("include_hogql", [False, True])
+def test_hogql_diagnostics_reject_invalid_quantiles_arguments(include_hogql: bool) -> None:
+    with pytest.raises(QueryError, match="quantiles"):
+        transpile_hogql_to_trino("SELECT quantiles(0.5)(1, 2)", manifest=_manifest(), include_hogql=include_hogql)
+
+
 def test_transpiles_manifest_table_without_django_queries(django_assert_num_queries: Any) -> None:
     orders = TrinoManifestTable(
         logical_name="stripe.orders",

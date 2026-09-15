@@ -1935,7 +1935,7 @@ def test_prints_live_parity_regressions(expression: str, expected: str) -> None:
     assert expected in sql
 
 
-def test_preserves_array_reverse_sort_for_clickhouse() -> None:
+def test_preserves_legacy_clickhouse_array_reverse_sort_mapping() -> None:
     context = _context_with_trino_table()
     context.team_id = 1
     sql = print_prepared_ast(
