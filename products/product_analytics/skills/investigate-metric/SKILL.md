@@ -57,8 +57,10 @@ Classify on the **query body**: the object that holds the playbook `kind`.
 - Saved insight (URL, `short_id`): `posthog:insight-get`. A saved insight wraps its body,
   so read `query.source.kind`. `query.kind` gives you the wrapper instead
   (`InsightVizNode` for a typed insight, `DataVisualizationNode` or `DataTableNode` for a
-  SQL insight), which matches no row below. `query.source` is also the exact body the
-  typed query tools accept. Use `posthog:insight-query` if you also need the numbers.
+  SQL insight), which matches no row below. Do not pass `query.source` to a query tool
+  unchanged. The typed tools accept a narrower schema than a saved query, and
+  `execute-sql` accepts a SQL string. Read the tool's schema before you rerun the query.
+  Use `posthog:insight-query` if you also need the numbers.
 - A query you already ran or the user pasted: the body is the query itself. Unwrap
   `source` first if it has one.
 - Nothing pointed at: ask for the URL or short_id. Don't guess.
