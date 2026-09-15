@@ -222,6 +222,12 @@ def _goal_flow_variant(user: User, team: Team) -> str | None:
         GOAL_FLOW_FLAG,
         str(user.distinct_id),
         groups={"organization": str(team.organization_id), "project": str(team.id)},
+        # Local evaluation cannot look up stored person properties, so every person property the
+        # flag's conditions read must be passed here. Without the email, an email-based variant
+        # override falls through to the rollout hash: the browser (which evaluates via /flags with
+        # the stored person) shows the goal-based UI while this returns control, and the request
+        # silently degrades to the legacy draft.
+        person_properties={"email": user.email},
         group_properties={"organization": {"id": str(team.organization_id)}},
         send_feature_flag_events=False,
     )
