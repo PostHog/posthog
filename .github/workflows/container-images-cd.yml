@@ -381,12 +381,7 @@ jobs:
               uses: ./.github/actions/paths-filter
               id: check_temporal_worker_changes
               with:
-                  # `all_files` feeds the import analysis below, which needs the changed
-                  # file list rather than a verdict.
-                  list-files: shell
                   filters: |
-                      all:
-                        - '**'
                       nodejs:
                         - 'nodejs/**'
                         - Dockerfile
@@ -795,15 +790,50 @@ jobs:
             - name: Check for Python dependency changes that affect analytics platform temporal worker
               id: check_python_changes_analytics_platform_temporal_worker
               env:
-                  CHANGED_FILES: ${{ steps.check_temporal_worker_changes.outputs.all_files }}
+                  BEFORE: ${{ github.event.before }}
               run: |
-                  SUBS_RESULT=$(uv run bin/find_python_dependencies.py products.exports.backend.temporal.subscriptions --check-changes "$CHANGED_FILES" | jq -r '.affected') || SUBS_RESULT="true"
-                  ALERTS_RESULT=$(uv run bin/find_python_dependencies.py posthog.temporal.alerts --check-changes "$CHANGED_FILES" | jq -r '.affected') || ALERTS_RESULT="true"
-                  EXPORTS_RESULT=$(uv run bin/find_python_dependencies.py posthog.temporal.exports --check-changes "$CHANGED_FILES" | jq -r '.affected') || EXPORTS_RESULT="true"
+                  set -o pipefail
+
+                  CHANGED_FILES="$RUNNER_TEMP/analytics-platform-changed-files"
+                  PARTIAL_CHANGED_FILES="$CHANGED_FILES.partial"
+
+                  if [ -z "$BEFORE" ] || [[ "$BEFORE" =~ ^0+$ ]] || ! git cat-file -e "$BEFORE^{commit}"; then
+                      echo "changed=true" >> "$GITHUB_OUTPUT"
+                      exit 0
+                  fi
+
+                  if ! git diff --no-renames --name-only -z "$BEFORE" "$GITHUB_SHA" -- > "$PARTIAL_CHANGED_FILES"; then
+                      rm -f "$PARTIAL_CHANGED_FILES"
+                      echo "changed=true" >> "$GITHUB_OUTPUT"
+                      exit 0
+                  fi
+
+                  if ! mv "$PARTIAL_CHANGED_FILES" "$CHANGED_FILES"; then
+                      rm -f "$PARTIAL_CHANGED_FILES"
+                      echo "changed=true" >> "$GITHUB_OUTPUT"
+                      exit 0
+                  fi
+
+                  check_affected() {
+                      local entrypoint="$1"
+                      local result
+
+                      if ! result=$(uv run bin/find_python_dependencies.py "$entrypoint" --check-changes-file "$CHANGED_FILES" | jq -r 'if (.affected | type) == "boolean" then .affected else error("missing affected result") end'); then
+                          echo "true"
+                      elif [ "$result" = "true" ] || [ "$result" = "false" ]; then
+                          echo "$result"
+                      else
+                          echo "true"
+                      fi
+                  }
+
+                  SUBS_RESULT=$(check_affected products.exports.backend.temporal.subscriptions)
+                  ALERTS_RESULT=$(check_affected posthog.temporal.alerts)
+                  EXPORTS_RESULT=$(check_affected posthog.temporal.exports)
                   if [ "$SUBS_RESULT" = "true" ] || [ "$ALERTS_RESULT" = "true" ] || [ "$EXPORTS_RESULT" = "true" ]; then
-                      echo "changed=true" >> $GITHUB_OUTPUT
+                      echo "changed=true" >> "$GITHUB_OUTPUT"
                   else
-                      echo "changed=false" >> $GITHUB_OUTPUT
+                      echo "changed=false" >> "$GITHUB_OUTPUT"
                   fi
 
             - name: Trigger Billing Temporal Worker Cloud deployment
