@@ -166,6 +166,7 @@ class TestErrorTrackingAlerts(APIBaseTest):
             ("empty_triggers", {"triggers": []}),
             ("empty_destinations", {"destinations": []}),
             ("negative_throttle", {"throttle_seconds": -1}),
+            ("throttle_over_30_days", {"throttle_seconds": 30 * 24 * 60 * 60 + 1}),
             (
                 "unknown_channel",
                 {"destinations": [{"channel_type": "carrier_pigeon", "integration_id": 1, "config": {}}]},
