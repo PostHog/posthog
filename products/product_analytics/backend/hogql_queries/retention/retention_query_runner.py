@@ -3,6 +3,8 @@ from datetime import datetime, timedelta
 from math import ceil
 from typing import Any, Literal, Optional, cast
 
+from rest_framework.exceptions import ValidationError
+
 from posthog.schema import (
     AggregationType,
     Breakdown,
@@ -330,14 +332,27 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
                     for cohort_id in normalized_breakdown_values
                 ]
             else:
+                # The schema allows a list here, but `Breakdown.property` takes a single value,
+                # so a raw list makes pydantic raise and the API returns a 500.
+                breakdown = self.query.breakdownFilter.breakdown
+                property_values = breakdown if isinstance(breakdown, list) else [breakdown]
+
+                if len(property_values) > 1:
+                    # The query builder reads one breakdown column, so extra values are dropped.
+                    raise ValidationError(
+                        "Retention supports one breakdown property at a time. "
+                        "Remove the extra values from the breakdown filter."
+                    )
+
                 self.query.breakdownFilter.breakdowns = [
                     Breakdown(
                         type=self.query.breakdownFilter.breakdown_type,
-                        property=self.query.breakdownFilter.breakdown,
+                        property=property_value,
                         group_type_index=self.query.breakdownFilter.breakdown_group_type_index,
                         histogram_bin_count=self.query.breakdownFilter.breakdown_histogram_bin_count,
                         normalize_url=self.query.breakdownFilter.breakdown_normalize_url,
                     )
+                    for property_value in property_values
                 ]
 
     @cached_property
