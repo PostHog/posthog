@@ -128,8 +128,7 @@ export interface funnelCorrelationUsageLogicActions {
             | TraceSpansAggregationQueryResponse
             | TraceSpansAttributeBreakdownQueryResponse
             | TraceSpansQueryResponse
-            | null
-            | undefined,
+            | null,
         payload?:
             | {
                   overrideQuery: DataNode<Record<string, any>> | undefined
@@ -160,7 +159,6 @@ export interface funnelCorrelationUsageLogicActions {
             | TraceSpansAttributeBreakdownQueryResponse
             | TraceSpansQueryResponse
             | null
-            | undefined
     } // insightVizDataLogic
 }
 

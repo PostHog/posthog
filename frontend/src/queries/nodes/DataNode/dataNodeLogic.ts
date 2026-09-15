@@ -408,8 +408,7 @@ export interface dataNodeLogicActions {
             | TraceSpansAggregationQueryResponse
             | TraceSpansAttributeBreakdownQueryResponse
             | TraceSpansQueryResponse
-            | null
-            | undefined,
+            | null,
         payload?: {
             overrideQuery: DataNode<Record<string, any>> | undefined
             pollOnly: boolean
@@ -432,7 +431,6 @@ export interface dataNodeLogicActions {
             | TraceSpansAttributeBreakdownQueryResponse
             | TraceSpansQueryResponse
             | null
-            | undefined
         payload?: {
             overrideQuery: DataNode<Record<string, any>> | undefined
             pollOnly: boolean
@@ -982,7 +980,8 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     }
 
                     if (props.doNotLoad) {
-                        return props.cachedResults
+                        // `cachedResults` is optional, and kea-loaders throws if a loader resolves undefined
+                        return props.cachedResults ?? null
                     }
 
                     const queryStatus = (props.cachedResults?.query_status || null) as QueryStatus | null

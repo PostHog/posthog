@@ -615,6 +615,26 @@ describe('dataNodeLogic', () => {
         await expectLogic(logic).toMatchValues({ response: { result: [1, 2, 3] } })
     })
 
+    it('keeps the response null when doNotLoad is set and there are no cached results', async () => {
+        logic = dataNodeLogic({
+            key: 'doNotLoadWithoutCachedResults',
+            query: setLatestVersionsOnQuery({
+                kind: NodeKind.EventsQuery,
+                select: ['*', 'event', 'timestamp'],
+            }),
+            doNotLoad: true,
+        })
+        logic.mount()
+
+        expect(performQuery).toHaveBeenCalledTimes(0)
+
+        await expectLogic(logic)
+            .toDispatchActions([
+                ({ type, payload }) => type === logic.actionTypes.loadDataSuccess && payload.response === null,
+            ])
+            .toMatchValues({ response: null })
+    })
+
     it('passes filtersOverride to api', async () => {
         const filtersOverride: DashboardFilter = {
             date_from: '2022-12-24T17:00:41.165000Z',
