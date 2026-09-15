@@ -72,6 +72,27 @@ interface MountedSceneLogic {
     unmount: () => void
 }
 
+/**
+ * Claims the single mounted scene logic slot for the caller, unmounting whichever logic held it.
+ * The slot is cleared before the unmount because `mount()` runs afterMount synchronously, so a
+ * scene that navigates from there re-enters setScene and must not unmount that logic again.
+ * Compare the returned generation after mounting: a lower one means a nested setScene has since
+ * claimed the slot for the scene now open, and the caller's own logic is stale.
+ */
+const claimMountedSceneLogicSlot = (cache: Record<string, any>): number => {
+    const previous: MountedSceneLogic | null = cache.mountedSceneLogic
+    cache.mountedSceneLogic = null
+    const generation: number = ++cache.sceneLogicGeneration
+    if (previous) {
+        try {
+            previous.unmount()
+        } catch (error) {
+            console.error('Error unmounting previous scene logic:', error)
+        }
+    }
+    return generation
+}
+
 const generateTabId = (): string => crypto?.randomUUID?.()?.split('-')?.pop() || `${Date.now()}-${Math.random()}`
 
 /**
@@ -386,6 +407,7 @@ export const sceneLogic = kea<sceneLogicType>([
     })),
     afterMount(({ cache }) => {
         cache.mountedSceneLogic = null as MountedSceneLogic | null
+        cache.sceneLogicGeneration = 0
         cache.lastTrackedScene = null as { sceneId?: string; sceneKey?: string } | null
     }),
     actions({
@@ -727,21 +749,20 @@ export const sceneLogic = kea<sceneLogicType>([
 
                     if (!canKeepMountedLogic) {
                         const builtLogic = exportedScene.logic(builtLogicProps)
-
-                        if (mountedLogic) {
-                            try {
-                                mountedLogic.unmount()
-                            } catch (error) {
-                                console.error('Error unmounting previous scene logic:', error)
+                        const generation = claimMountedSceneLogicSlot(cache)
+                        const unmount = builtLogic.mount()
+                        if (cache.sceneLogicGeneration === generation) {
+                            cache.mountedSceneLogic = {
+                                logic: exportedScene.logic,
+                                logicProps: builtLogicProps,
+                                sceneId,
+                                sceneKey,
+                                unmount,
                             }
-                        }
-
-                        cache.mountedSceneLogic = {
-                            logic: exportedScene.logic,
-                            logicProps: builtLogicProps,
-                            sceneId,
-                            sceneKey,
-                            unmount: builtLogic.mount(),
+                        } else {
+                            // A nested setScene opened another scene while this one was mounting,
+                            // so release this logic rather than overwrite the scene now open.
+                            unmount()
                         }
                     }
                 } catch (error) {
@@ -749,15 +770,7 @@ export const sceneLogic = kea<sceneLogicType>([
                     newLogicErrored = true
                 }
             } else {
-                const mountedLogic = cache.mountedSceneLogic
-                if (mountedLogic) {
-                    try {
-                        mountedLogic.unmount()
-                    } catch (error) {
-                        console.error('Error unmounting previous scene logic:', error)
-                    }
-                    cache.mountedSceneLogic = null
-                }
+                claimMountedSceneLogicSlot(cache)
             }
 
             if (newLogicErrored) {
