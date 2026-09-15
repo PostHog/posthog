@@ -2358,7 +2358,7 @@ class TestGitHubWebhookFanout(TestCase):
             "installation": {"id": 77777},
             "repository": {"full_name": "myorg/myrepo"},
         }
-        loops_handler = "products.tasks.backend.facade.webhooks.handle_github_event_for_loops"
+        loops_handler = "products.tasks.backend.loop_github_events.handle_github_event_for_loops"
 
         with patch(loops_handler, side_effect=RuntimeError("boom")):
             first = self._make_request(payload, event_type="push", url="/webhooks/github/", delivery_id="del-retry")

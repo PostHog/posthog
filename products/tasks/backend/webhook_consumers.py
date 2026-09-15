@@ -8,21 +8,21 @@ from posthog.ingress.contracts import WebhookConsumer, WebhookDelivery
 
 
 def _run_pr_backstop(delivery: WebhookDelivery) -> None:
-    from products.tasks.backend.facade.webhooks import handle_pull_request_event  # noqa: PLC0415
+    from products.tasks.backend.facade.api import accept_github_pull_request  # noqa: PLC0415
 
-    handle_pull_request_event(dict(delivery.payload))
+    accept_github_pull_request(delivery)
 
 
 def _run_pr_review(delivery: WebhookDelivery) -> None:
-    from products.tasks.backend.facade.webhooks import handle_pull_request_review_event  # noqa: PLC0415
+    from products.tasks.backend.facade.api import accept_github_pull_request_review  # noqa: PLC0415
 
-    handle_pull_request_review_event(dict(delivery.payload))
+    accept_github_pull_request_review(delivery)
 
 
 def _run_loops(delivery: WebhookDelivery) -> None:
-    from products.tasks.backend.facade.webhooks import handle_github_event_for_loops  # noqa: PLC0415
+    from products.tasks.backend.facade.api import accept_github_event_for_loops  # noqa: PLC0415
 
-    handle_github_event_for_loops(delivery.event_type, dict(delivery.payload), delivery.delivery_id or "")
+    accept_github_event_for_loops(delivery)
 
 
 WEBHOOK_CONSUMERS = (
