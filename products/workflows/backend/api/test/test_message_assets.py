@@ -174,20 +174,43 @@ class TestMessageAssets(ClickhouseTestMixin, APIBaseTest):
         res = self.client.get(f"{self._base()}/assets/content/?invocation_id=inv-1&action_id=step-a")
         assert res.status_code == status.HTTP_200_OK
         assert res["Content-Type"] == "text/html; charset=utf-8"
-        assert res.content == b"<html><body>Hello Bob</body></html>"
+        assert b"<html><body>Hello Bob</body></html>" in res.content
         # Sandbox at the response layer so direct navigation to this URL still can't
-        # run scripts as the viewer — the iframe's `sandbox=""` alone doesn't protect
-        # someone who opens the asset URL in a new tab. Regressing this reintroduces
+        # run scripts as the viewer. The iframe sandbox alone doesn't protect someone who
+        # opens the asset URL in a new tab. Granting either capability below reintroduces
         # stored-XSS in captured email HTML.
-        assert "sandbox" in res["Content-Security-Policy"]
+        csp = res["Content-Security-Policy"]
+        assert csp.startswith("sandbox ")
+        assert "allow-scripts" not in csp
+        assert "allow-same-origin" not in csp
         assert res["X-Content-Type-Options"] == "nosniff"
+
+    @parameterized.expand(
+        [
+            (
+                "with_head",
+                "<html><head><title>Hi</title></head><body>hi</body></html>",
+                '<html><head><base target="_blank">',
+            ),
+            ("without_head", "<div>hi</div>", '<base target="_blank"><div>hi</div>'),
+        ]
+    )
+    def test_content_sends_link_clicks_to_a_new_tab(self, _name: str, html: str, expected_prefix: str):
+        self._seed("inv-1", action_id="step-a", html=html)
+        res = self.client.get(f"{self._base()}/assets/content/?invocation_id=inv-1&action_id=step-a")
+        assert res.status_code == status.HTTP_200_OK
+        # Without both of these, a click on a link in the viewer navigates the viewer's own
+        # iframe, and the destination refuses to be framed, so the viewer goes blank.
+        assert res.content.decode().startswith(expected_prefix)
+        assert "allow-popups allow-popups-to-escape-sandbox" in res["Content-Security-Policy"]
 
     def test_content_returns_latest_version_html(self):
         self._seed("inv-1", action_id="step-a", html="<p>old</p>", version=1)
         self._seed("inv-1", action_id="step-a", html="<p>new</p>", version=2)
         res = self.client.get(f"{self._base()}/assets/content/?invocation_id=inv-1&action_id=step-a")
         assert res.status_code == status.HTTP_200_OK
-        assert res.content == b"<p>new</p>"
+        assert b"<p>new</p>" in res.content
+        assert b"<p>old</p>" not in res.content
 
     def test_content_404_for_unknown_asset(self):
         res = self.client.get(f"{self._base()}/assets/content/?invocation_id=nope&action_id=step-a")
