@@ -16,6 +16,8 @@ use personhog_identity::storage::postgres::PostgresIdentityStorage;
 /// helpers in the test binaries assume it.
 /// Leader fan-out width the suites run with; production reads it from config.
 pub const FAN_OUT_CONCURRENCY: usize = 8;
+/// Partition count the delete driver groups its fence batches by.
+pub const NUM_PARTITIONS: u32 = 4;
 
 pub fn default_tables() -> IdentityTables {
     IdentityTables::real()
@@ -242,10 +244,24 @@ impl personhog_identity::leader::LifecycleLeader for UnusedLeader {
         Err(tonic::Status::unimplemented("not exercised by this test"))
     }
 
+    async fn fence_persons(
+        &self,
+        _request: personhog_proto::personhog::types::v1::FencePersonsRequest,
+    ) -> Result<personhog_proto::personhog::types::v1::FencePersonsResponse, tonic::Status> {
+        Err(tonic::Status::unimplemented("not exercised by this test"))
+    }
+
     async fn release_fence(
         &self,
         _request: personhog_proto::personhog::types::v1::ReleaseFenceRequest,
     ) -> Result<personhog_proto::personhog::types::v1::ReleaseFenceResponse, tonic::Status> {
+        Err(tonic::Status::unimplemented("not exercised by this test"))
+    }
+
+    async fn release_fences(
+        &self,
+        _request: personhog_proto::personhog::types::v1::ReleaseFencesRequest,
+    ) -> Result<personhog_proto::personhog::types::v1::ReleaseFencesResponse, tonic::Status> {
         Err(tonic::Status::unimplemented("not exercised by this test"))
     }
 

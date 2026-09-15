@@ -293,6 +293,7 @@ ALWAYS invoke the matching skill **first** — do not skip it, and do not attemp
 - `/sending-notifications` — adding notification support
 - `/routing-outbound-api-calls` — adding or changing Python code that calls a third-party HTTP API, or changing any domain under `posthog/egress/` (budget, lanes, identity, metrics, headers)
 - `/adding-activity-logging` — adding activity logging (the audit trail) to a model, writing or changing a `model_activity_signal` receiver or an activity describer, auditing which write paths of a model are logged, or debugging a change that is missing from the activity log
+- `/adding-inbound-webhooks` — adding a webhook endpoint for a third party that sends to PostHog, adding a consumer for a provider that already has an endpoint, or migrating a verifier the `inbound-webhooks-go-through-ingress` rule flags
 - `/writing-skills` — creating or updating skills in `.agents/skills/`
 - `/editing-agents-md` — adding, editing or removing a rule in any `AGENTS.md` or `CLAUDE.md`, root or nested
 - `/writing-evals` — adding or changing eval suites, cases, scorers, or seeders under `products/posthog_ai/evals/` or `products/*/evals/`, touching the harness in `products/posthog_ai/eval_harness/`, or running those evals

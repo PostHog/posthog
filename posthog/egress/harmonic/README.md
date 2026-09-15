@@ -21,6 +21,7 @@ The default reserve ladder applies, and it matters here, because the lanes carry
 
 The client is `ee/billing/salesforce_enrichment/harmonic_client.py`.
 The bulk sweep paces with `pace_seconds_harmonic` and `admission_interval_harmonic` rather than getting denied.
+It keeps up to 24 company lookups in flight while each request draws from the shared budget.
 A denied call raises `HarmonicEgressBudgetExhausted`. A caller that folds exceptions into an enrichment miss must catch it first, or a throttled lookup gets recorded as a company Harmonic does not know.
 
 ## Rate-limit headers
@@ -30,6 +31,9 @@ Production has recorded no value on either gauge, although the recording path se
 Check a live response with the API key before you build a dashboard or tune the budget on them.
 Harmonic documents no reset header, so the domain declares no reset gauge.
 The counter is `harmonic_api_requests_total`.
+`harmonic_api_request_duration_seconds` measures the HTTP request through response headers after admission. It labels source, priority, endpoint, and response or exception outcome.
+`harmonic_api_admission_wait_seconds` measures the bulk client's pacing wait, including time queued behind its pacing lock. It labels source and priority.
+Unknown sources and endpoints use an `other` label to keep the metric series bounded.
 
 ## Auth
 
