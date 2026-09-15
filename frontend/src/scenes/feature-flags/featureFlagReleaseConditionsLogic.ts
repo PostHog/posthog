@@ -390,7 +390,9 @@ export type featureFlagReleaseConditionsLogicType = MakeLogicType<
 export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseConditionsLogicType>([
     path(['scenes', 'feature-flags', 'featureFlagReleaseConditionsLogic']),
     props({} as FeatureFlagReleaseConditionsLogicProps),
-    key(({ id }) => id ?? 'unknown'),
+    // The readonly overview and the edit form render the same flag at the same time. They must not
+    // share one filters reducer, or the overview keeps showing the state the form was seeded with.
+    key(({ id, readOnly }) => `${id ?? 'unknown'}${readOnly ? '-readonly' : ''}`),
     connect(() => ({
         values: [projectLogic, ['currentProjectId'], groupsModel, ['groupTypes', 'aggregationLabel']],
     })),
