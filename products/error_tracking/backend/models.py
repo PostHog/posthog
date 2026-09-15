@@ -254,8 +254,8 @@ class ErrorTrackingIssueFingerprintV2(UUIDTModel):
         ]
         db_table = "posthog_errortrackingissuefingerprintv2"
         indexes = [
-            models.Index(fields=["team", "created_at"], name="et_fp_team_created_at_idx"),
-            models.Index(fields=["team", "issue", "created_at"], name="et_fp_team_issue_created_idx"),
+            models.Index(fields=["team", "created_at", "id"], name="et_fp_team_created_at_idx"),
+            models.Index(fields=["team", "issue", "created_at", "id"], name="et_fp_team_issue_created_idx"),
         ]
 
 

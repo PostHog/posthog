@@ -17,10 +17,10 @@ class Migration(migrations.Migration):
         ),
         SafeAddIndexConcurrently(
             model_name="errortrackingissuefingerprintv2",
-            index=models.Index(fields=["team", "created_at"], name="et_fp_team_created_at_idx"),
+            index=models.Index(fields=["team", "created_at", "id"], name="et_fp_team_created_at_idx"),
         ),
         SafeAddIndexConcurrently(
             model_name="errortrackingissuefingerprintv2",
-            index=models.Index(fields=["team", "issue", "created_at"], name="et_fp_team_issue_created_idx"),
+            index=models.Index(fields=["team", "issue", "created_at", "id"], name="et_fp_team_issue_created_idx"),
         ),
     ]
