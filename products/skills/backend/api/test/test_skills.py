@@ -1559,6 +1559,19 @@ class TestLLMSkillAPI(APIBaseTest):
         assert LLMSkill.objects.filter(team=self.team, name=old_name, deleted=False).exists()
         assert not LLMSkill.objects.filter(team=self.team, name=new_name).exists()
 
+    @parameterized.expand([("rename", "rename"), ("duplicate", "duplicate")])
+    def test_taking_a_bundled_skill_name_is_rejected(self, _label, action):
+        self.create_skill(name="source")
+
+        response = self.client.post(
+            self._url(f"name/source/{action}"),
+            data={"new_name": "signals-scout-logs"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert not LLMSkill.objects.filter(team=self.team, name="signals-scout-logs").exists()
+
     def test_rename_of_a_missing_skill_is_not_found(self):
         response = self.client.post(
             self._url("name/nope/rename"),
