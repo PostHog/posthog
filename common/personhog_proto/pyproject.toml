@@ -1,0 +1,13 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "personhog-proto"
+version = "0.1.0"
+description = "Python stubs generated from proto/personhog"
+requires-python = ">=3.13"
+dependencies = ["grpcio", "protobuf"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["personhog"]

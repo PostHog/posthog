@@ -41,7 +41,7 @@ jobs:
                   filters: |
                       proto:
                         - 'proto/**'
-                        - 'posthog/personhog_client/proto/generated/**'
+                        - 'common/personhog_proto/**'
                         - 'bin/generate_personhog_proto.sh'
                         - 'nodejs/src/common/generated/personhog/**'
                         - 'nodejs/src/common/generated/ingestion-worker/**'
@@ -119,8 +119,12 @@ jobs:
                   python-version: '3.13.13'
                   token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
-            - name: Install codegen tools
-              run: pip install grpcio-tools protoletariat ruff
+            - uses: ./.github/actions/setup-uv
+              with:
+                  enable-cache: 'false'
+
+            - name: Install codegen tools from the lock
+              run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --no-install-project --only-group proto-codegen
 
             - name: Regenerate Python proto stubs
               run: bash bin/generate_personhog_proto.sh
@@ -128,8 +132,8 @@ jobs:
             - name: Check for diff
               run: |
                   # Intent-to-add so brand-new generated files show up in git diff
-                  git add -N posthog/personhog_client/proto/generated/
-                  if ! git diff --exit-code posthog/personhog_client/proto/generated/; then
+                  git add -N common/personhog_proto/
+                  if ! git diff --exit-code common/personhog_proto/; then
                     echo ""
                     echo "ERROR: Generated Python proto stubs are out of date."
                     echo "Run 'bash bin/generate_personhog_proto.sh' and commit the result."

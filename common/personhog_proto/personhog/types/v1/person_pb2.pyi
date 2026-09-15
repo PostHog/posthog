@@ -16,6 +16,7 @@ from google.protobuf.internal import (
     containers as _containers,
     enum_type_wrapper as _enum_type_wrapper,
 )
+
 from personhog.types.v1 import common_pb2 as _common_pb2
 
 DESCRIPTOR: _descriptor.FileDescriptor
@@ -78,7 +79,6 @@ class Person(_message.Message):
     is_user_id: bool
     last_seen_at: int
     is_deleted: bool
-
     def __init__(
         self,
         id: _Optional[int] = ...,
@@ -101,7 +101,6 @@ class DistinctIdWithVersion(_message.Message):
     VERSION_FIELD_NUMBER: _ClassVar[int]
     distinct_id: str
     version: int
-
     def __init__(self, distinct_id: _Optional[str] = ..., version: _Optional[int] = ...) -> None: ...
 
 class PersonWithDistinctIds(_message.Message):
@@ -110,7 +109,6 @@ class PersonWithDistinctIds(_message.Message):
     PERSON_FIELD_NUMBER: _ClassVar[int]
     distinct_id: str
     person: Person
-
     def __init__(
         self, distinct_id: _Optional[str] = ..., person: _Optional[_Union[Person, _Mapping]] = ...
     ) -> None: ...
@@ -121,7 +119,6 @@ class PersonDistinctIds(_message.Message):
     DISTINCT_IDS_FIELD_NUMBER: _ClassVar[int]
     person_id: int
     distinct_ids: _containers.RepeatedCompositeFieldContainer[DistinctIdWithVersion]
-
     def __init__(
         self,
         person_id: _Optional[int] = ...,
@@ -134,7 +131,6 @@ class PersonWithTeamDistinctId(_message.Message):
     PERSON_FIELD_NUMBER: _ClassVar[int]
     key: _common_pb2.TeamDistinctId
     person: Person
-
     def __init__(
         self,
         key: _Optional[_Union[_common_pb2.TeamDistinctId, _Mapping]] = ...,
@@ -149,7 +145,6 @@ class GetPersonRequest(_message.Message):
     team_id: int
     person_id: int
     read_options: _common_pb2.ReadOptions
-
     def __init__(
         self,
         team_id: _Optional[int] = ...,
@@ -161,7 +156,6 @@ class GetPersonResponse(_message.Message):
     __slots__ = ("person",)
     PERSON_FIELD_NUMBER: _ClassVar[int]
     person: Person
-
     def __init__(self, person: _Optional[_Union[Person, _Mapping]] = ...) -> None: ...
 
 class GetPersonsRequest(_message.Message):
@@ -172,7 +166,6 @@ class GetPersonsRequest(_message.Message):
     team_id: int
     person_ids: _containers.RepeatedScalarFieldContainer[int]
     read_options: _common_pb2.ReadOptions
-
     def __init__(
         self,
         team_id: _Optional[int] = ...,
@@ -186,7 +179,6 @@ class PersonsResponse(_message.Message):
     MISSING_IDS_FIELD_NUMBER: _ClassVar[int]
     persons: _containers.RepeatedCompositeFieldContainer[Person]
     missing_ids: _containers.RepeatedScalarFieldContainer[int]
-
     def __init__(
         self,
         persons: _Optional[_Iterable[_Union[Person, _Mapping]]] = ...,
@@ -201,7 +193,6 @@ class GetPersonByUuidRequest(_message.Message):
     team_id: int
     uuid: str
     read_options: _common_pb2.ReadOptions
-
     def __init__(
         self,
         team_id: _Optional[int] = ...,
@@ -217,7 +208,6 @@ class GetPersonsByUuidsRequest(_message.Message):
     team_id: int
     uuids: _containers.RepeatedScalarFieldContainer[str]
     read_options: _common_pb2.ReadOptions
-
     def __init__(
         self,
         team_id: _Optional[int] = ...,
@@ -233,7 +223,6 @@ class GetPersonByDistinctIdRequest(_message.Message):
     team_id: int
     distinct_id: str
     read_options: _common_pb2.ReadOptions
-
     def __init__(
         self,
         team_id: _Optional[int] = ...,
@@ -249,7 +238,6 @@ class GetPersonsByDistinctIdsInTeamRequest(_message.Message):
     team_id: int
     distinct_ids: _containers.RepeatedScalarFieldContainer[str]
     read_options: _common_pb2.ReadOptions
-
     def __init__(
         self,
         team_id: _Optional[int] = ...,
@@ -261,7 +249,6 @@ class PersonsByDistinctIdsInTeamResponse(_message.Message):
     __slots__ = ("results",)
     RESULTS_FIELD_NUMBER: _ClassVar[int]
     results: _containers.RepeatedCompositeFieldContainer[PersonWithDistinctIds]
-
     def __init__(self, results: _Optional[_Iterable[_Union[PersonWithDistinctIds, _Mapping]]] = ...) -> None: ...
 
 class GetPersonsByDistinctIdsRequest(_message.Message):
@@ -270,7 +257,6 @@ class GetPersonsByDistinctIdsRequest(_message.Message):
     READ_OPTIONS_FIELD_NUMBER: _ClassVar[int]
     team_distinct_ids: _containers.RepeatedCompositeFieldContainer[_common_pb2.TeamDistinctId]
     read_options: _common_pb2.ReadOptions
-
     def __init__(
         self,
         team_distinct_ids: _Optional[_Iterable[_Union[_common_pb2.TeamDistinctId, _Mapping]]] = ...,
@@ -281,7 +267,6 @@ class PersonsByDistinctIdsResponse(_message.Message):
     __slots__ = ("results",)
     RESULTS_FIELD_NUMBER: _ClassVar[int]
     results: _containers.RepeatedCompositeFieldContainer[PersonWithTeamDistinctId]
-
     def __init__(self, results: _Optional[_Iterable[_Union[PersonWithTeamDistinctId, _Mapping]]] = ...) -> None: ...
 
 class GetDistinctIdsForPersonRequest(_message.Message):
@@ -294,7 +279,6 @@ class GetDistinctIdsForPersonRequest(_message.Message):
     person_id: int
     read_options: _common_pb2.ReadOptions
     limit: int
-
     def __init__(
         self,
         team_id: _Optional[int] = ...,
@@ -307,7 +291,6 @@ class GetDistinctIdsForPersonResponse(_message.Message):
     __slots__ = ("distinct_ids",)
     DISTINCT_IDS_FIELD_NUMBER: _ClassVar[int]
     distinct_ids: _containers.RepeatedCompositeFieldContainer[DistinctIdWithVersion]
-
     def __init__(self, distinct_ids: _Optional[_Iterable[_Union[DistinctIdWithVersion, _Mapping]]] = ...) -> None: ...
 
 class GetDistinctIdsForPersonsRequest(_message.Message):
@@ -320,7 +303,6 @@ class GetDistinctIdsForPersonsRequest(_message.Message):
     person_ids: _containers.RepeatedScalarFieldContainer[int]
     read_options: _common_pb2.ReadOptions
     limit_per_person: int
-
     def __init__(
         self,
         team_id: _Optional[int] = ...,
@@ -333,7 +315,6 @@ class GetDistinctIdsForPersonsResponse(_message.Message):
     __slots__ = ("person_distinct_ids",)
     PERSON_DISTINCT_IDS_FIELD_NUMBER: _ClassVar[int]
     person_distinct_ids: _containers.RepeatedCompositeFieldContainer[PersonDistinctIds]
-
     def __init__(
         self, person_distinct_ids: _Optional[_Iterable[_Union[PersonDistinctIds, _Mapping]]] = ...
     ) -> None: ...
@@ -368,7 +349,6 @@ class UpdatePersonPropertiesRequest(_message.Message):
     is_identified: bool
     last_seen_at: int
     force_update: bool
-
     def __init__(
         self,
         team_id: _Optional[int] = ...,
@@ -388,7 +368,6 @@ class UpdatePersonPropertiesResponse(_message.Message):
     UPDATED_FIELD_NUMBER: _ClassVar[int]
     person: Person
     updated: bool
-
     def __init__(self, person: _Optional[_Union[Person, _Mapping]] = ..., updated: bool = ...) -> None: ...
 
 class DeletePersonsRequest(_message.Message):
@@ -397,14 +376,12 @@ class DeletePersonsRequest(_message.Message):
     PERSON_UUIDS_FIELD_NUMBER: _ClassVar[int]
     team_id: int
     person_uuids: _containers.RepeatedScalarFieldContainer[str]
-
     def __init__(self, team_id: _Optional[int] = ..., person_uuids: _Optional[_Iterable[str]] = ...) -> None: ...
 
 class DeletePersonsResponse(_message.Message):
     __slots__ = ("deleted_count",)
     DELETED_COUNT_FIELD_NUMBER: _ClassVar[int]
     deleted_count: int
-
     def __init__(self, deleted_count: _Optional[int] = ...) -> None: ...
 
 class DeletePersonsBatchForTeamRequest(_message.Message):
@@ -413,14 +390,12 @@ class DeletePersonsBatchForTeamRequest(_message.Message):
     BATCH_SIZE_FIELD_NUMBER: _ClassVar[int]
     team_id: int
     batch_size: int
-
     def __init__(self, team_id: _Optional[int] = ..., batch_size: _Optional[int] = ...) -> None: ...
 
 class DeletePersonsBatchForTeamResponse(_message.Message):
     __slots__ = ("deleted_count",)
     DELETED_COUNT_FIELD_NUMBER: _ClassVar[int]
     deleted_count: int
-
     def __init__(self, deleted_count: _Optional[int] = ...) -> None: ...
 
 class SplitPersonRequest(_message.Message):
@@ -431,7 +406,6 @@ class SplitPersonRequest(_message.Message):
     team_id: int
     person_id: int
     distinct_ids_to_split: _containers.RepeatedScalarFieldContainer[str]
-
     def __init__(
         self,
         team_id: _Optional[int] = ...,
@@ -451,7 +425,6 @@ class SplitResult(_message.Message):
     new_person_version: int
     pdi_version: int
     new_person_created_at_ms: int
-
     def __init__(
         self,
         distinct_id: _Optional[str] = ...,
@@ -465,7 +438,6 @@ class SplitPersonResponse(_message.Message):
     __slots__ = ("splits",)
     SPLITS_FIELD_NUMBER: _ClassVar[int]
     splits: _containers.RepeatedCompositeFieldContainer[SplitResult]
-
     def __init__(self, splits: _Optional[_Iterable[_Union[SplitResult, _Mapping]]] = ...) -> None: ...
 
 class SetPersonDistinctIdVersionFloorRequest(_message.Message):
@@ -476,7 +448,6 @@ class SetPersonDistinctIdVersionFloorRequest(_message.Message):
     team_id: int
     distinct_id: str
     min_version: int
-
     def __init__(
         self, team_id: _Optional[int] = ..., distinct_id: _Optional[str] = ..., min_version: _Optional[int] = ...
     ) -> None: ...
@@ -485,7 +456,6 @@ class SetPersonDistinctIdVersionFloorResponse(_message.Message):
     __slots__ = ("person",)
     PERSON_FIELD_NUMBER: _ClassVar[int]
     person: Person
-
     def __init__(self, person: _Optional[_Union[Person, _Mapping]] = ...) -> None: ...
 
 class SetPersonVersionFloorRequest(_message.Message):
@@ -496,7 +466,6 @@ class SetPersonVersionFloorRequest(_message.Message):
     team_id: int
     person_id: int
     min_version: int
-
     def __init__(
         self, team_id: _Optional[int] = ..., person_id: _Optional[int] = ..., min_version: _Optional[int] = ...
     ) -> None: ...
@@ -505,7 +474,6 @@ class SetPersonVersionFloorResponse(_message.Message):
     __slots__ = ("updated",)
     UPDATED_FIELD_NUMBER: _ClassVar[int]
     updated: bool
-
     def __init__(self, updated: bool = ...) -> None: ...
 
 class FencePersonRequest(_message.Message):
@@ -518,7 +486,6 @@ class FencePersonRequest(_message.Message):
     person_id: int
     op_id: str
     op_type: LifecycleOpType
-
     def __init__(
         self,
         team_id: _Optional[int] = ...,
@@ -531,7 +498,6 @@ class FencePersonResponse(_message.Message):
     __slots__ = ("sealed",)
     SEALED_FIELD_NUMBER: _ClassVar[int]
     sealed: Person
-
     def __init__(self, sealed: _Optional[_Union[Person, _Mapping]] = ...) -> None: ...
 
 class ReleaseFenceRequest(_message.Message):
@@ -550,7 +516,6 @@ class ReleaseFenceRequest(_message.Message):
     outcome: ReleaseOutcome
     sealed_version: int
     created_at: int
-
     def __init__(
         self,
         team_id: _Optional[int] = ...,
@@ -564,7 +529,6 @@ class ReleaseFenceRequest(_message.Message):
 
 class ReleaseFenceResponse(_message.Message):
     __slots__ = ()
-
     def __init__(self) -> None: ...
 
 class SealedSourceSnapshot(_message.Message):
@@ -573,7 +537,6 @@ class SealedSourceSnapshot(_message.Message):
     ORDINAL_FIELD_NUMBER: _ClassVar[int]
     person: Person
     ordinal: int
-
     def __init__(self, person: _Optional[_Union[Person, _Mapping]] = ..., ordinal: _Optional[int] = ...) -> None: ...
 
 class FoldPersonDocumentRequest(_message.Message):
@@ -590,7 +553,6 @@ class FoldPersonDocumentRequest(_message.Message):
     event_set: bytes
     event_set_once: bytes
     op_id: str
-
     def __init__(
         self,
         team_id: _Optional[int] = ...,
@@ -605,5 +567,4 @@ class FoldPersonDocumentResponse(_message.Message):
     __slots__ = ("person",)
     PERSON_FIELD_NUMBER: _ClassVar[int]
     person: Person
-
     def __init__(self, person: _Optional[_Union[Person, _Mapping]] = ...) -> None: ...

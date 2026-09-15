@@ -24,14 +24,14 @@ proto/
 
 ## Consumers
 
-| Proto              | Rust                                           | Python                                                   | Node.js                                                     |
-| ------------------ | ---------------------------------------------- | -------------------------------------------------------- | ----------------------------------------------------------- |
-| `cymbal/`          | `rust/cymbal-proto` (auto via tonic)           | —                                                        | —                                                           |
-| `ingestion/`       | `rust/ingestion-worker-proto` (auto via tonic) | —                                                        | `nodejs/src/common/generated/ingestion-worker` (checked in) |
-| `personhog/`       | `rust/personhog-proto` (auto via tonic)        | `posthog/personhog_client/proto/generated/` (checked in) | `nodejs/src/common/generated/personhog` (checked in)        |
-| `kafka_assigner/`  | `rust/kafka-assigner-proto` (auto via tonic)   | —                                                        | —                                                           |
-| `prometheus/`      | `rust/prometheus-rw-proto` (auto via tonic)    | —                                                        | —                                                           |
-| `usage_ingestion/` | `rust/usage-ingestion-proto` (auto via tonic)  | —                                                        | `nodejs/src/common/generated/usage-ingestion` (checked in)  |
+| Proto              | Rust                                           | Python                                 | Node.js                                                     |
+| ------------------ | ---------------------------------------------- | -------------------------------------- | ----------------------------------------------------------- |
+| `cymbal/`          | `rust/cymbal-proto` (auto via tonic)           | —                                      | —                                                           |
+| `ingestion/`       | `rust/ingestion-worker-proto` (auto via tonic) | —                                      | `nodejs/src/common/generated/ingestion-worker` (checked in) |
+| `personhog/`       | `rust/personhog-proto` (auto via tonic)        | `common/personhog_proto/` (checked in) | `nodejs/src/common/generated/personhog` (checked in)        |
+| `kafka_assigner/`  | `rust/kafka-assigner-proto` (auto via tonic)   | —                                      | —                                                           |
+| `prometheus/`      | `rust/prometheus-rw-proto` (auto via tonic)    | —                                      | —                                                           |
+| `usage_ingestion/` | `rust/usage-ingestion-proto` (auto via tonic)  | —                                      | `nodejs/src/common/generated/usage-ingestion` (checked in)  |
 
 ## Updating protos
 
@@ -45,7 +45,7 @@ proto/
 bin/generate_personhog_proto.sh
 ```
 
-Only needed when `personhog/` protos change. Requires `grpcio-tools` and `protoletariat` (`uv sync`).
+Only needed when `personhog/` protos change. Requires `grpcio-tools` (`uv sync`).
 
 If you added or removed **message types**, update the re-exports in `posthog/personhog_client/proto/__init__.py`.
 If you added or removed **RPCs**, update the wrapper methods in `posthog/personhog_client/client.py`.
