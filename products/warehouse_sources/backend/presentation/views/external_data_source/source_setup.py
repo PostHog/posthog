@@ -14,12 +14,10 @@ from django.utils import timezone
 import temporalio
 from drf_spectacular.utils import extend_schema, extend_schema_field
 from openai import APIConnectionError
-from psycopg import OperationalError
 from rest_framework import serializers, status
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
-from sshtunnel import BaseSSHTunnelForwarderError
 
 from posthog.hogql.direct_sql.capability import direct_capable_source_types
 
@@ -62,7 +60,6 @@ from products.warehouse_sources.backend.facade.source_management import (
     RowFilterValidationError,
     SourceRegistry,
     SourceSchema,
-    SSLRequiredError,
     WebhookSource,
     build_default_schemas,
     draft_manifest_sync,
@@ -423,7 +420,8 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         # both the generic `host` field and source-specific URL fields like ServiceNow's
         # `instance_url`, so a stored credential can't be redirected to a new host.
         connection_host_changed = any(
-            field in incoming_job_inputs and incoming_job_inputs[field] != existing_job_inputs.get(field)
+            field in incoming_job_inputs
+            and helpers.connection_target_changed(existing_job_inputs.get(field), incoming_job_inputs[field])
             for field in helpers._CONNECTION_TARGET_FIELDS
         )
 
@@ -431,7 +429,8 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         # `okta_domain`, Freshdesk's `subdomain`). Changing one would send the preserved credential
         # to a new host — the same exfiltration risk as a `host` change — so require re-entry too.
         connection_host_changed = connection_host_changed or any(
-            field in incoming_job_inputs and incoming_job_inputs[field] != existing_job_inputs.get(field)
+            field in incoming_job_inputs
+            and helpers.connection_target_changed(existing_job_inputs.get(field), incoming_job_inputs[field])
             for field in source.connection_host_fields
         )
 
@@ -1335,7 +1334,7 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
                                 schema_name = cdc_schema_name_by_location.get((db_schema, table_name))
                                 if schema_name is not None:
                                     pk_columns_by_table[schema_name] = primary_key_columns
-                except (OperationalError, BaseSSHTunnelForwarderError, SSLRequiredError) as e:
+                except base._EXPECTED_CONNECTION_ERRORS as e:
                     # Connecting to the user's database to detect CDC primary keys is expected to
                     # fail when the host, port, credentials, or SSH tunnel are wrong, or the server
                     # requires/refuses SSL. Surface it as a 400, but don't capture it — these are

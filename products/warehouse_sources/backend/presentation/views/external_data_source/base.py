@@ -12,9 +12,11 @@ from collections.abc import Iterable, Mapping
 from typing import TYPE_CHECKING, Any
 
 import structlog
+from psycopg import OperationalError
 from rest_framework import viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
+from sshtunnel import BaseSSHTunnelForwarderError
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.exceptions_capture import capture_exception
@@ -40,8 +42,11 @@ from products.warehouse_sources.backend.facade.source_management import (
     AnySource,
     CDCSourceAdapter,
     Config,
+    HostNotAllowedError,
     SourceRegistry,
     SourceSchema,
+    SSLRequiredError,
+    TemporaryHostResolutionError,
     WebhookSource,
     cdc_pg_connection,
     get_primary_key_columns,
@@ -50,6 +55,16 @@ from products.warehouse_sources.backend.facade.source_management import (
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
 logger = structlog.get_logger(__name__)
+
+# Failures to reach the source database that only the customer can fix. Handlers return them as a
+# 400 without capturing, so they stay out of error tracking.
+_EXPECTED_CONNECTION_ERRORS = (
+    OperationalError,
+    BaseSSHTunnelForwarderError,
+    SSLRequiredError,
+    HostNotAllowedError,
+    TemporaryHostResolutionError,
+)
 
 __all__ = [
     "ExternalDataSourceViewSetBase",

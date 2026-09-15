@@ -72,6 +72,7 @@ from products.experiments.backend.hogql_queries.exposure_query_logic import (
     get_multiple_variant_handling_from_experiment,
     has_activation_config,
 )
+from products.experiments.backend.hogql_queries.types import PrecomputeSkipReason
 from products.experiments.backend.hogql_queries.utils import (
     aggregate_variants_across_breakdowns,
     get_bayesian_experiment_result,
@@ -302,7 +303,6 @@ class ExperimentQueryRunner(QueryRunner):
             start_is_dw = isinstance(self.query.metric.start_event, ExperimentDataWarehouseNode)
             completion_is_dw = isinstance(self.query.metric.completion_event, ExperimentDataWarehouseNode)
             self.is_data_warehouse_query = start_is_dw or completion_is_dw
-        self.is_ratio_metric = isinstance(self.query.metric, ExperimentRatioMetric)
 
         self.stats_method = get_experiment_stats_method(self.experiment)
 
@@ -366,6 +366,7 @@ class ExperimentQueryRunner(QueryRunner):
             table=LazyComputationTable.EXPERIMENT_EXPOSURES_PREAGGREGATED,
             placeholders=placeholders,
             sentinel_placeholders={"experiment_date_to"},
+            end_is_data_horizon=True,
             # High-volume teams' builds OOM even at capped window widths; spilling the
             # GROUP BY to disk degrades gracefully instead of failing the build.
             spill_to_disk=True,
@@ -403,6 +404,7 @@ class ExperimentQueryRunner(QueryRunner):
             table=LazyComputationTable.EXPERIMENT_METRIC_EVENTS_PREAGGREGATED,
             placeholders=placeholders,
             sentinel_placeholders={"experiment_date_to"},
+            end_is_data_horizon=True,
             spill_to_disk=True,
         )
 
@@ -433,27 +435,27 @@ class ExperimentQueryRunner(QueryRunner):
 
         return not has_uncalculated_cohorts(self.team, self.experiment.exposure_criteria, self.metric)
 
-    def _precompute_skip_reason(self) -> Optional[str]:
+    def _precompute_skip_reason(self) -> Optional[PrecomputeSkipReason]:
         """Why precompute was not used, for the query-performance UI. None when it was attempted."""
         if self.query.precomputation_mode == PrecomputationMode.PRECOMPUTED:
             return None
         if self.query.precomputation_mode == PrecomputationMode.DIRECT:
-            return "override_direct"
+            return PrecomputeSkipReason.OVERRIDE_DIRECT
         if not self._team_experiments_config.experiment_precomputation_enabled:
-            return "team_disabled"
+            return PrecomputeSkipReason.TEAM_DISABLED
         if not experiment_has_min_runtime_for_precomputation(
             self.experiment.start_date,
             self.experiment.end_date,
         ):
-            return "min_runtime"
+            return PrecomputeSkipReason.MIN_RUNTIME
         if has_activation_config(self.experiment.exposure_criteria):
-            return "activation_config"
+            return PrecomputeSkipReason.ACTIVATION_CONFIG
         if has_uncalculated_cohorts(self.team, self.experiment.exposure_criteria, self.metric):
-            return "cohort_not_calculated"
+            return PrecomputeSkipReason.COHORT_NOT_CALCULATED
         if self.is_data_warehouse_query:
-            return "data_warehouse"
+            return PrecomputeSkipReason.DATA_WAREHOUSE
         if self.group_type_index is not None:
-            return "group_aggregation"
+            return PrecomputeSkipReason.GROUP_AGGREGATION
         return None  # precompute was attempted; a direct path means the build failed / wasn't ready
 
     def _retention_metric_events_precomputation_enabled(self) -> bool:
@@ -480,8 +482,9 @@ class ExperimentQueryRunner(QueryRunner):
 
     def _metric_events_precompute_applicable(self) -> bool:
         """
-        Metric-events precompute supports ordered funnels, numeric mean metrics
-        (count/sum/avg/min/max), and retention metrics, in all cases without
+        Metric-events precompute supports ordered funnels, mean metrics with
+        numeric math (count/sum/avg/min/max) or ID-valued math (unique users /
+        unique sessions), and retention metrics, in all cases without
         breakdowns, CUPED, or data warehouse sources.
         """
         if self._get_breakdowns_for_builder() or self.cuped_config.enabled or self.is_data_warehouse_query:
@@ -493,21 +496,32 @@ class ExperimentQueryRunner(QueryRunner):
             if not isinstance(source, (EventsNode, ActionsNode)):
                 return False
             # Session-property means aggregate via a per-session dedup CTE that the
-            # precomputed table can't feed; ID-valued math (unique session/DAU/group)
-            # and HogQL expressions don't fit the Float64 numeric_value column.
+            # precomputed table can't feed. Unique-group math is excluded because
+            # the build INSERT can't resolve $group_N (MATERIALIZED on
+            # sharded_events), and HogQL math because user expressions are arbitrary.
             if is_session_property_metric(source):
                 return False
             math_type = getattr(source, "math", None) or ExperimentMetricMathType.TOTAL
-            # These math types are safe because the build query stores the same
+            # Numeric math types are safe because the build query stores the same
             # coalesced per-event float regardless of math type, and the math is
             # applied at read time by build_value_aggregation_expr on both paths.
-            return math_type in (
+            if math_type in (
                 ExperimentMetricMathType.TOTAL,
                 ExperimentMetricMathType.SUM,
                 ExperimentMetricMathType.AVG,
                 ExperimentMetricMathType.MIN,
                 ExperimentMetricMathType.MAX,
-            )
+            ):
+                return True
+            # unique_session counts distinct session_id, which every mean build stores.
+            if math_type == ExperimentMetricMathType.UNIQUE_SESSION:
+                return True
+            # dau counts distinct entity_id, which is the person id only when the
+            # experiment is person-keyed. Group experiments never reach precompute,
+            # but keep the guard explicit in case that exclusion is ever lifted.
+            if math_type == ExperimentMetricMathType.DAU:
+                return self.group_type_index is None
+            return False
         if isinstance(self.metric, ExperimentRetentionMetric):
             if not isinstance(self.metric.start_event, (EventsNode, ActionsNode)) or not isinstance(
                 self.metric.completion_event, (EventsNode, ActionsNode)
@@ -656,11 +670,12 @@ class ExperimentQueryRunner(QueryRunner):
         # Tag after _get_experiment_query() which sets the precompute flags
         exposures_path = "precomputed" if self._is_precomputed else "direct_scan"
         metric_events_path = self.metric_events_path
+        skip_reason = self._precompute_skip_reason()
         tag_queries(
             experiment_exposures_path=exposures_path,
             experiment_metric_events_path=metric_events_path,
             experiment_execution_path=exposures_path,
-            experiment_precompute_skip_reason=self._precompute_skip_reason(),
+            experiment_precompute_skip_reason=skip_reason.value if skip_reason is not None else None,
             experiment_scan_date_from=self.date_range.date_from,
             experiment_scan_date_to=self.date_range.date_to,
         )

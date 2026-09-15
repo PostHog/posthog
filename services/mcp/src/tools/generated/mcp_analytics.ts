@@ -137,45 +137,6 @@ const mcpAnalyticsSessionsToolCalls = (): ToolBase<
     },
 })
 
-const McpFeedbackSubmitSchema = () => {
-    const McpAnalyticsFeedbackCreateBody = orvalSchemas.McpAnalyticsFeedbackCreateBody()
-    return McpAnalyticsFeedbackCreateBody.omit({
-        mcp_client_name: true,
-        mcp_client_version: true,
-        mcp_protocol_version: true,
-        mcp_transport: true,
-        mcp_session_id: true,
-        mcp_trace_id: true,
-    })
-}
-
-const mcpFeedbackSubmit = (): ToolBase<ReturnType<typeof McpFeedbackSubmitSchema>, Schemas.MCPAnalyticsSubmission> => ({
-    name: 'mcp-feedback-submit',
-    schema: McpFeedbackSubmitSchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof McpFeedbackSubmitSchema>>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.attempted_tool !== undefined) {
-            body['attempted_tool'] = params.attempted_tool
-        }
-        if (params.goal !== undefined) {
-            body['goal'] = params.goal
-        }
-        if (params.feedback !== undefined) {
-            body['feedback'] = params.feedback
-        }
-        if (params.category !== undefined) {
-            body['category'] = params.category
-        }
-        const result = await context.api.request<Schemas.MCPAnalyticsSubmission>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/mcp_analytics/feedback/`,
-            body,
-        })
-        return result
-    },
-})
-
 const McpMissingCapabilityReportSchema = () => {
     const McpAnalyticsMissingCapabilitiesCreateBody = orvalSchemas.McpAnalyticsMissingCapabilitiesCreateBody()
     return McpAnalyticsMissingCapabilitiesCreateBody.omit({
@@ -705,7 +666,6 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'mcp-analytics-sessions-generate-intent': mcpAnalyticsSessionsGenerateIntent,
     'mcp-analytics-sessions-list': mcpAnalyticsSessionsList,
     'mcp-analytics-sessions-tool-calls': mcpAnalyticsSessionsToolCalls,
-    'mcp-feedback-submit': mcpFeedbackSubmit,
     'mcp-missing-capability-report': mcpMissingCapabilityReport,
     'query-mcp-harness-breakdown': createQueryWrapper({
         name: 'query-mcp-harness-breakdown',

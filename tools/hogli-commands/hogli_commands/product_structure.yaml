@@ -69,6 +69,7 @@ root_files:
                         "inputs": [
                             "backend/facade/**",
                             "backend/presentation/**",
+                            "backend/webhook_consumers.py",
                             "backend/tasks/**",
                             "backend/models.py",
                             "backend/migrations/**"

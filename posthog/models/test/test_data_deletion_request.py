@@ -3,7 +3,7 @@ from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from unittest.mock import patch
 
 from django.core.exceptions import ValidationError
@@ -282,7 +282,7 @@ def test_compile_hogql_predicate_missing_team_raises_validation_error(db):
         compile_hogql_predicate(request)
 
 
-@freeze_time("2026-06-17T12:00:00Z")
+@time_machine.travel("2026-06-17T12:00:00Z", tick=False)
 def test_compile_hogql_predicate_boolean_person_property_not_coerced(team):
     """A boolean-typed person property compared to a non-``true``/``false`` string must not be
     coerced to Bool. The coercion (``accurateCastOrNull(transform(...), 'Bool')``) maps the
@@ -524,6 +524,58 @@ def test_event_and_property_removal_rejects_person_fields(request_type, override
         request.clean()
 
 
+@pytest.mark.parametrize(
+    "overrides,match",
+    [
+        ({"hogql_query": ""}, "Provide a HogQL query"),
+        ({"execution_mode": ddr.ExecutionMode.IMMEDIATE}, "must use deferred execution"),
+        ({"events": ["$pageview"]}, "cannot use legacy event filters"),
+        ({"hogql_predicate": "event = '$pageview'"}, "cannot use legacy criteria"),
+        ({"person_distinct_ids": ["person-1"]}, "only valid for person_removal"),
+    ],
+)
+def test_hogql_event_removal_rejects_invalid_criteria(overrides: dict[str, object], match: str) -> None:
+    fields = {
+        "team_id": TEAM_ID,
+        "request_type": RequestType.HOGQL_EVENT_REMOVAL,
+        "execution_mode": ddr.ExecutionMode.DEFERRED,
+        "hogql_query": "SELECT uuid FROM events",
+    }
+    fields.update(overrides)
+    request = DataDeletionRequest(**fields)
+
+    with pytest.raises(ValidationError, match=match):
+        request.clean()
+
+
+def test_hogql_event_removal_clean_passes() -> None:
+    request = DataDeletionRequest(
+        team_id=TEAM_ID,
+        request_type=RequestType.HOGQL_EVENT_REMOVAL,
+        execution_mode=ddr.ExecutionMode.DEFERRED,
+        hogql_query="SELECT uuid FROM events WHERE event = {event_name}",
+        hogql_variables={"event_name": {"kind": "HogQLVariable", "value": "$pageview"}},
+    )
+
+    request.clean()
+
+
+@pytest.mark.parametrize(
+    "request_type", [RequestType.EVENT_REMOVAL, RequestType.PROPERTY_REMOVAL, RequestType.PERSON_REMOVAL]
+)
+def test_legacy_request_types_reject_hogql_query_snapshot(request_type: str) -> None:
+    if request_type == RequestType.EVENT_REMOVAL:
+        fields = _base_kwargs(events=["$pageview"])
+    elif request_type == RequestType.PROPERTY_REMOVAL:
+        fields = _property_kwargs()
+    else:
+        fields = _person_kwargs()
+    request = DataDeletionRequest(**fields, hogql_query="SELECT uuid FROM events")
+
+    with pytest.raises(ValidationError, match="only valid for query-backed event removal"):
+        request.clean()
+
+
 def test_team_id_immutable_after_creation():
     request = DataDeletionRequest(**_base_kwargs(events=["$pageview"]))
     request._loaded_team_id = request.team_id  # simulate a row loaded from the DB
@@ -599,7 +651,19 @@ def test_cached_compile_hogql_predicate_blank_predicate_skips_compile():
         assert cached_compile_hogql_predicate(request) == ("", {})
 
 
-@freeze_time("2026-06-17T12:00:00Z")
+def test_query_backed_deletion_stats_are_rejected():
+    request = DataDeletionRequest(
+        team_id=TEAM_ID,
+        request_type=RequestType.HOGQL_EVENT_REMOVAL,
+        hogql_query="SELECT uuid FROM events",
+        execution_mode="deferred",
+    )
+
+    with pytest.raises(ValueError, match="Stats are not available"):
+        ddr.fetch_deletion_stats(request)
+
+
+@time_machine.travel("2026-06-17T12:00:00Z", tick=False)
 @pytest.mark.parametrize(
     "overrides,expected_fragment",
     [

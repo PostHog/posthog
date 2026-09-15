@@ -14,6 +14,11 @@ use personhog_identity::storage::postgres::PostgresIdentityStorage;
 
 /// The production table set. Most tests run here; the raw-SQL assertion
 /// helpers in the test binaries assume it.
+/// Leader fan-out width the suites run with; production reads it from config.
+pub const FAN_OUT_CONCURRENCY: usize = 8;
+/// Partition count the delete driver groups its fence batches by.
+pub const NUM_PARTITIONS: u32 = 4;
+
 pub fn default_tables() -> IdentityTables {
     IdentityTables::real()
 }
@@ -105,6 +110,7 @@ impl TestContext {
                 attempt_alert_threshold: 5,
                 gc_batch_limit: 10_000,
             },
+            self.tables.clone(),
         )
     }
 
@@ -188,10 +194,13 @@ impl TestContext {
     }
 
     pub async fn cleanup(&self) -> Result<(), sqlx::Error> {
-        sqlx::query("DELETE FROM lifecycle_op WHERE team_id = $1")
-            .bind(self.team_id as i32)
-            .execute(&self.pool)
-            .await?;
+        sqlx::query(&format!(
+            "DELETE FROM {} WHERE team_id = $1",
+            self.tables.lifecycle_op
+        ))
+        .bind(self.team_id as i32)
+        .execute(&self.pool)
+        .await?;
         sqlx::query(&format!(
             "DELETE FROM {} WHERE team_id = $1",
             self.tables.person_distinct_id
@@ -235,10 +244,24 @@ impl personhog_identity::leader::LifecycleLeader for UnusedLeader {
         Err(tonic::Status::unimplemented("not exercised by this test"))
     }
 
+    async fn fence_persons(
+        &self,
+        _request: personhog_proto::personhog::types::v1::FencePersonsRequest,
+    ) -> Result<personhog_proto::personhog::types::v1::FencePersonsResponse, tonic::Status> {
+        Err(tonic::Status::unimplemented("not exercised by this test"))
+    }
+
     async fn release_fence(
         &self,
         _request: personhog_proto::personhog::types::v1::ReleaseFenceRequest,
     ) -> Result<personhog_proto::personhog::types::v1::ReleaseFenceResponse, tonic::Status> {
+        Err(tonic::Status::unimplemented("not exercised by this test"))
+    }
+
+    async fn release_fences(
+        &self,
+        _request: personhog_proto::personhog::types::v1::ReleaseFencesRequest,
+    ) -> Result<personhog_proto::personhog::types::v1::ReleaseFencesResponse, tonic::Status> {
         Err(tonic::Status::unimplemented("not exercised by this test"))
     }
 

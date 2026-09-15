@@ -30,6 +30,7 @@ from products.data_warehouse.backend.facade.api import (
 )
 from products.warehouse_sources.backend.facade.models import MANAGED_WAREHOUSE_SOURCE_PREFIX, ExternalDataSource
 from products.warehouse_sources.backend.facade.source_management import (
+    DATABASE_HOST_NOT_ALLOWED_GUIDANCE,
     AnySource,
     Config,
     FieldType,
@@ -106,6 +107,9 @@ REFRESH_SCHEMAS_EXPECTED_ERROR_MESSAGES = {
     "forbidden": "The source credentials do not have permission to fetch schemas.",
     "ssl/tls connection is required": "SSL/TLS is required to connect to the source.",
     "could not establish session to ssh gateway": "Could not establish an SSH tunnel to the source.",
+    # Raised by the connect-time host check of every SQL source; the map is matched on lowercased text.
+    "database host not allowed": DATABASE_HOST_NOT_ALLOWED_GUIDANCE,
+    "temporary failure resolving": "Could not resolve the source host right now. Try again in a moment.",
 }
 
 
@@ -384,21 +388,34 @@ _SSH_TUNNEL_CONNECTION_FIELDS = ("enabled", "host", "port")
 _CONNECTION_TARGET_FIELDS = ("host", "instance_url")
 
 
-def ssh_tunnel_connection_changed(existing: Any, incoming: Any) -> bool:
-    """True if the SSH tunnel's connection target (enabled/host/port) changed.
+def _coerce_connection_target(value: Any) -> str:
+    """Normalize a connection-target value for comparison.
 
     Scalars are coerced to strings to ignore type drift between stored values
     (often strings) and JSON-parsed input (bools/ints). Only `None` collapses to ""
     — `or ""` would also swallow falsy-but-meaningful values like `False` and 0,
     making stored "False" falsely diverge from JSON `false`.
     """
+    return "" if value is None else str(value)
+
+
+def connection_target_changed(existing: Any, incoming: Any) -> bool:
+    """True if a named connection-target field actually moved to a different target.
+
+    An unset field and a blank one name the same (absent) target, so collapsing them keeps the
+    gate off an edit that changes nothing: the edit form submits a blank for every declared field
+    the stored source never had, and treating that as a retarget blocks the whole form behind a
+    credential re-entry that does not apply.
+    """
+    return _coerce_connection_target(existing) != _coerce_connection_target(incoming)
+
+
+def ssh_tunnel_connection_changed(existing: Any, incoming: Any) -> bool:
+    """True if the SSH tunnel's connection target (enabled/host/port) changed."""
     existing = existing if isinstance(existing, dict) else {}
     incoming = incoming if isinstance(incoming, dict) else {}
 
-    def _coerce(value: Any) -> str:
-        return "" if value is None else str(value)
-
-    return any(_coerce(existing.get(key)) != _coerce(incoming.get(key)) for key in _SSH_TUNNEL_CONNECTION_FIELDS)
+    return any(connection_target_changed(existing.get(key), incoming.get(key)) for key in _SSH_TUNNEL_CONNECTION_FIELDS)
 
 
 # Nested containers that keep their secrets one level down, not at the top level: the

@@ -1,15 +1,24 @@
+from contextlib import nullcontext
+
 import pytest
 from unittest.mock import MagicMock, patch
 
+from trino.exceptions import TrinoExternalError
+
+from products.warehouse_sources.backend.presentation.views.external_data_source import _classify_refresh_schemas_error
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.trino import (
     TrinoAuthTypeConfig,
     TrinoSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.trino.source import TrinoSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.trino.trino import (
+    TRINO_ACCESS_CONTROL_UNAVAILABLE_ERROR,
+    TRINO_ACCESS_DENIED_ERROR,
+    TRINO_AUTHENTICATION_ERROR,
     TRINO_CREDENTIALS_REQUIRE_TLS_VERIFICATION_ERROR,
     DiscoveredTrinoTable,
     TrinoColumn,
+    TrinoSchemaDiscoveryError,
     connect_trino,
     discover_trino_schemas,
     trino_error_to_message,
@@ -148,6 +157,86 @@ def test_trino_error_to_message_preserves_tls_verification_action() -> None:
     assert trino_error_to_message(error) == TRINO_CREDENTIALS_REQUIRE_TLS_VERIFICATION_ERROR
 
 
+@pytest.mark.parametrize(
+    ("raw_error", "expected"),
+    [
+        ("TrinoExternalError: Failed to query OPA backend", TRINO_ACCESS_CONTROL_UNAVAILABLE_ERROR),
+        ("Access Denied: Cannot select from table hive.analytics.events", TRINO_ACCESS_DENIED_ERROR),
+        ("Authentication failed for user posthog", TRINO_AUTHENTICATION_ERROR),
+        ("error 401", TRINO_AUTHENTICATION_ERROR),
+        # A Trino query error's text carries a query ID (YYYYMMDD_HHMMSS_seq_random). The "401" in
+        # its time part must not turn an access denial into an authentication error.
+        (
+            'TrinoUserError(type=USER_ERROR, name=PERMISSION_DENIED, message="Access Denied: '
+            'Cannot select from table hive.analytics.events", query_id=20260902_123401_00000_abcde)',
+            TRINO_ACCESS_DENIED_ERROR,
+        ),
+    ],
+)
+def test_trino_error_to_message_explains_access_failures(raw_error: str, expected: str) -> None:
+    assert trino_error_to_message(RuntimeError(raw_error)) == expected
+
+
+def _trino_external_error(message: str) -> TrinoExternalError:
+    return TrinoExternalError(
+        {
+            "message": message,
+            "errorName": "EXTERNAL",
+            "errorCode": 65536,
+            "errorType": "EXTERNAL",
+            "failureInfo": {},
+        },
+        "20260902_120000_00000_abcde",
+    )
+
+
+def test_get_schemas_reports_what_trino_said_without_an_exception_report() -> None:
+    source = TrinoSource()
+
+    with (
+        patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.trino.source.connect_trino",
+            side_effect=_trino_external_error("Failed to query OPA backend"),
+        ),
+        pytest.raises(TrinoSchemaDiscoveryError) as raised,
+    ):
+        source.get_schemas(_config(), team_id=1)
+
+    message, is_expected_source_error = _classify_refresh_schemas_error(source, raised.value)
+    assert message == TRINO_ACCESS_CONTROL_UNAVAILABLE_ERROR
+    assert is_expected_source_error is True
+
+
+def test_get_schemas_leaves_a_posthog_side_failure_for_error_tracking() -> None:
+    source = TrinoSource()
+
+    with (
+        patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.trino.source.connect_trino",
+            return_value=nullcontext(MagicMock()),
+        ),
+        patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.trino.source.discover_trino_schemas",
+            side_effect=ValueError("not enough values to unpack (expected 5, got 4)"),
+        ),
+        pytest.raises(ValueError) as raised,
+    ):
+        source.get_schemas(_config(), team_id=1)
+
+    _, is_expected_source_error = _classify_refresh_schemas_error(source, raised.value)
+    assert is_expected_source_error is False
+
+
+def test_unrecognized_trino_discovery_failure_is_not_reported_as_a_posthog_exception() -> None:
+    source = TrinoSource()
+
+    _, is_expected_source_error = _classify_refresh_schemas_error(
+        source, TrinoSchemaDiscoveryError("Query exceeded per-node memory limit")
+    )
+
+    assert is_expected_source_error is True
+
+
 def test_connect_trino_closes_tracked_session_when_connect_fails() -> None:
     session = MagicMock()
 
@@ -167,10 +256,12 @@ def test_connect_trino_closes_tracked_session_when_connect_fails() -> None:
 
 def test_discover_trino_schemas_groups_columns_and_filters_names() -> None:
     cursor = MagicMock()
-    cursor.fetchall.return_value = [
-        ("analytics", "events", "id", "bigint", "NO"),
-        ("analytics", "events", "properties", "map(varchar, varchar)", "YES"),
-        ("sales", "orders", "id", "bigint", "NO"),
+    cursor.fetchall.side_effect = [
+        [("analytics", "events"), ("sales", "orders")],
+        [
+            ("analytics", "events", "id", "bigint", "NO"),
+            ("analytics", "events", "properties", "map(varchar, varchar)", "YES"),
+        ],
     ]
 
     discovered = discover_trino_schemas(cursor, _config(), names=["analytics.events"])
@@ -186,7 +277,34 @@ def test_discover_trino_schemas_groups_columns_and_filters_names() -> None:
             ),
         )
     ]
-    assert 'FROM "hive".information_schema.columns' in cursor.execute.call_args.args[0]
+    assert cursor.execute.call_count == 2
+    assert 'FROM "hive".information_schema.tables' in cursor.execute.call_args_list[0].args[0]
+    assert 'FROM "hive".information_schema.columns' in cursor.execute.call_args_list[1].args[0]
+    assert cursor.execute.call_args_list[1].args[1] == ["analytics", "events"]
+
+
+def test_discover_trino_schemas_fetches_columns_in_bounded_batches() -> None:
+    cursor = MagicMock()
+    analytics_tables = [("analytics", f"table_{index}") for index in range(101)]
+    cursor.fetchall.side_effect = [
+        [*analytics_tables, ("sales", "orders")],
+        [("analytics", f"table_{index}", "id", "bigint", "NO") for index in range(100)],
+        [("analytics", "table_100", "id", "bigint", "NO")],
+        [("sales", "orders", "id", "bigint", "NO")],
+    ]
+
+    discovered = discover_trino_schemas(cursor, _config())
+
+    assert len(discovered) == 102
+    assert {(table.schema, table.name) for table in discovered} == {
+        *analytics_tables,
+        ("sales", "orders"),
+    }
+    column_calls = cursor.execute.call_args_list[1:]
+    assert len(column_calls) == 3
+    assert all("table_schema = ?" in call.args[0] for call in column_calls)
+    assert all("table_name IN" in call.args[0] for call in column_calls)
+    assert all(len(call.args[1]) <= 101 for call in column_calls)
 
 
 def test_trino_source_is_direct_only() -> None:

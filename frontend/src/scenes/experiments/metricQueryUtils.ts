@@ -29,7 +29,7 @@ import type {
 } from '~/queries/schema/schema-general'
 import { ExperimentMetricSource, ExperimentMetricType, NodeKind } from '~/queries/schema/schema-general'
 import { setLatestVersionsOnQuery } from '~/queries/utils'
-import type { Experiment, FilterType, IntervalType, MultivariateFlagVariant } from '~/types'
+import type { FilterType, IntervalType, MultivariateFlagVariant } from '~/types'
 import { ChartDisplayType, ExperimentMetricMathType, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { EXPOSURE_DEFAULT_EVENT, EXPOSURE_FEATURE_FLAG_PROPERTY, featureFlagVariantProperty } from './exposureContract'
@@ -107,23 +107,11 @@ const defaultFunnelsFilter: FunnelsFilter = {
 /**
  * returns the default date range
  */
-export const getDefaultDateRange = (): DateRange => ({
+const getDefaultDateRange = (): DateRange => ({
     date_from: dayjs().subtract(EXPERIMENT_DEFAULT_DURATION, 'day').format('YYYY-MM-DDTHH:mm'),
     date_to: dayjs().endOf('d').format('YYYY-MM-DDTHH:mm'),
     explicitDate: true,
 })
-
-/**
- * returns a date range using an experiment's start and end date, or the default duration if not set.
- */
-export const getExperimentDateRange = (experiment: Experiment): DateRange => {
-    const defaultRange = getDefaultDateRange()
-    return {
-        date_from: experiment.start_date ?? defaultRange.date_from,
-        date_to: experiment.end_date ?? defaultRange.date_to,
-        explicitDate: true,
-    }
-}
 
 /**
  * returns the math properties for the source
@@ -575,20 +563,6 @@ export const addExposureToMetric =
                 }
             })
             .otherwise(() => metric)
-
-/**
- * unlike metrics, both Funnels and Trends queries have a series property,
- * so we can add the exposure event to the series.
- */
-export const addExposureToQuery =
-    (exposureEvent: EventsNode | ActionsNode) =>
-    (query: FunnelsQuery | TrendsQuery | undefined): FunnelsQuery | TrendsQuery | undefined =>
-        query
-            ? ({
-                  ...query,
-                  series: [exposureEvent, ...query.series],
-              } as typeof query)
-            : undefined
 
 type InsightVizNodeOptions = {
     showTable: boolean

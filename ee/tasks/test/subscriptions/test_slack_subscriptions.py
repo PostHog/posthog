@@ -2,7 +2,7 @@ import asyncio
 from typing import Any
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, MagicMock, call, patch
 
@@ -44,7 +44,7 @@ def _make_slack_api_error(error_code: str, **extra_data) -> SlackApiError:
 
 
 @patch("ee.tasks.subscriptions.slack_subscriptions.SlackIntegration")
-@freeze_time("2022-02-02T08:30:00.000Z")
+@time_machine.travel("2022-02-02T08:30:00.000Z", tick=False)
 class TestSlackSubscriptionsTasks(APIBaseTest):
     subscription: Subscription
     dashboard: Dashboard
@@ -286,7 +286,7 @@ class TestSlackSubscriptionsTasks(APIBaseTest):
 
 
 @patch("ee.tasks.subscriptions.slack_subscriptions.SlackIntegration")
-@freeze_time("2025-01-01T08:30:00.000Z")
+@time_machine.travel("2025-01-01T08:30:00.000Z", tick=False)
 class TestSlackSubscriptionsAsyncTasks(APIBaseTest):
     TOTAL_ASSET_COUNT = 10
 

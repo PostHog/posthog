@@ -116,6 +116,16 @@ class ExternalDataSourceBulkUpdateSchemasSerializer(serializers.Serializer):
         help_text="Schema updates to apply in a single batch.",
     )
 
+    # The endpoint is a PATCH, so the schema generator marks every field optional. The body is a
+    # batch command that always needs `schemas`, and the generated types and MCP tool must say so.
+    @property
+    def partial(self) -> bool:
+        return False
+
+    @partial.setter
+    def partial(self, _value: bool) -> None:
+        pass
+
 
 def _validation_error_message(error: ValidationError) -> str:
     # DRF normalizes ValidationError.detail to a list or dict (never a bare string).
@@ -516,7 +526,8 @@ class ExternalDataSourceSchemaOperationsMixin(base.ExternalDataSourceViewSetBase
         request=ExternalDataSourceBulkUpdateSchemasSerializer,
         responses={200: ExternalDataSchemaSerializer(many=True)},
     )
-    @action(methods=["PATCH"], detail=True)
+    # The list-shaped response makes the generator add the viewset's search and paging params.
+    @action(methods=["PATCH"], detail=True, pagination_class=None, filter_backends=[])
     def bulk_update_schemas(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         source = self.get_object()
         serializer = ExternalDataSourceBulkUpdateSchemasSerializer(data=request.data)

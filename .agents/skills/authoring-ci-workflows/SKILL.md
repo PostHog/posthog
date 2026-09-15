@@ -28,8 +28,25 @@ The linters own the mechanical rules (below); this skill is the **judgment calls
 ## What the linters already enforce
 
 Run `bin/hogli lint:workflows` and `actionlint` before pushing — they gate CI, and they (not this list) are the source of truth for what's enforced.
-Today that's: `timeout-minutes` on every job, the canonical PR concurrency block, a repo-wide budget for unscoped PR event dispatches, `dorny/paths-filter` negation safety, justification for full-depth checkouts, cache-write gating, semgrep service coverage, MCP path-filter coverage of the trees the MCP build compiles, required-check gate hygiene, and generic GHA correctness (bad `secrets.*` / `needs:` refs, deprecated `::set-output`, unknown runner labels).
+Today that's: `timeout-minutes` on every job, the canonical PR concurrency block, a repo-wide budget for unscoped PR event dispatches, `dorny/paths-filter` negation safety, justification for full-depth checkouts, cache-write gating, semgrep service coverage, MCP path-filter coverage of the trees the MCP build compiles, required-check gate hygiene, secrets a reusable workflow reads being declared and passed by its callers, and generic GHA correctness (bad `secrets.*` / `needs:` refs, deprecated `::set-output`, unknown runner labels).
 Third-party action digests are bumped by Renovate.
+
+## Check what a condition does before you push it
+
+The linters check the shape of an `if:`; `tools/workflow-plan` checks what it does.
+It evaluates every job and step condition with GitHub's own expression evaluator against a synthetic draft PR, ready PR, fork PR, merge-queue run, master push, hourly schedule, and manual dispatch, and prints which jobs run:
+
+```bash
+hogli ci:plan .github/workflows/ci-backend.yml            # one row per job, one column per scenario
+hogli ci:plan .github/workflows/ci-backend.yml --steps changes
+hogli test:workflows                                       # the pinned expectations, run in ci-lint-workflows
+```
+
+`tools/workflow-plan/tests/workflows.test.ts` pins the rules in this file as `runs` / `skipped` rows per scenario: drafts skip the product matrix, the queue takes the full one, forks skip telemetry, a `no-ci` draft still reports its gate, the hourly run takes the matrices and skips the PR-only checks, and a superseded run records the gate as `cancelled`.
+Every job in those two workflows that carries an `if:` must be named by at least one row, which a coverage test enforces: add a conditional job and the suite fails until a row says what it should do.
+When you change a condition in `ci-backend.yml` or `ci-frontend.yml`, run the suite and update the row that describes the behavior you changed; when you add a lever to another heavy suite, add rows for it.
+The planner stubs the paths filter as "everything changed" and knows nothing a `run:` body produces, so a scenario stubs selector outputs by step id.
+It does not model trigger `paths:`, concurrency, or matrix expansion beyond a cell count; see [the README](../../../tools/workflow-plan/README.md).
 
 ## The dispatch budget (500 runs / 10s / repo)
 
@@ -302,6 +319,14 @@ A dedicated GitHub App installation is its own bucket — rate-limit headroom pl
   Convention: `GH_APP_<PURPOSE>_APP_ID` (an org **variable** — app IDs are not sensitive, and org secret slots are capped at 100) + `GH_APP_<PURPOSE>_PRIVATE_KEY` (an org secret).
 - Cross-repo tokens set explicit `owner:` + `repositories:` (least privilege).
 - Creating the app + secret is out of scope here — use `/managing-github-actions-secrets`.
+
+### Secrets in reusable workflows
+
+A `workflow_call` workflow receives no secrets on its own.
+A `secrets.X` it reads interpolates to an empty string unless it declares `X` under `on.workflow_call.secrets` and every caller passes it, or a caller uses `secrets: inherit`.
+Nothing fails when that happens: an App-token step under `continue-on-error` falls back to `github.token` and the check stays green, which is how `ci-turbo` silently lost its dedicated rate-limit bucket.
+`WF010` fails an undeclared read, and fails a caller that omits a secret declared `required: true`.
+Declare `required: false` only when the callee genuinely works without the value, the way a smoke-test build withholds a publish key on purpose; that is the callee's promise, and the linter takes it at its word.
 
 ## Forks and untrusted PRs (public repo)
 

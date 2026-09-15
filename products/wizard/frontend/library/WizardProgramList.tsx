@@ -1,5 +1,20 @@
 import { IconSearch } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonSkeleton } from '@posthog/lemon-ui'
+import {
+    Button,
+    Empty,
+    EmptyDescription,
+    EmptyHeader,
+    EmptyTitle,
+    InputGroup,
+    InputGroupAddon,
+    InputGroupInput,
+    Item,
+    ItemContent,
+    ItemDescription,
+    ItemGroup,
+    ItemTitle,
+    Skeleton,
+} from '@posthog/quill-primitives'
 
 import type { WizardProgramApi } from '../generated/api.schemas'
 import { WIZARD_LOCAL_RUNS_VISIBLE } from '../wizardRunDisplay'
@@ -22,80 +37,82 @@ export function WizardProgramList({
     onSelect: (program: WizardProgramApi) => void
 }): JSX.Element {
     return (
-        <div className="flex h-1/2 min-h-0 w-full flex-col gap-3 border-b pb-4 @3xl:h-full @3xl:w-90 @3xl:border-b-0 @3xl:border-r @3xl:pb-0 @3xl:pr-4">
-            <LemonInput
-                value={search}
-                onChange={onSearch}
-                prefix={<IconSearch />}
-                placeholder="Search programs"
-                fullWidth
-                disabled={loading}
-            />
+        <div className="flex h-1/2 min-h-0 w-full flex-col gap-3 border-b p-4 @3xl:h-full @3xl:w-[340px] @3xl:shrink-0 @3xl:border-b-0 @3xl:border-r">
+            <InputGroup>
+                <InputGroupInput
+                    value={search}
+                    onChange={(event) => onSearch(event.target.value)}
+                    placeholder="Search programs"
+                    disabled={loading}
+                />
+                <InputGroupAddon align="inline-start">
+                    <IconSearch />
+                </InputGroupAddon>
+            </InputGroup>
 
             <div className="min-h-0 flex-1 overflow-y-auto">
                 {loading ? (
-                    <div className="space-y-3 p-2">
-                        <LemonSkeleton repeat={7} className="h-14 w-full" />
-                    </div>
-                ) : failed ? (
-                    <div className="p-4 text-center text-sm text-muted">
-                        Couldn’t load the Wizard Library. Close and reopen it to try again.
-                    </div>
-                ) : programs.length === 0 ? (
-                    search.trim() ? (
-                        <div className="p-6 text-center">
-                            <div className="font-semibold">No matching programs</div>
-                            <p className="mt-1 text-sm text-muted">
-                                Try a different search, or clear it to see all programs.
-                            </p>
-                            <div className="mt-3 flex justify-center">
-                                <LemonButton type="secondary" size="small" onClick={() => onSearch('')}>
-                                    Clear search
-                                </LemonButton>
-                            </div>
-                        </div>
-                    ) : (
-                        <div className="p-6 text-center">
-                            <div className="font-semibold">No programs are available</div>
-                            <p className="mt-1 text-sm text-muted">
-                                Refresh the page, or contact support if you expected to see a program.
-                            </p>
-                        </div>
-                    )
-                ) : (
-                    <div className="flex flex-col">
-                        {programs.map((program) => (
-                            <LemonButton
-                                key={program.id}
-                                type="tertiary"
-                                fullWidth
-                                className={`h-auto justify-start !rounded-none border-l-2 px-3 py-2 text-left ${
-                                    selectedProgram?.id === program.id
-                                        ? 'border-l-accent bg-fill-highlight-100'
-                                        : 'border-l-transparent'
-                                }`}
-                                onClick={() => onSelect(program)}
-                            >
-                                <div className="w-full min-w-0">
-                                    <div className="flex items-start justify-between gap-3">
-                                        <div className="min-w-0 font-semibold">{program.name}</div>
-                                        <span className="shrink-0 whitespace-nowrap text-xs font-normal text-muted">
-                                            {program.supported_environments
-                                                .filter(
-                                                    (environment) =>
-                                                        WIZARD_LOCAL_RUNS_VISIBLE || environment === 'cloud'
-                                                )
-                                                .map((environment) => (environment === 'cloud' ? 'Cloud' : 'Local'))
-                                                .join(' · ')}
-                                        </span>
-                                    </div>
-                                    <div className="line-clamp-2 text-xs font-normal text-muted">
-                                        {program.description}
-                                    </div>
-                                </div>
-                            </LemonButton>
+                    <div className="flex flex-col gap-2">
+                        {Array.from({ length: 7 }).map((_, index) => (
+                            <Skeleton key={index} className="h-14 w-full" />
                         ))}
                     </div>
+                ) : failed ? (
+                    <Empty className="py-8">
+                        <EmptyHeader>
+                            <EmptyTitle>Couldn’t load the Wizard Library</EmptyTitle>
+                            <EmptyDescription>Close and reopen it to try again.</EmptyDescription>
+                        </EmptyHeader>
+                    </Empty>
+                ) : programs.length === 0 ? (
+                    search.trim() ? (
+                        <Empty className="py-8">
+                            <EmptyHeader>
+                                <EmptyTitle>No matching programs</EmptyTitle>
+                                <EmptyDescription>
+                                    Try a different search, or clear it to see all programs.
+                                </EmptyDescription>
+                            </EmptyHeader>
+                            <Button variant="outline" size="sm" onClick={() => onSearch('')}>
+                                Clear search
+                            </Button>
+                        </Empty>
+                    ) : (
+                        <Empty className="py-8">
+                            <EmptyHeader>
+                                <EmptyTitle>No programs are available</EmptyTitle>
+                                <EmptyDescription>
+                                    Refresh the page, or contact support if you expected to see a program.
+                                </EmptyDescription>
+                            </EmptyHeader>
+                        </Empty>
+                    )
+                ) : (
+                    <ItemGroup combined>
+                        {programs.map((program) => (
+                            <Item
+                                key={program.id}
+                                variant="pressable"
+                                className={
+                                    selectedProgram?.id === program.id
+                                        ? 'z-[1] border-ring bg-fill-selected shadow-none'
+                                        : 'shadow-none'
+                                }
+                                render={<button type="button" onClick={() => onSelect(program)} />}
+                            >
+                                <ItemContent>
+                                    <ItemTitle>{program.name}</ItemTitle>
+                                    <ItemDescription>{program.description}</ItemDescription>
+                                </ItemContent>
+                                <span className="shrink-0 whitespace-nowrap text-xs text-muted-foreground">
+                                    {program.supported_environments
+                                        .filter((environment) => WIZARD_LOCAL_RUNS_VISIBLE || environment === 'cloud')
+                                        .map((environment) => (environment === 'cloud' ? 'Cloud' : 'Local'))
+                                        .join(' · ')}
+                                </span>
+                            </Item>
+                        ))}
+                    </ItemGroup>
                 )}
             </div>
         </div>

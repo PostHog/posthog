@@ -171,6 +171,14 @@ class TestAccountsQueryRunner(ClickhouseTestMixin, NonAtomicBaseTest):
 
         self.assertEqual(set(self._ids(allRolesUnassigned=True)), {str(previously_assigned.id), str(never_assigned.id)})
 
+    def test_assigned_only(self):
+        holder = self._create_user("holder@x.com")
+        assigned = create_account(team_id=self.team.id, name="Assigned")
+        self._assign(assigned, holder)
+        create_account(team_id=self.team.id, name="Unassigned")
+
+        self.assertEqual(self._ids(assignedOnly=True), [str(assigned.id)])
+
     def test_combined_assigned_to_and_tags(self):
         enterprise_tag = Tag.objects.create(name="enterprise", team=self.team)
         startup_tag = Tag.objects.create(name="startup", team=self.team)

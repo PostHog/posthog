@@ -7,11 +7,9 @@ from typing import Any
 from django.db import transaction
 
 from drf_spectacular.utils import OpenApiResponse, extend_schema
-from psycopg import OperationalError
 from rest_framework import status
 from rest_framework.request import Request
 from rest_framework.response import Response
-from sshtunnel import BaseSSHTunnelForwarderError
 
 from posthog.api.utils import action
 
@@ -30,7 +28,6 @@ from products.warehouse_sources.backend.facade.source_management import (
     CDCRepairInProgress,
     CDCSourceAdapter,
     PostgresSource,
-    SSLRequiredError,
     get_cdc_adapter,
     repair_cdc_source,
     source_type_supports_cdc,
@@ -180,8 +177,9 @@ class ExternalDataSourceCDCMixin(base.ExternalDataSourceViewSetBase):
                 tables=tables,
                 slot_name=slot_name,
                 publication_name=publication_name,
+                team_id=self.team_id,
             )
-        except (OperationalError, BaseSSHTunnelForwarderError, SSLRequiredError) as e:
+        except base._EXPECTED_CONNECTION_ERRORS as e:
             # Probing a user-supplied database to validate it is expected to fail when the host,
             # credentials, or SSH tunnel are wrong or the server drops the connection. Surface it
             # to the wizard as a 400, but don't capture it — these are user/upstream connection
@@ -250,7 +248,7 @@ class ExternalDataSourceCDCMixin(base.ExternalDataSourceViewSetBase):
                 slot_name=request.data.get("cdc_slot_name") or None,
                 publication_name=request.data.get("cdc_publication_name") or None,
             )
-        except (OperationalError, BaseSSHTunnelForwarderError, SSLRequiredError) as e:
+        except base._EXPECTED_CONNECTION_ERRORS as e:
             # Probing the source's database to validate it is expected to fail when the host,
             # credentials, or SSH tunnel are wrong, the server requires/refuses SSL, or it drops the
             # connection. Surface it as a 400, but don't capture it — these are user/upstream
@@ -325,7 +323,7 @@ class ExternalDataSourceCDCMixin(base.ExternalDataSourceViewSetBase):
                 slot_name=request.data.get("cdc_slot_name") or None,
                 publication_name=request.data.get("cdc_publication_name") or None,
             )
-        except (OperationalError, BaseSSHTunnelForwarderError, SSLRequiredError) as e:
+        except base._EXPECTED_CONNECTION_ERRORS as e:
             # Expected user/upstream connection failure (bad host/credentials/SSH tunnel, server
             # requires/refuses SSL, dropped connection). Surface as a 400 without capturing — see the
             # check_cdc_prerequisites_for_source handler above.
@@ -529,7 +527,7 @@ class ExternalDataSourceCDCMixin(base.ExternalDataSourceViewSetBase):
             return Response(status=status.HTTP_409_CONFLICT, data={"message": str(e)})
         except CDCRepairError as e:
             return Response(status=status.HTTP_400_BAD_REQUEST, data={"message": str(e)})
-        except (OperationalError, BaseSSHTunnelForwarderError, SSLRequiredError) as e:
+        except base._EXPECTED_CONNECTION_ERRORS as e:
             # Expected user/upstream connection failure — surface as a 400 without capturing,
             # mirroring the enable_cdc handler.
             return Response(
@@ -610,7 +608,7 @@ class ExternalDataSourceCDCMixin(base.ExternalDataSourceViewSetBase):
         # back into the same deterministic failure.
         try:
             live_status = adapter.get_status(instance)
-        except (OperationalError, BaseSSHTunnelForwarderError, SSLRequiredError) as e:
+        except base._EXPECTED_CONNECTION_ERRORS as e:
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
                 data={

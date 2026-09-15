@@ -1,5 +1,6 @@
 import { Message } from 'node-rdkafka'
 
+import { parseKafkaHeaders } from '~/common/kafka/consumer/consumer-v1'
 import { KafkaProducerWrapper } from '~/common/kafka/producer'
 import { logger } from '~/common/utils/logger'
 import { delay } from '~/common/utils/utils'
@@ -119,6 +120,7 @@ export class RetryDelayConsumer {
                 topic: this.options.frontierTopic,
                 key: message.key,
                 value: message.value,
+                headers: parseKafkaHeaders(message.headers),
             })
         } catch (error) {
             logger.warn('🌐', 'ml_image_fetch_retry_release_failed', {
