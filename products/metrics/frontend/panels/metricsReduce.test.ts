@@ -1,6 +1,6 @@
 import type { MetricsQueryPoint, MetricsQuerySeries } from '~/queries/schema/schema-general'
 
-import { flattenSeriesRows, reduceSeries } from './metricsReduce'
+import { capReducers, flattenSeriesRows, reduceSeries, seriesUnit } from './metricsReduce'
 
 // The schema types `value` as `number`, but the backend sends `null` for a
 // non-representable bucket (the facade's `MetricPoint.value` is `float | None`).
@@ -84,6 +84,47 @@ describe('metricsReduce', () => {
         it('produces one row per series', () => {
             const rows = flattenSeriesRows([series({ a: '1' }, [1]), series({ a: '2' }, [2])], ['last'])
             expect(rows).toHaveLength(2)
+        })
+    })
+
+    describe('seriesUnit', () => {
+        const oneSeries = (unit?: string): MetricsQuerySeries => ({ labels: {}, points: points([1]), unit })
+
+        it('prefers the display override over any series unit', () => {
+            expect(seriesUnit([oneSeries('ms')], 's')).toBe('s')
+        })
+
+        it('returns the shared unit when every series agrees', () => {
+            expect(seriesUnit([oneSeries('ms'), oneSeries('ms')], undefined)).toBe('ms')
+        })
+
+        it('returns undefined when series disagree, rather than picking the first', () => {
+            expect(seriesUnit([oneSeries('ms'), oneSeries('s')], undefined)).toBeUndefined()
+        })
+
+        it('ignores series without a unit when the rest agree', () => {
+            expect(seriesUnit([oneSeries('ms'), oneSeries(undefined)], undefined)).toBe('ms')
+        })
+
+        it('returns undefined when no series carries a unit', () => {
+            expect(seriesUnit([oneSeries(undefined)], undefined)).toBeUndefined()
+        })
+    })
+
+    describe('capReducers', () => {
+        it('deduplicates and caps the reducer list', () => {
+            expect(capReducers(['last', 'last', 'mean', 'min', 'max', 'sum', 'delta', 'mean'])).toEqual([
+                'last',
+                'mean',
+                'min',
+                'max',
+                'sum',
+                'delta',
+            ])
+        })
+
+        it('keeps a short list untouched', () => {
+            expect(capReducers(['max', 'last'])).toEqual(['max', 'last'])
         })
     })
 })
