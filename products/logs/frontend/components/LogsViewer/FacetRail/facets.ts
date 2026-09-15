@@ -9,6 +9,7 @@ import {
     facetFilterTarget,
     innerFilters,
     isPropertyLeaf,
+    isSameFilterTarget,
 } from './facetFilters'
 
 /**
@@ -315,4 +316,78 @@ export function buildCustomFacet(key: string, sourceType: CustomFacetSourceType)
 /** The (key, sourceType) a custom facet was built from — `null` for a curated facet. */
 export function customFacetIdentity(facet: FacetConfig): { key: string; sourceType: CustomFacetSourceType } | null {
     return facet.custom ?? null
+}
+
+/** Keys per batched request. Must not exceed the endpoint's MAX_BATCH_FACETS, which rejects more. */
+export const MAX_KEYS_PER_BATCH = 50
+
+/** The log_attributes rollup's own discriminator — what the batch endpoint's two key lists split on. */
+export type FacetAttributeType = 'resource' | 'log'
+
+export interface FacetAttributeTarget {
+    attributeType: FacetAttributeType
+    attributeKey: string
+}
+
+/** The rollup row a facet reads, or `null` for a column facet, which reads the logs table instead. */
+export function facetAttributeTarget(facet: FacetConfig): FacetAttributeTarget | null {
+    if (facet.source.type === 'column') {
+        return null
+    }
+    return {
+        attributeType: facet.source.type === 'attribute' ? 'log' : 'resource',
+        attributeKey: facet.source.key,
+    }
+}
+
+/** Identifies one batched facet's slice. Both the coordinator and each facet index by this. */
+export function facetTargetKey(target: FacetAttributeTarget): string {
+    return `${target.attributeType}:${target.attributeKey}`
+}
+
+/**
+ * Whether this facet's values can come from the shared batched query.
+ *
+ * The batch runs one WHERE for every facet, so a facet only qualifies when its own query would use
+ * that same WHERE. Two things disqualify one: a resource-attribute facet with a filter on its own
+ * key, which it has to exclude to keep cross-filtering, and a type-ahead search, which the caller
+ * checks separately since it isn't part of the filter group.
+ *
+ * The own-filter check matches on key alone, any operator, because that is what
+ * LogsFilterBuilder's `exclude_resource_attribute` drops. A log-attribute facet never needs the
+ * check: log_attribute filters aren't carried by the rollup, so its own filter never reaches the
+ * query to begin with.
+ */
+export function isBatchableFacet(facet: FacetConfig, group: UniversalFiltersGroup | undefined): boolean {
+    if (facet.source.type === 'column') {
+        return false
+    }
+    if (facet.source.type === 'attribute') {
+        return true
+    }
+    const ownTarget = facetFilterTarget(facet.source)
+    return !innerFilters(group).some(
+        (entry) => isPropertyLeaf(entry) && isSameFilterTarget({ key: entry.key, type: entry.type }, ownTarget)
+    )
+}
+
+/**
+ * The scope every batched facet shares: facetScopeSignature with nothing stripped, since the batch
+ * excludes no facet's own filter. Changing it invalidates the whole batch.
+ */
+export function batchScopeSignature(scope: FacetScope): string {
+    const groupSignature = innerFilters(scope.queryFilterGroup).map((entry) =>
+        isPropertyLeaf(entry)
+            ? [entry.type, entry.key, entry.operator, JSON.stringify(entry.value ?? null)]
+            : ['group', JSON.stringify(entry)]
+    )
+    return JSON.stringify([
+        scope.currentTeamId ?? null,
+        scope.utcDateRange.date_from ?? null,
+        scope.utcDateRange.date_to ?? null,
+        scope.utcDateRange.explicitDate ?? null,
+        scope.searchTerm || null,
+        scope.personId ?? null,
+        groupSignature,
+    ])
 }
