@@ -54,8 +54,9 @@ export function getChartDisplayOptions({
     breakdown,
     breakdowns,
 }: ChartDisplayOptionEligibility): ChartDisplayOptionGroup[] {
-    const hasMultipleBreakdowns = !!breakdowns?.length
-    const hasSupportedCountryBreakdown = !hasMultipleBreakdowns && isCountryProperty(breakdown)
+    const singleBreakdownProperty = breakdowns?.length === 1 ? breakdowns[0].property : breakdown
+    const hasSupportedCountryBreakdown =
+        (breakdowns?.length ?? 0) <= 1 && (!singleBreakdownProperty || isCountryProperty(singleBreakdownProperty))
     const trendsOnlyDisabledReason = !isTrends ? 'This type is only available in Trends.' : undefined
     const singleSeriesOnlyDisabledReason = !hasSingleSeriesOutput
         ? 'This type currently only supports insights with one series, and this insight has multiple series.'
@@ -183,7 +184,7 @@ export function getChartDisplayOptions({
                         trendsOnlyDisabledReason ||
                         (hasTrendsFormula
                             ? "This type isn't available, because it doesn't support formulas."
-                            : !hasMultipleBreakdowns && (!breakdown || hasSupportedCountryBreakdown)
+                            : hasSupportedCountryBreakdown
                               ? undefined
                               : "This type isn't available, because there's a breakdown other than by Country Code or Country Name properties."),
                 },
