@@ -320,7 +320,7 @@ const getHydrationTableNamesForNode = (node: TreeDataItem): string[] => {
         const name = normalizeTableLookupKey(record.referencedTable)
         return name ? [name] : []
     }
-    if (record.type === 'managed-view' && record.view?.name) {
+    if ((record.type === 'view' || record.type === 'managed-view') && record.view?.name) {
         return [record.view.name]
     }
     return []
@@ -1322,21 +1322,26 @@ const createViewNode = (
     const isMaterializedView = view.is_materialized === true
     const isManagedViewsetView = view.managed_viewset_kind !== null
     const isManagedView = 'type' in view && view.type === 'managed_view'
-    const viewFields =
-        schemaTable && Object.keys(schemaTable.fields).length > 0 ? Object.values(schemaTable.fields) : view.columns
-
-    sortFieldsWithPrimary(view.name, viewFields)
-        .filter((column) => !shouldHideField(column))
-        .forEach((column: DatabaseSchemaField) => {
-            viewChildren.push(
-                createFieldNode(view.name, column, isSearch, column.name, tableLookup, {
-                    expandedLazyNodeIds: options?.expandedLazyNodeIds,
-                    hydration: options?.hydration,
-                })
-            )
-        })
-
     const viewId = `${isSearch ? 'search-' : ''}view-${view.id}`
+    const fields = schemaTable?.fields ?? createSavedQueryLookupEntry(view).fields
+    const fieldsState = getTableFieldsState(view.name, fields, options?.hydration)
+
+    if (fieldsState === 'pending') {
+        viewChildren.push(createPendingFieldsNode(viewId, view.name))
+    } else if (fieldsState === 'error') {
+        viewChildren.push(createFieldsErrorNode(viewId))
+    } else {
+        sortFieldsWithPrimary(view.name, Object.values(fields))
+            .filter((column) => !shouldHideField(column))
+            .forEach((column: DatabaseSchemaField) => {
+                viewChildren.push(
+                    createFieldNode(view.name, column, isSearch, column.name, tableLookup, {
+                        expandedLazyNodeIds: options?.expandedLazyNodeIds,
+                        hydration: options?.hydration,
+                    })
+                )
+            })
+    }
 
     return {
         id: viewId,
@@ -2304,7 +2309,8 @@ export interface queryDatabaseLogicMeta {
                 string,
                 DatabaseSchemaEndpointTable | DatabaseSchemaManagedViewTable | DatabaseSchemaViewTable
             >,
-            joinsByFieldName: Record<string, DataWarehouseViewLink>
+            joinsByFieldName: Record<string, DataWarehouseViewLink>,
+            allTablesMap: Record<string, DatabaseSchemaTable>
         ) => TreeItem[]
     }
 }
@@ -3648,6 +3654,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 s.dataWarehouseSavedQueryMapById,
                 s.viewsMapById,
                 s.joinsByFieldName,
+                s.allTablesMap,
             ],
             (
                 selectedSchema: DatabaseSchemaDataWarehouseTable | DatabaseSchemaTable | DataWarehouseSavedQuery | null,
@@ -3664,7 +3671,8 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                     | DatabaseSchemaManagedViewTable
                     | import('~/queries/schema/schema-general').DatabaseSchemaViewTable
                 >,
-                joinsByFieldName: Record<string, DataWarehouseViewLink>
+                joinsByFieldName: Record<string, DataWarehouseViewLink>,
+                allTablesMap: Record<string, DatabaseSchemaTable>
             ): TreeItem[] => {
                 if (selectedSchema === null) {
                     return []
@@ -3680,7 +3688,9 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 } else if (isManagedViewTable(selectedSchema)) {
                     table = viewsMapById[selectedSchema.id]
                 } else if (isViewTable(selectedSchema)) {
-                    table = dataWarehouseSavedQueryMapById[selectedSchema.id]
+                    table =
+                        getSavedQuerySchemaTable(selectedSchema, allTablesMap) ??
+                        dataWarehouseSavedQueryMapById[selectedSchema.id]
                 }
 
                 if (table == null) {

@@ -231,6 +231,17 @@ export const LazySchema: Story = {
             mocks: {
                 get: {
                     '/api/projects/:team_id/warehouse_expressions/': { results: [] },
+                    '/api/projects/:team_id/warehouse_saved_queries/': {
+                        results: [
+                            {
+                                id: 'saved-view',
+                                name: 'saved_events',
+                                status: 'Completed',
+                                columns: [],
+                                managed_viewset_kind: null,
+                            },
+                        ],
+                    },
                     '/api/projects/:team_id/query_tab_state/user/': { tabs: [] },
                 },
                 post: {
@@ -249,6 +260,21 @@ export const LazySchema: Story = {
                                 type: 'posthog',
                                 fields: {
                                     uuid: { name: 'uuid', hogql_value: 'uuid', type: 'string', schema_valid: true },
+                                    person: {
+                                        name: 'person',
+                                        hogql_value: 'person',
+                                        type: 'lazy_table',
+                                        schema_valid: true,
+                                        table: 'persons',
+                                    },
+                                },
+                            },
+                            saved_events: {
+                                id: 'saved-view',
+                                name: 'saved_events',
+                                type: 'view',
+                                fields: {
+                                    event: { name: 'event', hogql_value: 'event', type: 'string', schema_valid: true },
                                     person: {
                                         name: 'person',
                                         hogql_value: 'person',
