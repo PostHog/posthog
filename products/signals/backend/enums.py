@@ -76,10 +76,11 @@ class SignalSourceProduct(StrEnum):
 
 
 class SignalSourceType(StrEnum):
+    # No emitter produces SESSION_ANALYSIS_CLUSTER, SESSION_PROBLEM or EVALUATION any more, and
+    # neither session replay nor AI observability carries a config row for them. The values stay in
+    # the taxonomy so signals ingested before that still resolve to a label.
     SESSION_ANALYSIS_CLUSTER = "session_analysis_cluster"
     SESSION_PROBLEM = "session_problem"
-    # No emitter produces EVALUATION any more — AI observability only signals whole eval reports.
-    # The value stays in the taxonomy so signals ingested before that still resolve to a label.
     EVALUATION = "evaluation"
     EVALUATION_REPORT = "evaluation_report"
     ISSUE = "issue"

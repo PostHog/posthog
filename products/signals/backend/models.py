@@ -67,11 +67,11 @@ class SignalSourceConfig(UUIDModel):
     SourceProduct = SignalSourceProduct
 
     # Source-type choices are intentionally a *subset* of the full SignalSourceType taxonomy: only the
-    # types that carry a per-team config row live here. session_problem gates through another config.
-    # evaluation is retired, and stays in the taxonomy only so old signals still resolve to a label.
-    # Every source_type the emission registry emits must appear here, or enabling that source 400s.
+    # types that carry a per-team config row live here. evaluation, session_analysis_cluster and
+    # session_problem are retired, and stay in the taxonomy only so old signals still resolve to a
+    # label. Every source_type the emission registry emits must appear here, or enabling that
+    # source 400s.
     class SourceType(models.TextChoices):
-        SESSION_ANALYSIS_CLUSTER = "session_analysis_cluster", "Session analysis cluster"
         EVALUATION_REPORT = "evaluation_report", "Evaluation report"
         ISSUE = "issue", "Issue"
         TICKET = "ticket", "Ticket"
@@ -123,11 +123,6 @@ class SignalSourceConfig(UUIDModel):
                 source_type=source_type,
                 enabled=False,
             ).exists()
-
-        # Session problem signals are emitted as part of session analysis,
-        # so they're gated by the pre-existing session_analysis_cluster config
-        if source_product == cls.SourceProduct.SESSION_REPLAY and source_type == "session_problem":
-            source_type = cls.SourceType.SESSION_ANALYSIS_CLUSTER
 
         return cls.objects.filter(
             team_id=team_id,
