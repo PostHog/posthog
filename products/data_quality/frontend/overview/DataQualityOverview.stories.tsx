@@ -3,7 +3,6 @@ import type { Decorator, Meta, StoryObj } from '@storybook/react'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
-import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { DataQualityOverview } from './DataQualityOverview'
 
@@ -114,17 +113,6 @@ const narrowDecorators: Decorator[] = [
 const meta: Meta<typeof DataQualityOverview> = {
     title: 'Products/Data quality/Overview',
     component: DataQualityOverview,
-    beforeEach: () => {
-        const context = window.POSTHOG_APP_CONTEXT!
-        const previous = context.resource_access_control
-        context.resource_access_control = {
-            ...previous,
-            [AccessControlResourceType.WarehouseObjects]: AccessControlLevel.Editor,
-        }
-        return () => {
-            context.resource_access_control = previous
-        }
-    },
     decorators: [
         (Story) => (
             <div className="@container/main-content w-256">
