@@ -231,7 +231,17 @@ class InstagramClient:
         return False
 
     @retry(
-        retry=retry_if_exception_type((InstagramRetryableError, requests.ReadTimeout, requests.ConnectionError)),
+        retry=retry_if_exception_type(
+            (
+                InstagramRetryableError,
+                requests.ReadTimeout,
+                requests.ConnectionError,
+                # Raised instead of ConnectionError when the reset lands mid-body on a
+                # chunked response (see requests.models.Response.generate) — the same
+                # transient network blip, just caught at a different layer of urllib3.
+                requests.exceptions.ChunkedEncodingError,
+            )
+        ),
         stop=stop_after_attempt(MAX_RETRY_ATTEMPTS),
         wait=wait_exponential_jitter(initial=2, max=120),
         reraise=True,

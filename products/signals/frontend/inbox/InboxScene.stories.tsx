@@ -82,6 +82,7 @@ const meta: Meta = {
             [FEATURE_FLAGS.PRODUCT_AUTONOMY]: true,
             [FEATURE_FLAGS.INBOX_SELF_DRIVING_EMPTY_STATE]: 'empty-state',
             [FEATURE_FLAGS.INBOX_REDESIGN]: true,
+            [FEATURE_FLAGS.SIGNALS_REPORT_METRICS]: true,
         },
         // The scene shell keeps a loader element mounted past the VR wait window, so don't block on it.
         testOptions: { waitForLoadersToDisappear: false },
@@ -188,6 +189,7 @@ export const EmptyControl: Story = {
             [FEATURE_FLAGS.PRODUCT_AUTONOMY]: true,
             [FEATURE_FLAGS.INBOX_SELF_DRIVING_EMPTY_STATE]: 'control',
             [FEATURE_FLAGS.INBOX_REDESIGN]: true,
+            [FEATURE_FLAGS.SIGNALS_REPORT_METRICS]: true,
         },
     },
     decorators: [

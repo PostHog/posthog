@@ -71,6 +71,7 @@ export function VisualReviewFlakinessScene(): JSX.Element {
         setPreset,
         toggleType,
         toggleArea,
+        toggleTeam,
         setSearch,
         setSort,
         clearAllFilters,
@@ -78,7 +79,8 @@ export function VisualReviewFlakinessScene(): JSX.Element {
         unquarantineIdentifier,
     } = useActions(visualReviewFlakinessSceneLogic)
 
-    const isFiltered = filters.typeKeys.length > 0 || filters.areas.length > 0 || filters.search.length > 0
+    const isFiltered =
+        filters.typeKeys.length > 0 || filters.areas.length > 0 || filters.teams.length > 0 || filters.search.length > 0
     const hasPopulation = (overview?.entries.length ?? 0) > 0
 
     const confirmLift = (entry: FlakinessEntryApi): void => {
@@ -202,6 +204,8 @@ export function VisualReviewFlakinessScene(): JSX.Element {
                                 toggleType(value)
                             } else if (group === 'area') {
                                 toggleArea(value)
+                            } else if (group === 'team') {
+                                toggleTeam(value)
                             }
                         }}
                     />

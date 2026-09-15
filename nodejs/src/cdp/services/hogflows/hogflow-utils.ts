@@ -217,6 +217,10 @@ export function hasDelayActions(actions: HogFlowAction[]): boolean {
     return actions.some((action) => DELAY_ACTION_TYPES.includes(action.type))
 }
 
+export function hasPushActions(actions: HogFlowAction[]): boolean {
+    return actions.some((action) => action.type === 'function_push')
+}
+
 const workflowE2eLagMsSummary = new Summary({
     name: 'workflow_e2e_lag_ms',
     help: 'Time difference in ms between event capture time and workflow finishing time',

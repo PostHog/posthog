@@ -636,7 +636,6 @@ export interface sqlEditorLogicActions {
         dataWarehouseSavedQueries: DataWarehouseSavedQuery[],
         payload?:
             | (Partial<DataWarehouseSavedQuery> & {
-                  dag_id?: string
                   folder_id?: string | null
                   types: string[][]
               })
@@ -644,7 +643,6 @@ export interface sqlEditorLogicActions {
     ) => {
         dataWarehouseSavedQueries: DataWarehouseSavedQuery[]
         payload?: Partial<DataWarehouseSavedQuery> & {
-            dag_id?: string
             folder_id?: string | null
             types: string[][]
         }
@@ -916,10 +914,8 @@ export interface sqlEditorLogicActions {
     saveAsEndpointSubmit: (
         name: string,
         description?: string,
-        queryOverride?: string,
-        dagId?: string
+        queryOverride?: string
     ) => {
-        dagId: string | undefined
         description: string | undefined
         name: string
         queryOverride: string | undefined
@@ -1313,11 +1309,10 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             queryOverride,
         }),
         saveAsEndpoint: true,
-        saveAsEndpointSubmit: (name: string, description?: string, queryOverride?: string, dagId?: string) => ({
+        saveAsEndpointSubmit: (name: string, description?: string, queryOverride?: string) => ({
             name,
             description,
             queryOverride,
-            dagId,
         }),
         saveAsMetric: true,
         saveAsMetricSubmit: (fields: SaveAsMetricFields, queryOverride?: string) => ({

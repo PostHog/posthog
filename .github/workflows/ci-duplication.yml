@@ -26,9 +26,6 @@ jobs:
         name: Duplication lint
         runs-on: depot-ubuntu-24.04
         timeout-minutes: 10
-        # Advisory while the gate proves itself; promote to blocking once it
-        # has run clean across open PRs for a while.
-        continue-on-error: true
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
             - name: Fetch PR base for the clone baseline
@@ -52,6 +49,8 @@ jobs:
               with:
                   node-version-file: .nvmrc
             - name: Lint for new duplication
+              # Keep the job successful while GitHub marks this failed step as a warning.
+              continue-on-error: true
               env:
                   BASE_REF: ${{ github.event.pull_request.base.ref || 'master' }}
               run: |
