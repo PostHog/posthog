@@ -383,7 +383,7 @@ class AssistantContextManager(AssistantContextMixin):
             notebook_texts = []
             reusable_catalog = (
                 await database_sync_to_async(reusable_widget_catalog_context)(team_id=self._team.id, user=self._user)
-                if sql_v2_enabled
+                if widgets_enabled
                 else ""
             )
             if reusable_catalog:

@@ -1,3 +1,5 @@
+from collections.abc import Iterator
+from contextlib import contextmanager
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -162,6 +164,19 @@ def prepare_notebook_canvas_source(
         name=name,
         prepared=prepared,
     )
+
+
+@contextmanager
+def notebook_canvas_source_transaction(*, team_id: int, prepared: PreparedNotebookCanvasSource) -> Iterator[None]:
+    try:
+        with transaction.atomic():
+            yield
+    finally:
+        # Check references after the caller's writes commit or roll back, including notebook metadata.
+        object_keys = [prepared.prepared.source_upload.key]
+        if prepared.prepared.legacy_upload is not None:
+            object_keys.append(prepared.prepared.legacy_upload.key)
+        build_service.cleanup_source_uploads_or_retry(team_id, prepared.canvas_id, object_keys)
 
 
 def publish_prepared_notebook_canvas_source(

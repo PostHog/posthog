@@ -7,7 +7,7 @@ from posthog.test.base import APIBaseTest, NonAtomicBaseTest
 from unittest.mock import patch
 
 from django.core.cache import cache
-from django.db import close_old_connections
+from django.db import close_old_connections, transaction
 from django.db.models.signals import pre_save
 from django.utils import timezone
 
@@ -510,6 +510,8 @@ class TestReusableWidgets(APIBaseTest):
         [
             ("source_only", "return rows", 200),
             ("invalid_source", "return {{{", 400),
+            ("unsupported_cast", "return 1::int", 400),
+            ("unsupported_try_cast", "return try_cast(1 AS Int64)", 400),
             ("whitespace", "   ", 200),
         ]
     )
@@ -666,6 +668,10 @@ class TestReusableWidgets(APIBaseTest):
             ),
             patch("products.canvas.backend.notebook_integration.get_notebook_canvas_source", return_value="source"),
             patch("products.canvas.backend.notebook_integration.prepare_notebook_canvas_source", return_value=object()),
+            patch(
+                "products.canvas.backend.notebook_integration.notebook_canvas_source_transaction",
+                side_effect=lambda **kwargs: transaction.atomic(),
+            ),
             patch(
                 "products.canvas.backend.notebook_integration.publish_prepared_notebook_canvas_draft",
                 return_value=draft_source_version_id,
@@ -899,6 +905,10 @@ class TestReusableWidgets(APIBaseTest):
             ),
             patch("products.canvas.backend.notebook_integration.prepare_notebook_canvas_source", return_value=object()),
             patch(
+                "products.canvas.backend.notebook_integration.notebook_canvas_source_transaction",
+                side_effect=lambda **kwargs: transaction.atomic(),
+            ),
+            patch(
                 "products.canvas.backend.notebook_integration.publish_prepared_notebook_canvas_source",
                 return_value=source_version_id,
             ),
@@ -1026,6 +1036,10 @@ class TestReusableWidgets(APIBaseTest):
             patch(
                 "products.canvas.backend.notebook_integration.prepare_notebook_canvas_source",
                 return_value=object(),
+            ),
+            patch(
+                "products.canvas.backend.notebook_integration.notebook_canvas_source_transaction",
+                side_effect=lambda **kwargs: transaction.atomic(),
             ),
             patch(
                 "products.canvas.backend.notebook_integration.publish_prepared_notebook_canvas_source",

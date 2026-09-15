@@ -561,11 +561,12 @@ def fork_reusable_widget(
             name=source_version.title or fork_name,
             expected_current_version_id=None,
         )
-        publication = canvas_facade.publish_prepared_notebook_canvas_source(
-            team_id=notebook.team_id,
-            user_id=user.id,
-            prepared=prepared_source,
-        )
+        with canvas_facade.notebook_canvas_source_transaction(team_id=notebook.team_id, prepared=prepared_source):
+            publication = canvas_facade.publish_prepared_notebook_canvas_source(
+                team_id=notebook.team_id,
+                user_id=user.id,
+                prepared=prepared_source,
+            )
     except canvas_facade.NotebookCanvasBuildCapacityError as error:
         raise WidgetRateLimitError("Widget build capacity is full. Try again shortly.", "build_capacity") from error
     except canvas_facade.NotebookCanvasError as error:

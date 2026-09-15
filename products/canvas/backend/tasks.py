@@ -41,6 +41,21 @@ def cleanup_notebook_canvas_draft(team_id: int, canvas_id: str, version_id: str)
     cleanup_discarded_notebook_canvas_draft(team_id=team_id, canvas_id=UUID(canvas_id), version_id=UUID(version_id))
 
 
+@shared_task(
+    ignore_result=True,
+    queue=CeleryQueue.DEFAULT.value,
+    max_retries=5,
+    autoretry_for=(Exception,),
+    retry_backoff=True,
+    soft_time_limit=60,
+    time_limit=90,
+)
+def cleanup_canvas_source_uploads(team_id: int, canvas_id: str, object_keys: list[str]) -> None:
+    from products.canvas.backend.build_service import cleanup_unreferenced_source_uploads  # noqa: PLC0415
+
+    cleanup_unreferenced_source_uploads(team_id, UUID(canvas_id), object_keys)
+
+
 @shared_task(ignore_result=True, queue=CeleryQueue.DEFAULT.value)
 def sweep_canvas_builds() -> None:
     """Recover builds stuck in flight (every 2 minutes)."""
@@ -63,6 +78,10 @@ def cleanup_canvas_builds() -> None:
 
     try:
         requeue_discarded_notebook_canvas_drafts()
+    except Exception as error:
+        logger.exception("canvas_draft_requeue_failed", error=str(error))
+        capture_exception(error, additional_properties={"task": "cleanup_canvas_builds"})
+    try:
         pruned = run_cleanup()
         if pruned:
             logger.info("canvas_builds_pruned", count=pruned)

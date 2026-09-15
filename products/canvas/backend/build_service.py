@@ -477,6 +477,31 @@ def _dispatch_build_to_temporal(build: CanvasBuild) -> bool:
     return True
 
 
+def cleanup_unreferenced_source_uploads(team_id: int, canvas_id: UUID, object_keys: list[str]) -> None:
+    referenced = set(
+        CanvasSourceVersion.objects.for_team(team_id)
+        .filter(canvas_id=canvas_id, source_object_key__in=object_keys)
+        .values_list("source_object_key", flat=True)
+    )
+    unreferenced = [key for key in object_keys if key not in referenced]
+    if unreferenced:
+        object_storage.delete_objects(unreferenced)
+
+
+def cleanup_source_uploads_or_retry(team_id: int, canvas_id: UUID, object_keys: list[str]) -> None:
+    try:
+        cleanup_unreferenced_source_uploads(team_id, canvas_id, object_keys)
+    except Exception:
+        logger.exception("canvas_source_upload_cleanup_failed", canvas_id=str(canvas_id))
+        # Queue imports stay off the Canvas service's startup path.
+        from products.canvas.backend.tasks import cleanup_canvas_source_uploads  # noqa: PLC0415
+
+        try:
+            cleanup_canvas_source_uploads.delay(team_id, str(canvas_id), object_keys)
+        except Exception:
+            logger.exception("canvas_source_upload_cleanup_enqueue_failed", canvas_id=str(canvas_id))
+
+
 def prepare_source_project_publish(
     canvas: Canvas,
     *,
@@ -511,13 +536,42 @@ def prepare_source_project_publish(
     # Same upload-then-commit posture as the main project.
     legacy_upload: SourceProjectUpload | None = None
     if current_id is None and (canvas.legacy_code or "").strip():
-        legacy_upload = upload_source_project(canvas.team_id, canvas.id, synthetic_source_project(canvas.legacy_code))
+        try:
+            legacy_upload = upload_source_project(
+                canvas.team_id, canvas.id, synthetic_source_project(canvas.legacy_code), upload_id=source_upload_id
+            )
+        except Exception:
+            if source_upload_id is not None:
+                cleanup_source_uploads_or_retry(canvas.team_id, canvas.id, [source_upload.key])
+            raise
 
     return PreparedSourceProjectPublish(
         project=project,
         source_upload=source_upload,
         legacy_upload=legacy_upload,
     )
+
+
+def _prepared_parent_version_id(canvas: Canvas, prepared: PreparedSourceProjectPublish) -> UUID | None:
+    if (
+        prepared.legacy_upload is not None
+        and canvas.current_source_version_id is None
+        and (canvas.legacy_code or "").strip()
+    ):
+        legacy_version, _created = CanvasSourceVersion.objects.for_team(canvas.team_id).get_or_create(
+            team_id=canvas.team_id,
+            canvas=canvas,
+            source_hash=prepared.legacy_upload.digest,
+            parent_version_id=None,
+            draft=False,
+            defaults={
+                "source_object_key": prepared.legacy_upload.key,
+                "source_size": prepared.legacy_upload.size,
+                "prompt": "Imported source",
+            },
+        )
+        return legacy_version.id
+    return canvas.current_source_version_id
 
 
 def commit_source_project_publish(
@@ -539,23 +593,10 @@ def commit_source_project_publish(
             canvas, has_expected_version=has_expected_version, expected_version_id=expected_version_id
         )
         first_publish = canvas.current_source_version_id is None and not (canvas.legacy_code or "").strip()
-        if (
-            prepared.legacy_upload is not None
-            and canvas.current_source_version_id is None
-            and (canvas.legacy_code or "").strip()
-        ):
-            canvas.current_source_version = CanvasSourceVersion.objects.create(
-                team_id=canvas.team_id,
-                canvas=canvas,
-                source_hash=prepared.legacy_upload.digest,
-                source_object_key=prepared.legacy_upload.key,
-                source_size=prepared.legacy_upload.size,
-                prompt="Imported source",
-            )
         version = CanvasSourceVersion.objects.create(
             team_id=canvas.team_id,
             canvas=canvas,
-            parent_version_id=canvas.current_source_version_id,
+            parent_version_id=_prepared_parent_version_id(canvas, prepared),
             source_hash=prepared.source_upload.digest,
             source_object_key=prepared.source_upload.key,
             source_size=prepared.source_upload.size,
@@ -619,7 +660,7 @@ def commit_source_project_draft(
             team_id=canvas.team_id,
             canvas=canvas,
             draft=True,
-            parent_version_id=canvas.current_source_version_id,
+            parent_version_id=_prepared_parent_version_id(canvas, prepared),
             source_hash=prepared.source_upload.digest,
             source_object_key=prepared.source_upload.key,
             source_size=prepared.source_upload.size,

@@ -15,6 +15,7 @@ import {
     notebooksWidgetGenerate,
     notebooksWidgetFork,
     notebooksWidgetPin,
+    notebooksWidgetPublish,
     notebooksWidgetRevert,
     notebooksWidgetSource,
     notebooksWidgetStatus,
@@ -42,6 +43,7 @@ jest.mock('products/notebooks/frontend/generated/api', () => ({
     notebooksWidgetGenerate: jest.fn(),
     notebooksWidgetFork: jest.fn(),
     notebooksWidgetPin: jest.fn(),
+    notebooksWidgetPublish: jest.fn(),
     notebooksWidgetRevert: jest.fn(),
     notebooksWidgetSource: jest.fn(),
     notebooksWidgetStatus: jest.fn(),
@@ -91,6 +93,7 @@ describe('notebookNodeGeneratedWidgetLogic', () => {
         jest.mocked(notebooksWidgetGenerate).mockReset()
         jest.mocked(notebooksWidgetFork).mockReset()
         jest.mocked(notebooksWidgetPin).mockReset()
+        jest.mocked(notebooksWidgetPublish).mockReset()
         jest.mocked(notebooksWidgetRevert).mockReset()
         jest.mocked(notebooksWidgetSource).mockReset()
         jest.mocked(notebooksWidgetStatus).mockReset()
@@ -196,9 +199,14 @@ describe('notebookNodeGeneratedWidgetLogic', () => {
         )
     })
 
-    it.each([true, false])(
-        'attaches a saved widget written as MDX only for an editor (editable=%s)',
-        async (isEditable) => {
+    it.each([
+        { isEditable: true, inputBindings: { revenue: { source: 'sales_df' } } },
+        { isEditable: false, inputBindings: { revenue: { source: 'sales_df' } } },
+        { isEditable: true, inputBindings: undefined },
+        { isEditable: false, inputBindings: undefined },
+    ])(
+        'attaches a saved widget written as MDX only for an editor ($isEditable, $inputBindings)',
+        async ({ isEditable, inputBindings }) => {
             const widgetId = '00000000-0000-4000-8000-000000000042'
             const attached = status({ instance_id: 'instance-42', widget_id: widgetId, is_reusable: true })
             jest.mocked(notebooksWidgetStatus).mockResolvedValue(status())
@@ -207,7 +215,7 @@ describe('notebookNodeGeneratedWidgetLogic', () => {
                 ...props,
                 isEditable,
                 reusableWidgetId: widgetId,
-                inputBindings: { revenue: { source: 'sales_df' } },
+                inputBindings,
             })
             logic.mount()
             await expectLogic(logic).toFinishAllListeners()
@@ -217,7 +225,7 @@ describe('notebookNodeGeneratedWidgetLogic', () => {
                     String(MOCK_TEAM_ID),
                     props.notebookShortId,
                     props.nodeId,
-                    { widget_id: widgetId, version_id: null, input_bindings: { revenue: { source: 'sales_df' } } }
+                    { widget_id: widgetId, version_id: null, input_bindings: inputBindings ?? {} }
                 )
             } else {
                 expect(notebooksWidgetAttach).not.toHaveBeenCalled()
@@ -261,6 +269,42 @@ describe('notebookNodeGeneratedWidgetLogic', () => {
 
         expect(logic.values.statusLoadError).toBe('The widget request timed out.')
         expect(logic.values.statusLoading).toBe(false)
+    })
+
+    it.each(['timeout', 'unmount'])('cancels a pending publish on %s', async (reason) => {
+        jest.mocked(notebooksWidgetStatus).mockResolvedValue(status())
+        let requestSignal: AbortSignal | undefined
+        jest.mocked(notebooksWidgetPublish).mockImplementation(
+            (_projectId, _shortId, _nodeId, _body, options) =>
+                new Promise((_resolve, reject) => {
+                    requestSignal = options?.signal ?? undefined
+                    requestSignal?.addEventListener('abort', () => reject(requestSignal?.reason), { once: true })
+                })
+        )
+        logic = notebookNodeGeneratedWidgetLogic(props)
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        jest.useFakeTimers()
+        const publishFailed = jest.spyOn(logic.actions, 'publishFailed')
+        logic.actions.setPublishName('Revenue chart')
+        logic.actions.publishReusableWidget()
+        expect(logic.values.publishInFlight).toBe(true)
+
+        if (reason === 'unmount') {
+            logic.unmount()
+        } else {
+            await jest.advanceTimersByTimeAsync(30_000)
+        }
+        jest.useRealTimers()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(requestSignal?.aborted).toBe(true)
+        if (reason === 'unmount') {
+            expect(publishFailed).not.toHaveBeenCalled()
+        } else {
+            expect(publishFailed).toHaveBeenCalledWith('The widget request timed out.')
+            expect(logic.values.publishInFlight).toBe(false)
+        }
     })
 
     it('aborts outstanding widget requests when the node unmounts', async () => {
@@ -313,6 +357,9 @@ describe('notebookNodeGeneratedWidgetLogic', () => {
 
             expect(notebooksWidgetStatus).not.toHaveBeenCalled()
             expect(logic.values.statusLoadError).toBe('This widget has an invalid identifier.')
+            logic.actions.setPublishName('Revenue chart')
+            await expectLogic(logic, () => logic.actions.publishReusableWidget()).toFinishAllListeners()
+            expect(notebooksWidgetPublish).not.toHaveBeenCalled()
         }
     )
 

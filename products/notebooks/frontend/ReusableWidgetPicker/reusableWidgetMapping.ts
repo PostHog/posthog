@@ -29,8 +29,11 @@ export function columnMappingHog(columns: WidgetInputContractColumnApi[], mappin
     if (!columns.length) {
         return 'return rows'
     }
+    if (columns.some(({ name }) => !mapping[name])) {
+        return ''
+    }
     const fields = columns
-        .map(({ name }) => `${escapeHogQLString(name)}: row[${escapeHogQLString(mapping[name] ?? name)}]`)
+        .map(({ name }) => `${escapeHogQLString(name)}: row[${escapeHogQLString(mapping[name])}]`)
         .join(', ')
     return `let mapped := [];\nfor (let row in rows) {\n    mapped := arrayPushBack(mapped, {${fields}});\n}\nreturn mapped`
 }

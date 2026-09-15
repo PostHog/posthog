@@ -988,19 +988,33 @@ export const notebookNodeGeneratedWidgetLogic: LogicWrapper<notebookNodeGenerate
                 },
                 publishReusableWidget: async () => {
                     const name = values.publishName.trim()
-                    if (!props.projectId || !name || values.publishInFlight || values.status?.is_reusable) {
+                    if (
+                        !props.projectId ||
+                        !isSafeWidgetNodeId(props.nodeId) ||
+                        !name ||
+                        values.publishInFlight ||
+                        values.status?.is_reusable
+                    ) {
                         return
                     }
                     actions.publishStarted()
                     try {
-                        await notebooksWidgetPublish(String(props.projectId), props.notebookShortId, props.nodeId, {
-                            name,
-                            description: values.publishDescription.trim(),
-                            tags: values.publishTags
-                                .split(',')
-                                .map((tag) => tag.trim())
-                                .filter(Boolean),
-                        })
+                        await requestWithTimeout((signal) =>
+                            notebooksWidgetPublish(
+                                String(props.projectId),
+                                props.notebookShortId,
+                                props.nodeId,
+                                {
+                                    name,
+                                    description: values.publishDescription.trim(),
+                                    tags: values.publishTags
+                                        .split(',')
+                                        .map((tag) => tag.trim())
+                                        .filter(Boolean),
+                                },
+                                { signal }
+                            )
+                        )
                         actions.closePublishModal()
                         actions.loadStatus()
                         lemonToast.success(
@@ -1016,7 +1030,9 @@ export const notebookNodeGeneratedWidgetLogic: LogicWrapper<notebookNodeGenerate
                             )
                         )
                     } catch (error) {
-                        actions.publishFailed(errorMessage(error))
+                        if (!isAbortError(error)) {
+                            actions.publishFailed(errorMessage(error))
+                        }
                     } finally {
                         actions.publishFinished()
                     }
@@ -1298,12 +1314,7 @@ export const notebookNodeGeneratedWidgetLogic: LogicWrapper<notebookNodeGenerate
                             await props.persistNotebook()
                             loadedStatus = await requestStatus()
                         }
-                        if (
-                            !loadedStatus.instance_id &&
-                            props.isEditable &&
-                            props.reusableWidgetId &&
-                            props.inputBindings
-                        ) {
+                        if (!loadedStatus.instance_id && props.isEditable && props.reusableWidgetId) {
                             await props.persistNotebook()
                             loadedStatus = await notebooksWidgetAttach(
                                 String(props.projectId),
@@ -1312,7 +1323,7 @@ export const notebookNodeGeneratedWidgetLogic: LogicWrapper<notebookNodeGenerate
                                 {
                                     widget_id: props.reusableWidgetId,
                                     version_id: props.reusableVersionId ?? null,
-                                    input_bindings: props.inputBindings,
+                                    input_bindings: props.inputBindings ?? {},
                                 }
                             )
                         }

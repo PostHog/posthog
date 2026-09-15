@@ -1,6 +1,5 @@
 from uuid import UUID
 
-from django.db import transaction
 from django.utils import timezone
 
 from posthog.dataclasses import frozen
@@ -106,7 +105,7 @@ def restore_reusable_widget_version(
             name=widget.name,
             expected_current_version_id=current.canvas_source_version_id,
         )
-        with transaction.atomic():
+        with canvas_facade.notebook_canvas_source_transaction(team_id=team_id, prepared=prepared):
             widget = _published_widgets(team_id).select_for_update().filter(id=widget_id).first()
             if widget is None:
                 raise WidgetError("This reusable widget does not exist.", "widget_not_found")

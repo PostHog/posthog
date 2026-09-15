@@ -419,6 +419,9 @@ class TestAssistantContextManager(BaseTest):
             patch("products.notebooks.backend.widgets.settings", DEBUG=False, TEST=False),
             patch("products.notebooks.backend.facade.api.is_sql_v2_enabled", return_value=sql_v2_enabled),
             patch("products.notebooks.backend.widgets.posthoganalytics.feature_enabled", return_value=widgets_enabled),
+            patch(
+                "ee.hogai.context.context.reusable_widget_catalog_context", return_value="Saved widget catalog"
+            ) as catalog,
         ):
             result = await self.context_manager._format_ui_context(ui_context)
 
@@ -426,6 +429,8 @@ class TestAssistantContextManager(BaseTest):
         self.assertIn(expected, result)
         self.assertNotIn(unexpected, result)
         self.assertEqual('<Widget title="' in result, widgets_enabled)
+        self.assertEqual("Saved widget catalog" in result, widgets_enabled)
+        self.assertEqual(catalog.call_count, int(widgets_enabled))
         if widgets_enabled:
             self.assertIn("click Generate widget", result)
 

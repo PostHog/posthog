@@ -27,12 +27,14 @@ describe('notebookAI', () => {
         ['SQLV2', ['SQLV2', 'PythonV2'], true],
         ['PythonV2', ['SQLV2', 'PythonV2'], true],
         ['Widget', ['Widget'], true],
+        ['Comment', ['Comment'], true],
+        ['Comment', ['Widget'], false],
     ])('only unwraps enabled %s cells with %j enabled', (tag, enabledTags, enabled) => {
         const component = `<${tag} title="Example" />`
         const fenced = `\`\`\`mdx\n${component}\n\`\`\``
         for (const insert of [replaceNotebookAIResponseMarkdown, streamNotebookAIResponseMarkdown]) {
             expect(insert('Thinking...', 0, fenced, 1, enabledTags as string[]).markdown).toBe(
-                enabled ? component : fenced
+                enabled ? (tag === 'Comment' ? '<!--  -->' : component) : fenced
             )
         }
     })

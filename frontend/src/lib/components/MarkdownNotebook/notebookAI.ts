@@ -429,7 +429,6 @@ function normalizeNotebookAIInsertedMarkdown(markdown: string, enabledComponentT
             componentDocument.nodes.some(
                 (candidate) =>
                     candidate.type !== 'component' ||
-                    !['Query', 'SQLV2', 'PythonV2', 'Widget'].includes(candidate.tagName) ||
                     !enabledComponentTags.includes(candidate.tagName) ||
                     candidate.errors?.length
             )

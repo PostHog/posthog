@@ -7,7 +7,7 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
-from django.db import connection
+from django.db import connection, transaction
 from django.test import SimpleTestCase
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
@@ -1542,6 +1542,10 @@ class TestWidgetData(APIBaseTest):
                 "products.canvas.backend.notebook_integration.prepare_notebook_canvas_source",
                 side_effect=mark_terminal,
             ),
+            patch(
+                "products.canvas.backend.notebook_integration.notebook_canvas_source_transaction",
+                side_effect=lambda **kwargs: transaction.atomic(),
+            ),
             patch("products.canvas.backend.notebook_integration.publish_prepared_notebook_canvas_source") as publish,
         ):
             run_widget_generation_job(job.id, self.team.id)
@@ -1615,6 +1619,10 @@ class TestWidgetData(APIBaseTest):
                 "products.canvas.backend.notebook_integration.prepare_notebook_canvas_source",
                 side_effect=prepare_source,
             ) as prepare,
+            patch(
+                "products.canvas.backend.notebook_integration.notebook_canvas_source_transaction",
+                side_effect=lambda **kwargs: transaction.atomic(),
+            ),
             patch(
                 "products.canvas.backend.notebook_integration.publish_prepared_notebook_canvas_source",
                 return_value=publication_id,

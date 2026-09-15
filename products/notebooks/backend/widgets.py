@@ -1143,7 +1143,7 @@ def run_widget_generation_job(job_id: UUID, team_id: int) -> None:
                 job.base_version.canvas_source_version_id if job.base_version is not None else None
             ),
         )
-        with transaction.atomic():
+        with canvas_facade.notebook_canvas_source_transaction(team_id=job.team_id, prepared=prepared_source):
             locked_job = (
                 GeneratedWidgetGenerationJob.objects.for_team(job.team_id)
                 .select_for_update()
@@ -1672,7 +1672,7 @@ def revert_widget_version(
         raise WidgetError("The selected widget version is no longer available.", "version_missing") from error
     except canvas_facade.NotebookCanvasError as error:
         raise WidgetError("The widget preview could not be updated. Try again.", "build_failed") from error
-    with transaction.atomic():
+    with canvas_facade.notebook_canvas_source_transaction(team_id=notebook.team_id, prepared=prepared_source):
         widget = GeneratedWidget.objects.for_team(notebook.team_id).select_for_update().get(id=instance.widget_id)
         locked_instance = (
             NotebookWidgetInstance.objects.for_team(notebook.team_id).select_for_update().get(id=instance.id)

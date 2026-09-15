@@ -22,7 +22,23 @@ from products.canvas.backend.notebook_integration import (
     requeue_discarded_notebook_canvas_drafts,
     validate_notebook_canvas_source,
 )
+from products.canvas.backend.tasks import cleanup_canvas_builds
 from products.tasks.backend.models import Channel
+
+
+class TestNotebookCanvasCleanupTasks(SimpleTestCase):
+    def test_retention_runs_when_draft_requeue_fails(self) -> None:
+        with (
+            patch(
+                "products.canvas.backend.notebook_integration.requeue_discarded_notebook_canvas_drafts",
+                side_effect=RuntimeError("Queue unavailable"),
+            ),
+            patch("products.canvas.backend.build_service.cleanup_canvas_builds", return_value=0) as cleanup,
+            patch("products.canvas.backend.tasks.capture_exception") as capture,
+        ):
+            cleanup_canvas_builds()
+        cleanup.assert_called_once_with()
+        capture.assert_called_once()
 
 
 class TestNotebookCanvasSourceValidation(SimpleTestCase):
