@@ -5,6 +5,7 @@ from typing import Any, Optional
 from products.warehouse_sources.backend.temporal.data_imports.sources.brex.settings import (
     BREX_ENDPOINTS,
     BrexEndpointConfig,
+    BrexFanOutConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
@@ -12,12 +13,16 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     rest_api_resource,
     rest_api_resources,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    rename_parent_fields,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     JSONResponseCursorPaginator,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
     ClientConfig,
     Endpoint,
+    EndpointResource,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
@@ -35,16 +40,6 @@ BREX_API_VERSION_V2 = "v2"
 # Expenses caps `limit` at 100; other endpoints don't document a max, so 100 is used uniformly.
 PAGE_SIZE = 100
 
-CASH_ACCOUNTS_PATH = "/v2/accounts/cash"
-# Injected into cash transaction rows so rows from different cash accounts stay distinguishable.
-CASH_ACCOUNT_ID_KEY = "account_id"
-# Parent resource name in the cash-transactions fan-out config — also the name of the
-# standalone cash accounts table, since both page the same endpoint. With include_from_parent=["id"]
-# the framework injects the parent account id into child rows as `_cash_accounts_id`; a data_map
-# renames it to the `account_id` key the rows carried before the rest_source migration.
-_CASH_ACCOUNTS_PARENT = "cash_accounts"
-_PARENT_ACCOUNT_ID_KEY = f"_{_CASH_ACCOUNTS_PARENT}_id"
-
 
 @dataclasses.dataclass
 class BrexResumeConfig:
@@ -55,7 +50,7 @@ class BrexResumeConfig:
     account_id: Optional[str] = None
     # Cash accounts already fully synced in this run.
     completed_account_ids: list[str] = dataclasses.field(default_factory=list)
-    # Framework fan-out checkpoint for cash_transactions
+    # Framework fan-out checkpoint
     # ({"completed": [child_path, ...], "current": child_path | None, "child_state": {...} | None}).
     fanout_state: Optional[dict[str, Any]] = None
 
@@ -120,21 +115,22 @@ def _endpoint_config(config: BrexEndpointConfig, path: str, should_use_increment
     return endpoint
 
 
-def _inject_account_id(row: dict[str, Any]) -> dict[str, Any]:
-    row[CASH_ACCOUNT_ID_KEY] = row.pop(_PARENT_ACCOUNT_ID_KEY)
-    return row
-
-
-def _fanout_initial_state(config: BrexEndpointConfig, resume: BrexResumeConfig) -> Optional[dict[str, Any]]:
+def _fanout_initial_state(
+    config: BrexEndpointConfig, fan_out: BrexFanOutConfig, resume: BrexResumeConfig
+) -> Optional[dict[str, Any]]:
     if resume.fanout_state is not None:
         return resume.fanout_state
-    # Translate pre-framework resume state (account ids + cursor) into the framework's
-    # fan-out checkpoint shape (resolved child paths).
+    # Translate pre-framework cash-transactions resume state (account ids + cursor) into the
+    # framework's fan-out checkpoint shape (resolved child paths).
     if not (resume.completed_account_ids or resume.account_id):
         return None
-    current = config.path.format(account_id=resume.account_id) if resume.account_id else None
+
+    def child_path(parent_id: str) -> str:
+        return config.path.format(**{fan_out.resolve_param: parent_id})
+
+    current = child_path(resume.account_id) if resume.account_id else None
     return {
-        "completed": [config.path.format(account_id=account_id) for account_id in resume.completed_account_ids],
+        "completed": [child_path(account_id) for account_id in resume.completed_account_ids],
         "current": current,
         "child_state": {"cursor": resume.cursor} if resume.cursor is not None and current is not None else None,
     }
@@ -157,42 +153,49 @@ def brex_source(
     if resumable_source_manager.can_resume():
         resume = resumable_source_manager.load_state()
 
-    if config.fan_out_cash_accounts:
-        initial_state = _fanout_initial_state(config, resume) if resume is not None else None
+    if config.fan_out is not None:
+        fan_out = config.fan_out
+        parent_config = BREX_ENDPOINTS[fan_out.parent_name]
+        initial_state = _fanout_initial_state(config, fan_out, resume) if resume is not None else None
 
         def save_fanout_checkpoint(state: Optional[dict[str, Any]]) -> None:
             if state is not None:
                 resumable_source_manager.save_state(BrexResumeConfig(fanout_state=state))
 
+        child_resource: EndpointResource = {
+            "name": endpoint,
+            "endpoint": {
+                **_endpoint_config(config, path, should_use_incremental_field),
+                "params": {
+                    "limit": PAGE_SIZE,
+                    fan_out.resolve_param: {
+                        "type": "resolve",
+                        "resource": fan_out.parent_name,
+                        "field": fan_out.parent_field,
+                    },
+                },
+                # Set explicitly because a child path that ends in the resolved placeholder
+                # would otherwise be treated as a single-entity endpoint (SinglePagePaginator).
+                # Every parent's child list is cursor-paged like the top-level endpoints.
+                "paginator": _paginator(),
+            },
+        }
+        if fan_out.parent_field_renames:
+            # include_from_parent injects each parent field as `_<parent>_<field>`; the data_map
+            # renames it to the key the child rows are expected to carry.
+            child_resource["include_from_parent"] = list(fan_out.parent_field_renames)
+            child_resource["data_map"] = rename_parent_fields(fan_out.parent_name, fan_out.parent_field_renames)
+
         rest_config: RESTAPIConfig = {
             "client": _client_config(api_key),
             "resources": [
                 {
-                    "name": _CASH_ACCOUNTS_PARENT,
+                    "name": fan_out.parent_name,
                     "endpoint": _endpoint_config(
-                        BREX_ENDPOINTS[_CASH_ACCOUNTS_PARENT], CASH_ACCOUNTS_PATH, should_use_incremental_field=False
+                        parent_config, _resolve_path(parent_config, api_version), should_use_incremental_field=False
                     ),
                 },
-                {
-                    "name": endpoint,
-                    "endpoint": {
-                        **_endpoint_config(config, path, should_use_incremental_field),
-                        "params": {
-                            "limit": PAGE_SIZE,
-                            "account_id": {
-                                "type": "resolve",
-                                "resource": _CASH_ACCOUNTS_PARENT,
-                                "field": "id",
-                            },
-                        },
-                        # The path ends in `{account_id}`, which the framework would otherwise
-                        # treat as a single-entity endpoint (SinglePagePaginator) — each
-                        # account's transaction list is cursor-paged like everything else.
-                        "paginator": _paginator(),
-                    },
-                    "include_from_parent": ["id"],
-                    "data_map": _inject_account_id,
-                },
+                child_resource,
             ],
         }
         resources = {

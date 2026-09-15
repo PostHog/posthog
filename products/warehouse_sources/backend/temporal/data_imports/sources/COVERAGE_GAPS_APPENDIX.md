@@ -961,7 +961,7 @@ Note: BreezoMeter is now Google Maps Platform: the connector calls airquality.go
 
 ## Brex — gaps
 
-Today (13): `budgets`, `card_accounts`, `card_transactions`, `cards`, `cash_accounts`, `cash_transactions`, `departments`, `expenses`, `locations`, `spend_limits`, `transfers`, `users`, `vendors`
+Today (17): `budget_programs`, `budgets`, `card_accounts`, `card_transactions`, `cards`, `cash_accounts`, `cash_transactions`, `departments`, `expenses`, `field_values`, `fields`, `locations`, `spend_limits`, `titles`, `transfers`, `users`, `vendors`
 
 Diffed against: <https://developer.brex.com/llms.txt>
 
@@ -970,15 +970,27 @@ Diffed against: <https://developer.brex.com/llms.txt>
 - [x] `GET /v1/transfers (Payments API)` — outbound bill-pay/ACH/wire transactions, entirely absent from card and cash transactions (high)
 - [x] `GET /v2/spend_limits (Budgets API v2)` — the limit objects budgets and cards are governed by; budgets alone do not show spend controls (high)
 - [ ] `GET /v3/accounting/records (Accounting API)` — the accounting ledger export — how finance teams reconcile Brex spend to the GL (high)
-- [ ] `GET /v1/fields and GET /v1/fields/{field_id}/values (Fields API)` — lookup resolving the custom field ids/values tagged on expenses and transactions (medium)
-- [ ] `GET /v2/titles (Team API)` — lookup resolving the title id on users, alongside the departments and locations already synced (medium)
-- [ ] `GET /v1/budget_programs (Budgets API)` — lookup grouping the budgets already synced into programs (medium)
+- [x] `GET /v1/fields and GET /v1/fields/{field_id}/values (Fields API)` — lookup resolving the custom field ids/values tagged on expenses and transactions (medium)
+- [x] `GET /v2/titles (Team API)` — lookup resolving the title id on users, alongside the departments and locations already synced (medium)
+- [x] `GET /v1/budget_programs (Budgets API)` — lookup grouping the budgets already synced into programs (medium)
 - [ ] `GET /v1/trips and GET /v1/trips/{trip_id}/bookings (Travel API)` — travel spend and per-booking line items, not derivable from card transactions (medium)
 - [ ] `GET /v2/accounts/card/primary/statements and GET /v2/accounts/cash/{id}/statements` — period-end statement balances for reconciliation against transactions (medium)
 - [ ] `GET /v1/linked_accounts (Payments API)` — lookup resolving the external bank accounts transfers move money to and from (medium)
 - [ ] `GET /v2/legal_entities (Team API)` — lookup for multi-entity companies, needed to split spend by entity (low)
 
-Note: developer.brex.com serves an SPA (the openapi.json URLs return HTML), but the llms.txt index plus the per-API markdown mirrors (e.g. https://developer.brex.com/openapi/team\_api.md) list every operation with its literal path. Brex ships nine APIs — Accounting, Budgets, Expenses, Fields, Onboarding, Payments, Team, Transactions, Travel — and the connector covers pieces of only four. The connector now also exposes /v2/accounts/cash as its own table, alongside the fan-out it already drove.
+Note: developer.brex.com serves an SPA (the openapi.json URLs return HTML), but the llms.txt index plus the per-API markdown mirrors (e.g. https://developer.brex.com/openapi/team\_api.md) list every operation with its literal path. Brex ships nine APIs — Accounting, Budgets, Expenses, Fields, Onboarding, Payments, Team, Transactions, Travel — and the connector covers pieces of six. The connector now also exposes /v2/accounts/cash as its own table, alongside the fan-out it already drove.
+
+`GET /v3/accounting/records` is left unticked on purpose. The whole Accounting API is gated
+Alpha: its own overview states "To access the Accounting Alpha API, please email
+developer-support@brex.com to express your interest. Please note that participation is determined
+by Brex based on program needs." A table nearly every connected account would get a 403 on, whose
+1.0.0-alpha response contract is expected to change, is not shippable yet — its receipt objects
+also carry 15-minute presigned S3 download URLs, which would land expiring credentials in the
+warehouse. Revisit when Brex promotes the API out of Alpha. The Fields API is Beta by contrast,
+but explicitly "available for use. Customers do not need to explicitly opt-in", so /v1/fields is
+fine to sync today. /v1/fields/{field\_id}/values is a fan-out over /v1/fields, keyed on
+(field\_id, brex\_id) because Brex documents no uniqueness for brex\_id across fields. Every
+endpoint added here is full refresh: none of the four accepts a server-side timestamp filter.
 
 ## Browserbase — **thin**
 
