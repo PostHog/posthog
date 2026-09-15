@@ -21,6 +21,50 @@ class TestScoutScannerDelete(SimpleTestCase):
 class TestScoutScannerCreditLimit(SimpleTestCase):
     @parameterized.expand(
         [
+            (
+                "change_query_without_a_limit",
+                {"credit_limit": None, "query": {"kind": "RecordingsQuery"}},
+                {"query": {}},
+                False,
+            ),
+            (
+                "change_sampling_without_a_limit",
+                {"credit_limit": None, "sampling_rate": 0.1},
+                {"sampling_rate": 1.0},
+                False,
+            ),
+            (
+                "change_sampling_mode_without_a_limit",
+                {"credit_limit": None, "sampling_mode": "focused"},
+                {"sampling_mode": "comprehensive"},
+                False,
+            ),
+            ("change_model_without_a_limit", {"credit_limit": None, "model": "old"}, {"model": "new"}, False),
+            (
+                "clear_targeting_without_a_limit",
+                {"credit_limit": None, "experiment_targeting": {"experiment_id": 1}},
+                {"experiment_targeting": None},
+                False,
+            ),
+            (
+                "change_with_a_limit",
+                {"credit_limit": None, "sampling_rate": 0.1},
+                {"sampling_rate": 1.0, "credit_limit": 500},
+                True,
+            ),
+            ("unchanged_cost_field", {"credit_limit": None, "sampling_rate": 0.1}, {"sampling_rate": 0.1}, True),
+            (
+                "disable_and_change",
+                {"credit_limit": None, "sampling_rate": 0.1},
+                {"sampling_rate": 1.0, "enabled": False},
+                True,
+            ),
+            (
+                "change_disabled_scanner",
+                {"credit_limit": None, "enabled": False, "sampling_rate": 0.1},
+                {"sampling_rate": 1.0},
+                True,
+            ),
             ("create_with_a_limit", None, {"credit_limit": 500}, True),
             ("create_without_a_limit", None, {"name": "watcher"}, False),
             ("create_with_a_null_limit", None, {"credit_limit": None}, False),
@@ -59,6 +103,7 @@ class TestScoutScannerCreditLimit(SimpleTestCase):
 
     @parameterized.expand(
         [
+            ("change_without_a_limit", {"credit_limit": None, "sampling_rate": 0.1}, {"sampling_rate": 1.0}),
             ("create_without_a_limit", None, {"name": "watcher"}),
             ("update_clearing_the_limit", {"credit_limit": 500}, {"credit_limit": None}),
             ("enabling_an_uncapped_scanner", {"credit_limit": None, "enabled": False}, {"enabled": True}),

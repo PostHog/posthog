@@ -732,7 +732,7 @@ def get_authenticator_scopes(authenticator) -> list[str] | None:
 SCOUT_SANDBOX_SCOPE_PREFIX = "signal_scout_internal:"
 
 
-def is_scout_sandbox_request(request) -> bool:
+def is_scout_sandbox_request(request: Request) -> bool:
     """Whether a request is authenticated with a Signals scout sandbox token.
 
     The scout harness is the only issuer of `signal_scout_internal:*`, so those scopes identify a

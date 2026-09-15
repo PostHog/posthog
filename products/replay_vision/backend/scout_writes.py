@@ -35,6 +35,11 @@ CREDIT_LIMIT_REQUIRED_TO_ENABLE = (
 )
 
 
+def refuse_scout_scanner_scan(is_scout_caller: bool) -> None:
+    if is_scout_caller:
+        raise PermissionDenied("Scouts cannot start manual scans. Create or enable a scanner with a credit limit.")
+
+
 def refuse_scout_scanner_delete(is_scout_caller: bool) -> None:
     """Refuse a scout's delete.
 
@@ -60,8 +65,8 @@ def check_scout_scanner_credit_limit(
     bound on that, so the rule is a required field: the scout sets the ceiling before the spend
     starts, and cannot take it away afterwards.
 
-    A scout may still edit a scanner someone else left uncapped, because the spend is already
-    running and refusing a prompt fix there would only keep a bad scanner as it is.
+    A scout may fix the prompt or disable a scanner without a limit. Changes to targeting,
+    sampling, or the model require a limit because they can increase its spend.
     """
     if not is_scout_caller:
         return
@@ -72,5 +77,22 @@ def check_scout_scanner_credit_limit(
     if "credit_limit" in attrs and attrs["credit_limit"] is None:
         raise ValidationError({"credit_limit": CREDIT_LIMIT_NOT_CLEARABLE})
     turning_on = attrs.get("enabled") and not instance.enabled
-    if turning_on and attrs.get("credit_limit", instance.credit_limit) is None:
-        raise ValidationError({"credit_limit": CREDIT_LIMIT_REQUIRED_TO_ENABLE})
+    if attrs.get("credit_limit", instance.credit_limit) is None:
+        if turning_on:
+            raise ValidationError({"credit_limit": CREDIT_LIMIT_REQUIRED_TO_ENABLE})
+        cost_fields = {
+            "query",
+            "sampling_rate",
+            "sampling_mode",
+            "provider",
+            "model",
+            "experiment_targeting",
+            "emits_signals",
+        }
+        changes_cost = any(field in attrs and attrs[field] != getattr(instance, field) for field in cost_fields)
+        if attrs.get("enabled", instance.enabled) and changes_cost:
+            raise ValidationError(
+                {
+                    "credit_limit": "Set a credit limit before you change the targeting, sampling, or model of an enabled scanner."
+                }
+            )

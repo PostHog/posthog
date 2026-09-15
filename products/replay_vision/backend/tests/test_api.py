@@ -768,13 +768,6 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
 
 
 class TestScannerScoutCallerRules(_VisionAPITestCase):
-    """Wiring guards for the scout-only rules; their matrix lives in `test_scout_writes.py`.
-
-    A scout run reaches this API with a sandbox OAuth token, which is the only credential carrying
-    `signal_scout_internal:*`. These cases prove the viewset reads that credential and routes it to
-    the rules, and that the same calls from the person's own session are untouched.
-    """
-
     def setUp(self) -> None:
         super().setUp()
         application = OAuthApplication.objects.create(
@@ -843,6 +836,63 @@ class TestScannerScoutCallerRules(_VisionAPITestCase):
 
         self.assertEqual(resp.status_code, 403, resp.content)
         self.assertTrue(ReplayScanner.objects.filter(pk=scanner.pk).exists())
+
+    @parameterized.expand(
+        [
+            ("inline", "inline_scan/"),
+            ("single", "{scanner_id}/observe/"),
+            ("bulk", "{scanner_id}/bulk_observe/"),
+            ("retry", "{scanner_id}/observations/{observation_id}/retry/"),
+            ("backfill", "{scanner_id}/backfills/"),
+            ("evaluate_prompt", "{scanner_id}/prompt_suggestions/00000000-0000-0000-0000-000000000001/evaluate/"),
+            ("resume_backfill", "{scanner_id}/backfills/00000000-0000-0000-0000-000000000001/resume/"),
+        ]
+    )
+    def test_scout_cannot_start_manual_scans(self, _name: str, path: str) -> None:
+        scanner = self._create_scanner(name="manual")
+        observation = ReplayObservation.objects.create(
+            scanner=scanner,
+            session_id="session-1",
+            scanner_snapshot=_snapshot_for(scanner),
+            triggered_by=ObservationTrigger.SCHEDULE,
+            status=ObservationStatus.FAILED,
+            completed_at=timezone.now(),
+        )
+        self._authenticate_as_scout()
+
+        resp = self.client.post(
+            self.scanners_url + path.format(scanner_id=scanner.id, observation_id=observation.id),
+            data={},
+            format="json",
+        )
+
+        self.assertEqual(resp.status_code, 403, resp.content)
+        self.assertIn("Scouts cannot start manual scans", resp.json()["detail"])
+        observation.refresh_from_db()
+        self.assertEqual(observation.status, ObservationStatus.FAILED)
+
+    @parameterized.expand([("uncapped", None, 400), ("capped", 500, 201)])
+    def test_scout_duplicate_requires_a_credit_limit(
+        self, _name: str, credit_limit: int | None, expected_status: int
+    ) -> None:
+        scanner = self._create_scanner(name="source", credit_limit=credit_limit)
+        self._authenticate_as_scout()
+
+        resp = self.client.post(f"{self.scanners_url}{scanner.id}/duplicate/")
+
+        self.assertEqual(resp.status_code, expected_status, resp.content)
+        self.assertEqual(ReplayScanner.objects.filter(team=self.team).count(), 1 if credit_limit is None else 2)
+
+    def test_scout_cannot_widen_an_enabled_scanner_without_a_credit_limit(self) -> None:
+        scanner = self._create_scanner(name="uncapped", enabled=True, credit_limit=None, sampling_rate=0.1)
+        self._authenticate_as_scout()
+
+        resp = self.client.patch(f"{self.scanners_url}{scanner.id}/", data={"sampling_rate": 1.0}, format="json")
+
+        self.assertEqual(resp.status_code, 400, resp.content)
+        self.assertEqual(resp.json()["attr"], "credit_limit")
+        scanner.refresh_from_db()
+        self.assertEqual(scanner.sampling_rate, 0.1)
 
     def test_the_person_is_untouched_by_the_scout_rules(self) -> None:
         # The same two calls a scout is refused, from the session the rules must not reach.
