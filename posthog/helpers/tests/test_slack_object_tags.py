@@ -2,10 +2,7 @@ import unittest
 
 from parameterized import parameterized
 
-from products.tasks.backend.temporal.slack_relay.object_tags import (
-    rewrite_object_tags_for_slack,
-    split_incomplete_tag_suffix,
-)
+from posthog.helpers.slack_object_tags import rewrite_object_tags_for_slack, split_incomplete_tag_suffix
 
 PROJECT = "https://us.posthog.com/project/2"
 UUID = "0190f8a1-7c3e-7b2a-9d4f-2a1b3c4d5e6f"
@@ -26,6 +23,7 @@ class TestRewriteObjectTagsForSlack(unittest.TestCase):
             ("experiment", "7", "/experiments/7"),
             ("survey", UUID, f"/surveys/{UUID}"),
             ("ticket", UUID, f"/support/tickets/{UUID}"),
+            ("report", "rep-1", "/inbox/rep-1"),
             ("trace", UUID, f"/ai-observability/traces/{UUID}"),
             ("eval", "5", "/ai-evals/evaluations/5"),
             ("event", UUID, f"/data-management/events/{UUID}"),
@@ -130,6 +128,16 @@ class TestRewriteObjectTagsForSlack(unittest.TestCase):
                 "xml_entities_in_attributes_are_unescaped",
                 '<hogql label="a &amp; b">SELECT 1</hogql>',
                 f"[a & b]({PROJECT}/sql?open_query=SELECT%201&unfurl=false)",
+            ),
+            (
+                "a_broadcast_in_a_label_cannot_ping_the_channel",
+                '<insight id="1" title="&lt;!channel&gt;"/>',
+                f"[&lt;!channel&gt;]({PROJECT}/insights/1?unfurl=false)",
+            ),
+            (
+                "a_broadcast_in_a_caption_cannot_ping_the_channel",
+                '<hogql display="block" title="T" caption="&lt;!channel&gt;">SELECT 1</hogql>',
+                f"**[T]({PROJECT}/sql?open_query=SELECT%201&unfurl=false)**\n```\nSELECT 1\n```\n_&lt;!channel&gt;_",
             ),
         ]
     )

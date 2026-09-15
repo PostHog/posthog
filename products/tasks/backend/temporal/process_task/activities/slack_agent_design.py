@@ -7,13 +7,17 @@ task failure.
 """
 
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 from temporalio import activity
 
 from posthog.dataclasses import frozen
+from posthog.helpers.slack_object_tags import rewrite_object_tags_for_slack
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.utils import close_db_connections
+
+if TYPE_CHECKING:
+    from products.slack_app.backend.slack_thread import SlackThreadHandler
 
 logger = get_logger(__name__)
 
@@ -63,10 +67,17 @@ class StopSlackAgentDesignStreamInput:
     trace_id: Optional[str] = None
 
 
-def _strip_object_tags(text: Optional[str]) -> Optional[str]:
-    from products.slack_app.backend.services.slack_messages import strip_object_tags
+def _rewrite_object_tags(text: Optional[str], handler: "SlackThreadHandler") -> Optional[str]:
+    """Turn the agent's object tags into the markdown links Slack can render.
 
-    return strip_object_tags(text) if text else text
+    Slack renders none of the tags itself, so they have to become markdown before the text is
+    posted. Rewriting rather than dropping them keeps the label the agent wrote, so a bullet
+    whose only content is a citation still carries text. The handler resolves the project the
+    links hang off, so an empty chunk costs no lookup.
+    """
+    if not text:
+        return text
+    return rewrite_object_tags_for_slack(text, project_url=handler.project_url)
 
 
 @activity.defn
@@ -78,11 +89,12 @@ def start_slack_agent_design_stream(input: StartSlackAgentDesignStreamInput) -> 
 
     try:
         context = SlackThreadContext.from_dict(input.slack_thread_context)
-        return SlackThreadHandler(context).start_status_stream(
+        handler = SlackThreadHandler(context)
+        return handler.start_status_stream(
             first_task_id=input.first_task_id,
             first_task_title=input.first_task_title,
             first_task_details=input.first_task_details,
-            first_markdown_text=_strip_object_tags(input.first_markdown_text),
+            first_markdown_text=_rewrite_object_tags(input.first_markdown_text, handler),
         )
     except Exception as e:
         logger.warning("slack_app_start_agent_design_stream_failed", error=str(e))
@@ -97,12 +109,13 @@ def append_slack_agent_design_steps(input: AppendSlackAgentDesignStepsInput) -> 
 
     try:
         context = SlackThreadContext.from_dict(input.slack_thread_context)
-        SlackThreadHandler(context).append_status_chunks(
+        handler = SlackThreadHandler(context)
+        handler.append_status_chunks(
             ts=input.ts,
             task_updates=[
                 {"id": t.id, "title": t.title, "status": t.status, "details": t.details} for t in input.task_updates
             ],
-            markdown_text=_strip_object_tags(input.markdown_text),
+            markdown_text=_rewrite_object_tags(input.markdown_text, handler),
         )
     except Exception as e:
         logger.warning("slack_app_append_agent_design_steps_failed", error=str(e))
@@ -124,7 +137,7 @@ def stop_slack_agent_design_stream(input: StopSlackAgentDesignStreamInput) -> No
             complete_task_id=input.complete_task_id,
             complete_task_title=input.complete_task_title,
             complete_task_details=input.complete_task_details,
-            final_markdown=_strip_object_tags(input.final_markdown),
+            final_markdown=_rewrite_object_tags(input.final_markdown, handler),
         )
     except Exception as e:
         logger.warning("slack_app_stop_agent_design_stream_failed", error=str(e))

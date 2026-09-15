@@ -20,9 +20,9 @@ from products.slack_app.backend.services.slack_messages import (
     normalize_labeled_mentions_to_bare,
     personal_integrations_url,
     post_slack_thread_reply,
+    project_web_url,
     reply_footer_block,
     slack_message_exists,
-    strip_object_tags,
     turn_feedback_block,
     viewer_has_code_access,
 )
@@ -76,10 +76,12 @@ def _split_markdown_text(text: str, limit: int = _MARKDOWN_CHUNK_LIMIT) -> list[
 def _markdown_text_pieces(text: str) -> list[str]:
     """Prepare agent prose for `markdown_text` stream chunks.
 
-    Object tags go first because Slack renders none of them, then labeled mentions become
-    bare ones so an echoed ping notifies, then the result is split to fit a chunk.
+    Object tags are already markdown by the time they reach here, because the activity that
+    owns the text rewrites them into links and only it knows which project the cited objects
+    live in. This is transport, so it takes the prose as given: labeled mentions become bare
+    ones so an echoed ping notifies, then the result is split to fit a chunk.
     """
-    text = normalize_labeled_mentions_to_bare(strip_object_tags(text))
+    text = normalize_labeled_mentions_to_bare(text)
     return _split_markdown_text(text) if text.strip() else []
 
 
@@ -177,6 +179,15 @@ class SlackThreadHandler:
             # nosemgrep: idor-lookup-without-team (internal context, ID from Slack event mapping)
             self._integration = Integration.objects.get(id=self.context.integration_id)
         return self._integration
+
+    @property
+    def project_url(self) -> str:
+        """Base for links to the objects this thread's replies cite.
+
+        Reuses the memoized integration, so asking for it costs nothing beyond the lookup
+        posting already does.
+        """
+        return project_web_url(self._get_integration().team_id)
 
     def _get_client(self) -> WebClient:
         if self._client is None:

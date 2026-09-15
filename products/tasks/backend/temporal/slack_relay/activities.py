@@ -5,6 +5,7 @@ from temporalio import activity
 
 from posthog.dataclasses import frozen
 from posthog.helpers.slack_markdown import SLACK_MARKDOWN_TEXT_MAX_LEN, opens_with_line_anchored_markdown
+from posthog.helpers.slack_object_tags import rewrite_object_tags_for_slack
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.utils import close_db_connections
 
@@ -176,7 +177,7 @@ def relay_slack_message(input: RelaySlackMessageInput) -> None:
     from products.slack_app.backend.services.slack_messages import (
         load_run_footer,
         normalize_labeled_mentions_to_bare,
-        strip_object_tags,
+        project_web_url,
     )
     from products.slack_app.backend.slack_thread import SlackThreadContext, SlackThreadHandler
     from products.tasks.backend.models import TaskRun
@@ -204,10 +205,13 @@ def relay_slack_message(input: RelaySlackMessageInput) -> None:
         logger.info("slack_relay_empty_text", run_id=input.run_id, relay_id=input.relay_id)
         return
 
-    # Rewrite echoed ``<@U…|name>`` tokens to the bare ``<@U…>`` so the mentions the agent
-    # composed actually notify their targets. Done before splitting: the bare form is shorter,
-    # so it never enlarges a chunk.
-    text = normalize_labeled_mentions_to_bare(strip_object_tags(text)).strip()
+    # Object tags become the markdown links Slack can render, and echoed ``<@U…|name>`` tokens
+    # become the bare ``<@U…>`` so the mentions the agent composed actually notify their targets.
+    # Both run before splitting: a rewritten tag carries a URL, so it grows the text it sits in
+    # and the chunk budget has to be measured after it.
+    text = normalize_labeled_mentions_to_bare(
+        rewrite_object_tags_for_slack(text, project_url=project_web_url(task_run.team_id))
+    ).strip()
 
     # Living-artifacts gating lives in the service: has_pending_slack_file_artifacts
     # (and deliver_pending_slack_file_artifacts below) return falsy when the
