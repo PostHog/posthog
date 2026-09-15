@@ -77,15 +77,49 @@ class TestPollForTurnEmptyEndTurn:
         assert exc_info.value.total_lines == len(turn_1) + len(turn_2_empty)
         assert exc_info.value.printed_lines >= 0
 
+    @pytest.mark.parametrize(
+        "first,remaining,expected",
+        [
+            pytest.param([_agent_message_line('{"value":"done"}')], [], "done", id="text-before-end-turn"),
+            pytest.param(
+                [_agent_message_line("{")],
+                [_agent_message_line('"value":"done"}')],
+                "done",
+                id="split-across-polls",
+            ),
+            pytest.param(
+                [_agent_message_line("{")],
+                [_usage_update_line(), _user_message_line("next"), _agent_message_line('"value":"done"}')],
+                "done",
+                id="interleaved-usage-and-prompt-echo",
+            ),
+            pytest.param(
+                [_agent_message_line("{"), _usage_update_line(), _agent_message_line('"value":"done"}')],
+                [],
+                "done",
+                id="interleaved-usage-in-one-poll",
+            ),
+            pytest.param(
+                [_agent_message_line("{")],
+                [_tool_call_line(), _agent_message_line('{"value":"done"}')],
+                "done",
+                id="tool-starts-new-response",
+            ),
+            pytest.param(
+                [_agent_message_chunk_line('{"value":"done')],
+                [_agent_message_chunk_line(" "), _usage_update_line(), _agent_message_chunk_line('now"}')],
+                "done now",
+                id="whitespace-inside-json-string",
+            ),
+        ],
+    )
     @pytest.mark.asyncio
-    async def test_text_before_end_turn_across_polls_is_not_empty(self):
-        """When agent_message arrives in one poll and end_turn in the next, poll_for_turn
-        must recognize the turn as complete — not raise EmptyAgentTurnError and cause a
-        spurious retry."""
+    async def test_text_before_end_turn_across_polls_is_not_empty(
+        self, first: list[str], remaining: list[str], expected: str
+    ) -> None:
         turn_1 = [_agent_message_line("prev"), _end_turn_line()]
-        # Current turn: prompt, then text (poll 1 sees this), then end_turn (poll 2 sees this).
-        turn_2_with_text = [_user_message_line("next"), _agent_message_line("current-turn-text")]
-        turn_2_end_turn = [_end_turn_line()]
+        turn_2_with_text = [_user_message_line("next"), *first]
+        turn_2_end_turn = [*remaining, _end_turn_line()]
         skip = len(turn_1)
         # Log grows monotonically across polls — first poll has no end_turn yet,
         # second poll appends it after the agent_message of poll 1 has already advanced
@@ -109,7 +143,7 @@ class TestPollForTurnEmptyEndTurn:
             patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake_task_run),
         ):
             turn = await poll_for_turn(fake_task_run, skip_lines=skip)
-        assert turn.last_message == "current-turn-text"
+        assert json.loads(turn.last_message) == {"value": expected}
         assert turn.total_lines == len(turn_1) + len(turn_2_with_text) + len(turn_2_end_turn)
 
     @pytest.mark.asyncio
@@ -122,7 +156,7 @@ class TestPollForTurnEmptyEndTurn:
         # Poll 3: full turn visible — agent_message + end_turn appended.
         poll_1_lines = [_user_message_line("prompt"), _agent_message_line("partial-thought")]
         poll_2_lines = [_user_message_line("prompt")]  # S3 shrunk — intentionally missing line 2
-        poll_3_lines = [*poll_1_lines, _agent_message_line("final-answer"), _end_turn_line()]
+        poll_3_lines = [*poll_1_lines, _tool_call_line(), _agent_message_line("final-answer"), _end_turn_line()]
         logs = ["\n".join(poll_1_lines), "\n".join(poll_2_lines), "\n".join(poll_3_lines)]
         poll_iter = iter(logs)
 
@@ -178,8 +212,8 @@ class TestPollForTurnStaleSalvage:
         # set too close to the budget — which would reject a turn that works for minutes and only then
         # drops end_turn (the exact prod failure) — fails this test instead of silently regressing.
         work = [_agent_message_line("partial-1"), _usage_update_line()]
-        more = [*work, _agent_message_line("partial-2"), _usage_update_line()]
-        done = [*more, _agent_message_line("close-out summary"), _usage_update_line(165000)]
+        more = [*work, _tool_call_line(), _agent_message_line("partial-2"), _usage_update_line()]
+        done = [*more, _tool_call_line(), _agent_message_line("close-out summary"), _usage_update_line(165000)]
         # Grow for the first three polls (last new lines ~elapsed 30), then quiet to the 600s deadline.
         poll_logs = ["\n".join(work), "\n".join(more), "\n".join(done)]
         poll_iter = iter(poll_logs)
@@ -633,8 +667,8 @@ class TestPollForTurnStaleSalvage:
     async def test_active_turn_completes_via_end_turn_not_salvage(self):
         # A still-active turn completes via its real end_turn before the budget runs out.
         c1 = [_agent_message_line("working"), _usage_update_line()]
-        c2 = [*c1, _agent_message_line("still working"), _usage_update_line()]
-        final = [*c2, _agent_message_line("final answer"), _end_turn_line()]
+        c2 = [*c1, _tool_call_line(), _agent_message_line("still working"), _usage_update_line()]
+        final = [*c2, _tool_call_line(), _agent_message_line("final answer"), _end_turn_line()]
         logs = ["\n".join(c1)] * 3 + ["\n".join(c2)] * 3 + ["\n".join(final)]
         poll_iter = iter(logs)
 

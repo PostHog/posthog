@@ -173,6 +173,8 @@ for example, a discovery pass followed by per-item research, then assessment and
 2. **Follow up** – `session.send_followup(prompt, Shape)` sends additional prompts within the same sandbox session. Each response is validated against the provided schema. The session retries once on empty responses.
 3. **End** – `session.end()` signals the sandbox workflow to shut down.
 
+Responses are assembled across log polls within the current turn. Usage metadata and delayed prompt echoes may appear between text fragments without splitting the response. Tool activity separates the final response from earlier commentary; previous turns are excluded.
+
 ### Example
 
 ```python

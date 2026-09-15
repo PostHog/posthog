@@ -344,12 +344,13 @@ async def poll_for_turn(
             except Exception:
                 logger.warning("custom_prompt - poll_for_turn: failed to send workflow heartbeat", exc_info=True)
         try:
-            # Poll the logs.
+            # Text fragments can span polls. Reassemble from this turn's start while
+            # keeping skip_lines as the high-water mark for progress and silence tracking.
             log_state = await sync_to_async(
                 # thread_sensitive=False because of pure I/O (object_storage.read + JSON parsing) and doesn't touch the ORM
                 _check_logs,
                 thread_sensitive=False,
-            )(task_run, skip_lines)
+            )(task_run, original_skip_lines)
         except ObjectStorageError:
             consecutive_storage_errors += 1
             logger.warning(
@@ -837,14 +838,14 @@ def _check_logs(task_run, skip_lines: int = 0) -> TurnLogState:
         if not isinstance(update, dict):
             continue
         parsed_updates.append(update)
-    # Walk backwards from the end to find the final agent response.
-    # First, skip non-agent entries (e.g. usage_update) to find the last
-    # agent message. Then collect consecutive agent messages until we hit
-    # something else — the agent sometimes splits its response across entries.
+    # Usage metadata and delayed prompt echoes can land between text fragments.
+    # They do not end a response; tool activity still separates it from earlier prose.
     _AGENT_MSG_TYPES = {"agent_message", "agent_message_chunk"}
     trailing_parts: list[str] = []
     found_agent_msg = False
     for update in reversed(parsed_updates):
+        if update.get("sessionUpdate") in {"usage_update", "session_info_update", *_PROMPT_ECHO_UPDATES}:
+            continue
         is_agent_msg = update.get("sessionUpdate") in _AGENT_MSG_TYPES
         if not found_agent_msg:
             if is_agent_msg:
@@ -857,7 +858,7 @@ def _check_logs(task_run, skip_lines: int = 0) -> TurnLogState:
         if text:
             trailing_parts.append(text)
     trailing_parts.reverse()
-    latest_text = "".join(trailing_parts) if trailing_parts else None
+    latest_text = "".join(trailing_parts).strip() or None
     # A refused turn must not surface its partial text — the caller would mistake it for the
     # turn's real response.
     if refused:
@@ -975,12 +976,10 @@ def _ended_on_pending_finalization(full_log: str | None) -> bool:
 def _extract_text(update: dict) -> str | None:
     content = update.get("content")
     if isinstance(content, dict) and content.get("type") == "text" and isinstance(content.get("text"), str):
-        candidate = content["text"].strip()
-        if candidate:
-            return candidate
+        return content["text"]
     message = update.get("message")
-    if isinstance(message, str) and message.strip():
-        return message.strip()
+    if isinstance(message, str):
+        return message
     return None
 
 
