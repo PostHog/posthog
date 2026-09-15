@@ -41,6 +41,13 @@ export const commonActionFilterProps = {
     ],
 }
 
+// An exposure must name one event or action, so the "All events" option (whose value is null)
+// cannot be expressed as an exposure config. A metric picker keeps the option, where a null
+// event legitimately means all events.
+export const exposureActionFilterExcludedProperties = {
+    [TaxonomicFilterGroupType.Events]: [null],
+}
+
 // Forked from https://github.com/PostHog/posthog/blob/master/frontend/src/scenes/insights/filters/AggregationSelect.tsx
 export function FunnelAggregationSelect({
     value,

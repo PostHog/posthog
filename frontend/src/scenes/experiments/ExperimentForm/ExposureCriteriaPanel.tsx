@@ -20,7 +20,7 @@ import {
     getActivationConfig,
     resolvedExposureEvent,
 } from '../exposureContract'
-import { commonActionFilterProps } from '../Metrics/Selectors'
+import { commonActionFilterProps, exposureActionFilterExcludedProperties } from '../Metrics/Selectors'
 import { exposureConfigToFilter, filterToExposureConfig } from '../utils'
 
 const DEFAULT_EXPOSURE_CONFIG: ExperimentEventExposureConfig = {
@@ -54,8 +54,9 @@ function InclusionActionFilter({
             filters={exposureConfigToFilter(experiment.exposure_criteria?.exposure_config || DEFAULT_EXPOSURE_CONFIG)}
             setFilters={({ events, actions }: Partial<FilterType>): void => {
                 const entity = events?.[0] || actions?.[0]
-                if (entity) {
-                    onChange({ exposure_config: filterToExposureConfig(entity) })
+                const config = filterToExposureConfig(entity)
+                if (config) {
+                    onChange({ exposure_config: config })
                 }
             }}
             typeKey="experiment-exposure-config"
@@ -66,6 +67,7 @@ function InclusionActionFilter({
             mathAvailability={MathAvailability.None}
             showNumericalPropsOnly={false}
             {...commonActionFilterProps}
+            excludedProperties={exposureActionFilterExcludedProperties}
             actionsTaxonomicGroupTypes={[TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions]}
         />
     )
@@ -86,8 +88,9 @@ function ActivationActionFilter({
             )}
             setFilters={({ events, actions }: Partial<FilterType>): void => {
                 const entity = events?.[0] || actions?.[0]
-                if (entity) {
-                    onChange({ activation_config: filterToExposureConfig(entity) })
+                const config = filterToExposureConfig(entity)
+                if (config) {
+                    onChange({ activation_config: config })
                 }
             }}
             typeKey="experiment-activation-config"
@@ -98,6 +101,7 @@ function ActivationActionFilter({
             mathAvailability={MathAvailability.None}
             showNumericalPropsOnly={false}
             {...commonActionFilterProps}
+            excludedProperties={exposureActionFilterExcludedProperties}
             actionsTaxonomicGroupTypes={[TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions]}
         />
     )

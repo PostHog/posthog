@@ -16,7 +16,7 @@ import { FilterType } from '~/types'
 import { SelectableCard } from '../components/SelectableCard'
 import { experimentLogic } from '../experimentLogic'
 import { EXPOSURE_DEFAULT_EVENT, getActivationConfig } from '../exposureContract'
-import { commonActionFilterProps } from '../Metrics/Selectors'
+import { commonActionFilterProps, exposureActionFilterExcludedProperties } from '../Metrics/Selectors'
 import { exposureConfigToFilter, filterToExposureConfig } from '../utils'
 import { exposureCriteriaModalLogic } from './exposureCriteriaModalLogic'
 
@@ -155,10 +155,11 @@ export function ExposureCriteriaModal({ onSave }: ExposureCriteriaModalProps): J
                         filters={exposureConfigToFilter(exposureCriteria.exposure_config)}
                         setFilters={({ events, actions }: Partial<FilterType>): void => {
                             const entity = events?.[0] || actions?.[0]
-                            if (entity) {
+                            const config = filterToExposureConfig(entity)
+                            if (config) {
                                 setExposureCriteria({
                                     ...exposureCriteria,
-                                    exposure_config: filterToExposureConfig(entity),
+                                    exposure_config: config,
                                 })
                             }
                         }}
@@ -170,6 +171,7 @@ export function ExposureCriteriaModal({ onSave }: ExposureCriteriaModalProps): J
                         mathAvailability={MathAvailability.None}
                         showNumericalPropsOnly={true}
                         {...commonActionFilterProps}
+                        excludedProperties={exposureActionFilterExcludedProperties}
                         actionsTaxonomicGroupTypes={[TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions]}
                     />
                 </div>
@@ -181,10 +183,11 @@ export function ExposureCriteriaModal({ onSave }: ExposureCriteriaModalProps): J
                         filters={exposureConfigToFilter(exposureCriteria.activation_config)}
                         setFilters={({ events, actions }: Partial<FilterType>): void => {
                             const entity = events?.[0] || actions?.[0]
-                            if (entity) {
+                            const config = filterToExposureConfig(entity)
+                            if (config) {
                                 setExposureCriteria({
                                     ...exposureCriteria,
-                                    activation_config: filterToExposureConfig(entity),
+                                    activation_config: config,
                                 })
                             }
                         }}
@@ -196,6 +199,7 @@ export function ExposureCriteriaModal({ onSave }: ExposureCriteriaModalProps): J
                         mathAvailability={MathAvailability.None}
                         showNumericalPropsOnly={true}
                         {...commonActionFilterProps}
+                        excludedProperties={exposureActionFilterExcludedProperties}
                         actionsTaxonomicGroupTypes={[TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions]}
                     />
                 </div>

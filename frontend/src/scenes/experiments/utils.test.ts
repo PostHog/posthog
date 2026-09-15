@@ -1128,6 +1128,10 @@ describe('filterToExposureConfig', () => {
             ],
         })
     })
+
+    it('returns no exposure config for the "All events" option', () => {
+        expect(filterToExposureConfig({ id: null, name: null, kind: 'EventsNode', type: 'events' })).toBeUndefined()
+    })
 })
 
 describe('filterToMetricConfig', () => {

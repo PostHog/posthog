@@ -907,7 +907,9 @@ export function exposureConfigToFilter(exposure_config: ExperimentExposureConfig
  * Used when setting a custom exposure criteria
  */
 export function filterToExposureConfig(entity: Record<string, any> | undefined): ExperimentExposureConfig | undefined {
-    if (!entity) {
+    // An entity with no id names no event or action, and the exposure query rejects a config
+    // built from it. The events group offers an "All events" option whose id is null.
+    if (!entity || entity.id == null) {
         return undefined
     }
 
