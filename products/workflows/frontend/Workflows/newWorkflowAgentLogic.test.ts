@@ -13,9 +13,11 @@ import { SidePanelTab } from '~/types'
 import { runnerPanelLogic, toolStreamEventsLogic } from 'products/posthog_ai/frontend/api/logics'
 import type { ToolStreamEvent } from 'products/posthog_ai/frontend/api/types'
 
-import { extractCreatedWorkflowId, newWorkflowAgentLogic } from './newWorkflowAgentLogic'
+import { newWorkflowAgentLogic } from './newWorkflowAgentLogic'
 
 const WORKFLOW_ID = '2f1e9c3a-5b7d-4e8f-9a0b-1c2d3e4f5a6b'
+const OLDER_ID = '7a1b2c3d-0000-4e8f-9a0b-1c2d3e4f5a6b'
+const NAME = 'Win back inactive users'
 
 function createEvent(overrides: Partial<ToolStreamEvent>): ToolStreamEvent {
     return {
@@ -29,8 +31,9 @@ function createEvent(overrides: Partial<ToolStreamEvent>): ToolStreamEvent {
             toolCallId: 'call-1',
             rawServerName: 'posthog',
             rawToolName: 'exec',
-            input: {},
-            output: { id: WORKFLOW_ID },
+            input: { command: `call workflows-create ${JSON.stringify({ name: NAME })}` },
+            // Large creates come back as a "saved to file" notice, so the id never rides the output.
+            output: { content: 'Error: result exceeds maximum allowed tokens.', isError: false },
             status: 'completed',
             contentBlocks: [],
         },
@@ -42,7 +45,20 @@ describe('newWorkflowAgentLogic', () => {
     let logic: ReturnType<typeof newWorkflowAgentLogic.build>
 
     beforeEach(() => {
-        useMocks(maxMocks)
+        useMocks({
+            ...maxMocks,
+            get: {
+                ...maxMocks.get,
+                // Newest first, like the real list: a same-named older draft must not win over the new one.
+                '/api/environments/:team_id/hog_flows/': {
+                    results: [
+                        { id: WORKFLOW_ID, name: NAME },
+                        { id: OLDER_ID, name: NAME },
+                    ],
+                    count: 2,
+                },
+            },
+        })
         initKeaTests()
         sidePanelStateLogic.mount()
         sidePanelStateLogic.actions.setSidePanelAvailable(true)
@@ -54,24 +70,6 @@ describe('newWorkflowAgentLogic', () => {
 
     afterEach(() => {
         logic?.unmount()
-    })
-
-    // The exec wrapper's output shape is not pinned by a type, so each envelope the agent runtime has
-    // produced must still yield the id, and anything without one must not route the user anywhere.
-    it.each([
-        { name: 'a bare object', output: { id: WORKFLOW_ID }, expected: WORKFLOW_ID },
-        { name: 'structuredContent', output: { structuredContent: { id: WORKFLOW_ID } }, expected: WORKFLOW_ID },
-        {
-            name: 'a JSON text block',
-            output: { content: [{ type: 'text', text: `{"id":"${WORKFLOW_ID}"}` }] },
-            expected: WORKFLOW_ID,
-        },
-        { name: 'a JSON string', output: `{"id":"${WORKFLOW_ID}","name":"x"}`, expected: WORKFLOW_ID },
-        { name: 'an error envelope', output: { isError: true, id: WORKFLOW_ID }, expected: null },
-        { name: 'a non-uuid id', output: { id: 'new' }, expected: null },
-        { name: 'nothing', output: undefined, expected: null },
-    ])('extractCreatedWorkflowId reads $name', ({ output, expected }) => {
-        expect(extractCreatedWorkflowId(output)).toBe(expected)
     })
 
     it('opens the side panel and routes to the draft once this run creates a workflow', async () => {

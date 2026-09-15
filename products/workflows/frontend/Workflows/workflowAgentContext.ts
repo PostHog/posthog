@@ -122,9 +122,10 @@ const DRAFT_FIRST_CONTEXT_ITEM: AttachedContextItem = {
     hidden: true,
     dismissGroup: SKILL_DISMISS_GROUP,
     value:
-        'The user is starting a new workflow from a description. Make workflows-create your first tool call: draft ' +
-        'the workflow from the description with sensible defaults instead of asking clarifying questions first. ' +
-        'The editor opens the draft as soon as it exists, so refine it afterwards with workflows-patch-graph. ' +
+        'The user is starting a new workflow from a description. Make workflows-create your first tool call and ' +
+        'keep it minimal: the trigger plus the steps as placeholders, with placeholder email subjects and bodies. ' +
+        'Do not ask clarifying questions first. The editor opens the draft the moment it exists, so fill in ' +
+        'content and details afterwards with workflows-patch-graph and workflows-patch-action-email, then test. ' +
         'Never enable it.',
 }
 
