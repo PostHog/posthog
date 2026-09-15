@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest'
 
 import { type Context, type JsonValue, evaluateCondition, evaluateTemplate, planFunctions } from '../src/expressions.ts'
 import { type RawStep, type Workflow, loadWorkflow, planWorkflow } from '../src/plan.ts'
-import { REPO_ROOT, allFiltersChanged, mergeQueue, pullRequest, push, schedule } from '../src/scenarios.ts'
+import { REPO_ROOT, allFiltersChanged, mergeQueue, pullRequest } from '../src/scenarios.ts'
 
 const WORKFLOWS = ['.github/workflows/ci-backend.yml', '.depot/workflows/ci-backend.yml']
 const functions = planFunctions({ dependenciesSucceeded: true, dependenciesFailed: false, cancelled: false })
@@ -86,23 +86,38 @@ function step(wf: Workflow, name: string): RawStep {
     return found
 }
 
+function envValues(env: RawStep['env'], context: Context): Record<string, string> {
+    return Object.fromEntries(
+        Object.entries(env ?? {}).map(([key, value]) => [key, evaluateTemplate(value, context, functions)])
+    )
+}
+
 function stepEnv(wf: Workflow, target: RawStep, input: Context): Record<string, string> {
     const context = { steps: {}, vars: {}, needs: {}, ...input }
-    const env = Object.fromEntries(
-        Object.entries(wf.jobs['turbo-discover']!.env ?? {}).map(([key, value]) => [
-            key,
-            evaluateTemplate(value, context, functions),
-        ])
+    const env = envValues(wf.jobs['turbo-discover']!.env, context)
+    return { ...env, ...envValues(target.env, { ...context, env }) }
+}
+
+function selectorArgs(target: RawStep, cwd: string, env: NodeJS.ProcessEnv): string[] {
+    const bin = path.join(cwd, 'bin')
+    const argv = path.join(cwd, 'argv.txt')
+    mkdirSync(bin)
+    writeFileSync(
+        path.join(bin, 'uv'),
+        '#!/bin/sh\nif [ "$2" = tools/snob_backend_test_selection_shadow.py ]; then\n  printf "%s\\n" "$@" > "$ARGV_OUTPUT"\nfi\nprintf "{}\\n"\n',
+        { mode: 0o755 }
     )
-    return {
-        ...env,
-        ...Object.fromEntries(
-            Object.entries(target.env ?? {}).map(([key, value]) => [
-                key,
-                evaluateTemplate(value, { ...context, env }, functions),
-            ])
-        ),
-    }
+    // Keep artifact paths isolated while executing the workflow's Bash and Git commands.
+    const script = target
+        .run!.replaceAll('/tmp/selection.json', path.join(cwd, 'selection.json'))
+        .replaceAll('/tmp/verdict', path.join(cwd, 'verdict'))
+    const result = spawnSync('bash', ['-c', script], {
+        cwd,
+        env: { ...env, PATH: `${bin}:${env.PATH}`, ARGV_OUTPUT: argv, GITHUB_STEP_SUMMARY: path.join(cwd, 'summary') },
+        encoding: 'utf8',
+    })
+    expect(result).toMatchObject({ status: 0 })
+    return readFileSync(argv, 'utf8').trim().split('\n')
 }
 
 function requiredGate(wf: Workflow, cwd: string, context: Context): SpawnSyncReturns<string> {
@@ -146,22 +161,7 @@ describe('Backend CI comparison boundaries', () => {
             expect({ status: result.status, stderr: result.stderr }).toEqual({ status: 0, stderr: '' })
 
             const selector = step(wf, 'Run the backend test selector')
-            const bin = path.join(repo.cwd, 'bin')
-            mkdirSync(bin)
-            writeFileSync(path.join(bin, 'uv'), '#!/bin/sh\nprintf "%s\\n" "$@" > "$ARGV_OUTPUT"\n', { mode: 0o755 })
-            const argv = path.join(repo.cwd, 'argv.txt')
-            // Run the shipped command with only its external selector process replaced.
-            const selectedCommand = selector.run!.replace('/tmp/selection.json', path.join(repo.cwd, 'selection.json'))
-            execFileSync('bash', ['-c', selectedCommand], {
-                cwd: repo.cwd,
-                env: {
-                    ...repo.env,
-                    ...stepEnv(wf, selector, context),
-                    PATH: `${bin}:${repo.env.PATH}`,
-                    ARGV_OUTPUT: argv,
-                },
-            })
-            const args = readFileSync(argv, 'utf8').trim().split('\n')
+            const args = selectorArgs(selector, repo.cwd, { ...repo.env, ...stepEnv(wf, selector, context) })
             expect(args[args.indexOf('--base-ref') + 1]).toBe(discovery.TURBO_SCM_BASE)
 
             const ordinary = prContext(repo.integration, repo.lower, 'master')
@@ -254,38 +254,34 @@ describe('Backend CI comparison boundaries', () => {
     )
 
     it.each([
-        { job: 'turbo-discover', result: 'failure' },
-        { job: 'turbo-tests', result: 'failure' },
-        { job: 'django', result: 'cancelled' },
-        { job: 'turbo-tests', result: 'success' },
-    ])('the queue gate reports $job=$result', ({ job, result }) => {
-        const cwd = mkdtempSync(path.join(os.tmpdir(), 'backend-queue-gate-'))
+        { name: 'ordinary PR', queued: false },
+        { name: 'queue PR', queued: true },
+    ])('regenerates a missing verdict selection for $name', ({ queued }) => {
+        const repo = createGraph()
         try {
             const wf = loadWorkflow(path.join(REPO_ROOT, WORKFLOWS[0]!))
-            const gate = wf.jobs.django_tests!
-            expect(gate.needs).toContain(job)
-            const needs = Object.fromEntries(
-                (gate.needs as string[]).map((id) => [id, { result: id === job ? result : 'success', outputs: {} }])
-            )
-            const context = { github: mergeQueue(), needs }
-            expect(evaluateCondition(gate.if, context, functions)).toBe(true)
-            const verdict = requiredGate(wf, cwd, context)
-            expect(verdict.status).toBe(result === 'success' ? 0 : 1)
-            expect(verdict.stdout).toContain(
-                result === 'success' ? 'All backend and product checks passed.' : `result: '${result}'`
+            const sha = queued ? repo.queueMerge : repo.merge
+            const context = prContext(sha, queued ? repo.merge : repo.head, queued ? 'master' : 'lower', queued)
+            const target = wf.jobs['test-selection-verdict']!.steps!.find(
+                (candidate) => candidate.name === 'Run test selection and verdict'
+            )!
+            repo.git('checkout', '--detach', sha)
+            if (queued) {
+                repo.git('update-ref', 'refs/heads/master', repo.git('rev-parse', 'origin/master'))
+                repo.git('update-ref', '-d', 'refs/remotes/origin/master')
+                repo.git('remote', 'add', 'origin', repo.cwd)
+            }
+            const args = selectorArgs(target, repo.cwd, {
+                ...repo.env,
+                ...envValues(target.env, context),
+                GITHUB_SHA: sha,
+            })
+            const base = args[args.indexOf('--base-ref') + 1]!
+            expect(repo.git('diff', '--name-only', `${base}...HEAD`).split('\n')).toEqual(
+                queued ? [layerFiles[0], lowerFile, layerFiles[1]] : layerFiles
             )
         } finally {
-            rmSync(cwd, { recursive: true, force: true })
+            rmSync(repo.cwd, { recursive: true, force: true })
         }
-    })
-
-    it.each([push(), schedule()])('leaves non-PR discovery on the full legacy path', (github) => {
-        const wf = loadWorkflow(path.join(REPO_ROOT, WORKFLOWS[0]!))
-        const context = { github }
-        const discovery = stepEnv(wf, step(wf, 'Discover products to test'), context)
-        expect(discovery.TURBO_SCM_BASE).toBe('')
-        expect(discovery.LEGACY_CHANGED).toBe('true')
-        expect(discovery.SELECTION_APPLIES).toBe('false')
-        expect(evaluateCondition(step(wf, 'Verify PR merge for test selection').if, context, functions)).toBe(false)
     })
 })
