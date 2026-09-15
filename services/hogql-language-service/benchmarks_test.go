@@ -146,7 +146,7 @@ type completionCase struct {
 }
 
 func BenchmarkCompleteLargeCatalog(b *testing.B) {
-	schema := largeSyntheticCatalog()
+	schema := catalog.Prepare(largeSyntheticCatalog())
 	sessionQuery, sessionPosition := queryAndPosition(sessionActorQuery)
 	traceQuery, tracePosition := queryAndPosition(traceTreeQuery)
 	eventQuery, eventPosition := queryAndPosition(eventJourneyQuery)
@@ -168,7 +168,7 @@ func BenchmarkCompleteLargeCatalog(b *testing.B) {
 }
 
 func BenchmarkValidateLargeCatalog(b *testing.B) {
-	schema := largeSyntheticCatalog()
+	schema := catalog.Prepare(largeSyntheticCatalog())
 	sessionQuery, _ := queryAndPosition(sessionActorQuery)
 	eventQuery, _ := queryAndPosition(eventJourneyQuery)
 	traceQuery, _ := queryAndPosition(traceTreeQuery)
@@ -197,20 +197,8 @@ func BenchmarkCatalogPublication(b *testing.B) {
 		b.Fatal(err)
 	}
 	authorization := serviceauth.Authorization{TeamID: 1, UserID: 1}
-	b.Run("cache replacement", func(b *testing.B) {
-		registry := catalog.NewRegistry(2, 1<<30, time.Hour)
-		b.ReportAllocs()
-		b.ResetTimer()
-		reportCatalogMetrics(b, schema, len(payload))
-		for range b.N {
-			if err := registry.Put(authorization, update.Revision, schema); err != nil {
-				b.Fatal(err)
-			}
-		}
-	})
-
-	b.Run("decode and replace", func(b *testing.B) {
-		registry := catalog.NewRegistry(2, 1<<30, time.Hour)
+	prepared := catalog.Prepare(schema)
+	b.Run("decode", func(b *testing.B) {
 		b.ReportAllocs()
 		b.SetBytes(int64(len(payload)))
 		b.ResetTimer()
@@ -220,14 +208,56 @@ func BenchmarkCatalogPublication(b *testing.B) {
 			if err := json.Unmarshal(payload, &decoded); err != nil {
 				b.Fatal(err)
 			}
-			if err := registry.Put(authorization, decoded.Revision, &decoded.Catalog); err != nil {
+		}
+	})
+
+	b.Run("prepare", func(b *testing.B) {
+		var result *catalog.PreparedCatalog
+		b.ReportAllocs()
+		b.ResetTimer()
+		reportCatalogMetrics(b, schema, len(payload))
+		b.ReportMetric(float64(prepared.EstimatedBytes()), "prepared-B")
+		for range b.N {
+			result = catalog.Prepare(schema)
+		}
+		if result == nil {
+			b.Fatal("catalog preparation returned nil")
+		}
+	})
+
+	b.Run("cache replacement", func(b *testing.B) {
+		registry := catalog.NewRegistry(2, 1<<30, time.Hour)
+		b.ReportAllocs()
+		b.ResetTimer()
+		reportCatalogMetrics(b, schema, len(payload))
+		b.ReportMetric(float64(prepared.EstimatedBytes()), "prepared-B")
+		for range b.N {
+			if err := registry.Put(authorization, update.Revision, prepared); err != nil {
+				b.Fatal(err)
+			}
+		}
+	})
+
+	b.Run("decode prepare and replace", func(b *testing.B) {
+		registry := catalog.NewRegistry(2, 1<<30, time.Hour)
+		b.ReportAllocs()
+		b.SetBytes(int64(len(payload)))
+		b.ResetTimer()
+		reportCatalogMetrics(b, schema, len(payload))
+		b.ReportMetric(float64(prepared.EstimatedBytes()), "prepared-B")
+		for range b.N {
+			var decoded catalogUpdate
+			if err := json.Unmarshal(payload, &decoded); err != nil {
+				b.Fatal(err)
+			}
+			if err := registry.Put(authorization, decoded.Revision, catalog.Prepare(&decoded.Catalog)); err != nil {
 				b.Fatal(err)
 			}
 		}
 	})
 }
 
-func benchmarkCompletion(b *testing.B, schema *catalog.Catalog, query string, position int) {
+func benchmarkCompletion(b *testing.B, schema *catalog.PreparedCatalog, query string, position int) {
 	result, err := completion.Complete(schema, query, position, completion.PositionEncodingUTF8, "")
 	if err != nil {
 		b.Fatal(err)
@@ -251,7 +281,7 @@ func benchmarkCompletion(b *testing.B, schema *catalog.Catalog, query string, po
 	}
 }
 
-func benchmarkValidation(b *testing.B, schema *catalog.Catalog, query string) {
+func benchmarkValidation(b *testing.B, schema *catalog.PreparedCatalog, query string) {
 	result := validation.Validate(schema, query)
 	payload, err := json.Marshal(result)
 	if err != nil {
