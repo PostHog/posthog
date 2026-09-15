@@ -67,6 +67,8 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 VALID_TEST_PASSWORD = "mighty-strong-secure-1337!!"
+INVALID_RESET_LINK_DETAIL = "This reset link is not valid. Request a new one to set your password."
+EXPIRED_RESET_LINK_DETAIL = "This reset link expired. Links work for 24 hours. Request a new one to set your password."
 
 
 def totp_str(key):
@@ -1797,11 +1799,11 @@ class TestPasswordResetAPI(APIBaseTest):
             # tokens expire after one day
             expired_token = password_reset_token_generator.make_token(self.user)
 
-        for token in [
-            valid_token[:-1],
-            "not_even_trying",
-            self.user.uuid,
-            expired_token,
+        for token, code, detail in [
+            (valid_token[:-1], "invalid_token", INVALID_RESET_LINK_DETAIL),
+            ("not_even_trying", "invalid_token", INVALID_RESET_LINK_DETAIL),
+            (self.user.uuid, "invalid_token", INVALID_RESET_LINK_DETAIL),
+            (expired_token, "expired_token", EXPIRED_RESET_LINK_DETAIL),
         ]:
             response = self.client.get(f"/api/reset/{self.user.uuid}/?token={token}")
             self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
@@ -1809,8 +1811,50 @@ class TestPasswordResetAPI(APIBaseTest):
                 response.json(),
                 {
                     "type": "validation_error",
-                    "code": "invalid_token",
-                    "detail": "This reset token is invalid or has expired.",
+                    "code": code,
+                    "detail": detail,
+                    "attr": "token",
+                },
+            )
+
+    def test_superseded_token_points_at_the_newest_link(self):
+        with time_machine.travel(timezone.now() - timedelta(hours=1), tick=False):
+            self.user.requested_password_reset_at = timezone.now()
+            self.user.save()
+            superseded_token = password_reset_token_generator.make_token(self.user)
+
+        self.user.requested_password_reset_at = timezone.now()
+        self.user.save()
+
+        response = self.client.get(f"/api/reset/{self.user.uuid}/?token={superseded_token}")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "validation_error",
+                "code": "superseded_token",
+                "detail": "A newer reset link was sent to your email. Open the most recent one, or request a new link.",
+                "attr": "token",
+            },
+        )
+
+    def test_used_token_tells_the_user_to_log_in(self):
+        self.user.requested_password_reset_at = timezone.now()
+        self.user.save()
+        token = password_reset_token_generator.make_token(self.user)
+        self.client.post(f"/api/reset/{self.user.uuid}/", {"token": token, "password": VALID_TEST_PASSWORD})
+
+        for response in [
+            self.client.get(f"/api/reset/{self.user.uuid}/?token={token}"),
+            self.client.post(f"/api/reset/{self.user.uuid}/", {"token": token, "password": VALID_TEST_PASSWORD}),
+        ]:
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+            self.assertEqual(
+                response.json(),
+                {
+                    "type": "validation_error",
+                    "code": "password_already_reset",
+                    "detail": "You already used this link to change your password. Try logging in with your new password.",
                     "attr": "token",
                 },
             )
@@ -1921,11 +1965,11 @@ class TestPasswordResetAPI(APIBaseTest):
             # tokens expire after one day
             expired_token = password_reset_token_generator.make_token(self.user)
 
-        for token in [
-            valid_token[:-1],
-            "not_even_trying",
-            self.user.uuid,
-            expired_token,
+        for token, code, detail in [
+            (valid_token[:-1], "invalid_token", INVALID_RESET_LINK_DETAIL),
+            ("not_even_trying", "invalid_token", INVALID_RESET_LINK_DETAIL),
+            (self.user.uuid, "invalid_token", INVALID_RESET_LINK_DETAIL),
+            (expired_token, "expired_token", EXPIRED_RESET_LINK_DETAIL),
         ]:
             response = self.client.post(
                 f"/api/reset/{self.user.uuid}/",
@@ -1936,8 +1980,8 @@ class TestPasswordResetAPI(APIBaseTest):
                 response.json(),
                 {
                     "type": "validation_error",
-                    "code": "invalid_token",
-                    "detail": "This reset token is invalid or has expired.",
+                    "code": code,
+                    "detail": detail,
                     "attr": "token",
                 },
             )
@@ -1961,7 +2005,7 @@ class TestPasswordResetAPI(APIBaseTest):
             {
                 "type": "validation_error",
                 "code": "invalid_token",
-                "detail": "This reset token is invalid or has expired.",
+                "detail": INVALID_RESET_LINK_DETAIL,
                 "attr": "token",
             },
         )
@@ -1985,7 +2029,7 @@ class TestPasswordResetAPI(APIBaseTest):
             {
                 "type": "validation_error",
                 "code": "invalid_token",
-                "detail": "This reset token is invalid or has expired.",
+                "detail": INVALID_RESET_LINK_DETAIL,
                 "attr": "token",
             },
         )
@@ -2000,7 +2044,7 @@ class TestPasswordResetAPI(APIBaseTest):
             {
                 "type": "validation_error",
                 "code": "invalid_token",
-                "detail": "This reset token is invalid or has expired.",
+                "detail": INVALID_RESET_LINK_DETAIL,
                 "attr": "token",
             },
         )
