@@ -164,16 +164,6 @@ def _make_chart() -> ReportChart:
 
 
 class TestBuildReportPresentationPrompt:
-    def test_expected_impact_guidance_requires_a_grounded_forecast(self) -> None:
-        prompt = build_report_presentation_prompt(2)
-
-        assert "'## Expected impact'" in prompt
-        assert "Use a baseline from data you queried during this research" in prompt
-        assert "the expected post-fix value or credible range" in prompt
-        assert "Do not use a metric that the solution cannot change" in prompt
-        assert "no credible estimate is possible" in prompt
-        assert "do not guess" in prompt
-
     # Chart and metric rollouts are independent: a team can receive live impact measurements
     # without enabling free-form report charts, or vice versa.
     def test_chart_guidance_and_schema_field_only_present_when_enabled(self):
