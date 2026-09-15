@@ -12,6 +12,8 @@ from itertools import batched
 from uuid import UUID
 
 from django.db import transaction
+from django.db.models import F, Window
+from django.db.models.functions import RowNumber
 from django.db.utils import IntegrityError
 
 import structlog
@@ -70,6 +72,8 @@ from products.logs.backend.alert_utils import (
 from products.logs.backend.logs_url_params import build_logs_url_params
 from products.logs.backend.models import LogsAlertConfiguration, LogsAlertEvent
 from products.logs.backend.temporal.constants import (
+    DEFAULT_MAX_ALERTS_PER_RUN,
+    DEFAULT_MAX_CONCURRENT_BATCHES,
     EMIT_SIGNAL_CONCURRENCY,
     MAX_ALERT_COHORT_SIZE,
     MAX_COHORTS_PER_BATCH,
@@ -92,6 +96,7 @@ from products.logs.backend.temporal.metrics import (
     record_cohort_save_duration,
     record_cohort_size,
     record_cohort_update_duration,
+    record_coordinator_poll,
     record_scheduler_lag,
     record_worker_memory_snapshot,
 )
@@ -175,7 +180,8 @@ def _derive_breaches(
 
 @dataclasses.dataclass(frozen=True)
 class CheckAlertsInput:
-    pass
+    max_alerts_per_run: int = DEFAULT_MAX_ALERTS_PER_RUN
+    max_concurrent_batches: int = DEFAULT_MAX_CONCURRENT_BATCHES
 
 
 @dataclasses.dataclass(frozen=True)
@@ -319,7 +325,7 @@ class CheckAlertsOutput:
 
 @dataclasses.dataclass(frozen=True)
 class DiscoverCohortsInput:
-    pass
+    max_alerts_per_run: int = DEFAULT_MAX_ALERTS_PER_RUN
 
 
 @dataclasses.dataclass(frozen=True)
@@ -367,13 +373,31 @@ async def discover_cohorts_activity(input: DiscoverCohortsInput) -> DiscoverCoho
     full `select_related('team')` would OOM. Team objects are loaded later, only
     inside `evaluate_cohort_batch_activity`, scoped to a small batch.
     """
-    return await database_sync_to_async_pool(_discover_cohorts_sync)()
+    return await database_sync_to_async_pool(_discover_cohorts_sync)(input)
 
 
-def _discover_cohorts_sync() -> DiscoverCohortsOutput:
+def _discover_cohorts_sync(input: DiscoverCohortsInput | None = None) -> DiscoverCohortsOutput:
+    input = input or DiscoverCohortsInput()
+    if input.max_alerts_per_run <= 0:
+        raise ValueError("max_alerts_per_run must be greater than zero")
+
     now = datetime.now(UTC)
-    rows = list(
-        _due_alerts_qs(now).values(
+    candidate_rows = list(
+        _due_alerts_qs(now)
+        .annotate(
+            _team_rank=Window(
+                expression=RowNumber(),
+                partition_by=[F("team_id")],
+                order_by=[F("next_check_at").asc(nulls_first=True), F("id").asc()],
+            )
+        )
+        .order_by(
+            "_team_rank",
+            F("next_check_at").asc(nulls_first=True),
+            "team_id",
+            "id",
+        )
+        .values(
             "id",
             "team_id",
             "window_minutes",
@@ -382,7 +406,14 @@ def _discover_cohorts_sync() -> DiscoverCohortsOutput:
             "filters",
             "next_check_at",
             "schedule_restriction",
-        )
+        )[: input.max_alerts_per_run + 1]
+    )
+    has_more = len(candidate_rows) > input.max_alerts_per_run
+    rows = candidate_rows[: input.max_alerts_per_run]
+    selected_count = len(rows)
+    oldest_due_at = min(
+        (row["next_check_at"] for row in rows if row["next_check_at"] is not None),
+        default=None,
     )
     rescheduled_alert_ids = _reschedule_due_alerts_in_quiet_hours(rows, now)
     rows = [row for row in rows if row["id"] not in rescheduled_alert_ids]
@@ -417,6 +448,14 @@ def _discover_cohorts_sync() -> DiscoverCohortsOutput:
     # Read MAX_COHORTS_PER_BATCH inside the activity, not in workflow code:
     # module-level env reads are non-deterministic on replay because Temporal's
     # sandbox re-imports the workflow module each time.
+    _safe_record(
+        "coordinator poll",
+        record_coordinator_poll,
+        selected_count=selected_count,
+        max_alerts_per_run=input.max_alerts_per_run,
+        has_more=has_more,
+        oldest_due_at=oldest_due_at,
+    )
     return DiscoverCohortsOutput(manifests=manifests, batch_size=MAX_COHORTS_PER_BATCH)
 
 
