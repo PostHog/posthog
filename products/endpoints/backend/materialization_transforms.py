@@ -1283,7 +1283,7 @@ def _extract_aggregate_name(expr: ast.Expr) -> Optional[str]:
     return None
 
 
-@dataclass
+@frozen
 class MaterializedColumn:
     """A column in the materialized table with metadata for read-time re-aggregation."""
 
@@ -1299,10 +1299,10 @@ def transform_select_for_materialized_table(select_exprs: list[ast.Expr], team: 
 
     Returns list of MaterializedColumn with re-aggregation metadata.
 
-    Examples:
-    - count() -> MaterializedColumn(Field(chain=["count()"]), is_aggregate=True, reaggregate_fn="sum")
-    - count() as total -> MaterializedColumn(Field(chain=["total"]), is_aggregate=True, reaggregate_fn="sum")
-    - toStartOfDay(timestamp) as date -> MaterializedColumn(Field(chain=["date"]), is_aggregate=False)
+    Examples, given the name each expression contributes to the materialized table:
+    - count() -> name "count()", is_aggregate=True, reaggregate_fn="sum"
+    - count() as total -> name "total", is_aggregate=True, reaggregate_fn="sum"
+    - toStartOfDay(timestamp) as date -> name "date", is_aggregate=False
     """
     result: list[MaterializedColumn] = []
     for expr in select_exprs:
