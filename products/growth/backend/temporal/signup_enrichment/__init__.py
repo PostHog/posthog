@@ -15,12 +15,14 @@ from products.growth.backend.temporal.signup_enrichment.rescore import (
     resolve_wizard_rescore_signup_inputs_activity,
 )
 from products.growth.backend.temporal.signup_enrichment.workflow import (
+    SignupEnrichmentRecheckWorkflow,
     SignupEnrichmentWorkflow,
     enrich_signup_organization_activity,
 )
 
 WORKFLOWS = [
     SignupEnrichmentWorkflow,
+    SignupEnrichmentRecheckWorkflow,
     IcpReenrichmentSweepWorkflow,
     HarmonicEnrichmentStatusPollWorkflow,
     WizardStampRescoreWorkflow,
