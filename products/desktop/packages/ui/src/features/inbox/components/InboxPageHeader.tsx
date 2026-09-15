@@ -21,6 +21,7 @@ import {
   PageHeaderTitle,
   PageHeaderTitleRow,
 } from "@posthog/ui/primitives/PageHeader";
+import { settingsSourceHref } from "@posthog/ui/router/reportNavigation";
 import { Link, useRouterState } from "@tanstack/react-router";
 
 interface InboxPageHeaderProps {
@@ -37,7 +38,13 @@ function ConfigureAgentsButton() {
     <Button
       variant="primary"
       size="sm"
-      render={<Link to="/settings/$category" params={{ category: "agents" }} />}
+      render={
+        <Link
+          to="/settings/$category"
+          params={{ category: "agents" }}
+          search={{ from: settingsSourceHref() }}
+        />
+      }
       className="shrink-0"
     >
       <RobotIcon size={14} />

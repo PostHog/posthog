@@ -7,7 +7,7 @@ Person state spans two planes:
 - the sync plane (Postgres primary), which owns existence, identity topology, and lifecycle scalars
 - the async plane (leader + changelog), which owns person property content
 
-`GetOrCreatePersonByDistinctId` / `GetOrCreatePersonsByDistinctIds` orchestrate both planes so a single ack covers both: `created = true` means the person stub is committed in Postgres AND the initial `$set`/`$set_once` are durable in the leader's changelog. The identity service never runs a saga; person-destroying operations (two-person merges, deletes) belong to the lifecycle manager.
+`GetOrCreatePersonByDistinctId` / `GetOrCreatePersonsByDistinctIds` orchestrate both planes so a single ack covers both: `created = true` means the person stub is committed in Postgres AND the initial `$set`/`$set_once` are durable in the leader's changelog. Person-destroying operations (two-person merges, deletes) run as lifecycle sagas hosted in this service (`src/lifecycle/`).
 
 ## How get-or-create works
 
@@ -20,8 +20,10 @@ Races resolve per key, never failing the rest of a batch: a concurrent create co
 ## Layout
 
 - `src/service/` — gRPC surface; `mod.rs` is dispatch-only, each RPC family has its own module (`get_or_create.rs`)
-- `src/storage/` — `IdentityStorage` trait + Postgres implementation (primary pool only; identity reads must never be stale)
+- `src/storage/` — `IdentityStorage` trait + Postgres implementation (primary only; identity reads must never be stale)
+- `src/pools.rs` — the two primary pools, split by how long a statement holds its connection: fast (resolution, op bookkeeping) and heavy (stub creation, attach, saga transactions, GC), sized by `MAX_PG_CONNECTIONS` and `HEAVY_MAX_PG_CONNECTIONS`
 - `src/leader.rs` — `PropertyWriter` trait + router-backed implementation
+- `src/lifecycle/` — the lifecycle engine: merge and delete sagas, sweeper, GC
 - Shared person primitives (row type, storage errors, uuidv5 scheme) live in `personhog-common::persons`
 
 ## Running locally

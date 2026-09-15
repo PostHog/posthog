@@ -22,6 +22,7 @@ import {
     ExperimentMetricSource,
     ExperimentRetentionMetric,
     ExperimentTrendsQuery,
+    InsightQueryNode,
     isExperimentFunnelMetric,
     isExperimentMeanMetric,
     isExperimentRatioMetric,
@@ -47,7 +48,6 @@ import {
     isTrendsQuery,
     queryUsesDataWarehouse,
 } from '~/queries/utils'
-import { PROPERTY_KEYS } from '~/taxonomy/taxonomy'
 import {
     ChartDisplayType,
     CohortType,
@@ -69,7 +69,6 @@ import {
     InsightShortId,
     MultipleSurveyQuestion,
     OnboardingStepKey,
-    PersonType,
     ProductTour,
     PropertyFilterType,
     QueryBasedInsightModel,
@@ -77,8 +76,6 @@ import {
     Survey,
     SurveyQuestionType,
 } from '~/types'
-
-import type { DashboardAddTileType } from 'products/dashboards/frontend/types'
 
 import type { ExperimentMetricUnion } from '../../queries/schema/schema-general'
 import type { FunnelCorrelationResultsType, Realm, UserType } from '../../types'
@@ -89,7 +86,6 @@ export enum DashboardEventSource {
     DashboardHeaderSaveDashboard = 'dashboard_header_save_dashboard',
     DashboardHeaderDiscardChanges = 'dashboard_header_discard_changes',
     DashboardHeaderExitFullscreen = 'dashboard_header_exit_fullscreen',
-    DashboardHeaderOverridesBanner = 'dashboard_header_overrides_banner',
     Hotkey = 'hotkey',
     InputEnter = 'input_enter',
     Toast = 'toast',
@@ -213,7 +209,10 @@ export interface ExperimentRecordingsListRenderedContext extends ExperimentRecor
 /**
  * What the behavior comparison found, captured each time the shelf loads. The card counts are what
  * say whether the feature finds anything in the wild: all zeros on most experiments would mean the
- * evidence floors are set too high to ever show a card.
+ * evidence floors are set too high to ever show a card. The compared-population fields are what
+ * `empty_reason` has to be read against, because the same reason asks for a different answer over a
+ * few dozen people than over thousands. They count session-linked people, not enrollment, which the
+ * response does not carry.
  */
 export interface ExperimentWatchShelfContext {
     too_early: boolean
@@ -228,6 +227,26 @@ export interface ExperimentWatchShelfContext {
     used_exposure_fallback: boolean
     /** Wall-clock time of the request, which is the heaviest read on the tab. */
     duration_ms: number
+    /** Exposed people the comparison found a session for, over every variant. The denominator the
+     * card counts are missing on their own. Zero on every 'no_session_linked_exposures' shelf,
+     * because that reason means no session was found for anyone, so it cannot size the enrollment
+     * behind that reason. */
+    compared_persons: number
+    /** Variants with enough of those people to be compared at all. One means the comparison had
+     * nothing to compare that variant against, and zero means no variant had a session-linked
+     * person. */
+    compared_variants: number
+    /** Hours of enrollment the comparison covered, from its oldest compared exposure to its newest.
+     * A span rather than the time the scan read, because a gap between enrolling minutes costs the
+     * day budget nothing, so sparse enrollment reports more hours than the budget allows. Read
+     * sessions_truncated for whether a cap bound. Fractional, so an experiment that enrolled a
+     * whole comparison inside one hour does not read the same as one that enrolled nobody. */
+    compared_enrollment_hours: number
+    /** More people were exposed than one comparison covers, so the oldest enrollees were left out.
+     * How often a cap binds at all, and on a 'too_early' shelf, that more time alone will not fill it. */
+    sessions_truncated: boolean
+    /** The project has more event names than one comparison ranks, so some were never considered. */
+    events_truncated: boolean
 }
 
 /** The comparison could not be loaded, and how: a request failure or a backend refusal. */
@@ -304,12 +323,21 @@ export interface ExperimentRecordingsBucketFailedContext {
 // by `version` (1 = legacy, 2 = context-first redesign) and `flow_variant`. Stamping properties
 // instead of renaming keeps every existing dashboard and alert on the v1 events working. The
 // redesign's v2 events live in `scenes/onboarding/onboardingEventUsageLogic`.
+// `entry_point` names the surface the flow starts on. It rides along with every funnel event, not
+// only `started`, so a breakdown by entry point stays populated for the whole funnel.
+export type OnboardingEntryPoint = 'product_selection' | 'welcome'
+
 export type OnboardingEventProperties = {
+    entry_point: OnboardingEntryPoint
     flow_variant: 'context_first' | 'legacy'
     version: 1 | 2
 }
 
-const LEGACY_ONBOARDING_EVENT_PROPS: OnboardingEventProperties = { version: 1, flow_variant: 'legacy' }
+const LEGACY_ONBOARDING_EVENT_PROPS: OnboardingEventProperties = {
+    version: 1,
+    flow_variant: 'legacy',
+    entry_point: 'product_selection',
+}
 
 function retentionWindowDays(metric: ExperimentRetentionMetric): number | undefined {
     const unitToDays: Record<string, number> = { day: 1, week: 7, month: 30 }
@@ -503,9 +531,122 @@ function countBehavioralFilters(value: unknown): number {
     )
 }
 
+type SanitizedQuery = Record<string, string | number | boolean | undefined>
+
+function insightQuerySource(query: Node | null): InsightQueryNode | undefined {
+    if (isInsightVizNode(query)) {
+        return query.source
+    }
+    return isInsightQueryNode(query) ? query : undefined
+}
+
+function dateRangeAndSamplingProperties(querySource: InsightQueryNode): SanitizedQuery {
+    return {
+        date_from: querySource.dateRange?.date_from || undefined,
+        date_to: querySource.dateRange?.date_to || undefined,
+        interval: getInterval(querySource),
+        samplingFactor: ('samplingFactor' in querySource ? querySource.samplingFactor : undefined) || undefined,
+    }
+}
+
+function seriesProperties(querySource: InsightQueryNode): SanitizedQuery {
+    const series = getSeries(querySource)
+    return {
+        series_length: series?.length,
+        event_entity_count: series?.filter((e) => isEventsNode(e)).length,
+        action_entity_count: series?.filter((e) => isActionsNode(e)).length,
+        data_warehouse_entity_count: series?.filter((e) => isAnyDataWarehouseNode(e)).length,
+        has_properties: !!querySource.properties,
+        behavioral_filter_count: countBehavioralFilters(querySource),
+        filter_test_accounts: querySource.filterTestAccounts,
+    }
+}
+
+function breakdownProperties(querySource: InsightQueryNode): SanitizedQuery {
+    const breakdown = getBreakdown(querySource)
+    return {
+        breakdown_type: breakdown?.breakdown_type || undefined,
+        breakdown_limit: breakdown?.breakdown_limit || undefined,
+        breakdown_hide_other_aggregation: breakdown?.breakdown_hide_other_aggregation || undefined,
+    }
+}
+
+function trendsLikeProperties(querySource: InsightQueryNode): SanitizedQuery {
+    const defaultDisplay =
+        isTrendsQuery(querySource) || isStickinessQuery(querySource) ? ChartDisplayType.ActionsLineGraph : undefined
+    return {
+        has_formula: !!getFormula(querySource),
+        display: getDisplay(querySource) ?? defaultDisplay,
+        compare: getCompareFilter(querySource)?.compare,
+        compare_to: getCompareFilter(querySource)?.compare_to,
+    }
+}
+
+function funnelProperties(querySource: InsightQueryNode): SanitizedQuery {
+    if (!isFunnelsQuery(querySource)) {
+        return {}
+    }
+    return {
+        funnel_viz_type: querySource.funnelsFilter?.funnelVizType,
+        funnel_order_type: querySource.funnelsFilter?.funnelOrderType,
+    }
+}
+
+function increment(counts: Record<string, any>, key: string): void {
+    counts[key] = (counts[key] || 0) + 1
+}
+
+function insightTileCountKey(tile: DashboardTile<QueryBasedInsightModel>): string {
+    const query = isNodeWithSource(tile.insight?.query) ? tile.insight.query.source : tile.insight?.query
+    return `${query?.kind || !!tile.text ? 'text' : 'empty'}_count`
+}
+
+function countDashboardTiles(tiles: DashboardTile<QueryBasedInsightModel>[], properties: Record<string, any>): void {
+    for (const tile of tiles) {
+        if (tile.insight) {
+            increment(properties, insightTileCountKey(tile))
+            properties.sample_items_count += tile.insight.is_sample ? 1 : 0
+            if (queryUsesDataWarehouse(tile.insight.query)) {
+                properties.uses_data_warehouse_source = true
+                properties.data_warehouse_tiles_count += 1
+            }
+        } else if (tile.widget) {
+            increment(properties, 'widget_tiles_count')
+        } else {
+            increment(properties, 'text_tiles_count')
+        }
+    }
+}
+
+export function dashboardViewedProperties(
+    dashboard: DashboardType<QueryBasedInsightModel>,
+    lastRefreshed: Dayjs | null,
+    viewerUuid: string | undefined
+): Record<string, any> {
+    const { created_at, is_shared, pinned, creation_mode, id } = dashboard
+    const properties: Record<string, any> = {
+        created_at,
+        is_shared,
+        pinned,
+        creation_mode,
+        viewer_is_creator:
+            dashboard.created_by?.uuid && viewerUuid ? dashboard.created_by.uuid === viewerUuid : undefined,
+        sample_items_count: 0,
+        item_count: dashboard.tiles?.length || 0,
+        created_by_system: !dashboard.created_by,
+        dashboard_id: id,
+        lastRefreshed: lastRefreshed?.toISOString(),
+        refreshAge: lastRefreshed ? now().diff(lastRefreshed, 'seconds') : undefined,
+        uses_data_warehouse_source: false,
+        data_warehouse_tiles_count: 0,
+    }
+    countDashboardTiles(dashboard.tiles || [], properties)
+    return properties
+}
+
 /** Takes a query and returns an object with "useful" properties that don't contain sensitive data. */
-export function sanitizeQuery(query: Node | null): Record<string, string | number | boolean | undefined> {
-    const payload: Record<string, string | number | boolean | undefined> = {
+export function sanitizeQuery(query: Node | null): SanitizedQuery {
+    const payload: SanitizedQuery = {
         query_kind: query?.kind,
         query_source_kind: isNodeWithSource(query) ? query.source.kind : undefined,
         // Whether this insight/query reads from a connector-synced data warehouse source (series-level
@@ -513,47 +654,16 @@ export function sanitizeQuery(query: Node | null): Record<string, string | numbe
         uses_data_warehouse_source: queryUsesDataWarehouse(query),
     }
 
-    if (isInsightVizNode(query) || isInsightQueryNode(query)) {
-        const querySource = isInsightVizNode(query) ? query.source : query
-        const { dateRange, filterTestAccounts, properties } = querySource
-        const samplingFactor = 'samplingFactor' in querySource ? querySource.samplingFactor : undefined
-
-        // date range and sampling
-        payload.date_from = dateRange?.date_from || undefined
-        payload.date_to = dateRange?.date_to || undefined
-        payload.interval = getInterval(querySource)
-        payload.samplingFactor = samplingFactor || undefined
-
-        // series
-        payload.series_length = getSeries(querySource)?.length
-        payload.event_entity_count = getSeries(querySource)?.filter((e) => isEventsNode(e)).length
-        payload.action_entity_count = getSeries(querySource)?.filter((e) => isActionsNode(e)).length
-        payload.data_warehouse_entity_count = getSeries(querySource)?.filter((e) => isAnyDataWarehouseNode(e)).length
-
-        // properties
-        payload.has_properties = !!properties
-        payload.behavioral_filter_count = countBehavioralFilters(querySource)
-        payload.filter_test_accounts = filterTestAccounts
-
-        // breakdown
-        payload.breakdown_type = getBreakdown(querySource)?.breakdown_type || undefined
-        payload.breakdown_limit = getBreakdown(querySource)?.breakdown_limit || undefined
-        payload.breakdown_hide_other_aggregation =
-            getBreakdown(querySource)?.breakdown_hide_other_aggregation || undefined
-
-        // trends like
-        payload.has_formula = !!getFormula(querySource)
-        payload.display =
-            getDisplay(querySource) ??
-            (isTrendsQuery(querySource) || isStickinessQuery(querySource)
-                ? ChartDisplayType.ActionsLineGraph
-                : undefined)
-        payload.compare = getCompareFilter(querySource)?.compare
-        payload.compare_to = getCompareFilter(querySource)?.compare_to
-
-        // funnels
-        payload.funnel_viz_type = isFunnelsQuery(querySource) ? querySource.funnelsFilter?.funnelVizType : undefined
-        payload.funnel_order_type = isFunnelsQuery(querySource) ? querySource.funnelsFilter?.funnelOrderType : undefined
+    const querySource = insightQuerySource(query)
+    if (querySource) {
+        Object.assign(
+            payload,
+            dateRangeAndSamplingProperties(querySource),
+            seriesProperties(querySource),
+            breakdownProperties(querySource),
+            trendsLikeProperties(querySource),
+            funnelProperties(querySource)
+        )
     }
 
     return objectClean(payload)
@@ -776,11 +886,11 @@ export interface eventUsageLogicActions {
         stepCount: number
     }
     reportDashboardAddMenuOpened: (
-        source: 'header' | 'inline',
+        source: 'header',
         dashboardId: number
     ) => {
         dashboardId: number
-        source: 'header' | 'inline'
+        source: 'header'
     }
     reportDashboardBreakdownColorsSaved: (
         dashboard: DashboardType<QueryBasedInsightModel> | null,
@@ -1013,21 +1123,6 @@ export interface eventUsageLogicActions {
         dashboardId: number | undefined
         ignored: boolean
         insightId: number | null
-    }
-    reportDashboardTileInsertedInline: (
-        tileType: DashboardAddTileType,
-        dashboardId: number,
-        tileId: number,
-        column: number,
-        row: number,
-        fullWidth: boolean
-    ) => {
-        column: number
-        dashboardId: number
-        fullWidth: boolean
-        row: number
-        tileId: number
-        tileType: DashboardAddTileType
     }
     reportDashboardTileRefreshed: (
         dashboardId: number,
@@ -1789,6 +1884,13 @@ export interface eventUsageLogicActions {
         selfDriving: boolean | undefined
         surface: IntegrationConnectSurface
     }
+    reportIntegrationConnectRejected: (
+        kind: string,
+        error: string
+    ) => {
+        error: string
+        kind: string
+    }
     reportInviteMembersButtonClicked: () => {
         value: true
     }
@@ -1900,11 +2002,7 @@ export interface eventUsageLogicActions {
         recommendationSource: string
         selected: boolean
     }
-    reportOnboardingStarted: (
-        entrypoint: string,
-        properties?: OnboardingEventProperties
-    ) => {
-        entrypoint: string
+    reportOnboardingStarted: (properties?: OnboardingEventProperties) => {
         properties: OnboardingEventProperties | undefined
     }
     reportOnboardingStepCompleted: (
@@ -1934,9 +2032,6 @@ export interface eventUsageLogicActions {
     }
     reportOnboardingUseCaseSkipped: () => {
         value: true
-    }
-    reportPersonDetailViewed: (person: PersonType) => {
-        person: PersonType
     }
     reportPersonOpenedFromNewlySeenPersonsList: () => {
         value: true
@@ -2355,7 +2450,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
     })),
     actions({
         // persons related
-        reportPersonDetailViewed: (person: PersonType) => ({ person }),
         reportPersonsModalViewed: (params: any) => ({
             params,
         }),
@@ -2374,6 +2468,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             surface,
             selfDriving,
         }),
+        reportIntegrationConnectRejected: (kind: string, error: string) => ({ kind, error }),
         reportPersonalIntegrationConnectClicked: (kind: string) => ({ kind }),
         reportGroupPropertyUpdated: (
             action: 'added' | 'updated' | 'removed',
@@ -2657,15 +2752,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportCustomChannelTypeRulesUpdated: (numRules: number) => ({ numRules }),
         reportPropertySelectOpened: true,
         reportCreatedDashboardFromModal: true,
-        reportDashboardAddMenuOpened: (source: 'header' | 'inline', dashboardId: number) => ({ source, dashboardId }),
-        reportDashboardTileInsertedInline: (
-            tileType: DashboardAddTileType,
-            dashboardId: number,
-            tileId: number,
-            column: number,
-            row: number,
-            fullWidth: boolean
-        ) => ({ tileType, dashboardId, tileId, column, row, fullWidth }),
+        reportDashboardAddMenuOpened: (source: 'header', dashboardId: number) => ({ source, dashboardId }),
         /** Dashboard created via PostHog web app from a template (new dashboard modal / template chooser). */
         reportWebDashboardCreatedFromTemplate: (payload: {
             dashboard_id: number
@@ -3080,8 +3167,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportProductTourListViewed: true,
         reportProductUnsubscribed: (product: string) => ({ product }),
         reportSubscribedDuringOnboarding: (productKey: string) => ({ productKey }),
-        reportOnboardingStarted: (entrypoint: string, properties?: OnboardingEventProperties) => ({
-            entrypoint,
+        reportOnboardingStarted: (properties?: OnboardingEventProperties) => ({
             properties,
         }),
         reportOnboardingStepCompleted: (
@@ -3334,6 +3420,15 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 self_driving: selfDriving,
             })
         },
+        // Counts connect attempts the provider sent back without a code. `integration_connect_clicked`
+        // only says the user started, so without this the drop-off is invisible outside session
+        // recordings — and `access_denied` in particular hides a workspace waiting on an admin.
+        reportIntegrationConnectRejected: ({ kind, error }) => {
+            posthog.capture('integration_connect_rejected', {
+                integration_kind: kind,
+                error,
+            })
+        },
         // Personal integrations are a separate table with their own connect surface, so they get
         // their own event: saved insights already count `integration_connect_clicked` unfiltered and
         // would silently start including personal links.
@@ -3345,35 +3440,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         },
         reportInsightRefreshTime: async ({ loadingMilliseconds, insightShortId }) => {
             posthog.capture('insight refresh time', { loadingMilliseconds, insightShortId })
-        },
-        reportPersonDetailViewed: async (
-            {
-                person,
-            }: {
-                person: PersonType
-            },
-            breakpoint
-        ) => {
-            await breakpoint(500)
-
-            let custom_properties_count = 0
-            let posthog_properties_count = 0
-            for (const prop of Object.keys(person.properties ?? {})) {
-                if (PROPERTY_KEYS.includes(prop)) {
-                    posthog_properties_count += 1
-                } else {
-                    custom_properties_count += 1
-                }
-            }
-
-            const properties = {
-                properties_count: Object.keys(person.properties ?? {}).length,
-                has_email: !!person.properties?.email,
-                has_name: !!person.properties?.name,
-                custom_properties_count,
-                posthog_properties_count,
-            }
-            posthog.capture('person viewed', properties)
         },
         reportTimeToSeeData: async ({ payload }) => {
             posthog.capture('time to see data', payload)
@@ -3449,55 +3515,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             if (!delay) {
                 await breakpoint(500) // Debounce to avoid noisy events from continuous navigation
             }
-            const { created_at, is_shared, pinned, creation_mode, id } = dashboard
-            const properties: Record<string, any> = {
-                created_at,
-                is_shared,
-                pinned,
-                creation_mode,
-                viewer_is_creator:
-                    dashboard.created_by?.uuid && values.user?.uuid
-                        ? dashboard.created_by?.uuid === values.user?.uuid
-                        : undefined,
-                sample_items_count: 0,
-                item_count: dashboard.tiles?.length || 0,
-                created_by_system: !dashboard.created_by,
-                dashboard_id: id,
-                lastRefreshed: lastRefreshed?.toISOString(),
-                refreshAge: lastRefreshed ? now().diff(lastRefreshed, 'seconds') : undefined,
-                uses_data_warehouse_source: false,
-                data_warehouse_tiles_count: 0,
-            }
-
-            for (const item of dashboard.tiles || []) {
-                if (item.insight) {
-                    const query = isNodeWithSource(item.insight.query) ? item.insight.query.source : item.insight.query
-                    const key = `${query?.kind || !!item.text ? 'text' : 'empty'}_count`
-                    if (!properties[key]) {
-                        properties[key] = 1
-                    } else {
-                        properties[key] += 1
-                    }
-                    properties.sample_items_count += item.insight.is_sample ? 1 : 0
-                    if (queryUsesDataWarehouse(item.insight.query)) {
-                        properties.uses_data_warehouse_source = true
-                        properties.data_warehouse_tiles_count += 1
-                    }
-                } else if (item.widget) {
-                    if (!properties['widget_tiles_count']) {
-                        properties['widget_tiles_count'] = 1
-                    } else {
-                        properties['widget_tiles_count'] += 1
-                    }
-                } else {
-                    if (!properties['text_tiles_count']) {
-                        properties['text_tiles_count'] = 1
-                    } else {
-                        properties['text_tiles_count'] += 1
-                    }
-                }
-            }
-
+            const properties = dashboardViewedProperties(dashboard, lastRefreshed, values.user?.uuid)
             const eventName = delay ? 'dashboard analyzed' : 'viewed dashboard' // `viewed dashboard` name is kept for backwards compatibility
             posthog.capture(eventName, { ...properties, source: 'web' })
         },
@@ -3832,16 +3850,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         },
         reportDashboardAddMenuOpened: async ({ source, dashboardId }) => {
             posthog.capture('dashboard add menu opened', { source, dashboard_id: dashboardId })
-        },
-        reportDashboardTileInsertedInline: async ({ tileType, dashboardId, tileId, column, row, fullWidth }) => {
-            posthog.capture('dashboard tile inserted inline', {
-                tile_type: tileType,
-                dashboard_id: dashboardId,
-                tile_id: tileId,
-                column,
-                row,
-                full_width: fullWidth,
-            })
         },
         reportWebDashboardCreatedFromTemplate: async (payload) => {
             posthog.capture('dashboard created from template', {
@@ -4610,9 +4618,8 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 product_key: productKey,
             })
         },
-        reportOnboardingStarted: ({ entrypoint, properties }) => {
+        reportOnboardingStarted: ({ properties }) => {
             posthog.capture('onboarding started', {
-                entry_point: entrypoint,
                 ...LEGACY_ONBOARDING_EVENT_PROPS,
                 ...properties,
             })

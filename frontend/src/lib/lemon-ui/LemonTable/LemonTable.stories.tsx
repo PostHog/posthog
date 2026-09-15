@@ -242,6 +242,17 @@ export const WithExpandableRows: Story = {
     },
 }
 
+export const WithFixedLayoutExpandableRows: Story = {
+    ...WithExpandableRows,
+    args: {
+        tableLayout: 'fixed',
+        expandable: {
+            expandedRowRender: (record) => <span>{record.occupation}</span>,
+        },
+    },
+    parameters: { testOptions: { viewport: { width: 600, height: 400 } } },
+}
+
 export const Small: Story = { render: renderBasic as any, args: { size: 'small' } }
 
 export const Embedded: Story = { render: renderBasic as any, args: { embedded: true } }

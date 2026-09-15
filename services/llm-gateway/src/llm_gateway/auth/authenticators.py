@@ -66,6 +66,8 @@ class PersonalApiKeyAuthenticator(Authenticator):
                 FROM posthog_personalapikey pak
                 JOIN posthog_user u ON pak.user_id = u.id
                 WHERE pak.secure_value = $1 AND u.is_active = true
+                    -- Legacy accounts predate the column and store NULL; they must pass like true.
+                    AND u.is_email_verified IS DISTINCT FROM false
                 """,
                 token_hash,
             )
@@ -115,6 +117,7 @@ class OAuthAccessTokenAuthenticator(Authenticator):
                 FROM posthog_oauthaccesstoken oat
                 JOIN posthog_user u ON oat.user_id = u.id
                 WHERE oat.token_checksum = $1 AND u.is_active = true
+                    AND u.is_email_verified IS DISTINCT FROM false
                 """,
                 token_hash,
             )

@@ -419,13 +419,33 @@ class NotebookCellLastRunSerializer(serializers.Serializer):
 class NotebookCellStateSerializer(serializers.Serializer):
     node_id = serializers.CharField(help_text="Durable cell identity, used by the cell run and edit endpoints.")
     cell_type = serializers.CharField(
-        help_text="Cell kind: 'sql', 'python', or 'saved_insight' (embedded insight, never runs)."
+        help_text=(
+            "Cell kind: 'sql', 'python', 'saved_insight' (embedded insight, never runs), or "
+            "'markdown' (prose, a heading, or a fenced block; never runs and joins no dependency graph)."
+        )
     )
     dataframe_name = serializers.CharField(
         allow_blank=True,
         help_text="Name other cells reference this cell's result by; blank means display-only.",
     )
-    code = serializers.CharField(allow_blank=True, help_text="The cell's source, truncated with a marker past 8KB.")
+    code = serializers.CharField(
+        allow_blank=True,
+        help_text=(
+            "The cell's source, truncated with a marker past 8KB. For a markdown cell this is the block's markdown."
+        ),
+    )
+    start = serializers.IntegerField(
+        help_text=(
+            "Offset where the cell's source starts in the notebook's markdown, in UTF-16 code "
+            "units, the same unit the collaboration diffs use."
+        )
+    )
+    end = serializers.IntegerField(
+        help_text=(
+            "Offset just past the cell's source, in UTF-16 code units, excluding the blank lines "
+            "that separate it from the next cell."
+        )
+    )
     status = serializers.CharField(
         help_text=(
             "Derived cell state: 'never_run', 'running', 'done', 'failed', 'interrupted', or 'stale' — "
@@ -458,7 +478,9 @@ class NotebookKernelStateSerializer(serializers.Serializer):
         required=False, allow_null=True, help_text="Memory in GB the notebook's sandbox is configured with."
     )
     idle_timeout_seconds = serializers.IntegerField(
-        required=False, allow_null=True, help_text="Seconds of inactivity before the sandbox shuts down."
+        required=False,
+        allow_null=True,
+        help_text="Maximum lifetime of the sandbox in seconds. It shuts down this long after it starts, even while in use.",
     )
 
 
@@ -530,7 +552,9 @@ class NotebookKernelStatusResponseSerializer(serializers.Serializer):
         required=False, allow_null=True, help_text="Disk size in GB the sandbox is configured with."
     )
     idle_timeout_seconds = serializers.IntegerField(
-        required=False, allow_null=True, help_text="Seconds of inactivity before the sandbox shuts down."
+        required=False,
+        allow_null=True,
+        help_text="Maximum lifetime of the sandbox in seconds. It shuts down this long after it starts, even while in use.",
     )
     hourly_price = serializers.FloatField(
         help_text=(
@@ -573,7 +597,8 @@ class NotebookComputeOptionsResponseSerializer(serializers.Serializer):
         child=serializers.FloatField(), help_text="Memory sizes in GB the kernel config endpoint accepts."
     )
     allowed_idle_timeout_seconds = serializers.ListField(
-        child=serializers.IntegerField(), help_text="Idle timeouts in seconds the kernel config endpoint accepts."
+        child=serializers.IntegerField(),
+        help_text="Maximum sandbox lifetimes in seconds that the kernel config endpoint accepts.",
     )
 
 
@@ -585,7 +610,9 @@ class NotebookKernelConfigResponseSerializer(serializers.Serializer):
         required=False, allow_null=True, help_text="Configured memory in GB; null means the default applies."
     )
     idle_timeout_seconds = serializers.IntegerField(
-        required=False, allow_null=True, help_text="Configured idle timeout in seconds; null means the default."
+        required=False,
+        allow_null=True,
+        help_text="Configured maximum sandbox lifetime in seconds; null means the default.",
     )
     restarted = serializers.BooleanField(
         help_text=(

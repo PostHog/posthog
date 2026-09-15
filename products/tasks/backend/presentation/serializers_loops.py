@@ -30,6 +30,7 @@ from products.tasks.backend.facade.run_config import (
     get_model_access_error,
     get_models_for_runtime_adapter,
     get_reasoning_effort_error,
+    runtime_adapter_serves_model,
 )
 from products.tasks.backend.presentation.serializers import (
     TASK_RUN_SKILL_BUNDLE_FORMAT_CHOICES,
@@ -544,7 +545,7 @@ class LoopWriteSerializer(serializers.Serializer):
         model = attrs.get("model")
         if runtime_adapter is not None and model:
             allowed_models = get_models_for_runtime_adapter(runtime_adapter)
-            if allowed_models and model not in allowed_models:
+            if allowed_models and not runtime_adapter_serves_model(runtime_adapter, model):
                 raise serializers.ValidationError(
                     {"model": f"'{model}' is not a supported model for runtime_adapter '{runtime_adapter}'."}
                 )

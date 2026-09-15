@@ -1,13 +1,14 @@
+import { useService } from "@posthog/di/react";
 import { useHostTRPCClient } from "@posthog/host-router/react";
 import type { NotificationTarget } from "@posthog/platform/notifications";
 import {
-  type BrowserTabDestination,
-  focusExistingTab,
-} from "@posthog/ui/features/browser-tabs/imperativeTabNavigation";
+  BROWSER_TABS_CLIENT,
+  type BrowserTabsClient,
+} from "@posthog/ui/features/browser-tabs/browserTabsClient";
 import {
-  readMirror,
-  reseedMirror,
-} from "@posthog/ui/features/browser-tabs/tabsSync";
+  type BrowserTabDestination,
+  focusOrOpenBrowserTab,
+} from "@posthog/ui/features/browser-tabs/imperativeTabNavigation";
 import { useHandleOpenTask } from "@posthog/ui/features/deep-links/useHandleOpenTask";
 import {
   navigateToChannelDashboard,
@@ -37,36 +38,29 @@ function targetDestination(target: NotificationTarget): BrowserTabDestination {
  */
 export function useOpenTargetDeepLink() {
   const client = useHostTRPCClient();
+  const tabsClient = useService<BrowserTabsClient>(BROWSER_TABS_CLIENT);
   const handleOpenTask = useHandleOpenTask();
 
   const handleTarget = useCallback(
     (target: NotificationTarget) => {
       log.info("Opening notification target", { kind: target.kind });
 
-      const openDirectly = () => {
-        switch (target.kind) {
-          case "task":
-            handleOpenTask(target.taskId, target.taskRunId);
-            break;
-          case "canvas":
+      switch (target.kind) {
+        case "task":
+          void handleOpenTask(target.taskId, target.taskRunId);
+          break;
+        case "canvas":
+          void focusOrOpenBrowserTab(
+            tabsClient,
+            targetDestination(target),
+          ).then((handled) => {
+            if (handled) return;
             navigateToChannelDashboard(target.channelId, target.dashboardId);
-            break;
-        }
-      };
-
-      const destination = targetDestination(target);
-      if (focusExistingTab(destination)) return;
-      if (readMirror().windows.length > 0) {
-        openDirectly();
-        return;
+          });
+          break;
       }
-      void reseedMirror()
-        .then(() => {
-          if (!focusExistingTab(destination)) openDirectly();
-        })
-        .catch(() => openDirectly());
     },
-    [handleOpenTask],
+    [handleOpenTask, tabsClient],
   );
 
   // Expose the same channel-aware routing to imperative, non-React callers (the

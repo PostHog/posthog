@@ -120,6 +120,7 @@ from products.warehouse_sources.backend.facade.models import (
     update_sync_type_config_keys,
 )
 from products.warehouse_sources.backend.facade.source_management import (
+    DATABASE_HOST_NOT_ALLOWED_GUIDANCE,
     DEFAULT_LAG_CRITICAL_THRESHOLD_MB,
     DEFAULT_LAG_WARNING_THRESHOLD_MB,
     PREVIEW_DEFAULT_ROWS,
@@ -135,6 +136,7 @@ from products.warehouse_sources.backend.facade.source_management import (
     DocsFetchError,
     ExternalWebhookInfo,
     FieldType,
+    HostNotAllowedError,
     IntegrationAccountListingError,
     MySQLSource,
     OAuthMixin,
@@ -144,6 +146,7 @@ from products.warehouse_sources.backend.facade.source_management import (
     SourceSchema,
     SQLSource,
     SSLRequiredError,
+    TemporaryHostResolutionError,
     WebhookSource,
     build_default_schemas,
     build_default_sync_settings,
@@ -238,6 +241,16 @@ def _hide_noncanonical_managed_warehouse_sources(
     return queryset.exclude(hidden_sources)
 
 
+# Failures to reach the source database that only the customer can fix. Handlers return them as a
+# 400 without capturing, so they stay out of error tracking.
+_EXPECTED_CONNECTION_ERRORS = (
+    OperationalError,
+    BaseSSHTunnelForwarderError,
+    SSLRequiredError,
+    HostNotAllowedError,
+    TemporaryHostResolutionError,
+)
+
 REFRESH_SCHEMAS_EXPECTED_ERROR_MESSAGES = {
     "timeout": "Connection timed out while fetching schemas from the source.",
     "timed out": "Connection timed out while fetching schemas from the source.",
@@ -254,6 +267,9 @@ REFRESH_SCHEMAS_EXPECTED_ERROR_MESSAGES = {
     "forbidden": "The source credentials do not have permission to fetch schemas.",
     "ssl/tls connection is required": "SSL/TLS is required to connect to the source.",
     "could not establish session to ssh gateway": "Could not establish an SSH tunnel to the source.",
+    # Raised by the connect-time host check of every SQL source; the map is matched on lowercased text.
+    "database host not allowed": DATABASE_HOST_NOT_ALLOWED_GUIDANCE,
+    "temporary failure resolving": "Could not resolve the source host right now. Try again in a moment.",
 }
 
 
@@ -532,21 +548,34 @@ _SSH_TUNNEL_CONNECTION_FIELDS = ("enabled", "host", "port")
 _CONNECTION_TARGET_FIELDS = ("host", "instance_url")
 
 
-def ssh_tunnel_connection_changed(existing: Any, incoming: Any) -> bool:
-    """True if the SSH tunnel's connection target (enabled/host/port) changed.
+def _coerce_connection_target(value: Any) -> str:
+    """Normalize a connection-target value for comparison.
 
     Scalars are coerced to strings to ignore type drift between stored values
     (often strings) and JSON-parsed input (bools/ints). Only `None` collapses to ""
     — `or ""` would also swallow falsy-but-meaningful values like `False` and 0,
     making stored "False" falsely diverge from JSON `false`.
     """
+    return "" if value is None else str(value)
+
+
+def connection_target_changed(existing: Any, incoming: Any) -> bool:
+    """True if a named connection-target field actually moved to a different target.
+
+    An unset field and a blank one name the same (absent) target, so collapsing them keeps the
+    gate off an edit that changes nothing: the edit form submits a blank for every declared field
+    the stored source never had, and treating that as a retarget blocks the whole form behind a
+    credential re-entry that does not apply.
+    """
+    return _coerce_connection_target(existing) != _coerce_connection_target(incoming)
+
+
+def ssh_tunnel_connection_changed(existing: Any, incoming: Any) -> bool:
+    """True if the SSH tunnel's connection target (enabled/host/port) changed."""
     existing = existing if isinstance(existing, dict) else {}
     incoming = incoming if isinstance(incoming, dict) else {}
 
-    def _coerce(value: Any) -> str:
-        return "" if value is None else str(value)
-
-    return any(_coerce(existing.get(key)) != _coerce(incoming.get(key)) for key in _SSH_TUNNEL_CONNECTION_FIELDS)
+    return any(connection_target_changed(existing.get(key), incoming.get(key)) for key in _SSH_TUNNEL_CONNECTION_FIELDS)
 
 
 # Nested containers that keep their secrets one level down, not at the top level: the
@@ -869,6 +898,16 @@ class ExternalDataSourceBulkUpdateSchemasSerializer(serializers.Serializer):
         allow_empty=False,
         help_text="Schema updates to apply in a single batch.",
     )
+
+    # The endpoint is a PATCH, so the schema generator marks every field optional. The body is a
+    # batch command that always needs `schemas`, and the generated types and MCP tool must say so.
+    @property
+    def partial(self) -> bool:
+        return False
+
+    @partial.setter
+    def partial(self, _value: bool) -> None:
+        pass
 
 
 def _validation_error_message(error: ValidationError) -> str:
@@ -1310,7 +1349,8 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         # both the generic `host` field and source-specific URL fields like ServiceNow's
         # `instance_url`, so a stored credential can't be redirected to a new host.
         connection_host_changed = any(
-            field in incoming_job_inputs and incoming_job_inputs[field] != existing_job_inputs.get(field)
+            field in incoming_job_inputs
+            and connection_target_changed(existing_job_inputs.get(field), incoming_job_inputs[field])
             for field in _CONNECTION_TARGET_FIELDS
         )
 
@@ -1318,7 +1358,8 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         # `okta_domain`, Freshdesk's `subdomain`). Changing one would send the preserved credential
         # to a new host — the same exfiltration risk as a `host` change — so require re-entry too.
         connection_host_changed = connection_host_changed or any(
-            field in incoming_job_inputs and incoming_job_inputs[field] != existing_job_inputs.get(field)
+            field in incoming_job_inputs
+            and connection_target_changed(existing_job_inputs.get(field), incoming_job_inputs[field])
             for field in source.connection_host_fields
         )
 
@@ -1463,12 +1504,27 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
 
         source_config: Config = source.parse_config(new_job_inputs)
         validated_job_inputs = source_config.to_dict()
+
+        # The settings form resubmits the whole connection config on every save, so changing an
+        # unrelated setting (auto-syncing new tables, the prefix, the description) re-probed the
+        # live connection too — and a momentarily unreachable database then failed the whole save,
+        # leaving nothing to do but retry. Compare the parsed config against what's stored so the
+        # probe below only runs when the connection actually changed. Direct query sources still
+        # probe on every save: the same call refreshes their schemas and connection metadata.
+        try:
+            stored_job_inputs = source.parse_config(existing_job_inputs).to_dict()
+        except Exception:
+            # A stored config that no longer parses can't be compared, so treat it as changed and
+            # let the probe run rather than skipping validation on a config we can't read.
+            stored_job_inputs = None
+        connection_config_changed = stored_job_inputs is None or stored_job_inputs != validated_job_inputs
+
         for key in _CDC_EXPOSED_JOB_INPUT_KEYS:
             if key in existing_job_inputs:
                 validated_job_inputs[key] = existing_job_inputs[key]
         validated_data["job_inputs"] = validated_job_inputs
 
-        if job_inputs_were_submitted:
+        if job_inputs_were_submitted and (connection_config_changed or instance.is_direct_query):
             effective_api_version = source.resolve_api_version(instance.api_version)
             try:
                 if isinstance(source, (PostgresSource, MySQLSource)):
@@ -2025,6 +2081,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         "destroy",
         "reload",
         "refresh_schemas",
+        "bulk_update_schemas",
         "database_schema",
         "setup",
         "store_credentials",
@@ -2668,7 +2725,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                                 schema_name = cdc_schema_name_by_location.get((db_schema, table_name))
                                 if schema_name is not None:
                                     pk_columns_by_table[schema_name] = primary_key_columns
-                except (OperationalError, BaseSSHTunnelForwarderError, SSLRequiredError) as e:
+                except _EXPECTED_CONNECTION_ERRORS as e:
                     # Connecting to the user's database to detect CDC primary keys is expected to
                     # fail when the host, port, credentials, or SSH tunnel are wrong, or the server
                     # requires/refuses SSL. Surface it as a 400, but don't capture it — these are
@@ -4125,8 +4182,9 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 tables=tables,
                 slot_name=slot_name,
                 publication_name=publication_name,
+                team_id=self.team_id,
             )
-        except (OperationalError, BaseSSHTunnelForwarderError, SSLRequiredError) as e:
+        except _EXPECTED_CONNECTION_ERRORS as e:
             # Probing a user-supplied database to validate it is expected to fail when the host,
             # credentials, or SSH tunnel are wrong or the server drops the connection. Surface it
             # to the wizard as a 400, but don't capture it — these are user/upstream connection
@@ -4195,7 +4253,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 slot_name=request.data.get("cdc_slot_name") or None,
                 publication_name=request.data.get("cdc_publication_name") or None,
             )
-        except (OperationalError, BaseSSHTunnelForwarderError, SSLRequiredError) as e:
+        except _EXPECTED_CONNECTION_ERRORS as e:
             # Probing the source's database to validate it is expected to fail when the host,
             # credentials, or SSH tunnel are wrong, the server requires/refuses SSL, or it drops the
             # connection. Surface it as a 400, but don't capture it — these are user/upstream
@@ -4270,7 +4328,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 slot_name=request.data.get("cdc_slot_name") or None,
                 publication_name=request.data.get("cdc_publication_name") or None,
             )
-        except (OperationalError, BaseSSHTunnelForwarderError, SSLRequiredError) as e:
+        except _EXPECTED_CONNECTION_ERRORS as e:
             # Expected user/upstream connection failure (bad host/credentials/SSH tunnel, server
             # requires/refuses SSL, dropped connection). Surface as a 400 without capturing — see the
             # check_cdc_prerequisites_for_source handler above.
@@ -4474,7 +4532,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             return Response(status=status.HTTP_409_CONFLICT, data={"message": str(e)})
         except CDCRepairError as e:
             return Response(status=status.HTTP_400_BAD_REQUEST, data={"message": str(e)})
-        except (OperationalError, BaseSSHTunnelForwarderError, SSLRequiredError) as e:
+        except _EXPECTED_CONNECTION_ERRORS as e:
             # Expected user/upstream connection failure — surface as a 400 without capturing,
             # mirroring the enable_cdc handler.
             return Response(
@@ -4555,7 +4613,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         # back into the same deterministic failure.
         try:
             live_status = adapter.get_status(instance)
-        except (OperationalError, BaseSSHTunnelForwarderError, SSLRequiredError) as e:
+        except _EXPECTED_CONNECTION_ERRORS as e:
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
                 data={
@@ -5494,7 +5552,8 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         request=ExternalDataSourceBulkUpdateSchemasSerializer,
         responses={200: ExternalDataSchemaSerializer(many=True)},
     )
-    @action(methods=["PATCH"], detail=True)
+    # The list-shaped response makes the generator add the viewset's search and paging params.
+    @action(methods=["PATCH"], detail=True, pagination_class=None, filter_backends=[])
     def bulk_update_schemas(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         source = self.get_object()
         serializer = ExternalDataSourceBulkUpdateSchemasSerializer(data=request.data)

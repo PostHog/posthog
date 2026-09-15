@@ -1,5 +1,9 @@
 import { Counter, Histogram } from 'prom-client'
 
+import { MlWireVersion } from './privacy/schema'
+
+export type MlProducedLane = 'image' | 'url' | 'metadata'
+
 /** Which anonymizer produced the output; the label makes the flag rollout a direct A/B. */
 export type MlAnonymizeImpl = 'rust' | 'ts'
 /** Rust engine that produced the output (tree = the parse fallback fired). `''` when not applicable. */
@@ -50,6 +54,12 @@ export class MlMirrorMetrics {
         labelNames: ['outcome'],
     })
 
+    private static readonly mlProducedVersion = new Counter({
+        name: 'recording_blob_ingestion_v2_ml_produced_version_total',
+        help: 'Kafka records the mirror delivered, by lane and wire format version, counted on the delivery ack. Version 2 is encrypted per session and version 1 is cleartext, so the split across a deploy is how far the encryption switchover has reached. The consumer counters count records too, so the two rates compare directly. A lane stuck on version 1 means the session key never resolved, which no other mirror metric distinguishes from ordinary traffic',
+        labelNames: ['lane', 'version'],
+    })
+
     private static readonly mlImageReferencesByProperty = new Counter({
         name: 'recording_blob_ingestion_v2_ml_image_references_by_property',
         help: 'Collected CSS and HTML image ref occurrences by bounded source, property, and lane. Counts references before per-message content or URL deduplication',
@@ -92,9 +102,9 @@ export class MlMirrorMetrics {
         help: 'Bytes of collected images delivered to the scrub topic (acked)',
     })
 
-    private static readonly mlImagePseudoTeamInvalid = new Counter({
-        name: 'recording_blob_ingestion_v2_ml_image_pseudo_team_invalid',
-        help: 'Messages whose derived team pseudonym failed the consumer ref-shape check; collection disabled for them (inline blur instead)',
+    private static readonly mlImageTeamIdInvalid = new Counter({
+        name: 'recording_blob_ingestion_v2_ml_image_team_id_invalid',
+        help: 'Messages whose team ID failed the consumer ref-shape check; collection disabled for them (inline blur instead)',
     })
 
     private static readonly mlUrlBytes = new Histogram({
@@ -134,6 +144,12 @@ export class MlMirrorMetrics {
 
     public static incrementMlImagesCollected(outcome: MlImageLaneStage, count: number): void {
         this.mlImagesCollected.labels(outcome).inc(count)
+    }
+
+    public static incrementMlProducedVersion(lane: MlProducedLane, version: MlWireVersion, count: number): void {
+        if (count > 0) {
+            this.mlProducedVersion.labels(lane, version).inc(count)
+        }
     }
 
     public static incrementMlImageReferencesByProperty(
@@ -188,8 +204,8 @@ export class MlMirrorMetrics {
         this.mlImageBytesProduced.inc(bytes)
     }
 
-    public static incrementMlImagePseudoTeamInvalid(): void {
-        this.mlImagePseudoTeamInvalid.inc()
+    public static incrementMlImageTeamIdInvalid(): void {
+        this.mlImageTeamIdInvalid.inc()
     }
 }
 
@@ -203,6 +219,23 @@ const PARTITION_DAY_BUCKETS = [0, 1, 2, 3, 7, 14, 30, 90, 365]
  * buffer stays empty, so flush advances offsets without a write. Kafka lag alone can't see that state.
  */
 export class MlParquetSinkMetrics {
+    private static readonly replayIndexRows = new Counter({
+        name: 'ml_mirror_replay_index_rows_written_total',
+        help: 'Replay index rows uploaded by event kind, including retries',
+        labelNames: ['kind'],
+    })
+    private static readonly replayIndexSkipped = new Counter({
+        name: 'ml_mirror_replay_index_skipped_total',
+        help: 'Replay index blocks or entries omitted by reason',
+        labelNames: ['reason'],
+    })
+    public static incReplayIndexRows(kind: string, count: number): void {
+        this.replayIndexRows.labels(kind).inc(count)
+    }
+    public static incReplayIndexSkipped(reason: 'session_start' | 'invalid_entry' | 'truncated_block'): void {
+        this.replayIndexSkipped.labels(reason).inc()
+    }
+
     private static readonly rowsParsed = new Counter({
         name: 'ml_mirror_parquet_sink_rows_parsed_total',
         help: 'Block-metadata rows parsed from Kafka and accepted into the Parquet buffer',
@@ -247,8 +280,11 @@ export class MlParquetSinkMetrics {
     public static incRowsParsed(count: number): void {
         this.rowsParsed.inc(count)
     }
-    public static incRowsRejected(reason: 'parse_failed' | 'invalid'): void {
-        this.rowsRejected.labels(reason).inc()
+    public static incRowsRejected(
+        reason: 'parse_failed' | 'invalid' | 'invalid_envelope' | 'privacy',
+        count = 1
+    ): void {
+        this.rowsRejected.labels(reason).inc(count)
     }
     public static observeWrite(rows: number, bytes: number): void {
         this.objectsWritten.inc()

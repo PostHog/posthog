@@ -82,7 +82,9 @@ import type {
 import { QueryContext } from '~/queries/types'
 
 import { AlertType } from 'products/alerts/frontend/types'
+import type { NodeApiSuspended } from 'products/data_modeling/frontend/generated/api.schemas'
 import type {
+    DataWarehouseSavedQueryApi,
     DataWarehouseSavedQueryApiSuspended,
     SyncFrequencyBoundsApi,
 } from 'products/data_warehouse/frontend/generated/api.schemas'
@@ -593,7 +595,7 @@ export interface OrganizationType extends OrganizationBasicType {
     is_ai_training_opted_in?: boolean
     is_ai_training_locked?: boolean
     is_ai_training_cta_shown?: boolean
-    is_hipaa?: boolean
+    has_signed_baa?: boolean
     members_can_invite?: boolean
     members_can_create_projects?: boolean
     members_can_use_personal_api_keys: boolean
@@ -826,14 +828,6 @@ export interface TeamType extends TeamBasicType {
         | null
     session_recording_masking_config: SessionRecordingMaskingConfig | undefined | null
     session_recording_retention_period: SessionRecordingRetentionPeriod | null
-    /**
-     * Plan-derived events data retention window in months (synced from billing). Read-only: it follows the plan's
-     * data retention entitlement, so support cannot change it outside the enterprise plan.
-     * See https://github.com/PostHog/posthog/issues/17031
-     */
-    event_retention_months: number
-    /** Whether events data retention is currently enforced for this team (cohort/flag gated). Read-only. */
-    events_retention_enforced: boolean
     session_replay_config: { record_canvas?: boolean } | undefined | null
     survey_config?: TeamSurveyConfigType
     logs_settings?: LogsSettings | null
@@ -907,6 +901,9 @@ export interface WorkflowsConfig {
     capture_workflows_engagement_events: boolean
     // Optional so cached team objects from before this field shipped still typecheck.
     email_tracking_consent_mode?: 'off' | 'opt_out' | 'opt_in'
+    // Null uses the product default.
+    workflow_task_rate_limit_per_day?: number | null
+    workflow_task_team_rate_limit_per_day?: number | null
 }
 
 export interface FeatureFlagPolicyConfig {
@@ -1104,6 +1101,7 @@ export enum SavedInsightsTabs {
 export enum ReplayTabs {
     Home = 'home',
     Playlists = 'playlists',
+    Comments = 'comments',
     Templates = 'templates',
     Settings = 'settings',
 }
@@ -4763,7 +4761,6 @@ export enum DashboardPlacement {
 
 // Default mode is null
 export enum DashboardMode {
-    Edit = 'edit', // When the dashboard is being edited
     Fullscreen = 'fullscreen', // When the dashboard is on full screen (presentation) mode
     Sharing = 'sharing', // When the sharing configuration is opened
 }
@@ -5174,6 +5171,8 @@ export interface CoreFilterDefinition {
     used_for_debug?: boolean
     /** Name of a single property on events of this name that UIs should display alongside the event. */
     primary_property?: string
+    /** Keep this event out of pickers that build a query someone saves and runs later. Surfaces that read live event data still offer it. */
+    hidden_in_query_builders?: boolean
 }
 
 export interface TileParams {
@@ -5218,6 +5217,8 @@ export interface AppContext {
     switched_team: TeamType['id'] | null
     /** Support flow aid: a staff-only list of users who may be impersonated to access this resource. */
     suggested_users_with_access?: UserBasicType[]
+    /** The project the URL asked for, as an id or a token, when the server refused to switch to it. */
+    project_access_denied?: string | null
     livestream_host?: string
     oauth_application?: OAuthApplicationPublicMetadata
     /** Server-resolved MCP scopes for OAuth consent when the client omits `scope`. */
@@ -5584,6 +5585,7 @@ export const INTEGRATION_KINDS = [
     'linear',
     'github',
     'gitlab',
+    'helpscout',
     'meta-ads',
     'instagram',
     'clickup',
@@ -6141,6 +6143,7 @@ export type PromptFlag = {
 
 // Should be kept in sync with "posthog/models/activity_logging/activity_log.py"
 export enum ActivityScope {
+    DATA_QUALITY_CHECK_SCHEDULE = 'DataQualityCheckSchedule',
     ACTION = 'Action',
     ALERT_CONFIGURATION = 'AlertConfiguration',
     ANNOTATION = 'Annotation',
@@ -6162,9 +6165,12 @@ export enum ActivityScope {
     EVENT_DEFINITION = 'EventDefinition',
     PROPERTY_DEFINITION = 'PropertyDefinition',
     NOTEBOOK = 'Notebook',
+    GENERATED_WIDGET = 'GeneratedWidget',
     CANVAS = 'Canvas',
     DASHBOARD = 'Dashboard',
     REPLAY = 'Replay',
+    REPLAY_SCANNER = 'ReplayScanner',
+    VISION_ALERT_CONFIGURATION = 'VisionAlertConfiguration',
     // TODO: doh! we don't need replay and recording
     RECORDING = 'recording',
     EXPERIMENT = 'Experiment',
@@ -6182,6 +6188,7 @@ export enum ActivityScope {
     ERROR_TRACKING_ISSUE = 'ErrorTrackingIssue',
     DATA_WAREHOUSE_EXPRESSION = 'DataWarehouseExpression',
     DATA_WAREHOUSE_SAVED_QUERY = 'DataWarehouseSavedQuery',
+    DATA_QUALITY_CHECK = 'DataQualityCheck',
     USER_INTERVIEW = 'UserInterview',
     TAG = 'Tag',
     TAGGED_ITEM = 'TaggedItem',
@@ -6281,9 +6288,11 @@ export interface DataModelingNode {
     upstream_count: number
     downstream_count: number
     user_tag?: string
-    last_run_at?: string
+    last_run_at?: string | null
     last_run_status?: DataModelingJobStatus
+    last_run_error?: string | null
     sync_interval?: DataModelingSyncInterval
+    suspended?: NodeApiSuspended
 }
 
 export interface DataModelingEdge {
@@ -6301,16 +6310,6 @@ export interface DataModelingEdge {
 }
 
 export type DataModelingSyncInterval = '15min' | '30min' | '1hour' | '6hour' | '12hour' | '24hour' | '7day' | '30day'
-
-export interface DataModelingDAG {
-    id: string
-    name: string
-    description: string
-    sync_frequency: DataModelingSyncInterval | null
-    node_count: number
-    created_at: string
-    updated_at: string
-}
 
 export interface DataWarehouseSavedQuery {
     /** UUID */
@@ -6335,9 +6334,9 @@ export interface DataWarehouseSavedQuery {
     is_incremental?: boolean
     /** Engine → suspension details. Only included when fetching a single saved query, not in list responses */
     suspended?: DataWarehouseSavedQueryApiSuspended
-    upstream_dependency_count?: number
-    downstream_dependency_count?: number
+    created_by?: UserBasicType | null
     created_at?: string
+    updated_at?: DataWarehouseSavedQueryApi['updated_at']
     run_history?: DataWarehouseSavedQueryRunHistory[]
     origin?: DataWarehouseSavedQueryOrigin
     is_test?: boolean
@@ -7424,6 +7423,7 @@ export type HogFunctionTypeType =
     | 'site_app'
     | 'transformation'
     | 'transformation_log'
+    | 'legacy_destination'
 
 export type HogFunctionType = {
     id: string
@@ -7856,7 +7856,10 @@ export interface FeaturePreviewGateConfig {
     offerRequestAccess?: boolean
     /**
      * Product intent recorded when a user joins the waitlist from the gate, so waitlist sign-ups
-     * count as product intent the same way opting in from the feature previews page does.
+     * count as product intent the same way opting in from the feature previews page does. When
+     * set, the gate also reads this product's setup-detection status to end the post-enrollment
+     * "turning it on" state as soon as the API agrees the flag is on, instead of waiting out a
+     * fixed timer.
      */
     productIntent?: ProductKey
 }

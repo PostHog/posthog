@@ -8,7 +8,6 @@ import {
     isGroupsQuery,
     isHogQLQuery,
     isMarketingAnalyticsTableQuery,
-    isNonIntegratedConversionsTableQuery,
     isPersonsNode,
     isSessionAttributionExplorerQuery,
     isSessionsQuery,
@@ -44,8 +43,6 @@ export enum QueryFeature {
     highlightExceptionEventRows,
     /** Enables cell actions to map a campaign or source onto an integration */
     campaignMappingActions,
-    /** Row-level mapping menu, which only the non-integrated conversions table carries */
-    nonIntegratedConversionsRowActions,
     showCount,
 }
 
@@ -140,15 +137,6 @@ export function getQueryFeatures(query: Node): Set<QueryFeature> {
         ) {
             features.add(QueryFeature.campaignMappingActions)
         }
-    }
-
-    if (isNonIntegratedConversionsTableQuery(query)) {
-        features.add(QueryFeature.columnsInResponse)
-        features.add(QueryFeature.resultIsArrayOfArrays)
-        features.add(QueryFeature.displayResponseError)
-        features.add(QueryFeature.selectAndOrderByColumns)
-        features.add(QueryFeature.campaignMappingActions)
-        features.add(QueryFeature.nonIntegratedConversionsRowActions)
     }
 
     if (isTracesQuery(query)) {

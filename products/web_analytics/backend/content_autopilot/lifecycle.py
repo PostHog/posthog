@@ -46,17 +46,40 @@ def lock_proposal(team: Team, proposal_id: str) -> ContentAutopilotProposal:
         raise ContentAutopilotLifecycleError("That proposal could not be found.") from error
 
 
+def lock_profile(
+    team_id: int, profile_id: str, *, missing_message: str = "That site could not be found."
+) -> ContentAutopilotSiteProfile:
+    try:
+        return (
+            ContentAutopilotSiteProfile.objects.for_team(team_id, canonical=True)
+            .select_for_update()
+            .get(id=profile_id, deleted=False)
+        )
+    except ContentAutopilotSiteProfile.DoesNotExist as error:
+        raise ContentAutopilotLifecycleError(missing_message) from error
+
+
+def delete_profile(*, team: Team, profile_id: str) -> ContentAutopilotSiteProfile:
+    team_id = canonical_team_id(team)
+    with transaction.atomic():
+        profile = lock_profile(team_id, profile_id)
+        now = timezone.now()
+        ContentAutopilotRun.objects.for_team(team_id, canonical=True).filter(
+            profile=profile, run_status__in=ACTIVE_RUN_STATUSES
+        ).update(
+            run_status=ContentAutopilotRun.RunStatus.CANCELED,
+            completed_at=now,
+            updated_at=now,
+        )
+        profile.deleted = True
+        profile.save(update_fields=["deleted", "updated_at"])
+        return profile
+
+
 def start_run(*, team: Team, profile_id: str, triggered_by_id: int | None) -> ContentAutopilotRun:
     team_id = canonical_team_id(team)
     with transaction.atomic():
-        try:
-            profile = (
-                ContentAutopilotSiteProfile.objects.for_team(team_id, canonical=True)
-                .select_for_update()
-                .get(id=profile_id)
-            )
-        except ContentAutopilotSiteProfile.DoesNotExist as error:
-            raise ContentAutopilotLifecycleError("Select a site before starting a content run.") from error
+        profile = lock_profile(team_id, profile_id, missing_message="Select a site before starting a content run.")
 
         if (
             ContentAutopilotRun.objects.for_team(team_id, canonical=True)

@@ -33,6 +33,7 @@ const MOCK_SUBSCRIPTION: SubscriptionApi = {
     dashboard: null,
     insight_short_id: 'abc123',
     resource_name: 'North star metric',
+    contexts: [],
     title: 'Weekly rollup',
     dashboard_export_insights: [],
     target_type: SubscriptionTargetEnumApi.Email,
@@ -45,6 +46,7 @@ const MOCK_SUBSCRIPTION: SubscriptionApi = {
     summary: 'sent every week',
     next_delivery_date: '2026-04-07T17:00:00Z',
     deleted: false,
+    ai_query_plan_status: null,
 }
 
 const MOCK_AI_SUBSCRIPTION: SubscriptionApi = {
@@ -54,6 +56,7 @@ const MOCK_AI_SUBSCRIPTION: SubscriptionApi = {
     dashboard: null,
     insight_short_id: null,
     resource_name: null,
+    contexts: [],
     prompt: 'Summarize weekly signups and flag any anomalies',
     title: 'Weekly AI digest',
     dashboard_export_insights: [],
@@ -67,6 +70,7 @@ const MOCK_AI_SUBSCRIPTION: SubscriptionApi = {
     summary: 'sent every week',
     next_delivery_date: '2026-04-07T17:00:00Z',
     deleted: false,
+    ai_query_plan_status: null,
 }
 
 describe('subscriptionSceneLogic', () => {

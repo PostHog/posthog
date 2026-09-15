@@ -13,7 +13,6 @@ import { dayjs } from 'lib/dayjs'
 import { LemonCalendarSelectInput } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
 import { getAccessControlDisabledReason, accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { newInternalTab } from 'lib/utils/newInternalTab'
-import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -23,6 +22,8 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, Breadcrumb } from '~/types'
+
+import { PersonDisplay } from 'products/persons/frontend/components/PersonDisplay'
 
 import { AssigneeIconDisplay, AssigneeLabelDisplay, AssigneeSelect } from '../../components/Assignee'
 import { ChannelsTag, getChannelThreadUrl } from '../../components/Channels/ChannelsTag'
@@ -103,8 +104,6 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         draftModeEnabled,
         replyRecipientDescription,
         snoozedUntil,
-        knowledgeGaps,
-        knowledgeGapsLoading,
         emailReplyBlockedReason,
         latestAiMessage,
         feedbackByMessageId,
@@ -131,7 +130,6 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         setDraftContent,
         setDraftIsPrivate,
         setDraftModeEnabled,
-        dismissKnowledgeGap,
         submitAiReplyFeedback,
         startEditingMessage,
         cancelEditingMessage,
@@ -596,14 +594,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                     {user?.is_staff && ticket && <StaffActionsPanel />}
 
                     {/* AI Triage Panel */}
-                    {aiSuggestionsEnabled && ticket && (
-                        <AIPanel
-                            aiTriage={ticket.ai_triage}
-                            knowledgeGaps={knowledgeGaps}
-                            knowledgeGapsLoading={knowledgeGapsLoading}
-                            onDismissGap={dismissKnowledgeGap}
-                        />
-                    )}
+                    {aiSuggestionsEnabled && ticket && <AIPanel aiTriage={ticket.ai_triage} />}
 
                     {ticket?.channel_source === 'widget' && (
                         <>

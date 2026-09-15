@@ -34,14 +34,17 @@ from posthog.dataclasses import frozen
 from products.tasks.backend.constants import (
     DEFAULT_SANDBOX_WORKING_DIR,
     DEV_STACK_IMAGE_NAME,
+    SANDBOX_REPOSITORIES_ROOT,
     SNAPSHOT_KIND_DIRECTORY,
     SNAPSHOT_KIND_FILESYSTEM,
     SnapshotKind,
 )
+from products.tasks.backend.logic.services.local_skills import BUNDLED_SKILLS_PATHS, ENV_DISABLE_BUNDLED_SKILLS
 from products.tasks.backend.logic.services.sandbox_config import (
     BURSTABLE_REQUEST_CPU_CORES,
     BURSTABLE_REQUEST_MEMORY_MB,
     DEV_STACK_CPU_REQUEST_CORES,
+    DEV_STACK_MEMORY_GB,
     SANDBOX_TTL_SECONDS,
     VM_SANDBOX_CPU_CORES,
 )
@@ -109,10 +112,30 @@ import path; a test pins them to the enum so a rename can't drop a product off t
 """
 
 
+FULL_HISTORY_ORIGIN_PRODUCTS: frozenset[str] = frozenset(
+    {
+        # Signals report research reads history for `git blame`
+        "signal_report",
+        # A pinned scout asks the same questions of the tree: `git log`, `git blame`, `--since`
+        "signals_scout",
+    }
+)
+"""Origin products whose sandboxes clone the full commit history instead of `--depth 1`.
+
+Every other origin keeps the fast-boot shallow clone. Nobody watches a fleet run, so a slower
+boot costs less than the unshallow fetch a skill body pays mid-run to get history back. Held as
+strings for the same reason as ``SELF_DRIVING_ORIGIN_PRODUCTS``; a test pins them to the enum.
+"""
+
+
 def workload_for_origin_product(origin_product: str | None) -> SandboxWorkload:
     if origin_product in SELF_DRIVING_ORIGIN_PRODUCTS:
         return SandboxWorkload.SELF_DRIVING
     return SandboxWorkload.DEFAULT
+
+
+def needs_full_history(origin_product: str | None) -> bool:
+    return origin_product in FULL_HISTORY_ORIGIN_PRODUCTS
 
 
 class ExecutionResult(BaseModel):
@@ -204,6 +227,12 @@ class SandboxConfig(BaseModel):
             return self.dev_stack_present
         return self.custom_image_name == DEV_STACK_IMAGE_NAME
 
+    @model_validator(mode="after")
+    def _enforce_dev_stack_memory_floor(self) -> Self:
+        if self.is_dev_stack_image:
+            self.memory_gb = max(self.memory_gb, DEV_STACK_MEMORY_GB)
+        return self
+
     @property
     def effective_cpu_request_cores(self) -> float:
         """CPU floor the provider actually reserves when burstable: the configured request,
@@ -261,7 +290,7 @@ def is_public_sandbox_repo(repository: str | None) -> bool:
 def sandbox_repo_path(repository: str) -> str:
     """Absolute path an ``org/repo`` is cloned to inside the sandbox (the agent-server's cwd)."""
     org, repo = repository.lower().split("/")
-    return f"{WORKING_DIR}/repos/{org}/{repo}"
+    return f"{SANDBOX_REPOSITORIES_ROOT}/{org}/{repo}"
 
 
 def redact_sandbox_command(command: str) -> str:
@@ -285,6 +314,7 @@ def build_agent_runtime_env_prefix(
     provider: str | None = None,
     model: str | None = None,
     reasoning_effort: str | None = None,
+    service_tier: str | None = None,
     context_window: str | None = None,
     fast_mode: bool | None = None,
     initial_permission_mode: str | None = None,
@@ -305,6 +335,9 @@ def build_agent_runtime_env_prefix(
         "POSTHOG_CODE_PROVIDER": provider,
         "POSTHOG_CODE_MODEL": model,
         "POSTHOG_CODE_REASONING_EFFORT": reasoning_effort,
+        # OpenAI service tier for codex runs ("default" | "priority" | "flex"); ignored by the
+        # claude adapter. Codex itself drops a tier the model catalogue doesn't advertise.
+        "POSTHOG_CODE_SERVICE_TIER": service_tier,
         "POSTHOG_CODE_CONTEXT_WINDOW": context_window,
         # Explicit false pins fast mode off even if a stale env value survives in a resumed sandbox.
         "POSTHOG_CODE_FAST_MODE": None if fast_mode is None else ("true" if fast_mode else "false"),
@@ -465,6 +498,18 @@ class SandboxBase(ABC):
             )
         return False
 
+    def clear_bundled_skills_if_disabled(self) -> None:
+        """Delete the bundled skill folders when the sandbox environment asks for it.
+
+        The check runs inside the sandbox: a sandbox rehydrated by id carries no config env
+        vars, but the container environment still holds the value the launcher set.
+        """
+        paths = " ".join(shlex.quote(path) for path in BUNDLED_SKILLS_PATHS)
+        command = f'if [ "${ENV_DISABLE_BUNDLED_SKILLS}" = "1" ]; then rm -rf {paths} && mkdir -p {paths}; fi'
+        result = self.execute(command, timeout_seconds=30)
+        if result.exit_code != 0:
+            raise RuntimeError(f"Failed to clear bundled skills in sandbox {self.id}: {result.stderr}")
+
     def agent_server_supports_auto_publish(self) -> bool:
         """Sandboxes restored from old snapshots can carry an agent-server that rejects unknown
         CLI options, so probe the installed binary before passing --autoPublish; unsupported
@@ -485,9 +530,9 @@ class SandboxBase(ABC):
         )
         return result.exit_code == 0
 
-    def agent_server_supports_prewarmed_resume_idle(self) -> bool:
+    def agent_server_supports_prewarmed_resume_message_driven(self) -> bool:
         result = self.execute(
-            "grep -q prewarmedResumeIdle /scripts/node_modules/.bin/agent-server",
+            "grep -q prewarmedResumeMessageDriven /scripts/node_modules/.bin/agent-server",
             timeout_seconds=10,
         )
         return result.exit_code == 0
@@ -511,7 +556,7 @@ class SandboxBase(ABC):
         )
 
         target_path = sandbox_repo_path(repository)
-        org_path = f"{WORKING_DIR}/repos/{org}"
+        org_path = f"{SANDBOX_REPOSITORIES_ROOT}/{org}"
 
         depth_flag = f" --depth {shlex.quote('1')}" if shallow else ""
         branch_flag = f" --branch {shlex.quote(branch)}" if branch else ""
@@ -571,6 +616,7 @@ class SandboxBase(ABC):
         provider: str | None = None,
         model: str | None = None,
         reasoning_effort: str | None = None,
+        service_tier: str | None = None,
         context_window: str | None = None,
         fast_mode: bool | None = None,
         initial_permission_mode: str | None = None,
@@ -786,6 +832,9 @@ def wait_for_health_check(
     return False
 
 
+HEALTH_CURL_MAX_TIME_SECONDS = 2
+
+
 def build_health_check_command(
     port: int, max_attempts: int = 60, poll_interval: float = 0.5, pid_file: str | None = None
 ) -> str:
@@ -794,10 +843,14 @@ def build_health_check_command(
         if pid_file is not None
         else ""
     )
+    # The attempt count assumes an instant poll. A poll that waits on curl or python startup
+    # would otherwise outrun the exec timeout, and the caller never sees the loop's result.
+    budget_seconds = health_check_budget_seconds(max_attempts, poll_interval)
     return (
-        f"for i in $(seq 1 {max_attempts}); do "
+        "SECONDS=0; i=0; while :; do "
+        "  i=$((i + 1)); "
         f"{process_check}"
-        f"  body=$(curl -s --max-time 2 http://localhost:{port}/health); "
+        f"  body=$(curl -s --max-time {HEALTH_CURL_MAX_TIME_SECONDS} http://localhost:{port}/health); "
         "  status=$?; "
         '  if [ "$status" = "0" ]; then '
         '    case "$body" in *claude_credential_unavailable*) echo "claude_credential_unavailable"; exit 1;; esac; '
@@ -807,14 +860,18 @@ def build_health_check_command(
         'sys.exit(0 if payload.get("status") == "ok" and payload.get("hasSession") is True else 1)'
         f'\' "$body" && echo "ok:$i" && exit 0; '
         "  fi; "
+        f'  if [ "$i" -ge {max_attempts} ] || [ "$SECONDS" -ge {budget_seconds} ]; then exit 1; fi; '
         f"  sleep {poll_interval}; "
-        f"done; "
-        f"exit 1"
+        "done"
     )
 
 
+def health_check_budget_seconds(max_attempts: int = 60, poll_interval: float = 0.5) -> int:
+    return int(max_attempts * poll_interval)
+
+
 def health_check_timeout_seconds(max_attempts: int = 60, poll_interval: float = 0.5) -> int:
-    return max(30, int(max_attempts * poll_interval) + 5)
+    return max(30, health_check_budget_seconds(max_attempts, poll_interval) + HEALTH_CURL_MAX_TIME_SECONDS + 5)
 
 
 SandboxClass = type[SandboxBase]

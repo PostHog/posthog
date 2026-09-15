@@ -156,6 +156,7 @@ export type NotebookComponentInsertCommand = {
     description?: string
     aliases?: string[]
     icon?: ReactNode
+    badge?: string
     defaultProps?: NotebookComponentProps | (() => NotebookComponentProps)
 }
 

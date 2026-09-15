@@ -14,7 +14,6 @@ import {
   deriveScoutLifecycle,
   formatNextRun,
   formatRunDuration,
-  formatScoutScheduleShort,
   hasPendingScoutRun,
   nextRunAt,
   prettifyScoutSkillName,
@@ -23,7 +22,6 @@ import {
   type ScoutRunOutcome,
   scoutCreatorDisplayName,
   scoutRunOutcomeLabel,
-  scoutSkillSlug,
 } from "@posthog/core/scouts/scoutPresentation";
 import {
   Avatar,
@@ -49,6 +47,7 @@ import type { ScoutConfigUpdate } from "../hooks/useScoutConfigMutations";
 import { useScoutRunNow } from "../hooks/useScoutRunNow";
 import { AgentNameLink } from "./AgentNameLink";
 import { DryRunBadge } from "./ScoutBadges";
+import { ScoutCadenceLabel } from "./ScoutCadenceLabel";
 import { ScoutEnabledSwitch } from "./ScoutConfigControls";
 import { ScoutLifecycleBadge } from "./ScoutLifecycleBadges";
 import { ScoutRunBoxes } from "./ScoutRunBoxes";
@@ -122,7 +121,6 @@ function ScoutTableRowInner({
 }) {
   const { openAgent } = useAgentsPageActions();
   const { runNow, isStarting } = useScoutRunNow(config, "fleet_list");
-  const slug = scoutSkillSlug(config.skill_name);
   const name = prettifyScoutSkillName(config.skill_name);
   const latest = rollup?.latestRun ?? null;
   const latestOutcome = latest ? deriveRunOutcome(latest, now) : null;
@@ -148,7 +146,7 @@ function ScoutTableRowInner({
           />
           <AgentNameLink
             config={config}
-            onOpen={() => openAgent(slug)}
+            onOpen={() => openAgent(config.skill_name)}
             dataAttr="scout-row-open"
           />
           <span className="sr-only @xl:not-sr-only @xl:contents">
@@ -166,9 +164,11 @@ function ScoutTableRowInner({
       </TableCell>
 
       <TableCell>
-        <div className="flex flex-col gap-0.5 truncate">
+        {/* Wraps rather than truncates, because a clipped cadence loses the timezone first.
+            Breaks inside a word too: a hand-written cron can hold no space to wrap at. */}
+        <div className="flex min-w-0 flex-col gap-0.5 break-words">
           <span className="text-[12.5px] text-gray-12">
-            {formatScoutScheduleShort(config)}
+            <ScoutCadenceLabel config={config} />
           </span>
           {rollup?.runningRun &&
           deriveRunOutcome(rollup.runningRun, now) === "running" ? (
@@ -249,7 +249,7 @@ function ScoutTableRowInner({
               Run now
             </DropdownMenuItem>
             <DropdownMenuItem
-              onClick={() => openAgent(slug, { tab: "settings" })}
+              onClick={() => openAgent(config.skill_name, { tab: "settings" })}
             >
               <GearSixIcon size={13} />
               Settings

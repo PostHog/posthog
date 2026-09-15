@@ -73,7 +73,9 @@ import type {
     VisionScannersObservationsRetrieveParams,
     VisionScannersObservationsStatsRetrieveParams,
     VisionScannersPromptSuggestionsListParams,
+    VisionScannersWatchFeedRetrieveParams,
     VisionSpendSeriesApi,
+    WatchFeedResponseApi,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -426,6 +428,24 @@ export const visionObservationsRetryCreate = async (
     options?: RequestInit
 ): Promise<RetryResponseApi> => {
     return apiMutator<RetryResponseApi>(getVisionObservationsRetryCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getVisionObservationsViewedCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/vision/observations/${id}/viewed/`
+}
+
+/**
+ * Record that the calling user opened this observation. Idempotent.
+ */
+export const visionObservationsViewedCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getVisionObservationsViewedCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
     })
@@ -1104,6 +1124,25 @@ export const visionScannersObservationsRetryCreate = async (
     })
 }
 
+export const getVisionScannersObservationsViewedCreateUrl = (projectId: string, scannerId: string, id: string) => {
+    return `/api/projects/${projectId}/vision/scanners/${scannerId}/observations/${id}/viewed/`
+}
+
+/**
+ * Record that the calling user opened this observation. Idempotent.
+ */
+export const visionScannersObservationsViewedCreate = async (
+    projectId: string,
+    scannerId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getVisionScannersObservationsViewedCreateUrl(projectId, scannerId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
 export const getVisionScannersObservationsStatsRetrieveUrl = (
     projectId: string,
     scannerId: string,
@@ -1474,5 +1513,38 @@ export const visionScannersSuggestTagsCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(suggestTagsRequestApi),
+    })
+}
+
+export const getVisionScannersWatchFeedRetrieveUrl = (
+    projectId: string,
+    params?: VisionScannersWatchFeedRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/vision/scanners/watch_feed/?${stringifiedParams}`
+        : `/api/projects/${projectId}/vision/scanners/watch_feed/`
+}
+
+/**
+ * Succeeded observations in the window worth watching, ranked — feeds the What to watch tab.
+ */
+export const visionScannersWatchFeedRetrieve = async (
+    projectId: string,
+    params?: VisionScannersWatchFeedRetrieveParams,
+    options?: RequestInit
+): Promise<WatchFeedResponseApi> => {
+    return apiMutator<WatchFeedResponseApi>(getVisionScannersWatchFeedRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
     })
 }

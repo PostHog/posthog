@@ -1,3 +1,4 @@
+import type { NetworkMetricsRequest } from "posthog-js/dist/module.full.no-external";
 import posthog from "posthog-js/dist/module.full.no-external";
 // Import the recorder to set up __PosthogExtensions__.initSessionRecording
 // The module.full.no-external bundle includes rrweb but not the initSessionRecording function
@@ -110,6 +111,29 @@ let flagsUnavailable = false;
 
 const SESSION_IDLE_TIMEOUT_SECONDS = 36_000;
 
+/**
+ * Path attribute for the automatic network-duration metric. posthog-js's default
+ * path templating only replaces numeric/uuid-like segments, so a presigned
+ * task-artifact download/preview URL (whose path embeds the artifact's original,
+ * user-controlled filename — see `_build_artifact_storage_path` in
+ * products/tasks/backend/facade/api.py) or any other non-API request would leak
+ * that filename into the shared Metrics project. Only requests to the app's own
+ * API host get path-based attribution; everything else collapses to a fixed
+ * value.
+ */
+export function networkMetricPath(
+  request: NetworkMetricsRequest,
+  apiHost: string,
+): string | undefined {
+  try {
+    const requestHost = new URL(request.url).host;
+    const appHost = new URL(apiHost).host;
+    return requestHost === appHost ? undefined : "external";
+  } catch {
+    return "external";
+  }
+}
+
 export function initializePostHog(sessionId?: string) {
   const apiKey = import.meta.env.VITE_POSTHOG_API_KEY;
   const apiHost =
@@ -134,6 +158,21 @@ export function initializePostHog(sessionId?: string) {
     defaults: "2026-05-30",
     api_host: apiHost,
     ui_host: uiHost,
+    metrics: {
+      serviceName: "posthog-desktop",
+      environment: import.meta.env.PROD ? "production" : "development",
+      // Records every fetch/XHR as an `http.client.request.duration` histogram,
+      // keyed by method/host/path (posthog-js templates numeric and uuid-like
+      // path segments to `:id` before dimensioning). posthog-js's own capture/flags/session-recording
+      // requests are excluded automatically. `attributes` keeps path-based
+      // attribution to this app's own API — see `networkMetricPath`.
+      network: {
+        attributes: (request) => {
+          const path = networkMetricPath(request, apiHost);
+          return path === undefined ? undefined : { path };
+        },
+      },
+    },
     // The epoch turns capture_pageview into "history_change". This app routes via
     // createHashHistory() (packages/ui/src/router/router.ts), so the route lives in
     // the URL hash and $pathname is identical for every screen — automatic pageviews

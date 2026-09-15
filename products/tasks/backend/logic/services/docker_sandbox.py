@@ -51,7 +51,12 @@ from .agentsh import (
     generate_policy_yaml,
     read_gh_guard_script,
 )
-from .local_skills import ENV_LOCAL_SKILLS_HOST_PATH, LocalSkillsCache, snapshot_local_task_skills
+from .local_skills import (
+    ENV_LOCAL_SKILLS_HOST_PATH,
+    LocalSkillsCache,
+    bundled_skills_disabled,
+    snapshot_local_task_skills,
+)
 from .sandbox import (
     WORKING_DIR,
     AgentServerResult,
@@ -525,7 +530,12 @@ class DockerSandbox(SandboxBase):
             # the baked-in rendered skills in the image stay visible — only
             # the specific skills the user has on disk get overlaid.
             local_skills_host = os.environ.get(ENV_LOCAL_SKILLS_HOST_PATH)
-            if skill_source != "local" and local_skills_host and os.path.isdir(local_skills_host):
+            if (
+                skill_source != "local"
+                and not bundled_skills_disabled(config.environment_variables)
+                and local_skills_host
+                and os.path.isdir(local_skills_host)
+            ):
                 for entry in sorted(os.listdir(local_skills_host)):
                     if entry.startswith(".") or entry == "__pycache__":
                         continue
@@ -830,10 +840,14 @@ class DockerSandbox(SandboxBase):
         # An empty payload still has to produce an empty file: with no chunks the temp path is
         # never created and the mv below fails. Blanking a credential file is exactly this case.
         chunks = [encoded_payload[start : start + chunk_size] for start in range(0, len(encoded_payload), chunk_size)]
-        for index, chunk in enumerate(chunks or [""]):
+        prepared_chunks = chunks or [""]
+        last_index = len(prepared_chunks) - 1
+        for index, chunk in enumerate(prepared_chunks):
             write_mode = "wb" if index == 0 else "ab"
+            prologue = f"umask 077 && rm -f {shlex.quote(path)}.tmp-* && " if index == 0 else ""
+            epilogue = f" && mv {shlex.quote(temp_path)} {shlex.quote(path)}" if index == last_index else ""
             command = (
-                "python3 - <<'EOF_SANDBOX_WRITE'\n"
+                f"{prologue}python3 - <<'EOF_SANDBOX_WRITE'{epilogue}\n"
                 "import base64\n"
                 "from pathlib import Path\n"
                 f"path = Path({json.dumps(temp_path)})\n"
@@ -850,15 +864,6 @@ class DockerSandbox(SandboxBase):
                     extra={"stdout": result.stdout, "stderr": result.stderr, "sandbox_id": self.id},
                 )
                 break
-
-        if result.exit_code == 0:
-            move_command = f"mv {shlex.quote(temp_path)} {shlex.quote(path)}"
-            result = self.execute(move_command, timeout_seconds=step_timeout)
-            if result.exit_code != 0:
-                logger.warning(
-                    "sandbox_write_failed",
-                    extra={"stdout": result.stdout, "stderr": result.stderr, "sandbox_id": self.id},
-                )
 
         return result
 
@@ -932,6 +937,7 @@ class DockerSandbox(SandboxBase):
         provider: str | None = None,
         model: str | None = None,
         reasoning_effort: str | None = None,
+        service_tier: str | None = None,
         context_window: str | None = None,
         fast_mode: bool | None = None,
         initial_permission_mode: str | None = None,
@@ -961,6 +967,7 @@ class DockerSandbox(SandboxBase):
             provider=provider,
             model=model,
             reasoning_effort=reasoning_effort,
+            service_tier=service_tier,
             context_window=context_window,
             fast_mode=fast_mode,
             initial_permission_mode=initial_permission_mode,
@@ -1052,6 +1059,7 @@ class DockerSandbox(SandboxBase):
         provider: str | None = None,
         model: str | None = None,
         reasoning_effort: str | None = None,
+        service_tier: str | None = None,
         context_window: str | None = None,
         fast_mode: bool | None = None,
         initial_permission_mode: str | None = None,
@@ -1079,6 +1087,8 @@ class DockerSandbox(SandboxBase):
 
         if self._host_port is None:
             raise RuntimeError("Sandbox was not created with port exposure.")
+
+        self.clear_bundled_skills_if_disabled()
 
         repo_path: str | None = None
         if repository:
@@ -1133,6 +1143,7 @@ class DockerSandbox(SandboxBase):
             provider,
             model,
             reasoning_effort,
+            service_tier=service_tier,
             context_window=context_window,
             fast_mode=fast_mode,
             initial_permission_mode=initial_permission_mode,
@@ -1192,6 +1203,7 @@ class DockerSandbox(SandboxBase):
                 provider=provider,
                 model=model,
                 reasoning_effort=reasoning_effort,
+                service_tier=service_tier,
                 context_window=context_window,
                 fast_mode=fast_mode,
                 initial_permission_mode=initial_permission_mode,

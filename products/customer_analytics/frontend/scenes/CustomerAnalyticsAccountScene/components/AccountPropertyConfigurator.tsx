@@ -15,6 +15,7 @@ export interface AccountPropertyConfiguratorProps {
     onChange: (pinnedPropertyKeys: string[]) => void
     onSave: (pinnedPropertyKeys: string[]) => void
     onCancel: () => void
+    saveDisabledReason?: string
 }
 
 export function AccountPropertyConfigurator({
@@ -25,6 +26,7 @@ export function AccountPropertyConfigurator({
     onChange,
     onSave,
     onCancel,
+    saveDisabledReason,
 }: AccountPropertyConfiguratorProps): JSX.Element {
     const optionsByKey = new Map(options.map((option) => [option.key, option]))
     const selectedOptions = pinnedPropertyKeys.map(
@@ -71,6 +73,7 @@ export function AccountPropertyConfigurator({
                         type="primary"
                         onClick={() => onSave(pinnedPropertyKeys)}
                         loading={saving}
+                        disabledReason={saveDisabledReason}
                         data-attr="account-pinned-properties-save"
                     >
                         Save

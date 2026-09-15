@@ -1,13 +1,15 @@
 # HogQL language service prototype
 
 This prototype keeps multiple immutable, permission-filtered catalogs in memory and provides local SQL completion.
+Completion uses the cursor context to suggest fields, functions, comparison operators, and predicate continuations such as `AND` and `OR`.
+The service embeds the global HogQL function list, while Django supplies permission-filtered tables and properties.
 It uses `github.com/orian/clickhouse-sql-parser` to recover table and alias context from the query. Django remains the
 authority for deciding which schema and properties belong in each catalog.
 
-For local development, start the service on its loopback listener:
+For local development, start the service on its loopback listener with Hogli:
 
 ```bash
-HOGQL_LANGUAGE_SERVICE_ALLOW_INSECURE=1 .codex/with-flox go -C services/hogql-language-service run ./cmd/server
+hogli start:hogql-lang-service
 ```
 
 Publish a permission-filtered catalog through the multitenant endpoint below before making language requests. The Go
@@ -17,7 +19,7 @@ service does not hold a personal API key or fetch schema from PostHog directly.
 curl -sS http://localhost:8091/health
 curl -sS -X POST http://localhost:8091/teams/2/users/1/autocomplete \
   -H 'Content-Type: application/json' \
-  -d '{"query":"SELECT o. FROM orders AS o","position":9}'
+  -d '{"query":"SELECT o. FROM orders AS o","position":9,"positionEncoding":"utf-16"}'
 ```
 
 Validate syntax and catalog-backed table and field references:
@@ -41,7 +43,9 @@ curl -sS -X POST http://localhost:8091/teams/2/users/1/validate \
   -d '{"query":"SELECT events.properties.$geo_cty FROM events"}'
 ```
 
-`position` is an optional UTF-8 byte offset and defaults to the end of the query. `durationMicros` covers only the
+`position` is optional and defaults to the end of the query. Set `positionEncoding` to `utf-8` (the default) or
+`utf-16`; editor clients such as Monaco should send `utf-16`. The response echoes the selected encoding.
+`durationMicros` covers only the
 in-memory completion path; network and JSON decoding are intentionally excluded. Responses contain at most 25
 suggestions, the total match count, and an opaque `nextCursor` when another page exists. Send the same query and
 position with `"cursor":"<nextCursor>"` to retrieve it. The HTTP `Content-Length` is the encoded response size.
@@ -99,6 +103,21 @@ Tokens are valid only for the exact team, user, and operation. List the current 
 afterward during rotation. Do not expose the service directly to browsers; Django should mint tokens and proxy
 requests after resolving the user's membership and permissions for that team.
 
+## Django integration
+
+Django proxies eligible `HogQLAutocomplete` and `HogQLMetadata` query nodes to the service. Debug builds enable the
+proxy by default. Production requires the `hogql-language-service` feature flag and both settings below:
+
+- `HOGQL_LANGUAGE_SERVICE_URL` points to the service's internal URL.
+- `HOGQL_LANGUAGE_SERVICE_SIGNING_KEYS` lists the current signing key first, followed by keys being rotated out.
+
+On a catalog miss, Django builds the schema visible to that exact team and user, adds their visible event, person,
+session, and group properties, publishes it, and retries once. Unsupported query options and service failures use
+the existing in-process implementation. Prometheus records Django-to-service latency and response size by operation.
+Django also sends `X-HogQL-Affinity-Key`, a stable SHA-256 digest of the team and user IDs. Load balancers may hash on
+this header to route a user's catalog and language requests to the same replica; authorization still comes only from
+the signed JWT and matching path parameters.
+
 ## Rate limiting
 
 Protected requests pass through two bounded in-memory token buckets before the handler reads JSON:
@@ -128,7 +147,7 @@ Build the image from the service directory:
 ```bash
 docker build \
   --build-arg COMMIT_HASH="$(git rev-parse HEAD)" \
-  --tag hogql-language-service:local \
+  --tag hogql-lang-service:local \
   services/hogql-language-service
 ```
 
@@ -139,9 +158,14 @@ requires `HOGQL_LANGUAGE_SERVICE_SIGNING_KEYS`:
 docker run --rm \
   --publish 127.0.0.1:8091:8091 \
   --env HOGQL_LANGUAGE_SERVICE_SIGNING_KEYS=local-development-key \
-  hogql-language-service:local
+  --env MAX_CATALOGS=2 \
+  --env CATALOG_CACHE_MAX_BYTES=268435456 \
+  hogql-lang-service:local
 ```
 
 The production binary is compiled with Go 1.27.1 and `go build -trimpath`. The runtime image contains only the static
 service binary, the commit identifier, and CA certificates. BuildKit's `TARGETOS` and `TARGETARCH` arguments allow
 native `linux/amd64` and `linux/arm64` builds.
+
+Merges that change this service build and publish the `hogql-lang-service` image once, then send its digest to the
+matching Charts release. Pull requests rely on the service tests and repository Dockerfile lint checks.

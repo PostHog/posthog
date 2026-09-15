@@ -22,7 +22,6 @@ from posthog.models.team import Team
 from posthog.models.user import User
 
 from products.access_control.backend.facade.user_access_control import AccessControlLevel, UserAccessControl
-from products.dashboards.backend.feature_flags import dashboard_saved_views_enabled
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_saved_view import DashboardSavedView
 
@@ -239,8 +238,6 @@ class DashboardSavedViewPermission(BasePermission):
 
     def has_permission(self, request: Request, view: APIView) -> bool:
         team = self._saved_views_team(view)
-        if not dashboard_saved_views_enabled(team=team):
-            return False
         access_level: AccessControlLevel = "viewer" if request.method in SAFE_METHODS else "editor"
         return UserAccessControl(user=cast(User, request.user), team=team).check_access_level_for_resource(
             "dashboard", access_level

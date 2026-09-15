@@ -86,6 +86,35 @@ That is a normal working setup, not an edge case, and it is the case agents skip
 - **Do not build for mobile.** No phone-width layouts, no touch-sized targets, no `sm:` variants for a viewport nobody runs the app at. "Narrow" means a docked panel on a laptop.
 - **Look at it, don't reason about it.** Render the surface at a few widths before calling the work done. A story with a pinned container width snapshots the narrow case, so a regression shows up in visual review.
 
+## Rule 7 — Don't leave a changing bare text node next to siblings
+
+Page-translation extensions (Chrome and Edge in-page translate, the Google Translate widget) replace each text node they translate with a `<font>` element.
+React keeps pointing at the original node, which produces two defects — both of which land hardest on users outside English-speaking markets, since they're the ones with translation turned on:
+
+- **A crash.** Removing that text node, or inserting a sibling before it, throws `NotFoundError: Failed to execute 'removeChild' on 'Node'` ([react#11538](https://github.com/facebook/react/issues/11538)). `ErrorBoundary` remounts the subtree instead of dropping the scene, so this degrades rather than breaks — but a remount is still a backstop, not a licence to render the shape: it discards whatever state that subtree held.
+- **Silent staleness.** A text-only update writes `nodeValue` on the detached node, so the text freezes at whatever the extension translated. Live timers and countdowns just stop, and no backstop catches that.
+
+The hazard is specifically a **bare text node that has siblings**, because that's the only shape React tracks as its own node:
+
+```tsx
+<div>Computed {lastRefresh.fromNow()}</div>          {/* hazard: two bare text nodes */}
+<>{formatElapsed(seconds)}</>                        {/* hazard: a bare text node in the parent's children */}
+<span>{lastRefresh.fromNow()}</span>                 {/* safe: sole child, React writes parent.textContent */}
+```
+
+A sole text child is immune, so don't add anything there.
+For the hazardous shape, either wrap the changing part in its own element, or mark it `translate="no"`, or both:
+
+```tsx
+<span>Computed&nbsp;</span>
+<span translate="no">{lastRefresh.fromNow()}</span>
+```
+
+Scope it to the changing part and keep the static labels around it translatable.
+Nearly all of these render numbers, dates, or durations, so nothing of value goes untranslated.
+`queries/nodes/InsightViz/ComputationTimeWithRefresh` and `scenes/experiments/MetricsView/new/ElapsedTime` are the exemplars.
+A whole subtree of machine data (an event feed, an ID column) opts out at its container instead — `scenes/activity/live/LiveEventsFeed` marks every row `translate="no"` and leaves the headers translatable.
+
 ## Typecheck & typegen cadence (don't over-run these)
 
 These are slow; run them at the right moment, not after every edit.

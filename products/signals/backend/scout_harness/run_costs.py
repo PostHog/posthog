@@ -142,7 +142,7 @@ def _cache_key(*, team_id: int, task_run_id: str) -> str:
 def _query_pending_costs(*, team_id: int, pending: list[_RunToPrice]) -> dict[str, Decimal | None]:
     by_task_run_id = get_local_task_run_token_costs(
         team_id=team_id,
-        origin_product=tasks_facade.TaskOriginProduct.SIGNALS_SCOUT,
+        origin_product=tasks_facade.TaskOriginProduct.SIGNALS_SCOUT.value,
         task_run_ids=[UUID(run.task_run_id) for run in pending],
         generated_after=min(run.created_at for run in pending) - RUN_COST_LOOKBACK_MARGIN,
         product=Product.SIGNALS,

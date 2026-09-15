@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import dataclasses
+from collections.abc import Iterator
 from contextlib import contextmanager
 from typing import Any
 
@@ -64,9 +65,11 @@ class _FakeImplementation(SQLSourceImplementation[_FakeConfig, object, Any]):
         self.get_primary_keys_called = False
         self.get_row_counts_called = False
         self.get_foreign_keys_called = False
+        self.connect_team_ids: list[int | None] = []
 
     @contextmanager
-    def connect(self, config: _FakeConfig):
+    def connect(self, config: _FakeConfig, *, team_id: int | None = None) -> Iterator[object]:
+        self.connect_team_ids.append(team_id)
         yield object()
 
     def get_columns(
@@ -127,6 +130,11 @@ def _make_source(**data: Any) -> tuple[_FakeSQLSource, _FakeImplementation]:
 
 
 class TestGetSchemas:
+    def test_connect_receives_the_team(self) -> None:
+        source, impl = _make_source(columns_by_table={"messages": [("id", "int", False)]})
+        source.get_schemas(_FakeConfig(), team_id=7)
+        assert impl.connect_team_ids == [7]
+
     def test_returns_one_source_schema_per_table(self) -> None:
         source, _ = _make_source(
             columns_by_table={

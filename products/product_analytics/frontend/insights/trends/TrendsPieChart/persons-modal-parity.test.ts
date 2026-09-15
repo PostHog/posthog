@@ -1,9 +1,9 @@
-import type { IndexedTrendResult } from 'scenes/trends/types'
-import { datasetToActorsQuery } from 'scenes/trends/viz/datasetToActorsQuery'
-
 import type { InsightActorsQuery } from '~/queries/schema/schema-general'
 import { NodeKind } from '~/queries/schema/schema-general'
 import type { ActionFilter, GraphDataset } from '~/types'
+
+import type { IndexedTrendResult } from 'products/product_analytics/frontend/insights/trends/types'
+import { datasetToActorsQuery } from 'products/product_analytics/frontend/insights/trends/viz/datasetToActorsQuery'
 
 /** Verifies that the hog-charts TrendsPieChart click handler builds the same `InsightActorsQuery`
  *  as the legacy ActionsPie. Both call `datasetToActorsQuery` — ActionsPie passes a `GraphDataset`
