@@ -68,7 +68,6 @@ function SchemaSceneContent({ sourceId, schemaId }: SchemaSceneProps): JSX.Eleme
     const cleanedSourceId = cleanSourceId(sourceId)
     const showSyncs = shouldShowManagedSourceSyncsTab(source)
     const showMetrics = shouldShowManagedSourceMetricsTab(source, !!featureFlags[FEATURE_FLAGS.DWH_SOURCE_METRICS])
-    const showDescriptions = !!featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE_SEMANTIC_ENRICHMENT]
     // The warehouse table only exists once the schema has synced, and checks hang off that table.
     const showDataQuality = !!featureFlags[FEATURE_FLAGS.DATA_QUALITY_CHECKS] && !!schema?.table?.id
     const showColumnsSection = supportsColumnSelection
@@ -76,10 +75,7 @@ function SchemaSceneContent({ sourceId, schemaId }: SchemaSceneProps): JSX.Eleme
     // the sync ignores, because a run only snapshots destinations when the flag is on.
     const showDestinations = !!featureFlags[FEATURE_FLAGS.WAREHOUSE_MULTI_DESTINATION]
     const visibleSections = SCHEMA_CONFIGURATION_SECTIONS.filter(
-        (key) =>
-            (key !== 'columns' || showColumnsSection) &&
-            (key !== 'descriptions' || showDescriptions) &&
-            (key !== 'destinations' || showDestinations)
+        (key) => (key !== 'columns' || showColumnsSection) && (key !== 'destinations' || showDestinations)
     )
 
     useEffect(() => {
@@ -109,12 +105,6 @@ function SchemaSceneContent({ sourceId, schemaId }: SchemaSceneProps): JSX.Eleme
             setCurrentSection('details')
         }
     }, [showColumnsSection, currentSection, setCurrentSection])
-
-    useEffect(() => {
-        if (!showDescriptions && currentSection === 'descriptions') {
-            setCurrentSection('details')
-        }
-    }, [showDescriptions, currentSection, setCurrentSection])
 
     if (schemaDataLoading && !schema) {
         return (
