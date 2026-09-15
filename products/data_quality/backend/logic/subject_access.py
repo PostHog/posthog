@@ -12,7 +12,7 @@ know is absent from that snapshot and therefore out of reach.
 """
 
 import json
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from dataclasses import field
 from itertools import batched
 from typing import TYPE_CHECKING, Any, Optional, TypeVar
@@ -116,59 +116,85 @@ class DenialContext:
 
 
 @frozen
+class NoticeReferences:
+    """The subjects one notification's failure count says something about, besides its own subject.
+
+    A ``custom_sql`` check reads whatever its query selects and a ``relationships`` check reads the
+    table it points at, so the count is an oracle over those too. Resolved once per notice and held
+    up against every recipient, because resolving a name to the object it reaches costs the same
+    queries whoever is asking.
+
+    ``identities`` are the subjects that resolve to a warehouse object, either pinned by the run or
+    resolved from the definition's names. ``unresolved_names`` are the rest: ``system.*`` tables,
+    PostHog tables, and names that no longer reach anything.
+    """
+
+    identities: tuple[SubjectIdentity, ...]
+    unresolved_names: tuple[str, ...]
+
+
+def notice_references(
+    team_id: int, *, executed_references: Sequence[dict[str, str]] = (), names: Sequence[str] = ()
+) -> NoticeReferences:
+    """Resolve what a notice reads into identities, keeping the names that reach no object."""
+    pinned = _pin_names(team_id, names)
+    identities = [
+        SubjectIdentity(subject_type=ref[_SUBJECT_TYPE_KEY], subject_uuid=ref[_SUBJECT_UUID_KEY])
+        for ref in executed_references
+    ]
+    identities.extend(pinned.values())
+    return NoticeReferences(
+        identities=tuple(identities),
+        unresolved_names=tuple(name for name in names if name not in pinned),
+    )
+
+
+@frozen
 class ReferenceGate:
     """Decides whether one person may be told a check failed.
 
-    A check can read tables other than the one it is defined on: a ``custom_sql`` check reads
-    whatever its query selects, and a ``relationships`` check reads the table it points at. The
-    failure count in the notification therefore says something about every one of those tables, so
-    a person who may not read one of them must not get the notification.
-
-    Holds the two things that answer this: the tables, views and metrics the person may read, and
-    a matcher for the table names they are denied.
-
-    Both come from the person's :class:`DenialContextKey` and from nothing else, so one gate can
-    serve every person whose key is equal. The :class:`DenialContext` it is built from cannot be
-    shared that way, because that also holds the HogQL database built for one specific person.
+    Holds the two things that answer this over a :class:`NoticeReferences`: the subjects among those
+    the person may read, and a matcher for the names they are denied.
     """
 
     readable: ReadableSubjects
     matcher: DeniedTableMatcher = field(compare=False)
 
-    def admits(self, executed_references: Sequence[dict[str, str]], names: Sequence[str]) -> bool:
-        readable_references = all(
-            self.readable.contains(ref[_SUBJECT_TYPE_KEY], ref[_SUBJECT_UUID_KEY]) for ref in executed_references
-        )
-        if not readable_references:
+    def admits(self, references: NoticeReferences) -> bool:
+        if not all(self.readable.contains(ref.subject_type, ref.subject_uuid) for ref in references.identities):
             return False
-        return not self.matcher.matches(names)
+        return not self.matcher.matches(references.unresolved_names)
 
 
-@frozen
-class DenialContextKey:
-    """What one person is allowed to read, reduced to something a cache can key on.
+def reference_gate(
+    team: "Team",
+    user: "User",
+    user_access_control: "UserAccessControl",
+    *,
+    references: NoticeReferences,
+    unentitled: Collection[str] | None = None,
+) -> ReferenceGate:
+    """One person's access to the subjects a single check reads. A few narrow queries, no build.
 
-    Working out which table names a person is denied is expensive, because it builds a HogQL
-    database for them. These four values are the only things about the person that the answer
-    depends on, so two people on the same team with equal keys are denied exactly the same names.
-
-    A surface that has to check hundreds of people can therefore resolve one :class:`DenialContext`
-    per distinct key instead of one per person.
+    Cost tracks what the check reads, not what the team owns, so a project with thousands of
+    warehouse tables costs the same as one with three.
     """
-
-    allowed_table_ids: frozenset[UUID]
-    allowed_view_ids: frozenset[UUID]
-    can_read_catalog: bool
-    denied_system_tables: frozenset[str]
-
-
-def denial_context_key(team: "Team", user: "User", user_access_control: "UserAccessControl") -> DenialContextKey:
-    """Reads the key for one person. Runs a few Postgres queries and builds no HogQL database."""
-    return DenialContextKey(
-        allowed_table_ids=warehouse_facade.allowed_table_ids(team.id, user_access_control),
-        allowed_view_ids=data_modeling_facade.allowed_saved_query_ids(team.id, user_access_control),
-        can_read_catalog=user_access_control.check_access_level_for_resource("data_catalog", "viewer"),
-        denied_system_tables=system_table_denials(team, user, user_access_control),
+    referenced: dict[str, set[UUID]] = {SubjectType.TABLE: set(), SubjectType.VIEW: set()}
+    for reference in references.identities:
+        # A run pins its references into an unrestricted JSON column, so one that does not parse is
+        # left out of the lookup and fails closed in ``ReadableSubjects.contains``.
+        if reference.subject_type in referenced and (identifier := _as_uuid(reference.subject_uuid)) is not None:
+            referenced[reference.subject_type].add(identifier)
+    return ReferenceGate(
+        readable=ReadableSubjects(
+            table_ids=warehouse_facade.allowed_table_ids(
+                team.id, user_access_control, ids=referenced[SubjectType.TABLE]
+            ),
+            view_ids=data_modeling_facade.allowed_saved_query_ids(
+                team.id, user_access_control, ids=referenced[SubjectType.VIEW]
+            ),
+        ),
+        matcher=DeniedTableMatcher(system_table_denials(team, user, user_access_control, unentitled=unentitled)),
     )
 
 
@@ -587,6 +613,21 @@ def memoized_definition_verdict(
     if key not in verdicts:
         verdicts[key] = definition_reads_unreadable_subject(team_id, check_type, config, context, subject=subject)
     return verdicts[key]
+
+
+def _as_uuid(value: str) -> UUID | None:
+    try:
+        return UUID(value)
+    except ValueError:
+        return None
+
+
+def _pin_names(team_id: int, names: Sequence[str]) -> dict[str, SubjectIdentity]:
+    if not names:
+        return {}
+    backing_tables = data_modeling_facade.backing_table_ids_by_saved_query(team_id)
+    pinned = ((name, _pin_name(team_id, name, backing_tables)) for name in names)
+    return {name: identity for name, identity in pinned if identity is not None}
 
 
 def _pin_name(team_id: int, name: str, backing_tables: dict[UUID, UUID]) -> SubjectIdentity | None:
