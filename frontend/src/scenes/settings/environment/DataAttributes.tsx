@@ -18,9 +18,14 @@ export function DataAttributes(): JSX.Element {
     })
 
     useEffect(
-        // A value saved before the API validated this field can be a non-array, which the select
-        // cannot render. Fall back to an empty list so the team can still save a valid one.
-        () => setValue(Array.isArray(currentTeam?.data_attributes) ? currentTeam.data_attributes : []),
+        // A value saved before the API validated this field can hold anything JSON allows. The select
+        // cannot render that, so keep only the strings and let the team save a valid list over it.
+        () => {
+            const dataAttributes = currentTeam?.data_attributes
+            setValue(
+                Array.isArray(dataAttributes) ? dataAttributes.filter((attribute) => typeof attribute === 'string') : []
+            )
+        },
         [currentTeam]
     )
 
