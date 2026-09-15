@@ -5,6 +5,7 @@ import {
   textToContent,
 } from "@posthog/core/message-editor/content";
 import type { Task } from "@posthog/shared/domain-types";
+import { useTaskInputHistoryStore } from "@posthog/ui/features/message-editor/taskInputHistoryStore";
 import { useTaskInputPrefillStore } from "@posthog/ui/features/task-detail/stores/taskInputPrefillStore";
 import {
   pendingTaskPromptStoreApi,
@@ -19,6 +20,7 @@ const createTaskMock = vi.hoisted(() => vi.fn());
 const invalidateTasksMock = vi.hoisted(() => vi.fn());
 const openTaskMock = vi.hoisted(() => vi.fn());
 const trackMock = vi.hoisted(() => vi.fn());
+const assertCloudUsageAvailableMock = vi.hoisted(() => vi.fn(async () => true));
 const cloudSubscription = vi.hoisted(() => ({
   cloudSubscriptionOn: false,
   cloudFlagEnabled: true,
@@ -73,7 +75,7 @@ vi.mock("../../../hooks/useConnectivity", () => ({
   useConnectivity: () => ({ isOnline: true }),
 }));
 vi.mock("../../billing/preflightCloudUsage", () => ({
-  assertCloudUsageAvailable: async () => true,
+  assertCloudUsageAvailable: assertCloudUsageAvailableMock,
 }));
 vi.mock("../../../primitives/toast", () => ({
   toast: { error: vi.fn() },
@@ -172,6 +174,49 @@ describe("useTaskCreation prompt records", () => {
     cloudSubscription.cloudSubscriptionOn = false;
     usePendingTaskPromptStore.setState({ byKey: {}, _hasHydrated: true });
     useTaskInputPrefillStore.setState({ prefill: {} });
+    useTaskInputHistoryStore.setState({ entries: [] });
+  });
+
+  function historyTexts(): string[] {
+    return useTaskInputHistoryStore.getState().entries.map((e) => e.text);
+  }
+
+  it("records the prompt in history when a cloud pre-flight blocks the submit", async () => {
+    assertCloudUsageAvailableMock.mockResolvedValueOnce(false);
+
+    const { result } = renderTaskCreation(
+      textToContent("Check the build"),
+      "cloud",
+    );
+    await act(async () => {
+      expect(await result.current.handleSubmit()).toBe(false);
+    });
+
+    expect(createTaskMock).not.toHaveBeenCalled();
+    expect(historyTexts()).toEqual(["Check the build"]);
+  });
+
+  it("records the typed brief when the composer clears on Send", async () => {
+    const brief = textToContent("Optimize the login flow");
+    const override: EditorContent = {
+      segments: [
+        { type: "text", text: `${KICKOFF_PREAMBLE}\n\n` },
+        ...brief.segments,
+      ],
+      attachments: brief.attachments,
+    };
+    createTaskMock.mockResolvedValueOnce({
+      success: false,
+      error: "boom",
+      failedStep: "create",
+    });
+
+    const { result } = renderTaskCreation(brief);
+    await act(async () => {
+      await result.current.handleSubmit(override, brief);
+    });
+
+    expect(historyTexts()).toEqual(["Optimize the login flow"]);
   });
 
   it("omits subscription billing when Pi is selected", async () => {
