@@ -115,6 +115,7 @@ const NON_WRITABLE_SCHEMA_FIELDS = new Set<keyof ExternalDataSourceSchema>([
     'description',
     'available_columns',
     'incremental',
+    'incremental_sync_blocked',
     'should_sync_default',
 ])
 
@@ -361,6 +362,8 @@ export function schemasNeedingLookbackResync(source: ExternalDataSource | null):
 
 // Bulk-enable payloads: already-enabled schemas are skipped; schemas without a sync method ask
 // the backend to discover and fill in default sync settings as part of the same update.
+// Blocked tables are enabled along with the rest on purpose. An operator who fixed the key or the
+// duplicates at the source for many tables at once has to be able to turn them back on in one go.
 export function buildBulkEnablePayloads(
     schemas: ExternalDataSourceSchema[]
 ): (Partial<ExternalDataSourceSchema> & Pick<ExternalDataSourceSchema, 'id'> & { apply_sync_defaults?: boolean })[] {
