@@ -36,6 +36,10 @@ ARTIFACT_TOKEN_SALT = "posthog.canvas.artifact.v1"
 # churn on every lifecycle poll) while still expiring: a token is accepted for
 # its own bucket and the next one, i.e. between one and two hours.
 ARTIFACT_TOKEN_BUCKET_SECONDS = 3600
+# A member's artifact URL names one immutable, content-addressed build, so their browser may hold
+# it. A share-scoped URL may not outlive the token that carries it, because only the origin re-checks
+# whether the link is still live.
+ARTIFACT_CLIENT_CACHE_SECONDS = 31536000
 
 
 def _configured_artifact_host() -> str | None:
@@ -201,7 +205,7 @@ def canvas_artifact(request: HttpRequest, token: str, artifact_path: str) -> Htt
     if request.headers.get("If-None-Match") == etag:
         response: HttpResponse = HttpResponseNotModified()
         response["Content-Type"] = content_type
-        return _with_artifact_headers(response, etag, build.manifest, token_expires_at)
+        return _with_artifact_headers(response, etag, build.manifest, token_expires_at, share_scoped=share is not None)
 
     try:
         content = object_storage.read_bytes(f"{build.artifact_object_prefix}/{artifact_path}")
@@ -215,23 +219,27 @@ def canvas_artifact(request: HttpRequest, token: str, artifact_path: str) -> Htt
         raise Http404
     response = HttpResponse(content, content_type=content_type)
     response["Content-Disposition"] = "inline"
-    return _with_artifact_headers(response, etag, build.manifest, token_expires_at)
+    return _with_artifact_headers(response, etag, build.manifest, token_expires_at, share_scoped=share is not None)
 
 
-def _with_artifact_headers(response: HttpResponse, etag: str, manifest: dict, token_expires_at: int) -> HttpResponse:
+def _with_artifact_headers(
+    response: HttpResponse, etag: str, manifest: dict, token_expires_at: int, *, share_scoped: bool
+) -> HttpResponse:
     response["ETag"] = etag
+    token_seconds_left = max(0, token_expires_at - math.ceil(time.time()))
+    client_cache_seconds = token_seconds_left if share_scoped else ARTIFACT_CLIENT_CACHE_SECONDS
     shared_cache_seconds = settings.CANVAS_ARTIFACT_SHARED_CACHE_SECONDS
     if shared_cache_seconds > 0:
-        shared_cache_seconds = max(0, min(shared_cache_seconds, token_expires_at - math.ceil(time.time())))
+        shared_cache_seconds = min(shared_cache_seconds, token_seconds_left)
         # CDN mode. Every header below still applies, and in particular the
         # CORS and CSP headers must survive the CDN unchanged, or the sandboxed
         # iframe's module fetches (and with them ph.query/ph.state canvases)
         # break. Configure the CDN to forward these headers as-is.
         response["Cache-Control"] = (
-            f"public, max-age=31536000, s-maxage={shared_cache_seconds}, must-revalidate, immutable"
+            f"public, max-age={client_cache_seconds}, s-maxage={shared_cache_seconds}, must-revalidate, immutable"
         )
     else:
-        response["Cache-Control"] = "private, max-age=31536000, immutable"
+        response["Cache-Control"] = f"private, max-age={client_cache_seconds}, immutable"
     response["Cross-Origin-Resource-Policy"] = "cross-origin"
     # The canvas iframe is sandboxed without allow-same-origin, so its document
     # has an opaque origin and the entry's module scripts are fetched in CORS

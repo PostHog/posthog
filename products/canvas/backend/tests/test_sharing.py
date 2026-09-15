@@ -13,6 +13,7 @@ from posthog.models.scoping import team_scope
 from posthog.models.user import User
 
 from products.access_control.backend.models.access_control import AccessControl
+from products.canvas.backend import artifacts
 from products.canvas.backend.artifacts import create_canvas_artifact_url
 from products.canvas.backend.models import Canvas, CanvasBuild
 from products.canvas.backend.tests.test_canvas_api import CanvasAPIBaseTest
@@ -54,6 +55,17 @@ class CanvasSharingTestBase(CanvasAPIBaseTest):
         response = self.client.patch(self._sharing_url(canvas_id), {"enabled": True})
         assert response.status_code == status.HTTP_200_OK, response.json()
         return response.json()["access_token"]
+
+    def _embedded_payload(self, access_token: str) -> dict[str, Any]:
+        @mock_exporter_template
+        def fetch(test: "CanvasSharingTestBase") -> dict[str, Any]:
+            response = test.client.get(f"/embedded/{access_token}")
+            assert response.status_code == status.HTTP_200_OK, response.content
+            body = response.content.decode()
+            start = body.index(EXPORTED_DATA_OPEN) + len(EXPORTED_DATA_OPEN)
+            return json.loads(body[start : body.index("</script>", start)])
+
+        return fetch(self)
 
     def _shared_payload(self, access_token: str) -> dict[str, Any]:
         @mock_exporter_template
@@ -285,6 +297,32 @@ class TestCanvasSharingApi(CanvasSharingTestBase):
             SharingConfiguration.objects.filter(team_id=self.team.id, canvas_id=canvas_id).update(enabled=False)
 
         assert self.client.get(path, HTTP_IF_NONE_MATCH=etag).status_code == status.HTTP_404_NOT_FOUND
+
+    def test_a_shared_artifact_is_not_cached_past_its_link(self):
+        canvas_id = self._create_canvas()
+        self._publish_ready(canvas_id)
+        access_token = self._enable_sharing(canvas_id)
+        self.client.logout()
+        artifact_url = self._shared_payload(access_token)["canvas"]["artifact_url"]
+        path = "/canvas-artifacts/" + artifact_url.split("/canvas-artifacts/", 1)[1]
+
+        shared = self.client.get(path, HTTP_IF_NONE_MATCH=f'"{"a" * 64}"')
+
+        # Only the origin re-checks the link, so the browser may not hold the file longer than the
+        # token that carries it; a member's own URL keeps the year.
+        max_age = int(shared["Cache-Control"].split("max-age=")[1].split(",")[0])
+        assert 0 < max_age <= 2 * artifacts.ARTIFACT_TOKEN_BUCKET_SECONDS
+
+    def test_an_embedded_page_carries_no_viewer_hints(self):
+        canvas_id = self._create_canvas()
+        self._publish_ready(canvas_id)
+        access_token = self._enable_sharing(canvas_id)
+
+        # `force_type` asks for the full page chrome, which is where the sharing switch lives.
+        payload = self._embedded_payload(f"{access_token}?force_type=scene")
+
+        assert payload["canvas"]["id"] == canvas_id
+        assert "viewer" not in payload
 
     def test_revoking_a_share_leaves_the_in_app_artifact_readable(self):
         canvas_id = self._create_canvas()
