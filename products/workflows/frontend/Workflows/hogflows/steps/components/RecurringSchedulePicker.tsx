@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { useValues } from 'kea'
 import { useCallback, useMemo, useState } from 'react'
 
 import { IconCalendar } from '@posthog/icons'
@@ -15,7 +15,6 @@ import { dayjs } from 'lib/dayjs'
 import { timeZoneLabel } from 'lib/utils/timezones'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
-import { workflowLogic } from '../../../workflowLogic'
 import { OccurrencesList } from './OccurrencesList'
 import {
     buildSummary,
@@ -320,11 +319,28 @@ function NaturalLanguageScheduleInput({
     )
 }
 
-export function RecurringSchedulePicker(): JSX.Element {
-    const { scheduleState, scheduleStartsAt, scheduleTimezone, isScheduleRepeating } = useValues(workflowLogic)
-    const { setScheduleState, setScheduleStartsAtFromPicker, setScheduleTimezone, setScheduleRepeating } =
-        useActions(workflowLogic)
+export interface RecurringSchedulePickerProps {
+    state: ScheduleState
+    startsAt: string | null
+    timezone: string
+    repeating: boolean
+    onStateChange: (state: ScheduleState, source?: 'picker' | 'natural_language') => void
+    /** Receives the picker's browser-local ISO datetime (or null when cleared). */
+    onStartsAtChange: (pickerDate: string | null) => void
+    onTimezoneChange: (timezone: string, previousTimezone: string) => void
+    onRepeatingChange: (repeating: boolean) => void
+}
 
+export function RecurringSchedulePicker({
+    state: scheduleState,
+    startsAt: scheduleStartsAt,
+    timezone: scheduleTimezone,
+    repeating: isScheduleRepeating,
+    onStateChange: setScheduleState,
+    onStartsAtChange: setScheduleStartsAtFromPicker,
+    onTimezoneChange: setScheduleTimezone,
+    onRepeatingChange: setScheduleRepeating,
+}: RecurringSchedulePickerProps): JSX.Element {
     const previewOccurrences = useMemo(() => {
         if (!isScheduleRepeating || !scheduleStartsAt) {
             return []
