@@ -1,10 +1,11 @@
-import { ArrowSquareOutIcon } from "@phosphor-icons/react";
+import { ArrowSquareOutIcon, SparkleIcon } from "@phosphor-icons/react";
 import {
   type ContextDocument,
   parseContextDocument,
   serializeContextDocument,
 } from "@posthog/core/canvas/contextDocument";
 import { Button, Text, ToggleGroup, ToggleGroupItem } from "@posthog/quill";
+import { CreateChannelModal } from "@posthog/ui/features/canvas/components/CreateChannelModal";
 import { channelPageIcon } from "@posthog/ui/features/canvas/components/channelPages";
 import type { ContextDocumentStore } from "@posthog/ui/features/canvas/hooks/useContextDocumentStore";
 import { LoadingState } from "@posthog/ui/primitives/LoadingState";
@@ -20,12 +21,12 @@ import {
 import { RelativeTimestamp } from "@posthog/ui/primitives/RelativeTimestamp";
 import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { useMemo, useState } from "react";
-import { GoalsSection } from "./GoalsSection";
-import { KnowledgeSection } from "./KnowledgeSection";
-import { LinksSection } from "./LinksSection";
-import { ObjectsSection } from "./ObjectsSection";
+import { ContextEmptyHero } from "./ContextEmptyHero";
+import { GoalsScoreboard } from "./GoalsScoreboard";
+import { KnowledgeBriefing } from "./KnowledgeBriefing";
 import { RawContextEditor } from "./RawContextEditor";
-import { SpaceAgentsSection } from "./SpaceAgentsSection";
+import { ReferencesRail } from "./ReferencesRail";
+import { SpaceSignals } from "./SpaceSignals";
 
 type View = "overview" | "source";
 
@@ -38,8 +39,9 @@ interface SpaceContextPageProps {
 }
 
 /**
- * The Context tab of a space. One CONTEXT.md underneath, edited as knowledge,
- * files and links, PostHog objects, and goals, with the source one toggle away.
+ * The Context tab of a space. One CONTEXT.md underneath, read as a briefing:
+ * the goals on top, the knowledge as the body, references beside it, and
+ * what agents found below.
  */
 export function SpaceContextPage({
   channelId,
@@ -48,10 +50,18 @@ export function SpaceContextPage({
   onOpenInWiki,
 }: SpaceContextPageProps) {
   const [view, setView] = useState<View>("overview");
+  const [agentOpen, setAgentOpen] = useState(false);
+  const [writing, setWriting] = useState(false);
   const doc = useMemo(
     () => parseContextDocument(store.content),
     [store.content],
   );
+  const isBlank =
+    !doc.knowledge.trim() &&
+    doc.goals.length === 0 &&
+    doc.links.length === 0 &&
+    doc.objects.length === 0;
+  const referenceCount = doc.links.length + doc.objects.length;
 
   const saveDoc = (next: ContextDocument) =>
     store.save(serializeContextDocument(next));
@@ -72,16 +82,38 @@ export function SpaceContextPage({
             ) : null}
           </PageHeaderTitleRow>
           <PageHeaderDescription>
-            What every agent working in this space reads before it starts: what
-            it is, where the detail lives, which PostHog objects it owns, and
-            the goals it moves.
+            {isBlank ? (
+              "Every agent working in this space reads this first."
+            ) : (
+              <>
+                {store.updatedAt ? (
+                  <>
+                    Updated <RelativeTimestamp timestamp={store.updatedAt} />
+                    {" · "}
+                  </>
+                ) : null}
+                {countLabel(doc.goals.length, "goal")}
+                {" · "}
+                {countLabel(referenceCount, "reference")}
+              </>
+            )}
           </PageHeaderDescription>
         </PageHeaderHeading>
         <PageHeaderActions>
           {onOpenInWiki ? (
             <Button variant="outline" size="sm" onClick={onOpenInWiki}>
               <ArrowSquareOutIcon size={14} />
-              Open in context wiki
+              Open in wiki
+            </Button>
+          ) : null}
+          {!isBlank ? (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setAgentOpen(true)}
+            >
+              <SparkleIcon size={14} />
+              Update with agent
             </Button>
           ) : null}
           <ToggleGroup
@@ -118,7 +150,7 @@ export function SpaceContextPage({
         </div>
       ) : (
         <div className="@container min-h-0 flex-1 overflow-y-auto">
-          <div className="mx-auto flex w-full max-w-[920px] flex-col gap-8 px-6 pt-6 pb-16">
+          <div className="mx-auto flex w-full max-w-[960px] flex-col gap-8 px-6 pt-6 pb-16">
             {store.saveError ? (
               <SaveErrorBanner
                 message={
@@ -136,48 +168,56 @@ export function SpaceContextPage({
                 onSave={store.save}
                 isSaving={store.isSaving}
               />
+            ) : isBlank && !writing ? (
+              <>
+                <ContextEmptyHero
+                  channelName={channelName}
+                  onAskAgent={() => setAgentOpen(true)}
+                  onWrite={() => setWriting(true)}
+                />
+                <SpaceSignals channelId={channelId} />
+              </>
             ) : (
               <>
-                <KnowledgeSection
-                  channelId={channelId}
-                  channelName={channelName}
-                  knowledge={doc.knowledge}
-                  onSave={(knowledge) => saveDoc({ ...doc, knowledge })}
-                  isSaving={store.isSaving}
-                />
-                <LinksSection
-                  links={doc.links}
-                  onChange={(links) => saveDoc({ ...doc, links })}
-                  isSaving={store.isSaving}
-                />
-                <ObjectsSection
-                  objects={doc.objects}
-                  onChange={(objects) => saveDoc({ ...doc, objects })}
-                  isSaving={store.isSaving}
-                />
-                <GoalsSection
+                <GoalsScoreboard
                   goals={doc.goals}
                   onChange={(goals) => saveDoc({ ...doc, goals })}
                   isSaving={store.isSaving}
                 />
-                <SpaceAgentsSection
-                  channelId={channelId}
-                  channelName={channelName}
-                  doc={doc}
-                />
+                <div className="grid @3xl:grid-cols-[minmax(0,1fr)_260px] gap-8">
+                  <KnowledgeBriefing
+                    knowledge={doc.knowledge}
+                    onSave={(knowledge) => saveDoc({ ...doc, knowledge })}
+                    onAskAgent={() => setAgentOpen(true)}
+                    isSaving={store.isSaving}
+                    startEditing={writing && isBlank}
+                  />
+                  <ReferencesRail
+                    links={doc.links}
+                    objects={doc.objects}
+                    onLinksChange={(links) => saveDoc({ ...doc, links })}
+                    onObjectsChange={(objects) => saveDoc({ ...doc, objects })}
+                    isSaving={store.isSaving}
+                  />
+                </div>
+                <SpaceSignals channelId={channelId} />
               </>
             )}
-
-            {store.updatedAt ? (
-              <Text size="xxs" variant="muted" className="text-center">
-                Last saved <RelativeTimestamp timestamp={store.updatedAt} />
-              </Text>
-            ) : null}
           </div>
         </div>
       )}
+
+      <CreateChannelModal
+        open={agentOpen}
+        onOpenChange={setAgentOpen}
+        existingContext={{ channelId, channelName }}
+      />
     </div>
   );
+}
+
+function countLabel(count: number, noun: string): string {
+  return `${count} ${noun}${count === 1 ? "" : "s"}`;
 }
 
 function SaveErrorBanner({

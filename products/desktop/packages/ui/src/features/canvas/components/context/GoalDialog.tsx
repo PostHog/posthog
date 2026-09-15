@@ -34,6 +34,8 @@ interface GoalDialogProps {
   /** The goal being edited, or null for a new one. */
   initial: ContextGoal | null;
   onSubmit: (goal: ContextGoal) => Promise<void>;
+  /** Present when editing an existing goal. */
+  onDelete?: () => Promise<void>;
   isSaving: boolean;
 }
 
@@ -53,6 +55,7 @@ export function GoalDialog({
   onOpenChange,
   initial,
   onSubmit,
+  onDelete,
   isSaving,
 }: GoalDialogProps) {
   const [name, setName] = useState("");
@@ -231,6 +234,16 @@ export function GoalDialog({
           </Field>
         </DialogBody>
         <DialogFooter>
+          {onDelete ? (
+            <Button
+              variant="destructive-outline"
+              disabled={isSaving}
+              onClick={() => void onDelete()}
+              className="mr-auto"
+            >
+              Remove goal
+            </Button>
+          ) : null}
           <DialogClose
             render={
               <Button variant="outline" disabled={isSaving}>
