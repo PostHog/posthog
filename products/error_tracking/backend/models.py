@@ -415,6 +415,11 @@ class ErrorTrackingSymbolSet(UUIDTModel):
                 models.F("id"),
                 name="et_symset_bucket_cleanup_idx",
             ),
+            # The settings list sorts a team's symbol sets by created_at or last_used, with id as
+            # the tiebreak. Postgres reads an index backwards, so one ascending index per sort key
+            # serves both directions and the page limit stops the scan.
+            models.Index(fields=["team", "created_at", "id"], name="et_symset_team_created_idx"),
+            models.Index(fields=["team", "last_used", "id"], name="et_symset_team_used_idx"),
         ]
 
         constraints = [
