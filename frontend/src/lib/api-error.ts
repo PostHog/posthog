@@ -171,10 +171,11 @@ export function isBrowserNetworkFailure(error: unknown): boolean {
  * - 502/503/504 — the gateway couldn't reach the backend, so application code is not at fault.
  *
  * Left unreported for a second reason, that there is nothing to fix:
- * - a `fetch` the browser never completed. No request reached us, so no code of ours failed, and
- *   the user is told by whatever the caller renders for an empty result. Reporting these is what
- *   floods the project: grouping is stack-based, so every loader that meets the same connectivity
- *   blip opens an issue of its own, and one bad minute on a user's network manufactures dozens.
+ * - a `fetch` the browser never completed, whether it arrives as the engine's own message or as a
+ *   classified `NetworkError`. No request reached us, so no code of ours failed, and the user is
+ *   told by whatever the caller renders for an empty result. Reporting these is what floods the
+ *   project: grouping is stack-based, so every loader that meets the same connectivity blip opens
+ *   an issue of its own, and one bad minute on a user's network manufactures dozens.
  *
  * Each of these still toasts wherever it did before, and `client_request_failure` still records
  * every non-OK response with its status and pathname, so failure rates stay queryable even where
@@ -187,7 +188,7 @@ export function isBrowserNetworkFailure(error: unknown): boolean {
  * keeps reporting too, since a stale chunk after a deploy is a defect we can fix.
  */
 export function shouldReportApiFailure(error: unknown): boolean {
-    if (isBrowserNetworkFailure(error)) {
+    if (isBrowserNetworkFailure(error) || isUnactionableNetworkFailure(error)) {
         return false
     }
     if (error === null || typeof error !== 'object') {
@@ -284,9 +285,10 @@ export class ApiError extends Error {
 
 /**
  * Why a request never reached the server. `offline` and `navigating` describe the state of the
- * client rather than a fault in the request path, so they are dropped before they reach error
- * tracking (see `dropUnactionableNetworkExceptions`). `network` is the residue that is worth
- * looking at: an ad blocker, a misconfigured reverse proxy, DNS, a CDN, or our own edge.
+ * client. `network` is everything else the browser refused to complete: an ad blocker, a
+ * misconfigured reverse proxy, DNS, a CDN, or our own edge. No reason names a code path of ours,
+ * so all three are dropped before they reach error tracking (see
+ * `dropUnactionableNetworkExceptions`).
  */
 export type NetworkFailureReason = 'offline' | 'navigating' | 'network'
 
@@ -306,13 +308,23 @@ export const NETWORK_ERROR_MESSAGES = {
 export const UNACTIONABLE_NETWORK_ERROR_MESSAGES: ReadonlySet<string> = new Set([
     NETWORK_ERROR_MESSAGES.offline,
     NETWORK_ERROR_MESSAGES.navigating,
+    NETWORK_ERROR_MESSAGES.network,
 ])
 
 /**
- * Drop the offline and page-closing network exceptions before they leave the browser. Both describe
- * the state of the client, not a fault the app can fix, so filing them as error tracking issues
- * only buries real crashes. posthog-js autocaptures the unhandled `NetworkError` rejection with no
- * custom properties, so the reason travels only in `type` and `value` (see `NETWORK_ERROR_MESSAGES`).
+ * A `NetworkError` `handleFetch` raised for a reason nobody can act on. Both this and
+ * `dropUnactionableNetworkExceptions` read the same set, so a reason that becomes worth reporting
+ * again is added back in one place.
+ */
+export function isUnactionableNetworkFailure(error: unknown): boolean {
+    return error instanceof NetworkError && UNACTIONABLE_NETWORK_ERROR_MESSAGES.has(error.message)
+}
+
+/**
+ * Drop the network exceptions before they leave the browser. None of them is a fault the app can
+ * fix, so filing them as error tracking issues only buries real crashes. posthog-js autocaptures
+ * the unhandled `NetworkError` rejection with no custom properties, so the reason travels only in
+ * `type` and `value` (see `NETWORK_ERROR_MESSAGES`).
  *
  * This is a posthog-js `before_send` filter: return `null` to drop the event, or the event itself
  * to keep it.

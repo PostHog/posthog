@@ -171,9 +171,11 @@ describe('api-error', () => {
             ['a module script that would not load', new TypeError('Importing a module script failed.'), true],
             // Narrowing on the class instead of the message here would bury real crashes.
             ['an application TypeError', new TypeError('u.filter is not a function'), true],
-            // The residual `network` reason can be an ad blocker, a proxy, or our own edge, so it
-            // stays reportable rather than being folded into the suppression above.
-            ['a classified NetworkError', new NetworkError('network'), true],
+            // A classified `NetworkError` is the same non-defect reached through `handleFetch`, so
+            // every reason is excused here as well as in `dropUnactionableNetworkExceptions`.
+            ['a NetworkError classified as offline', new NetworkError('offline'), false],
+            ['a NetworkError classified as navigating', new NetworkError('navigating'), false],
+            ['a NetworkError classified as network', new NetworkError('network'), false],
             // No HTTP response to excuse the failure.
             ['an error with no status', { message: 'boom' }, true],
             ['a thrown string', 'went wrong', true],
