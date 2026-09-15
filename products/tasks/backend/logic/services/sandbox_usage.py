@@ -15,6 +15,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from decimal import ROUND_HALF_EVEN, Decimal
+from enum import StrEnum
 from functools import wraps
 from typing import ParamSpec, TypeVar
 from uuid import UUID
@@ -42,6 +43,19 @@ logger = structlog.get_logger(__name__)
 
 P = ParamSpec("P")
 R = TypeVar("R")
+
+
+class SandboxDestroyOutcome(StrEnum):
+    """Result of the provider destroy call that preceded the end stamp.
+
+    Both teardown paths stamp the same ``ended_reason``, so without this an
+    orderly shutdown and a provider that refused to destroy read alike.
+    """
+
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"
+    SANDBOX_NOT_FOUND = "sandbox_not_found"
+    NOT_ATTEMPTED = "not_attempted"
 
 
 @frozen
@@ -177,13 +191,20 @@ def _elapsed_seconds(start: datetime | None, end: datetime) -> float | None:
 
 
 def _capture_sandbox_session_closed(
-    task_run: TaskRun, sandbox_session: SandboxSession, *, reason: str, ended_at: datetime
+    task_run: TaskRun,
+    sandbox_session: SandboxSession,
+    *,
+    reason: str,
+    ended_at: datetime,
+    destroy_outcome: SandboxDestroyOutcome | None,
 ) -> None:
     task_run.capture_event(
         "sandbox_session_closed",
         {
             "sandbox_id": sandbox_session.sandbox_id,
             "ended_reason": reason,
+            "destroy_outcome": destroy_outcome,
+            "sandbox_backend": sandbox_session.sandbox_backend,
             "runtime_seconds": _elapsed_seconds(sandbox_session.created_at, ended_at),
             "attributed_seconds": _elapsed_seconds(sandbox_session.user_attributed_at, ended_at),
             "idle_seconds": _elapsed_seconds(sandbox_session.last_user_activity_at, ended_at),
@@ -198,6 +219,7 @@ def close_sandbox_session(
     sandbox_id: str,
     *,
     reason: str,
+    destroy_outcome: SandboxDestroyOutcome | None = None,
     cpu_usage_usec: int | None = None,
     billed_cpu_usage_usec: int | None = None,
     cpu_usage_measured_at: datetime | None = None,
@@ -226,7 +248,9 @@ def close_sandbox_session(
             .update(**updates)
         )
     if stamped:
-        _capture_sandbox_session_closed(task_run, sandbox_session, reason=reason, ended_at=ended_at)
+        _capture_sandbox_session_closed(
+            task_run, sandbox_session, reason=reason, ended_at=ended_at, destroy_outcome=destroy_outcome
+        )
 
 
 @_best_effort
