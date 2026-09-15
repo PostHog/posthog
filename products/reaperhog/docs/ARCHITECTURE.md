@@ -31,12 +31,14 @@ A failing scout is reported in the run summary and skipped; the scan only fails 
 Scouts read production data through facades: `list_flag_summaries` (feature_flags), `list_concluded_experiments` (experiments), `$pageview` and `$feature_flag_called` counts over HogQL.
 Convergence (`logic/converge.py`) groups hits by root, ranks them (decisive hit or two scouts = strong), blocks oversize clusters and assigns a CODEOWNERS owner.
 `logic/inventory.py` upserts clusters idempotently: a re-scan refreshes rows, reopens `declined` clusters whose files changed and marks missing roots `vanished`.
+Only a complete scan can vanish a root: when a scout failed, absence proves nothing, so every cluster keeps its status.
 
-**Verify** (`logic/verification.py`) loads unblocked candidates strong-first, opens one warm sandbox session through the Tasks facade (`MultiTurnSession`) and judges one cluster per turn against the `reaperhog-verification-criteria` skill, which `logic/skill.py` seeds into `LLMSkill` rows.
-Verdicts persist as artefacts; the cluster becomes `dead` only on `is_dead` with high confidence.
+**Verify** (`logic/verification.py`) loads unblocked strong candidates, opens one warm sandbox session through the Tasks facade (`MultiTurnSession`) and judges one cluster per turn against the `reaperhog-verification-criteria` skill, which `logic/skill.py` seeds into `LLMSkill` rows.
+Verdicts persist as artefacts; the cluster becomes `dead` only on `is_dead` with high confidence, and only when the verdict records its searches and names no protected path.
 
 **Harvest** (`logic/harvest.py`) selects dead clusters under `MAX_OPEN_REAPER_PRS` and `MAX_FILES_PER_PR`, renders the evidence PR body and dispatches a Tasks coding-agent run with `create_pr=True` (the experiments flag-cleanup path).
 Scopes overlap, so a root that another scope already took to harvest is skipped instead of opening a second pull request for the same deletion.
+A cluster only dispatches while its verdict still matches the current scan revision; anything older goes back to `candidate` for a fresh verification, and two plans that touch the same file never go out together.
 The prompt pins the deletion plan, the checks to run, the hard floors, the branch name and the draft PR title and label.
 `sync_harvest` maps the task run's PR into `reaped`, then polls the PR through the GitHub egress transport into `buried` (merged) or `declined` (closed).
 

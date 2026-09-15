@@ -22,6 +22,8 @@ products/desktop/ @PostHog/desktop @PostHog/dx
         (".github/workflows/ci-security.yaml", ("@PostHog/team-security",)),
         (".github/workflows/ci-backend.yaml", ()),
         ("products/desktop/apps/code/src/main.ts", ("@PostHog/desktop", "@PostHog/dx")),
+        # GitHub anchors a pattern that already contains a slash to the repository root.
+        ("vendor/products/desktop/apps/code/src/main.ts", ()),
         ("frontend/src/lib/constants.tsx", ("@PostHog/flags",)),
         ("frontend/src/lib/utils.tsx", ()),
     ],

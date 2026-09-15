@@ -2,9 +2,10 @@ import re
 import logging
 from collections.abc import Callable, Mapping
 
-from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
+from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS, HogQLGlobalSettings
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.clickhouse.client.connection import Workload
 from posthog.dataclasses import frozen
 from posthog.models.team.team import Team
 
@@ -119,6 +120,10 @@ def load_pageviews(team_id: int) -> PageviewScan:
         ),
         team=team,
         query_type="reaperhog_pageviews",
+        workload=Workload.OFFLINE,
+        # A scheduled 90-day aggregation must not compete with user queries, and a partial answer
+        # here reads as zero traffic, so a timeout has to fail rather than return what it has.
+        settings=HogQLGlobalSettings(timeout_overflow_mode="throw"),
     )
     rows = response.results or []
     return PageviewScan(

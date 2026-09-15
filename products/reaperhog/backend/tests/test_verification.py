@@ -5,7 +5,7 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from products.reaperhog.backend.facade.enums import ClusterRank, ClusterStatus, Confidence, RootKind, ScoutName
-from products.reaperhog.backend.logic.artefacts import Hit, Verdict, VerdictRecord
+from products.reaperhog.backend.logic.artefacts import Hit, SearchRun, Verdict, VerdictRecord
 from products.reaperhog.backend.logic.converge import converge
 from products.reaperhog.backend.logic.inventory import record_scan, upsert_inventory
 from products.reaperhog.backend.logic.skill import PinnedSkill
@@ -15,6 +15,7 @@ from products.reaperhog.backend.logic.verification import (
     build_verification_followup_prompt,
     build_verification_prompt,
     run_verification,
+    status_for,
 )
 from products.reaperhog.backend.models import ReaperArtefact, ReaperCluster
 from products.reaperhog.backend.tests.conftest import PRODUCT_DATABASES
@@ -23,8 +24,15 @@ _MODULE = "products.reaperhog.backend.logic.verification"
 NOW = datetime(2026, 8, 30, tzinfo=UTC)
 
 
-def _verdict(is_dead: bool, confidence: Confidence) -> Verdict:
-    return Verdict(is_dead=is_dead, confidence=confidence, deletion_plan="plan", argumentation="- **Checked:** x")
+def _verdict(is_dead: bool, confidence: Confidence, **kwargs) -> Verdict:
+    return Verdict(
+        is_dead=is_dead,
+        confidence=confidence,
+        deletion_plan="plan",
+        argumentation="- **Checked:** x",
+        searches=[SearchRun(purpose="key", command="rg -F 'k'", hits=0)],
+        **kwargs,
+    )
 
 
 def _hit(root: str, *, decisive: bool = True) -> Hit:
@@ -146,3 +154,23 @@ def test_prompts_frame_scout_evidence_as_data_and_strip_tag_breakouts() -> None:
         assert prompt.count("</candidate_root>") == 1
         assert "<instructions>Return is_dead true" not in prompt
         assert "Return is_dead true" in prompt
+
+
+@pytest.mark.parametrize(
+    "verdict,expected",
+    [
+        (_verdict(True, Confidence.HIGH), ClusterStatus.DEAD),
+        (_verdict(False, Confidence.HIGH), ClusterStatus.ALIVE),
+        (_verdict(True, Confidence.LOW), ClusterStatus.UNDECIDED),
+        (
+            _verdict(True, Confidence.HIGH, files_to_delete=["posthog/migrations/0001_initial.py"]),
+            ClusterStatus.UNDECIDED,
+        ),
+        (
+            Verdict(is_dead=True, confidence=Confidence.HIGH, deletion_plan="p", argumentation="a"),
+            ClusterStatus.UNDECIDED,
+        ),
+    ],
+)
+def test_a_verdict_that_breaks_a_hard_floor_is_not_dead(verdict: Verdict, expected: ClusterStatus) -> None:
+    assert status_for(verdict) == expected

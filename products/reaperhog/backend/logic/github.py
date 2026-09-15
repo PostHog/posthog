@@ -1,3 +1,4 @@
+import re
 from typing import Literal
 
 from posthog.dataclasses import frozen
@@ -7,6 +8,7 @@ from posthog.models.integration.github import GitHubIntegration
 
 _SOURCE = "reaperhog"
 _TIMEOUT = 30.0
+_PR_URL = re.compile(r"^https://github\.com/(?P<owner>[^/]+)/(?P<repo>[^/]+)/pull/(?P<number>\d+)/?$")
 
 
 @frozen
@@ -15,11 +17,19 @@ class PullRequestState:
     state: Literal["open", "merged", "closed"]
 
 
-def parse_pr_number(pr_url: str) -> int | None:
-    tail = pr_url.rstrip("/").rsplit("/pull/", 1)
-    if len(tail) != 2 or not tail[1].isdigit():
+def parse_pull_request_url(pr_url: str, repository: str) -> int | None:
+    """The pull request number, but only when the URL points at ``repository`` itself.
+
+    A run can report a pull request in another repository. Polling that number against
+    ``repository`` reads an unrelated pull request and can bury or decline the wrong cluster.
+    """
+    match = _PR_URL.match(pr_url.strip())
+    if match is None:
         return None
-    return int(tail[1])
+    owner, _, repo = repository.partition("/")
+    if (match["owner"].lower(), match["repo"].lower()) != (owner.lower(), repo.lower()):
+        return None
+    return int(match["number"])
 
 
 def pull_request_state(*, team_id: int, repository: str, number: int) -> PullRequestState:

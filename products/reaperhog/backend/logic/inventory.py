@@ -7,13 +7,14 @@ from products.reaperhog.backend.facade.enums import ClusterStatus, InventoryStat
 from products.reaperhog.backend.logic.converge import ClusterDraft
 from products.reaperhog.backend.models import ReaperArtefact, ReaperCluster, ReaperInventory
 
+# A declined cluster stays declined until its files change. Vanishing it would let one absent scan
+# reopen it as a fresh candidate and repeat a pull request a human already closed.
 _VANISHABLE = frozenset(
     {
         ClusterStatus.CANDIDATE,
         ClusterStatus.DEAD,
         ClusterStatus.ALIVE,
         ClusterStatus.UNDECIDED,
-        ClusterStatus.DECLINED,
     }
 )
 _REOPENABLE = frozenset({ClusterStatus.VANISHED})
@@ -29,7 +30,7 @@ class ScanOutcome:
 
 def upsert_inventory(*, team_id: int, repository: str, scope: str) -> ReaperInventory:
     inventory, _ = ReaperInventory.objects.for_team(team_id).get_or_create(
-        team_id=team_id, repository=repository, scope=scope
+        repository=repository, scope=scope, defaults={"team_id": team_id}
     )
     return inventory
 
@@ -45,7 +46,12 @@ def abandon_scan(inventory: ReaperInventory) -> None:
 
 
 def record_scan(
-    inventory: ReaperInventory, drafts: Sequence[ClusterDraft], *, head_sha: str, now: datetime
+    inventory: ReaperInventory,
+    drafts: Sequence[ClusterDraft],
+    *,
+    head_sha: str,
+    now: datetime,
+    complete: bool = True,
 ) -> ScanOutcome:
     team_id = inventory.team_id
     existing = {
@@ -93,9 +99,10 @@ def record_scan(
         for hit in draft.hits:
             ReaperArtefact.append(team_id=team_id, inventory_id=inventory.id, cluster_id=cluster.id, content=hit)
 
+    # A scout that failed reported no roots at all, so absence proves nothing this run.
     vanished = 0
     for cluster in existing.values():
-        if cluster.hash in seen or cluster.status not in _VANISHABLE:
+        if not complete or cluster.hash in seen or cluster.status not in _VANISHABLE:
             continue
         cluster.status = ClusterStatus.VANISHED
         cluster.save(update_fields=["status", "updated_at"])
