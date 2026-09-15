@@ -251,6 +251,8 @@ For the same reason, anything that rewrites the Customer analytics URL (the scen
 Drafts use project-and-user-scoped `sessionStorage`, including cleared filters and unsaved changes to a selected view.
 The draft key comes from loaded `teamLogic` and `userLogic` state. Draft hydration and automatic saved-view restoration wait for both IDs.
 An explicit shared URL wins over the draft. The draft wins over automatic saved-view restoration.
+Restoring only the My accounts preference keeps column initialization active and does not create a fallback draft.
+While `awaitingSavedView` is true, draft and URL writes wait for the saved-view decision.
 Selecting a saved view explicitly replaces the draft.
 See [Accounts table](../../../../../docs/internal/customer-analytics-accounts-table.md) when changing persistence or navigation.
 
