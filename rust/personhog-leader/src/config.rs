@@ -49,13 +49,11 @@ pub struct Config {
     pub fencing_window_max_writes: usize,
 
     /// Transactional producers per partition; writes rotate across them.
+    /// A takeover fences one id per lane, so the count binds fleet-wide:
+    /// a successor on a smaller count leaves a predecessor's extra lanes
+    /// unfenced.
     #[envconfig(default = "4")]
     pub fencing_lanes: usize,
-
-    /// Lane ids a takeover fences, at least FENCING_LANES. Only ever raised
-    /// across a live fleet: a predecessor's lane above this stays unfenced.
-    #[envconfig(default = "4")]
-    pub fencing_fenced_lanes: usize,
 
     /// Timeout for transactional init (fencing acquisition) and
     /// commit/abort operations.
@@ -491,7 +489,8 @@ impl Config {
     /// So the budget is the aggregate, divided. The floor keeps a
     /// high-partition-count deployment from starving any single producer
     /// below a workable depth; it trades the guarantee for a bound that
-    /// is still far under the un-divided figure.
+    /// is still far under the un-divided figure. Each share must still
+    /// hold one window of records; raise the aggregate if it cannot.
     pub fn fencing_queue_mib(&self, partitions: u32) -> u32 {
         // The floor cannot be unconditional: above roughly fifty
         // partitions it would start multiplying again, and the aggregate
@@ -713,13 +712,6 @@ impl Config {
         }
         if self.fencing_lanes < 1 {
             return Err("FENCING_LANES must be at least 1".to_string());
-        }
-        if self.fencing_fenced_lanes < self.fencing_lanes {
-            return Err(format!(
-                "FENCING_FENCED_LANES ({}) must be at least FENCING_LANES ({}): a takeover \
-                 that fences fewer ids than it produces on leaves its own lanes unfenced",
-                self.fencing_fenced_lanes, self.fencing_lanes
-            ));
         }
         // Fencing without the lease gate is the combination the e2e
         // zombie scenario breaks: acquisition takes the partition's epoch
@@ -1264,6 +1256,17 @@ mod fencing_timescale_tests {
             config.fencing_queue_mib(0) >= 1,
             "partitions=0 must not divide by zero"
         );
+    }
+
+    /// Zero lanes would leave a partition with nothing to produce on.
+    #[test]
+    fn a_zero_lane_count_is_refused() {
+        let mut config = fenced(30);
+        config.fencing_lanes = 0;
+        let err = config
+            .validate_fencing_timescales()
+            .expect_err("zero lanes must be refused");
+        assert!(err.contains("FENCING_LANES"), "{err}");
     }
 
     /// A lease TTL long enough to derive past the broker's own ceiling

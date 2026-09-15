@@ -420,7 +420,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 window_max_writes: config.fencing_window_max_writes,
                 settle_budget: config.fencing_settle_budget(),
                 lanes: config.fencing_lanes,
-                fenced_lanes: config.fencing_fenced_lanes,
             })
             .with_repair_nudge(repair_nudge),
         ))

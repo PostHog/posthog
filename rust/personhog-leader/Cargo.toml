@@ -27,7 +27,6 @@ chrono = { workspace = true }
 common-database = { path = "../common/database" }
 dashmap = { workspace = true }
 envconfig = { workspace = true }
-futures = { workspace = true }
 foyer = "0.22.3"
 metrics = { workspace = true }
 prost = { workspace = true }

@@ -667,7 +667,6 @@ pub fn fenced_producers_for(topic: &str) -> personhog_leader::fencing::FencedCha
             window: Duration::from_millis(5),
             window_max_writes: 32,
             lanes: 1,
-            fenced_lanes: 1,
             settle_budget: Duration::from_secs(5),
         },
     )
