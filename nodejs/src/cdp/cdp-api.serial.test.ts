@@ -1622,6 +1622,32 @@ describe('CDP API', () => {
             }
         })
 
+        it('drops the buffered lifecycle row when the invocation cannot be queued', async () => {
+            const resultsEnabled = hub.HOG_INVOCATION_RESULTS_ENABLED
+            hub.HOG_INVOCATION_RESULTS_ENABLED = true
+            const rowsService = api['invocationResultsService'].invocationResultsRowsService
+            const produceSpy = jest.spyOn(rowsService['outputs'], 'produce').mockResolvedValue(undefined as any)
+            mockQueueInvocations.mockRejectedValueOnce(new Error('queue unavailable'))
+
+            try {
+                const res = await supertest(app)
+                    .post(
+                        `/api/projects/${scheduleHogFlow.team_id}/hog_flows/${scheduleHogFlow.id}/scheduled_invocations`
+                    )
+                    .send({})
+
+                expect(res.status).toEqual(500)
+
+                // The row outlives the request on the shared service, so a later flush would
+                // publish a run that never entered cyclotron.
+                await rowsService.flush()
+                expect(produceSpy).not.toHaveBeenCalled()
+            } finally {
+                hub.HOG_INVOCATION_RESULTS_ENABLED = resultsEnabled
+                produceSpy.mockRestore()
+            }
+        })
+
         it('queues invocation with empty variables when none provided', async () => {
             const res = await supertest(app)
                 .post(`/api/projects/${scheduleHogFlow.team_id}/hog_flows/${scheduleHogFlow.id}/scheduled_invocations`)

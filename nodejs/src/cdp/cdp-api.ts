@@ -924,8 +924,15 @@ export class CdpApi {
             // `state.firstScheduledAt` stamp reaches cyclotron.
             this.invocationResultsService.invocationResultsRowsService.queueLifecycleRow(invocation, 'running')
 
-            await this.hogflowQueue.queueInvocations([invocation])
-            await this.invocationResultsService.flush()
+            try {
+                await this.hogflowQueue.queueInvocations([invocation])
+            } catch (error) {
+                this.invocationResultsService.invocationResultsRowsService.dropQueuedRowsFor([invocation.id])
+                throw error
+            }
+            // Only the lifecycle sink, which swallows its own produce failures. Flushing every sink
+            // would fail an enqueued run on an unrelated sink's error, and the caller would retry it.
+            await this.invocationResultsService.invocationResultsRowsService.flush()
 
             res.json({ status: 'queued', invocation_id: invocation.id })
         } catch (e) {

@@ -575,6 +575,24 @@ describe('SourceWebhooksConsumer', () => {
                 expect(parseJSON(stateWhenQueued!).firstScheduledAt).toEqual(rows[0].value.first_scheduled_at)
             })
 
+            it('records no running row when the workflow cannot be queued', async () => {
+                hub.HOG_INVOCATION_RESULTS_ENABLED = true
+                mockQueueHogflowInvocationsSpy.mockRejectedValueOnce(new Error('queue unavailable'))
+
+                const res = await doPostRequest({
+                    webhookId: hogFlow.id,
+                    body: {
+                        event: 'my-event',
+                        distinct_id: 'test-distinct-id',
+                    },
+                })
+
+                expect(res.status).toEqual(500)
+                await waitForBackgroundTasks()
+                // A row here would show a run that never entered cyclotron as permanently running.
+                expect(mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_HOG_INVOCATION_RESULTS)).toEqual([])
+            })
+
             it('does not report a workflow trigger as CDP usage', async () => {
                 const reportBillableInvocation = jest.spyOn(
                     api['cdpSourceWebhooksConsumer']['cdpUsageReporter'],
