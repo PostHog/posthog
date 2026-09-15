@@ -69,6 +69,19 @@
             ],
             "description": "Colors pinned to specific breakdown values across the dashboard's tiles. A list of entries, not an object keyed by breakdown value. Send an empty list to clear them."
         },
+        "creation_context": {
+            "anyOf": [
+                {
+                    "description": "* `dashboards` - dashboards\n* `feature_flags` - feature_flags\n* `metrics` - metrics\n* `onboarding` - onboarding\n* `posthog_ai` - posthog_ai",
+                    "enum": ["dashboards", "feature_flags", "metrics", "onboarding", "posthog_ai"],
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Surface the dashboard was created from. Reported on the `dashboard created` event.\n\n* `dashboards` - dashboards\n* `feature_flags` - feature_flags\n* `metrics` - metrics\n* `onboarding` - onboarding\n* `posthog_ai` - posthog_ai"
+        },
         "data_color_theme_id": {
             "anyOf": [
                 {
