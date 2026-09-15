@@ -39,7 +39,7 @@ import { Params, Scene, SceneConfig, SceneTab } from 'scenes/sceneTypes'
 import { SessionRecordingPlayerMode } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { SurveyRatingScaleValue, WEB_SAFE_FONTS } from 'scenes/surveys/constants'
 
-import type { OrganizationNotificationLockApi } from '~/generated/core/api.schemas'
+import type { OrganizationNotificationLockApi, TeamDataManagementConfigApi } from '~/generated/core/api.schemas'
 import { RootAssistantMessage } from '~/queries/schema/schema-assistant-messages'
 import type {
     CoreEvent,
@@ -895,7 +895,7 @@ export interface TeamType extends TeamBasicType {
     // Optional so cached team objects from before this field shipped still typecheck.
     feature_flag_policy_config?: FeatureFlagPolicyConfig
     // Optional so cached team objects from before this field shipped still typecheck.
-    data_management_config?: DataManagementConfig
+    data_management_config?: TeamDataManagementConfigApi
     business_model?: 'b2b' | 'b2c' | 'other' | null
 }
 
@@ -910,11 +910,6 @@ export interface WorkflowsConfig {
 
 export interface FeatureFlagPolicyConfig {
     require_tags: boolean
-}
-
-export interface DataManagementConfig {
-    /** Days an event can go without arriving before PostHog calls it stale. */
-    stale_event_days: number
 }
 
 export interface ProductIntentType {

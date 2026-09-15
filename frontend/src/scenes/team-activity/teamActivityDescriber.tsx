@@ -17,11 +17,11 @@ import { isObject } from 'lib/utils/guards'
 import { pluralize } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
+import type { TeamDataManagementConfigApi } from '~/generated/core/api.schemas'
 import { CurrencyCode } from '~/queries/schema/schema-general'
 import {
     ActivityScope,
     CorrelationConfigType,
-    DataManagementConfig,
     GroupType,
     PathCleaningFilter,
     TeamSurveyConfigType,
@@ -757,7 +757,7 @@ const TEAM_PROPERTIES_MAPPING: Record<keyof TeamType, (change: ActivityChange) =
     workflows_config: () => null,
     feature_flag_policy_config: () => null,
     data_management_config: (change) => {
-        const days = ((change.after ?? {}) as DataManagementConfig).stale_event_days
+        const days = ((change.after ?? {}) as TeamDataManagementConfigApi).stale_event_days
         return days === undefined ? null : { description: [<>changed the stale event threshold to {days} days</>] }
     },
 }
