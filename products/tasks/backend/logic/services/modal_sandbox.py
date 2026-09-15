@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import json
 import time
 import uuid
@@ -62,6 +63,7 @@ from products.tasks.backend.logic.services.cpu_billing import (
     compute_billed_cpu_usage_usec,
     parse_cpu_stat_usage_usec,
 )
+from products.tasks.backend.logic.services.launch_preparation_metrics import record_launch_preparation_ms
 from products.tasks.backend.logic.services.local_packages import (
     LocalPackage,
     get_local_package_runtime_dependencies,
@@ -72,6 +74,7 @@ from products.tasks.backend.logic.services.local_skills import (
     LocalSkillsCache,
     populate_skills_directory,
 )
+from products.tasks.backend.logic.services.modal_launch_preparation import build_modal_launch_preparation_script
 from products.tasks.backend.logic.services.modal_provision_diagnostics import (
     SandboxProvisionDiagnostics,
     capture_modal_output_if_debug,
@@ -698,6 +701,66 @@ class ModalSandbox(AgentServerLaunchMixin):
         self._running_status_expires_at = 0.0
         self.provision_diagnostics = None
         self._destroyed = False
+
+    def _prepare_agent_server_launch(self, allowed_domains: list[str] | None) -> None:
+        script_path = f"/tmp/posthog-launch-preparation-{uuid.uuid4().hex}.sh"
+        started_at = time.monotonic()
+        result: ExecutionResult | None = None
+        try:
+            self._write_required_file(script_path, build_modal_launch_preparation_script(allowed_domains).encode())
+            uploaded_at = time.monotonic()
+            result = self.execute(f"bash {shlex.quote(script_path)}", timeout_seconds=60)
+        finally:
+            total_ms = round((time.monotonic() - started_at) * 1000)
+            record_launch_preparation_ms(
+                total_ms, "COMPLETED" if result is not None and result.exit_code == 0 else "FAILED"
+            )
+        timings = {
+            stage: int(duration)
+            for stage, duration in re.findall(
+                r"^__posthog_launch_preparation_(install_ms|daemon_session_ms)=(\d+)$", result.stdout, re.MULTILINE
+            )
+        }
+        logger.info(
+            "Modal launch preparation finished in sandbox %s: upload_ms=%d install_ms=%s "
+            "daemon_session_ms=%s total_ms=%d exit_code=%d",
+            self.id,
+            round((uploaded_at - started_at) * 1000),
+            timings.get("install_ms"),
+            timings.get("daemon_session_ms"),
+            total_ms,
+            result.exit_code,
+        )
+        if result.exit_code != 0:
+            stage = re.search(
+                r"^__posthog_launch_preparation_failed=(install|daemon_session)$", result.stderr, re.MULTILINE
+            )
+            preparation_stage = stage.group(1) if stage else "unknown"
+            agentsh_log = ""
+            if preparation_stage == "daemon_session":
+                try:
+                    agentsh_log = self.execute(
+                        "tail -c 2000 /var/log/agentsh/agentsh.log 2>/dev/null || true", timeout_seconds=5
+                    ).stdout[-2000:]
+                except Exception:
+                    logger.warning("Failed to read agentsh diagnostics in sandbox %s", self.id, exc_info=True)
+                logger.error(
+                    "Modal launch preparation failed in sandbox %s; stderr=%r agentsh_log=%r",
+                    self.id,
+                    result.stderr[-1000:],
+                    agentsh_log,
+                )
+            raise SandboxExecutionError(
+                "Failed to prepare agent-server launch",
+                {
+                    "sandbox_id": self.id,
+                    "preparation_stage": preparation_stage,
+                    "exit_code": result.exit_code,
+                    "stderr": result.stderr[-1000:],
+                    "agentsh_log": agentsh_log,
+                },
+                cause=RuntimeError("Modal launch preparation failed"),
+            )
 
     @property
     def sandbox_url(self) -> str | None:
