@@ -22,6 +22,9 @@ A project can hold hundreds of experiments, and one response holds one page of 1
   Search matches the name only, case-insensitive, as a substring.
   It does NOT match the description.
   Search the distinctive words of the reference, not the whole phrase — "the signup experiment" becomes `search: "signup"`.
+- **By description**: there is no server-side filter for this, because `search` does not read the description.
+  When the reference describes the change rather than naming it — "the one with the new checkout" — page the list and compare the `description` field of each result yourself.
+  Narrow the pages first with `status` or `archived` where the reference allows it.
 - **By status**: `experiment-list {status: "<status>"}`.
   Values are `draft`, `running`, `paused`, `exposure_frozen`, `stopped`, `complete` (an alias for `stopped`), and `all`.
 - **By archived state**: `archived` is a separate boolean, not a status.
@@ -40,7 +43,7 @@ The response carries `count` and `next`.
 If `next` is not null, more experiments match than you have seen.
 Page with `offset` (`offset: 100`, `offset: 200`, ...) until `next` is null.
 
-Only report no matches after a search that returned `count: 0`.
+Only report no matches after a search that returned `count: 0`, or after a description scan that reached the last page.
 A first page with no obvious match is not an answer.
 
 ## After finding matches
@@ -48,6 +51,7 @@ A first page with no obvious match is not an answer.
 - **Exactly one match**: Use it. Confirm with the user by name before destructive actions (delete, ship, end).
 - **Multiple matches**: List them with name, status, and creation date. Ask the user to pick.
 - **No matches**: Retry with shorter or different search terms, then with `archived: true`.
+  If the reference described the experiment rather than naming it, scan descriptions across every page before you give up.
   Tell the user only after those come back empty too.
 
 ## Get full details if needed
