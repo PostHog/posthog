@@ -128,7 +128,7 @@ const meta: Meta<typeof DataQualityOverview> = {
     },
     decorators: [
         (Story) => (
-            <div className="@container/main-content">
+            <div className="@container/main-content w-256">
                 <Story />
             </div>
         ),
