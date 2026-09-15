@@ -288,6 +288,10 @@ class TestVercelWebhooks(VercelTestBase):
         call_kwargs = mock_post.call_args
         assert call_kwargs.kwargs["url"] == "https://eu.posthog.com/webhooks/vercel"
         assert call_kwargs.kwargs["headers"]["x-vercel-signature"] == signature
+        # EU waits up to 30s for the billing service. A shorter read deadline would make US
+        # abandon an invoice EU accepted, and log it as an unknown installation.
+        _, read_timeout = call_kwargs.kwargs["timeout"]
+        assert read_timeout > 30
 
     @override_settings(
         VERCEL_CLIENT_INTEGRATION_SECRET="test_webhook_secret",
