@@ -23,8 +23,16 @@ export const inboxReportKeys = {
     [...inboxReportKeys.all, "infinite-list", params ?? {}] as const,
   detail: (reportId: string) =>
     [...inboxReportKeys.all, reportId, "detail"] as const,
-  artefacts: (reportId: string) =>
-    [...inboxReportKeys.all, reportId, "artefacts"] as const,
+  /** The whole log when `types` is omitted; the full-log key prefixes every filtered key. */
+  artefacts: (reportId: string, types?: readonly string[]) =>
+    types
+      ? ([
+          ...inboxReportKeys.all,
+          reportId,
+          "artefacts",
+          types.join(","),
+        ] as const)
+      : ([...inboxReportKeys.all, reportId, "artefacts"] as const),
   chartData: (reportId: string, chartId: string) =>
     [...inboxReportKeys.all, reportId, "chart-data", chartId] as const,
   signals: (reportId: string) =>

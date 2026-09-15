@@ -24,7 +24,7 @@ vi.mock("@posthog/ui/features/auth/useCurrentUser", () => ({
 }));
 
 vi.mock("@posthog/ui/features/inbox/hooks/useInboxReports", () => ({
-  useInboxReportArtefacts: () => ({ data: undefined }),
+  useInboxReportSuggestedReviewerArtefacts: () => ({ data: undefined }),
   useUpdateSuggestedReviewers: () => ({
     mutate: mocks.mutate,
     isPending: false,

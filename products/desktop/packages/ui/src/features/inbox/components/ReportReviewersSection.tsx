@@ -15,7 +15,7 @@ import { DetailSection } from "@posthog/ui/features/inbox/components/DetailSecti
 import { ReviewerSearchList } from "@posthog/ui/features/inbox/components/ReviewerSearchList";
 import { SuggestedReviewerAvatar } from "@posthog/ui/features/inbox/components/utils/SuggestedReviewerAvatar";
 import {
-  useInboxReportArtefacts,
+  useInboxReportSuggestedReviewerArtefacts,
   useUpdateSuggestedReviewers,
 } from "@posthog/ui/features/inbox/hooks/useInboxReports";
 import {
@@ -28,7 +28,7 @@ import { useMemo, useState } from "react";
 export function ReportReviewersSection({ report }: { report: SignalReport }) {
   const fireAction = useReportActionTracker(report);
   const trackResult = useReportActionResultTracker(report);
-  const { data } = useInboxReportArtefacts(report.id);
+  const { data } = useInboxReportSuggestedReviewerArtefacts(report.id);
   const artefact = selectSuggestedReviewersArtefact(data?.results ?? []);
   const reviewers = useMemo(() => artefact?.content ?? [], [artefact]);
   const [addOpen, setAddOpen] = useState(false);

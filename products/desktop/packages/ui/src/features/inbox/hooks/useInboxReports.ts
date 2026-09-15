@@ -1,3 +1,4 @@
+import type { PostHogAPIClient } from "@posthog/api-client/posthog-client";
 import {
   INBOX_REPORT_DETAIL_STALE_TIME_MS,
   inboxReportKeys,
@@ -194,24 +195,62 @@ export function useInboxReportById(
   );
 }
 
+/** Matches the web inbox's report-detail fetch, which reads the same full log. */
+const FULL_ARTEFACT_LOG_LIMIT = 1000;
+
+const SUGGESTED_REVIEWERS_ARTEFACT_TYPES = ["suggested_reviewers"] as const;
+export const TASK_RUN_ARTEFACT_TYPES = ["task_run"] as const;
+
+/**
+ * Readers of one shape share `reportKeys.artefacts(reportId, types)`, so each shape is fetched
+ * once per report. Without `types` this is the whole log, not the default page: the rows written
+ * when the report is created (repo selection, the scout run) are the first ones a default page drops.
+ */
+export function fetchReportArtefacts(
+  client: Pick<PostHogAPIClient, "getSignalReportArtefacts">,
+  reportId: string,
+  types?: readonly string[],
+): Promise<SignalReportArtefactsResponse> {
+  return client.getSignalReportArtefacts(reportId, {
+    limit: FULL_ARTEFACT_LOG_LIMIT,
+    types,
+  });
+}
+
 export function useInboxReportArtefacts(
   reportId: string,
   options?: {
+    types?: readonly string[];
     enabled?: boolean;
     staleTime?: number;
     refetchInterval?: number;
     refetchOnWindowFocus?: boolean;
   },
 ) {
-  const { enabled, ...queryOptions } = options ?? {};
+  const { types, enabled, ...queryOptions } = options ?? {};
   return useAuthenticatedQuery<SignalReportArtefactsResponse>(
-    reportKeys.artefacts(reportId),
-    (client) => client.getSignalReportArtefacts(reportId),
+    reportKeys.artefacts(reportId, types),
+    (client) => fetchReportArtefacts(client, reportId, types),
     {
       enabled: !!reportId && (enabled ?? true),
       ...queryOptions,
     },
   );
+}
+
+/** The current suggested reviewers are the latest `suggested_reviewers` row, so readers fetch only that type. */
+export function useInboxReportSuggestedReviewerArtefacts(
+  reportId: string,
+  options?: {
+    enabled?: boolean;
+    staleTime?: number;
+    refetchOnWindowFocus?: boolean;
+  },
+) {
+  return useInboxReportArtefacts(reportId, {
+    ...options,
+    types: SUGGESTED_REVIEWERS_ARTEFACT_TYPES,
+  });
 }
 
 export function useInboxReportSignals(
@@ -240,7 +279,10 @@ interface UpdateSuggestedReviewersVariables {
  */
 export function useUpdateSuggestedReviewers(reportId: string) {
   const queryClient = useQueryClient();
-  const queryKey = reportKeys.artefacts(reportId);
+  const queryKey = reportKeys.artefacts(
+    reportId,
+    SUGGESTED_REVIEWERS_ARTEFACT_TYPES,
+  );
 
   return useAuthenticatedMutation<
     SuggestedReviewersArtefact,

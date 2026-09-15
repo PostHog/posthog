@@ -74,7 +74,7 @@ describe("useUpdateSuggestedReviewers", () => {
     mockSetReviewers.mockResolvedValue(artefact([reviewer("octocat")]));
     const { result, queryClient } = renderUpdateHook();
 
-    const key = reportKeys.artefacts(REPORT_ID);
+    const key = reportKeys.artefacts(REPORT_ID, ["suggested_reviewers"]);
     queryClient.setQueryData<SignalReportArtefactsResponse>(key, {
       results: [artefact([reviewer("octocat"), reviewer("hubot")])],
       count: 1,
@@ -132,7 +132,7 @@ describe("useUpdateSuggestedReviewers", () => {
     mockSetReviewers.mockRejectedValue(failure);
     const { result, queryClient } = renderUpdateHook();
 
-    const key = reportKeys.artefacts(REPORT_ID);
+    const key = reportKeys.artefacts(REPORT_ID, ["suggested_reviewers"]);
     const original = [reviewer("octocat"), reviewer("hubot")];
     queryClient.setQueryData<SignalReportArtefactsResponse>(key, {
       results: [artefact(original)],

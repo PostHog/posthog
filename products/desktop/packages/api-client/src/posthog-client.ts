@@ -5459,7 +5459,7 @@ export class PostHogAPIClient {
    */
   async getSignalReportArtefacts(
     reportId: string,
-    options?: { limit?: number },
+    options?: { limit?: number; types?: readonly string[] },
   ): Promise<SignalReportArtefactsResponse> {
     const teamId = await this.getTeamId();
     const url = new URL(
@@ -5468,6 +5468,9 @@ export class PostHogAPIClient {
     const path = `/api/projects/${teamId}/signals/reports/${reportId}/artefacts/`;
     if (options?.limit !== undefined) {
       url.searchParams.set("limit", String(options.limit));
+    }
+    if (options?.types?.length) {
+      url.searchParams.set("type", options.types.join(","));
     }
 
     try {
