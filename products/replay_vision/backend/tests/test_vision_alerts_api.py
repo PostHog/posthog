@@ -413,7 +413,14 @@ class TestVisionAlertActivityLogging(_VisionAlertAPITestCase):
         detail = cast(dict[str, Any], logs[1].detail)
         assert {change["field"] for change in detail["changes"]} == {"threshold"}
 
-    def test_evaluation_state_writes_are_not_audited(self) -> None:
+    @parameterized.expand(
+        [
+            # The two shapes the engine actually saves: a suppressed check, and a state transition.
+            ("suppressed_check", ["next_check_at", "updated_at"]),
+            ("state_transition", ["state", "consecutive_failures", "last_checked_at", "next_check_at"]),
+        ]
+    )
+    def test_evaluation_writes_are_not_audited(self, _name: str, update_fields: list[str]) -> None:
         # The engine rewrites these on every check; logging them would bury the edits a person made.
         alert = VisionAlertConfiguration.objects.for_team(self.team.id).get(id=self._create_via_api()["id"])
         ActivityLog.objects.all().delete()
@@ -422,6 +429,6 @@ class TestVisionAlertActivityLogging(_VisionAlertAPITestCase):
         alert.consecutive_failures = 1
         alert.last_checked_at = datetime.now(UTC)
         alert.next_check_at = datetime.now(UTC) + timedelta(hours=1)
-        alert.save(update_fields=["state", "consecutive_failures", "last_checked_at", "next_check_at"])
+        alert.save(update_fields=update_fields)
 
         assert self._logs(str(alert.id)) == []
