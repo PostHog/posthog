@@ -122,8 +122,14 @@ def emit_report_embeddings(*, team_id: int, report_id: str, documents: Mapping[s
         )
 
 
-def emit_report_tombstone(*, team_id: int, report_id: str, created_at: datetime) -> None:
-    """Retract every rendering of the report, whether or not any of them was ever written.
+def emit_report_tombstone(
+    *,
+    team_id: int,
+    report_id: str,
+    created_at: datetime,
+    renderings: tuple[str, ...] = EMBEDDING_RENDERINGS,
+) -> None:
+    """Retract all renderings by default, or a specified subset when report text is removed.
 
     Callers do not need to know if a live row exists. Because the tombstone carries `TOMBSTONE_CONTENT`
     rather than the report's text, writing one for a report that was never embedded costs an extra row
@@ -134,7 +140,7 @@ def emit_report_tombstone(*, team_id: int, report_id: str, created_at: datetime)
     Readers must filter these out the way every signals query already does, with
     `NOT JSONExtractBool(metadata, 'deleted')`.
     """
-    for rendering in EMBEDDING_RENDERINGS:
+    for rendering in renderings:
         _emit(
             team_id=team_id,
             report_id=report_id,

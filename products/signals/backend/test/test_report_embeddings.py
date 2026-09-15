@@ -63,10 +63,10 @@ class TestRenderReportDocuments(SimpleTestCase):
 class TestEmittedRow(SimpleTestCase):
     CREATED_AT = datetime(2026, 7, 1, 12, 0, tzinfo=UTC)
 
-    def _emit(self, tombstone: bool) -> list[Mapping[str, Any]]:
+    def _emit(self, tombstone: bool, renderings: tuple[str, ...] = EMBEDDING_RENDERINGS) -> list[Mapping[str, Any]]:
         with patch(EMIT_REQUEST_PATH) as emit_request:
             if tombstone:
-                emit_report_tombstone(team_id=7, report_id="r1", created_at=self.CREATED_AT)
+                emit_report_tombstone(team_id=7, report_id="r1", created_at=self.CREATED_AT, renderings=renderings)
             else:
                 emit_report_embeddings(
                     team_id=7, report_id="r1", documents=REPORT_DOCUMENTS, created_at=self.CREATED_AT
@@ -90,11 +90,12 @@ class TestEmittedRow(SimpleTestCase):
         rows = {kwargs["rendering"]: kwargs["content"] for kwargs in self._emit(tombstone=False)}
         assert rows == REPORT_DOCUMENTS
 
-    def test_tombstone_retracts_every_rendering(self) -> None:
+    @parameterized.expand([("all", EMBEDDING_RENDERINGS), ("title", (EMBEDDING_RENDERING_TITLE,))])
+    def test_tombstone_retracts_requested_renderings(self, _name: str, renderings: tuple[str, ...]) -> None:
         # `rendering` is part of the ReplacingMergeTree key, so a tombstone that skips one leaves that
         # rendering's content live under the retracted report's id until the 3-month TTL removes it.
-        rows = self._emit(tombstone=True)
-        assert sorted(kwargs["rendering"] for kwargs in rows) == sorted(EMBEDDING_RENDERINGS)
+        rows = self._emit(tombstone=True, renderings=renderings)
+        assert sorted(kwargs["rendering"] for kwargs in rows) == sorted(renderings)
 
     def test_tombstone_never_carries_the_report_text(self) -> None:
         # Placeholder content is what makes an unconditional tombstone safe: it can supersede a live
@@ -210,6 +211,39 @@ class TestReportEmbeddingReceiver(BaseTest):
             report.title = REPORT_TITLE
             report.save(update_fields=["title", "updated_at"])
         assert self.embed.call_count == 0
+
+    @parameterized.expand(
+        [
+            ("title_removed", None, REPORT_SUMMARY, (EMBEDDING_RENDERING_TITLE,)),
+            ("title_blank", "   ", REPORT_SUMMARY, (EMBEDDING_RENDERING_TITLE,)),
+            ("all_text_removed", None, None, EMBEDDING_RENDERINGS),
+        ]
+    )
+    def test_removed_renderings_are_tombstoned(
+        self, _name: str, title: str | None, summary: str | None, removed_renderings: tuple[str, ...]
+    ) -> None:
+        with self.captureOnCommitCallbacks(execute=True):
+            report = self._create_report(title=REPORT_TITLE, summary=REPORT_SUMMARY)
+        self.embed.reset_mock()
+        with self.captureOnCommitCallbacks(execute=True):
+            report.title = title
+            report.summary = summary
+            report.save(update_fields=["title", "summary", "updated_at"])
+        self.tombstone.assert_called_once_with(
+            team_id=self.team.id,
+            report_id=str(report.id),
+            created_at=report.created_at,
+            renderings=removed_renderings,
+        )
+        if summary:
+            self.embed.assert_called_once_with(
+                team_id=self.team.id,
+                report_id=str(report.id),
+                documents={EMBEDDING_RENDERING_TITLE_SUMMARY: summary},
+                created_at=report.created_at,
+            )
+        else:
+            self.embed.assert_not_called()
 
     def test_status_transition_alone_does_not_re_embed(self) -> None:
         with self.captureOnCommitCallbacks(execute=True):

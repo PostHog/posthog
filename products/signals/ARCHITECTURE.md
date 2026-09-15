@@ -732,7 +732,7 @@ emit_embedding_request() → Kafka (document_embeddings_input topic)
 ### Report Documents
 
 Alongside the per-signal rows, each `SignalReport` is embedded under `document_type = 'report'` with `document_id` = the report UUID.
-A report holds one row per *rendering* of its text, all on that same `document_id`:
+A report holds one row per _rendering_ of its text, all on that same `document_id`:
 
 | Rendering          | Content                                   | Emitted when         | Snapshotted by the dataset dag |
 | ------------------ | ----------------------------------------- | -------------------- | ------------------------------ |
@@ -783,7 +783,9 @@ Three paths therefore **retract** a report's vectors by re-emitting the rows wit
 `emit_report_tombstone` writes one tombstone per rendering in `EMBEDDING_RENDERINGS`, not one per report.
 `rendering` is part of the `ReplacingMergeTree` key, so a tombstone retracts only its own rendering and leaves every other rendering's content live until the 3-month TTL expires it.
 A rendering that is emitted but missing from `EMBEDDING_RENDERINGS` therefore keeps unsafe text indexed.
-The function walks the list itself rather than taking renderings from its callers, so no retraction path can forget one.
+These retraction paths use the full list by default, so callers do not need to select each rendering.
+When a text edit removes a rendering, the receiver passes only the removed rendering to `emit_report_tombstone`.
+Clearing both fields retracts both renderings.
 
 Tombstones carry fixed placeholder content (`TOMBSTONE_CONTENT`) rather than the report's own text.
 Content is not part of the `ReplacingMergeTree` key, so a placeholder supersedes a live row just as well, and it means a tombstone can be emitted without first knowing whether a live row exists, which is the question none of these paths can answer cheaply.

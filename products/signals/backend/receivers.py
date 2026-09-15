@@ -373,8 +373,8 @@ def emit_report_embedding_on_document_change(
         return
 
     documents = render_report_documents(instance.title, instance.summary)
-    if not documents:
-        return
+    prior_documents = getattr(instance, "_prior_documents", None) or {}
+    removed_renderings = tuple(rendering for rendering in prior_documents if rendering not in documents)
     # A save can touch title/summary without changing them: the grouping pipeline rewrites `title`
     # for every signal that joins the report. Re-embedding identical text would spend an embedding
     # call to write a row identical to the one already stored.
@@ -395,18 +395,21 @@ def emit_report_embedding_on_document_change(
     # admin republish text an edit had retracted, under a verdict that predates it.
     carries_status_transition = update_fields is not None and "status" in update_fields
     if not carries_status_transition and not reviewed_reindex:
-        prior_documents = getattr(instance, "_prior_documents", None) or {}
         documents = {
             rendering: content for rendering, content in documents.items() if prior_documents.get(rendering) != content
         }
-        if not documents:
-            return
+    if not documents and not removed_renderings:
+        return
 
     def _emit() -> None:
         try:
+            if removed_renderings:
+                emit_report_tombstone(
+                    team_id=team_id, report_id=report_id, created_at=created_at, renderings=removed_renderings
+                )
             # Checked post-commit, because a scout report's safety verdict is written as an artefact
             # in the same transaction as the report row it judges, so it is only visible from here.
-            if _is_safety_suppressed(report_id, team_id):
+            if not documents or _is_safety_suppressed(report_id, team_id):
                 return
             emit_report_embeddings(team_id=team_id, report_id=report_id, documents=documents, created_at=created_at)
         except Exception:
