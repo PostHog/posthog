@@ -78,19 +78,24 @@ export function isTransientPgError(err: unknown): boolean {
  * violation and a value overflow all carry the same frames. Error tracking
  * reads them as one issue, which then reports whichever failure came first.
  * The SQLSTATE code tells them apart, and the constraint name tells apart the
- * violations of different constraints. An error our own code raised keeps its
- * stack, which already says where it came from.
+ * violations of different constraints. A transient failure keys on the message
+ * it matched instead, because the pooler reports pool saturation, a dead
+ * backend connection and its own shutdown under one SQLSTATE. An error our own
+ * code raised keeps its stack, which already says where it came from.
  */
 export function postgresErrorFingerprint(scope: string, error: unknown): string | undefined {
     const cause = error instanceof DependencyUnavailableError ? error.error : error
+    const marker = transientPgErrorMarker(cause)
+    if (marker) {
+        return `${scope}:${marker}`
+    }
     const { code, constraint } = (cause ?? {}) as { code?: unknown; constraint?: unknown }
     if (typeof code === 'string' && code.length > 0) {
         return typeof constraint === 'string' && constraint.length > 0
             ? `${scope}:${code}:${constraint}`
             : `${scope}:${code}`
     }
-    const marker = transientPgErrorMarker(cause)
-    return marker ? `${scope}:${marker}` : undefined
+    return undefined
 }
 
 export enum PostgresUse {

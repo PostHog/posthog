@@ -42,7 +42,10 @@ describe('postgres error classification', () => {
                 pgError('23503', 'insert violates foreign key', 'posthog_person_team_id_fkey'),
                 pgError('23503', 'insert violates foreign key', 'posthog_persondistinctid_person_id_fkey'),
                 pgError('22001', 'value too long for type character varying(400)'),
-                new Error('query_wait_timeout'),
+                // The pooler stamps both of these with SQLSTATE 08P01, so only
+                // the message separates pool saturation from a dead backend.
+                pgError('08P01', 'query_wait_timeout'),
+                pgError('08P01', 'server conn crashed?'),
                 new Error('server closed the connection unexpectedly'),
             ].map((error) => postgresErrorFingerprint('scope', error))
 
