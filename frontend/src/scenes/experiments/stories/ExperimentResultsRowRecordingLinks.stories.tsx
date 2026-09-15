@@ -36,11 +36,14 @@ const meta: Meta = {
                 [`/api/projects/:team_id/feature_flags/${EXPERIMENT_WITH_MEAN_METRIC.feature_flag.id}/`]: {},
                 [`/api/projects/:team_id/feature_flags/${EXPERIMENT_WITH_MEAN_METRIC.feature_flag.id}/status/`]: {},
                 '/api/environments/:team_id/default_release_conditions/': [],
+                '/api/environments/:team_id/experiments_config/': {},
                 // The linkability check decides whether the links are offered or disabled, so it is
                 // answered here rather than left to fail open on a missing handler.
                 '/api/projects/:team_id/property_definitions/seen_together': {},
             },
             post: {
+                // Answered so the scene does not raise a failure toast over the table.
+                '/api/projects/:team_id/experiments/calculate_running_time/': {},
                 '/api/environments/:team_id/query/:kind': async ({ request }) => {
                     const body = (await request.json()) as Record<string, any>
 

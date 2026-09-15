@@ -93,5 +93,10 @@ export function getResultRowRecordingLinks(
         // Both funnel modes read the last step, so a step no recording can be matched on disables
         // the pair rather than one half of it.
         (funnel ? getFunnelDropoffReason(metric, unlinkableEventNames) : null)
-    return reason ? [{ ...links[0], disabledReason: reason }, { ...links[1], disabledReason: reason }] : links
+    return reason
+        ? [
+              { ...links[0], disabledReason: reason },
+              { ...links[1], disabledReason: reason },
+          ]
+        : links
 }

@@ -195,12 +195,18 @@ export function ResultDetails({
             render: (_, item) => {
                 const variantKey = item.key
                 return (
-                    <div className="flex flex-wrap gap-1">
+                    // The pair sits in the table's last column, so it stacks in a narrow scene
+                    // rather than pushing the other columns out of reach.
+                    <div className="flex flex-col items-end gap-1 @min-[48rem]/main-content:flex-row @min-[48rem]/main-content:flex-wrap">
                         {recordingLinks.map((link) => (
                             <LemonButton
                                 key={link.dataAttr}
                                 size="xsmall"
                                 type="secondary"
+                                truncate
+                                // A metric can count an event with a long name, which the label
+                                // carries. The tooltip holds the whole sentence either way.
+                                className="max-w-52"
                                 sideIcon={<IconRewindPlay />}
                                 tooltip={link.tooltip}
                                 disabledReason={link.disabledReason ?? undefined}
