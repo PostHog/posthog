@@ -62,6 +62,7 @@ import {
     getMarkdownNotebookMarkdown,
     notebookArtifactContentToMarkdown,
 } from './markdownNotebookV2'
+import { buildNotebookInlineAIFinishedEvent, buildNotebookInlineAIRequestedEvent } from './notebookAnalytics'
 import { notebookLogic } from './notebookLogic'
 import {
     NOTEBOOK_AI_PRESENCE_COLOR,
@@ -118,6 +119,7 @@ export function MarkdownNotebookV2({ debugOpen, onDebugOpenChange }: MarkdownNot
     const inlineAIResponseNodeCountsRef = useRef<Record<string, number>>({})
     const inlineAIResponseNodeIndicesRef = useRef<Record<string, number>>({})
     const activeInlineAIRequestIdsRef = useRef<Set<string>>(new Set())
+    const inlineAIRequestStartedAtRef = useRef<Record<string, number>>({})
     const aiPresenceRetainedByPromptRef = useRef(false)
     const aiPresenceActivityVersionRef = useRef(0)
     const aiPresenceDepartureTimeoutRef = useRef<number | null>(null)
@@ -386,6 +388,12 @@ export function MarkdownNotebookV2({ debugOpen, onDebugOpenChange }: MarkdownNot
             ])
             inlineAIResponseNodeCountsRef.current[conversationId] = 1
             inlineAIResponseNodeIndicesRef.current[conversationId] = responseNodeIndex
+            inlineAIRequestStartedAtRef.current[conversationId] = Date.now()
+            // pinned: analytics event name and property names; renaming breaks dashboards
+            posthog.capture(
+                'notebook inline ai requested',
+                buildNotebookInlineAIRequestedEvent(inlineAIRequest, notebook?.short_id ?? shortId)
+            )
         },
         [markAIPresenceActive, notebook?.short_id, notebook?.title, shortId]
     )
@@ -614,8 +622,27 @@ export function MarkdownNotebookV2({ debugOpen, onDebugOpenChange }: MarkdownNot
         [updateMarkdownEditorValue]
     )
 
+    const captureInlineAIFinished = useCallback(
+        (request: InlineNotebookAIRequest, completion: InlineAICompletion): void => {
+            // pinned: analytics event name and property names; renaming breaks dashboards
+            posthog.capture(
+                'notebook inline ai finished',
+                buildNotebookInlineAIFinishedEvent(
+                    request,
+                    completion,
+                    notebook?.short_id ?? shortId,
+                    inlineAIRequestStartedAtRef.current[request.conversationId],
+                    Date.now()
+                )
+            )
+            delete inlineAIRequestStartedAtRef.current[request.conversationId]
+        },
+        [notebook?.short_id, shortId]
+    )
+
     const handleInlineAIComplete = useCallback(
         (request: InlineNotebookAIRequest, completion: InlineAICompletion): void => {
+            captureInlineAIFinished(request, completion)
             if (completion.kind !== 'assistant' && completion.kind !== 'artifact' && !completion.hasArtifact) {
                 const replacedNodeCount = inlineAIResponseNodeCountsRef.current[request.conversationId] ?? 1
                 updateMarkdownEditorValue((currentMarkdown) => {
@@ -652,11 +679,12 @@ export function MarkdownNotebookV2({ debugOpen, onDebugOpenChange }: MarkdownNot
                 )
             }, 0)
         },
-        [markAIPresenceInactive, retainAIPresenceForPrompt, updateMarkdownEditorValue]
+        [captureInlineAIFinished, markAIPresenceInactive, retainAIPresenceForPrompt, updateMarkdownEditorValue]
     )
 
     const handleInlineAIError = useCallback(
         (request: InlineNotebookAIRequest, completion: InlineAICompletion): void => {
+            captureInlineAIFinished(request, completion)
             const replacedNodeCount = inlineAIResponseNodeCountsRef.current[request.conversationId] ?? 1
             updateMarkdownEditorValue((currentMarkdown) => {
                 const result = replaceNotebookAIResponseMarkdown(
@@ -677,7 +705,7 @@ export function MarkdownNotebookV2({ debugOpen, onDebugOpenChange }: MarkdownNot
                 currentRequests.filter((currentRequest) => currentRequest.conversationId !== request.conversationId)
             )
         },
-        [markAIPresenceInactive, updateMarkdownEditorValue]
+        [captureInlineAIFinished, markAIPresenceInactive, updateMarkdownEditorValue]
     )
 
     const aiWritingNodeIndexes = useMemo(
