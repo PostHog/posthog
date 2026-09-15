@@ -2779,6 +2779,11 @@ class ScoutOrigin(models.TextChoices):
     CUSTOM = "custom", "custom"
 
 
+class ScoutRole(models.TextChoices):
+    SPECIALIST = "specialist", "specialist"
+    OPERATIONAL = "operational", "operational"
+
+
 class SignalScoutConfigSerializer(serializers.ModelSerializer):
     """Read shape for a per-(team, skill) scout config.
 
@@ -2804,6 +2809,15 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
             "(seeded from `products/signals/skills/`), or `custom` for one a team hand-authored "
             "on this project. Use it to badge built-in vs custom scouts instead of a hardcoded "
             "name list. Defaults to `custom` if the skill is not currently present on the team."
+        ),
+    )
+    scout_role = serializers.SerializerMethodField(
+        help_text=(
+            "What this scout is to the harness: `specialist` for one that watches a product "
+            "surface, or `operational` for one PostHog ships to watch the self-driving system "
+            "itself. An operational scout is exempt from the inactivity sweep and from the "
+            "enabled-scout cap, and is not a scout a project should delete. Always `specialist` "
+            "for a custom scout."
         ),
     )
     owners = serializers.SerializerMethodField(
@@ -2963,6 +2977,13 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
         info = (self.context.get("skill_info") or {}).get(obj.skill_name)
         return info.origin if info else "custom"
 
+    @extend_schema_field(serializers.ChoiceField(choices=ScoutRole.choices))
+    def get_scout_role(self, obj: SignalScoutConfig) -> str:
+        # Same single-query `skill_info` map as `get_description`. A config with no skill row has
+        # no canonical scout behind it, so it cannot be operational.
+        info = (self.context.get("skill_info") or {}).get(obj.skill_name)
+        return info.role if info else "specialist"
+
     @extend_schema_field(UserBasicSerializer(many=True))
     def get_owners(self, obj: SignalScoutConfig) -> list[dict[str, Any]]:
         # A scout joins to its skill by name, which is also the key `LLMSkillOwner` uses, so the
@@ -2980,6 +3001,7 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
             "description",
             "display_name",
             "scout_origin",
+            "scout_role",
             "owners",
             "enabled",
             "status",
