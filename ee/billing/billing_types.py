@@ -33,7 +33,9 @@ UsageType = Literal[
     "sandbox_compute_memory_mib_seconds_in_period",
     "workflow_emails_sent_in_period",
     "workflow_billable_invocations_in_period",
+    "logs_and_traces_mb_in_period",
     "logs_mb_in_period",
+    "apm_tracing_mb_in_period",
     "logs_retention_30d_mb_in_period",
     "replay_vision_credits_used_in_period",
     "data_pipelines",
@@ -78,7 +80,9 @@ USAGE_TYPE_OPTIONS: tuple[UsageTypeOption, ...] = (
     {"label": "Replay vision credits", "value": "replay_vision_credits_used_in_period"},
     {"label": "Workflow emails", "value": "workflow_emails_sent_in_period"},
     {"label": "Workflow destinations", "value": "workflow_billable_invocations_in_period"},
+    {"label": "Logs and traces ingested (MB)", "value": "logs_and_traces_mb_in_period"},
     {"label": "Logs ingested (MB)", "value": "logs_mb_in_period"},
+    {"label": "APM traces ingested (MB)", "value": "apm_tracing_mb_in_period"},
     {"label": "Logs 30-day retention (MB)", "value": "logs_retention_30d_mb_in_period"},
 )
 
