@@ -27,10 +27,25 @@ function getStylePropertyNames(): string[] {
     return names
 }
 
+/** A 1x1 transparent GIF. */
+const BLANK_IMAGE = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'
+
+/** Budget for all the resource fetches of one capture, since the library takes a single request init. */
+const RESOURCE_FETCH_TIMEOUT_MS = 15000
+
 /** Rasterizes a live DOM element to an image blob. Throws when the element renders to nothing. */
 export async function captureElementImage(element: HTMLElement, options?: CaptureImageOptions): Promise<Blob> {
     const blob = await toBlob(element, {
         includeStyleProperties: getStylePropertyNames(),
+        // html-to-image inlines every image it finds. Its default for one it cannot fetch is an empty
+        // `src`, which makes the clone fire `error` and rejects the whole capture with a raw DOM Event.
+        imagePlaceholder: BLANK_IMAGE,
+        // A resource that answers with something the browser cannot decode fails the same way after
+        // the placeholder. Leave that one image blank instead of losing the capture.
+        onImageErrorHandler: () => {},
+        // The library fetches every resource without a timeout, so a host that accepts the connection
+        // and never answers leaves the capture pending forever. An aborted fetch takes the placeholder.
+        fetchRequestInit: { signal: AbortSignal.timeout(RESOURCE_FETCH_TIMEOUT_MS) },
         ...options,
     })
 
