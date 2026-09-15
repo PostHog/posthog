@@ -36,7 +36,24 @@ PAUSED_BY_STAFF: Final[str] = "staff"
 
 
 class StaffPausedError(Exception):
-    """A customer tried to resume a pause staff placed. Only staff may clear it."""
+    """A customer tried to resume a pause only staff may clear."""
+
+
+def pause_requires_staff(*, paused_at: datetime | None, paused_by: str, resumed_at: datetime | None) -> bool:
+    """Whether only staff can clear this pause.
+
+    Staff pauses always. Automatic pauses too when they landed within the repeat window of the
+    previous resume: the workflow already got its self-serve second chance and re-tripped, so
+    polling the resume endpoint cannot keep a spammy workflow sending indefinitely.
+    """
+    if paused_at is None:
+        return False
+    if paused_by == PAUSED_BY_STAFF:
+        return True
+    if resumed_at is None:
+        return False
+    window = timedelta(days=settings.WORKFLOW_EMAIL_AUTO_PAUSE_REPEAT_WINDOW_DAYS)
+    return paused_at - resumed_at <= window
 
 
 Signal = Literal["complaint", "bounce"]
@@ -397,11 +414,14 @@ def pause_workflow_email_sending(
         flow = (
             HogFlow.objects.select_for_update()
             .filter(id=hog_flow_id, team_id=team_id)
-            .only("id", "team_id", "email_sending_paused_at")
+            .only("id", "team_id", "email_sending_paused_at", "email_sending_resumed_at")
             .first()
         )
         if flow is None or flow.email_sending_paused_at is not None:
             return False
+        # A pause landing inside the repeat window of the previous resume is staff-resumable only,
+        # and its email must not point the customer at a resume button that will refuse them.
+        staff_only = pause_requires_staff(paused_at=now, paused_by=paused_by, resumed_at=flow.email_sending_resumed_at)
         # A queryset update rather than save: the post_save signal publishes the worker reload
         # immediately, and inside this transaction that is before the pause commits, so a worker
         # could reload, read the still-unpaused row, and cache it for minutes. The explicit publish
@@ -426,7 +446,8 @@ def pause_workflow_email_sending(
                 hog_flow_name=hog_flow_name,
                 reason=reason,
                 paused_at=now.isoformat(),
-                resumable=paused_by != PAUSED_BY_STAFF,
+                resumable=not staff_only,
+                staff_pause=paused_by == PAUSED_BY_STAFF,
             )
         )
     return True
@@ -582,12 +603,16 @@ def resume_workflow_email_sending(flow: HogFlow, *, actor: str = "customer", now
         locked = (
             HogFlow.objects.select_for_update()
             .filter(id=flow.id, team_id=flow.team_id)
-            .only("id", "team_id", "email_sending_paused_at", "email_sending_paused_by")
+            .only("id", "team_id", "email_sending_paused_at", "email_sending_paused_by", "email_sending_resumed_at")
             .first()
         )
         if locked is None or locked.email_sending_paused_at is None:
             return False
-        if actor != PAUSED_BY_STAFF and locked.email_sending_paused_by == PAUSED_BY_STAFF:
+        if actor != PAUSED_BY_STAFF and pause_requires_staff(
+            paused_at=locked.email_sending_paused_at,
+            paused_by=locked.email_sending_paused_by,
+            resumed_at=locked.email_sending_resumed_at,
+        ):
             raise StaffPausedError("Only PostHog staff can resume this pause.")
         # Queryset update for the same reason as the pause writer: the reload must publish only
         # once the resume is committed.

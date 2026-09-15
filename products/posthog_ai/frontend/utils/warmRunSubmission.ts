@@ -1,7 +1,7 @@
+import type { DisposablesManager } from 'kea-disposables'
+
 import { ApiError } from 'lib/api-error'
 import { uuid } from 'lib/utils/dom'
-
-import type { DisposablesManager } from '~/kea-disposables'
 
 async function abortable<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
     let abort = (): void => {}

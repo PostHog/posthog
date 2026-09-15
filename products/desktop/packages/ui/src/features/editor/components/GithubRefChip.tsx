@@ -91,7 +91,7 @@ export const GithubRefChipLink = forwardRef<
         // overflow-hidden: nothing in the content box shrinks below its
         // content size, so a long preserved number would otherwise paint past
         // the chip edge.
-        "cli-file-mention focus-visible:-outline-offset-1 mx-0.5 inline-block max-w-full cursor-pointer! select-text overflow-hidden whitespace-nowrap pl-1.5 align-baseline leading-[1.375rem] no-underline",
+        "cli-file-mention focus-visible:-outline-offset-1 mx-0.5 inline-block max-w-full cursor-pointer! select-text overflow-hidden whitespace-nowrap pl-1.5 align-middle leading-[1.375rem] no-underline",
         buttonProps.className,
       )}
     >

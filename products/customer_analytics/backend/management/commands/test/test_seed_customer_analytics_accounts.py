@@ -13,6 +13,7 @@ from posthog.persons_seed import insert_seed_group
 from products.customer_analytics.backend.models.account import Account
 from products.customer_analytics.backend.models.relationship import AccountRelationship
 from products.customer_analytics.backend.models.team_customer_analytics_config import TeamCustomerAnalyticsConfig
+from products.notebooks.backend.facade.content import is_markdown_notebook_content
 from products.notebooks.backend.models import Notebook, ResourceNotebook
 
 pytestmark = pytest.mark.persons_db_direct
@@ -79,6 +80,7 @@ class TestSeedCustomerAnalyticsAccounts(BaseTest):
         notebooks = Notebook.objects.filter(resources__account__team_id=self.team.pk)
         assert notebooks.count() == 4
         assert all(notebook.visibility == Notebook.Visibility.INTERNAL for notebook in notebooks)
+        assert all(is_markdown_notebook_content(notebook.content) for notebook in notebooks)
         accounts_with_notes = set(
             ResourceNotebook.objects.filter(account__team_id=self.team.pk).values_list("account_id", flat=True)
         )

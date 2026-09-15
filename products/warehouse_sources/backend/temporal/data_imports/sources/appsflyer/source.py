@@ -62,6 +62,9 @@ class AppsFlyerSource(SimpleSource[AppsFlyerSourceConfig]):
             # used up, the date range predates the raw-data lookback limit, or the row cap is
             # invalid. None of those change if we send the identical call again.
             "400 Client Error: Bad Request for url: https://hq1.appsflyer.com": "AppsFlyer rejected the report request. Your account's daily quota for this report may be used up, which resets at 00:00 UTC. Otherwise please check that your subscription includes this report.",
+            # Raw-data pulls redirect to a signed download URL on this host once the request is
+            # accepted, so a raw-data rejection surfaces here instead of on hq1.appsflyer.com.
+            "400 Client Error: Bad Request for url: https://rawdata.appsflyer.com": "AppsFlyer rejected the report request. Your account's daily quota for this report may be used up, which resets at 00:00 UTC. Otherwise please check that your subscription includes this report.",
             # AppsFlyer overloads 416 as a catch-all for request/authorization validation failures on
             # the aggregate Pull API (e.g. the account isn't authorized for this report or app id). The
             # request shape is fixed, so retrying the identical call can never satisfy it.
@@ -78,7 +81,7 @@ class AppsFlyerSource(SimpleSource[AppsFlyerSourceConfig]):
 
 You can find your API token (V2) in AppsFlyer under your account menu > Security center > AppsFlyer API tokens. The app id is your app's identifier as shown in the dashboard (e.g. `id123456789` for iOS or the package name for Android). Add one source per app.
 
-Raw data tables (installs, in-app events and ad revenue) and the Master API report need an AppsFlyer subscription that covers them, and AppsFlyer limits raw data to the last 90 days.""",
+Raw data tables (installs, in-app events, uninstalls, retargeting conversions, ad revenue and the Protect360 fraud reports) and the Master API report need an AppsFlyer subscription that covers them. Protect360 is a separate add-on. AppsFlyer limits raw data to the last 90 days.""",
             iconPath="/static/services/appsflyer.png",
             docsUrl="https://posthog.com/docs/cdp/sources/appsflyer",
             releaseStatus=ReleaseStatus.ALPHA,

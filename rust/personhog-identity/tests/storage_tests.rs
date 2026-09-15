@@ -152,7 +152,10 @@ async fn creates_stub_with_deterministic_uuid_and_version_zero() {
     assert!(created);
     assert_eq!(person.uuid, person_uuid(ctx.team_id, "user-1"));
     assert_eq!(person.version, Some(0));
-    assert_eq!(person.properties.as_deref(), Some("{}"));
+    assert!(
+        person.properties.is_none(),
+        "identity never reads properties; the leader owns them"
+    );
     assert!(!person.is_identified);
     assert_eq!(
         person.created_at,
@@ -553,7 +556,6 @@ async fn deleted_person_is_revived_above_the_tombstone_on_recreate() {
     assert!(created, "a revival is a creation to the caller");
     assert_eq!(person.id, person_id, "revival keeps the row, not a new one");
     assert_eq!(person.version, Some(8), "revived above the tombstone");
-    assert_eq!(person.properties.as_deref(), Some("{}"));
     assert_eq!(
         ctx.distinct_id_state("revive-me").await,
         Some((person_id, false, Some(4))),

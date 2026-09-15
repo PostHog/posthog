@@ -3028,6 +3028,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "common-sqlx-macros"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.117",
+]
+
+[[package]]
 name = "common-temporal"
 version = "0.1.0"
 dependencies = [
@@ -8724,10 +8733,10 @@ dependencies = [
  "common-alloc",
  "common-database",
  "common-metrics",
+ "common-sqlx-macros",
  "envconfig",
  "futures",
  "lifecycle",
- "metrics",
  "metrics-exporter-prometheus",
  "personhog-common",
  "personhog-proto",
@@ -9334,7 +9343,7 @@ dependencies = [
 
 [[package]]
 name = "posthog-replay-anonymizer"
-version = "0.6.2"
+version = "0.7.1"
 dependencies = [
  "ahash 0.8.12",
  "anyhow",
