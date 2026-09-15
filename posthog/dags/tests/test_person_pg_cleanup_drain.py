@@ -314,6 +314,63 @@ def test_a_run_that_ends_mid_trim_keeps_its_progress_and_leaves_the_row(
 
 
 @pytest.mark.django_db
+def test_a_given_up_person_does_not_count_toward_the_outage_detector(
+    cluster: ClickhouseCluster, persons_database, monkeypatch
+):
+    # One person fails every attempt and is stamped; the next fails once, then succeeds. With
+    # max_consecutive_failures=4 the stamped person's three failures must not carry over, or that
+    # one later failure would end the run as an outage.
+    fake = get_active_fake()
+    bad, good = seed_tombstoned(fake, TEAM_A, 1), seed_tombstoned(fake, TEAM_A, 2)
+    queue(persons_database, [(TEAM_A, bad, SWEEP_1), (TEAM_A, good, SWEEP_1)])
+    original = fake.delete_tombstoned_persons
+    good_failures = [grpc.StatusCode.UNAVAILABLE]
+
+    def failing(
+        request: DeleteTombstonedPersonsRequest, timeout: float | None = None
+    ) -> DeleteTombstonedPersonsResponse:
+        if bad in request.person_uuids:
+            raise _RpcError(grpc.StatusCode.UNAVAILABLE)
+        if good_failures:
+            raise _RpcError(good_failures.pop())
+        return original(request, timeout=timeout)
+
+    monkeypatch.setattr(fake, "delete_tombstoned_persons", failing)
+
+    result = run_job(cluster, rpc_batch_size=1, max_consecutive_failures=4)
+
+    assert result.success
+    [(team_id, person_uuid, _, blocked_at)] = queued(persons_database)
+    assert (team_id, person_uuid) == (TEAM_A, bad)
+    assert blocked_at is not None
+    assert not present(fake, TEAM_A, good)
+    assert (totals_of(result).persons_rpc_failed, totals_of(result).persons_deleted) == (1, 1)
+
+
+@pytest.mark.django_db
+def test_persons_given_up_on_in_a_row_fail_the_run_as_an_outage(
+    cluster: ClickhouseCluster, persons_database, monkeypatch
+):
+    # Every request fails, but each person travels alone, so the attempt counter resets on every
+    # stamp. The give-up counter is what has to notice that personhog is down.
+    fake = get_active_fake()
+    uuids = sorted(seed_tombstoned(fake, TEAM_A, person_id) for person_id in range(1, 4))
+    queue(persons_database, [(TEAM_A, uuid, SWEEP_1) for uuid in uuids])
+    fail_with(monkeypatch, fake, [grpc.StatusCode.UNAVAILABLE] * 50)
+
+    result = run_job(
+        cluster, rpc_batch_size=1, max_consecutive_failures=10, max_consecutive_give_ups=2, raise_on_error=False
+    )
+
+    assert not result.success
+    stamped = [row[1] for row in queued(persons_database) if row[3] is not None]
+    assert stamped == uuids[:2], "two persons were stamped, then the run failed before the third"
+    failure = result.failure_data_for_node(OP)
+    assert failure is not None and failure.user_failure_data is not None
+    assert "personhog looks unavailable" in (failure.user_failure_data.description or "")
+
+
+@pytest.mark.django_db
 def test_a_trim_that_keeps_failing_stamps_the_row_and_the_run_moves_on(
     cluster: ClickhouseCluster, persons_database, monkeypatch
 ):
@@ -452,6 +509,8 @@ def test_rows_from_two_sweeps_are_sent_separately_and_a_requeued_row_survives(
         [(TEAM_A, requeued, SWEEP_2, None), (TEAM_A, requeued_blocked, SWEEP_2, None)], key=lambda row: row[1]
     )
     assert totals_of(result).queue_rows_deleted == 2
+    # The stamp the guard refused must not count toward max_blocked either.
+    assert (totals_of(result).rows_stamped_blocked, totals_of(result).blocked_sample) == (0, [])
 
 
 @pytest.mark.django_db
@@ -662,6 +721,7 @@ def test_pauses_after_every_request_by_pause_ms_plus_latency(cluster: Clickhouse
         ({"page_size": 0}, "page_size must be between"),
         ({"trim_batch_rows": drain.TRIM_MAX_ROWS + 1}, "trim_batch_rows must be between"),
         ({"max_attempts_per_person": 0}, "must be positive"),
+        ({"max_consecutive_give_ups": 0}, "must be positive"),
         ({"max_blocked": -1}, "must not be negative"),
     ],
 )

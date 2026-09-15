@@ -121,12 +121,17 @@ class DrainConfig(dagster.Config):
     )
     max_consecutive_failures: int = pydantic.Field(
         default=5,
-        description="Failed personhog attempts in a row, across requests, before the run fails. One person that "
-        "keeps failing is isolated by splitting and stamped blocked_at, which does not trip this; an outage does.",
+        description="Failed personhog attempts in a row, across requests, before the run fails. Giving up on one "
+        "person resets it, so an isolated failure never trips it; an outage does.",
     )
     max_attempts_per_person: int = pydantic.Field(
         default=3,
         description="Attempts for a single-person request before its row is stamped blocked_at and the run moves on.",
+    )
+    max_consecutive_give_ups: int = pydantic.Field(
+        default=3,
+        description="Persons given up on in a row, with no successful request in between, before the run fails. "
+        "One is an isolated bad person; several in a row is personhog failing every request.",
     )
     retry_backoff_seconds: float = pydantic.Field(
         default=2.0,
@@ -155,9 +160,18 @@ class DrainConfig(dagster.Config):
             raise ValueError(f"trim_batch_rows must be between 1 and {TRIM_MAX_ROWS}")
         if self.max_persons < 0 or self.pause_ms < 0 or self.latency_multiplier < 0 or self.blocked_retry_hours < 0:
             raise ValueError("max_persons, pause_ms, latency_multiplier and blocked_retry_hours must not be negative")
-        if self.max_runtime_seconds <= 0 or self.max_consecutive_failures <= 0 or self.max_attempts_per_person <= 0:
+        if (
+            min(
+                self.max_runtime_seconds,
+                self.max_consecutive_failures,
+                self.max_attempts_per_person,
+                self.max_consecutive_give_ups,
+            )
+            <= 0
+        ):
             raise ValueError(
-                "max_runtime_seconds, max_consecutive_failures and max_attempts_per_person must be positive"
+                "max_runtime_seconds, max_consecutive_failures, max_attempts_per_person and max_consecutive_give_ups "
+                "must be positive"
             )
         if self.retry_backoff_seconds < 0 or self.max_blocked < 0:
             raise ValueError("retry_backoff_seconds and max_blocked must not be negative")
@@ -359,9 +373,10 @@ def _delete_queue_rows(cursor: psycopg2.extensions.cursor, chunk: Chunk, person_
     return cursor.rowcount
 
 
-def _mark_blocked(cursor: psycopg2.extensions.cursor, chunk: Chunk, person_uuids: Sequence[str]) -> None:
+def _mark_blocked(cursor: psycopg2.extensions.cursor, chunk: Chunk, person_uuids: Sequence[str]) -> list[str]:
+    """Stamp the rows and return the uuids actually stamped."""
     if not person_uuids:
-        return
+        return []
     # Same deleted_at guard as the delete: a row the sweep re-queued mid-flight belongs to a newer
     # tombstone, and stamping it blocked on this stale answer would park it for the retry window.
     cursor.execute(
@@ -369,9 +384,11 @@ def _mark_blocked(cursor: psycopg2.extensions.cursor, chunk: Chunk, person_uuids
         UPDATE {PG_CLEANUP_QUEUE_TABLE}
         SET blocked_at = now()
         WHERE team_id = %s AND deleted_at = %s AND person_uuid = ANY(%s::uuid[])
+        RETURNING person_uuid
         """,
         (chunk.team_id, chunk.deleted_at, list(person_uuids)),
     )
+    return [str(person_uuid) for (person_uuid,) in cursor.fetchall()]
 
 
 def _queue_rows_estimate(cursor: psycopg2.extensions.cursor) -> int:
@@ -419,6 +436,7 @@ class _Drain:
         self.connection = connection
         self.totals = DrainTotals()
         self.consecutive_failures = 0
+        self.consecutive_give_ups = 0
         self.deadline = _now_monotonic() + config.max_runtime_seconds
         self.blocked_before = datetime.now(UTC) - timedelta(hours=config.blocked_retry_hours)
 
@@ -529,6 +547,7 @@ class _Drain:
                 ) from exc
             raise _AttemptFailed(code) from exc
         self.consecutive_failures = 0
+        self.consecutive_give_ups = 0
         self.totals.rpc_calls += 1
         self.totals.rpc_seconds.append(time.perf_counter() - started)
         return response
@@ -576,9 +595,19 @@ class _Drain:
             self.config.max_attempts_per_person,
             _code_name(code),
         )
+        # This person's failures are accounted for by its stamp; only persons given up on in a row
+        # still speak for personhog as a whole.
+        self.consecutive_failures = 0
+        self.consecutive_give_ups += 1
         self.totals.chunks += 1
         self.totals.persons_rpc_failed += 1
         self.stamp_blocked(chunk, "rpc_failed", [uuid])
+        if self.consecutive_give_ups >= self.config.max_consecutive_give_ups:
+            raise dagster.Failure(
+                f"{self.consecutive_give_ups} persons in a row could not be resolved after "
+                f"{self.config.max_attempts_per_person} attempts each ({_code_name(code)}); personhog looks unavailable",
+                metadata={**self.totals.as_metadata(), **_chunk_metadata(chunk)},
+            )
 
     def apply(self, chunk: Chunk, response: DeleteTombstonedPersonsResponse, trim_oversized: bool) -> None:
         blocked = sorted(response.blocked_person_uuids)
@@ -641,10 +670,10 @@ class _Drain:
                 return
 
     def stamp_blocked(self, chunk: Chunk, reason: str, uuids: Sequence[str]) -> None:
-        self.totals.rows_stamped_blocked += len(uuids)
+        stamped = self.timed_pg(lambda cursor: _mark_blocked(cursor, chunk, list(uuids)))
+        self.totals.rows_stamped_blocked += len(stamped)
         room = max(0, BLOCKED_SAMPLE_SIZE - len(self.totals.blocked_sample))
-        self.totals.blocked_sample.extend(f"{reason}:{uuid}" for uuid in list(uuids)[:room])
-        self.timed_pg(lambda cursor: _mark_blocked(cursor, chunk, list(uuids)))
+        self.totals.blocked_sample.extend(f"{reason}:{uuid}" for uuid in stamped[:room])
         self.check_blocked_budget(chunk)
 
     def check_blocked_budget(self, chunk: Chunk) -> None:
