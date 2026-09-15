@@ -199,7 +199,7 @@ patchedDependencies:
     hash: d95e6638894935a75bd93b60b5243cb825892a1eedcc4c9a125a3e7dce8b64f0
     path: patches/heatmap.js@2.0.5.patch
   html-to-image@1.11.13:
-    hash: b5ef0f0d8981102582c6e00291d825a69f7bd602b509b101cce1990c43349078
+    hash: 5b5713b851c489ba60d8eddf8c513d9f2b371f4bbe841db1ad051d042aed8855
     path: patches/html-to-image@1.11.13.patch
   kea@4.0.0-pre.6:
     hash: 139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5
@@ -1072,7 +1072,7 @@ importers:
         version: 1.5.15
       html-to-image:
         specifier: ^1.11.13
-        version: 1.11.13(patch_hash=b5ef0f0d8981102582c6e00291d825a69f7bd602b509b101cce1990c43349078)
+        version: 1.11.13(patch_hash=5b5713b851c489ba60d8eddf8c513d9f2b371f4bbe841db1ad051d042aed8855)
       husky:
         specifier: 'catalog:'
         version: 7.0.4
@@ -37683,7 +37683,7 @@ snapshots:
 
   html-tags@3.3.1: {}
 
-  html-to-image@1.11.13(patch_hash=b5ef0f0d8981102582c6e00291d825a69f7bd602b509b101cce1990c43349078): {}
+  html-to-image@1.11.13(patch_hash=5b5713b851c489ba60d8eddf8c513d9f2b371f4bbe841db1ad051d042aed8855): {}
 
   html-url-attributes@3.0.1: {}
 
