@@ -136,3 +136,98 @@ export function isPromptTooLongError(error: unknown): boolean {
     /API Error:\s*413\b/i.test(message)
   );
 }
+
+// A provider rate limit arrives as a 429 inside `upstream_provider_failure`, the
+// same classification as a 5xx. The two need different retry schedules: a 5xx is a
+// blip that clears in seconds, a rate limit holds for a window, so the sanitized
+// cause is re-read here to tell them apart.
+const UPSTREAM_RATE_LIMIT_STATUS_PATTERN =
+  /(?:API Error:\s*|unexpected status\s*)429\b/i;
+
+export function isUpstreamRateLimitFailure(
+  classification: AgentErrorClassification,
+  cause: string | undefined,
+): boolean {
+  return (
+    classification === "upstream_provider_failure" &&
+    !!cause &&
+    UPSTREAM_RATE_LIMIT_STATUS_PATTERN.test(cause)
+  );
+}
+
+/**
+ * A provider's own "wait this long" hint, in milliseconds, or null when it sent
+ * none. OpenAI puts it in the 429 body ("Please try again in 1.5s"); a
+ * retry-after header survives when an adapter inlines it into the message. Only
+ * the raw message carries this — sanitizeAgentErrorCause strips the body down to
+ * the bare status, so callers must pass the unsanitized text.
+ */
+export function parseUpstreamRetryAfterMs(
+  message: string | undefined,
+): number | null {
+  if (!message) return null;
+  const header = message.match(/retry-after(?:-ms)?["'\s:=]+(\d+(?:\.\d+)?)/i);
+  if (header) {
+    const value = Number(header[1]);
+    // `retry-after-ms` is already milliseconds; bare `retry-after` is seconds.
+    return /retry-after-ms/i.test(header[0]) ? value : value * 1000;
+  }
+  const prose = message.match(
+    /try again in\s+(\d+(?:\.\d+)?)\s*(ms|milliseconds?|s|secs?|seconds?|m|mins?|minutes?)\b/i,
+  );
+  if (prose) {
+    const value = Number(prose[1]);
+    const unit = prose[2].toLowerCase();
+    if (unit.startsWith("ms") || unit.startsWith("milli")) return value;
+    if (unit.startsWith("m")) return value * 60_000;
+    return value * 1000;
+  }
+  return null;
+}
+
+// Retry schedule for a transient upstream failure. A 5xx keeps the short delay
+// this loop was tuned for; a rate limit gets a longer, growing one, because the
+// limit window outlives a few seconds and retrying inside it just burns the
+// budget. Jitter is what keeps the concurrent unattended runs of one deployment
+// from retrying in lockstep and re-tripping the same account-wide limit together.
+const UPSTREAM_RETRY_BASE_DELAY_MS = 5_000;
+const UPSTREAM_RATE_LIMIT_BASE_DELAY_MS = 20_000;
+// Per-wait ceiling. The unattended turn budget has to stay well under the
+// dropped-finalization salvage floor (STALE_TURN_SALVAGE_SECONDS, 300s), so a
+// backed-off turn is never mistaken for one that fell silent.
+const UPSTREAM_RETRY_MAX_DELAY_MS = 45_000;
+
+/**
+ * How long to wait before retry number `attempt` (1-based) of a turn that hit
+ * `classification`. `message` is the raw, unsanitized error text, read only for
+ * a provider retry-after hint. `random` is injectable so tests can pin jitter.
+ *
+ * A provider's own hint wins over the computed backoff when it asks for longer:
+ * it knows when the window clears, and honoring a shorter one would retry while
+ * the limit still holds.
+ */
+export function upstreamRetryDelayMs({
+  classification,
+  attempt,
+  cause,
+  message,
+  random = Math.random,
+}: {
+  classification: AgentErrorClassification;
+  attempt: number;
+  cause?: string;
+  message?: string;
+  random?: () => number;
+}): number {
+  const rateLimited = isUpstreamRateLimitFailure(classification, cause);
+  const base = rateLimited
+    ? UPSTREAM_RATE_LIMIT_BASE_DELAY_MS
+    : UPSTREAM_RETRY_BASE_DELAY_MS;
+  const exponential = base * 2 ** Math.max(0, attempt - 1);
+  const hinted = rateLimited ? parseUpstreamRetryAfterMs(message) : null;
+  const target = Math.max(exponential, hinted ?? 0);
+  const capped = Math.min(target, UPSTREAM_RETRY_MAX_DELAY_MS);
+  // Decorrelated jitter over the lower half of the window, so every run still
+  // waits a useful minimum but no two wake at the same instant.
+  return Math.round(capped * (0.5 + 0.5 * random()));
+}

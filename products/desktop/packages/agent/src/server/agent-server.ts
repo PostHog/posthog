@@ -74,7 +74,9 @@ import {
   classifyAgentError,
   isPromptTooLongError,
   isRetryableUpstreamErrorClassification,
+  isUpstreamRateLimitFailure,
   sanitizeAgentErrorCause,
+  upstreamRetryDelayMs,
 } from "../adapters/error-classification";
 import { GH_STACK_QUALIFIED_TOOL_NAME } from "../adapters/local-tools/tools/gh-stack";
 import { isSupportedReasoningEffort } from "../adapters/reasoning-effort";
@@ -199,9 +201,12 @@ export const SSE_KEEPALIVE_INTERVAL_MS = 25_000;
 
 // Bounded per-turn retries for unattended (initial/resume) turns that hit a
 // transient upstream failure. Two covers a retry whose own attempt also gets
-// cut once, without letting a hard upstream outage loop forever.
+// cut once, without letting a hard upstream outage loop forever. A provider rate
+// limit gets one more, because it clears on the provider's window rather than
+// immediately, and the backoff that rides it out is longer per attempt (see
+// upstreamRetryDelayMs).
 const MAX_UPSTREAM_TURN_RETRIES = 2;
-const UPSTREAM_TURN_RETRY_DELAY_MS = 5_000;
+const MAX_UPSTREAM_RATE_LIMIT_TURN_RETRIES = 3;
 const PENDING_ARTIFACT_MAX_ATTEMPTS = 4;
 const PENDING_ARTIFACT_RETRY_DELAY_MS = 500;
 
@@ -2600,7 +2605,10 @@ export class AgentServer {
         const accumulatedUsage = mergeUsage(retryUsage, usage);
         const retryable =
           isRetryableUpstreamErrorClassification(classification);
-        if (!retryable || retries >= MAX_UPSTREAM_TURN_RETRIES) {
+        const maxRetries = isUpstreamRateLimitFailure(classification, cause)
+          ? MAX_UPSTREAM_RATE_LIMIT_TURN_RETRIES
+          : MAX_UPSTREAM_TURN_RETRIES;
+        if (!retryable || retries >= maxRetries) {
           if (recordFailedUsage && this.session === originatingSession) {
             await this.recordTurnUsage(
               accumulatedUsage,
@@ -2623,18 +2631,24 @@ export class AgentServer {
         // model; connection/timeout/status failures re-send the original.
         continueInterruptedTurn ||=
           classification === "upstream_stream_terminated" || madeProgress;
+        const delayMs = upstreamRetryDelayMs({
+          classification,
+          attempt: retries,
+          cause,
+          message,
+        });
         this.logger.warn(
-          "Turn hit a transient upstream failure; retrying after a short delay",
+          "Turn hit a transient upstream failure; retrying after a delay",
           {
             classification,
             message,
             attempt: retries,
+            maxRetries,
+            delayMs,
             continueInterruptedTurn,
           },
         );
-        await new Promise((resolve) =>
-          setTimeout(resolve, UPSTREAM_TURN_RETRY_DELAY_MS),
-        );
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
         if (this.session !== originatingSession) {
           throw new Error(
             "Agent session changed before the turn could be retried",
