@@ -38,6 +38,7 @@ from posthog.session_recordings.queries.utils import (
     expand_test_account_filters,
     is_session_property,
     test_account_scoped_query,
+    validate_replay_scope_expr,
 )
 from posthog.types import AnyPropertyFilter
 
@@ -608,7 +609,11 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
         remaining_properties = _strip_person_and_event_and_cohort_properties(self._query.properties)
         if remaining_properties:
             capture_exception(UnexpectedQueryProperties(remaining_properties))
-            optional_exprs.append(property_to_expr(remaining_properties, team=self._team, scope="replay"))
+            remaining_expr = property_to_expr(remaining_properties, team=self._team, scope="replay")
+            validate_replay_scope_expr(
+                remaining_expr, self._team, user=self._user, modifiers=self._hogql_query_modifiers
+            )
+            optional_exprs.append(remaining_expr)
 
         if self._query.console_log_filters:
             console_logs_where_exprs: list[ast.Expr] = [

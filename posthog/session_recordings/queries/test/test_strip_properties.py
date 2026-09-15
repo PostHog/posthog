@@ -1,4 +1,8 @@
+import pytest
+from posthog.test.base import BaseTest
+
 from parameterized import parameterized
+from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
     CohortPropertyFilter,
@@ -8,9 +12,11 @@ from posthog.schema import (
     PersonPropertyFilter,
     PropertyOperator,
     RecordingPropertyFilter,
+    RecordingsQuery,
     SessionPropertyFilter,
 )
 
+from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
 from posthog.session_recordings.queries.utils import (
     UnexpectedQueryProperties,
     _strip_person_and_event_and_cohort_properties,
@@ -99,3 +105,44 @@ class TestStripProperties:
         assert offending_value not in str(exc)
         assert "event" in str(exc)
         assert "$entry_referring_domain" in str(exc)
+
+
+class TestUnexpectedPropertyValidation(BaseTest):
+    @parameterized.expand(
+        [
+            ("event id field", "$session_id = 'abc'", "session_id"),
+            ("events table field", "event = '$pageview'", "event"),
+            (
+                "table qualified field",
+                "raw_session_replay_events.console_error_count > 0",
+                "raw_session_replay_events",
+            ),
+            ("value that cannot match the column type", "person_id = 'abc'", "UUID"),
+        ]
+    )
+    def test_filter_that_cannot_resolve_on_replay_is_rejected(
+        self, _name: str, expression: str, expected_reason: str
+    ) -> None:
+        query = RecordingsQuery(properties=[HogQLPropertyFilter(key=expression)])
+
+        with pytest.raises(ValidationError) as e:
+            SessionRecordingListFromQuery(team=self.team, query=query).get_query()
+
+        detail = str(e.value.detail)
+        assert "properties" in detail
+        assert expected_reason in detail
+        # The event name is a column, not a JSON property, so properties.event would silently
+        # match nothing. The message has to point at the event filter for that case.
+        assert "event filter" in detail
+        assert e.value.get_codes() == {"properties": ["hogql_query_error"]}
+
+    @parameterized.expand(
+        [
+            ("bare field", "console_error_count > 0"),
+            ("alias qualified field", "s.console_error_count > 0"),
+        ]
+    )
+    def test_filter_that_resolves_on_replay_still_builds(self, _name: str, expression: str) -> None:
+        query = RecordingsQuery(properties=[HogQLPropertyFilter(key=expression)])
+
+        assert SessionRecordingListFromQuery(team=self.team, query=query).get_query() is not None

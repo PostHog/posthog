@@ -212,10 +212,15 @@ def resolve_constant_data_type(constant: Any) -> ConstantType:
     raise ImpossibleASTError(f"Unsupported constant type: {type(constant)}")
 
 
-def resolve_table_scope(table_chain: list[str], context: HogQLContext, dialect: HogQLDialect) -> ast.SelectQueryType:
+def resolve_table_scope(
+    table_chain: list[str], context: HogQLContext, dialect: HogQLDialect, alias: str | None = None
+) -> ast.SelectQueryType:
     """Resolve `SELECT * FROM <table_chain>` and return its query scope — the type other expressions
     resolve against to reference the table's columns. Raises `QueryError` if the database/table is
-    unavailable. Caching, if wanted, is the caller's concern."""
+    unavailable. Caching, if wanted, is the caller's concern.
+
+    Pass `alias` when the expressions belong to a query that aliases the table. The scope is keyed
+    by the alias, so a qualified field resolves only under the name that query uses."""
     if context.database is None:
         raise QueryError("Database needs to be defined")
 
@@ -224,7 +229,7 @@ def resolve_table_scope(table_chain: list[str], context: HogQLContext, dialect: 
 
     select_node = ast.SelectQuery(
         select=[ast.Field(chain=["*"])],
-        select_from=ast.JoinExpr(table=ast.Field(chain=cast(list[str | int], table_chain))),
+        select_from=ast.JoinExpr(table=ast.Field(chain=cast(list[str | int], table_chain)), alias=alias),
     )
     select_node_with_types = cast(ast.SelectQuery, resolve_types(select_node, context, dialect))
     assert select_node_with_types.type is not None
@@ -232,9 +237,13 @@ def resolve_table_scope(table_chain: list[str], context: HogQLContext, dialect: 
 
 
 def resolve_types_from_table(
-    expr: ast.Expr, table_chain: list[str], context: HogQLContext, dialect: HogQLDialect
+    expr: ast.Expr,
+    table_chain: list[str],
+    context: HogQLContext,
+    dialect: HogQLDialect,
+    alias: str | None = None,
 ) -> ast.Expr:
-    scope = resolve_table_scope(table_chain, context, dialect)
+    scope = resolve_table_scope(table_chain, context, dialect, alias)
     return resolve_types(expr, context, dialect, [scope])
 
 
