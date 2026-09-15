@@ -10,6 +10,8 @@ User-started Implement runs, interactive runs, manual background runs, manual at
 
 Research receives only verified candidates. It selects the obsolete subset and explains why; the server binds those URLs to their task, exact run, automation receipt, claim, head SHA, and research pass. An unknown URL invalidates the assessment. A report already addressed by other work cannot start a replacement.
 
+The replacement assessment preserves the research pass's fix-verification note. If the replacement assessment fails, the findings and verification note still reach the report, and its existing PR remains open.
+
 ## How reports, tasks, and PRs connect
 
 The existing `task_run` artefact associates a task and run with a report. A `pull_request` artefact links the report to a shared `SignalReportPullRequest` record and carries task and claim attribution. The canonical PR reader also supports legacy links and run outputs. Being linked to a report alone does not prove automatic creation.

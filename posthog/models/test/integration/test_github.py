@@ -90,6 +90,7 @@ class TestParseRepoItemUrl(SimpleTestCase):
         assert GitHubIntegrationBase.parse_pull_request_url(pr_url) is None
         assert GitHubIntegrationBase.parse_issue_url(issue_url) is None
 
+
 class TestPullRequestCommentMarker(SimpleTestCase):
     @parameterized.expand(
         [

@@ -299,20 +299,6 @@ def report_ids_for_implementation_pr(*, team_id: int, repository: str, pr_number
 
 PrCloseReason = Literal["suppressed", "snoozed", "resolved", "superseded"]
 
-# Left on the PR before it's closed, so anyone looking at the PR sees why it was closed and how to undo it.
-_PR_CLOSE_COMMENT_TEMPLATE = (
-    "🔕 Closing this PR because the linked PostHog report was {action}.\n\n"
-    "If that wasn't intended, restore the report in PostHog and reopen this PR."
-)
-_PR_CLOSE_COMMENTS: dict[PrCloseReason, str] = {
-    reason: _PR_CLOSE_COMMENT_TEMPLATE.format(action=reason)
-    for reason in cast(tuple[PrCloseReason, ...], ("suppressed", "snoozed"))
-}
-# A resolved report never reopens, so the undo advice above does not apply to it.
-_PR_CLOSE_COMMENTS["resolved"] = (
-    "🔕 Closing this PR because the linked PostHog report was resolved without it.\n\n"
-    "If that wasn't intended, reopen this PR."
-)
 _SUPERSEDED_COMMENT = (
     "Closing this PR because later research changed the fix. "
     "PostHog completed the replacement implementation: {replacement}.\n\n"
@@ -326,12 +312,35 @@ _SUPERSEDED_COMMENT_NO_URL = (
 )
 
 
-def _pr_close_comment(reason: PrCloseReason, replacement_pr_url: str | None) -> str:
-    if reason != "superseded":
-        return _PR_CLOSE_COMMENTS[reason]
-    if replacement_pr_url:
-        return _SUPERSEDED_COMMENT.format(replacement=replacement_pr_url)
-    return _SUPERSEDED_COMMENT_NO_URL
+def _pr_close_comment(
+    reason: PrCloseReason, *, report_link: str, actor_mention: str | None, replacement_pr_url: str | None = None
+) -> str:
+    """What the PR says about its own close.
+
+    Left on the PR before it closes, so anyone reading the PR sees why it closed, who decided it,
+    and how to undo it. The close itself goes out under the team's GitHub App, so this comment is
+    the only place the person behind it can appear.
+    """
+    if reason == "superseded":
+        return (
+            _SUPERSEDED_COMMENT.format(replacement=replacement_pr_url)
+            if replacement_pr_url
+            else _SUPERSEDED_COMMENT_NO_URL
+        )
+    if reason == "resolved":
+        opening = (
+            f"🔕 Closing this PR because {actor_mention} resolved the {report_link} without it."
+            if actor_mention
+            else f"🔕 Closing this PR because the {report_link} was resolved without it."
+        )
+        # A resolved report never reopens, so the restore advice below does not apply to it.
+        return f"{opening}\n\nIf that wasn't intended, reopen this PR."
+    opening = (
+        f"🔕 Closing this PR because {actor_mention} {reason} the {report_link}."
+        if actor_mention
+        else f"🔕 Closing this PR because the {report_link} was {reason}."
+    )
+    return f"{opening}\n\nIf that wasn't intended, restore the report in PostHog and reopen this PR."
 
 
 def _close_implementation_pr(
@@ -340,6 +349,7 @@ def _close_implementation_pr(
     *,
     reason: PrCloseReason = "suppressed",
     pr: ImplementationPr,
+    actor_user_id: int | None = None,
     replacement_pr_url: str | None = None,
     expected_head_sha: str | None = None,
     comment_marker: str | None = None,
@@ -435,7 +445,12 @@ def _close_implementation_pr(
 
         if expected_head_sha is not None and pr_status.get("head_sha") != expected_head_sha:
             return False
-        comment = _pr_close_comment(reason, replacement_pr_url)
+        comment = _pr_close_comment(
+            reason,
+            report_link=f"[linked PostHog report]({settings.SITE_URL}/project/{team_id}/inbox/reports/{report_id})",
+            actor_mention=github_mention_for_user(actor_user_id),
+            replacement_pr_url=replacement_pr_url,
+        )
         already_commented = False
         if comment_marker:
             found = github.has_pull_request_comment(parsed.repository, parsed.number, comment_marker)
@@ -480,6 +495,7 @@ def close_implementation_pr_for_report(
     report_id: str,
     *,
     reason: PrCloseReason = "suppressed",
+    actor_user_id: int | None = None,
     pr_url: str | None = None,
     replacement_pr_url: str | None = None,
 ) -> bool:
@@ -492,7 +508,12 @@ def close_implementation_pr_for_report(
                 continue
             closed = (
                 _close_implementation_pr(
-                    team_id, report_id, reason=reason, pr=pr, replacement_pr_url=replacement_pr_url
+                    team_id,
+                    report_id,
+                    reason=reason,
+                    pr=pr,
+                    actor_user_id=actor_user_id,
+                    replacement_pr_url=replacement_pr_url,
                 )
                 or closed
             )

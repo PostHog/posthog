@@ -13,10 +13,9 @@ from pydantic import BaseModel, Field, ValidationError, field_validator, model_v
 from products.signals.backend.artefact_schemas import (
     ActionabilityAssessment,
     ActionabilityChoice,
-    NoteArtefact,
-
     ImplementationAssessment,
     ImplementationDecision,
+    NoteArtefact,
     Priority,
     PriorityAssessment,
     SignalFinding,
@@ -1167,8 +1166,6 @@ async def run_multi_turn_research(
         if output_fn:
             output_fn(f"Report title: {presentation_result.title}")
 
-        # Final turn, and only for reports with a path to code work: turn the evidence already
-        # gathered into a short operational check that the downstream implementation can run.
         verification_note: NoteArtefact | None = None
         if actionability_result.actionability != ActionabilityChoice.NOT_ACTIONABLE:
             if output_fn:

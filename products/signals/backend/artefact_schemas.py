@@ -754,7 +754,6 @@ LogArtefactContent = (
     | WorkRelease
     | PullRequestLink
     | CheckResult
-
     | ImplementationReplacement
     | ImplementationHandover
 )

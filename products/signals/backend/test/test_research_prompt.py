@@ -10,8 +10,8 @@ from products.signals.backend.report_generation.research import (
     SignalFinding,
     _render_previous_metrics_context,
     _render_signal_for_research,
-    build_fix_verification_prompt,
     build_actionability_prompt,
+    build_fix_verification_prompt,
     build_initial_research_prompt,
     build_report_presentation_prompt,
     build_signal_investigation_prompt,
@@ -347,6 +347,8 @@ class TestReportPresentationOutputCharts:
 
         assert parsed.charts == []
         assert parsed.summary == "Signups fell 60% over the week."
+
+
 class TestOwnPullRequestCarveOut:
     _PR = "https://github.com/PostHog/posthog/pull/7"
 

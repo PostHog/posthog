@@ -24,9 +24,9 @@ from posthog.temporal.oauth import grants_scratchpad_write
 from products.signals.backend.artefact_schemas import (
     DISMISSAL_REASON_WRONG_REPO,
     Dismissal,
-    NoteArtefact,
     ImplementationAssessment,
     ImplementationTarget,
+    NoteArtefact,
 )
 from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact, SignalScoutNote
 from products.signals.backend.repo_corrections import SCOUT_REPOSITORY_REASON
@@ -1196,6 +1196,7 @@ async def test_run_multi_turn_research_survives_a_failed_supersede_turn(supersed
         "actionability": ActionabilityUpdate(previous_assessment_correct=True),
         "priority": PriorityUpdate(previous_assessment_correct=True),
         "presentation": presentation,
+        "fix_verification": FixVerificationOutput(current_state="Confirm the issue.", outcome="Confirm the fix."),
         "supersede": supersede_outcome,
     }
 
@@ -1235,6 +1236,7 @@ async def test_run_multi_turn_research_survives_a_failed_supersede_turn(supersed
         )
 
     assert (result.title, result.summary) == ("New title", "New summary")
+    assert result.verification_note == by_label["fix_verification"].to_note()
     session.end.assert_awaited_once()
     assert "status" not in session.end.await_args.kwargs
     decided = result.effective_implementation_decision()
@@ -1285,6 +1287,7 @@ async def test_run_multi_turn_research_only_asks_about_the_pr_when_actionable(ac
         ),
         "priority": PriorityUpdate(previous_assessment_correct=True),
         "presentation": ReportPresentationOutput(title="New title", summary="New summary"),
+        "fix_verification": FixVerificationOutput(current_state="Confirm the issue.", outcome="Confirm the fix."),
         "supersede": ImplementationAssessment(
             obsolete_pr_urls=["https://github.com/example/repo/pull/1"], reason="the root cause moved"
         ),
@@ -1326,6 +1329,7 @@ async def test_run_multi_turn_research_only_asks_about_the_pr_when_actionable(ac
 
     assert ("supersede" in asked_labels) is expects_supersede_turn
     assert (result.effective_implementation_decision() is not None) is expects_supersede_turn
+    assert (result.verification_note is not None) is (actionability != ActionabilityChoice.NOT_ACTIONABLE)
 
 
 def test_parse_artefact_content_parses_valid_content():
