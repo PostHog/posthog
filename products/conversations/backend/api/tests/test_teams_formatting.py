@@ -25,10 +25,22 @@ class TestTeamsHtmlToContentAndRichContent(SimpleTestCase):
 
         assert_regex_completes(check)
 
+    def test_dense_complete_tags_finish(self) -> None:
+        def check() -> None:
+            text, rich = teams_html_to_content_and_rich_content("<b>x</b>" * 2_000_000)
+            assert text == "x" * 2_000_000
+            assert rich is not None
+            assert rich["content"][0]["content"][0]["text"] == text
+
+        assert_regex_completes(check)
+
     @parameterized.expand(
         [
             ("upper_case_mention", "before <AT id='1'>Bot</AT> after", "before after"),
             ("mention_newline", "<at>first\nsecond</at>", "first\nsecond"),
+            ("mention_attribute_newline", "before <at\n id='1'>Bot</at> after", "before after"),
+            ("nested_mention_across_newline", "<at>keep <at\n>Bot</at> after", "keep after"),
+            ("empty_and_nested_tags", "a<><<b>x</b><>z", "a<>x<>z"),
             ("unicode_spaces", "one\u00a0\u2003two", "one two"),
             ("unicode_between_tags", "🐗<b>café</b>🦔", "🐗café🦔"),
             ("nested_opener", "before <<b>bold</b>", "before bold"),
