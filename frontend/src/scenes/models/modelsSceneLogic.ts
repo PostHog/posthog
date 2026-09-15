@@ -145,13 +145,9 @@ export const modelsSceneLogic = kea<modelsSceneLogicType>([
          * of repeated failures while the schedule keeps firing.
          */
         suspendedNodes: [
-            (s) => [s.nodes, s.featureFlags],
-            (nodes: DataModelingNode[], featureFlags: FeatureFlagsSet): DataModelingNode[] => {
-                if (!featureFlags[FEATURE_FLAGS.DATA_MODELING_SUSPEND_FAILING_NODES]) {
-                    return []
-                }
-                return nodes.filter((node) => servingSuspension(node.suspended))
-            },
+            (s) => [s.nodes],
+            (nodes: DataModelingNode[]): DataModelingNode[] =>
+                nodes.filter((node) => servingSuspension(node.suspended)),
         ],
         suspensionBySavedQueryId: [
             (s) => [s.suspendedNodes],

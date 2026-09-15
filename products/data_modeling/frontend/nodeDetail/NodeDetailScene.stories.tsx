@@ -1,7 +1,6 @@
 import type { Decorator, Meta, StoryObj } from '@storybook/react'
 import { useEffect, useRef } from 'react'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { NodeDetailScene } from 'scenes/models/NodeDetailScene'
 import { urls } from 'scenes/urls'
 
@@ -133,7 +132,6 @@ const suspension = {
 export const SuspendedWithRunHistory: Story = {
     parameters: {
         pageUrl: urls.nodeDetail(node.id, 'materialization'),
-        featureFlags: [FEATURE_FLAGS.DATA_MODELING_SUSPEND_FAILING_NODES],
         msw: {
             mocks: {
                 get: {

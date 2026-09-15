@@ -2579,37 +2579,20 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
     @parameterized.expand(
         [
             (
-                "enforced",
-                True,
+                "serving_marker",
                 DataModelingJobEngine.CLICKHOUSE,
                 False,
                 [("suspended_view", True), ("retrying_view", False)],
                 True,
             ),
-            ("not_enforced", False, DataModelingJobEngine.CLICKHOUSE, False, [("retrying_view", False)], False),
-            (
-                "shadow_marker_only",
-                True,
-                DataModelingJobEngine.LEGACY_DUCKGRES,
-                False,
-                [("retrying_view", False)],
-                False,
-            ),
-            (
-                "reverted_after_suspension",
-                True,
-                DataModelingJobEngine.CLICKHOUSE,
-                True,
-                [("retrying_view", False)],
-                False,
-            ),
+            ("shadow_marker_only", DataModelingJobEngine.LEGACY_DUCKGRES, False, [("retrying_view", False)], False),
+            ("reverted_after_suspension", DataModelingJobEngine.CLICKHOUSE, True, [("retrying_view", False)], False),
         ]
     )
-    def test_send_matview_failure_digest_suspended_rows_follow_enforcement(
+    def test_send_matview_failure_digest_marks_a_row_suspended_only_on_a_live_serving_marker(
         self,
         MockEmailMessage: MagicMock,
         _name: str,
-        enforced: bool,
         marker_engine: str,
         revert: bool,
         expected_rows: list[tuple[str, bool]],
@@ -2666,8 +2649,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             last_run_at=timezone.now() - dt.timedelta(hours=1),
         )
 
-        with patch("posthog.tasks.email.is_suspension_enforced", return_value=enforced):
-            send_matview_failure_digest()
+        send_matview_failure_digest()
 
         assert len(mocked_email_messages) == 1
         views = mocked_email_messages[0].properties["views"]

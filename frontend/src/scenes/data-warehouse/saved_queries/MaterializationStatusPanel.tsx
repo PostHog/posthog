@@ -201,10 +201,7 @@ export function MaterializationStatusPanel({
     // Only ClickHouse serves queries, so a marker on a shadow engine means the comparison
     // run stopped, not that this model stopped refreshing.
     const suspension = savedQuery.suspended?.[SERVING_ENGINE]
-    const showSuspendedBanner =
-        !!featureFlags[FEATURE_FLAGS.DATA_MODELING_SUSPEND_FAILING_NODES] &&
-        !!suspension &&
-        !!savedQuery.is_materialized
+    const showSuspendedBanner = !!suspension && !!savedQuery.is_materialized
 
     return (
         <div className="@container/materialization" data-attr="materialization-status-panel">
