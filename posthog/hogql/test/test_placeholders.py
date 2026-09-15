@@ -96,6 +96,31 @@ class TestParser(BaseTest):
                 replace_placeholders(expr, {})
         self.assertIn("took too long", str(context.exception))
 
+    @patch("posthog.hogql.placeholders.PLACEHOLDER_EXPANSION_BUDGET", timedelta(seconds=0))
+    def test_replace_placeholders_resolves_a_simple_chain_without_the_time_budget(self):
+        # A one-name placeholder bound to a value is a dictionary lookup, so an exhausted budget must
+        # not reject it. Internal query builders pass only these.
+        query = parse_select(
+            "SELECT concat({label}, id) FROM events WHERE event != {name}",
+            placeholders={"label": ast.Constant(value="charge"), "name": ast.Constant(value="$pageview")},
+        )
+        printed = to_printed_hogql(query, self.team)
+        self.assertIn("'charge'", printed)
+        self.assertIn("'$pageview'", printed)
+
+        with self.assertRaises(QueryError) as context:
+            replace_placeholders(ast.Placeholder(expr=parse_expr("1 + 2")), {})
+        self.assertIn("took too long", str(context.exception))
+
+    def test_replace_placeholders_gives_each_occurrence_its_own_node(self):
+        # Two occurrences of one name must not share a node. A shared node picks up the type that
+        # the resolver attaches at the first position.
+        value = ast.Constant(value=1)
+        expr = cast(ast.Tuple, replace_placeholders(parse_expr("({x}, {x})"), {"x": value}))
+        self.assertIsNot(expr.exprs[0], expr.exprs[1])
+        self.assertIsNot(expr.exprs[0], value)
+        self.assertEqual([cast(ast.Constant, e).value for e in expr.exprs], [1, 1])
+
     def test_replace_placeholders_comparison(self):
         expr = clear_locations(parse_expr("timestamp < {timestamp}"))
         self.assertEqual(
