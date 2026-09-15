@@ -62,6 +62,15 @@ let counter = 0
 
 const SHORTCUT_DISMISSAL_LOCAL_STORAGE_KEY = 'shortcut-dismissal'
 
+// Products that live under another product's path own their own sidebar item, so the parent must
+// not light up as well: /workflows/broadcasts is Broadcasts, not Workflows.
+const NESTED_PRODUCT_PATHS = ['/workflows/broadcasts']
+
+const isOwnedByNestedProduct = (currentPath: string, itemHref: string): boolean =>
+    NESTED_PRODUCT_PATHS.some(
+        (nested) => nested !== itemHref && (currentPath === nested || currentPath.startsWith(nested + '/'))
+    )
+
 // Show active state for items that are active in the URL
 const isItemActive = (item: TreeDataItem): boolean => {
     if (!item.record?.href) {
@@ -76,7 +85,7 @@ const isItemActive = (item: TreeDataItem): boolean => {
     }
 
     // Current path is a sub-path of item (e.g., /insights/new under /insights)
-    if (currentPath.startsWith(itemHref + '/')) {
+    if (currentPath.startsWith(itemHref + '/') && !isOwnedByNestedProduct(currentPath, itemHref)) {
         return true
     }
 
@@ -84,7 +93,11 @@ const isItemActive = (item: TreeDataItem): boolean => {
     if (item.name === 'Session replay' && currentPath.startsWith('/replay/')) {
         return true
     }
-    if (item.name === 'Workflows' && currentPath.startsWith('/workflows')) {
+    if (
+        item.name === 'Workflows' &&
+        currentPath.startsWith('/workflows') &&
+        !isOwnedByNestedProduct(currentPath, itemHref)
+    ) {
         return true
     }
 

@@ -1050,6 +1050,18 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
             return 'Creating email templates...'
         },
     },
+    create_broadcast: {
+        name: 'Create broadcasts',
+        description: 'Create broadcasts to email an audience once or on a schedule',
+        product: Scene.Workflows,
+        icon: iconForType('workflows'),
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Created a broadcast'
+            }
+            return 'Creating a broadcast...'
+        },
+    },
     fix_hogql_query: {
         name: 'Fix SQL',
         icon: iconForType('data_warehouse'),

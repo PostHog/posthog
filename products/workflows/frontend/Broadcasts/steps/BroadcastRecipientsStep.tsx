@@ -29,14 +29,24 @@ function AudienceSizePreview(): JSX.Element | null {
         )
     }
 
-    const { affected, total, limit } = blastRadius
+    const { affected, total, limit, dedupe_key: dedupeKey } = blastRadius
     const exceeded = limit != null && affected > limit
 
     return (
         <div className="text-muted">
             <span className={exceeded ? 'text-danger font-semibold' : undefined}>
-                approximately {humanFriendlyNumber(affected)} of {humanFriendlyNumber(total)} people.
+                approximately {humanFriendlyNumber(affected)} {affected === 1 ? 'email' : 'emails'}.
             </span>
+            {/* Without this the count reads as though a filter narrowed it, which is the first
+                question people ask when an unfiltered audience shows well under the person count. */}
+            {dedupeKey === 'email' ? (
+                <div className="text-xs">
+                    One per email address, across {humanFriendlyNumber(total)} people. People who share an address get
+                    one copy.
+                </div>
+            ) : (
+                <div className="text-xs">Out of {humanFriendlyNumber(total)} people.</div>
+            )}
             {exceeded && (
                 <div className="text-danger text-xs">
                     The audience exceeds the limit of {humanFriendlyNumber(limit)} people. Add filters to narrow it
