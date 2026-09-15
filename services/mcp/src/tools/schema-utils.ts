@@ -5,7 +5,21 @@ export const TOKEN_CHAR_LIMIT = 4 * 12_000
 
 type JSONSchema = Record<string, unknown>
 
-interface SummarizedProperty {
+/**
+ * Scalar constraints copied through from the JSON Schema as-is. Without them an
+ * agent in exec mode learns a string cap only from the rejection after it sent
+ * too much.
+ */
+interface ScalarConstraints {
+    minLength?: number
+    maxLength?: number
+    minimum?: number
+    maximum?: number
+    pattern?: string
+    format?: string
+}
+
+interface SummarizedProperty extends ScalarConstraints {
     type?: string
     description?: string
     enum?: unknown[]
@@ -15,34 +29,79 @@ interface SummarizedProperty {
     fields?: string[]
     items?: string
     hint?: string
-    minLength?: number
-    maxLength?: number
-    minimum?: number
-    maximum?: number
-    pattern?: string
-    format?: string
 }
 
 /**
- * Scalar constraints copied through as-is. Without them an agent in exec mode
- * learns a string cap only from the rejection after it sent too much.
+ * A summarized schema node. `properties` is always present (empty for non-object
+ * nodes) so callers can read it unconditionally; `items` (arrays) and `variants`
+ * (unions) carry the recursive shape that the old object-only summarizer dropped.
  */
-const CONSTRAINT_KEYS = ['minLength', 'maxLength', 'minimum', 'maximum', 'pattern', 'format'] as const
+interface NodeSummary extends ScalarConstraints {
+    type: string
+    title?: string
+    required?: string[]
+    properties: Record<string, SummarizedProperty>
+    items?: NodeSummary
+    variants?: NodeSummary[]
+    description?: string
+    enum?: unknown[]
+    const?: unknown
+    default?: unknown
+}
 
-function copyConstraints(from: JSONSchema, to: SummarizedProperty | NodeSummary): void {
-    for (const key of CONSTRAINT_KEYS) {
+const NUMERIC_CONSTRAINT_KEYS = [
+    'minLength',
+    'maxLength',
+    'minimum',
+    'maximum',
+] as const satisfies readonly (keyof ScalarConstraints)[]
+const STRING_CONSTRAINT_KEYS = ['pattern', 'format'] as const satisfies readonly (keyof ScalarConstraints)[]
+
+/**
+ * A `pattern` longer than this is a generated regex (zod's ISO date-time pattern is
+ * 310 characters) that an agent cannot act on; its `format` says the same in a word.
+ * Copying every one would grow the catalogue's summaries by about 6%.
+ */
+const MAX_PATTERN_CHARS = 80
+
+function copyConstraints(from: JSONSchema, to: ScalarConstraints): void {
+    for (const key of NUMERIC_CONSTRAINT_KEYS) {
         const value = from[key]
-        if (typeof value === 'number' || typeof value === 'string') {
-            ;(to as Record<string, unknown>)[key] = value
+        if (typeof value === 'number') {
+            to[key] = value
         }
+    }
+    for (const key of STRING_CONSTRAINT_KEYS) {
+        const value = from[key]
+        if (typeof value !== 'string') {
+            continue
+        }
+        if (key === 'pattern' && (typeof from.format === 'string' || value.length > MAX_PATTERN_CHARS)) {
+            continue
+        }
+        to[key] = value
     }
 }
 
 /**
- * A nullable scalar (`anyOf: [{type: 'string', maxLength: 3000}, {type: 'null'}]`, how
- * zod renders `.nullable()`) is one scalar for the caller's purposes. Returns that
- * variant so its type, enum and constraints are summarized instead of the union
- * wrapper, which carried none of them. Anything else comes back unchanged.
+ * zod renders `.nullable()` as `anyOf: [variant, {type: 'null'}]` and puts the
+ * field's `description` and `default` on that wrapper, not on the variant. Whoever
+ * collapses the wrapper to its variant has to carry those two across or the summary
+ * loses them.
+ */
+function carryWrapperMetadata(wrapper: JSONSchema, variant: JSONSchema): JSONSchema {
+    return {
+        ...variant,
+        ...(wrapper.description !== undefined ? { description: wrapper.description } : {}),
+        ...(wrapper.default !== undefined ? { default: wrapper.default } : {}),
+    }
+}
+
+/**
+ * A nullable scalar (`anyOf: [{type: 'string', maxLength: 3000}, {type: 'null'}]`) is
+ * one scalar for the caller's purposes. Returns that variant, with the wrapper's
+ * description and default, so its type, enum and constraints are summarized instead
+ * of the union wrapper, which carried none of them. Anything else comes back unchanged.
  */
 function unwrapNullableScalar(schema: JSONSchema): JSONSchema {
     const variants = (schema.anyOf || schema.oneOf) as JSONSchema[] | undefined
@@ -54,31 +113,7 @@ function unwrapNullableScalar(schema: JSONSchema): JSONSchema {
     if (!only || typeof only.type !== 'string' || only.type === 'object' || only.type === 'array') {
         return schema
     }
-    return { ...only, description: schema.description ?? only.description }
-}
-
-/**
- * A summarized schema node. `properties` is always present (empty for non-object
- * nodes) so callers can read it unconditionally; `items` (arrays) and `variants`
- * (unions) carry the recursive shape that the old object-only summarizer dropped.
- */
-interface NodeSummary {
-    type: string
-    title?: string
-    required?: string[]
-    properties: Record<string, SummarizedProperty>
-    items?: NodeSummary
-    variants?: NodeSummary[]
-    description?: string
-    enum?: unknown[]
-    const?: unknown
-    default?: unknown
-    minLength?: number
-    maxLength?: number
-    minimum?: number
-    maximum?: number
-    pattern?: string
-    format?: string
+    return carryWrapperMetadata(schema, only)
 }
 
 /**
@@ -314,8 +349,7 @@ function summarizeObject(schema: JSONSchema, toolName: string, fieldPath?: strin
 }
 
 /** Summarize a scalar/leaf node — its descriptive metadata only, no children. */
-function summarizeLeaf(rawSchema: JSONSchema): NodeSummary {
-    const schema = unwrapNullableScalar(rawSchema)
+function summarizeLeaf(schema: JSONSchema): NodeSummary {
     const summary: NodeSummary = { type: getTypeString(schema), properties: {} }
     if (typeof schema.title === 'string') {
         summary.title = schema.title
@@ -366,9 +400,10 @@ function summarizeNode(
             return { type: getTypeString(schema), properties: {} }
         }
         if (nonNull.length === 1) {
-            // Unwrap a nullable wrapper. Count it against `depth` so a pathological
-            // chain of nested nullable unions still terminates at MAX_SUMMARY_DEPTH.
-            return summarizeNode(nonNull[0]!, toolName, fieldPath, depth + 1)
+            // Unwrap a nullable wrapper, keeping its description and default. Count it
+            // against `depth` so a pathological chain of nested nullable unions still
+            // terminates at MAX_SUMMARY_DEPTH.
+            return summarizeNode(carryWrapperMetadata(schema, nonNull[0]!), toolName, fieldPath, depth + 1)
         }
         return {
             type: getTypeString(schema),
