@@ -37,6 +37,8 @@ const mockCreateApplyEventRestrictionsStep = createApplyEventRestrictionsStep as
 const mockCreateParseAndAnonymizeMessageStep = createParseAndAnonymizeMessageStep as jest.Mock
 
 describe('ml-mirror anonymize concurrency', () => {
+    const SESSION_A = '01a0a4f0-3200-7000-8000-000000000001'
+    const SESSION_B = '01a0a4f0-3200-7000-8000-000000000002'
     const now = DateTime.now()
 
     const retentionService = {
@@ -187,8 +189,8 @@ describe('ml-mirror anonymize concurrency', () => {
     it('scrubs messages concurrently, including messages of the same session', async () => {
         let releaseFirstScrub!: () => void
         let releaseSecondScrub!: () => void
-        scrubGates.set('sess-a:1', new Promise<void>((resolve) => (releaseFirstScrub = resolve)))
-        scrubGates.set('sess-a:2', new Promise<void>((resolve) => (releaseSecondScrub = resolve)))
+        scrubGates.set(`${SESSION_A}:1`, new Promise<void>((resolve) => (releaseFirstScrub = resolve)))
+        scrubGates.set(`${SESSION_A}:2`, new Promise<void>((resolve) => (releaseSecondScrub = resolve)))
 
         const recorder = {
             record: recordMock,
@@ -196,7 +198,7 @@ describe('ml-mirror anonymize concurrency', () => {
         } as unknown as SessionBatchRecorder
         const run = runSessionReplayPipeline(
             buildPipeline(),
-            [message('sess-a', 1), message('sess-a', 2), message('sess-b', 3)],
+            [message(SESSION_A, 1), message(SESSION_A, 2), message(SESSION_B, 3)],
             recorder,
             promiseScheduler
         )
@@ -205,7 +207,7 @@ describe('ml-mirror anonymize concurrency', () => {
             // Both of sess-a's scrubs are in flight at once — sequential processing never starts
             // the second scrub while the first is gated, and per-session grouping never starts a
             // session's second message while its first is gated.
-            await until(() => scrubStarts.has('sess-a:1') && scrubStarts.has('sess-a:2'))
+            await until(() => scrubStarts.has(`${SESSION_A}:1`) && scrubStarts.has(`${SESSION_A}:2`))
         } finally {
             releaseFirstScrub()
             releaseSecondScrub()
@@ -213,7 +215,7 @@ describe('ml-mirror anonymize concurrency', () => {
         await run
 
         // No ordering guarantees, so only membership is asserted.
-        expect(recordedOffsets('sess-a').sort()).toEqual([1, 2])
-        expect(recordedOffsets('sess-b')).toEqual([3])
+        expect(recordedOffsets(SESSION_A).sort()).toEqual([1, 2])
+        expect(recordedOffsets(SESSION_B)).toEqual([3])
     })
 })

@@ -13,6 +13,7 @@ import boto3
 import structlog
 from botocore.config import Config
 
+from products.ai_training.backend.config import key_table_name
 from products.ai_training.backend.models import AITrainingDeletionRequest
 from products.ai_training.backend.privacy.reader import KEY_READ_LEASE_SECONDS
 
@@ -68,7 +69,7 @@ class AITrainingPrivacyStore:
             endpoint_url=settings.AI_RESEARCH_REPLAY_DYNAMODB_ENDPOINT or None,
             config=Config(connect_timeout=5, read_timeout=5, retries={"max_attempts": 4, "mode": "standard"}),
         )
-        return cls(cast(PrivacyDynamoClient, client), settings.AI_RESEARCH_REPLAY_PRIVACY_TABLE)
+        return cls(cast(PrivacyDynamoClient, client), key_table_name())
 
     def block(self, team_id: int) -> None:
         self.client.put_item(
