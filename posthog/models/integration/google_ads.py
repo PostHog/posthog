@@ -52,6 +52,11 @@ class GoogleAdsIntegration:
         return WebClient(self.integration.sensitive_config["access_token"])
 
     def list_google_ads_conversion_actions(self, customer_id, parent_id=None) -> list[dict]:
+        """List conversion actions for a Google Ads customer account.
+
+        Used by CDP conversion destinations to attribute events via click identifiers (gclid, gbraid, wbraid)
+        or enhanced user identifiers (hashed email and phone).
+        """
         response = requests.request(
             "POST",
             f"https://googleads.googleapis.com/v24/customers/{customer_id}/googleAds:searchStream",
