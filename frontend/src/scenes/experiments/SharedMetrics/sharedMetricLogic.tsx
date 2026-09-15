@@ -28,6 +28,12 @@ export interface SharedMetricLogicProps {
     action: 'create' | 'update' | 'duplicate'
 }
 
+export interface SharedMetricLinkedExperiment {
+    id: number
+    name: string
+    is_running: boolean
+}
+
 export interface SharedMetric {
     id: number
     name: string
@@ -39,6 +45,8 @@ export interface SharedMetric {
     tags: string[]
     metadata?: Record<string, any>
     user_access_level: AccessControlLevel
+    // Populated only when the metric is fetched by id; empty in list responses
+    linked_experiments?: SharedMetricLinkedExperiment[]
 }
 
 export const NEW_SHARED_METRIC: Partial<SharedMetric> = {
