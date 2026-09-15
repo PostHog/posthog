@@ -734,6 +734,57 @@ describe('mapOtelAttributes', () => {
         })
     })
 
+    describe('OpenInference (llm.* attributes)', () => {
+        it.each([
+            ['llm.model_name', '$ai_model', 'gpt-4o'],
+            ['llm.provider', '$ai_provider', 'openai'],
+            ['llm.token_count.prompt', '$ai_input_tokens', 150],
+            ['llm.token_count.completion', '$ai_output_tokens', 50],
+            ['embedding.model_name', '$ai_model', 'text-embedding-3-small'],
+        ])('maps %s to %s', (otelKey, phKey, value) => {
+            const event = createEvent('$ai_generation', { [otelKey]: value })
+            mapOtelAttributes(event)
+            expect(event.properties![phKey]).toBe(value)
+            expect(event.properties![otelKey]).toBeUndefined()
+        })
+
+        it('maps embedding.model_name to $ai_model on embedding events', () => {
+            const event = createEvent('$ai_embedding', {
+                'embedding.model_name': 'text-embedding-3-small',
+                'llm.token_count.prompt': 8,
+            })
+            mapOtelAttributes(event)
+            expect(event.properties!.$ai_model).toBe('text-embedding-3-small')
+            expect(event.properties!.$ai_input_tokens).toBe(8)
+        })
+
+        it('prefers llm.model_name over embedding.model_name when both are present', () => {
+            const event = createEvent('$ai_generation', {
+                'llm.model_name': 'gpt-4o',
+                'embedding.model_name': 'text-embedding-3-small',
+            })
+            mapOtelAttributes(event)
+            expect(event.properties!.$ai_model).toBe('gpt-4o')
+            expect(event.properties!['embedding.model_name']).toBeUndefined()
+        })
+
+        it('falls back to llm.model_name when gen_ai.response.model is absent', () => {
+            const event = createEvent('$ai_generation', { 'llm.model_name': 'gpt-4o' })
+            mapOtelAttributes(event)
+            expect(event.properties!.$ai_model).toBe('gpt-4o')
+        })
+
+        it('prefers gen_ai.response.model over llm.model_name', () => {
+            const event = createEvent('$ai_generation', {
+                'gen_ai.response.model': 'gpt-4o',
+                'llm.model_name': 'gpt-4o-mini',
+            })
+            mapOtelAttributes(event)
+            expect(event.properties!.$ai_model).toBe('gpt-4o')
+            expect(event.properties!['llm.model_name']).toBeUndefined()
+        })
+    })
+
     describe('$groups normalization', () => {
         it('parses a JSON-string $groups into an object', () => {
             const event = createEvent('$ai_generation', {

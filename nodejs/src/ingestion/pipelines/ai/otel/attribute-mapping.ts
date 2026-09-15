@@ -30,6 +30,17 @@ const FALLBACK_ATTRIBUTE_MAP: Record<string, string> = {
     'gen_ai.request.model': '$ai_model',
     'gen_ai.usage.prompt_tokens': '$ai_input_tokens',
     'gen_ai.usage.completion_tokens': '$ai_output_tokens',
+    // OpenInference (Arize) emits llm.* instead of gen_ai.* for the same
+    // concepts. gen_ai.* still wins when both are present, but an
+    // OpenInference-only span still gets its model, provider and token counts.
+    'llm.model_name': '$ai_model',
+    'llm.provider': '$ai_provider',
+    'llm.token_count.prompt': '$ai_input_tokens',
+    'llm.token_count.completion': '$ai_output_tokens',
+    // OpenInference embedding spans carry their model on `embedding.model_name`
+    // rather than `llm.model_name` — without it, EMBEDDING spans arrive with
+    // token counts but no $ai_model, and therefore no cost.
+    'embedding.model_name': '$ai_model',
 }
 
 const STRIP_ATTRIBUTES = new Set([
