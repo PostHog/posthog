@@ -55,6 +55,9 @@ class RunSignalsScoutInput:
     # Set by a workflow step that parks until this run wakes it.
     workflow_origin_key: str | None = None
     workflow_managed_resume: bool = False
+    # One-off steering typed alongside a manual trigger. Never set on a scheduled dispatch,
+    # where standing steering is a scout note instead.
+    run_note: str | None = None
 
 
 @frozen
@@ -191,6 +194,7 @@ async def _run_signals_scout(input: RunSignalsScoutInput) -> RunSignalsScoutOutp
                 skill_version=input.skill_version,
                 repository=input.repository,
                 triggered_by=input.triggered_by,
+                run_note=input.run_note,
             )
     except (OperationalError, InterfaceError):
         # Transient DB connection drop (pgbouncer pool recycle / failover / deploy). Stay
@@ -309,6 +313,7 @@ async def _start_off_schedule_run(
     skill_name: str,
     source: str,
     workflow_origin_key: str | None = None,
+    run_note: str | None = None,
 ) -> str:
     """Start one `RunSignalsScoutWorkflow` off-schedule under `workflow_id`; return the id.
 
@@ -325,7 +330,11 @@ async def _start_off_schedule_run(
     await client.start_workflow(
         RunSignalsScoutWorkflow.run,
         RunSignalsScoutInput(
-            team_id=team_id, skill_name=skill_name, triggered_by=source, workflow_origin_key=workflow_origin_key
+            team_id=team_id,
+            skill_name=skill_name,
+            triggered_by=source,
+            workflow_origin_key=workflow_origin_key,
+            run_note=run_note,
         ),
         id=workflow_id,
         task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
@@ -335,14 +344,22 @@ async def _start_off_schedule_run(
     return workflow_id
 
 
-def start_manual_signals_scout_run(client: Client, *, team_id: int, skill_name: str) -> str:
-    """Dispatch one on-demand scout run on the signals task queue; return its workflow id."""
+def start_manual_signals_scout_run(
+    client: Client, *, team_id: int, skill_name: str, run_note: str | None = None
+) -> str:
+    """Dispatch one on-demand scout run on the signals task queue; return its workflow id.
+
+    `run_note` is optional steering for this run alone. The workflow id is stable per
+    `(team, skill)`, so a note never outlives the run it was typed for: the next dispatch under
+    the same id carries whatever that caller passed, or nothing.
+    """
     return _start_off_schedule_run(
         client,
         workflow_id=manual_run_workflow_id(team_id, skill_name),
         team_id=team_id,
         skill_name=skill_name,
         source=TRIGGERED_BY_MANUAL,
+        run_note=run_note,
     )
 
 

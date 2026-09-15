@@ -32,7 +32,7 @@ from ...api.skill_services import archive_skill, set_skill_owners
 from ...marketplace import adapters
 from ...marketplace.adapters import build_team_marketplace_tree
 from ...marketplace.credentials import issue_marketplace_credential
-from ...marketplace.packaging import SkillExport, build_skill_zip
+from ...marketplace.packaging import SkillExport, SkillFileExport, build_skill_zip
 from ...models.skills import LLMSkill, LLMSkillFile
 
 _PAK_TOKEN = "phx_marketplacetoken123"
@@ -137,6 +137,33 @@ class TestSkillZipExport(APIBaseTest):
         assert data["allowed_tools"] == ["Bash", "Write"]
         assert any(f["path"] == "scripts/x.py" for f in data["files"])
 
+    def test_export_names_the_file_in_each_path_problem(self):
+        # Most path rules word their message without the path, so two bad files would report the
+        # same sentence twice and the author could not tell which one to rename.
+        skill = LLMSkill.objects.create(
+            team=self.team,
+            name="legacy-paths",
+            description="Legacy paths.",
+            body="# legacy-paths\n",
+            version=1,
+            is_latest=True,
+            created_by=self.user,
+        )
+        # Bypasses the serializer validation so the rows look like ones that predate it.
+        LLMSkillFile.objects.create(skill=skill, path="/first.md", content="x")
+        LLMSkillFile.objects.create(skill=skill, path="/second.md", content="x")
+
+        response = self.client.get(self._url("legacy-paths"))
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        body = response.json()
+        assert body["problems"] == [
+            "file '/first.md': File paths must be relative, not absolute.",
+            "file '/second.md': File paths must be relative, not absolute.",
+        ]
+        assert "/first.md" in body["detail"]
+        assert "/second.md" in body["detail"]
+
     def test_import_missing_file_is_400(self):
         response = self.client.post(f"/api/environments/{self.team.id}/llm_skills/import", {}, format="multipart")
         assert response.status_code == status.HTTP_400_BAD_REQUEST
@@ -151,6 +178,26 @@ class TestSkillZipExport(APIBaseTest):
             f"/api/environments/{self.team.id}/llm_skills/import", {"file": upload}, format="multipart"
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_import_rejects_a_path_over_the_stored_limit(self):
+        # bulk_create skips model validation, so a path the column cannot hold reaches Postgres and
+        # fails the insert rather than the request.
+        long_path = f"{'d' * 500}.md"
+        export = SkillExport(
+            name="long-path",
+            description="Long path.",
+            body="# long-path\n",
+            version=1,
+            files=[SkillFileExport(path=long_path, content="x")],
+        )
+        upload = SimpleUploadedFile("long-path.zip", build_skill_zip(export), content_type="application/zip")
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/llm_skills/import", {"file": upload}, format="multipart"
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert response.json()["problems"] == [f"file '{long_path}': path must be 500 characters or fewer"]
 
     def test_export_rejects_spec_invalid_description(self):
         # Stored limit is 4096 but the spec caps description at 1024 — export must refuse rather
@@ -168,7 +215,7 @@ class TestSkillZipExport(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         body = response.json()
         assert body["problems"]
-        assert "Description is 1025 characters; the spec maximum is 1024" in body["detail"]
+        assert "The description is 1025 characters. Shorten it to 1024 characters or fewer" in body["detail"]
 
 
 SANDBOX_FLAG = "posthog.permissions.posthoganalytics.feature_enabled"
@@ -639,23 +686,60 @@ class TestSkillFilePathValidation:
 
 
 class TestMarketplaceResilience(APIBaseTest):
-    def test_skill_with_uncloneable_paths_is_skipped_not_fatal(self):
-        # A skill with two files colliding only by case would synthesize a tree that aborts
-        # `git clone` on a case-insensitive filesystem — it must be skipped, not break the whole
-        # team's marketplace.
+    @parameterized.expand(
+        [
+            ("case_collision", "bad", "d", ["a.md", "A.md"]),
+            ("not_canonical", "bad", "d", ["refs\\guide.md"]),
+            ("malformed_name", "Bad/Name", "d", []),
+            ("overlong_description", "bad", "x" * 1025, []),
+        ]
+    )
+    def test_unpackageable_skill_is_skipped_not_fatal(self, _label: str, name: str, description: str, paths: list[str]):
+        # The marketplace applies the same rules as the skills bundle. A skill that breaks one of
+        # them is skipped on its own, so it cannot break the whole team's clone. Rows here bypass
+        # the serializer validation, so they look like ones that predate it.
         good = LLMSkill.objects.create(
             team=self.team, name="good", description="d", body="b", version=1, is_latest=True, created_by=self.user
         )
         LLMSkillFile.objects.create(skill=good, path="scripts/run.py", content="x", content_type="text/x-python")
         bad = LLMSkill.objects.create(
-            team=self.team, name="bad", description="d", body="b", version=1, is_latest=True, created_by=self.user
+            team=self.team,
+            name=name,
+            description=description,
+            body="b",
+            version=1,
+            is_latest=True,
+            created_by=self.user,
         )
-        LLMSkillFile.objects.create(skill=bad, path="a.md", content="x", content_type="text/markdown")
-        LLMSkillFile.objects.create(skill=bad, path="A.md", content="y", content_type="text/markdown")
+        for path in paths:
+            LLMSkillFile.objects.create(skill=bad, path=path, content="x", content_type="text/markdown")
 
         tree = build_team_marketplace_tree(self.team)
-        assert "plugins/posthog-skill-store/skills/good/SKILL.md" in tree
-        assert "plugins/posthog-skill-store/skills/bad/SKILL.md" not in tree
+        assert [key for key in tree if key.endswith("/SKILL.md")] == [
+            "plugins/posthog-skill-store/skills/good/SKILL.md"
+        ]
+
+    def test_skip_warning_samples_names_instead_of_listing_every_one(self):
+        # A team can hold very many unpackageable skills, so the warning carries a fixed-size sample
+        # and the true count, never one name per skipped skill.
+        for index in range(3):
+            LLMSkill.objects.create(
+                team=self.team,
+                name=f"bad-{index}",
+                description="x" * 1025,
+                body="b",
+                version=1,
+                is_latest=True,
+                created_by=self.user,
+            )
+
+        with patch.object(adapters, "_SKIPPED_LOG_SAMPLE_SIZE", 1), patch.object(adapters, "logger") as logger:
+            build_team_marketplace_tree(self.team)
+
+        args, kwargs = logger.warning.call_args
+        assert args == ("skills_marketplace_skipped_unsafe_skills",)
+        assert kwargs["skipped_count"] == 3
+        assert kwargs["skills_sample"] == ["bad-0"]
 
 
 class TestMarketplaceVersion(APIBaseTest):
@@ -866,6 +950,25 @@ class TestImportAndCreateValidation(APIBaseTest):
         response = self.client.post(self._import_url(), {"file": upload}, format="multipart")
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "body" in str(response.json()).lower()
+
+    @parameterized.expand(
+        [
+            ("malformed", "Bad_Name", "cannot be a skill directory name"),
+            ("reserved", "community", "is a reserved name"),
+        ]
+    )
+    def test_import_reports_one_message_per_name_problem(self, _label: str, name: str, expected: str):
+        # The shared spec rules cover the name shape and the import adds the reserved-name rule on
+        # top, so a name that breaks one rule must not be reported by both.
+        export = SkillExport(name=name, description="A skill.", body="# skill\n", version=1)
+        upload = SimpleUploadedFile("skill.zip", build_skill_zip(export), content_type="application/zip")
+
+        response = self.client.post(self._import_url(), {"file": upload}, format="multipart")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        problems = response.json()["problems"]
+        assert len(problems) == 1, problems
+        assert expected in problems[0]
 
     def test_create_rejects_whitespace_allowed_tool(self):
         # A tool name with a space would fracture the spec's space-delimited allowed-tools string.

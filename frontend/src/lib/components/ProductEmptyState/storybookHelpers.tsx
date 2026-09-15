@@ -3,7 +3,7 @@ import type { StoryObj } from '@storybook/react'
 import { mswDecorator } from '~/mocks/browser'
 import type { Mocks } from '~/mocks/utils'
 
-import type { ProductEmptyState } from './ProductEmptyState'
+import { ProductEmptyState } from './ProductEmptyState'
 import type { ProductEmptyStateConfig, ProductEmptyStateMode, SceneProductEmptyState } from './types'
 
 export type ProductEmptyStateStory = StoryObj<typeof ProductEmptyState>
@@ -37,11 +37,18 @@ export function productEmptyStateStory(
     mode: ProductEmptyStateMode,
     { config, mocks, containerWidth }: ProductEmptyStateStoryOptions = {}
 ): ProductEmptyStateStory {
+    const SceneNav = emptyState.SceneNav
     return {
         // Empty states show a persistent "listening for data" spinner (and animated preview)
         // by design, so the snapshot runner must not wait for loaders to disappear here.
         parameters: { testOptions: { waitForLoadersToDisappear: false } },
-        args: { config: { ...emptyState.config, ...config }, mode },
+        args: { config: { ...emptyState.config, ...config }, mode, preview: true },
+        render: (args) => (
+            <>
+                {SceneNav ? <SceneNav /> : null}
+                <ProductEmptyState {...args} />
+            </>
+        ),
         decorators: [
             // The snapshot root is inline-block. Give the query container a width so
             // inline-size containment cannot collapse that root to zero.

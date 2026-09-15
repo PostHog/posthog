@@ -135,8 +135,8 @@ If your account has multi-tenancy enabled, also enter the tenant ID the key shou
         schema_name: Optional[str] = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
-        path = BLUETALLY_ENDPOINTS[schema_name].path if schema_name in BLUETALLY_ENDPOINTS else "/assets"
-        if validate_bluetally_credentials(config.api_key, config.tenant_id, path):
+        endpoint = schema_name if schema_name in BLUETALLY_ENDPOINTS else "assets"
+        if validate_bluetally_credentials(config.api_key, config.tenant_id, endpoint):
             return True, None
 
         return False, "Invalid BlueTally API key"

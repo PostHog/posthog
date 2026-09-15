@@ -14,6 +14,9 @@ use personhog_identity::storage::postgres::PostgresIdentityStorage;
 
 /// The production table set. Most tests run here; the raw-SQL assertion
 /// helpers in the test binaries assume it.
+/// Leader fan-out width the suites run with; production reads it from config.
+pub const FAN_OUT_CONCURRENCY: usize = 8;
+
 pub fn default_tables() -> IdentityTables {
     IdentityTables::real()
 }
@@ -105,6 +108,7 @@ impl TestContext {
                 attempt_alert_threshold: 5,
                 gc_batch_limit: 10_000,
             },
+            self.tables.clone(),
         )
     }
 
@@ -188,10 +192,13 @@ impl TestContext {
     }
 
     pub async fn cleanup(&self) -> Result<(), sqlx::Error> {
-        sqlx::query("DELETE FROM lifecycle_op WHERE team_id = $1")
-            .bind(self.team_id as i32)
-            .execute(&self.pool)
-            .await?;
+        sqlx::query(&format!(
+            "DELETE FROM {} WHERE team_id = $1",
+            self.tables.lifecycle_op
+        ))
+        .bind(self.team_id as i32)
+        .execute(&self.pool)
+        .await?;
         sqlx::query(&format!(
             "DELETE FROM {} WHERE team_id = $1",
             self.tables.person_distinct_id

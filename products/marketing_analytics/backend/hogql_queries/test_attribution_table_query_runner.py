@@ -146,6 +146,24 @@ class TestMarketingAnalyticsAttributionQueryRunner(ClickhouseTestMixin, BaseTest
         )
         return MarketingAnalyticsAttributionQueryRunner(query=query, team=self.team).calculate()
 
+    @parameterized.expand([(False, "frequent"), (True, "valuable")])
+    def test_revenue_ranking_precedes_row_limit(self, include_revenue: bool, expected: str) -> None:
+        for person, source, amount in [("a", "frequent", 1), ("b", "frequent", 1), ("c", "valuable", 1000)]:
+            create_person(team=self.team, distinct_ids=[person])
+            self._session(person, ONE_DAY_BEFORE, utm_source=source)
+            self._conversion(person, CONVERSION_AT, revenue=amount)
+        flush_persons_and_events()
+        query = MarketingAnalyticsAttributionQuery(
+            dateRange=DateRange(date_from="2023-01-01", date_to="2023-01-31"),
+            breakdownBy=MarketingAnalyticsAttributionBreakdown.SOURCE,
+            conversionGoalId=GOAL_ID,
+            properties=[],
+            includeRevenue=include_revenue,
+            limit=1,
+        )
+        response = MarketingAnalyticsAttributionQueryRunner(query=query, team=self.team).calculate()
+        assert response.results[0].breakdownValue == expected
+
     @staticmethod
     def _by_breakdown(response) -> dict[str, dict[AttributionMode, float]]:
         """{breakdown value: {model: conversions}} — the shape every weight assertion needs."""

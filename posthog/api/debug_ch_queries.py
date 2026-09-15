@@ -1,5 +1,6 @@
 import re
 import json
+import math
 import logging
 from datetime import UTC, datetime, timedelta
 from typing import Any, Optional
@@ -36,6 +37,7 @@ from posthog.settings.base_variables import DEBUG
 from posthog.settings.data_stores import CLICKHOUSE_AUX_CLUSTER, CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
 
 from products.analytics_platform.backend.models import PreaggregationJob
+from products.experiments.backend.hogql_queries.types import PrecomputeSkipReason
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 
 logger = logging.getLogger(__name__)
@@ -770,13 +772,7 @@ class DebugCHQueries(viewsets.ViewSet):
     # Skip reasons the runner tags on reads that never attempted precompute. An empty reason on a
     # direct-scan read means precompute WAS attempted but the data wasn't ready (build failed/slow) —
     # that read paid for the build AND the full events scan, so it's the bucket to watch.
-    _PRECOMPUTE_SKIP_REASONS = (
-        "team_disabled",
-        "min_runtime",
-        "override_direct",
-        "data_warehouse",
-        "group_aggregation",
-    )
+    _PRECOMPUTE_SKIP_REASONS = tuple(reason.value for reason in PrecomputeSkipReason)
 
     @action(detail=False, methods=["GET"], url_path="precompute_overview", required_scopes=["query_performance:read"])
     def precompute_overview(self, request):
@@ -805,7 +801,7 @@ class DebugCHQueries(viewsets.ViewSet):
         # Reads query_log_archive (not system.query_log, which retains only hours): log_comment is a
         # typed JSON column there, so tags are dot-accessed; ifNull(toString(...), '') preserves the
         # ''-when-missing semantics JSONExtractString gave us on the raw column.
-        # nosemgrep: clickhouse-fstring-param-audit - skip_reason_counts is built from a hardcoded tuple
+        # nosemgrep: clickhouse-fstring-param-audit - skip_reason_counts is built from the PrecomputeSkipReason enum
         reads_sql = f"""
             SELECT
                 coalesce(
@@ -889,7 +885,10 @@ class DebugCHQueries(viewsets.ViewSet):
             entry["total_read_bytes"] += row["total_read_bytes"]
             if row["reads"] > 0:
                 for stat in ("avg_duration_ms", "p50_duration_ms", "p90_duration_ms", "avg_read_bytes"):
-                    entry[stat] = row[stat]
+                    # avgIf/quantileIf return nan when a path has zero successful reads. STRICT_JSON
+                    # is off, so a nan would serialize as literal NaN — invalid JSON for the client.
+                    value = row[stat]
+                    entry[stat] = value if value is not None and math.isfinite(value) else None
             for reason in self._PRECOMPUTE_SKIP_REASONS:
                 entry["skip_reasons"][reason] += row[f"skip_{reason}"]
             metric_events["precomputed"] += row["me_precomputed"]

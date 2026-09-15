@@ -116,7 +116,10 @@ export const GetOrCreatePersonByDistinctIdRequestSchema: GenMessage<GetOrCreateP
 
 /**
  * created = true means the stub row is committed in Postgres AND the initial
- * properties (when provided) are durable in the leader's changelog.
+ * properties (when provided) are durable in the leader's changelog. Only a
+ * created person carries properties (the leader's document, or the fresh
+ * stub's empty set). A found person carries identity fields only: the leader
+ * owns its properties, and a primary copy would lag it.
  *
  * @generated from message personhog.identity.v1.GetOrCreatePersonByDistinctIdResponse
  */
@@ -180,7 +183,8 @@ export type GetOrCreatePersonResult = Message<'personhog.identity.v1.GetOrCreate
     distinctId: string
 
     /**
-     * Absent when this key failed (see error).
+     * Absent when this key failed (see error). Carries properties only when
+     * created; a found person is identity fields only.
      *
      * @generated from field: optional personhog.types.v1.Person person = 3;
      */
@@ -294,7 +298,8 @@ export type GetPersonByDistinctIdResult = Message<'personhog.identity.v1.GetPers
 
     /**
      * Absent when the distinct id resolves to no live person — unknown,
-     * tombstoned, or its person deleted.
+     * tombstoned, or its person deleted. Identity fields only: properties are
+     * never populated here, fetch the person by id from its leader for state.
      *
      * @generated from field: optional personhog.types.v1.Person person = 3;
      */

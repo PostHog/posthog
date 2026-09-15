@@ -7,7 +7,7 @@ from django.conf import settings
 from django.contrib.auth.models import AnonymousUser
 from django.contrib.postgres.indexes import GinIndex
 from django.core.exceptions import FieldDoesNotExist, ObjectDoesNotExist
-from django.core.paginator import Paginator
+from django.core.paginator import EmptyPage, Paginator
 from django.db import models, transaction
 from django.db.models import QuerySet
 from django.db.models.signals import post_save
@@ -111,6 +111,7 @@ ActivityScope = Literal[
     "Metric",
     "TableCertification",
     "DataQualityCheck",
+    "DataQualityCheckSchedule",
     "Billing",
     "Loop",
     "StamphogRepoConfig",
@@ -377,6 +378,7 @@ field_name_overrides: dict[AuditableScope, dict[str, str]] = {
         "autostart_base_branches": "base branch overrides",
         "issue_tracking_integration": "issue tracker",
         "issue_tracking_config": "issue tracker target",
+        "default_open_pull_request_ready": "PRs open as",
     },
     "OAuthApplication": {
         "_provisioning_config": "provisioning config",
@@ -399,6 +401,7 @@ field_name_overrides: dict[AuditableScope, dict[str, str]] = {
 
 # Fields that prevent activity signal triggering entirely when only these fields change
 signal_exclusions: dict[ActivityScope, list[str]] = {
+    "DataQualityCheckSchedule": ["next_run_at", "last_run_at", "last_suite_run", "updated_at"],
     "AlertConfiguration": [
         "last_checked_at",
         "next_check_at",
@@ -520,6 +523,7 @@ activity_visibility_restrictions: list[dict[str, Any]] = [
 ]
 
 field_exclusions: dict[AuditableScope, list[str]] = {
+    "DataQualityCheckSchedule": ["subject_type", "subject_uuid", "next_run_at", "last_run_at", "last_suite_run"],
     "StamphogRepoConfig": [
         # Reverse relation to the repo's review history. The diff would read every pull request row
         # on each settings toggle, and none of it is configuration.
@@ -543,6 +547,7 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "subject_name",
         "subject_status",
         # Subject FKs are immutable after create and not JSON-serializable for the change detail.
+        "metric",
         "saved_query",
         "table",
     ],
@@ -1237,6 +1242,37 @@ class LogActivityEntry(TypedDict, total=False):
     force_save: bool
 
 
+def log_activity_with_soft_delete(
+    *,
+    scope: str,
+    previous: models.Model | None,
+    current: models.Model | None,
+    activity: str,
+    user: "User | None",
+    was_impersonated: bool,
+    name: str | None = None,
+) -> None:
+    instance = current or previous
+    if instance is None:
+        return
+
+    changes = changes_between(cast(AuditableScope, scope), previous=previous, current=current)
+    # Soft delete and restore go through save(), so the mixin reports them as "updated".
+    deleted_change = next((change for change in changes if change.field == "deleted"), None)
+    if deleted_change:
+        activity = "deleted" if deleted_change.after else "restored"
+    log_activity(
+        organization_id=None,
+        team_id=instance.serializable_value("team"),
+        user=user,
+        was_impersonated=was_impersonated,
+        item_id=str(instance.pk),
+        scope=scope,
+        activity=activity,
+        detail=Detail(name=name if name is not None else str(instance), changes=changes),
+    )
+
+
 def bulk_log_activity(
     log_entries: list[LogActivityEntry], batch_size: int = 500, *, notify: bool = True, using: str | None = None
 ) -> list[ActivityLog]:
@@ -1315,7 +1351,17 @@ class ActivityPage:
 
 def get_activity_page(activity_query: models.QuerySet, limit: int = 10, page: int = 1) -> ActivityPage:
     paginator = Paginator(activity_query, limit)
-    activity_page = paginator.page(page)
+    try:
+        activity_page = paginator.page(page)
+    except EmptyPage:
+        # A page after the last one holds no records. It is not an error.
+        return ActivityPage(
+            results=[],
+            total_count=paginator.count,
+            limit=limit,
+            has_next=False,
+            has_previous=page > 1,
+        )
 
     return ActivityPage(
         results=list(activity_page.object_list),

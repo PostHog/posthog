@@ -6,12 +6,15 @@ from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, PropertyMock, patch
 
 from django.core.cache import cache
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
-from asgiref.sync import sync_to_async
+from asgiref.sync import async_to_sync, sync_to_async
 from langchain_core.runnables import RunnableConfig
 from parameterized import parameterized
 
+from posthog.event_usage import EventSource
 from posthog.models.team import Team
 
 import products.replay_vision.backend.max_tools as max_tools_module
@@ -1147,6 +1150,65 @@ class TestReplayVisionLifecycleTools(BaseTest):
         label = await sync_to_async(ReplayObservationLabel.objects.get)(observation_id=observation.id)
         assert label.is_correct is False
         assert label.feedback == "it missed the coupon step"
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_labelling_reports_the_rating_against_posthog_ai(self):
+        scanner = await sync_to_async(self._scanner)()
+        observation = await sync_to_async(ReplayObservation.objects.create)(
+            scanner=scanner,
+            session_id="s1",
+            scanner_snapshot={"scanner_type": "monitor"},
+            triggered_by=ObservationTrigger.ON_DEMAND,
+            status=ObservationStatus.SUCCEEDED,
+            completed_at=timezone.now(),
+        )
+        tool = self._tool(LabelReplayVisionObservationTool)
+
+        with patch("posthoganalytics.capture") as capture:
+            await tool._arun_impl(observation_id=str(observation.id), is_correct=True)
+            rated = self._captured(capture, "replay_vision_observation_rated")
+            # A re-rate that changes nothing must not count a second time, the same gate the API uses.
+            await tool._arun_impl(observation_id=str(observation.id), is_correct=True)
+            after_resave = self._captured(capture, "replay_vision_observation_rated")
+
+        assert len(rated) == 1
+        assert len(after_resave) == 1
+        assert rated[0].kwargs["properties"]["source"] == EventSource.POSTHOG_AI
+        assert rated[0].kwargs["properties"]["is_new"] is True
+        assert rated[0].kwargs["properties"]["scanner_id"] == str(scanner.id)
+
+    @pytest.mark.django_db(transaction=True)
+    def test_labelling_locks_the_observation_like_the_api_path(self):
+        # Unlocked, the `previous` read can land before a concurrent rater commits, and this path then
+        # reports a verdict change that never happened, which is the overcount the API path removed.
+        # Sync on purpose: `CaptureQueriesContext` touches the connection and cannot run under asyncio.
+        scanner = self._scanner()
+        observation = ReplayObservation.objects.create(
+            scanner=scanner,
+            session_id="s1",
+            scanner_snapshot={"scanner_type": "monitor"},
+            triggered_by=ObservationTrigger.ON_DEMAND,
+            status=ObservationStatus.SUCCEEDED,
+            completed_at=timezone.now(),
+        )
+        label = self._tool(LabelReplayVisionObservationTool)._arun_impl
+
+        with CaptureQueriesContext(connection) as queries:
+            async_to_sync(label)(observation_id=str(observation.id), is_correct=True)
+
+        # `update_or_create` locks the label row itself, and that table name also contains
+        # "observation", so match the parent table exactly.
+        locked = [
+            q["sql"]
+            for q in queries.captured_queries
+            if "FOR UPDATE" in q["sql"] and 'FROM "replay_vision_replayobservation"' in q["sql"]
+        ]
+        assert len(locked) == 1, locked
+
+    @staticmethod
+    def _captured(capture, event: str) -> list:
+        return [call for call in capture.call_args_list if call.kwargs.get("event") == event]
 
     @pytest.mark.django_db
     @pytest.mark.asyncio
