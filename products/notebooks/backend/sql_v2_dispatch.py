@@ -6,7 +6,7 @@ the same concurrency ceilings, the same routing between the direct (ClickHouse) 
 the sandbox kernel. The view keeps only what a view owns: validate, call, format.
 """
 
-from typing import Any, Literal
+from typing import Any, Literal, TypedDict
 from uuid import UUID
 
 from django.db.models import QuerySet
@@ -254,6 +254,13 @@ def dispatch_node_run(notebook: Notebook, user: User | None, team: Team, request
     notebook already has a cell in flight, `TeamRunCapacityFull` when the project is at its
     ceiling, and `NodeRunDispatchFailed` when no lane accepted the run.
     """
+    # The row this writes carries `team` and `notebook` as separate columns, so a caller that
+    # paired them wrong would file a run under one tenant against another's notebook. Both
+    # callers resolve the notebook through a team-scoped queryset, which makes this a cheap
+    # assertion rather than a check — but it is the one that stops the pair drifting apart.
+    if notebook.team_id != team.id:
+        raise ValueError(f"Notebook {notebook.short_id} does not belong to team {team.id}")
+
     if request.connection_id is not None and (
         # Resolve up front so a stale or unreachable connection fails the dispatch with the
         # shared message, rather than surfacing later as an opaque failed run.
@@ -332,7 +339,14 @@ def dispatch_node_run(notebook: Notebook, user: User | None, team: Team, request
     return NodeRunDispatch(run_id=run.id, starts_sandbox=starts_sandbox, sandbox_hourly_price=hourly_price)
 
 
-def build_ref_specs(raw: dict[str, dict[str, Any]]) -> dict[str, RefSpec]:
+class RawRefSpec(TypedDict):
+    """One ref as `NotebookSQLV2RefSerializer` validates it."""
+
+    node_id: str
+    kind: Literal["hogql", "local"]
+
+
+def build_ref_specs(raw: dict[str, RawRefSpec]) -> dict[str, RefSpec]:
     """Turn the serializer's plain ref dicts into typed specs."""
     return {name: RefSpec(node_id=spec["node_id"], kind=spec["kind"]) for name, spec in raw.items()}
 
@@ -343,6 +357,7 @@ __all__ = [
     "NodeRunInvalid",
     "NodeRunRequest",
     "NotebookRunBusy",
+    "RawRefSpec",
     "RefSpec",
     "TeamRunCapacityFull",
     "build_ref_specs",

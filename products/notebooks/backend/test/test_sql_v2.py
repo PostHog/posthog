@@ -36,8 +36,10 @@ from posthog.clickhouse.client.execute_async import QueryNotFoundError
 from posthog.constants import AvailableFeature
 from posthog.models.organization import OrganizationMembership
 from posthog.models.scoping import team_scope
+from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.models.utils import UUIDT
+from posthog.uuidt import uuid7
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.notebooks.backend import sql_v2_concurrency
@@ -77,6 +79,7 @@ from products.notebooks.backend.sql_v2_direct import (
     notebook_direct_query_id,
     sync_direct_run,
 )
+from products.notebooks.backend.sql_v2_dispatch import NodeRunRequest, dispatch_node_run
 from products.notebooks.backend.sql_v2_runs import finish_node_run, touch_run_progress
 from products.notebooks.backend.temporal.sql_v2 import (
     SQLV2RunInput,
@@ -3239,3 +3242,54 @@ class TestNotebookRunUniqueness(APIBaseTest):
             first.status = NotebookRun.Status.DONE
             first.save(update_fields=["status"])
             NotebookRun.objects.create(team=self.team, notebook=notebook, trigger=NotebookRun.Trigger.UI)
+
+
+class TestDispatchNodeRunDirectly(APIBaseTest):
+    """`dispatch_node_run` is the seam the whole-notebook orchestrator calls, so these cover
+    the two parts of its contract no HTTP request can reach: the view always pairs a notebook
+    with its own team, and never sets `notebook_run_id`."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.notebook = Notebook.objects.create(team=self.team, short_id="nbdisp01")
+
+    def _request(self, **overrides: Any) -> NodeRunRequest:
+        return NodeRunRequest(
+            node_id="n1",
+            node_type="hogql",
+            code="select 1",
+            output_name="df",
+            refs={},
+            variables=[],
+            **overrides,
+        )
+
+    @patch("products.notebooks.backend.sql_v2_dispatch.enqueue_direct_run")
+    def test_the_notebook_run_link_reaches_the_row(self, _mock_enqueue: MagicMock) -> None:
+        # The status endpoint joins on this column, and only the orchestrator ever sets it.
+        notebook_run_id = uuid7()
+        with team_scope(self.team.id):
+            NotebookRun.objects.create(
+                id=notebook_run_id, team=self.team, notebook=self.notebook, trigger=NotebookRun.Trigger.UI
+            )
+
+        with team_scope(self.team.id):
+            dispatch = dispatch_node_run(
+                self.notebook, self.user, self.team, self._request(notebook_run_id=notebook_run_id)
+            )
+
+        run = NotebookNodeRun.objects.for_team(self.team.id).get(id=dispatch.run_id)
+        self.assertEqual(run.notebook_run_id, notebook_run_id)
+
+    @patch("products.notebooks.backend.sql_v2_dispatch.enqueue_direct_run")
+    def test_a_notebook_from_another_team_is_refused(self, mock_enqueue: MagicMock) -> None:
+        # The row stores team and notebook as separate columns, so a caller that paired them
+        # wrong would file a run under one tenant against another tenant's notebook.
+        other_team = Team.objects.create(organization=self.organization, name="other")
+        stranger = Notebook.objects.create(team=other_team, short_id="nbdisp02")
+
+        with self.assertRaises(ValueError), team_scope(self.team.id):
+            dispatch_node_run(stranger, self.user, self.team, self._request())
+
+        mock_enqueue.assert_not_called()
+        self.assertFalse(NotebookNodeRun.objects.for_team(self.team.id).filter(notebook=stranger).exists())
