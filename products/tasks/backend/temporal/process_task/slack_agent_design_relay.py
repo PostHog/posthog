@@ -414,7 +414,9 @@ class SlackAgentDesignRelayWorkflow(PostHogWorkflow):
                 StartSlackAgentDesignStreamInput(
                     slack_thread_context=input.slack_thread_context,
                     ordered_chunks=chunks,
-                    task_display_mode=STREAM_MODE_TIMELINE,
+                    # Bursts render as steps of one plan rail; "timeline" names the
+                    # relay's interleaving surface, not Slack's display mode.
+                    task_display_mode="plan",
                     run_id=input.run_id,
                 ),
                 **_ACTIVITY_OPTIONS,
