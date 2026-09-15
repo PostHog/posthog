@@ -43,7 +43,9 @@ const CONFIG = {
 // We shell out to its dependency-light JSON entrypoint: pipe the changed
 // filenames in, get back `{path: {owners, status, slack, source}}`. The workflow
 // provides python3 + pyyaml and checks out master, so the resolver reads the same
-// owners.yaml tree CI enforces.
+// owners.yaml tree CI enforces. That checkout is sparse and holds only the
+// resolver and the ownership files, so a resolver that reads another repo file
+// needs that path added to the workflow's sparse-checkout.
 function resolveOwners(filenames) {
     if (filenames.length === 0) {
         return {}
