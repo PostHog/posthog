@@ -98,6 +98,10 @@ class ClickHouseQuerySizeExceeded(APIException):
     default_detail = "Query size exceeded."
 
 
+class UserQueryValidationError(ValidationError):
+    """Use only when invalid user query configuration is the known cause of a failure."""
+
+
 class ClickHouseBytesLimitExceeded(ValidationError):
     # A fresh TOO_MANY_BYTES surfaces as ValidationError(str(error), "too_many_bytes") in the
     # query API, so the breaker's replay must produce the same status and machine code.

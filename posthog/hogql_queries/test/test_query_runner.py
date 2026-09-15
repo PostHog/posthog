@@ -62,7 +62,12 @@ from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import reset_query_tags, tag_queries
 from posthog.constants import AvailableFeature
 from posthog.errors import ExposedCHQueryError
-from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded, ClickHouseQuerySizeExceeded, ClickHouseQueryTimeOut
+from posthog.exceptions import (
+    ClickHouseQueryMemoryLimitExceeded,
+    ClickHouseQuerySizeExceeded,
+    ClickHouseQueryTimeOut,
+    UserQueryValidationError,
+)
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
 from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 from posthog.hogql_queries.query_failure_handling import classify_failure
@@ -870,6 +875,20 @@ class TestQueryRunner(BaseTest):
                 False,
             ),
             ("concurrency_limit_exceeded", ConcurrencyLimitExceeded, SloOutcome.SUCCESS, "rate_limited", False),
+            (
+                "user_query_validation_error",
+                lambda: UserQueryValidationError("The metric query requires a customer_id"),
+                SloOutcome.SUCCESS,
+                "user_error",
+                False,
+            ),
+            (
+                "unclassified_validation_error",
+                lambda: ValidationError("Calculation failed"),
+                SloOutcome.FAILURE,
+                "error",
+                True,
+            ),
             (
                 "user_hogql_query_error",
                 lambda: QueryError("Can't select a table when a column is expected: postgres_waitlist_entries"),
