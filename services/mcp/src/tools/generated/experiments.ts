@@ -214,6 +214,7 @@ const ExperimentCreateSchema = () => {
     return ExperimentsCreateBody.omit({
         start_date: true,
         end_date: true,
+        parameters: true,
         running_time_calculation: true,
         excluded_variants: true,
         secondary_metrics: true,
@@ -264,9 +265,6 @@ const experimentCreate = (): ToolBase<ReturnType<typeof ExperimentCreateSchema>,
             if (params.holdout_id !== undefined) {
                 body['holdout_id'] = params.holdout_id
             }
-            if (params.parameters !== undefined) {
-                body['parameters'] = params.parameters
-            }
             if (params.exposure_criteria !== undefined) {
                 body['exposure_criteria'] = params.exposure_criteria
             }
@@ -295,7 +293,6 @@ const experimentCreate = (): ToolBase<ReturnType<typeof ExperimentCreateSchema>,
                 'start_date',
                 'end_date',
                 'created_at',
-                'parameters',
                 'metrics',
                 'metrics_secondary',
                 'conclusion',
@@ -355,7 +352,6 @@ const experimentCreateFromPrompt = (): ToolBase<
                 'start_date',
                 'end_date',
                 'created_at',
-                'parameters',
                 'metrics',
                 'metrics_secondary',
                 'conclusion',
@@ -1358,6 +1354,7 @@ const ExperimentUpdateSchema = () => {
                     start_date: true,
                     end_date: true,
                     feature_flag_key: true,
+                    parameters: true,
                     secondary_metrics: true,
                     filters: true,
                     deleted: true,
@@ -1403,9 +1400,6 @@ const experimentUpdate = (): ToolBase<ReturnType<typeof ExperimentUpdateSchema>,
             }
             if (params.holdout_id !== undefined) {
                 body['holdout_id'] = params.holdout_id
-            }
-            if (params.parameters !== undefined) {
-                body['parameters'] = params.parameters
             }
             if (params.running_time_calculation !== undefined) {
                 body['running_time_calculation'] = params.running_time_calculation
@@ -1462,7 +1456,6 @@ const experimentUpdate = (): ToolBase<ReturnType<typeof ExperimentUpdateSchema>,
                 'start_date',
                 'end_date',
                 'created_at',
-                'parameters',
                 'running_time_calculation',
                 'metrics',
                 'metrics_secondary',

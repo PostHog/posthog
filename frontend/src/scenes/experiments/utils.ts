@@ -1356,6 +1356,25 @@ export function conflictPreservedFields(payload: ExperimentUpdatePayload): Parti
     return Object.fromEntries(Object.entries(payload).filter(([key]) => !CONFLICT_UNPRESERVABLE_KEYS.has(key)))
 }
 
+/** Flag config the API projects into `parameters` on read. The linked flag owns these keys, so they
+ * are absent from the type but present at runtime on every response. */
+const PROJECTED_FLAG_CONFIG_KEYS = new Set([
+    'feature_flag_variants',
+    'rollout_percentage',
+    'aggregation_group_type_index',
+    'feature_flag_payloads',
+    'ensure_experience_continuity',
+])
+
+/** Drops the projected flag config, so updating an experiment-owned key does not echo the
+ * deprecated flag dialect back to the API. The `feature_flag` sibling of this is
+ * {@link toExperimentWritePayload}. */
+export function withoutProjectedFlagConfig(parameters: Experiment['parameters'] | undefined): Experiment['parameters'] {
+    return Object.fromEntries(
+        Object.entries(parameters ?? {}).filter(([key]) => !PROJECTED_FLAG_CONFIG_KEYS.has(key))
+    ) as Experiment['parameters']
+}
+
 /** Maps UI variants to the flag's write shape, dropping null names the generated type disallows. */
 export function toFlagVariantsInput(
     variants: MultivariateFlagVariant[]

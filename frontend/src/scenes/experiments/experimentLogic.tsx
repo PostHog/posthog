@@ -136,6 +136,7 @@ import {
     isLegacyExperiment,
     toConcurrencyPayload,
     toFlagVariantsInput,
+    withoutProjectedFlagConfig,
 } from './utils'
 
 export const FORM_MODES = {
@@ -2877,7 +2878,7 @@ export const experimentLogic = kea<experimentLogicType>([
         updateExperimentVariantImages: async ({ variantPreviewMediaIds }) => {
             try {
                 const updatedParameters = {
-                    ...values.experiment.parameters,
+                    ...withoutProjectedFlagConfig(values.experiment.parameters),
                     variant_screenshot_media_ids: variantPreviewMediaIds,
                 }
                 const response: Experiment = await api.update(
@@ -2907,7 +2908,7 @@ export const experimentLogic = kea<experimentLogicType>([
         updateExperimentVariantNotes: async ({ variantNotes }) => {
             try {
                 const updatedParameters = {
-                    ...values.experiment.parameters,
+                    ...withoutProjectedFlagConfig(values.experiment.parameters),
                     variant_notes: variantNotes,
                 }
                 const response: Experiment = await api.update(

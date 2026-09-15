@@ -50,16 +50,15 @@ Verifies the experiment's linked feature flag is valid and correctly configured.
   - Report: "The linked feature flag has been deleted."
   - Action: Create a new flag and re-link it, or archive the experiment.
 
-- **Uneven variant split**: The linked flag's variant rollout percentages differ from the experiment's expected split by more than 5 percentage points.
-  Compare the flag's `filters.multivariate.variants` rollout percentages to the experiment's `parameters.feature_flag_variants`.
+- **Incomplete variant split**: The rollout percentages in the flag's `filters.multivariate.variants` don't add up to 100.
   - Severity: WARNING · Category: Correctness
-  - Report: "Variant rollout percentages on the flag don't match the experiment's expected split."
-  - Action: Adjust the flag's variant percentages to match the experiment configuration.
+  - Report: "The flag's variant rollout percentages don't add up to 100%. Some matched users get no variant."
+  - Action: Adjust the variant percentages on the flag so they total 100%.
 
-- **Variant mismatch**: The variant keys in the experiment's `parameters.feature_flag_variants` don't match the variant keys in the flag's `filters.multivariate.variants`.
+- **Too few variants**: The flag's `filters.multivariate.variants` holds fewer than two variants.
   - Severity: CRITICAL · Category: Correctness
-  - Report: "Variant keys differ between the experiment and its linked flag."
-  - Action: Align variant keys between the experiment and its flag.
+  - Report: "The linked feature flag has fewer than two variants. There is nothing to compare."
+  - Action: Add a test variant to the flag alongside the baseline.
 
 ---
 
