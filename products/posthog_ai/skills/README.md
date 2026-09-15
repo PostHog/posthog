@@ -54,4 +54,4 @@ hogli unsync:skill -- --name <skill-name>   # Remove it again
 2. Run `hogli lint:skills`, then `hogli sync:skill` to try it in a real agent session
 3. Push to master — CI builds the ZIP and creates a GitHub release (`agent-skills-latest` + versioned)
 
-The pipeline itself lives in [`products/posthog_ai/scripts/build_skills.py`](../scripts/build_skills.py).
+The pipeline itself lives in [`products/posthog_ai/scripts/build_skills/`](../scripts/build_skills/).

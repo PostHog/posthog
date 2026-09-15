@@ -161,7 +161,7 @@ class Command(BaseCommand):
         self.stdout.write(self.style.MIGRATE_HEADING("Building agent skills (this can take a minute)..."))
 
         process = subprocess.Popen(
-            [sys.executable, "products/posthog_ai/scripts/build_skills.py"],
+            [sys.executable, "-m", "products.posthog_ai.scripts.build_skills"],
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
