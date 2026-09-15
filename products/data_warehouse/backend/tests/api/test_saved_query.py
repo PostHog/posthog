@@ -1174,7 +1174,8 @@ class TestSavedQuery(APIBaseTest):
         )
         self.assertEqual(saved_query_1_response.status_code, 400, saved_query_1_response.content)
 
-    def test_view_updated(self):
+    @parameterized.expand([("same_name", "event_view"), ("renamed", "event_view_renamed")])
+    def test_view_updated(self, _name, new_name):
         response = self.client.post(
             f"/api/environments/{self.team.id}/warehouse_saved_queries/",
             {
@@ -1191,6 +1192,7 @@ class TestSavedQuery(APIBaseTest):
         saved_query_1_response = self.client.patch(
             f"/api/environments/{self.team.id}/warehouse_saved_queries/" + saved_query_1_response["id"],
             {
+                "name": new_name,
                 "query": {
                     "kind": "HogQLQuery",
                     "query": "select distinct_id as distinct_id from events LIMIT 100",
@@ -1201,7 +1203,7 @@ class TestSavedQuery(APIBaseTest):
 
         self.assertEqual(saved_query_1_response.status_code, 200, saved_query_1_response.content)
         view_1 = saved_query_1_response.json()
-        self.assertEqual(view_1["name"], "event_view")
+        self.assertEqual(view_1["name"], new_name)
         self.assertGreater(view_1["updated_at"], initial_updated_at)
         self.assertEqual(
             view_1["columns"],
@@ -1759,6 +1761,7 @@ class TestSavedQuery(APIBaseTest):
             self.assertEqual(query_change["before"], None)
 
             # this should fail because the activity log has changed
+            mock_get_columns.reset_mock()
             response = self.client.patch(
                 f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query['id']}",
                 {
@@ -1772,6 +1775,7 @@ class TestSavedQuery(APIBaseTest):
 
             self.assertEqual(response.status_code, 400, response.content)
             self.assertEqual(response.json()["detail"], "The query was modified by someone else.")
+            mock_get_columns.assert_not_called()
 
     def test_update_concurrency_ignores_non_query_activity(self):
         response = self.client.post(
