@@ -25,7 +25,7 @@ Notebooks can generate interactive widgets from instructions and the notebook's 
 
 ## Reusable widgets
 
-The reusable catalog fields, demo data, input bindings, and pending reviews share one schema migration: `notebooks.0021_reusable_widgets`, after `0020_alter_kernelruntime_team_alter_kernelruntime_user_and_more`.
+The reusable catalog fields, demo data, input bindings, and pending reviews share one schema migration: `notebooks.0022_reusable_widgets`, after `0021_kernelruntime_sandbox_end`.
 The four new non-null fields retain database defaults, so workers from before this migration can still create widgets, versions, and placements during a rolling deploy or rollback.
 Local databases that already applied the earlier catalog, input-binding, pending-review, and merge migrations need their migration records reconciled after verifying all nine fields exist. Record the consolidated migration as applied and prune the four superseded records in both the development and reused test databases. Preserve the existing tables and data; rolling back those field additions would discard saved catalog metadata, bindings, and demo rows.
 

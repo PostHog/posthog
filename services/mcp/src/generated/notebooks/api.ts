@@ -86,7 +86,12 @@ export const notebooksCreateBodyVariablesItemNameMax = 200
 
 export const NotebooksCreateBody = () => zod.object({
     title: zod.string().max(notebooksCreateBodyTitleMax).nullish().describe('Title of the notebook.'),
-    content: zod.unknown().optional().describe('Notebook content as a ProseMirror JSON document structure.'),
+    content: zod
+        .unknown()
+        .optional()
+        .describe(
+            'Notebook content as a ProseMirror JSON document. On create, the server stores it as a markdown notebook: one ph-markdown-notebook node that holds the converted markdown.'
+        ),
     text_content: zod.string().nullish().describe('Plain text representation of the notebook content for search.'),
     version: zod
         .number()
@@ -160,7 +165,12 @@ export const notebooksPartialUpdateBodyVariablesItemNameMax = 200
 
 export const NotebooksPartialUpdateBody = () => zod.object({
     title: zod.string().max(notebooksPartialUpdateBodyTitleMax).nullish().describe('Title of the notebook.'),
-    content: zod.unknown().optional().describe('Notebook content as a ProseMirror JSON document structure.'),
+    content: zod
+        .unknown()
+        .optional()
+        .describe(
+            'Notebook content as a ProseMirror JSON document. On create, the server stores it as a markdown notebook: one ph-markdown-notebook node that holds the converted markdown.'
+        ),
     text_content: zod.string().nullish().describe('Plain text representation of the notebook content for search.'),
     version: zod
         .number()

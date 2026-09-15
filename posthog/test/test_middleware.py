@@ -28,6 +28,7 @@ from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
 from posthog.middleware import CSPMiddleware, app_csp_header_name, per_request_logging_context_middleware
 from posthog.models.organization import Organization
+from posthog.models.organization_invite import OrganizationInvite
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.settings import SITE_URL
@@ -1817,6 +1818,53 @@ class TestActiveOrganizationMiddleware(APIBaseTest):
         self.assertEqual(response.status_code, expected_status)
         if expected_location:
             self.assertEqual(response.headers["Location"], expected_location)
+
+    @parameterized.expand(
+        [
+            ("deactivated_keeps_invites", "is_active", "/signup/{invite_id}", status.HTTP_200_OK),
+            ("deactivated_keeps_billing", "is_active", "/organization/billing", status.HTTP_200_OK),
+            ("deactivated_keeps_stripe_return", "is_active", "/billing/authorization_status", status.HTTP_200_OK),
+            ("pending_deletion_keeps_invites", "is_pending_deletion", "/signup/{invite_id}", status.HTTP_200_OK),
+            ("pending_deletion_drops_billing", "is_pending_deletion", "/organization/billing", status.HTTP_302_FOUND),
+            (
+                "pending_deletion_drops_stripe_return",
+                "is_pending_deletion",
+                "/billing/authorization_status",
+                status.HTTP_302_FOUND,
+            ),
+        ]
+    )
+    def test_blocked_organization_page_access(
+        self, _name: str, blocking_field: str, path_template: str, expected_status: int
+    ) -> None:
+        inviting_org = Organization.objects.create(name="Inviting Org")
+        invite = OrganizationInvite.objects.create(organization=inviting_org, target_email=self.user.email)
+
+        setattr(self.organization, blocking_field, blocking_field == "is_pending_deletion")
+        self.organization.save()
+
+        response = self.client.get(path_template.format(invite_id=invite.id))
+        self.assertEqual(response.status_code, expected_status)
+
+    def test_link_into_another_active_organization_loads(self):
+        active_org = Organization.objects.create(name="Active Org")
+        active_team = Team.objects.create(organization=active_org, name="Active Team")
+        self.user.organizations.add(active_org)
+
+        self.organization.is_active = False
+        self.organization.save()
+
+        response = self.client.get(f"/project/{active_team.pk}/dashboard")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_runs_after_the_middleware_that_switches_project(self):
+        # The block check reads `current_organization`, so it only sees the organization a
+        # `/project/<id>` URL names once AutoProjectMiddleware has switched the user into it.
+        middleware = list(settings.MIDDLEWARE)
+        self.assertLess(
+            middleware.index("posthog.middleware.AutoProjectMiddleware"),
+            middleware.index("posthog.middleware.ActiveOrganizationMiddleware"),
+        )
 
 
 class TestActivityLoggingMiddleware(APIBaseTest):

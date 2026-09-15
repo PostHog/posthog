@@ -3544,6 +3544,10 @@ importers:
       react:
         specifier: 18.3.1
         version: 18.3.1
+    devDependencies:
+      '@testing-library/react':
+        specifier: ^14.3.1
+        version: 14.3.1(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
 
   products/groups:
     dependencies:
@@ -4238,12 +4242,18 @@ importers:
       '@posthog/quill-charts':
         specifier: workspace:*
         version: link:../../packages/quill/packages/charts
+      '@posthog/quill-components':
+        specifier: workspace:*
+        version: link:../../packages/quill/packages/components
       '@types/d3':
         specifier: '*'
         version: 7.4.3
       '@types/react':
         specifier: 18.3.27
         version: 18.3.27
+      '@types/react-simple-maps':
+        specifier: '*'
+        version: 3.0.6
       '@xyflow/react':
         specifier: '*'
         version: 12.6.0(@types/react@18.3.27)(immer@9.0.21)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -4280,9 +4290,15 @@ importers:
       react:
         specifier: 18.3.1
         version: 18.3.1
+      react-simple-maps:
+        specifier: '*'
+        version: 3.0.0(prop-types@15.8.1)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       react-toastify:
         specifier: '*'
         version: 10.0.6(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      use-resize-observer:
+        specifier: '*'
+        version: 8.0.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
     devDependencies:
       '@storybook/react':
         specifier: 'catalog:'

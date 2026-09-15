@@ -2485,6 +2485,30 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()[0]["scout_origin"] == expected_origin
 
+    @parameterized.expand(
+        [
+            # Both names are real on-disk canonical scouts, one of each role.
+            (
+                "operational_canonical",
+                "signals-scout-inbox-validation",
+                {"seeded_by": HARNESS_SEEDED_BY},
+                "operational",
+            ),
+            ("specialist_canonical", "signals-scout-general", {"seeded_by": HARNESS_SEEDED_BY}, "specialist"),
+            ("hand_authored_lookalike", "signals-scout-inbox-validation", {}, "specialist"),
+        ]
+    )
+    def test_list_classifies_role_from_the_canonical_fleet(
+        self, _name: str, skill_name: str, metadata: dict, expected_role: str
+    ) -> None:
+        SignalScoutConfig.objects.create(team=self.team, skill_name=skill_name)
+        LLMSkill.objects.create(team=self.team, name=skill_name, description="d", body="...", metadata=metadata)
+
+        response = self.client.get(self._list_url())
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()[0]["scout_role"] == expected_role
+
     @parameterized.expand(["list", "partial_update", "sync"])
     def test_config_responses_carry_the_skills_owners(self, action: str) -> None:
         # Every response path builds the serializer's context by hand, and one that forgets the
@@ -3152,6 +3176,23 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_204_NO_CONTENT
         assert not SignalScoutConfig.all_teams.filter(id=config.id).exists()
+
+    @parameterized.expand([(False,), (True,)])
+    def test_destroy_refuses_an_operational_scout(self, archived: bool) -> None:
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-inbox-validation")
+        LLMSkill.objects.create(
+            team=self.team,
+            name="signals-scout-inbox-validation",
+            description="d",
+            body="...",
+            metadata={"seeded_by": HARNESS_SEEDED_BY},
+            deleted=archived,
+        )
+
+        response = self.client.delete(self._detail_url(str(config.id)))
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert SignalScoutConfig.all_teams.filter(id=config.id).exists()
 
     def test_destroy_unknown_id_returns_404(self) -> None:
         response = self.client.delete(self._detail_url("00000000-0000-0000-0000-000000000000"))

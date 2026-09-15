@@ -194,6 +194,8 @@ class KernelRuntime(UUIDTModel):
     # before this was captured.
     provisioned_cpu_cores = models.FloatField(null=True, blank=True)
     provisioned_memory_gb = models.FloatField(null=True, blank=True)
+    ended_at = models.DateTimeField(null=True, blank=True)
+    ttl_expires_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         db_table = "posthog_kernelruntime"
