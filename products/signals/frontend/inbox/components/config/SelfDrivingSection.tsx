@@ -692,7 +692,7 @@ export function SelfDrivingSection(): JSX.Element {
                 <MyPullRequestStateRow />
                 <GitHubAssignmentRow />
             </AutonomySettingGroup>
-            <AutonomySettingGroup title="Reports">
+            <AutonomySettingGroup title="Reports" description="Applies to everyone in this project.">
                 <DailyReportLimitRow />
             </AutonomySettingGroup>
         </div>
