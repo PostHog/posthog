@@ -467,6 +467,62 @@ async fn preconnect_dials_every_lane() {
     );
 }
 
+/// A poisoned gate condemns its lane instead of taking every write on the
+/// partition down with a panic, so the partition heals like any other
+/// dead producer.
+#[tokio::test]
+async fn a_poisoned_gate_gives_up_the_partition() {
+    let topic = format!("fence_poisoned_gate_{}", uuid::Uuid::new_v4().simple());
+    let producers = fenced_producers(&topic, 2);
+    producers.acquire(0).await.expect("acquire the fence");
+
+    producers.poison_gate_for_test(0, 1);
+
+    match producers.produce(0, &test_person(1)).await {
+        Err(FencedProduceError::NotAcquired) => {}
+        other => panic!("a poisoned gate must answer as unowned, got {other:?}"),
+    }
+    assert!(
+        !producers.holds(0),
+        "a poisoned gate must stop the partition counting as fenced"
+    );
+}
+
+/// A write parked behind windows that never close is bounded, so a wedged
+/// lane cannot hold its lock and in-flight slot forever.
+#[tokio::test]
+async fn a_write_parked_forever_is_bounded() {
+    let topic = format!("fence_bound_{}", uuid::Uuid::new_v4().simple());
+    let mut kafka = test_kafka_config();
+    kafka.kafka_hosts = KAFKA_BOOTSTRAP.to_string();
+    let producers = FencedChangelogProducers::new(FencedProducerConfig {
+        kafka,
+        topic,
+        init_timeout: Duration::from_secs(10),
+        // Sizes the produce bound well under the test's own patience.
+        commit_timeout: Duration::from_millis(100),
+        broker_txn_timeout: BROKER_TXN_TIMEOUT,
+        window: Duration::from_millis(5),
+        window_max_writes: 32,
+        settle_budget: Duration::from_secs(5),
+        lanes: 1,
+    });
+    producers.acquire(0).await.expect("acquire the fence");
+
+    producers.begin_committing_for_test(0, 0);
+    let outcome = tokio::time::timeout(
+        Duration::from_secs(5),
+        producers.produce(0, &test_person(1)),
+    )
+    .await
+    .expect("the produce must return inside its bound");
+    match outcome {
+        Err(FencedProduceError::Indeterminate(_)) => {}
+        other => panic!("a bounded produce must report its outcome as unknown, got {other:?}"),
+    }
+    producers.finish_committing_for_test(0, 0);
+}
+
 /// A condemned lane above zero gives up the partition the same way lane
 /// zero does: the fence reports missing and writes answer as unowned.
 #[tokio::test]

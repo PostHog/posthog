@@ -21,11 +21,16 @@ use personhog_proto::personhog::leader::v1::person_hog_leader_server::PersonHogL
 use personhog_proto::personhog::types::v1::{
     UpdatePersonPropertiesRequest, UpdatePersonPropertiesResponse,
 };
+use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
 use tonic::{Request, Response, Status};
 
 /// One partition, so the auto-created topic holds the person's partition.
 const NUM_PARTITIONS: u32 = 1;
+
+/// Two lanes, so a write that ignored the person lock could take the
+/// other lane.
+const LANES: usize = 2;
 
 /// Comfortably above the test config's 5s `message.timeout.ms`, which
 /// librdkafka requires the broker bound to cover.
@@ -37,6 +42,7 @@ struct Harness {
     service: Arc<PersonHogLeaderService>,
     fenced: Arc<FencedChangelogProducers>,
     cache: Arc<PartitionedCache>,
+    locks: Arc<DashMap<PersonCacheKey, Arc<Mutex<()>>>>,
     key: PersonCacheKey,
     partition: u32,
 }
@@ -56,7 +62,7 @@ async fn start_harness() -> Harness {
         window: Duration::from_secs(20),
         window_max_writes: 32,
         settle_budget: Duration::from_secs(5),
-        lanes: 1,
+        lanes: LANES,
     }));
 
     let mut seed = test_cached_person();
@@ -71,13 +77,14 @@ async fn start_harness() -> Harness {
     let cache = Arc::new(PartitionedCache::new(1 << 20));
     cache.create_partition(partition);
     seed_person(&cache, partition, seed);
+    let locks = Arc::new(DashMap::new());
     let producer = create_local_kafka_producer().await;
     let service = Arc::new(PersonHogLeaderService::new(
         Arc::clone(&cache),
         producer.clone(),
         topic,
         None,
-        Arc::new(DashMap::new()),
+        Arc::clone(&locks),
         Arc::new(InflightTracker::new()),
         NUM_PARTITIONS,
         Arc::new(DirtyIndex::new(1_000_000)),
@@ -93,29 +100,69 @@ async fn start_harness() -> Harness {
         service,
         fenced,
         cache,
+        locks,
         key,
         partition,
     }
 }
 
-fn spawn_write(harness: &Harness, properties: serde_json::Value) -> Write {
-    let mut request = Request::new(UpdatePersonPropertiesRequest {
-        force_update: false,
-        team_id: harness.key.team_id,
-        person_id: harness.key.person_id,
-        event_name: "$set".to_string(),
-        set_properties: serde_json::to_vec(&properties).unwrap(),
-        set_once_properties: vec![],
-        unset_properties: vec![],
-        is_identified: None,
-        last_seen_at: None,
-    });
-    request.metadata_mut().insert(
-        "x-partition",
-        harness.partition.to_string().parse().unwrap(),
-    );
-    let service = Arc::clone(&harness.service);
-    tokio::spawn(async move { service.update_person_properties(request).await })
+impl Harness {
+    fn spawn_write(&self, properties: serde_json::Value) -> Write {
+        let mut request = Request::new(UpdatePersonPropertiesRequest {
+            force_update: false,
+            team_id: self.key.team_id,
+            person_id: self.key.person_id,
+            event_name: "$set".to_string(),
+            set_properties: serde_json::to_vec(&properties).unwrap(),
+            set_once_properties: vec![],
+            unset_properties: vec![],
+            is_identified: None,
+            last_seen_at: None,
+        });
+        request
+            .metadata_mut()
+            .insert("x-partition", self.partition.to_string().parse().unwrap());
+        let service = Arc::clone(&self.service);
+        tokio::spawn(async move { service.update_person_properties(request).await })
+    }
+
+    fn waiting_writers(&self) -> usize {
+        (0..LANES)
+            .map(|lane| self.fenced.waiting_writers_for_test(self.partition, lane))
+            .sum()
+    }
+
+    /// Close whichever lane holds the open window.
+    fn close_windows(&self) {
+        for lane in 0..LANES {
+            self.fenced.close_window_for_test(self.partition, lane);
+        }
+    }
+
+    fn person_lock_is_held(&self) -> bool {
+        self.locks
+            .get(&self.key)
+            .expect("the write took the person lock")
+            .try_lock()
+            .is_err()
+    }
+
+    /// Wait until the write's record is in a window awaiting the commit,
+    /// the point a client deadline interrupts.
+    async fn wait_for_ack_wait(&self, write: &mut Write) {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while self.waiting_writers() == 0 {
+            if write.is_finished() {
+                let outcome = write.await;
+                panic!("the write ended before its ack wait: {outcome:?}");
+            }
+            assert!(
+                Instant::now() < deadline,
+                "the write never reached its ack wait"
+            );
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    }
 }
 
 async fn wait_until(what: &str, condition: impl Fn() -> bool) {
@@ -126,39 +173,26 @@ async fn wait_until(what: &str, condition: impl Fn() -> bool) {
     }
 }
 
-/// Wait until the write's record is in the window awaiting the commit,
-/// the point a client deadline interrupts.
-async fn wait_for_ack_wait(harness: &Harness, write: &mut Write) {
-    let deadline = Instant::now() + Duration::from_secs(10);
-    while harness
-        .fenced
-        .waiting_writers_for_test(harness.partition, 0)
-        == 0
-    {
-        if write.is_finished() {
-            let outcome = write.await;
-            panic!("the write ended before its ack wait: {outcome:?}");
-        }
-        assert!(
-            Instant::now() < deadline,
-            "the write never reached its ack wait"
-        );
-        tokio::time::sleep(Duration::from_millis(5)).await;
-    }
-}
-
-/// A write whose client gives up between the send and the ack still
-/// lands in the cache, and the next write for the person builds on it
-/// rather than on the state before it.
+/// A write whose client gives up between the send and the ack keeps the
+/// person lock until its outcome, lands in the cache, and the next write
+/// for the person builds on it rather than on the state before it.
 #[tokio::test]
-async fn a_cancelled_handlers_write_lands_and_the_next_write_builds_on_it() {
+async fn a_cancelled_handlers_write_keeps_the_lock_and_lands() {
     let harness = start_harness().await;
 
-    let mut first = spawn_write(&harness, serde_json::json!({"a": 1}));
-    wait_for_ack_wait(&harness, &mut first).await;
+    let mut first = harness.spawn_write(serde_json::json!({"a": 1}));
+    harness.wait_for_ack_wait(&mut first).await;
     first.abort();
     assert!(first.await.unwrap_err().is_cancelled());
-    harness.fenced.close_window_for_test(harness.partition, 0);
+    assert!(
+        harness.person_lock_is_held(),
+        "the person lock must stay held by the commit after its handler is cancelled"
+    );
+
+    // Started while the first write's window is still open: it can only
+    // get past the lock once that window has resolved.
+    let mut second = harness.spawn_write(serde_json::json!({"b": 2}));
+    harness.close_windows();
     wait_until("the cancelled write must land in the cache", || {
         harness
             .cache
@@ -167,9 +201,8 @@ async fn a_cancelled_handlers_write_lands_and_the_next_write_builds_on_it() {
     })
     .await;
 
-    let mut second = spawn_write(&harness, serde_json::json!({"b": 2}));
-    wait_for_ack_wait(&harness, &mut second).await;
-    harness.fenced.close_window_for_test(harness.partition, 0);
+    harness.wait_for_ack_wait(&mut second).await;
+    harness.close_windows();
     let second = second
         .await
         .expect("the write task must not panic")

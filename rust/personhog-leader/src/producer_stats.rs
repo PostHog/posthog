@@ -3,7 +3,7 @@
 //! broker, and the client's own queues.
 
 use std::collections::HashMap;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use metrics::{counter, histogram};
 use rdkafka::client::ClientContext;
@@ -25,7 +25,7 @@ impl ClientContext for FencedProducerContext {
     fn stats(&self, stats: Statistics) {
         let mut last = self.last.lock().unwrap_or_else(|e| e.into_inner());
         for broker in stats.brokers.values() {
-            let node = broker_label(broker);
+            let node: Arc<str> = Arc::from(broker_label(broker));
             record_window(&node, "rtt", broker.rtt.as_ref(), 1000.0);
             record_window(&node, "throttle", broker.throttle.as_ref(), 1.0);
             record_window(&node, "int_latency", broker.int_latency.as_ref(), 1000.0);
@@ -53,7 +53,7 @@ impl ClientContext for FencedProducerContext {
 fn broker_label(broker: &Broker) -> String {
     if broker.nodeid >= 0 {
         broker.nodeid.to_string()
-    } else if broker.name.contains("Coordinator") {
+    } else if matches!(broker.name.as_str(), "GroupCoordinator" | "TxnCoordinator") {
         broker.name.clone()
     } else {
         "bootstrap".to_string()
@@ -62,7 +62,7 @@ fn broker_label(broker: &Broker) -> String {
 
 /// One window's average and maximum, in milliseconds. librdkafka reports
 /// latencies in microseconds and throttling in milliseconds.
-fn record_window(node: &str, window: &'static str, stats: Option<&Window>, per_ms: f64) {
+fn record_window(node: &Arc<str>, window: &'static str, stats: Option<&Window>, per_ms: f64) {
     let Some(stats) = stats else {
         return;
     };
@@ -70,19 +70,19 @@ fn record_window(node: &str, window: &'static str, stats: Option<&Window>, per_m
         return;
     }
     for (agg, value) in [("avg", stats.avg), ("max", stats.max)] {
-        histogram!(WINDOW_MS, "broker" => node.to_string(), "window" => window, "agg" => agg)
+        histogram!(WINDOW_MS, "broker" => node.clone(), "window" => window, "agg" => agg)
             .record(value as f64 / per_ms);
     }
 }
 
 /// Requests sent to the broker since the last callback, by request type.
-fn request_deltas(last: &mut HashMap<String, i64>, broker: &Broker) -> Vec<(String, u64)> {
-    let mut deltas: Vec<(String, u64)> = broker
+fn request_deltas(last: &mut HashMap<String, i64>, broker: &Broker) -> Vec<(Arc<str>, u64)> {
+    let mut deltas: Vec<(Arc<str>, u64)> = broker
         .req
         .iter()
         .filter_map(|(request, &count)| {
             let delta = advance(last, format!("{}/req/{request}", broker.name), count);
-            (delta > 0).then(|| (request.clone(), delta))
+            (delta > 0).then(|| (Arc::from(request.as_str()), delta))
         })
         .collect();
     deltas.sort();
@@ -131,7 +131,7 @@ mod tests {
         let mut last = HashMap::new();
         assert_eq!(
             request_deltas(&mut last, &broker(1, 10, 2)),
-            vec![("Produce".to_string(), 10)]
+            vec![(Arc::from("Produce"), 10)]
         );
         assert_eq!(
             event_deltas(&mut last, &broker(1, 10, 2)),
@@ -139,7 +139,7 @@ mod tests {
         );
         assert_eq!(
             request_deltas(&mut last, &broker(1, 13, 2)),
-            vec![("Produce".to_string(), 3)]
+            vec![(Arc::from("Produce"), 3)]
         );
         assert!(event_deltas(&mut last, &broker(1, 13, 2)).is_empty());
     }
@@ -153,12 +153,17 @@ mod tests {
             ..Broker::default()
         };
         assert_eq!(broker_label(&coordinator), "TxnCoordinator");
-        let bootstrap = Broker {
-            name: "ssl://broker.example:9096/bootstrap".to_string(),
-            nodeid: -1,
-            ..Broker::default()
-        };
-        assert_eq!(broker_label(&bootstrap), "bootstrap");
+        for name in [
+            "ssl://broker.example:9096/bootstrap",
+            "ssl://TxnCoordinator.example:9096/bootstrap",
+        ] {
+            let bootstrap = Broker {
+                name: name.to_string(),
+                nodeid: -1,
+                ..Broker::default()
+            };
+            assert_eq!(broker_label(&bootstrap), "bootstrap", "{name}");
+        }
     }
 
     #[test]
@@ -167,7 +172,7 @@ mod tests {
         request_deltas(&mut last, &broker(1, 10, 0));
         assert_eq!(
             request_deltas(&mut last, &broker(2, 4, 0)),
-            vec![("Produce".to_string(), 4)]
+            vec![(Arc::from("Produce"), 4)]
         );
     }
 }

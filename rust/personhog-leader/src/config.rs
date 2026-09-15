@@ -418,6 +418,10 @@ pub const FENCING_ABORT_ATTEMPTS: u32 = 1;
 /// from this, so the two cannot drift apart.
 pub const FENCING_TXN_CALLS: u32 = FENCING_COMMIT_ATTEMPTS + FENCING_ABORT_ATTEMPTS;
 
+/// Sanity ceiling on lanes: each is a producer, a connection and a thread
+/// per acquisition.
+pub const MAX_FENCING_LANES: usize = 64;
+
 /// librdkafka's documented minimum for `transaction.timeout.ms`.
 const MIN_TXN_TIMEOUT: Duration = Duration::from_millis(1000);
 /// A floor for the send timeout; zero means *no timeout* to librdkafka,
@@ -519,7 +523,8 @@ impl Config {
     /// Producers the aggregate queue budget is divided among: one per
     /// lane per partition.
     fn fenced_producers(&self, partitions: u32) -> u32 {
-        partitions.max(1) * (self.fencing_lanes.max(1) as u32)
+        let lanes = u32::try_from(self.fencing_lanes.max(1)).unwrap_or(u32::MAX);
+        partitions.max(1).saturating_mul(lanes)
     }
 
     /// How long fence acquisition may take.
@@ -712,6 +717,12 @@ impl Config {
         }
         if self.fencing_lanes < 1 {
             return Err("FENCING_LANES must be at least 1".to_string());
+        }
+        if self.fencing_lanes > MAX_FENCING_LANES {
+            return Err(format!(
+                "FENCING_LANES ({}) must be at most {MAX_FENCING_LANES}",
+                self.fencing_lanes
+            ));
         }
         // Fencing without the lease gate is the combination the e2e
         // zombie scenario breaks: acquisition takes the partition's epoch
@@ -1258,15 +1269,18 @@ mod fencing_timescale_tests {
         );
     }
 
-    /// Zero lanes would leave a partition with nothing to produce on.
+    /// Zero lanes would leave a partition with nothing to produce on, and
+    /// an absurd count would open that many connections per acquisition.
     #[test]
-    fn a_zero_lane_count_is_refused() {
-        let mut config = fenced(30);
-        config.fencing_lanes = 0;
-        let err = config
-            .validate_fencing_timescales()
-            .expect_err("zero lanes must be refused");
-        assert!(err.contains("FENCING_LANES"), "{err}");
+    fn a_lane_count_outside_its_bounds_is_refused() {
+        for lanes in [0, MAX_FENCING_LANES + 1] {
+            let mut config = fenced(30);
+            config.fencing_lanes = lanes;
+            let err = config
+                .validate_fencing_timescales()
+                .expect_err("a lane count outside its bounds must be refused");
+            assert!(err.contains("FENCING_LANES"), "{err}");
+        }
     }
 
     /// A lease TTL long enough to derive past the broker's own ceiling

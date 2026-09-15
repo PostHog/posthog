@@ -32,7 +32,7 @@
 #[cfg(any(test, feature = "test-support"))]
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 use std::{fmt, mem};
 
@@ -272,6 +272,9 @@ struct PartitionFence {
     /// Writers waiting on this lane's window to close.
     #[cfg(any(test, feature = "test-support"))]
     parked: AtomicUsize,
+    /// Set by a heal before it re-acquires, so a fence this lane then
+    /// reports counts as the pod's own doing rather than a new owner's.
+    superseded_by_heal: AtomicBool,
     /// Makes the next commit task panic, so tests can reach the arm that
     /// handles a committer which never reports. Scoped to the fence
     /// rather than a global: the tests in this binary run concurrently.
@@ -336,6 +339,14 @@ impl PartitionFence {
         !self.unusable.load(Ordering::Relaxed)
     }
 
+    fn fence_cause(&self) -> &'static str {
+        if self.superseded_by_heal.load(Ordering::Relaxed) {
+            "heal"
+        } else {
+            "takeover"
+        }
+    }
+
     fn stamp_commit_end(&self) {
         self.last_commit_end.store(
             COMMIT_CLOCK.fetch_add(1, Ordering::Relaxed) + 1,
@@ -363,16 +374,21 @@ impl PartitionLanes {
         self.lanes.iter().any(|lane| Arc::ptr_eq(lane, fence))
     }
 
-    fn pick(&self) -> Arc<PartitionFence> {
-        let states: Vec<LaneState> = self
-            .lanes
-            .iter()
-            .map(|lane| LaneState {
-                committing: lane.gate.lock().unwrap().committing,
+    /// The lane a write takes, or none when a gate is poisoned: that lane
+    /// is condemned, so the partition heals like any dead producer.
+    fn pick(&self, partition: u32) -> Option<Arc<PartitionFence>> {
+        let mut states = Vec::with_capacity(self.lanes.len());
+        for lane in &self.lanes {
+            let Ok(gate) = lane.gate.lock() else {
+                lane.condemn(partition, "gate_poisoned");
+                return None;
+            };
+            states.push(LaneState {
+                committing: gate.committing,
                 last_commit_end: lane.last_commit_end.load(Ordering::Relaxed),
-            })
-            .collect();
-        Arc::clone(&self.lanes[pick_lane(&states)])
+            });
+        }
+        Some(Arc::clone(&self.lanes[pick_lane(&states)]))
     }
 }
 
@@ -654,6 +670,9 @@ pub struct FencedChangelogProducers {
     settle_budget: Duration,
     /// Transactional producers per partition.
     lanes: usize,
+    /// Ceiling on one produce, past every stage's own timeout, so a
+    /// wedged lane cannot hold a write's lock and in-flight slot forever.
+    produce_bound: Duration,
     partitions: DashMap<u32, Arc<PartitionLanes>>,
     /// Nudged on condemnation, so the coordination loop can run a
     /// repair pass now instead of on its next reconcile tick. Carries no
@@ -717,6 +736,9 @@ impl FencedChangelogProducers {
             lanes,
         } = config;
         assert!(lanes >= 1, "a partition needs at least one lane");
+        // Two queued writes' worth of window, send and commit attempts,
+        // the same shape the config sizes the lease runway against.
+        let produce_bound = (window + commit_timeout * (COMMIT_RETRIES as u32 + 2)) * 2;
         Self {
             kafka,
             topic,
@@ -727,6 +749,7 @@ impl FencedChangelogProducers {
             window_max_writes,
             settle_budget,
             lanes,
+            produce_bound,
             partitions: DashMap::new(),
             repair_nudge: None,
             prepared: DashMap::new(),
@@ -819,6 +842,7 @@ impl FencedChangelogProducers {
                     last_commit_end: AtomicU64::new(0),
                     #[cfg(any(test, feature = "test-support"))]
                     parked: AtomicUsize::new(0),
+                    superseded_by_heal: AtomicBool::new(false),
                     gate: Mutex::new(Gate {
                         open: false,
                         in_flight: 0,
@@ -866,6 +890,17 @@ impl FencedChangelogProducers {
     /// relies on the map rather than on holding the fence itself.
     pub async fn acquire(&self, partition: u32) -> Result<(), String> {
         self.acquire_installed(partition).await.map(|_| ())
+    }
+
+    /// Mark the installed lanes as about to be fenced by this pod's own
+    /// re-acquisition, so the fences their writers then see count as a
+    /// heal rather than a takeover.
+    pub fn expect_self_fence(&self, partition: u32) {
+        if let Some(lanes) = self.installed(partition) {
+            for lane in &lanes.lanes {
+                lane.superseded_by_heal.store(true, Ordering::Relaxed);
+            }
+        }
     }
 
     /// The lanes currently installed for a partition, if any.
@@ -1115,29 +1150,41 @@ impl FencedChangelogProducers {
         // reaches about 6s at the production TTL, so every shutdown with an
         // open window would truncate here and report a failed drain.
         let budget = self.settle_budget;
-        let mut waiting_on = None;
+        // Every lane waits under the one budget at once, so a lane stuck
+        // in its commit cannot spend it before the others are looked at.
+        let settled: Vec<AtomicBool> = lanes.lanes.iter().map(|_| AtomicBool::new(false)).collect();
         let waited = timeout(budget, async {
-            for fence in &lanes.lanes {
-                waiting_on = Some(fence.lane);
-                loop {
-                    // Register before inspecting, or a close landing
-                    // between the two is lost and this waits on a wakeup
-                    // already spent.
-                    let closed = fence.window_closed.notified();
-                    tokio::pin!(closed);
-                    closed.as_mut().enable();
-                    {
-                        let gate = fence.gate.lock().unwrap();
-                        if !gate.open && !gate.committing && gate.in_flight == 0 {
-                            break;
+            let waits = lanes
+                .lanes
+                .iter()
+                .zip(&settled)
+                .map(|(fence, settled)| async move {
+                    loop {
+                        // Register before inspecting, or a close landing
+                        // between the two is lost and this waits on a wakeup
+                        // already spent.
+                        let closed = fence.window_closed.notified();
+                        tokio::pin!(closed);
+                        closed.as_mut().enable();
+                        {
+                            let gate = fence.gate.lock().unwrap_or_else(PoisonError::into_inner);
+                            if !gate.open && !gate.committing && gate.in_flight == 0 {
+                                break;
+                            }
                         }
+                        closed.await;
                     }
-                    closed.await;
-                }
-            }
-            waiting_on = None;
+                    settled.store(true, Ordering::Relaxed);
+                });
+            futures::future::join_all(waits).await;
         })
         .await;
+        let unsettled: Vec<usize> = settled
+            .iter()
+            .enumerate()
+            .filter(|(_, settled)| !settled.load(Ordering::Relaxed))
+            .map(|(lane, _)| lane)
+            .collect();
 
         let outcome = if waited.is_err() {
             "timeout"
@@ -1153,7 +1200,7 @@ impl FencedChangelogProducers {
             warn!(
                 partition,
                 outcome,
-                lane = ?waiting_on,
+                unsettled_lanes = ?unsettled,
                 "changelog window did not settle before the drain; leaving what remains to the \
                  incoming owner's init"
             );
@@ -1202,6 +1249,18 @@ impl FencedChangelogProducers {
             if let Some(fill) = fence.gate.lock().unwrap().fill_tx.take() {
                 let _ = fill.send(());
             }
+        }
+    }
+
+    /// Poison a lane's gate, as a panic under its lock would.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn poison_gate_for_test(&self, partition: u32, lane: usize) {
+        if let Some(fence) = self.lane(partition, lane) {
+            let poisoner = std::thread::spawn(move || {
+                let _held = fence.gate.lock().unwrap();
+                panic!("poisoning the gate");
+            });
+            assert!(poisoner.join().is_err(), "the poisoner must panic");
         }
     }
 
@@ -1330,7 +1389,27 @@ impl FencedChangelogProducers {
             counter!("personhog_leader_kafka_produce_errors_total").increment(1);
             FencedProduceError::NotAcquired
         })?;
-        self.produce_on(partition, lanes, None, person).await
+        match timeout(
+            self.produce_bound,
+            self.produce_on(partition, lanes, None, person),
+        )
+        .await
+        {
+            Ok(outcome) => outcome,
+            // The record may be enqueued or committed by now, so the
+            // outcome is unknown rather than failed.
+            Err(_) => {
+                counter!("personhog_leader_fence_produce_bound_exceeded_total").increment(1);
+                error!(
+                    partition,
+                    bound_ms = self.produce_bound.as_millis() as u64,
+                    "changelog produce exceeded its bound; outcome unknown"
+                );
+                Err(FencedProduceError::Indeterminate(
+                    "produce exceeded its bound".to_string(),
+                ))
+            }
+        }
     }
 
     /// Produce on the partition, picking a lane per attempt unless one is
@@ -1364,7 +1443,14 @@ impl FencedChangelogProducers {
             }
             let fence = match &pinned {
                 Some(fence) => Arc::clone(fence),
-                None => lanes.pick(),
+                None => match lanes.pick(partition) {
+                    Some(fence) => fence,
+                    None => {
+                        self.forget_fence(partition, &lanes);
+                        counter!("personhog_leader_kafka_produce_errors_total").increment(1);
+                        return Err(FencedProduceError::NotAcquired);
+                    }
+                },
             };
             // Register interest before inspecting the gate: a close that
             // fires between the check and the await must not be lost.
@@ -1557,16 +1643,19 @@ impl FencedChangelogProducers {
         e: KafkaError,
     ) -> FencedProduceError {
         if is_fenced(&e) || producer_fenced(fence.producer.inner()) {
+            let cause = fence.fence_cause();
             counter!(
                 "personhog_leader_produce_fenced_total",
-                "partition" => partition.to_string()
+                "partition" => partition.to_string(),
+                "cause" => cause
             )
             .increment(1);
             error!(
                 partition,
                 lane = fence.lane,
+                cause,
                 error = %e,
-                "changelog producer fenced by a newer owner — this pod's claim is stale"
+                "changelog producer fenced by a newer claim on its id"
             );
             self.forget_lane(partition, fence);
             FencedProduceError::Fenced
@@ -1662,13 +1751,14 @@ enum WindowVerdict {
 /// preregistration below cannot drift from the call sites: a reason
 /// missing here first appears as a brand-new series mid-incident instead
 /// of rising from zero.
-const CONDEMN_REASONS: [&str; 6] = [
+const CONDEMN_REASONS: [&str; 7] = [
     "abort_fenced",
     "abort_failed",
     "commit_fenced",
     "commit_indeterminate",
     "commit_task_lost",
     "committer_unwound",
+    "gate_poisoned",
 ];
 
 /// Why a window's outcome leaves the producer unusable, if it does.
@@ -1902,18 +1992,21 @@ async fn commit_window_after(
                 fence.condemn(partition, reason);
             }
             let verdict = window_verdict(outcome, fenced_now);
+            let cause = fence.fence_cause();
             if verdict == WindowVerdict::FencedUncertain {
                 counter!(
                     "personhog_leader_produce_fenced_total",
-                    "partition" => partition.to_string()
+                    "partition" => partition.to_string(),
+                    "cause" => cause
                 )
                 .increment(1);
                 error!(
                     partition,
                     lane = fence.lane,
+                    cause,
                     topic,
                     error = %e,
-                    "changelog window fenced by a newer owner, with its own outcome unknown"
+                    "changelog window fenced by a newer claim on its id, with its own outcome unknown"
                 );
                 Err(FencedProduceError::FencedUncertain(e.to_string()))
             } else if verdict == WindowVerdict::Fenced {
@@ -1923,16 +2016,18 @@ async fn commit_window_after(
                 if !poisoned {
                     counter!(
                         "personhog_leader_produce_fenced_total",
-                        "partition" => partition.to_string()
+                        "partition" => partition.to_string(),
+                        "cause" => cause
                     )
                     .increment(1);
                 }
                 error!(
                     partition,
                     lane = fence.lane,
+                    cause,
                     topic,
                     error = %e,
-                    "changelog window fenced by a newer owner — this pod's claim is stale"
+                    "changelog window fenced by a newer claim on its id"
                 );
                 Err(FencedProduceError::Fenced)
             } else if verdict == WindowVerdict::Aborted {
@@ -2061,8 +2156,16 @@ pub fn preregister_fencing_metrics(partitions: u32) {
             "partition" => p.clone()
         )
         .increment(0);
-        counter!("personhog_leader_produce_fenced_total", "partition" => p).increment(0);
+        for cause in ["takeover", "heal"] {
+            counter!(
+                "personhog_leader_produce_fenced_total",
+                "partition" => p.clone(),
+                "cause" => cause
+            )
+            .increment(0);
+        }
     }
+    counter!("personhog_leader_fence_produce_bound_exceeded_total").increment(0);
     // Histograms are deliberately absent: the Prometheus exporter
     // renders one only once it has a sample, so there is nothing a
     // startup call can materialize.
@@ -2129,6 +2232,7 @@ pub async fn heal_fence(
     if lost_standing || fenced.holds(partition) || inflight.is_fenced(partition) {
         return Ok(HealOutcome::Intact);
     }
+    fenced.expect_self_fence(partition);
     let taken = match fenced.acquire_installed(partition).await {
         Ok(taken) => taken,
         Err(e) => {
@@ -2227,8 +2331,6 @@ mod tests {
         );
     }
 
-    /// A condemn reason absent from the preregistration list first
-    /// appears as a new series mid-incident instead of rising from zero.
     #[test]
     fn a_write_takes_the_lane_that_committed_longest_ago() {
         let lane = |committing, last_commit_end| LaneState {
@@ -2241,6 +2343,8 @@ mod tests {
         assert_eq!(pick_lane(&[lane(false, 0)]), 0);
     }
 
+    /// A condemn reason absent from the preregistration list first
+    /// appears as a new series mid-incident instead of rising from zero.
     #[test]
     fn every_condemn_reason_is_preregistered() {
         for outcome in [
