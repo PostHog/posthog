@@ -185,10 +185,12 @@ function BaseBranchesRow(): JSX.Element {
                 githubIntegrations.length > 0 ? (
                     'PRs target the default branch of each repository. Add an override for a repository that needs a different branch.'
                 ) : (
-                    <>
+                    // One element around the whole sentence, so the swap never removes a bare text
+                    // node a translation extension replaced (frontend/src/AGENTS.md, rule 7).
+                    <span>
                         PRs target the default branch of each repository.{' '}
                         <Link to={urls.settings('project-integrations')}>Connect GitHub</Link> to add an override.
-                    </>
+                    </span>
                 )
             }
         >
@@ -344,19 +346,18 @@ function IssueTrackerRow(): JSX.Element {
         )
     }
 
+    // One string rather than conditional text siblings, so the description keeps a sole text node
+    // that a translation extension cannot detach from React (frontend/src/AGENTS.md, rule 7).
+    let description =
+        'Open an issue for every PR agents make, and link the two. Use this when a PR can only merge with a tracked work item behind it.'
+    if (integrations !== null && trackers.length === 0) {
+        description += ' Works with GitHub, GitLab, Linear, and Jira.'
+    } else if (integrations === null && !integrationsLoading) {
+        description += ' Could not load integrations.'
+    }
+
     return (
-        <AutonomySettingRow
-            title="Issue tracker"
-            description={
-                <>
-                    Open an issue for every PR agents make, and link the two. Use this when a PR can only merge with a
-                    tracked work item behind it.
-                    {integrations !== null && trackers.length === 0 && ' Works with GitHub, GitLab, Linear, and Jira.'}
-                    {integrations === null && !integrationsLoading && ' Could not load integrations.'}
-                </>
-            }
-            control={control}
-        >
+        <AutonomySettingRow title="Issue tracker" description={description} control={control}>
             {selected && (
                 <div className="flex flex-col gap-2 py-3">
                     <IssueTrackerTarget
