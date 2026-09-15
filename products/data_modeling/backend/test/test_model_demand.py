@@ -196,6 +196,27 @@ class TestModelDemand(BaseTest):
             raise OperationalError("database unavailable")
         return execute(sql, params, many, context)
 
+    def test_one_team_failure_does_not_withhold_the_other_teams(self) -> None:
+        stalled_team_id = self.team.pk + SHARD_COUNT
+        # The older timestamp puts the stalled team first in the shard's flush order.
+        with time_machine.travel(self.now - timedelta(minutes=1), tick=False):
+            ModelDemand.record(stalled_team_id, [str(self.view.pk)])
+        ModelDemand.record(self.team.pk, [str(self.view.pk)])
+        persist_team = ModelDemand.persist_team
+
+        def fail_one_team(team_id: int, demand: dict[str, float]) -> None:
+            if team_id == stalled_team_id:
+                raise OperationalError("database unavailable")
+            persist_team(team_id, demand)
+
+        with patch.object(ModelDemand, "persist_team", side_effect=fail_one_team):
+            with self.assertRaisesRegex(OperationalError, "database unavailable"):
+                ModelDemand.flush()
+
+        self.node.refresh_from_db()
+        self.assertEqual(self.node.last_demand_at, self.now)
+        self.assertEqual(self.redis_client.zrange(self.key, 0, -1), [f"{stalled_team_id}:{self.view.pk}".encode()])
+
     def test_redis_failure_does_not_fail_the_query(self) -> None:
         with (
             tags_context(product=Product.WAREHOUSE, feature=Feature.QUERY),

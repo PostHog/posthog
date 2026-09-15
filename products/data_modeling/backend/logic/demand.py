@@ -95,14 +95,26 @@ class ModelDemand:
     @classmethod
     def flush(cls) -> None:
         client = get_client()
+        failure: Exception | None = None
         for shard in range(SHARD_COUNT):
             key = cls.buffer_key(shard)
             entries = client.zrange(key, 0, FLUSH_BATCH_SIZE - 1, withscores=True)
             demand_by_team: dict[int, dict[str, float]] = defaultdict(dict)
+            acknowledgements_by_team: dict[int, list[bytes | float]] = defaultdict(list)
             for member, timestamp in entries:
                 team_id, query_id = member.decode().split(":", 1)
                 demand_by_team[int(team_id)][query_id] = timestamp
+                acknowledgements_by_team[int(team_id)] += [member, timestamp]
             for team_id, demand in demand_by_team.items():
-                cls.persist_team(team_id, demand)
-            if entries:
-                client.eval(ACKNOWLEDGE, 1, key, *(value for entry in entries for value in entry))
+                # A team that keeps failing must not withhold the later teams of this shard or any
+                # later shard, so each team is acknowledged on its own and the first error is
+                # re-raised once every shard is read.
+                try:
+                    cls.persist_team(team_id, demand)
+                except Exception as error:
+                    logger.exception("Failed to persist model demand", team_id=team_id)
+                    failure = failure or error
+                    continue
+                client.eval(ACKNOWLEDGE, 1, key, *acknowledgements_by_team[team_id])
+        if failure is not None:
+            raise failure
