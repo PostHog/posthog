@@ -2,7 +2,8 @@ import { expectLogic } from 'kea-test-utils'
 
 import { DateFilterLogicProps, DateFilterView } from 'lib/components/DateFilter/types'
 import { dayjs } from 'lib/dayjs'
-import { dateMapping } from 'lib/utils/dateFilters'
+import { dateMapping, dateStringToDayJs } from 'lib/utils/dateFilters'
+import { formatDateRange } from 'lib/utils/datetime'
 
 import { dateFilterLogic } from './dateFilterLogic'
 
@@ -284,4 +285,49 @@ describe('dateFilterLogic', () => {
             })
         }
     )
+
+    describe("a range outside the caller's preset list", () => {
+        // Replay narrows the presets to these six, so a range from a shared link can match none of them
+        const narrowDateOptions = [
+            { key: 'Custom', values: [] },
+            { key: 'Last 24 hours', values: ['-24h'] },
+            { key: 'Last 3 days', values: ['-3d'] },
+            { key: 'Last 7 days', values: ['-7d'] },
+            { key: 'Last 30 days', values: ['-30d'] },
+            { key: 'All time', values: ['-5y'] },
+        ]
+
+        const buildLogic = (dateFrom: string | null, dateTo: string | null): ReturnType<typeof dateFilterLogic.build> =>
+            dateFilterLogic({
+                key: `narrow-${dateFrom}-${dateTo}`,
+                onChange: jest.fn(),
+                dateFrom,
+                dateTo,
+                dateOptions: narrowDateOptions,
+                isDateFormatted: false,
+            })
+
+        it('falls back to the full preset mapping', async () => {
+            const narrowLogic = buildLogic('-1mStart', '-1mEnd')
+            narrowLogic.mount()
+
+            await expectLogic(narrowLogic).toMatchValues({ label: 'Last month' })
+        })
+
+        it('falls back to the resolved dates when no preset matches', async () => {
+            const narrowLogic = buildLogic('-2mStart', '-2mEnd')
+            narrowLogic.mount()
+
+            await expectLogic(narrowLogic).toMatchValues({
+                label: formatDateRange(dateStringToDayJs('-2mStart')!, dateStringToDayJs('-2mEnd')!),
+            })
+        })
+
+        it('still shows the placeholder when no range is set', async () => {
+            const narrowLogic = buildLogic(null, null)
+            narrowLogic.mount()
+
+            await expectLogic(narrowLogic).toMatchValues({ label: 'No date range override' })
+        })
+    })
 })
