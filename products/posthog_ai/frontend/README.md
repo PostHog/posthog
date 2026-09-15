@@ -340,7 +340,8 @@ afterMount(({ actions, cache }) => {
 ```
 
 Connect to `artifactActionsLogic` (`api/logics`) for those actions, and take the payload type
-(`VisualizationArtifactActionPayload`) from `api/types`. Re-registering the same provider id is an upsert,
+(`VisualizationArtifactActionPayload`) from `api/types`. A component host calls `useArtifactAction(action)`
+instead, which registers for the lifetime of the mount and reads `onSelect` at click time. Re-registering the same provider id is an upsert,
 so a host that switches what it is offering replaces its button instead of adding a second one. `query` is
 the renderable query behind the card, so a host does not repeat the artifact-to-query mapping.
 

@@ -45,7 +45,10 @@ export { AGENT_TOOL_APPLY_BACK_CONTEXT_ITEM, wrapWithPosthogContext } from '../u
 // --- Visualization artifact actions (headless) ---
 // The way out of a run: a host registers an action (e.g. "Add to notebook") that every visualization
 // card in the thread renders, and the action runs in the browser rather than through an MCP write.
+// `useArtifactAction` registers one for a mount's life; a kea host connects to the logic instead.
 export { artifactActionsLogic } from '../logics/artifactActionsLogic'
+export { useArtifactAction } from '../hooks/useArtifactAction'
+export type { UseArtifactActionOptions } from '../hooks/useArtifactAction'
 
 // --- User-picked context (the composer's @-affordance, headless half) ---
 // `contextPickerLogic` owns explicit user picks and registers them as the `user-picker` provider;
