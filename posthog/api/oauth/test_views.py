@@ -1,5 +1,4 @@
 import os
-import re
 import json
 import base64
 import hashlib
@@ -51,18 +50,6 @@ from posthog.models.team.team import Team
 from posthog.scopes import ALWAYS_ALLOWED_SCOPES, get_oauth_scopes_supported
 from posthog.settings.utils import generate_rsa_private_key_pem
 from posthog.utils import absolute_uri
-
-
-def _app_context_from(response) -> dict:
-    """`window.POSTHOG_APP_CONTEXT` as the browser would parse it.
-
-    Reads the rendered page rather than the view's template context, because
-    `_build_template_context` forwards only an allowlist of caller-provided keys into
-    the bootstrap. A key the view sets but that list omits never reaches the frontend.
-    """
-    match = re.search(r'window\.POSTHOG_APP_CONTEXT = JSON\.parse\("(.*?)"\);', response.content.decode())
-    assert match is not None, "page did not bootstrap an app context"
-    return json.loads(match.group(1).encode().decode("unicode_escape"))
 
 
 def jwks_entry_to_public_key(key_data: dict):
@@ -316,7 +303,10 @@ class TestOAuthAPI(APIBaseTest):
         response = self.client.get(f"{self.base_authorization_url}&scope={quote('insight:read can')}")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        resolution = _app_context_from(response)["oauth_scope_resolution"]
+        # The serialized bootstrap, not the view's own template context: `_build_template_context`
+        # forwards only an allowlist of caller-provided keys, and a key it omits never reaches the
+        # frontend.
+        resolution = json.loads(response.context["posthog_app_context"])["oauth_scope_resolution"]
         self.assertEqual(resolution["scopes"], sorted({"insight:read", "canvas:read"} | ALWAYS_ALLOWED_SCOPES))
         self.assertTrue(resolution["was_defaulted"])
 
