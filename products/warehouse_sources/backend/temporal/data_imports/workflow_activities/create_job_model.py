@@ -267,7 +267,8 @@ class CreateExternalDataJobModelActivityOutputs:
     # ISO timestamp of when the previous sync completed, used to detect new records
     last_synced_at: str | None = None
     emit_signals_enabled: bool = False
-    # True when semantic enrichment is permitted (feature flag on AND AI data processing approved).
+    # True when semantic enrichment is permitted (AI data processing approved). Kept on the payload for
+    # in-flight workflows; the workflow branches on enrichment_needed.
     enrichment_enabled: bool = False
     # True when column-statistics profiling is permitted (feature flag on). No AI-data-processing consent
     # term: it reads only the Delta log and writes to our own DB — nothing leaves our infra.
@@ -355,15 +356,6 @@ def create_external_data_job_model_activity(
             inputs.team_id, source.source_type, schema.name, ai_data_processing_approved
         )
 
-        # Semantic enrichment runs only when its flag is on AND AI data processing is approved — let the
-        # workflow skip the child entirely rather than spawn one that immediately no-ops.
-        # Lazy import: enrich_table_semantics is a workflow module; keep it off this activity's import path.
-        from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.enrich_table_semantics import (  # noqa: PLC0415
-            enrichment_enabled,
-        )
-
-        enrichment_should_run = bool(ai_data_processing_approved and team is not None and enrichment_enabled(team))
-
         # Column-statistics profiling is gated on its feature flag only (no consent term) — let the
         # workflow skip the child rather than spawn a no-op. Lazy import keeps deltalake off this path.
         from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.compute_table_statistics import (  # noqa: PLC0415
@@ -375,7 +367,7 @@ def create_external_data_job_model_activity(
         # Narrow "permitted" down to "permitted AND has work to do" so steady-state syncs don't spawn
         # no-op metadata workflows. The activities re-check this themselves as a safety net.
         table = schema.table
-        enrichment_needed = enrichment_should_run and _enrichment_pending(inputs.team_id, table, schema)
+        enrichment_needed = ai_data_processing_approved and _enrichment_pending(inputs.team_id, table, schema)
         statistics_needed = statistics_should_run and _statistics_stale(inputs.team_id, table)
 
         # Whether this schema feeds any enabled person-target Customer analytics source (owned by
@@ -396,7 +388,7 @@ def create_external_data_job_model_activity(
             schema_name=schema.name,
             last_synced_at=schema.last_synced_at.isoformat() if schema.last_synced_at else None,
             emit_signals_enabled=emit_signals_enabled,
-            enrichment_enabled=enrichment_should_run,
+            enrichment_enabled=ai_data_processing_approved,
             statistics_enabled=statistics_should_run,
             enrichment_needed=enrichment_needed,
             statistics_needed=statistics_needed,
