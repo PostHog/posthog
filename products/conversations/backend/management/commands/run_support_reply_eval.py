@@ -42,14 +42,14 @@ class Command(BaseCommand):
         selected = [f for f in FIXTURES if not fixture_filter or fixture_filter in f.name]
         rows: list[tuple[SupportReplyFixture, dict[str, Any], dict[str, Any]]] = []
         for fixture in selected:
-            organization, team, user = await asyncio.to_thread(partial(provision_eval_team, label=fixture.name))
+            eval_team = await asyncio.to_thread(partial(provision_eval_team, label=fixture.name))
             try:
-                seed = await asyncio.to_thread(partial(seed_case, team=team, user=user, fixture=fixture))
+                seed = await asyncio.to_thread(partial(seed_case, eval_team=eval_team, fixture=fixture))
                 output = await run_fixture(fixture, seed, live=live)
                 expected = expected_for(fixture)
                 scores = {scorer._name(): scorer._run_eval_sync(output, expected) for scorer in DETERMINISTIC_SCORERS}
                 rows.append((fixture, output, scores))
             finally:
                 if not keep:
-                    await asyncio.to_thread(partial(teardown_eval_team, organization=organization, user=user))
+                    await asyncio.to_thread(partial(teardown_eval_team, eval_team=eval_team))
         return rows

@@ -19,6 +19,7 @@ from products.conversations.evals.scorers import (
     OutcomeMatch,
 )
 from products.conversations.evals.seeders import provision_eval_team, seed_case, teardown_eval_team
+from products.posthog_ai.eval_harness.scorers.contract import Score
 
 
 class TestEvalOutcomeFromTriage(SimpleTestCase):
@@ -72,7 +73,7 @@ class TestSupportReplyScorers(SimpleTestCase):
         assert miss.score == 1.0
 
     def test_cost_fails_when_llm_calls_missing_or_not_int(self):
-        expected = {"cost": {}}
+        expected: dict[str, dict[str, object]] = {"cost": {}}
         missing = CostScorer()._run_eval_sync({"cost": {"sandbox_seconds": 1.2}}, expected)
         coerced = CostScorer()._run_eval_sync({"cost": {"sandbox_seconds": 1.2, "llm_calls": 3.0}}, expected)
         ok = CostScorer()._run_eval_sync({"cost": {"sandbox_seconds": 0.0, "llm_calls": 5}}, expected)
@@ -82,10 +83,12 @@ class TestSupportReplyScorers(SimpleTestCase):
 
     def test_grounding_skips_unless_required(self):
         prepared = Grounding()._prepare({"reply": "hello"}, expected_for(FIXTURES_BY_NAME["how_to_events_missing_sdk"]))
+        assert isinstance(prepared, Score)
         assert prepared.score is None
 
     def test_grounding_fails_empty_reply_when_required(self):
         prepared = Grounding()._prepare({"reply": ""}, expected_for(FIXTURES_BY_NAME["how_to_sdk_install"]))
+        assert isinstance(prepared, Score)
         assert prepared.score == 0.0
 
     def test_clarifying_question_uses_reply_question_mark(self):
@@ -101,6 +104,7 @@ class TestSupportReplyScorers(SimpleTestCase):
             {"prompt": "It's broken.", "reply": "I cannot help with that."},
             expected_for(FIXTURES_BY_NAME["how_to_events_missing_sdk"]),
         )
+        assert isinstance(prepared, Score)
         assert prepared.score == 0.0
 
 
@@ -115,9 +119,9 @@ class TestFixtureCoverage(SimpleTestCase):
 @pytest.mark.asyncio
 async def test_mocked_runner_persists_answerable_fixture_and_cost():
     fixture = FIXTURES_BY_NAME["how_to_sdk_install"]
-    organization, team, user = await asyncio.to_thread(lambda: provision_eval_team(label="pytest-sdk"))
+    eval_team = await asyncio.to_thread(lambda: provision_eval_team(label="pytest-sdk"))
     try:
-        seed = await asyncio.to_thread(lambda: seed_case(team=team, user=user, fixture=fixture))
+        seed = await asyncio.to_thread(lambda: seed_case(eval_team=eval_team, fixture=fixture))
         output = await run_fixture(fixture, seed, live=False)
         assert output.get("error") is None
         assert output["eval_outcome"] == "answerable"
@@ -136,4 +140,4 @@ async def test_mocked_runner_persists_answerable_fixture_and_cost():
         assert scores["forbidden_claims"].score == 1.0
         assert scores["cost"].score == 1.0
     finally:
-        await asyncio.to_thread(lambda: teardown_eval_team(organization=organization, user=user))
+        await asyncio.to_thread(lambda: teardown_eval_team(eval_team=eval_team))

@@ -120,7 +120,8 @@ class CostScorer(Scorer):
             return Score(name=self._name(), score=None, metadata={"reason": "No cost expectation"})
         if not output or output.get("error"):
             return Score(name=self._name(), score=0.0, metadata={"reason": (output or {}).get("error", "No output")})
-        cost = output.get("cost") if isinstance(output.get("cost"), dict) else {}
+        raw_cost = output.get("cost")
+        cost = raw_cost if isinstance(raw_cost, dict) else {}
         sandbox_seconds = cost.get("sandbox_seconds")
         llm_calls = cost.get("llm_calls")
         present = isinstance(sandbox_seconds, (int, float)) and isinstance(llm_calls, int)

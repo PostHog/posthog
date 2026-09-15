@@ -50,12 +50,12 @@ async def eval_support_reply(ctx: EvalContext) -> None:
     async def task(case: BaseEvalCase, task_ctx: EvalContext) -> dict:
         fixture = FIXTURES_BY_NAME[case.name]
         live = live_eval_enabled()
-        organization, team, user = await asyncio.to_thread(lambda: provision_eval_team(label=fixture.name))
+        eval_team = await asyncio.to_thread(lambda: provision_eval_team(label=fixture.name))
         try:
-            seed = await asyncio.to_thread(lambda: seed_case(team=team, user=user, fixture=fixture))
+            seed = await asyncio.to_thread(lambda: seed_case(eval_team=eval_team, fixture=fixture))
             return await run_fixture(fixture, seed, live=live)
         finally:
-            await asyncio.to_thread(lambda: teardown_eval_team(organization=organization, user=user))
+            await asyncio.to_thread(lambda: teardown_eval_team(eval_team=eval_team))
 
     await OneShotPublicEval(
         experiment_name="support-reply-pipeline",

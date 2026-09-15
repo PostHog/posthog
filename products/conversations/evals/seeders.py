@@ -25,7 +25,14 @@ class SeededCase:
     source_by_chunk: dict[str, str]
 
 
-def provision_eval_team(*, label: str) -> tuple[Organization, Team, User]:
+@frozen
+class EvalTeam:
+    organization: Organization
+    team: Team
+    user: User
+
+
+def provision_eval_team(*, label: str) -> EvalTeam:
     suffix = f"{label}-{uuid4().hex[:8]}"
     organization = Organization.objects.create(name=f"Acme Capture eval {suffix}")
     user = User.objects.create_and_join(
@@ -36,7 +43,7 @@ def provision_eval_team(*, label: str) -> tuple[Organization, Team, User]:
         level=OrganizationMembership.Level.OWNER,
     )
     team = Team.objects.create(organization=organization, name=f"Acme Capture {suffix}")
-    return organization, team, user
+    return EvalTeam(organization=organization, team=team, user=user)
 
 
 def seed_corpus(*, team_id: int, created_by_id: int) -> dict[str, tuple[str, ...]]:
@@ -77,22 +84,22 @@ def seed_ticket(*, team: Team, fixture: SupportReplyFixture) -> Ticket:
     return ticket
 
 
-def seed_case(*, team: Team, user: User, fixture: SupportReplyFixture) -> SeededCase:
-    chunks_by_source = seed_corpus(team_id=team.id, created_by_id=user.id)
-    ticket = seed_ticket(team=team, fixture=fixture)
+def seed_case(*, eval_team: EvalTeam, fixture: SupportReplyFixture) -> SeededCase:
+    chunks_by_source = seed_corpus(team_id=eval_team.team.id, created_by_id=eval_team.user.id)
+    ticket = seed_ticket(team=eval_team.team, fixture=fixture)
     source_by_chunk = {
         chunk_id: source_name for source_name, chunk_ids in chunks_by_source.items() for chunk_id in chunk_ids
     }
     return SeededCase(
-        team_id=team.id,
-        user_id=user.id,
+        team_id=eval_team.team.id,
+        user_id=eval_team.user.id,
         ticket_id=str(ticket.id),
         chunks_by_source=chunks_by_source,
         source_by_chunk=source_by_chunk,
     )
 
 
-def teardown_eval_team(*, organization: Organization, user: User) -> None:
-    user_id = user.id
-    organization.delete()
+def teardown_eval_team(*, eval_team: EvalTeam) -> None:
+    user_id = eval_team.user.id
+    eval_team.organization.delete()
     User.objects.filter(id=user_id).delete()

@@ -24,7 +24,8 @@ def format_report(
     )
     lines = [header, "-" * len(header)]
     for fixture, output, scores in rows:
-        cost = output.get("cost") if isinstance(output.get("cost"), dict) else {}
+        raw_cost = output.get("cost")
+        cost = raw_cost if isinstance(raw_cost, dict) else {}
         sandbox = cost.get("sandbox_seconds")
         llm_calls = cost.get("llm_calls")
         sandbox_cell = f"{sandbox:.1f}" if isinstance(sandbox, (int, float)) else "-"

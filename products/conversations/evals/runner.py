@@ -9,9 +9,9 @@ from __future__ import annotations
 
 import os
 import asyncio
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator, Sequence
 from contextlib import ExitStack, contextmanager
-from typing import Any
+from typing import Any, cast
 from uuid import UUID
 
 from unittest.mock import AsyncMock, patch
@@ -61,19 +61,22 @@ DRAFT_MODULE = f"{ACTIVITIES}.draft"
 VALIDATE_MODULE = f"{ACTIVITIES}.validate"
 REVIEW_MODULE = f"{ACTIVITIES}.review_reply"
 
-WORKFLOW_ACTIVITIES = [
-    support_build_context_activity,
-    support_safety_filter_activity,
-    support_classify_activity,
-    support_refine_queries_activity,
-    support_retrieve_activity,
-    support_draft_activity,
-    support_validate_activity,
-    support_review_reply_activity,
-    support_persist_reply_activity,
-    support_persist_knowledge_gap_activity,
-    support_record_triage_activity,
-]
+WORKFLOW_ACTIVITIES: Sequence[Callable[..., Any]] = cast(
+    Sequence[Callable[..., Any]],
+    [
+        support_build_context_activity,
+        support_safety_filter_activity,
+        support_classify_activity,
+        support_refine_queries_activity,
+        support_retrieve_activity,
+        support_draft_activity,
+        support_validate_activity,
+        support_review_reply_activity,
+        support_persist_reply_activity,
+        support_persist_knowledge_gap_activity,
+        support_record_triage_activity,
+    ],
+)
 
 _MOCKED_WORKFLOW_LOCK = asyncio.Lock()
 
@@ -241,7 +244,8 @@ def collect_output(
     clarifying_questions = [q for q in (triage.get("clarifying_questions") or []) if isinstance(q, str)]
     if not clarifying_questions and "?" in reply:
         clarifying_questions = [reply]
-    cost = triage.get("cost") if isinstance(triage.get("cost"), dict) else {}
+    raw_cost = triage.get("cost")
+    cost = raw_cost if isinstance(raw_cost, dict) else {}
     eval_outcome = eval_outcome_from_triage(triage)
     return {
         "exit_code": 0,
@@ -255,7 +259,7 @@ def collect_output(
         "pipeline_result": triage.get("result") or workflow_result,
         "eval_outcome": eval_outcome,
         "ticket_type": triage.get("ticket_type") or fixture.ticket_type,
-        "cost": dict(cost),
+        "cost": cost,
         "ai_triage": triage,
         "mode": "live" if live else "mocked",
         "seed": {"team_id": seed.team_id, "ticket_id": seed.ticket_id},
