@@ -65,9 +65,10 @@ _MATCHED_CONTENT_MAX_CHARS = 1500
 _QUERY_VECTOR_CACHE_TTL_S = 3600
 # Bound the synchronous embedding call: it pins a request thread, and a searcher will not wait longer.
 _EMBEDDING_TIMEOUT_S = 10.0
-# A transport failure gets one retry, because the worker's blips are usually shorter than a search. The two
-# attempts share the budget above, so a retry never makes a searcher wait longer than one attempt did before.
-_EMBEDDING_ATTEMPT_TIMEOUT_S = _EMBEDDING_TIMEOUT_S / 2
+# A transient failure gets one retry, because the worker's blips are usually shorter than a search. The
+# budget above covers both attempts and the pause between them, so a searcher never waits longer than
+# before. A first attempt that spends the whole budget therefore raises instead of retrying, which is
+# right: a worker too slow to answer in 10 seconds will not answer a second call any faster.
 _EMBEDDING_RETRY_BACKOFF_S = 0.25
 # The cosine-distance scan is exact (brute-force), so cap how many of a team's most-recent embedding rows it
 # ranks over. Set well above realistic per-team volume so it only bites a runaway team, keeping latency
@@ -344,26 +345,38 @@ def _query_vector_cache_key(text: str) -> str:
     return f"replay_vision:query_vector:{OBSERVATION_EMBEDDING_MODEL.value}:{digest}"
 
 
-def _embed_once(team: Team, text: str) -> list[float]:
-    return generate_embedding(
-        team, text, model=OBSERVATION_EMBEDDING_MODEL.value, timeout=_EMBEDDING_ATTEMPT_TIMEOUT_S
-    ).embedding
+def is_transient_embedding_error(error: Exception) -> bool:
+    """True for an embedding failure that a later call can clear, which is what a caller offers a retry for.
+
+    `ChunkedEncodingError` is what requests raises when the response body stops part way, so a worker that
+    dies mid-transfer belongs with the other transport failures despite the name. A 5xx is the worker itself
+    failing, so it joins them. A 4xx is a bad request, and a repeat of it is rejected the same way."""
+    if isinstance(error, requests.ConnectionError | requests.Timeout | requests.exceptions.ChunkedEncodingError):
+        return True
+    return isinstance(error, requests.HTTPError) and getattr(error.response, "status_code", 0) >= 500
+
+
+def _embed_once(team: Team, text: str, timeout: float) -> list[float]:
+    return generate_embedding(team, text, model=OBSERVATION_EMBEDDING_MODEL.value, timeout=timeout).embedding
 
 
 def query_vector_for(team: Team, text: str) -> list[float]:
-    """Embed search text, serving repeats from cache. A transport error is retried once, then raised."""
+    """Embed search text, serving repeats from cache. A transient failure is retried once inside
+    `_EMBEDDING_TIMEOUT_S`, and raised when the budget cannot hold a second attempt."""
     key = _query_vector_cache_key(text)
     cached = cache.get(key)
     if cached is not None:
         return cached
+    deadline = time.monotonic() + _EMBEDDING_TIMEOUT_S
     try:
-        vector = _embed_once(team, text)
-    # `ChunkedEncodingError` is what requests raises when the response body stops part way, so a worker that
-    # dies mid-transfer belongs with the other transport failures despite the name.
-    except (requests.ConnectionError, requests.Timeout, requests.exceptions.ChunkedEncodingError):
+        vector = _embed_once(team, text, _EMBEDDING_TIMEOUT_S)
+    except requests.RequestException as error:
+        remaining = deadline - time.monotonic() - _EMBEDDING_RETRY_BACKOFF_S
+        if not is_transient_embedding_error(error) or remaining <= 0:
+            raise
         logger.warning("replay_vision.search.embedding_retry", team_id=team.id, exc_info=True)
         time.sleep(_EMBEDDING_RETRY_BACKOFF_S)
-        vector = _embed_once(team, text)
+        vector = _embed_once(team, text, remaining)
     cache.set(key, vector, timeout=_QUERY_VECTOR_CACHE_TTL_S)
     return vector
 

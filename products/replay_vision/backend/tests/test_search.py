@@ -20,6 +20,7 @@ from products.replay_vision.backend.embeddings import EMBEDDING_DOCUMENT_TYPE, E
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerOrigin, ScannerType
 from products.replay_vision.backend.search import (
+    _EMBEDDING_TIMEOUT_S,
     ObservationSearchFilters,
     fetch_ranked_observations,
     parse_date_bound,
@@ -273,8 +274,36 @@ class TestQueryVectorCache(APIBaseTest):
 
     @patch("products.replay_vision.backend.search.time.sleep")
     @patch("products.replay_vision.backend.search.generate_embedding")
+    def test_a_failing_worker_is_retried_once(self, mock_embed: MagicMock, _mock_sleep: MagicMock) -> None:
+        mock_embed.side_effect = [
+            requests.HTTPError("boom", response=MagicMock(status_code=502)),
+            MagicMock(embedding=[0.1, 0.2]),
+        ]
+        self.assertEqual(query_vector_for(self.team, "confused users"), [0.1, 0.2])
+        self.assertEqual(mock_embed.call_count, 2)
+
+    @patch("products.replay_vision.backend.search.time.sleep")
+    @patch("products.replay_vision.backend.search.generate_embedding")
     def test_a_rejected_request_is_not_retried(self, mock_embed: MagicMock, _mock_sleep: MagicMock) -> None:
         mock_embed.side_effect = requests.HTTPError("rejected", response=MagicMock(status_code=400))
         with self.assertRaises(requests.HTTPError):
+            query_vector_for(self.team, "confused users")
+        self.assertEqual(mock_embed.call_count, 1)
+
+    @patch("products.replay_vision.backend.search.time.sleep")
+    @patch("products.replay_vision.backend.search.generate_embedding")
+    def test_the_first_attempt_gets_the_whole_budget(self, mock_embed: MagicMock, _mock_sleep: MagicMock) -> None:
+        mock_embed.side_effect = [requests.ConnectionError("down"), MagicMock(embedding=[0.1, 0.2])]
+        query_vector_for(self.team, "confused users")
+        first, second = (call.kwargs["timeout"] for call in mock_embed.call_args_list)
+        self.assertEqual(first, _EMBEDDING_TIMEOUT_S)
+        self.assertGreater(second, 0)
+        self.assertLess(second, _EMBEDDING_TIMEOUT_S)
+
+    @patch("products.replay_vision.backend.search._EMBEDDING_TIMEOUT_S", 0.0)
+    @patch("products.replay_vision.backend.search.generate_embedding")
+    def test_a_failure_that_spends_the_budget_is_not_retried(self, mock_embed: MagicMock) -> None:
+        mock_embed.side_effect = requests.Timeout("embedding service down")
+        with self.assertRaises(requests.Timeout):
             query_vector_for(self.team, "confused users")
         self.assertEqual(mock_embed.call_count, 1)
