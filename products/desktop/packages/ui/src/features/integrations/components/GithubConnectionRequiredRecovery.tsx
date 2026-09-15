@@ -4,6 +4,7 @@ import {
   GITHUB_CONNECT_TIMEOUT_MESSAGE,
   GITHUB_CONNECTION_REQUIRED_MESSAGE,
   GITHUB_INSTALL_PENDING_MESSAGE,
+  isGithubConnectionRequiredError,
 } from "@posthog/core/integrations/connectErrors";
 import {
   SESSION_SERVICE,
@@ -50,6 +51,14 @@ function getRecoveryPrompt(task: Task): string {
     task.latest_run?.state.initial_prompt_override ??
     task.description
   );
+}
+
+function getRestartErrorMessage(error: unknown): string {
+  const message =
+    error instanceof Error ? error.message : "The task could not restart. Try again.";
+  return isGithubConnectionRequiredError(message)
+    ? "GitHub is connected, but it cannot access this repository. Update GitHub repository access, then try again."
+    : message;
 }
 
 export function GithubConnectionRequiredRecovery({
@@ -101,10 +110,7 @@ export function GithubConnectionRequiredRecovery({
     } catch (error) {
       // The service explains a refused resume, so keep its wording instead of
       // advice that cannot help, and leave the reason in the logs.
-      const message =
-        error instanceof Error
-          ? error.message
-          : "The task could not restart. Try again.";
+      const message = getRestartErrorMessage(error);
       log.error("Failed to restart a GitHub-blocked task", {
         taskId: task.id,
         error,

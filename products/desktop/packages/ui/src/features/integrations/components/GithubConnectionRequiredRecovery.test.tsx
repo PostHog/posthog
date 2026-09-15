@@ -254,6 +254,44 @@ describe("GithubConnectionRequiredRecovery", () => {
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 
+  it("explains how to recover when GitHub cannot access the repository", async () => {
+    sessionService.retryGithubRequiredCloudRun.mockRejectedValueOnce(
+      new Error(
+        "User-authored run requires a linked GitHub account with repo access.",
+      ),
+    );
+
+    render(
+      <GithubConnectionRequiredRecovery
+        task={makeTask("task-1")}
+        open
+        onOpenChange={() => undefined}
+      />,
+    );
+
+    fireEvent.click(
+      document.querySelector(
+        '[data-attr="connect-github-for-code-context"]',
+      ) as HTMLButtonElement,
+    );
+    await act(async () => {
+      for (const onConnected of connectState.onConnected) onConnected();
+    });
+    await act(async () => {
+      fireEvent.click(
+        document.querySelector(
+          '[data-attr="retry-github-blocked-task"]',
+        ) as HTMLButtonElement,
+      );
+    });
+
+    expect(
+      screen.getByText(
+        "GitHub is connected, but it cannot access this repository. Update GitHub repository access, then try again.",
+      ),
+    ).toBeInTheDocument();
+  });
+
   it("retries only the task whose dialog started the connection", async () => {
     render(
       <>

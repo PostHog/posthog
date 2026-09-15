@@ -97,7 +97,8 @@ export function TaskLogsPanel({ taskId, task, hideInput }: TaskLogsPanelProps) {
     typeof task.latest_run?.state?.slack_thread_url === "string"
       ? task.latest_run.state.slack_thread_url
       : undefined;
-  const canRecoverGithubTask = session?.isTaskAuthor !== false;
+  const canRecoverGithubTask =
+    session?.isTaskAuthor !== false || !task.channel;
   const githubRecoveryAvailable =
     githubConnectionRequired && canRecoverGithubTask;
   const [githubRecoveryOpen, setGithubRecoveryOpen] = useState(
