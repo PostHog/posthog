@@ -1,6 +1,11 @@
+# Every root connection passes `includeArchived: true`. Linear excludes archived entities by
+# default, and it auto-archives closed cycles, issues and projects, so without this a synced row
+# stops being returned once it is archived: full refresh drops it from the table and incremental
+# never sees the archive. `archivedAt` is selected alongside so archived rows stay distinguishable.
+
 ISSUES_QUERY = """
 query PaginatedIssues($pageSize: Int!, $cursor: String, $filter: IssueFilter) {
-    issues(first: $pageSize, after: $cursor, orderBy: updatedAt, filter: $filter) {
+    issues(first: $pageSize, after: $cursor, orderBy: updatedAt, filter: $filter, includeArchived: true) {
         nodes {
             id
             identifier
@@ -35,7 +40,7 @@ query PaginatedIssues($pageSize: Int!, $cursor: String, $filter: IssueFilter) {
 
 PROJECTS_QUERY = """
 query PaginatedProjects($pageSize: Int!, $cursor: String, $filter: ProjectFilter) {
-    projects(first: $pageSize, after: $cursor, orderBy: updatedAt, filter: $filter) {
+    projects(first: $pageSize, after: $cursor, orderBy: updatedAt, filter: $filter, includeArchived: true) {
         nodes {
             id
             name
@@ -44,6 +49,7 @@ query PaginatedProjects($pageSize: Int!, $cursor: String, $filter: ProjectFilter
             progress
             createdAt
             updatedAt
+            archivedAt
             completedAt
             canceledAt
             startedAt
@@ -61,7 +67,7 @@ query PaginatedProjects($pageSize: Int!, $cursor: String, $filter: ProjectFilter
 
 TEAMS_QUERY = """
 query PaginatedTeams($pageSize: Int!, $cursor: String) {
-    teams(first: $pageSize, after: $cursor) {
+    teams(first: $pageSize, after: $cursor, includeArchived: true) {
         nodes {
             id
             name
@@ -71,6 +77,7 @@ query PaginatedTeams($pageSize: Int!, $cursor: String) {
             color
             createdAt
             updatedAt
+            archivedAt
         }
         pageInfo { hasNextPage endCursor }
     }
@@ -78,7 +85,7 @@ query PaginatedTeams($pageSize: Int!, $cursor: String) {
 
 USERS_QUERY = """
 query PaginatedUsers($pageSize: Int!, $cursor: String) {
-    users(first: $pageSize, after: $cursor) {
+    users(first: $pageSize, after: $cursor, includeArchived: true) {
         nodes {
             id
             name
@@ -88,6 +95,7 @@ query PaginatedUsers($pageSize: Int!, $cursor: String) {
             admin
             createdAt
             updatedAt
+            archivedAt
             isMe
             avatarUrl
             url
@@ -98,12 +106,13 @@ query PaginatedUsers($pageSize: Int!, $cursor: String) {
 
 COMMENTS_QUERY = """
 query PaginatedComments($pageSize: Int!, $cursor: String, $filter: CommentFilter) {
-    comments(first: $pageSize, after: $cursor, orderBy: updatedAt, filter: $filter) {
+    comments(first: $pageSize, after: $cursor, orderBy: updatedAt, filter: $filter, includeArchived: true) {
         nodes {
             id
             body
             createdAt
             updatedAt
+            archivedAt
             url
             issue { id identifier }
             user { id name email }
@@ -114,7 +123,7 @@ query PaginatedComments($pageSize: Int!, $cursor: String, $filter: CommentFilter
 
 LABELS_QUERY = """
 query PaginatedLabels($pageSize: Int!, $cursor: String) {
-    issueLabels(first: $pageSize, after: $cursor) {
+    issueLabels(first: $pageSize, after: $cursor, includeArchived: true) {
         nodes {
             id
             name
@@ -122,6 +131,7 @@ query PaginatedLabels($pageSize: Int!, $cursor: String) {
             color
             createdAt
             updatedAt
+            archivedAt
         }
         pageInfo { hasNextPage endCursor }
     }
@@ -129,7 +139,7 @@ query PaginatedLabels($pageSize: Int!, $cursor: String) {
 
 CYCLES_QUERY = """
 query PaginatedCycles($pageSize: Int!, $cursor: String, $filter: CycleFilter) {
-    cycles(first: $pageSize, after: $cursor, orderBy: updatedAt, filter: $filter) {
+    cycles(first: $pageSize, after: $cursor, orderBy: updatedAt, filter: $filter, includeArchived: true) {
         nodes {
             id
             name
@@ -140,6 +150,7 @@ query PaginatedCycles($pageSize: Int!, $cursor: String, $filter: CycleFilter) {
             completedAt
             createdAt
             updatedAt
+            archivedAt
             progress
             scopeHistory
             completedScopeHistory
@@ -151,7 +162,7 @@ query PaginatedCycles($pageSize: Int!, $cursor: String, $filter: CycleFilter) {
 
 RESOURCES_QUERY = """
 query PaginatedAttachments($pageSize: Int!, $cursor: String, $filter: AttachmentFilter) {
-    attachments(first: $pageSize, after: $cursor, orderBy: updatedAt, filter: $filter) {
+    attachments(first: $pageSize, after: $cursor, orderBy: updatedAt, filter: $filter, includeArchived: true) {
         nodes {
             id
             title
@@ -160,6 +171,7 @@ query PaginatedAttachments($pageSize: Int!, $cursor: String, $filter: Attachment
             sourceType
             createdAt
             updatedAt
+            archivedAt
             issue { id identifier }
             creator { id name email }
         }
@@ -169,7 +181,7 @@ query PaginatedAttachments($pageSize: Int!, $cursor: String, $filter: Attachment
 
 WORKFLOW_STATES_QUERY = """
 query PaginatedWorkflowStates($pageSize: Int!, $cursor: String, $filter: WorkflowStateFilter) {
-    workflowStates(first: $pageSize, after: $cursor, orderBy: updatedAt, filter: $filter) {
+    workflowStates(first: $pageSize, after: $cursor, orderBy: updatedAt, filter: $filter, includeArchived: true) {
         nodes {
             id
             name
@@ -189,7 +201,7 @@ query PaginatedWorkflowStates($pageSize: Int!, $cursor: String, $filter: Workflo
 
 PROJECT_MILESTONES_QUERY = """
 query PaginatedProjectMilestones($pageSize: Int!, $cursor: String, $filter: ProjectMilestoneFilter) {
-    projectMilestones(first: $pageSize, after: $cursor, orderBy: updatedAt, filter: $filter) {
+    projectMilestones(first: $pageSize, after: $cursor, orderBy: updatedAt, filter: $filter, includeArchived: true) {
         nodes {
             id
             name
@@ -209,7 +221,7 @@ query PaginatedProjectMilestones($pageSize: Int!, $cursor: String, $filter: Proj
 
 INITIATIVES_QUERY = """
 query PaginatedInitiatives($pageSize: Int!, $cursor: String, $filter: InitiativeFilter) {
-    initiatives(first: $pageSize, after: $cursor, orderBy: updatedAt, filter: $filter) {
+    initiatives(first: $pageSize, after: $cursor, orderBy: updatedAt, filter: $filter, includeArchived: true) {
         nodes {
             id
             name
@@ -242,7 +254,7 @@ query PaginatedInitiatives($pageSize: Int!, $cursor: String, $filter: Initiative
 
 TEAM_MEMBERSHIPS_QUERY = """
 query PaginatedTeamMemberships($pageSize: Int!, $cursor: String) {
-    teamMemberships(first: $pageSize, after: $cursor) {
+    teamMemberships(first: $pageSize, after: $cursor, includeArchived: true) {
         nodes {
             id
             owner
@@ -259,7 +271,7 @@ query PaginatedTeamMemberships($pageSize: Int!, $cursor: String) {
 
 ISSUE_RELATIONS_QUERY = """
 query PaginatedIssueRelations($pageSize: Int!, $cursor: String) {
-    issueRelations(first: $pageSize, after: $cursor) {
+    issueRelations(first: $pageSize, after: $cursor, includeArchived: true) {
         nodes {
             id
             type
@@ -275,7 +287,7 @@ query PaginatedIssueRelations($pageSize: Int!, $cursor: String) {
 
 PROJECT_UPDATES_QUERY = """
 query PaginatedProjectUpdates($pageSize: Int!, $cursor: String, $filter: ProjectUpdateFilter) {
-    projectUpdates(first: $pageSize, after: $cursor, orderBy: updatedAt, filter: $filter) {
+    projectUpdates(first: $pageSize, after: $cursor, orderBy: updatedAt, filter: $filter, includeArchived: true) {
         nodes {
             id
             body
@@ -299,7 +311,7 @@ query PaginatedProjectUpdates($pageSize: Int!, $cursor: String, $filter: Project
 
 DOCUMENTS_QUERY = """
 query PaginatedDocuments($pageSize: Int!, $cursor: String, $filter: DocumentFilter) {
-    documents(first: $pageSize, after: $cursor, orderBy: updatedAt, filter: $filter) {
+    documents(first: $pageSize, after: $cursor, orderBy: updatedAt, filter: $filter, includeArchived: true) {
         nodes {
             id
             title

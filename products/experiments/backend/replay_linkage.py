@@ -227,7 +227,7 @@ def _precomputation_covers_full_window(config: TeamExperimentsConfig, experiment
     )
 
 
-def _fallback_evidence_scan_is_unaffordable(team: Team, experiment: Experiment) -> bool:
+def fallback_evidence_scan_is_unaffordable(team: Team, experiment: Experiment) -> bool:
     """Whether the stamped-property evidence scan must be refused for this team and experiment.
 
     Unlike the exposure-event scan, the fallback has no event name to prune on, so it reads every
@@ -264,7 +264,7 @@ def resolve_in_session_exposure_semantics(team: Team, experiment: Experiment) ->
         return InSessionExposureSemantics(
             session_exposure=None, unavailable_reason=IN_SESSION_EXPOSURE_UNMATCHABLE_REASON
         )
-    if session_exposure.used_fallback and _fallback_evidence_scan_is_unaffordable(team, experiment):
+    if session_exposure.used_fallback and fallback_evidence_scan_is_unaffordable(team, experiment):
         return InSessionExposureSemantics(
             session_exposure=None, unavailable_reason=IN_SESSION_EXPOSURE_FALLBACK_TOO_LARGE_REASON
         )
@@ -485,13 +485,27 @@ def _resolve_exposure_read(team: Team, experiment: Experiment, context: Experime
     )
 
 
-def exposed_distinct_ids_select(linkage: ExperimentExposureLinkage) -> ast.SelectQuery:
+def exposed_distinct_ids_select(
+    linkage: ExperimentExposureLinkage, *, candidate_distinct_ids: ast.SelectQuery | None = None
+) -> ast.SelectQuery:
     """One row per exposed distinct id: (distinct_id, first_exposure_time).
 
     Pure AST construction; :func:`resolve_exposure_linkage` carries the validation and the
     precompute decision, so callers can build query ASTs without side effects.
+
+    ``candidate_distinct_ids`` narrows the mapping read to the distinct ids the caller can join
+    on. The select must return one ``distinct_id`` column, and it must return a superset of the
+    distinct ids the caller joins on: a distinct id it omits is never resolved, so an exposed
+    person's session under that id would silently drop out of the result. By default the
+    candidates come from the mapping table itself, which is exact for any caller but reads the
+    team's whole mapping on every query.
     """
-    return _exposed_population_select(linkage, project_attribution=False, variants=list(linkage.requested_variants))
+    return _exposed_population_select(
+        linkage,
+        project_attribution=False,
+        variants=list(linkage.requested_variants),
+        candidate_distinct_ids=candidate_distinct_ids,
+    )
 
 
 def exposed_persons_select(linkage: ExperimentExposureLinkage, *, include_multiple_variant: bool) -> ast.SelectQuery:
@@ -512,8 +526,30 @@ def exposed_persons_select(linkage: ExperimentExposureLinkage, *, include_multip
     return _exposed_population_select(linkage, project_attribution=True, variants=variants)
 
 
+def _distinct_ids_mapped_to_exposed_persons_select(linkage: ExperimentExposureLinkage) -> ast.SelectQuery:
+    """The default candidate prefilter: every distinct id that ever mapped to an exposed person.
+
+    Reads the ``exposures`` CTE of the enclosing population select, so it only resolves inside it.
+    """
+    query = parse_select(
+        """
+        SELECT distinct_id
+        FROM raw_person_distinct_ids
+        WHERE team_id = {team_id}
+            AND person_id IN (SELECT entity_id FROM exposures)
+        """,
+        placeholders={"team_id": ast.Constant(value=linkage.context.team.pk)},
+    )
+    assert isinstance(query, ast.SelectQuery)
+    return query
+
+
 def _exposed_population_select(
-    linkage: ExperimentExposureLinkage, *, project_attribution: bool, variants: list[str]
+    linkage: ExperimentExposureLinkage,
+    *,
+    project_attribution: bool,
+    variants: list[str],
+    candidate_distinct_ids: ast.SelectQuery | None = None,
 ) -> ast.SelectQuery:
     exposure_select = ExposureQueryBuilder(
         context=linkage.context,
@@ -522,15 +558,21 @@ def _exposed_population_select(
 
     # The distinct-id expansion must not aggregate the team's whole mapping table: its memory
     # scales with the team's total distinct ids rather than with the exposed population, which
-    # OOMs the recordings request on the largest teams. So a prefilter first nominates the
-    # distinct ids that ever mapped to an exposed person (a row-level scan, no aggregation
-    # state), and argMax then resolves the latest mapping over every version row of those
-    # candidates only. Filtering rows by person_id directly instead would resurrect stale
-    # mappings: a distinct id reassigned away from an exposed person keeps its old rows, and
-    # argMax over just those would report the old person as current. The prefilter is a
-    # superset (it ignores variant and reassignment), and the join keeps only candidates whose
-    # latest person really is exposed.
+    # OOMs the recordings request on the largest teams. So a prefilter first nominates candidate
+    # distinct ids (a row-level scan, no aggregation state), and argMax then resolves the latest
+    # mapping over every version row of those candidates only. Filtering rows by person_id
+    # directly instead would resurrect stale mappings: a distinct id reassigned away from an
+    # exposed person keeps its old rows, and argMax over just those would report the old person
+    # as current. The prefilter is a superset (it ignores variant and reassignment), and the
+    # join keeps only candidates whose latest person really is exposed.
     #
+    # By default the candidates are the distinct ids that ever mapped to an exposed person. The
+    # mapping table is sorted by distinct id, not person id, so that prefilter reads the team's
+    # whole mapping on every query. A caller that already knows which distinct ids it joins on
+    # passes them as `candidate_distinct_ids`, and the mapping is then read for those ids only.
+    if candidate_distinct_ids is None:
+        candidate_distinct_ids = _distinct_ids_mapped_to_exposed_persons_select(linkage)
+
     # The WHERE on variant drops entities attributed MULTIPLE_VARIANT_KEY under "exclude"
     # handling, matching who the analysis counts, unless the caller passed the key back in via
     # `variants`. Both join sides are pre-grouped, so each distinct id carries exactly one
@@ -547,12 +589,7 @@ def _exposed_population_select(
                 argMax(is_deleted, version) AS is_deleted
             FROM raw_person_distinct_ids
             WHERE team_id = {team_id}
-                AND distinct_id IN (
-                    SELECT distinct_id
-                    FROM raw_person_distinct_ids
-                    WHERE team_id = {prefilter_team_id}
-                        AND person_id IN (SELECT entity_id FROM exposures)
-                )
+                AND distinct_id IN {candidate_distinct_ids}
             GROUP BY distinct_id
             HAVING is_deleted = 0
         ) AS pdi
@@ -562,7 +599,7 @@ def _exposed_population_select(
         """,
         placeholders={
             "team_id": ast.Constant(value=linkage.context.team.pk),
-            "prefilter_team_id": ast.Constant(value=linkage.context.team.pk),
+            "candidate_distinct_ids": candidate_distinct_ids,
             "requested_variants": ast.Constant(value=variants),
         },
     )
@@ -574,10 +611,12 @@ def _exposed_population_select(
             ast.Alias(alias="person_id", expr=ast.Call(name="any", args=[ast.Field(chain=["pdi", "person_id"])])),
             ast.Alias(alias="variant", expr=ast.Call(name="any", args=[ast.Field(chain=["exposures", "variant"])])),
         ]
-    # Both the prefilter and the join read the exposed population, and ClickHouse substitutes a
-    # plain CTE at each reference rather than computing it once, so a bare `WITH` would scan the
-    # exposure source twice. MATERIALIZED computes it once and reuses the result, which keeps the
-    # live path to a single events scan and holds only the exposed rows in memory.
+    # Both the default prefilter and the join read the exposed population, and ClickHouse
+    # substitutes a plain CTE at each reference rather than computing it once, so a bare `WITH`
+    # would scan the exposure source twice. MATERIALIZED computes it once and reuses the result,
+    # which keeps the live path to a single events scan and holds only the exposed rows in
+    # memory. With caller-supplied candidates only the join reads it, and the single computation
+    # costs the same either way.
     query.ctes = {"exposures": ast.CTE(name="exposures", expr=exposure_select, cte_type="subquery", materialized=True)}
     return query
 

@@ -75,6 +75,8 @@ from posthog.tasks.uploaded_media import sweep_abandoned_media_uploads_task
 from posthog.tasks.wizard_blocklist import revoke_blocklisted_gateway_credentials
 from posthog.utils import get_crontab, get_instance_region
 
+from products.ai_training.backend.facade.api import privacy_enabled
+from products.ai_training.backend.facade.tasks import process_ai_training_privacy_requests
 from products.approvals.backend.tasks import expire_old_change_requests, validate_pending_change_requests
 from products.canvas.backend.tasks import cleanup_canvas_builds, sweep_canvas_builds
 from products.conversations.backend.tasks.email import flush_pending_email_replies
@@ -126,7 +128,7 @@ from products.tasks.backend.facade.tasks import (
     sweep_inactive_tasks_task,
     sweep_loop_task_retention_task,
 )
-from products.visual_review.backend.facade.tasks import sweep_visual_review_retention
+from products.visual_review.backend.facade.tasks import send_visual_review_debt_digests, sweep_visual_review_retention
 from products.warehouse_sources.backend.facade.tasks import sweep_stopped_schema_syncs
 from products.web_analytics.backend.achievements.tasks import sweep_web_analytics_achievement_team_tracks
 from products.web_analytics.backend.tasks.heatmap_screenshot import (
@@ -247,6 +249,8 @@ def add_periodic_task_with_expiry(
 
 
 def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
+    if privacy_enabled():
+        sender.add_periodic_task(30.0, process_ai_training_privacy_requests.s(), name="process-ai-training-privacy")
     # Short-interval heartbeat tasks (<60s) use intervals since cron minimum is 1 minute.
     # These are fine because they run more frequently than beat restarts.
     if not settings.DEBUG:
@@ -1080,6 +1084,14 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="2", minute="23"),
         sweep_visual_review_retention.s(),
         name="sweep visual review retention",
+    )
+
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(day_of_week="mon", hour="7", minute="30"),
+        send_visual_review_debt_digests.s(),
+        name="send visual review debt digests",
+        expires_seconds=60 * 60,
     )
 
     sender.add_periodic_task(

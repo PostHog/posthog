@@ -39,7 +39,7 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client import sync_execute
 from posthog.constants import AvailableFeature
-from posthog.models import Team
+from posthog.models import PropertyDefinition, Team
 from posthog.models.utils import uuid7
 
 from products.access_control.backend.facade.user_access_control import UserAccessControlError
@@ -73,6 +73,7 @@ from products.error_tracking.backend.models import (
     sync_issues_to_clickhouse,
     update_error_tracking_issue_fingerprints,
 )
+from products.event_definitions.backend.property_type import PropertyType
 
 
 class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIdentities):
@@ -541,6 +542,27 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
         self.assertEqual(results[0]["aggregations"]["sessions"], 0)
         self.assertEqual(results[0]["aggregations"]["users"], 1)
 
+    @parameterized.expand([("event", PropertyDefinition.Type.EVENT), ("person", PropertyDefinition.Type.PERSON)])
+    @time_machine.travel("2022-01-10 12:11:00", tick=False)
+    def test_search_with_non_string_property_definition(self, _name, definition_type):
+        # A Boolean definition makes the property swapper cast `email` away from
+        # String, which used to make `lower()` reject it and fail the query.
+        PropertyDefinition.objects.create(
+            team=self.team, name="email", type=definition_type, property_type=PropertyType.Boolean
+        )
+        self.create_events_and_issue(
+            issue_id="01936e81-b0ce-7b56-8497-791e505b0d0c",
+            fingerprint="fingerprint_DatabaseNotFoundX",
+            distinct_ids=[self.distinct_id_one],
+            additional_properties={"$exception_types": "['DatabaseNotFoundX']"},
+        )
+        flush_persons_and_events()
+
+        results = self._calculate(searchQuery="databasenotfoundx")["results"]
+
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["id"], "01936e81-b0ce-7b56-8497-791e505b0d0c")
+
     @time_machine.travel("2022-01-10 12:11:00", tick=False)
     @snapshot_clickhouse_queries
     def test_search_person_properties(self):
@@ -708,7 +730,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
             state_updated_at=now(),
         )
 
-        with self.assertNumQueries(1):
+        with self.assertNumQueries(2):
             recent_states = load_recent_issue_states(self.team.pk)
 
         self.assertEqual(
@@ -727,7 +749,9 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
         ErrorTrackingIssue.objects.create(
             team=self.team, status=ErrorTrackingIssue.Status.RESOLVED, state_updated_at=now()
         )
-        self.assertEqual(load_recent_issue_states(self.team.pk), [])
+        # Over the bound the rows are never read, so the id probe is the only query.
+        with self.assertNumQueries(1):
+            self.assertEqual(load_recent_issue_states(self.team.pk), [])
 
     @time_machine.travel("2022-01-10T12:11:00", tick=False)
     def test_recent_issue_state_applies_to_more_than_fifty_fingerprints(self):
@@ -1029,6 +1053,57 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
             if included
         }
         self.assertEqual(result_ids, expected_ids)
+
+    @parameterized.expand(
+        [
+            ("optimized_shape", False),
+            ("legacy_shape", True),
+        ]
+    )
+    @time_machine.travel("2022-01-10T12:11:00", tick=False)
+    def test_distinct_aggregations_are_capped_at_occurrences(self, _name: str, legacy_shape: bool):
+        # `uniq` is approximate, so on a high-cardinality issue it can report
+        # more users or sessions than there are occurrences. Both query shapes
+        # must cap the estimate at the exact occurrence count.
+        filter_group = None
+        if legacy_shape:
+            filter_group = PropertyGroupFilter(
+                type=FilterLogicalOperator.AND_,
+                values=[
+                    PropertyGroupFilterValue(
+                        type=FilterLogicalOperator.OR_,
+                        values=[
+                            EventPropertyFilter(key="$browser", value=["Firefox"], operator=PropertyOperator.EXACT),
+                            ErrorTrackingIssueFilter(
+                                key="name", value=[self.issue_name_one], operator=PropertyOperator.EXACT
+                            ),
+                        ],
+                    )
+                ],
+            )
+
+        builder = ErrorTrackingQueryBuilder(
+            query=ErrorTrackingQuery(
+                kind="ErrorTrackingQuery",
+                dateRange=DateRange(date_from="-7d"),
+                filterGroup=filter_group,
+                orderBy="last_seen",
+                volumeResolution=1,
+                withAggregations=True,
+            ),
+            team=self.team,
+            date_from=datetime(2022, 1, 3, tzinfo=UTC),
+            date_to=datetime(2022, 1, 10, tzinfo=UTC),
+        )
+        self.assertEqual(builder._needs_legacy_shape(), legacy_shape)
+
+        selected = {expr.alias: expr.expr for expr in builder.build_query().select if isinstance(expr, ast.Alias)}
+        occurrences = selected["occurrences"].to_hogql()
+        for alias in ("users", "sessions"):
+            capped = selected[alias]
+            assert isinstance(capped, ast.Call)
+            self.assertEqual(capped.name, "least")
+            self.assertEqual(capped.args[1].to_hogql(), occurrences)
 
     @time_machine.travel("2022-01-10T12:11:00", tick=False)
     def test_nested_filter_group_routes_issue_filters_to_issue_fields(self):

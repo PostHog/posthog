@@ -987,12 +987,32 @@ class TestTable(BaseTest):
         result = remove_named_tuples("Array(Tuple(`1` String, `2` String, `3` Nullable(String)))")
         assert result == "Array(Tuple( String,  String,  Nullable(String)))"
 
-    def test_hogql_definition_tuple_with_backtick_positional_names(self):
+    @parameterized.expand(
+        [
+            # A parquet reader given element names matches the nested fields by name, so a renamed
+            # nested field comes back as an empty array. Positional matching still returns the data.
+            (
+                "parquet_stays_positional",
+                DataWarehouseTable.TableFormat.Parquet,
+                "`id` String, `deal_details` Array(Tuple( String,  String,  Nullable(String)))",
+            ),
+            # JSONEachRow has no positional reading of a nested object: without the names ClickHouse
+            # expects an array and every read of the table raises code 27.
+            (
+                "json_keeps_names",
+                DataWarehouseTable.TableFormat.JSON,
+                "`id` String, `deal_details` Array(Tuple(`1` String, `2` String, `3` Nullable(String)))",
+            ),
+        ]
+    )
+    def test_hogql_definition_tuple_element_names_follow_the_format(
+        self, _name: str, table_format: str, expected_structure: str
+    ):
         credential = DataWarehouseCredential.objects.create(access_key="test", access_secret="test", team=self.team)
         table = DataWarehouseTable.objects.create(
             name="test_table",
             url_pattern="https://example.com",
-            format=DataWarehouseTable.TableFormat.Parquet,
+            format=table_format,
             team=self.team,
             columns={
                 "id": "String",
@@ -1006,7 +1026,7 @@ class TestTable(BaseTest):
         )
         definition = table.hogql_definition()
         assert isinstance(definition, HogQLDataWarehouseTable)
-        assert definition.structure == "`id` String, `deal_details` Array(Tuple( String,  String,  Nullable(String)))"
+        assert definition.structure == expected_structure
 
     def assert_raises_with_invalid_hog_column_type(self, column_type):
         credential = DataWarehouseCredential.objects.create(access_key="test", access_secret="test", team=self.team)

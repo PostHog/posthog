@@ -58,6 +58,13 @@ The agent inside the sandbox gets:
 - Access to the **PostHog MCP server** for querying data
 - **Code execution** capabilities within the sandbox
 
+### Run system prompts
+
+The run's `state.systemPrompt` is server-owned. Set it through trusted server-side run creation
+or state updates. The run PATCH endpoint silently ignores attempts to replace, remove, or append
+to this key, including requests from the sandbox itself. The run detail endpoint serves the prompt
+only to the task-bound sandbox, so it can initialize the agent session.
+
 ## Creating a sandboxed agent
 
 Use `Task.create_and_run()` to launch a sandboxed agent from your product code:
@@ -112,6 +119,14 @@ In the new PostHog AI view, `/ai?ask=...` hands the prompt to the task composer 
 The handoff removes `ask` from the current browser history entry while preserving other query parameters and the hash.
 Changing the panel state or remounting the view therefore does not submit the prompt again.
 Without organization-level AI data-processing consent, the prompt only prefills the composer.
+
+## Task navigation
+
+Task links in shared AI history open `/ai?task=<task-id>` and render the task runner, regardless of the saved chat view preference.
+The task stays selected on reload and when navigating back or forward.
+Existing `/tasks/<task-id>` links still open the standalone runner.
+Task headers keep horizontal padding around the title and run metadata.
+In the AI chat view, the staff options menu sits beside the task actions, including **Open in PostHog Desktop**.
 
 ## Fine-grained access tokens
 
@@ -490,6 +505,19 @@ The flow, driven from the PostHog Desktop Environments → Cloud tab:
    from the published image (`SandboxConfig.custom_image_name`),
    falling back to the standard base if the image can't be loaded.
    Repo-setup snapshots are skipped for custom-image runs; resume snapshots still apply.
+
+## Composer prewarming
+
+The task composer can warm a sandbox while the user types.
+Submission stops pending warm-up timers before creating a task or resuming a run, so a delayed warm-up cannot create an extra task after the backend has checked the warm pool.
+The submission takes ownership of held and pending warm-ups before sending, so closing the composer cannot cancel a run while its first message is being delivered.
+Each response reconciles only its own submission's warm-up, including one whose response arrives later.
+Once submission returns, the composer keeps the activated run and releases an unused warm-up if no later submission could have activated it.
+Overlapping submissions leave earlier warm-ups to the server reaper because either request might deliver to the same run.
+If the response is lost, the server reaper handles unused warm-ups because the composer cannot tell whether the message reached the run.
+Releases use `only_if_awaiting_first_message` and claim the run under the same row lock as activation.
+Activation claims the run before delivering its first message, so another composer or browser tab cannot cancel delivery in progress.
+A release that claims the run first prevents subsequent activation.
 
 ## Continuing after sandbox inactivity
 

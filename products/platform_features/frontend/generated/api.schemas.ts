@@ -1331,6 +1331,7 @@ export type ActivityLogListParams = {
      * * `EventDefinition` - EventDefinition
      * * `PropertyDefinition` - PropertyDefinition
      * * `Notebook` - Notebook
+     * * `GeneratedWidget` - GeneratedWidget
      * * `Canvas` - Canvas
      * * `Endpoint` - Endpoint
      * * `EndpointVersion` - EndpointVersion
@@ -1396,6 +1397,7 @@ export type ActivityLogListParams = {
      * * `Metric` - Metric
      * * `TableCertification` - TableCertification
      * * `DataQualityCheck` - DataQualityCheck
+     * * `DataQualityCheckSchedule` - DataQualityCheckSchedule
      * * `Billing` - Billing
      * * `Loop` - Loop
      * * `StamphogRepoConfig` - StamphogRepoConfig
@@ -1428,6 +1430,7 @@ export const ActivityLogListScope = {
     EventDefinition: 'EventDefinition',
     PropertyDefinition: 'PropertyDefinition',
     Notebook: 'Notebook',
+    GeneratedWidget: 'GeneratedWidget',
     Canvas: 'Canvas',
     Endpoint: 'Endpoint',
     EndpointVersion: 'EndpointVersion',
@@ -1493,6 +1496,7 @@ export const ActivityLogListScope = {
     Metric: 'Metric',
     TableCertification: 'TableCertification',
     DataQualityCheck: 'DataQualityCheck',
+    DataQualityCheckSchedule: 'DataQualityCheckSchedule',
     Billing: 'Billing',
     Loop: 'Loop',
     StamphogRepoConfig: 'StamphogRepoConfig',
@@ -1512,6 +1516,7 @@ export const ActivityLogListScope = {
  * * `EventDefinition` - EventDefinition
  * * `PropertyDefinition` - PropertyDefinition
  * * `Notebook` - Notebook
+ * * `GeneratedWidget` - GeneratedWidget
  * * `Canvas` - Canvas
  * * `Endpoint` - Endpoint
  * * `EndpointVersion` - EndpointVersion
@@ -1577,6 +1582,7 @@ export const ActivityLogListScope = {
  * * `Metric` - Metric
  * * `TableCertification` - TableCertification
  * * `DataQualityCheck` - DataQualityCheck
+ * * `DataQualityCheckSchedule` - DataQualityCheckSchedule
  * * `Billing` - Billing
  * * `Loop` - Loop
  * * `StamphogRepoConfig` - StamphogRepoConfig
@@ -1597,6 +1603,7 @@ export const ActivityLogListScopesItem = {
     EventDefinition: 'EventDefinition',
     PropertyDefinition: 'PropertyDefinition',
     Notebook: 'Notebook',
+    GeneratedWidget: 'GeneratedWidget',
     Canvas: 'Canvas',
     Endpoint: 'Endpoint',
     EndpointVersion: 'EndpointVersion',
@@ -1662,6 +1669,7 @@ export const ActivityLogListScopesItem = {
     Metric: 'Metric',
     TableCertification: 'TableCertification',
     DataQualityCheck: 'DataQualityCheck',
+    DataQualityCheckSchedule: 'DataQualityCheckSchedule',
     Billing: 'Billing',
     Loop: 'Loop',
     StamphogRepoConfig: 'StamphogRepoConfig',
