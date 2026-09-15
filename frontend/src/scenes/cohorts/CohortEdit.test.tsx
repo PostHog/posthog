@@ -7,12 +7,13 @@ import { expectLogic, partial } from 'kea-test-utils'
 import { cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
 import { NEW_COHORT } from 'scenes/cohorts/CohortFilters/constants'
 import { BehavioralFilterKey } from 'scenes/cohorts/CohortFilters/types'
+import { urls } from 'scenes/urls'
 
 import { toPaginatedResponse } from '~/mocks/handlers'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { mockCohort } from '~/test/mocks'
-import { AnyCohortCriteriaType, BehavioralEventType, FilterLogicalOperator } from '~/types'
+import { AnyCohortCriteriaType, BehavioralEventType, FilterLogicalOperator, InsightShortId } from '~/types'
 
 import { CohortEdit } from './CohortEdit'
 
@@ -585,10 +586,12 @@ describe('cohortEditLogic', () => {
 
             render(<CohortEdit id={cohortId} />)
 
-            expect(
-                await screen.findByRole('button', { name: 'Used in 1 feature flag and 42 insights' })
-            ).toBeInTheDocument()
-            expect(screen.queryByRole('link', { name: 'Weekly signups' })).not.toBeInTheDocument()
+            // Anchored: 42 rather than the 2 results the page carried, and no trailing mention of
+            // the cohorts block, which nothing references.
+            expect(await screen.findByTestId('cohort-used-in-toggle')).toHaveTextContent(
+                /^Used in 1 feature flag and 42 insights$/
+            )
+            expect(screen.queryByText('Weekly signups')).not.toBeInTheDocument()
         })
 
         it('reveals the grouped links and the truncation note once expanded', async () => {
@@ -596,10 +599,17 @@ describe('cohortEditLogic', () => {
 
             render(<CohortEdit id={cohortId} />)
 
-            await userEvent.click(await screen.findByRole('button', { name: /^Used in/ }))
+            await userEvent.click(await screen.findByTestId('cohort-used-in-toggle'))
 
-            expect(screen.getByRole('link', { name: 'My flag' })).toBeInTheDocument()
-            expect(screen.getByRole('link', { name: 'Weekly signups' })).toBeInTheDocument()
+            // The rendered href carries the project prefix these helpers leave off.
+            expect(screen.getByText('My flag').closest('a')).toHaveAttribute(
+                'href',
+                expect.stringContaining(urls.featureFlag(7))
+            )
+            expect(screen.getByText('Weekly signups').closest('a')).toHaveAttribute(
+                'href',
+                expect.stringContaining(urls.insightView('abc123' as InsightShortId))
+            )
             expect(screen.getByText(/2 of 42 shown/)).toBeInTheDocument()
         })
     })
