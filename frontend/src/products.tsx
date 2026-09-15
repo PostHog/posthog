@@ -440,6 +440,7 @@ export const productRedirects: Record<
     '/mcp-analytics': (_params, searchParams, hashParams) =>
         combineUrl(urls.mcpAnalyticsDashboard(), { ...searchParams, landing: 'auto' }, hashParams).url,
     '/replay-vision/templates': '/replay-vision/new/template',
+    '/replay/vision': '/replay-vision',
     '/community-skills': (_params, searchParams, hashParams) =>
         combineUrl(urls.communitySkills(), searchParams, hashParams).url,
     '/prompt-management/skills': (_params, searchParams, hashParams) =>

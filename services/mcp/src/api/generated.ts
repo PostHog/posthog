@@ -859,7 +859,7 @@ export namespace Schemas {
          * @nullable
          */
       title?: string | null;
-      /** Notebook content as a ProseMirror JSON document structure. */
+      /** Notebook content as a ProseMirror JSON document. On create, the server stores it as a markdown notebook. */
       content?: unknown;
       /**
          * Plain text representation of the notebook content for search.
@@ -17837,6 +17837,36 @@ export namespace Schemas {
       RecentSignals: 'recent_signals',
     } as const;
 
+    export type CheckComparisonOperatorEnum = typeof CheckComparisonOperatorEnum[keyof typeof CheckComparisonOperatorEnum];
+
+
+    export const CheckComparisonOperatorEnum = {
+      Lte: 'lte',
+      Gte: 'gte',
+      Between: 'between',
+    } as const;
+
+    export interface CheckThresholdBounds {
+      lower: number;
+      upper: number;
+    }
+
+    /**
+     * What the measured value must satisfy for the check to pass.
+     *
+     * The operators are the ones the shared alerts comparator expresses exactly. Strict `lt` / `gt`
+     * would need a second comparison engine for a distinction a soak window does not make, so they are
+     * not offered: "stays at or below 10 a day" is the same expectation.
+     */
+    export interface CheckComparison {
+      /** `lte`, `gte`, or `between`. */
+      operator: CheckComparisonOperatorEnum;
+      /** The bound for `lte` and `gte`; unused by `between`. */
+      value?: number | null;
+      /** The inclusive range for `between`; unused by `lte` and `gte`. */
+      bounds?: CheckThresholdBounds | null;
+    }
+
     export interface CheckDatabaseNameResponse {
       name: string;
       available: boolean;
@@ -25480,6 +25510,7 @@ export namespace Schemas {
      * * `Skio` - Skio
      * * `Smartlead` - Smartlead
      * * `Substack` - Substack
+     * * `ElectricityMaps` - ElectricityMaps
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
 
@@ -26823,6 +26854,7 @@ export namespace Schemas {
       Skio: 'Skio',
       Smartlead: 'Smartlead',
       Substack: 'Substack',
+      ElectricityMaps: 'ElectricityMaps',
     } as const;
 
     /**
@@ -28179,7 +28211,8 @@ export namespace Schemas {
        * * `Sequenzy` - Sequenzy
        * * `Skio` - Skio
        * * `Smartlead` - Smartlead
-       * * `Substack` - Substack */
+       * * `Substack` - Substack
+       * * `ElectricityMaps` - ElectricityMaps */
       source_type: ExternalDataSourceTypeEnum;
     }
 
@@ -30227,7 +30260,8 @@ export namespace Schemas {
        * * `Sequenzy` - Sequenzy
        * * `Skio` - Skio
        * * `Smartlead` - Smartlead
-       * * `Substack` - Substack */
+       * * `Substack` - Substack
+       * * `ElectricityMaps` - ElectricityMaps */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** Human-readable name to show in the picker (falls back to the source type). */
       readonly label: string;
@@ -39232,7 +39266,8 @@ export namespace Schemas {
        * * `Sequenzy` - Sequenzy
        * * `Skio` - Skio
        * * `Smartlead` - Smartlead
-       * * `Substack` - Substack */
+       * * `Substack` - Substack
+       * * `ElectricityMaps` - ElectricityMaps */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** 'direct' for pure live-query sources; 'warehouse' for synced sources with direct query enabled.
        *
@@ -40609,7 +40644,8 @@ export namespace Schemas {
        * * `Sequenzy` - Sequenzy
        * * `Skio` - Skio
        * * `Smartlead` - Smartlead
-       * * `Substack` - Substack */
+       * * `Substack` - Substack
+       * * `ElectricityMaps` - ElectricityMaps */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials. Keys depend on source_type. Add a 'schemas' array to pick which tables sync; omit it and every discovered table syncs with default settings. */
       payload: ExternalDataSourceCreatePayload;
@@ -43857,7 +43893,14 @@ export namespace Schemas {
       /** Event-based conversion goals: [{filters: {events: [{id, name, type: 'events'}], ...}}]. */
       events?: HogFlowConversionEvent[];
       /**
-         * Conversion window in minutes after a person enters the workflow. null = no explicit window.
+         * How long after entering the workflow a conversion still counts, as a duration string: '7d', '12h', '30m', '45s'. Same form the delay steps use. Maximum '365d'. Omit it to use the default window. Set this or 'window_minutes', not both.
+         * @maxLength 32
+         * @nullable
+         * @pattern ^(?:[0-9]+(?:\.[0-9]+)?|\.[0-9]+)[dhms]$
+         */
+      window?: string | null;
+      /**
+         * DEPRECATED, use 'window' instead. Conversion window in MINUTES (not seconds) after a person enters the workflow. Maximum 129600 (90 days). null = use the default window. Set this or 'window', not both.
          * @nullable
          */
       window_minutes?: number | null;
@@ -44097,7 +44140,7 @@ export namespace Schemas {
       readonly trigger: unknown;
       /** Optional dedup/throttle on an already-matched trigger: {hash: <HogQL template>, ttl: <seconds, 60-94608000>, threshold?: <int>}. Without threshold: fire once per hash, then suppress repeats within ttl (hash '{person.id}' = once per person per ttl). With threshold N: fire once per N matches of the same hash — a sampler, the 1st then every Nth. Throttles an already-qualifying trigger; it doesn't decide who enters. Server compiles bytecode from hash; omit to disable. */
       trigger_masking?: HogFlowMasking | null;
-      /** Conversion goal. filters: ARRAY of property conditions [{key, value, operator, type: event|person|group}]; events: event-based goals [{filters: {events: [...]}}]; window_minutes: minutes after entry. Required for exit_on_conversion / exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side. */
+      /** Conversion goal. filters: ARRAY of property conditions [{key, value, operator, type: event|person|group}]; events: event-based goals [{filters: {events: [...]}}]; window: how long after entry a conversion counts, as a duration string such as '7d' or '12h', maximum '365d' (window_minutes is the deprecated integer form, in MINUTES not seconds); set one, not both. Required for exit_on_conversion / exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side. */
       conversion?: HogFlowConversion | null;
       /** exit_only_at_end: only at exit node (default). exit_on_conversion: also on conversion (needs 'conversion'; silent no-op otherwise). exit_on_trigger_not_matched: also when trigger filter stops matching. exit_on_trigger_not_matched_or_conversion: both (needs 'conversion').
        *
@@ -44563,7 +44606,7 @@ export namespace Schemas {
       readonly trigger: unknown;
       /** Optional dedup/throttle on an already-matched trigger: {hash: <HogQL template>, ttl: <seconds, 60-94608000>, threshold?: <int>}. Without threshold: fire once per hash, then suppress repeats within ttl (hash '{person.id}' = once per person per ttl). With threshold N: fire once per N matches of the same hash — a sampler, the 1st then every Nth. Throttles an already-qualifying trigger; it doesn't decide who enters. Server compiles bytecode from hash; omit to disable. */
       trigger_masking?: HogFlowMasking | null;
-      /** Conversion goal. filters: ARRAY of property conditions [{key, value, operator, type: event|person|group}]; events: event-based goals [{filters: {events: [...]}}]; window_minutes: minutes after entry. Required for exit_on_conversion / exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side. */
+      /** Conversion goal. filters: ARRAY of property conditions [{key, value, operator, type: event|person|group}]; events: event-based goals [{filters: {events: [...]}}]; window: how long after entry a conversion counts, as a duration string such as '7d' or '12h', maximum '365d' (window_minutes is the deprecated integer form, in MINUTES not seconds); set one, not both. Required for exit_on_conversion / exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side. */
       conversion?: HogFlowConversion | null;
       /** exit_only_at_end: only at exit node (default). exit_on_conversion: also on conversion (needs 'conversion'; silent no-op otherwise). exit_on_trigger_not_matched: also when trigger filter stops matching. exit_on_trigger_not_matched_or_conversion: both (needs 'conversion').
        *
@@ -54122,6 +54165,36 @@ export namespace Schemas {
     } as const;
 
     /**
+     * Live InsightVizNode wrapping one TrendsQuery: supplied by the caller, or copied from the named metric when the check is created.
+     */
+    export type MetricThresholdConfigQuery = { [key: string]: unknown } | null;
+
+    /**
+     * A deterministic check: measure one number, compare it, record the verdict.
+     *
+     * The number comes either from a metric the report already shows (``metric_id``) or from a query
+     * the author supplies. Both end up in the same runner, so a supplied query must satisfy the live
+     * metric contract — the node allowlist, the bounded window, and the single-output-series rule.
+     *
+     * A caller names one source. When it names a metric, the create path copies that metric's query
+     * into ``query`` before the row is stored, so the check keeps measuring what its author saw even if
+     * the report's metric is later rewritten under the same id; ``metric_id`` stays as provenance.
+     *
+     * Unknown keys are refused rather than ignored, so a misspelled field name is reported instead of
+     * being dropped in silence and stored as it arrived.
+     */
+    export interface MetricThresholdConfig {
+      /** Identifier of a metric on the report whose query this check measures. The metric's query is copied into `query` when the check is created. */
+      metric_id?: string | null;
+      /** Live InsightVizNode wrapping one TrendsQuery: supplied by the caller, or copied from the named metric when the check is created. */
+      query?: MetricThresholdConfigQuery;
+      /** What the measured value must satisfy to pass. */
+      comparison: CheckComparison;
+      /** The value observed when the check was written, recorded on each result for context. */
+      baseline_value?: number | null;
+    }
+
+    /**
      * * `funnel` - funnel
      * * `mean_count` - mean_count
      * * `mean_sum_or_avg` - mean_sum_or_avg
@@ -54324,7 +54397,7 @@ export namespace Schemas {
          * @nullable
          */
       title?: string | null;
-      /** Notebook content as a ProseMirror JSON document structure. */
+      /** Notebook content as a ProseMirror JSON document. On create, the server stores it as a markdown notebook: one ph-markdown-notebook node that holds the converted markdown. */
       content?: unknown;
       /**
          * Plain text representation of the notebook content for search.
@@ -59264,6 +59337,7 @@ export namespace Schemas {
      * * `work_claim` - Work Claim
      * * `work_release` - Work Release
      * * `pull_request` - Pull Request
+     * * `check_result` - Check Result
      */
     export type SignalReportArtefactArtefactTypeEnum = typeof SignalReportArtefactArtefactTypeEnum[keyof typeof SignalReportArtefactArtefactTypeEnum];
 
@@ -59289,6 +59363,7 @@ export namespace Schemas {
       WorkClaim: 'work_claim',
       WorkRelease: 'work_release',
       PullRequest: 'pull_request',
+      CheckResult: 'check_result',
     } as const;
 
     export type SignalActorKindEnum = typeof SignalActorKindEnum[keyof typeof SignalActorKindEnum];
@@ -59351,6 +59426,110 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: SignalReportArtefact[];
+    }
+
+    /**
+     * * `metric_threshold` - Metric Threshold
+     */
+    export type SignalReportCheckKindEnum = typeof SignalReportCheckKindEnum[keyof typeof SignalReportCheckKindEnum];
+
+
+    export const SignalReportCheckKindEnum = {
+      MetricThreshold: 'metric_threshold',
+    } as const;
+
+    /**
+     * * `active` - Active
+     * * `passed` - Passed
+     * * `failed` - Failed
+     * * `errored` - Errored
+     * * `expired` - Expired
+     * * `cancelled` - Cancelled
+     */
+    export type SignalReportCheckStatusEnum = typeof SignalReportCheckStatusEnum[keyof typeof SignalReportCheckStatusEnum];
+
+
+    export const SignalReportCheckStatusEnum = {
+      Active: 'active',
+      Passed: 'passed',
+      Failed: 'failed',
+      Errored: 'errored',
+      Expired: 'expired',
+      Cancelled: 'cancelled',
+    } as const;
+
+    export type SignalReportCheckConfig = MetricThresholdConfig;
+
+    /**
+     * * `passed` - Passed
+     * * `failed` - Failed
+     * * `errored` - Errored
+     */
+    export type SignalReportCheckOutcomeEnum = typeof SignalReportCheckOutcomeEnum[keyof typeof SignalReportCheckOutcomeEnum];
+
+
+    export const SignalReportCheckOutcomeEnum = {
+      Passed: 'passed',
+      Failed: 'failed',
+      Errored: 'errored',
+    } as const;
+
+    export interface SignalReportCheck {
+      readonly id: string;
+      /** Short label for the expectation, e.g. `Checkout 500s stay below 10 a day`. */
+      readonly title: string;
+      /** Why the author set the check. */
+      readonly rationale: string;
+      /** How the check is evaluated.
+       *
+       * * `metric_threshold` - Metric Threshold */
+      readonly kind: SignalReportCheckKindEnum;
+      /** `active` while the check still runs; every other value is terminal.
+       *
+       * * `active` - Active
+       * * `passed` - Passed
+       * * `failed` - Failed
+       * * `errored` - Errored
+       * * `expired` - Expired
+       * * `cancelled` - Cancelled */
+      readonly status: SignalReportCheckStatusEnum;
+      /** What the check measures and what the result must satisfy; the shape depends on `kind`. `query` and `baseline_value` are null when you cannot read the data they describe. */
+      config: SignalReportCheckConfig;
+      /** When the coordinator next evaluates the check. */
+      readonly next_run_at: string;
+      /**
+         * Gap between runs for a recurring check; null for a one-shot.
+         * @nullable
+         */
+      readonly run_interval_minutes: number | null;
+      /** Evaluations still owed before the check retires as passed. */
+      readonly runs_remaining: number;
+      /** Horizon after which the check retires without running again. */
+      readonly expires_at: string;
+      /**
+         * When the check last ran; null before its first run.
+         * @nullable
+         */
+      readonly last_run_at: string | null;
+      /** Verdict of the most recent run.
+       *
+       * * `passed` - Passed
+       * * `failed` - Failed
+       * * `errored` - Errored */
+      readonly last_outcome: SignalReportCheckOutcomeEnum | null;
+      /** Runs that could not be measured since the last clean one. */
+      readonly consecutive_errors: number;
+      readonly created_at: string;
+      readonly updated_at: string;
+    }
+
+    export interface PaginatedSignalReportCheckList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: SignalReportCheck[];
     }
 
     /**
@@ -66427,7 +66606,7 @@ export namespace Schemas {
       readonly trigger?: unknown;
       /** Optional dedup/throttle on an already-matched trigger: {hash: <HogQL template>, ttl: <seconds, 60-94608000>, threshold?: <int>}. Without threshold: fire once per hash, then suppress repeats within ttl (hash '{person.id}' = once per person per ttl). With threshold N: fire once per N matches of the same hash — a sampler, the 1st then every Nth. Throttles an already-qualifying trigger; it doesn't decide who enters. Server compiles bytecode from hash; omit to disable. */
       trigger_masking?: HogFlowMasking | null;
-      /** Conversion goal. filters: ARRAY of property conditions [{key, value, operator, type: event|person|group}]; events: event-based goals [{filters: {events: [...]}}]; window_minutes: minutes after entry. Required for exit_on_conversion / exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side. */
+      /** Conversion goal. filters: ARRAY of property conditions [{key, value, operator, type: event|person|group}]; events: event-based goals [{filters: {events: [...]}}]; window: how long after entry a conversion counts, as a duration string such as '7d' or '12h', maximum '365d' (window_minutes is the deprecated integer form, in MINUTES not seconds); set one, not both. Required for exit_on_conversion / exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side. */
       conversion?: HogFlowConversion | null;
       /** exit_only_at_end: only at exit node (default). exit_on_conversion: also on conversion (needs 'conversion'; silent no-op otherwise). exit_on_trigger_not_matched: also when trigger filter stops matching. exit_on_trigger_not_matched_or_conversion: both (needs 'conversion').
        *
@@ -67515,7 +67694,7 @@ export namespace Schemas {
          * @nullable
          */
       title?: string | null;
-      /** Notebook content as a ProseMirror JSON document structure. */
+      /** Notebook content as a ProseMirror JSON document. On create, the server stores it as a markdown notebook: one ph-markdown-notebook node that holds the converted markdown. */
       content?: unknown;
       /**
          * Plain text representation of the notebook content for search.
@@ -81011,6 +81190,48 @@ export namespace Schemas {
       not_found_count: number;
     }
 
+    /**
+     * Request body for creating a check on a report.
+     *
+     * The schedule is the check's own: `next_run_at` says when to look, rather than the system
+     * deriving a soak window from a merged pull request that many fixes never have.
+     */
+    export interface SignalReportCheckWrite {
+      /**
+         * Short label for the expectation, e.g. `Checkout 500s stay below 10 a day`.
+         * @maxLength 200
+         */
+      title: string;
+      /**
+         * Why the check is worth running.
+         * @maxLength 2000
+         */
+      rationale?: string;
+      /** How the check is evaluated.
+       *
+       * * `metric_threshold` - Metric Threshold */
+      kind: SignalReportCheckKindEnum;
+      /** What the check measures and what the result must satisfy; the shape depends on `kind`. */
+      config: SignalReportCheckConfig;
+      /** When to first evaluate the check. Must be in the future and within 90 days. Defaults to 7 days from now. */
+      next_run_at?: string;
+      /**
+         * Gap between runs for a recurring check, between 360 and 129600 minutes. Omit for a one-shot check.
+         * @minimum 360
+         * @maximum 129600
+         * @nullable
+         */
+      run_interval_minutes?: number | null;
+      /**
+         * How many times to evaluate the check, at most 10. Defaults to 1.
+         * @minimum 1
+         * @maximum 10
+         */
+      runs_remaining?: number;
+      /** Horizon after which the check retires unrun. Defaults to 30 days after the last scheduled run, or the 90-day horizon if that comes first. */
+      expires_at?: string;
+    }
+
     export interface SignalReportClaim {
       /** Active claim ID returned by an earlier call. Stale claims are rejected. */
       claim_id?: string;
@@ -83222,7 +83443,8 @@ export namespace Schemas {
        * * `Sequenzy` - Sequenzy
        * * `Skio` - Skio
        * * `Smartlead` - Smartlead
-       * * `Substack` - Substack */
+       * * `Substack` - Substack
+       * * `ElectricityMaps` - ElectricityMaps */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
       payload: SourceCredentialCreatePayload;
@@ -84615,7 +84837,8 @@ export namespace Schemas {
        * * `Sequenzy` - Sequenzy
        * * `Skio` - Skio
        * * `Smartlead` - Smartlead
-       * * `Substack` - Substack */
+       * * `Substack` - Substack
+       * * `ElectricityMaps` - ElectricityMaps */
       source_type: ExternalDataSourceTypeEnum;
       /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
       payload?: SourcePreviewRequestPayload;
@@ -85990,7 +86213,8 @@ export namespace Schemas {
        * * `Sequenzy` - Sequenzy
        * * `Skio` - Skio
        * * `Smartlead` - Smartlead
-       * * `Substack` - Substack */
+       * * `Substack` - Substack
+       * * `ElectricityMaps` - ElectricityMaps */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
       payload?: SourceSetupPayload;
@@ -96215,7 +96439,24 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * Case-insensitive substring match against the source name and URL.
+     */
+    search?: string;
+    /**
+     * Filter to a single source type (text, url, or file).
+     */
+    source_type?: BusinessKnowledgeSourcesListSourceType;
     };
+
+    export type BusinessKnowledgeSourcesListSourceType = typeof BusinessKnowledgeSourcesListSourceType[keyof typeof BusinessKnowledgeSourcesListSourceType];
+
+
+    export const BusinessKnowledgeSourcesListSourceType = {
+      File: 'file',
+      Text: 'text',
+      Url: 'url',
+    } as const;
 
     export type BusinessKnowledgeSourcesTextRetrieve200 = {
       text?: string;
@@ -103767,6 +104008,17 @@ export namespace Schemas {
     };
 
     export type SignalsReportArtefactsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type SignalsReportChecksListParams = {
     /**
      * Number of results to return per page.
      */

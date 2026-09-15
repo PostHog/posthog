@@ -560,6 +560,7 @@ class TestNodeSuspension:
         [
             "Code: 202. DB::Exception: Too many simultaneous queries",
             "Cannot connect to host ch-offline.example.com:8443",
+            'ProxyConnectionError: Failed to connect to proxy URL: "http://proxy.example.com:3128/"',
             "Abandoned: the materialization workflow is no longer running",
             "QueueEmpty: Application error",
             "Preempted: a new DAG run started before this job completed",
@@ -596,7 +597,7 @@ class TestNodeSuspension:
         for job in jobs:
             await database_sync_to_async(job.delete)()
 
-    @pytest.mark.parametrize("identifier", ["Preempted", "QueueEmpty"])
+    @pytest.mark.parametrize("identifier", ["Preempted", "QueueEmpty", "ProxyConnectionError"])
     async def test_suspends_when_a_customer_identifier_spells_an_abort_marker(
         self, ateam, anode, asaved_query, adag, identifier
     ):
