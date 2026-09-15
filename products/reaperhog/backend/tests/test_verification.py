@@ -25,6 +25,7 @@ NOW = datetime(2026, 8, 30, tzinfo=UTC)
 
 
 def _verdict(is_dead: bool, confidence: Confidence, **kwargs) -> Verdict:
+    kwargs.setdefault("files_to_delete", ["a.py"])
     return Verdict(
         is_dead=is_dead,
         confidence=confidence,
@@ -185,10 +186,12 @@ def test_prompts_frame_scout_evidence_as_data_and_strip_tag_breakouts() -> None:
         (_verdict(True, Confidence.HIGH, files_to_edit=["products/a/CODEOWNERS"]), ClusterStatus.UNDECIDED),
         # A lockfile may lose a single reference, so it is refused only as a deletion.
         (_verdict(True, Confidence.HIGH, files_to_edit=["package.json"]), ClusterStatus.DEAD),
+        # No searches recorded, and no file named either.
         (
             Verdict(is_dead=True, confidence=Confidence.HIGH, deletion_plan="p", argumentation="a"),
             ClusterStatus.UNDECIDED,
         ),
+        (_verdict(True, Confidence.HIGH, files_to_delete=[]), ClusterStatus.UNDECIDED),
     ],
 )
 def test_a_verdict_that_breaks_a_hard_floor_is_not_dead(verdict: Verdict, expected: ClusterStatus) -> None:

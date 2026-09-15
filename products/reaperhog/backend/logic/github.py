@@ -9,6 +9,9 @@ from posthog.models.integration.github import GitHubIntegration
 _SOURCE = "reaperhog"
 _TIMEOUT = 30.0
 _PR_URL = re.compile(r"^https://github\.com/(?P<owner>[^/]+)/(?P<repo>[^/]+)/pull/(?P<number>\d+)/?$")
+# ReaperCluster.pr_number is an IntegerField, and Django does not validate on save, so a larger number
+# would reach Postgres and raise in the middle of the sync loop.
+_MAX_PR_NUMBER = 2**31 - 1
 
 
 @frozen
@@ -29,7 +32,8 @@ def parse_pull_request_url(pr_url: str, repository: str) -> int | None:
     owner, _, repo = repository.partition("/")
     if (match["owner"].lower(), match["repo"].lower()) != (owner.lower(), repo.lower()):
         return None
-    return int(match["number"])
+    number = int(match["number"])
+    return number if 0 < number <= _MAX_PR_NUMBER else None
 
 
 def pull_request_state(*, team_id: int, repository: str, number: int) -> PullRequestState:
