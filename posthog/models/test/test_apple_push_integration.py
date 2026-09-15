@@ -104,8 +104,10 @@ class TestApplePushIntegration(BaseTest):
 
     @parameterized.expand(
         [
-            ("team_id_apple", {"team_id_apple": "TEAM:123"}),
-            ("bundle_id", {"bundle_id": "com.example.app:sandbox"}),
+            ("colon_in_team_id", {"team_id_apple": "TEAM:123"}),
+            ("colon_in_bundle_id", {"bundle_id": "com.example.app:sandbox"}),
+            # "TEAM.123" + "com.example.app" would read as "TEAM" + "123.com.example.app".
+            ("period_in_team_id", {"team_id_apple": "TEAM.123"}),
         ]
     )
     def test_rejects_an_identifier_that_could_forge_another_identity(self, _name, kwargs):

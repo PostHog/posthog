@@ -220,7 +220,9 @@ APNS_ENVIRONMENTS = ("production", "sandbox")
 
 # Apple team ids are alphanumeric, and bundle ids add only hyphens and periods. A colon appears in
 # neither, which is what lets the environment suffix below never collide with a real bundle id.
-APNS_IDENTIFIER = re.compile(r"^[A-Za-z0-9.\-]+$")
+# The team id holds no period either, so the first period in an id always ends the team id.
+APNS_TEAM_ID = re.compile(r"^[A-Za-z0-9]+$")
+APNS_BUNDLE_ID = re.compile(r"^[A-Za-z0-9.\-]+$")
 
 
 def apns_integration_id(team_id_apple: str, bundle_id: str, environment: str) -> str:
@@ -277,8 +279,11 @@ class ApplePushIntegration:
         if not all([signing_key, key_id, team_id_apple, bundle_id]):
             raise ValidationError("All APNS fields are required: signing_key, key_id, team_id_apple, bundle_id")
 
-        if not APNS_IDENTIFIER.match(team_id_apple) or not APNS_IDENTIFIER.match(bundle_id):
-            raise ValidationError("APNS team_id_apple and bundle_id accept letters, digits, hyphens and periods only")
+        if not APNS_TEAM_ID.match(team_id_apple):
+            raise ValidationError("APNS team_id_apple accepts letters and digits only")
+
+        if not APNS_BUNDLE_ID.match(bundle_id):
+            raise ValidationError("APNS bundle_id accepts letters, digits, hyphens and periods only")
 
         if environment not in APNS_ENVIRONMENTS:
             raise ValidationError("APNS environment must be 'production' or 'sandbox'")
