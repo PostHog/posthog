@@ -25,6 +25,11 @@
             "enum": ["passing", "failing", "pending", "none"],
             "type": "string"
         },
+        "client_provenance": {
+            "description": "Filter by the client that created the task\n\n* `posthog_desktop` - PostHog Desktop",
+            "enum": ["posthog_desktop"],
+            "type": "string"
+        },
         "commented_by": {
             "description": "Filter to tasks carrying a thread comment written by this user ID.",
             "type": "number"

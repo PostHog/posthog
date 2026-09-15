@@ -5262,6 +5262,13 @@ export type TasksListParams = {
      */
     ci_status?: TasksListCiStatus
     /**
+     * Filter by the client that created the task
+     *
+     * * `posthog_desktop` - PostHog Desktop
+     * @minLength 1
+     */
+    client_provenance?: TasksListClientProvenance
+    /**
      * Filter to tasks carrying a thread comment written by this user ID.
      */
     commented_by?: number
@@ -5400,6 +5407,12 @@ export const TasksListCiStatus = {
     Failing: 'failing',
     Pending: 'pending',
     None: 'none',
+} as const
+
+export type TasksListClientProvenance = (typeof TasksListClientProvenance)[keyof typeof TasksListClientProvenance]
+
+export const TasksListClientProvenance = {
+    PosthogDesktop: 'posthog_desktop',
 } as const
 
 export type TasksListExcludeOriginProduct =
