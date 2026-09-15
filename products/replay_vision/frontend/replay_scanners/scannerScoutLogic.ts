@@ -60,6 +60,8 @@ export interface ScoutDelivery {
 export interface ScoutPrompt {
     skillName: string
     body: string
+    /** The version the body was read at. The skills API needs it as `base_version` to publish an edit. */
+    latestVersion: number
 }
 
 function inputValue(inputs: unknown, key: string): unknown {
@@ -266,12 +268,14 @@ export interface scannerScoutLogicActions {
     loadSkillPromptSuccess: (
         skillPrompt: {
             body: string
+            latestVersion: number
             skillName: string
         } | null,
         payload?: any
     ) => {
         skillPrompt: {
             body: string
+            latestVersion: number
             skillName: string
         } | null
         payload?: any
@@ -409,7 +413,7 @@ export const scannerScoutLogic = kea<scannerScoutLogicType>([
                         return null
                     }
                     const skill = await llmSkillsNameRetrieve(String(projectId), skillName)
-                    return { skillName, body: skill.body ?? '' }
+                    return { skillName, body: skill.body ?? '', latestVersion: skill.latest_version }
                 },
             },
         ],
@@ -860,9 +864,6 @@ export const scannerScoutLogic = kea<scannerScoutLogicType>([
                     return
                 }
                 try {
-                    if (form.body !== values.skillPrompt?.body) {
-                        await llmSkillsNamePartialUpdate(String(projectId), config.skill_name, { body: form.body })
-                    }
                     const configUpdates: Record<string, unknown> = {}
                     if (form.name.trim() !== scoutDisplayName(config)) {
                         configUpdates.display_name = form.name.trim()
@@ -880,6 +881,23 @@ export const scannerScoutLogic = kea<scannerScoutLogicType>([
                         await signalsScoutConfigUpdate(String(teamId), config.id, configUpdates)
                         actions.loadScoutConfigs()
                     }
+                    // A body edit publishes a new skill version, so the API rejects it without the
+                    // version the form was read at. This runs after the config updates, so a rejected
+                    // body does not take the rename and the schedule down with it.
+                    const prompt = values.skillPrompt
+                    if (prompt && form.body !== prompt.body) {
+                        const published = await llmSkillsNamePartialUpdate(String(projectId), config.skill_name, {
+                            body: form.body,
+                            base_version: prompt.latestVersion,
+                        })
+                        // A second save from the same open modal must not send the version this one
+                        // already replaced.
+                        actions.loadSkillPromptSuccess({
+                            skillName: prompt.skillName,
+                            body: published.body,
+                            latestVersion: published.version,
+                        })
+                    }
                     // Reads the destination from the id the config records, so a retry after a
                     // partial failure patches what exists instead of provisioning a second one.
                     if (!(await reconcileDelivery(config, form))) {
@@ -890,7 +908,11 @@ export const scannerScoutLogic = kea<scannerScoutLogicType>([
                     lemonToast.success('Scout updated. Changes take effect on its next run.')
                     actions.closeScoutSettings()
                 } catch (error: any) {
-                    lemonToast.error(`Couldn't save the scout${error?.detail ? `: ${error.detail}` : ''}`)
+                    lemonToast.error(
+                        error?.status === 409
+                            ? 'The instructions changed somewhere else while you were editing. Close the settings and open them again to get the current version.'
+                            : `Couldn't save the scout${error?.detail ? `: ${error.detail}` : ''}`
+                    )
                 } finally {
                     actions.saveScoutSettingsFinished()
                 }
