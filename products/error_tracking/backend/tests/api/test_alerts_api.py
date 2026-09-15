@@ -73,7 +73,7 @@ class TestErrorTrackingAlerts(APIBaseTest):
         destination = created["destinations"][0]
         assert destination["channel_type"] == "slack"
         assert destination["integration_id"] == integration.id
-        assert destination["config"] == {"channel": "C0123"}
+        assert destination["config"] == {"channel": "C0123", "reply_broadcast": True}
 
         alert_id = created["id"]
         update = self.client.patch(
@@ -166,7 +166,7 @@ class TestErrorTrackingAlerts(APIBaseTest):
         assert update.status_code == 200, update.json()
         destinations = update.json()["destinations"]
         assert len(destinations) == 1
-        assert destinations[0]["config"] == {"channel": "C0456"}
+        assert destinations[0]["config"] == {"channel": "C0456", "reply_broadcast": True}
         assert destinations[0]["id"] != old_destination_id
         assert ErrorTrackingAlertDestination.objects.for_team(self.team.id).count() == 1
 
@@ -175,6 +175,18 @@ class TestErrorTrackingAlerts(APIBaseTest):
             ("unknown_trigger", {"triggers": ["issue_deleted"]}),
             ("empty_triggers", {"triggers": []}),
             ("empty_destinations", {"destinations": []}),
+            (
+                "non_boolean_reply_broadcast",
+                {
+                    "destinations": [
+                        {
+                            "channel_type": "slack",
+                            "integration_id": VALID_INTEGRATION,
+                            "config": {"channel": "C1", "reply_broadcast": 2},
+                        }
+                    ]
+                },
+            ),
             ("negative_throttle", {"throttle_seconds": -1}),
             ("throttle_over_30_days", {"throttle_seconds": 30 * 24 * 60 * 60 + 1}),
             (
@@ -244,12 +256,40 @@ class TestErrorTrackingAlerts(APIBaseTest):
         assert response.status_code == 400, response.json()
         assert ErrorTrackingAlert.objects.for_team(self.team.id).count() == 0
 
+    def test_reply_broadcast_off_survives_the_round_trip_and_toggling_keeps_the_row(self):
+        integration = self._create_slack_integration()
+        quiet = {
+            "channel_type": "slack",
+            "integration_id": integration.id,
+            "config": {"channel": "C0123", "reply_broadcast": False},
+        }
+        created = self._create_alert(integration, destinations=[quiet])
+        destination = created["destinations"][0]
+        assert destination["config"] == {"channel": "C0123", "reply_broadcast": False}
+
+        # Toggling the option keeps the row, so its open thread keeps posting into place.
+        issue = ErrorTrackingIssue.objects.create(team=self.team, name="TypeError")
+        with team_scope(self.team.id):
+            thread = ErrorTrackingAlertThread.objects.create(
+                team=self.team, alert_id=created["id"], issue=issue, destination_id=destination["id"]
+            )
+        loud = {**quiet, "config": {"channel": "C0123", "reply_broadcast": True}}
+        update = self.client.patch(
+            f"/api/projects/{self.team.id}/error_tracking/alerts/{created['id']}/",
+            data={"destinations": [loud]},
+            format="json",
+        )
+        assert update.status_code == 200, update.json()
+        assert update.json()["destinations"] == [{**destination, "config": loud["config"]}]
+        with team_scope(self.team.id):
+            assert ErrorTrackingAlertThread.objects.filter(id=thread.id, destination_id=destination["id"]).exists()
+
     def test_alert_rejects_duplicate_destinations(self):
         integration = self._create_slack_integration()
         destination = {"channel_type": "slack", "integration_id": integration.id, "config": {"channel": "C0123"}}
 
         # A destination differing only in display-only config keys is still the same target.
-        renamed = {**destination, "config": {"channel": "C0123", "channel_name": "#alerts"}}
+        renamed = {**destination, "config": {"channel": "C0123", "channel_name": "#alerts", "reply_broadcast": True}}
         for duplicates in ([destination, destination], [destination, renamed]):
             create = self.client.post(
                 f"/api/projects/{self.team.id}/error_tracking/alerts/",

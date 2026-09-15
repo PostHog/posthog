@@ -484,7 +484,14 @@ def _post_claimed(
             return False
         # Replies stay in the thread's own channel: a provider thread cannot move,
         # so a repointed destination only applies to newly opened threads.
-        client.chat_postMessage(channel=external_ref["channel"], thread_ts=external_ref["ts"], text=reply)
+        client.chat_postMessage(
+            channel=external_ref["channel"],
+            thread_ts=external_ref["ts"],
+            text=reply,
+            # Broadcast is on for rows saved before the option existed (no key) and for an
+            # exact True; anything else, including a stored non-boolean, stays in the thread.
+            reply_broadcast=delivery.destination.config.get("reply_broadcast", True) is True,
+        )
         _maybe_edit_root(client, thread, inputs, _slack_actions(delivery.destination, inputs))
 
     _finalize_thread(thread, inputs, claimed_at, external_ref=external_ref, root_headline=root_headline)
