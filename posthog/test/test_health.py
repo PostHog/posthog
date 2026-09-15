@@ -394,6 +394,26 @@ def test_readyz_skips_prestop_check_when_setting_is_empty(client: Client):
     assert resp.status_code == 200
 
 
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "plan,expected_status",
+    [
+        pytest.param([], 200, id="no_pending_migrations"),
+        pytest.param([("posthog", "0001_initial")], 503, id="pending_migrations"),
+    ],
+)
+def test_legacy_health_reports_migrations_without_capturing_an_exception(client: Client, plan, expected_status):
+    with (
+        patch("posthog.views.MigrationExecutor") as executor_mock,
+        patch("posthog.views.capture_exception") as capture_exception_mock,
+    ):
+        executor_mock.return_value.migration_plan.return_value = plan
+        resp = client.get("/_health/")
+
+    assert resp.status_code == expected_status, resp.content
+    capture_exception_mock.assert_not_called()
+
+
 @pytest.mark.parametrize("debug,test", [(False, True), (True, False)])
 def test_is_kafka_connected_short_circuits_under_debug_or_test(debug, test):
     # Either DEBUG or TEST avoids the live probe — keeps local dev and the test

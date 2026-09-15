@@ -125,13 +125,14 @@ def login_required(view):
 def health(request):
     executor = MigrationExecutor(connections[DEFAULT_DB_ALIAS])
     plan = executor.migration_plan(executor.loader.graph.leaf_nodes())
-    status = 503 if plan else 200
-    if status == 503:
-        err = Exception("Migrations are not up to date. If this continues migrations have failed")
-        capture_exception(err)
-        return HttpResponse("Migrations are not up to date", status=status, content_type="text/plain")
-    if status == 200:
-        return HttpResponse("ok", status=status, content_type="text/plain")
+    if plan:
+        # A probe polls this path on a fixed interval, so exception capture here files one
+        # event per request for as long as an instance stays behind, which buries real errors.
+        # The readyz probes in posthog/health.py drop this check completely, because migrations
+        # run in a separate job before the deploy.
+        logger.warning("postgres_migrations_not_up_to_date", pending_migrations=len(plan))
+        return HttpResponse("Migrations are not up to date", status=503, content_type="text/plain")
+    return HttpResponse("ok", status=200, content_type="text/plain")
 
 
 def stats(request):
