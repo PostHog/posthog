@@ -7,9 +7,9 @@
 //! commit fails at the broker instead of landing.
 //!
 //! Lanes exist because the coordinator holds a producer's next transaction
-//! until its previous commit finishes, so a write takes the lane whose last
-//! commit is oldest. Each write keeps its person's lock through the ack,
-//! so ordering is unchanged.
+//! until its previous commit finishes, so consecutive windows rotate across
+//! lanes; a partition still runs one window at a time. Each write keeps its
+//! person's lock through the ack, so ordering is unchanged.
 //!
 //! Writes are grouped into transaction windows rather than one
 //! transaction each. A transactional producer admits one open
@@ -384,6 +384,7 @@ impl PartitionLanes {
                 return None;
             };
             states.push(LaneState {
+                open: gate.open,
                 committing: gate.committing,
                 last_commit_end: lane.last_commit_end.load(Ordering::Relaxed),
             });
@@ -394,23 +395,28 @@ impl PartitionLanes {
 
 #[derive(Clone, Copy, Debug)]
 struct LaneState {
+    open: bool,
     committing: bool,
     last_commit_end: u64,
 }
 
-/// The lane a write takes: among lanes not mid-commit, the one whose last
-/// commit is oldest; when every lane is committing, the oldest.
+/// One window at a time per partition: join an open one, park behind a
+/// committing one, else open on the lane whose last commit is oldest.
+/// Concurrent commits on one partition stretch the coordinator's hold.
 fn pick_lane(states: &[LaneState]) -> usize {
-    let oldest = |committing: bool| {
+    let oldest = |wanted: fn(&LaneState) -> bool| {
         states
             .iter()
             .enumerate()
-            .filter(|(_, state)| state.committing == committing)
+            .filter(|(_, state)| wanted(state))
             .map(|(index, state)| (state.last_commit_end, index))
             .min()
             .map(|(_, index)| index)
     };
-    oldest(false).or_else(|| oldest(true)).unwrap_or(0)
+    oldest(|state| state.open)
+        .or_else(|| oldest(|state| state.committing))
+        .or_else(|| oldest(|_| true))
+        .unwrap_or(0)
 }
 
 /// One seat in the open window, released on drop.
@@ -2332,15 +2338,30 @@ mod tests {
     }
 
     #[test]
-    fn a_write_takes_the_lane_that_committed_longest_ago() {
-        let lane = |committing, last_commit_end| LaneState {
-            committing,
+    fn a_partition_runs_one_window_at_a_time_across_its_lanes() {
+        let idle = |last_commit_end| LaneState {
+            open: false,
+            committing: false,
             last_commit_end,
         };
-        assert_eq!(pick_lane(&[lane(false, 5), lane(false, 2)]), 1);
-        assert_eq!(pick_lane(&[lane(true, 1), lane(false, 9)]), 1);
-        assert_eq!(pick_lane(&[lane(true, 4), lane(true, 2)]), 1);
-        assert_eq!(pick_lane(&[lane(false, 0)]), 0);
+        let open = |last_commit_end| LaneState {
+            open: true,
+            committing: false,
+            last_commit_end,
+        };
+        let committing = |last_commit_end| LaneState {
+            open: false,
+            committing: true,
+            last_commit_end,
+        };
+        // Idle partition: the lane that committed longest ago.
+        assert_eq!(pick_lane(&[idle(5), idle(2)]), 1);
+        assert_eq!(pick_lane(&[idle(0)]), 0);
+        // An open window is joined even on the lane that committed last.
+        assert_eq!(pick_lane(&[idle(1), open(9)]), 1);
+        // A committing lane parks the write instead of opening another lane.
+        assert_eq!(pick_lane(&[committing(1), idle(9)]), 0);
+        assert_eq!(pick_lane(&[idle(9), committing(4), committing(2)]), 2);
     }
 
     /// A condemn reason absent from the preregistration list first
