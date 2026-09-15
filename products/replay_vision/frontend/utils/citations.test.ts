@@ -1,4 +1,4 @@
-import { type Segment, citedMarkdown, citedTextToPlainText, parseCitedSegments } from './citations'
+import { type Segment, citedMarkdown, citedTextToPlainText, parseCitedSegments, stripCitations } from './citations'
 
 describe('parseCitedSegments', () => {
     const text = (value: string): Segment => ({ kind: 'text', value })
@@ -10,6 +10,12 @@ describe('parseCitedSegments', () => {
             text: 'ignored when segments exist',
             segments: [text('changed the filter (t 1437, 1441), scrolling'), chip(1479)],
             expected: [text('changed the filter'), chip(1437), chip(1441), text(', scrolling'), chip(1479)],
+        },
+        {
+            name: 'seeks a range to its start only, and keeps a moment listed after it',
+            text: '',
+            segments: [text('Hovered the plan table (t 34-42, 50) without clicking')],
+            expected: [text('Hovered the plan table'), chip(34), chip(50), text(' without clicking')],
         },
         {
             name: 'handles the comma-joined variant that repeats the t prefix',
@@ -132,5 +138,14 @@ describe('citedMarkdown', () => {
         },
     ])('$name', ({ text, segments, expected }) => {
         expect(citedMarkdown(text, segments)).toBe(expected)
+    })
+})
+
+describe('stripCitations', () => {
+    it.each([
+        ['a single marker, with the space before it', 'Clicked save (t 12) twice', 'Clicked save twice'],
+        ['a range the backend never parsed', 'Hovered the table (t 34-42) then left', 'Hovered the table then left'],
+    ])('strips %s', (_name, text, expected) => {
+        expect(stripCitations(text)).toBe(expected)
     })
 })

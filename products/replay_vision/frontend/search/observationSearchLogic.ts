@@ -25,6 +25,7 @@ import {
 } from '../generated/api'
 import type { ObservationSearchResultApi } from '../generated/api.schemas'
 import { ReplayScannerTab } from '../replay_scanners/replayScannerSceneLogic'
+import { consumeSimilarSearchIntent } from './observationQueries'
 
 // The server's MAX_SEARCH_LIMIT. A larger value would 400.
 const SEARCH_RESULT_LIMIT = 50
@@ -33,11 +34,11 @@ const SEARCH_RESULT_LIMIT = 50
 export const SEARCH_PAGE_SIZE = 10
 
 // Relative to the best match, because distances are only comparable within one response.
-const STRONG_MATCH_MARGIN = 0.05
+const TOP_MATCH_MARGIN = 0.05
 // The server's error code when the organization has not allowed AI data processing.
 const AI_CONSENT_REQUIRED_CODE = 'ai_data_processing_not_approved'
-// Enough to recall a working phrasing, few enough to stay a single row of chips.
-const RECENT_QUERIES_LIMIT = 5
+// Enough to recall a working phrasing, few enough that the recent group stays about the prompt's height.
+const RECENT_QUERIES_LIMIT = 4
 
 export interface ObservationSearchLogicProps {
     /** Scope the search to one scanner. Null searches every scanner the user can read. */
@@ -60,9 +61,10 @@ export interface observationSearchLogicValues {
     results: ObservationSearchResultApi[] | null
     searchedQuery: string | null
     searching: boolean
-    strongMatchDistanceCutoff: number | null
+    sourceObservationId: string | null
     suggestedQueries: string[]
     suggestedQueriesLoading: boolean
+    topMatchDistanceCutoff: number | null
     truncated: boolean
 }
 
@@ -92,12 +94,21 @@ export interface observationSearchLogicActions {
     searchFailure: () => {
         value: true
     }
+    searchSimilar: (
+        query: string,
+        sourceObservationId: string
+    ) => {
+        query: string
+        sourceObservationId: string
+    }
     searchSuccess: (
         results: ObservationSearchResultApi[],
         query: string,
-        truncated: boolean
+        truncated: boolean,
+        remember?: boolean
     ) => {
         query: string
+        remember: boolean
         results: ObservationSearchResultApi[]
         truncated: boolean
     }
@@ -117,7 +128,7 @@ export interface observationSearchLogicMeta {
         pageResults: (results: ObservationSearchResultApi[] | null, page: number) => ObservationSearchResultApi[]
         pageStartIndex: (page: number) => number
         pageEndIndex: (pageStartIndex: number, pageResults: ObservationSearchResultApi[]) => number
-        strongMatchDistanceCutoff: (results: ObservationSearchResultApi[] | null) => number | null
+        topMatchDistanceCutoff: (results: ObservationSearchResultApi[] | null) => number | null
     }
 }
 
@@ -137,10 +148,17 @@ export const observationSearchLogic = kea<observationSearchLogicType>([
         setQuery: (query: string) => ({ query }),
         setPage: (page: number) => ({ page }),
         search: true,
-        searchSuccess: (results: ObservationSearchResultApi[], query: string, truncated: boolean) => ({
+        searchSimilar: (query: string, sourceObservationId: string) => ({ query, sourceObservationId }),
+        searchSuccess: (
+            results: ObservationSearchResultApi[],
+            query: string,
+            truncated: boolean,
+            remember: boolean = true
+        ) => ({
             results,
             query,
             truncated,
+            remember,
         }),
         searchFailure: true,
         clearSearch: true,
@@ -151,7 +169,16 @@ export const observationSearchLogic = kea<observationSearchLogicType>([
             '' as string,
             {
                 setQuery: (_, { query }) => query,
+                searchSimilar: (_, { query }) => query,
                 clearSearch: () => '',
+            },
+        ],
+        sourceObservationId: [
+            null as string | null,
+            {
+                searchSimilar: (_, { sourceObservationId }) => sourceObservationId,
+                setQuery: () => null,
+                clearSearch: () => null,
             },
         ],
         // null until the first search, so the empty state can tell "not searched yet" from "no matches".
@@ -168,6 +195,7 @@ export const observationSearchLogic = kea<observationSearchLogicType>([
                 search: () => true,
                 searchSuccess: () => false,
                 searchFailure: () => false,
+                clearSearch: () => false,
             },
         ],
         searchedQuery: [
@@ -182,8 +210,8 @@ export const observationSearchLogic = kea<observationSearchLogicType>([
             [] as string[],
             { persist: true },
             {
-                searchSuccess: (state, { query, results }) =>
-                    results.length > 0
+                searchSuccess: (state, { query, results, remember }) =>
+                    remember && results.length > 0
                         ? [query, ...state.filter((recent) => recent !== query)].slice(0, RECENT_QUERIES_LIMIT)
                         : state,
             },
@@ -248,14 +276,14 @@ export const observationSearchLogic = kea<observationSearchLogicType>([
             (pageStartIndex: number, pageResults: ObservationSearchResultApi[]): number =>
                 pageStartIndex + pageResults.length,
         ],
-        // Null when the tag would not separate anything, so it is never shown on every result.
-        strongMatchDistanceCutoff: [
+        // Null when the tiers would not separate anything, so a lone tier is never labeled.
+        topMatchDistanceCutoff: [
             (s) => [s.results],
             (results: ObservationSearchResultApi[] | null): number | null => {
                 if (!results || results.length < 2) {
                     return null
                 }
-                const cutoff = Math.min(...results.map((r) => r.distance)) + STRONG_MATCH_MARGIN
+                const cutoff = Math.min(...results.map((r) => r.distance)) + TOP_MATCH_MARGIN
                 return results.some((r) => r.distance > cutoff) ? cutoff : null
             },
         ],
@@ -268,6 +296,7 @@ export const observationSearchLogic = kea<observationSearchLogicType>([
                 actions.clearSearch()
             }
         },
+        searchSimilar: () => actions.search(),
         search: async (_, breakpoint) => {
             const query = values.query.trim()
             if (!query) {
@@ -279,6 +308,7 @@ export const observationSearchLogic = kea<observationSearchLogicType>([
                 actions.searchFailure()
                 return
             }
+            const sourceObservationId = values.sourceObservationId
             try {
                 const response = await visionObservationsSearchRetrieve(String(teamId), {
                     q: query,
@@ -287,7 +317,13 @@ export const observationSearchLogic = kea<observationSearchLogicType>([
                 })
                 // Drop out-of-order responses. The newest search owns the results.
                 breakpoint()
-                actions.searchSuccess(response.results ?? [], query, response.truncated ?? false)
+                // Cleared while in flight: the late response must not refill the card.
+                if (!values.searching) {
+                    return
+                }
+                // The source of a "find similar" search is its own nearest neighbour.
+                const results = (response.results ?? []).filter((r) => r.observation.id !== sourceObservationId)
+                actions.searchSuccess(results, query, response.truncated ?? false, sourceObservationId === null)
             } catch (error: any) {
                 if (error instanceof Error && isBreakpoint(error)) {
                     throw error
@@ -312,42 +348,60 @@ export const observationSearchLogic = kea<observationSearchLogicType>([
         actions.loadSuggestedQueries()
     }),
 
-    actionToUrl(({ values }) => ({
-        search: () => [
-            router.values.location.pathname,
-            {
-                ...router.values.searchParams,
-                q: values.query.trim() || undefined,
-            },
-            router.values.hashParams,
-            { replace: true },
-        ],
-        clearSearch: () => [
-            router.values.location.pathname,
-            { ...router.values.searchParams, q: undefined },
-            router.values.hashParams,
-            { replace: true },
-        ],
-    })),
+    // A scanner-scoped search is an inline panel over the observations table, which owns that page's URL.
+    actionToUrl(({ props, values }) => {
+        if (props.scannerId) {
+            return {}
+        }
+        return {
+            search: () => [
+                router.values.location.pathname,
+                {
+                    ...router.values.searchParams,
+                    // Observation prose stays out of the URL (see markSimilarSearchIntent).
+                    q: values.sourceObservationId ? undefined : values.query.trim() || undefined,
+                },
+                router.values.hashParams,
+                { replace: true },
+            ],
+            clearSearch: () => [
+                router.values.location.pathname,
+                { ...router.values.searchParams, q: undefined },
+                router.values.hashParams,
+                { replace: true },
+            ],
+        }
+    }),
 
-    urlToAction(({ actions, props, values }) => ({
-        [props.scannerId ? urls.replayVision(props.scannerId) : urls.replayVision()]: (_, searchParams) => {
-            if (searchParams.tab !== ReplayScannerTab.Search) {
-                return
-            }
-            // kea-router decodes ?q=true to a boolean, so stringify instead of dropping it.
-            const raw = searchParams.q
-            const q = typeof raw === 'string' ? raw : raw != null ? String(raw) : ''
-            // Run a deep-linked query once. Comparing against the trimmed input blocks the actionToUrl
-            // echo of an interactive search, and stops a failed query (which never reaches searchedQuery)
-            // from re-firing on every unrelated URL change while it still fills the input.
-            if (q && q !== values.searchedQuery && q !== values.query.trim()) {
-                actions.setQuery(q)
-                actions.search()
-            } else if (!q && values.searchedQuery !== null) {
-                // The URL lost its query (back navigation, or a tab switch dropped it), so show the empty state.
-                actions.clearSearch()
-            }
-        },
-    })),
+    urlToAction(({ actions, props, values }) => {
+        if (props.scannerId) {
+            return {}
+        }
+        return {
+            [urls.replayVision()]: (_: unknown, searchParams: Record<string, unknown>) => {
+                if (searchParams.tab !== ReplayScannerTab.Search) {
+                    return
+                }
+                const similar = typeof searchParams.similar === 'string' ? searchParams.similar : ''
+                const similarQuery = consumeSimilarSearchIntent(similar)
+                if (similarQuery) {
+                    actions.searchSimilar(similarQuery, similar)
+                    return
+                }
+                // kea-router decodes ?q=true to a boolean, so stringify instead of dropping it.
+                const raw = searchParams.q
+                const q = typeof raw === 'string' ? raw : raw != null ? String(raw) : ''
+                // Run a deep-linked query once. Comparing against the trimmed input blocks the actionToUrl
+                // echo of an interactive search, and stops a failed query (which never reaches searchedQuery)
+                // from re-firing on every unrelated URL change while it still fills the input.
+                if (q && q !== values.searchedQuery && q !== values.query.trim()) {
+                    actions.setQuery(q)
+                    actions.search()
+                } else if (!q && values.searchedQuery !== null && values.sourceObservationId === null) {
+                    // The URL lost its query (back navigation, or a tab switch dropped it), so show the empty state.
+                    actions.clearSearch()
+                }
+            },
+        }
+    }),
 ])
