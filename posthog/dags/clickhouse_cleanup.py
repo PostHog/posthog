@@ -24,7 +24,7 @@ import dagster
 import psycopg2
 import pydantic
 from clickhouse_driver.client import Client
-from prometheus_client import Counter
+from prometheus_client import Gauge
 from psycopg2.extras import execute_values
 
 from posthog.clickhouse.cleanup_snapshots import (
@@ -48,20 +48,11 @@ from posthog.dags.common.staged_dictionary import (
 )
 from posthog.dags.deletes import deletes_job
 from posthog.dataclasses import frozen
+from posthog.metrics import pushed_metrics_registry
 from posthog.models.async_deletion.delete_cohorts import sweep_cohort_deletions
 from posthog.models.person.sql import PERSON_DISTINCT_ID2_TABLE, PERSONS_TABLE
 
 logger = dagster.get_dagster_logger(__name__)
-
-REVIVED_PERSON_COUNTER = Counter(
-    "posthog_clickhouse_cleanup_revived_persons_total",
-    "Persons that came back to life between the snapshot and the sweep, and were excluded",
-)
-
-REVIVED_DISTINCT_ID_COUNTER = Counter(
-    "posthog_clickhouse_cleanup_revived_distinct_ids_total",
-    "Distinct id mappings that came back between the snapshot and the sweep, and were excluded",
-)
 
 PG_CLEANUP_QUEUE_TABLE = "person_pg_cleanup_queue"
 
@@ -483,6 +474,12 @@ class CleanupRun:
     # so a snapshot the 14-day TTL reaped mid-run fails the run instead of under-deleting silently.
     persons_count: int = 0
     orphaned_count: int = 0
+    # They ride on the run because the publishing op is the only place that sees a whole sweep.
+    stranded_runs_reaped: int = 0  # clear_removed_cohort_data
+    revived_person_count: int = 0  # both recheck_revived_persons checkpoints, summed
+    revived_distinct_id_count: int = 0  # both recheck_revived_persons checkpoints, summed
+    queued_for_postgres: int = 0  # persist_deleted_persons
+    mutation_seconds_max: float = 0.0  # the slowest mutation of either delete op
 
     @classmethod
     def for_run(cls, run_id: str, config: CleanupConfig) -> "CleanupRun":
@@ -569,6 +566,7 @@ def clear_removed_cohort_data(
     """
     run = CleanupRun.for_run(context.run_id, config)
     reaped = reap_stranded_run_assets(context, cluster)
+    run = replace(run, stranded_runs_reaped=reaped)
     context.add_output_metadata(
         {
             "dry_run": dagster.MetadataValue.bool(run.dry_run),
@@ -724,14 +722,15 @@ def recheck_revived_persons(name: str) -> dagster.OpDefinition:
                 "revived_distinct_ids": dagster.MetadataValue.int(revived_ids),
             }
         )
+        run = replace(
+            run,
+            revived_person_count=run.revived_person_count + revived_persons,
+            revived_distinct_id_count=run.revived_distinct_id_count + revived_ids,
+        )
         if not revived_persons and not revived_ids:
             return run
 
         # Reloading is what applies the exclusion, so it only happens when something came back.
-        # Counted twice on purpose: the prometheus counters only surface if this pod is ever
-        # scraped, while the ClickHouse-backed counters survive the run.
-        REVIVED_PERSON_COUNTER.inc(revived_persons)
-        REVIVED_DISTINCT_ID_COUNTER.inc(revived_ids)
         metrics = MetricsClient(cluster)
         if revived_persons:
             _emit(metrics, "clickhouse_cleanup_revived", {"kind": "persons"}, value=revived_persons)
@@ -1088,7 +1087,11 @@ def delete_orphaned_distinct_ids(
     )
     context.add_output_metadata(_delete_metadata(ranges, report))
 
-    return replace(run, distinct_ids_deleted_at=datetime.now(UTC))
+    return replace(
+        run,
+        distinct_ids_deleted_at=datetime.now(UTC),
+        mutation_seconds_max=max(run.mutation_seconds_max, report.seconds_max),
+    )
 
 
 @dagster.op
@@ -1187,7 +1190,7 @@ def persist_deleted_persons(
         persons_database.close()
 
     context.add_output_metadata({"queued_for_postgres": dagster.MetadataValue.int(written)})
-    return run
+    return replace(run, queued_for_postgres=written)
 
 
 @dagster.op
@@ -1223,6 +1226,95 @@ def delete_persons(
     )
     context.add_output_metadata(_delete_metadata(ranges, report))
 
+    return replace(run, mutation_seconds_max=max(run.mutation_seconds_max, report.seconds_max))
+
+
+# Pushing replaces every gauge stored under this name, so one push carries the whole set.
+SWEEP_METRICS_JOB = "clickhouse_deletion_sweep"
+
+
+@frozen
+class SweepGauge:
+    """One published measurement. Named so the metric name and its help text cannot swap."""
+
+    name: str
+    help_text: str
+    value: float
+
+    def __post_init__(self) -> None:
+        # Most of these are counts, and Dagster metadata rejects an int where it wants a float.
+        object.__setattr__(self, "value", float(self.value))
+
+
+def _sweep_gauges(run: CleanupRun, completed_at: float) -> list[SweepGauge]:
+    return [
+        SweepGauge(
+            name="posthog_clickhouse_deletion_sweep_last_success_timestamp_seconds",
+            help_text="Unix time when the sweep last finished deleting persons",
+            value=completed_at,
+        ),
+        SweepGauge(
+            name="posthog_clickhouse_deletion_sweep_snapshot_deleted_persons",
+            help_text="Soft-deleted persons this run snapshotted. Saturates at the max_persons cap",
+            value=run.persons_count,
+        ),
+        SweepGauge(
+            name="posthog_clickhouse_deletion_sweep_snapshot_orphaned_distinct_ids",
+            help_text="Orphaned distinct id mappings this run snapshotted, under the same cap",
+            value=run.orphaned_count,
+        ),
+        SweepGauge(
+            name="posthog_clickhouse_deletion_sweep_revived_persons",
+            help_text="Persons that came back between the snapshot and the delete, and were excluded",
+            value=run.revived_person_count,
+        ),
+        SweepGauge(
+            name="posthog_clickhouse_deletion_sweep_revived_distinct_ids",
+            help_text="Distinct id mappings that came back mid-run, and were excluded",
+            value=run.revived_distinct_id_count,
+        ),
+        SweepGauge(
+            name="posthog_clickhouse_deletion_sweep_queued_for_postgres",
+            help_text="Persons handed to the Postgres cleanup queue by this run",
+            value=run.queued_for_postgres,
+        ),
+        SweepGauge(
+            name="posthog_clickhouse_deletion_sweep_mutation_seconds_max",
+            help_text="Slowest single delete mutation of the run, against mutation_wait_deadline",
+            value=run.mutation_seconds_max,
+        ),
+        SweepGauge(
+            name="posthog_clickhouse_deletion_sweep_stranded_runs_reaped",
+            help_text="Finished runs whose leftover dictionaries this run dropped",
+            value=run.stranded_runs_reaped,
+        ),
+    ]
+
+
+@dagster.op
+def publish_sweep_metrics(
+    context: dagster.OpExecutionContext,
+    run: CleanupRun,
+) -> CleanupRun:
+    """Publish what the run measured, so alerting and dashboards can read it.
+
+    Runs after the person delete and before the asset drop. That places it at the point where the
+    sweep has done the work it exists for, and keeps a cleanup failure from also hiding the
+    measurements the run already earned.
+
+    A dry run publishes nothing. It deletes nothing, so moving the last-success gauge would let an
+    ad-hoc run from the Dagster UI mask a sweep that has stopped working.
+    """
+    if run.dry_run:
+        context.log.info("dry run: publishing no metrics")
+        return run
+
+    gauges = _sweep_gauges(run, time.time())
+    with pushed_metrics_registry(SWEEP_METRICS_JOB) as registry:
+        for gauge in gauges:
+            Gauge(gauge.name, gauge.help_text, registry=registry).set(gauge.value)
+
+    context.add_output_metadata({gauge.name: dagster.MetadataValue.float(gauge.value) for gauge in gauges})
     return run
 
 
@@ -1374,7 +1466,7 @@ def clickhouse_deletion_sweep_job():
     run = persist_deleted_persons(run)
 
     # Each op takes the previous op's output, which is what keeps the sweeps in sequence.
-    drop_snapshot_assets(delete_persons(run))
+    drop_snapshot_assets(publish_sweep_metrics(delete_persons(run)))
 
 
 # What the sensor launches with. Every field is pinned so a changed default cannot move production,

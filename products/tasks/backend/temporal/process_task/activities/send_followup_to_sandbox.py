@@ -960,6 +960,7 @@ def _refresh_sandbox_github(
     sandbox = lookup.sandbox
 
     repository = task.repository
+    repositories = task.repositories or ([repository] if repository else [])
     token: str | None = None
     try:
         token = get_sandbox_github_token(
@@ -1007,7 +1008,7 @@ def _refresh_sandbox_github(
         if token:
             applied = False
             try:
-                applied = apply_github_credentials_to_sandbox(sandbox, repository, token)
+                applied = apply_github_credentials_to_sandbox(sandbox, repositories, token)
             except Exception:
                 logger.warning(
                     "refresh_github_apply_failed",
@@ -1030,7 +1031,7 @@ def _refresh_sandbox_github(
         # is_running() check and here, or timed out), so guard it like the rebind above and fail
         # closed on the exception rather than letting it escape uncontrolled.
         try:
-            cleared = clear_github_credentials_from_sandbox(sandbox, repository)
+            cleared = clear_github_credentials_from_sandbox(sandbox, repositories)
         except Exception:
             logger.warning("refresh_github_logout_errored", run_id=run_id, user_id=actor_user.id, exc_info=True)
             return SandboxRebindFailure.LOGOUT_ERRORED

@@ -197,9 +197,26 @@ class CreateRunInputSerializer(DataclassSerializer):
 class AddSnapshotsInputSerializer(DataclassSerializer):
     class Meta:
         dataclass = AddSnapshotsInput
+        extra_kwargs = {
+            "story_index_hash": {
+                "help_text": (
+                    "SHA-256 of the story-to-file map the CLI built from the Storybook index.json of this "
+                    "run's build. Every shard of a run sends the same value. Empty when the run sends no map."
+                )
+            },
+        }
 
 
 class AddSnapshotsResultSerializer(DataclassSerializer):
+    story_index_upload = UploadTargetSerializer(
+        allow_null=True,
+        required=False,
+        help_text=(
+            "Where to upload the story-to-file map, as a presigned POST with a JSON body. Null when the "
+            "request sent no map, or the store already holds a map with that hash."
+        ),
+    )
+
     class Meta:
         dataclass = AddSnapshotsResult
 
@@ -207,6 +224,17 @@ class AddSnapshotsResultSerializer(DataclassSerializer):
 class UpdateRepoInputSerializer(DataclassSerializer):
     class Meta:
         dataclass = UpdateRepoRequestInput
+        extra_kwargs = {
+            "enable_pr_comments": {
+                "help_text": "Post a pull request comment when a run finds visual changes to review."
+            },
+            "debt_digest_enabled": {
+                "help_text": (
+                    "Post the visual review debt digest to the Slack channels of the teams that own the "
+                    "snapshots. Off by default. The digest goes out every Monday morning."
+                )
+            },
+        }
 
 
 class ApproveSnapshotInputSerializer(DataclassSerializer):
@@ -507,6 +535,16 @@ class FlakinessEntrySerializer(DataclassSerializer):
         allow_null=True,
         required=False,
         help_text="Active quarantine details when `is_quarantined` is true. Null otherwise.",
+    )
+    owner_team = serializers.CharField(
+        allow_null=True,
+        required=False,
+        help_text=(
+            "Slug of the team that owns the file this snapshot's story lives in, from the repository's "
+            "ownership files. `unowned` when no entry covers the file. Null when ownership is unknown: "
+            "the snapshot is not a Storybook snapshot, the newest default-branch run sent no story index, "
+            "the story is not in it, or the ownership files could not be read."
+        ),
     )
 
     class Meta:

@@ -8,14 +8,14 @@ It is a property of every table that stores rows attributable to a person.
 
 ## The sweeps
 
-| Sweep                    | Entry point                      | Predicate columns                          |
-| ------------------------ | -------------------------------- | ------------------------------------------ |
-| Person deletion (async)  | `deletes_job` → `delete_events`  | `team_id`, `person_id`, `timestamp`        |
-| Team deletion            | `deletes_job` → `delete_events`  | `team_id`                                  |
-| Queued uuid drain        | `deletes_job` → `delete_events`  | `team_id`, `uuid`                          |
-| Person removal request   | `delete_person_events_op`        | `team_id`, `person_id`, `timestamp`        |
-| Event removal request    | `execute_event_deletion`         | `team_id`, `timestamp`, `event`, + HogQL   |
-| Property removal request | `process_property_removal_shard` | `properties`, `person_properties`, + HogQL |
+| Sweep                    | Entry point                      | Predicate columns                                  |
+| ------------------------ | -------------------------------- | -------------------------------------------------- |
+| Person deletion (async)  | `deletes_job` → `delete_events`  | `team_id`, `person_id`, `timestamp`, `inserted_at` |
+| Team deletion            | `deletes_job` → `delete_events`  | `team_id`                                          |
+| Queued uuid drain        | `deletes_job` → `delete_events`  | `team_id`, `uuid`, `inserted_at`                   |
+| Person removal request   | `delete_person_events_op`        | `team_id`, `person_id`, `timestamp`                |
+| Event removal request    | `execute_event_deletion`         | `team_id`, `timestamp`, `event`, + HogQL           |
+| Property removal request | `process_property_removal_shard` | `properties`, `person_properties`, + HogQL         |
 
 The first four use only columns every target declares, so they apply unchanged to any registered table.
 The last two need more, which is what the capability fields on `DeletionTarget` express.
@@ -39,7 +39,7 @@ Two gates keep that from passing silently.
 
 - `placement_for` refuses a registered target whose storage table is on no data node of any cluster reachable from here while its Distributed proxy still returns rows (`UnreachableTargetError`). Absent from everywhere and empty is still treated as not yet migrated, which is the ordinary pre-rollout state.
 - `assert_sweep_complete` runs after the immediate person-removal and event-removal sweeps and counts survivors through the proxy, so rows a mutation never reached fail the request instead of completing it (`UnsweptRowsError`).
-- `deletes_job` counts the same way after its own sweep, but only logs what survived and still marks the requests verified. Its mutations have already run by then, and failing the op would strand the run without undoing anything. Proving zero survivors is a full scan, so the count is time-bounded and reports unknown rather than zero when it runs out.
+- `deletes_job` counts the same way after its own sweep, and refuses to mark the requests verified unless every count completed and came back zero. Proving zero survivors is a full scan, so each count is time-bounded and retried; a count that completes no attempt reports unknown, and unknown blocks the marking the same as a survivor does. The failed run leaves the requests pending, which the next run sweeps again. The delete predicate itself scopes the person and adhoc arms to rows with `inserted_at` no later than the request's own `created_at` (NULL counting as old), and the count shares that predicate, so what gets verified is exactly what got deleted. The bound encodes the deletion contract: a request can only name rows that were already ingested when it was made, and a row cannot be ingested before its event happened, so both `timestamp` and `inserted_at` sit at or before `created_at` for every row a request covers. A row ingested after the request is outside its scope and takes a new request to remove; without the bound, one tenant continuously ingesting backdated events for a pending deletion would block verification for all tenants. `inserted_at` is stamped server-side (`writable_events` does not expose the column), so the bound cannot be forged the way the event `timestamp` can. The team arm stays unbounded: ingestion for a deleted team stops with its token, so late rows there are stragglers the next run converges on.
 - A proxy only reads the cluster its engine names, and `sql.py` builds the `events_json` proxy against `CLICKHOUSE_CLUSTER`. So a target stored on another cluster is counted twice: once through the proxy, and once on its storage table through the handle that holds it. Without the second count, a deployment whose storage moved without the proxy following it would report a clean sweep off an empty table.
 
 Both gates probe hosts rather than compare cluster names.

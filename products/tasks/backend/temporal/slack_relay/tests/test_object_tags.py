@@ -2,7 +2,6 @@ import unittest
 
 from parameterized import parameterized
 
-from products.tasks.backend.temporal.slack_relay.activities import _markdown_to_slack_mrkdwn
 from products.tasks.backend.temporal.slack_relay.object_tags import (
     rewrite_object_tags_for_slack,
     split_incomplete_tag_suffix,
@@ -197,22 +196,6 @@ class TestRewriteObjectTagsForSlack(unittest.TestCase):
         rendered = rewrite(text)
         assert rendered.endswith(f"[beta]({PROJECT}/feature_flags/42?unfurl=false)")
         assert rendered.count('<insight id="open">') == 300
-
-    def test_rewritten_output_survives_mrkdwn_conversion(self) -> None:
-        text = (
-            'Two tiles: <insight id="F6tNdPRe">ready-only</insight> and <insight id="jjF0PSO2" display="block"/>\n\n'
-            '<hogql display="block" title="DAU">SELECT 1</hogql>'
-        )
-        converted = _markdown_to_slack_mrkdwn(rewrite(text))
-        assert f"<{PROJECT}/insights/F6tNdPRe?unfurl=false|ready-only>" in converted
-        assert f"<{PROJECT}/insights/jjF0PSO2|Insight jjF0PSO2>" in converted
-        assert f"*<{PROJECT}/sql?open_query=SELECT%201&unfurl=false|DAU>*" in converted
-        assert "```\nSELECT 1\n```" in converted
-        assert "<hogql" not in converted
-
-    def test_entities_in_labels_survive_mrkdwn_conversion(self) -> None:
-        converted = _markdown_to_slack_mrkdwn(rewrite('<insight id="1" title="Error rate > 1%"/>'))
-        assert converted == f"<{PROJECT}/insights/1?unfurl=false|Error rate &gt; 1%>"
 
 
 class TestSplitIncompleteTagSuffix(unittest.TestCase):

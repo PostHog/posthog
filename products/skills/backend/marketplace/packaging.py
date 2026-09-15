@@ -15,9 +15,11 @@ the spec serialization and tree assembly unit-testable without booting the app.
 import io
 import re
 import json
+import hashlib
 import zipfile
 import mimetypes
 from dataclasses import dataclass, field
+from typing import Any
 
 import yaml
 
@@ -72,12 +74,28 @@ class SkillExport:
     files: list[SkillFileExport] = field(default_factory=list)
 
 
-def render_frontmatter(skill: SkillExport) -> str:
-    """Serialize a skill's spec fields as a YAML frontmatter block (with delimiters).
+def _key_sorted(value: Any) -> Any:
+    """The same value with every object's keys in sorted order, at every depth.
+
+    Sorted by the string form of the key, which is what the renderer writes out. List order is
+    left alone, because a JSON array is ordered and storage keeps it that way.
+    """
+    if isinstance(value, dict):
+        return {key: _key_sorted(value[key]) for key in sorted(value, key=str)}
+    if isinstance(value, list):
+        return [_key_sorted(item) for item in value]
+    return value
+
+
+def frontmatter_document(skill: SkillExport) -> dict[str, object]:
+    """The skill's spec fields as a plain mapping, in the order the frontmatter block writes them.
 
     Maps storage shape -> spec shape: ``allowed_tools`` (list) becomes the spec's
     hyphenated, space-separated ``allowed-tools`` string, and the platform ``version``
     is parked under ``metadata`` since the spec defines no top-level version field.
+
+    A caller that serves the frontmatter as JSON shares this helper with ``render_frontmatter``,
+    so the JSON and the rendered block cannot drift apart.
     """
     document: dict[str, object] = {"name": skill.name, "description": skill.description}
     if skill.license:
@@ -87,19 +105,39 @@ def render_frontmatter(skill: SkillExport) -> str:
 
     # Spec metadata is a string->string map. Stored metadata first, then the platform version
     # last so it always wins — a user-stored metadata["version"] must not clobber the real one.
-    metadata: dict[str, str] = {str(k): str(v) for k, v in skill.metadata.items()}
+    # The keys are sorted because the digest of this file is stamped from the in-memory row before
+    # the insert, while every later render reads the value back out of a `jsonb` column, which
+    # keeps object keys sorted by length and then bytewise. Rendering in whatever order the dict
+    # carries would make the two describe different bytes, which is what a verifying host rejects.
+    # The sort goes to every depth, because a nested object reaches the frontmatter through `str`.
+    metadata: dict[str, str] = {str(k): str(v) for k, v in _key_sorted(skill.metadata).items()}
     metadata["version"] = str(skill.version)
     document["metadata"] = metadata
 
     if skill.allowed_tools:
         document["allowed-tools"] = " ".join(skill.allowed_tools)
 
-    body = yaml.safe_dump(document, sort_keys=False, allow_unicode=True, default_flow_style=False)
+    return document
+
+
+def render_frontmatter(skill: SkillExport) -> str:
+    """Serialize a skill's spec fields as a YAML frontmatter block (with delimiters)."""
+    body = yaml.safe_dump(frontmatter_document(skill), sort_keys=False, allow_unicode=True, default_flow_style=False)
     return f"---\n{body}---\n"
 
 
 def render_skill_md(skill: SkillExport) -> str:
     return render_frontmatter(skill) + "\n" + skill.body
+
+
+def utf8_digest(content: str) -> tuple[str, int]:
+    """Return the bare hex SHA-256 and the byte length of ``content`` encoded as UTF-8.
+
+    Bytes, not characters: the MCP Skills extension makes a host reject any file whose bytes do not
+    match the reported digest and size, so one multibyte character must count as its several bytes.
+    """
+    encoded = content.encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest(), len(encoded)
 
 
 @dataclass(frozen=True)
@@ -139,18 +177,6 @@ def render_skill_stub_md(stub: SkillStub) -> str:
 def build_skill_stub_tree(stub: SkillStub) -> FileTree:
     """A one-file skill directory whose SKILL.md tells the agent to fetch the real skill over MCP."""
     return {"SKILL.md": render_skill_stub_md(stub)}
-
-
-def validate_for_export(skill: SkillExport) -> list[str]:
-    """Return spec-compliance problems that should block or warn on export. Empty == clean."""
-    problems: list[str] = []
-    if len(skill.description) > SPEC_DESCRIPTION_MAX_LENGTH:
-        problems.append(
-            f"description is {len(skill.description)} characters; the spec maximum is {SPEC_DESCRIPTION_MAX_LENGTH}"
-        )
-    if not skill.description.strip():
-        problems.append("description is required and must be non-empty")
-    return problems
 
 
 # OpenAI Codex reads this optional sidecar for UI metadata + tool deps; every other agent
@@ -343,17 +369,9 @@ def _read_zip_text(archive: zipfile.ZipFile, member: str, label: str) -> str:
         raise SkillImportError(f"'{label}' must be UTF-8 text; binary files are not supported.")
 
 
-def compute_plugin_version(latest_change_epoch_millis: int) -> str:
-    """Content-derived, monotonic plugin version so auto-update fires on any change.
-
-    Keyed off the most recent change time (in epoch milliseconds) across all of a team's skill
-    rows (see ``adapters._team_plugin_version``): publishes and file edits add/refresh a row's
-    ``updated_at``, and archive bumps it too, so this advances on every change and never
-    regresses. Millisecond resolution keeps two edits within the same second distinct. Whether
-    Claude Code re-pulls on any version *difference* vs. strictly-greater is the open question
-    the auto-update spike answers — this scheme is safe for either.
-    """
-    return f"1.0.{latest_change_epoch_millis}"
+def compute_plugin_version(latest_change_epoch_microseconds: int) -> str:
+    """Use full timestamp precision so updates within one millisecond have distinct versions."""
+    return f"1.0.{latest_change_epoch_microseconds}"
 
 
 def build_marketplace_tree(
