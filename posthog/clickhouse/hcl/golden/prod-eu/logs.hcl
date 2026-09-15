@@ -1502,7 +1502,7 @@ SQL
 
   table "metric_series3" {
     order_by     = ["team_id", "metric_name", "series_fingerprint"]
-    partition_by = "toDate(last_seen)"
+    partition_by = "toDate(original_expiry_timestamp)"
     ttl          = "original_expiry_timestamp"
     settings = {
       index_granularity = "8192"

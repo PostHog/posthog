@@ -28,9 +28,12 @@ They do not wait for every loading placeholder to disappear: offscreen cards sta
 ## Metadata migration
 
 Migration `0322_metrics_metadata3_dual_write` adds three metadata tables on the logs cluster.
-`metric_series3` partitions by `toDate(last_seen)` and keeps `ReplacingMergeTree(last_seen)`.
-Merges retain the latest labelled row for each series within each day.
+`metric_series3` partitions by `toDate(original_expiry_timestamp)` and keeps `ReplacingMergeTree(last_seen)`.
+Merges retain the latest labelled row for each series within each expiry day.
 The expiry timestamp still controls row retention.
+Expiry partitions keep rows with different expiry dates in separate parts, so later expiry dates do not delay removal of earlier parts.
+A query for one activity day can read several expiry partitions.
+Series rows do not provide complete daily activity history.
 
 `metric_attributes3` includes `metric_name` in its columns, sort key, and materialized view grouping.
 Both metric attributes and resource attributes include the metric name.
@@ -63,8 +66,8 @@ A timestamp boundary alone does not exclude late samples.
 Preserve the original expiry timestamps in the backfill.
 
 `metric_series2` retains only the latest row for each series after merges.
-Copying it cannot restore earlier daily activity.
-Use retained samples and the matching series labels to restore those days.
+Copying it cannot restore rows for earlier expiry partitions.
+Use retained samples and the matching series labels to populate those partitions with the original expiry timestamps.
 `metric_attributes2` does not retain metric names, so it cannot supply the new attribute rows alone.
 Preserve the `has_labels` filter when rebuilding attribute counts from samples.
 
@@ -74,7 +77,7 @@ Keep the maximum original expiry timestamp for each group.
 Repeated catalog rows merge with `max`, so overlapping catalog batches do not add counts or shorten retention.
 The latest series rows alone cannot restore earlier hourly activity.
 
-Before a read cutover, compare metric names, label pairs, daily series activity, and retention for the same source range.
+Before a read cutover, compare metric names, label pairs, series presence per expiry day, and retention for the same source range.
 Check insert latency, materialized view errors, part counts, and storage growth during this phase.
 A later migration can move the distributed readers after the backfill is complete.
 Keep the old tables until that read cutover is stable.

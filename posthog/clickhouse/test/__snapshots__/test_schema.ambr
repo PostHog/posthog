@@ -4273,7 +4273,7 @@
   (
       `team_id` Int32,
       `metric_name` LowCardinality(String),
-      `series_fingerprint` UInt64 CODEC(Delta, Default),
+      `series_fingerprint` UInt64 CODEC(Delta(8), Default),
       `metric_type` LowCardinality(String),
       `unit` LowCardinality(String),
       `aggregation_temporality` LowCardinality(String),
@@ -4292,7 +4292,7 @@
       INDEX idx_last_seen_minmax last_seen TYPE minmax GRANULARITY 1
   )
   ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.metric_series3', '{replica}-{shard}', last_seen)
-  PARTITION BY toDate(last_seen)
+  PARTITION BY toDate(original_expiry_timestamp)
   ORDER BY (team_id, metric_name, series_fingerprint)
   TTL original_expiry_timestamp
   SETTINGS index_granularity = 8192
@@ -11564,7 +11564,7 @@
   (
       `team_id` Int32,
       `metric_name` LowCardinality(String),
-      `series_fingerprint` UInt64 CODEC(Delta, Default),
+      `series_fingerprint` UInt64 CODEC(Delta(8), Default),
       `metric_type` LowCardinality(String),
       `unit` LowCardinality(String),
       `aggregation_temporality` LowCardinality(String),
@@ -11583,7 +11583,7 @@
       INDEX idx_last_seen_minmax last_seen TYPE minmax GRANULARITY 1
   )
   ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.metric_series3', '{replica}-{shard}', last_seen)
-  PARTITION BY toDate(last_seen)
+  PARTITION BY toDate(original_expiry_timestamp)
   ORDER BY (team_id, metric_name, series_fingerprint)
   TTL original_expiry_timestamp
   SETTINGS index_granularity = 8192

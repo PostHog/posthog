@@ -38,7 +38,7 @@ CREATE TABLE IF NOT EXISTS {_db()}.{METRIC_SERIES3_TABLE_NAME}
     INDEX idx_last_seen_minmax last_seen TYPE minmax GRANULARITY 1
 )
 ENGINE = {ReplacingMergeTree(METRIC_SERIES3_TABLE_NAME, replication_scheme=ReplicationScheme.REPLICATED, ver="last_seen")}
-PARTITION BY toDate(last_seen)
+PARTITION BY toDate(original_expiry_timestamp)
 ORDER BY (team_id, metric_name, series_fingerprint)
 TTL original_expiry_timestamp
 SETTINGS index_granularity = 8192

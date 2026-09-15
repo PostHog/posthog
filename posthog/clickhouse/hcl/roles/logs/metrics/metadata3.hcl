@@ -40,7 +40,7 @@ database "posthog" {
     }
   }
   table "metric_series3" {
-    partition_by = "toDate(last_seen)"
+    partition_by = "toDate(original_expiry_timestamp)"
     order_by = ["team_id", "metric_name", "series_fingerprint"]
     ttl      = "original_expiry_timestamp"
     settings = {

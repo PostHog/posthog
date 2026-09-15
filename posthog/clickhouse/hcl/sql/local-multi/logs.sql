@@ -473,7 +473,7 @@ CREATE TABLE posthog.metric_series3 (
   INDEX idx_attr_keys mapKeys(attributes) TYPE bloom_filter(0.01) GRANULARITY 1,
   INDEX idx_attr_values mapValues(attributes) TYPE bloom_filter(0.01) GRANULARITY 1,
   INDEX idx_last_seen_minmax last_seen TYPE minmax GRANULARITY 1
-) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog.metric_series3', '{replica}-{shard}', last_seen) ORDER BY (team_id, metric_name, series_fingerprint) PARTITION BY toDate(last_seen) TTL original_expiry_timestamp SETTINGS index_granularity = 8192;
+) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog.metric_series3', '{replica}-{shard}', last_seen) ORDER BY (team_id, metric_name, series_fingerprint) PARTITION BY toDate(original_expiry_timestamp) TTL original_expiry_timestamp SETTINGS index_granularity = 8192;
 CREATE TABLE posthog.metric_series_distributed (
   team_id Int32,
   metric_name LowCardinality(String),
