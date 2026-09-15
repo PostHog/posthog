@@ -108,7 +108,8 @@ In production it is driven by `SignalsScoutCoordinatorWorkflow` (periodic tick e
   Such a refusal fails every due lane fleet-wide inside the same few minutes, so counting it walks healthy scouts toward a pause for "repeated failures" whose cause was never theirs, and the pause then costs each one the probe cooldown.
   The breaker exists to stop a wedged lane from taking a lease per interval forever, which an upstream refusal is not.
   The same classification buys a scheduled run a bounded retry: the runner reports the refusal as `RunResult.retryable_upstream`, and `RunSignalsScoutWorkflow._run_attempts` re-runs the activity up to `UPSTREAM_RETRY_MAX_ATTEMPTS` with a doubling backoff.
-  Only a failed attempt that emitted nothing is offered, so a retry cannot re-derive findings already written.
+  Only a failed attempt that wrote nothing durable is offered: the finding tally, both report-channel columns, and the `structured_output_count` counter each gate it.
+  A retry runs under a fresh `run_id` and every idempotency key in the harness is run-scoped, so a second attempt would repeat a write rather than collapse onto it.
   The retry lives in the workflow because the per-turn poll budget already fills one activity's `start_to_close_timeout`, leaving no room in-process for a second turn.
   It is gated on `workflow.patched("scout-upstream-retry")` because the backoff adds a command to the history, and the workflow shares a task queue with its activity under no worker versioning — so across a deploy a workflow task can land on a worker from either build.
   Scheduled only: an off-schedule trigger holds a deterministic workflow id, so a backoff there would refuse the person's next "run now" rather than recover their current one.

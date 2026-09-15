@@ -55,6 +55,7 @@ from products.signals.backend.scout_harness.skill_loader import (
     skill_uses_report_channel,
 )
 from products.signals.backend.scout_harness.team_limits import github_read_access_for_team, withheld_skills_for_team
+from products.signals.backend.scout_harness.tools.structured_output import STRUCTURED_OUTPUT_COUNT_KEY
 from products.signals.backend.temporal.agentic import (
     SIGNALS_REPORT_RESEARCH_ENV_NAME,
     get_or_create_signals_sandbox_env,
@@ -1311,8 +1312,9 @@ def _run_row_exists(run_id: Any, team_id: int) -> bool:
 @frozen
 class _RunOutput:
     """What the bridge row records about one run's output. `wrote_output` unions every durable
-    channel a scout writes through — the finding tally plus both report-channel columns — because
-    a retry re-runs the whole activity and only an untouched run is safe to start again."""
+    channel a scout writes through — the finding tally, both report-channel columns, and the
+    structured-output counter — because a retry re-runs the whole activity and only an untouched
+    run is safe to start again."""
 
     emitted_count: int
     task_run_id: str | None
@@ -1324,23 +1326,31 @@ def _read_run_metrics(run_id: Any, team_id: int) -> _RunOutput:
     # and the FK to the linked TaskRun — the join key into LLM analytics, where the
     # richer per-run metrics (tool calls, generations, tokens, cost) already live. Reading
     # both here keeps that linkage on failed runs too, not just clean completions. The two
-    # report-channel columns are read for `wrote_output` only; they never fold into
-    # `emitted_count`, which stays the finding tally the analytics dimension means.
+    # report-channel columns and the structured-output counter are read for `wrote_output`
+    # only; they never fold into `emitted_count`, which stays the finding tally the analytics
+    # dimension means. The counter is the right signal for its channel because the records
+    # land as events whose uuid is derived from the run id, so a fresh attempt resubmitting
+    # the same batch writes a second set rather than collapsing at ingestion.
     # Returns an empty output when the row never persisted (failure before the first turn).
     row = (
         SignalScoutRun.objects.unscoped()
         .filter(team_id=team_id, id=run_id)
-        .values_list("emitted_count", "task_run_id", "emitted_report_ids", "edited_report_ids")
+        .values_list("emitted_count", "task_run_id", "emitted_report_ids", "edited_report_ids", "metadata")
         .first()
     )
     if row is None:
         return _RunOutput(emitted_count=0, task_run_id=None, wrote_output=False)
-    emitted_count, task_run_id, emitted_report_ids, edited_report_ids = row
+    emitted_count, task_run_id, emitted_report_ids, edited_report_ids, metadata = row
     emitted_count = emitted_count or 0
     return _RunOutput(
         emitted_count=emitted_count,
         task_run_id=str(task_run_id) if task_run_id else None,
-        wrote_output=bool(emitted_count or emitted_report_ids or edited_report_ids),
+        wrote_output=bool(
+            emitted_count
+            or emitted_report_ids
+            or edited_report_ids
+            or (metadata or {}).get(STRUCTURED_OUTPUT_COUNT_KEY)
+        ),
     )
 
 

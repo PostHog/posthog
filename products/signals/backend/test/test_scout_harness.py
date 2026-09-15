@@ -85,6 +85,7 @@ from products.signals.backend.scout_harness.skill_loader import (
     resolve_scout_acting_user_id,
 )
 from products.signals.backend.scout_harness.tools.runs import _build_task_url, _to_detail, _to_summary
+from products.signals.backend.scout_harness.tools.structured_output import STRUCTURED_OUTPUT_COUNT_KEY
 from products.signals.backend.temporal.agentic.scout_scheduler import (
     RunSignalsScoutInput,
     RunSignalsScoutOutput,
@@ -3237,7 +3238,9 @@ class TestReadRunMetrics(BaseTest):
             ("emitted a finding", {"emitted_count": 1}, True),
             ("authored a report", {"emitted_report_ids": ["r-1"]}, True),
             ("edited a report", {"edited_report_ids": ["r-2"]}, True),
+            ("recorded structured output", {"metadata": {STRUCTURED_OUTPUT_COUNT_KEY: 3}}, True),
             ("null report columns", {"emitted_report_ids": None, "edited_report_ids": None}, False),
+            ("unrelated metadata only", {"metadata": {"report_channel": "signal"}}, False),
         ]
     )
     def test_wrote_output_covers_every_durable_channel(
