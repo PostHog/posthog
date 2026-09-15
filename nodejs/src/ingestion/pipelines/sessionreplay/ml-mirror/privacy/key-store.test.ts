@@ -157,6 +157,52 @@ describe('ML session key batches', () => {
         expect(boundary.items.has(tableKeyString(sessionKeyId(session.teamId, session.sessionId)))).toBe(succeeds)
     })
 
+    it('writes the month index entry before the key and repairs a failed index put', async () => {
+        const send = boundary.send.bind(boundary)
+        let remaining = 1
+        jest.spyOn(boundary, 'send').mockImplementation((command) => {
+            if (command instanceof PutItemCommand && command.input.Item!.pk.S!.startsWith('month:') && remaining > 0) {
+                remaining -= 1
+                return Promise.reject(new Error('ProvisionedThroughputExceededException'))
+            }
+            return send(command)
+        })
+        const batch = await store.prepare([session])
+        jest.useFakeTimers()
+        const committing = batch.commit()
+        await jest.runAllTimersAsync()
+        await committing
+        const location = sessionKeyId(session.teamId, session.sessionId)
+        expect(boundary.items.has(tableKeyString(location))).toBe(true)
+        expect(boundary.items.has(tableKeyString(monthKeyIndexId({ ...session }, location)))).toBe(true)
+    })
+
+    it('keeps its own key when a retried put reports it as already stored', async () => {
+        const send = boundary.send.bind(boundary)
+        let lostResponses = 1
+        jest.spyOn(boundary, 'send').mockImplementation(async (command) => {
+            const result = await send(command)
+            if (
+                command instanceof PutItemCommand &&
+                command.input.Item!.sk.S!.startsWith('session:') &&
+                lostResponses > 0
+            ) {
+                lostResponses -= 1
+                throw new Error('ECONNRESET')
+            }
+            return result
+        })
+        const batch = await store.prepare([session])
+        const candidate = batch.get(session.teamId, session.sessionId)!.session.plaintext
+        jest.useFakeTimers()
+        const committing = batch.commit()
+        await jest.runAllTimersAsync()
+        await committing
+        expect(batch.get(session.teamId, session.sessionId)!.session.plaintext).toEqual(candidate)
+        const location = sessionKeyId(session.teamId, session.sessionId)
+        expect(boundary.items.has(tableKeyString(monthKeyIndexId({ ...session }, location)))).toBe(true)
+    })
+
     it('gives up when the commit budget is spent before the attempts are', async () => {
         const send = boundary.send.bind(boundary)
         let remaining = 7

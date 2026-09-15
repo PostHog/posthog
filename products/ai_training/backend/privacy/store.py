@@ -169,26 +169,31 @@ class AITrainingPrivacyStore:
         work = request.cursor.get("work")
         if work is None:
             work = self.initialize(request)
-            request.cursor = {"work": work}
-            request.save(update_fields=["cursor"])
+            self.save_cursor(request, work=work)
         while work:
             if time.monotonic() >= deadline:
                 return False
             work = self.advance(work[0]) + work[1:]
-            request.cursor = {"work": work}
-            request.save(update_fields=["cursor"])
+            self.save_cursor(request, work=work)
         now = timezone.now()
         complete_after = request.cursor.get("complete_after")
         if complete_after is None:
-            request.cursor = {"work": [], "complete_after": now.timestamp() + KEY_READ_LEASE_SECONDS}
-            request.save(update_fields=["cursor"])
+            self.save_cursor(request, work=[], complete_after=now.timestamp() + KEY_READ_LEASE_SECONDS)
             return False
         if now.timestamp() < complete_after:
             return False
+        # Key creation checks the team block only when it reads the batch, so a batch that read before the block can still store a key within its commit budget; the lease outlasts that budget, so one more sweep after it catches every straggler.
+        if request.kind == "team" and not request.cursor.get("reswept"):
+            self.save_cursor(request, work=[{"op": "team", "team_id": request.team_id, "shard": -1}], reswept=True)
+            return self.apply(request, deadline)
         request.completed_at = now
         request.identifiers = []
         request.save(update_fields=["completed_at", "identifiers"])
         return True
+
+    def save_cursor(self, request: AITrainingDeletionRequest, **fields: object) -> None:
+        request.cursor = {**request.cursor, **fields}
+        request.save(update_fields=["cursor"])
 
     def drain(self, limit: int = 100, budget_seconds: int = 240) -> int:
         deadline = time.monotonic() + budget_seconds

@@ -96,15 +96,19 @@ class TestAITrainingPrivacyStore(SimpleTestCase):
         )
         client.query.assert_not_called()
 
-    def test_completion_waits_for_reader_leases_without_sleeping_in_the_worker(self) -> None:
-        request = MagicMock(kind="team", cursor={"work": []}, completed_at=None)
-        store = AITrainingPrivacyStore(MagicMock(), "table")
+    def test_completion_waits_for_reader_leases_then_sweeps_the_team_once_more(self) -> None:
+        request = MagicMock(kind="team", team_id=7, cursor={"work": []}, completed_at=None)
+        client = MagicMock()
+        client.query.return_value = {"Items": []}
+        store = AITrainingPrivacyStore(client, "table")
         now = timezone.now()
         with patch("products.ai_training.backend.privacy.store.timezone.now", return_value=now):
             self.assertFalse(store.apply(request, time.monotonic() + 1))
         self.assertIsNone(request.completed_at)
+        client.query.assert_not_called()
         with patch(
             "products.ai_training.backend.privacy.store.timezone.now", return_value=now + timedelta(seconds=301)
         ):
             self.assertTrue(store.apply(request, time.monotonic() + 1))
+        self.assertEqual(client.query.call_count, 33)
         self.assertEqual(request.identifiers, [])

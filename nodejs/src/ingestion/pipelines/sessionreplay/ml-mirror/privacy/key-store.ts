@@ -20,6 +20,7 @@ const COMMIT_ATTEMPTS = 10
 const COMMIT_BUDGET_MS = 45_000
 const COMMIT_BACKOFF_BASE_MS = 100
 const COMMIT_BACKOFF_CAP_MS = 3_000
+const NON_RETRYABLE_ERRORS = new Set(['AccessDeniedException', 'ValidationException'])
 
 function commitRetryDelayMs(attempt: number): number {
     return Math.random() * Math.min(COMMIT_BACKOFF_CAP_MS, COMMIT_BACKOFF_BASE_MS * 2 ** attempt)
@@ -131,31 +132,39 @@ export class MlKeyBatch {
         return image ? { session, image } : undefined
     }
 
-    // A key and its month index entry are two plain writes instead of one transaction, so no commit in the fleet waits on another; the re-read afterwards adopts a competing writer's key and drops sessions or teams blocked during the batch.
+    // The index entry goes first and is idempotent, so every stored key has an index entry even when the key put fails or a retried put reports the batch's own write as a competitor's. An index entry without a key is harmless: the month sweep leaves a tombstone that a later key put respects.
     private async persist(): Promise<void> {
-        await Promise.all(
+        const before = [...this.keys.keys()]
+        const results = await Promise.allSettled(
             [...this.keys].map(async ([id, key]) => {
                 if (this.state.has(id)) {
                     return
                 }
                 const location = storedKeyId(key.identity)
+                await this.db.put(monthKeyIndexId(key.identity, location), {
+                    key_pk: { S: location.pk },
+                    key_sk: { S: location.sk },
+                })
                 const created = await this.db.putIfAbsent(location, {
                     wrapped_key: { B: key.wrapped },
                     organization_id: { S: key.identity.organizationId },
                     team_id: { N: String(key.identity.teamId) },
                     session_month: { S: keySessionMonth(key.identity) },
                 })
-                if (!created) {
-                    return
+                if (created) {
+                    this.encryption.rememberCommitted(key)
                 }
-                this.encryption.rememberCommitted(key)
-                await this.db.put(monthKeyIndexId(key.identity, location), {
-                    key_pk: { S: location.pk },
-                    key_sk: { S: location.sk },
-                })
             })
         )
+        const failure = results.find((result): result is PromiseRejectedResult => result.status === 'rejected')
+        if (failure) {
+            throw failure.reason
+        }
         await this.read()
+        const dropped = before.filter((id) => !this.keys.has(id)).length
+        if (dropped) {
+            logger.info('🔑', 'ml_key_commit_dropped_blocked', { dropped })
+        }
     }
 
     public async commit(): Promise<void> {
@@ -166,21 +175,19 @@ export class MlKeyBatch {
         for (let attempt = 0; attempt < COMMIT_ATTEMPTS; attempt++) {
             try {
                 await this.persist()
-                for (const key of this.keys.values()) {
-                    this.encryption.rememberCommitted(key)
-                }
                 this.committed = true
                 return
             } catch (error) {
+                const errorName = error instanceof Error ? error.name : undefined
                 const delayMs = commitRetryDelayMs(attempt)
-                if (attempt === COMMIT_ATTEMPTS - 1 || Date.now() - startedAt + delayMs > COMMIT_BUDGET_MS) {
+                if (
+                    NON_RETRYABLE_ERRORS.has(errorName ?? '') ||
+                    attempt === COMMIT_ATTEMPTS - 1 ||
+                    Date.now() - startedAt + delayMs > COMMIT_BUDGET_MS
+                ) {
                     throw error
                 }
-                logger.warn('🔑', 'ml_key_commit_retry', {
-                    attempt: attempt + 1,
-                    code: error instanceof Error ? error.name : undefined,
-                    error: String(error),
-                })
+                logger.warn('🔑', 'ml_key_commit_retry', { attempt: attempt + 1, errorName, error: String(error) })
                 await new Promise((resolve) => setTimeout(resolve, delayMs))
                 await this.read()
             }

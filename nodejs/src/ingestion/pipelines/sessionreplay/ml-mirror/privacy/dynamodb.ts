@@ -24,6 +24,7 @@ export function decodeKey(item: DynamoItem): TableKey {
 
 export class MlPrivacyDynamoDB {
     private readonly concurrency = pLimit(4)
+    private readonly writeConcurrency = pLimit(32)
 
     constructor(
         private readonly client: Pick<DynamoDBClient, 'send'>,
@@ -68,7 +69,7 @@ export class MlPrivacyDynamoDB {
     }
 
     public async putIfAbsent(key: TableKey, attributes: DynamoItem): Promise<boolean> {
-        return this.concurrency(async () => {
+        return this.writeConcurrency(async () => {
             try {
                 await this.client.send(
                     new PutItemCommand({
@@ -89,7 +90,7 @@ export class MlPrivacyDynamoDB {
     }
 
     public async put(key: TableKey, attributes: DynamoItem): Promise<void> {
-        await this.concurrency(() =>
+        await this.writeConcurrency(() =>
             this.client.send(
                 new PutItemCommand({ TableName: this.tableName, Item: { ...encodeKey(key), ...attributes } }),
                 {

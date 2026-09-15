@@ -46,10 +46,11 @@ Ingestion processes privacy state in batches:
 
 1. Bulk-read session keys, team blocks, and image keys.
 2. Resolve keys in memory while processing the batch.
-3. Write new keys with conditional puts, re-read the batch, and only then publish replay blocks or image messages.
-4. The re-read adopts a competing writer's keys and drops sessions or teams that were blocked during the batch.
+3. Write each new key's month index entry, then the key with a conditional put.
+4. Re-read the batch, adopt a competing writer's keys, drop sessions or teams blocked during the batch, then publish replay blocks or image messages.
 
-Conditional writes prevent a deletion from being undone by an in-flight batch.
+A conditional put refuses to recreate a shredded session key.
+A team blocked during a batch is dropped by the batch re-read and refused by every reader, and the deletion worker sweeps the team once more after the reader lease, so a key stored after the block is shredded.
 Kafka offsets advance only after the required writes and publication succeed.
 Bulk reads use batches of at most 100 keys; each new key is one conditional put, so no commit in the fleet waits on another.
 Reads use strongly consistent `BatchGetItem` requests with bounded retries for unprocessed keys.
@@ -102,8 +103,9 @@ Legacy dataset retirement needs a separate storage operation before claiming del
 
 ## Monthly key deletion
 
-Key creation writes the wrapped key with a conditional put, then its month index entry with a plain put.
-The two writes are not atomic: a key whose index write failed is not swept by month deletion, but it can only decrypt objects in that month's folders.
+Key creation writes the month index entry with a plain put, then the wrapped key with a conditional put.
+The index entry comes first, so every stored key has an index entry.
+An index entry without a key is harmless: the month sweep leaves a tombstone that a later key put respects.
 The index uses 32 partitions named `month:<YYYY-MM>:shard:<0..31>` and stores key locations, without copying wrapped keys.
 Session keys and image keys appear in this index.
 
