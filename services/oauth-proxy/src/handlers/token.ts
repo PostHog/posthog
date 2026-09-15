@@ -9,10 +9,22 @@ import {
 } from '@/lib/kv'
 import { preferClientError, proxyPostWithClientId, tryBothRegions } from '@/lib/proxy'
 import { reissueIdTokenInResponse } from '@/lib/token-response'
-import { errorResponse } from '@/lib/validation'
+import { duplicateParamError, errorResponse, findDuplicateParam } from '@/lib/validation'
 
 /** RFC 7523, which PostHog serves as the ID-JAG identity assertion exchange. */
 const JWT_BEARER_GRANT_TYPE = 'urn:ietf:params:oauth:grant-type:jwt-bearer'
+
+// The proxy reads a form body with `.get()`, which returns the first value, while Django's
+// QueryDict returns the last. A repeat lets the two authenticate different clients.
+const SINGLE_VALUE_TOKEN_PARAMS = [
+    'client_id',
+    'client_secret',
+    'grant_type',
+    'code',
+    'code_verifier',
+    'refresh_token',
+    'redirect_uri',
+] as const
 
 /**
  * OAuth Token Exchange — proxy to the correct region.
@@ -42,6 +54,10 @@ export async function handleToken(request: Request, kv: KVNamespace, env: Signin
         }
     } else {
         const formParams = new URLSearchParams(body)
+        const duplicate = findDuplicateParam(formParams, SINGLE_VALUE_TOKEN_PARAMS)
+        if (duplicate) {
+            return errorResponse(duplicateParamError(duplicate), { 'Cache-Control': 'no-store' })
+        }
         clientId = formParams.get('client_id')
         grantType = formParams.get('grant_type')
     }
@@ -53,7 +69,22 @@ export async function handleToken(request: Request, kv: KVNamespace, env: Signin
         return response
     }
 
-    return reissueIdTokenInResponse(response, { issuer: proxyOrigin(request), audience: clientId, env })
+    return reissueIdTokenInResponse(response, {
+        issuer: proxyOrigin(request),
+        audience: clientId,
+        permittedUpstreamAudiences: response.ok && clientId ? await permittedUpstreamAudiences(kv, clientId) : [],
+        env,
+    })
+}
+
+/** A client registered through the proxy is known to each region under its own id. */
+async function permittedUpstreamAudiences(kv: KVNamespace, clientId: string): Promise<string[]> {
+    const mapping = await getClientMapping(kv, clientId)
+    if (!mapping) {
+        return [clientId]
+    }
+
+    return [clientId, mapping.us_client_id, mapping.eu_client_id].filter((id) => Boolean(id))
 }
 
 async function routeToken(

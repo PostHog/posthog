@@ -10,6 +10,8 @@ import { createMockKV } from './helpers'
 const ISSUED_AT = Math.floor(Date.now() / 1000)
 const EXPIRES_AT = ISSUED_AT + 3600
 
+const REGIONAL_CLIENT_ID = 'us_regional_client_id'
+
 interface RegionalKey {
     privateKey: CryptoKey
     publicJwk: JWK
@@ -40,7 +42,7 @@ async function signRegionalIdToken(
         .setProtectedHeader({ alg: 'RS256' })
         .setIssuer(issuer)
         .setSubject('018f0000-0000-7000-8000-000000000000')
-        .setAudience('us_regional_client_id')
+        .setAudience(REGIONAL_CLIENT_ID)
         .setIssuedAt(ISSUED_AT)
         .setExpirationTime(EXPIRES_AT)
         .sign(key.privateKey)
@@ -87,6 +89,7 @@ describe('ID token re-issuance', () => {
             region: 'us',
             issuer: 'https://oauth.posthog.com',
             audience: 'proxy_client_id',
+            permittedUpstreamAudiences: [REGIONAL_CLIENT_ID],
             env: { OIDC_SIGNING_KEY: signingKey },
         })
 
@@ -107,6 +110,7 @@ describe('ID token re-issuance', () => {
             region: 'us',
             issuer: 'https://oauth.posthog.com',
             audience: 'proxy_client_id',
+            permittedUpstreamAudiences: [REGIONAL_CLIENT_ID],
             env: { OIDC_SIGNING_KEY: signingKey },
         })
 
@@ -121,6 +125,7 @@ describe('ID token re-issuance', () => {
             region: 'us',
             issuer: 'https://oauth.posthog.com',
             audience: 'proxy_client_id',
+            permittedUpstreamAudiences: [REGIONAL_CLIENT_ID],
             env: { OIDC_SIGNING_KEY: signingKey },
         })
 
@@ -160,6 +165,7 @@ describe('ID token re-issuance', () => {
                 region: 'us',
                 issuer: 'https://oauth.posthog.com',
                 audience: 'proxy_client_id',
+                permittedUpstreamAudiences: [REGIONAL_CLIENT_ID],
                 env: {},
             })
         ).rejects.toBeInstanceOf(IdTokenReissueError)
@@ -174,9 +180,40 @@ describe('ID token re-issuance', () => {
                 region: 'us',
                 issuer: 'https://oauth.posthog.com',
                 audience: 'proxy_client_id',
+                permittedUpstreamAudiences: [REGIONAL_CLIENT_ID],
                 env: { OIDC_SIGNING_KEY: signingKey },
             })
         ).rejects.toBeInstanceOf(IdTokenReissueError)
+    })
+
+    it('refuses to address a token to a client the region did not issue it to', async () => {
+        // Signing the posted client_id over another client's grant forges an identity for it.
+        const idToken = await signRegionalIdToken(regionalKey)
+
+        await expect(
+            reissueIdToken(idToken, {
+                region: 'us',
+                issuer: 'https://oauth.posthog.com',
+                audience: 'victim_client_id',
+                permittedUpstreamAudiences: ['victim_client_id'],
+                env: { OIDC_SIGNING_KEY: signingKey },
+            })
+        ).rejects.toBeInstanceOf(IdTokenReissueError)
+    })
+
+    it('keeps the regional audience when the request named no client', async () => {
+        // A confidential client authenticating with HTTP Basic posts no client_id at all.
+        const idToken = await signRegionalIdToken(regionalKey)
+
+        const reissued = await reissueIdToken(idToken, {
+            region: 'us',
+            issuer: 'https://oauth.posthog.com',
+            audience: null,
+            permittedUpstreamAudiences: [],
+            env: { OIDC_SIGNING_KEY: signingKey },
+        })
+
+        expect(decodeJwt(reissued).aud).toBe(REGIONAL_CLIENT_ID)
     })
 
     it('does not cache a JWKS document that is missing a region', async () => {

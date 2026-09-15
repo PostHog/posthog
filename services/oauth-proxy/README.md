@@ -66,6 +66,11 @@ So `/oauth/token` verifies the regional ID token against that region's published
 `iat` and `exp` are copied rather than recomputed, so re-issuing can neither extend a token nor invent an authentication event.
 Responses with no `id_token` pass through untouched, which covers the ID-JAG exchange and every client that did not request the `openid` scope.
 
+The `client_id` a token request posts is not authenticated, so the proxy only signs it as the audience when the regional token was issued to a client id that belongs to it: the same id, or one side of its stored mapping.
+Anything else is refused with a 500 rather than re-addressed, because the region authenticated a different client than the one the request named.
+`/oauth/token` also rejects a body that repeats `client_id`, `grant_type`, `code`, `refresh_token`, `redirect_uri`, `code_verifier`, or `client_secret`.
+The proxy reads the first value of a repeated parameter and Django reads the last, so a repeat is a way to make the two disagree about which client is exchanging the grant.
+
 `/.well-known/jwks.json` publishes this worker's keys next to the regional ones.
 The regional keys stay because the regional servers also sign the ID-JAG access tokens (`at+jwt`) that clients receive through this proxy.
 Key ids differ, so a verifier selects the right key on its own.

@@ -1,3 +1,4 @@
+import { SignJWT, decodeJwt, exportJWK, exportPKCS8, generateKeyPair } from 'jose'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { handleToken } from '@/handlers/token'
@@ -180,6 +181,24 @@ describe('handleToken', () => {
         const data = (await response.json()) as Record<string, unknown>
         expect(data.error).toBe('invalid_request')
         expect(data.error_description).toBe('Malformed JSON body')
+    })
+
+    it('rejects a token request that repeats a parameter the regional server reads differently', async () => {
+        vi.stubGlobal('fetch', vi.fn())
+
+        const request = new Request('https://oauth.posthog.com/oauth/token/', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: 'grant_type=authorization_code&code=test_code&client_id=victim_client&client_id=attacker_client',
+        })
+
+        const response = await handleToken(request, mockKV, {})
+        const data = (await response.json()) as Record<string, unknown>
+
+        expect(response.status).toBe(400)
+        expect(data.error).toBe('invalid_request')
+        expect(data.error_description).toBe('Duplicate client_id parameter is not allowed')
+        expect(vi.mocked(fetch)).not.toHaveBeenCalled()
     })
 
     it('falls back to try-both for refresh_token grants without mapping', async () => {
@@ -718,5 +737,67 @@ describe('handleToken', () => {
 
         expect(response.status).toBe(200)
         expect(data.id_token).toBe('regional.id.token')
+    })
+
+    it('addresses the re-issued id_token to the proxy client_id the region knows regionally', async () => {
+        // A client registered through the proxy holds an id neither region issues tokens to.
+        const clientHash = await hashKey('proxy_client_mapped')
+        mockKVGet(mockKV, (key: string, type?: unknown) => {
+            if (key === `region:${clientHash}`) {
+                return Promise.resolve('eu')
+            }
+            if (key === 'client:proxy_client_mapped' && type === 'json') {
+                return Promise.resolve({
+                    us_client_id: 'proxy_client_mapped',
+                    eu_client_id: 'eu_real_id',
+                    created_at: Date.now(),
+                })
+            }
+            return Promise.resolve(null)
+        })
+
+        const regional = await generateKeyPair('RS256', { extractable: true })
+        const regionalJwk = await exportJWK(regional.publicKey)
+        const proxyKey = await generateKeyPair('RS256', { extractable: true })
+        const issuedAt = Math.floor(Date.now() / 1000)
+        const regionalIdToken = await new SignJWT({ email: 'someone@example.com' })
+            .setProtectedHeader({ alg: 'RS256' })
+            .setIssuer('https://eu.posthog.com')
+            .setSubject('018f0000-0000-7000-8000-000000000000')
+            .setAudience('eu_real_id')
+            .setIssuedAt(issuedAt)
+            .setExpirationTime(issuedAt + 3600)
+            .sign(regional.privateKey)
+
+        vi.stubGlobal(
+            'fetch',
+            vi.fn((url: string) =>
+                Promise.resolve(
+                    String(url).includes('/.well-known/jwks.json')
+                        ? new Response(JSON.stringify({ keys: [regionalJwk] }), { status: 200 })
+                        : new Response(JSON.stringify({ access_token: 'pha_token', id_token: regionalIdToken }), {
+                              status: 200,
+                              headers: { 'Content-Type': 'application/json' },
+                          })
+                )
+            )
+        )
+
+        const request = new Request('https://oauth.posthog.com/oauth/token/', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: 'grant_type=authorization_code&code=test_code&client_id=proxy_client_mapped',
+        })
+
+        const response = await handleToken(request, mockKV, {
+            OIDC_SIGNING_KEY: await exportPKCS8(proxyKey.privateKey),
+        })
+        const data = (await response.json()) as Record<string, unknown>
+
+        expect(response.status).toBe(200)
+        const claims = decodeJwt(data.id_token as string)
+        expect(claims.iss).toBe('https://oauth.posthog.com')
+        expect(claims.aud).toBe('proxy_client_mapped')
+        expect(claims.sub).toBe('018f0000-0000-7000-8000-000000000000')
     })
 })

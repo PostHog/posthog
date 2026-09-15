@@ -6,7 +6,7 @@ import { IdTokenReissueError, type SigningKeyEnv, reissueIdToken } from './idtok
 /** Replace the regional ID token in a token response with one this proxy issued. */
 export async function reissueIdTokenInResponse(
     response: Response,
-    options: { issuer: string; audience: string | null; env: SigningKeyEnv }
+    options: { issuer: string; audience: string | null; permittedUpstreamAudiences: string[]; env: SigningKeyEnv }
 ): Promise<Response> {
     if (!response.ok) {
         return response
@@ -41,6 +41,7 @@ export async function reissueIdTokenInResponse(
             region,
             issuer: options.issuer,
             audience: options.audience,
+            permittedUpstreamAudiences: options.permittedUpstreamAudiences,
             env: options.env,
         })
         return rebuildResponse(response, JSON.stringify({ ...payload, id_token: reissued }))

@@ -91,10 +91,37 @@ function jwksForRegion(region: Region): ReturnType<typeof createRemoteJWKSet> {
     return jwks
 }
 
+/**
+ * `requested` is the `client_id` the caller posted, which nothing has authenticated. Signing it
+ * over a grant the region authenticated for a different client would address that user's identity
+ * claims to a client the grant was never issued to.
+ */
+function resolveAudience(requested: string | null, upstream: unknown, permittedUpstream: string[]): string {
+    if (typeof upstream !== 'string') {
+        throw new IdTokenReissueError('Regional ID token has no single audience')
+    }
+
+    if (requested === null) {
+        return upstream
+    }
+
+    if (!permittedUpstream.includes(upstream)) {
+        throw new IdTokenReissueError('Regional ID token was issued to a different client')
+    }
+
+    return requested
+}
+
 /** Verification runs first so the proxy never signs claims it has not checked. */
 export async function reissueIdToken(
     idToken: string,
-    options: { region: Region; issuer: string; audience: string | null; env: SigningKeyEnv }
+    options: {
+        region: Region
+        issuer: string
+        audience: string | null
+        permittedUpstreamAudiences: string[]
+        env: SigningKeyEnv
+    }
 ): Promise<string> {
     const active = await activeSigningKey(options.env)
 
@@ -113,10 +140,7 @@ export async function reissueIdToken(
         throw new IdTokenReissueError('Regional ID token is missing iat or exp')
     }
 
-    const audience = options.audience ?? upstreamAudience
-    if (typeof audience !== 'string') {
-        throw new IdTokenReissueError('No audience available for the re-issued ID token')
-    }
+    const audience = resolveAudience(options.audience, upstreamAudience, options.permittedUpstreamAudiences)
 
     return new SignJWT(claims)
         .setProtectedHeader({ alg: SIGNING_ALGORITHM, kid: active.kid })
