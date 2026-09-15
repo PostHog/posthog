@@ -11,7 +11,7 @@
                     "type": "null"
                 }
             ],
-            "description": "Default LLM model identifier for new task runs. Must be set together with `runtime_adapter`."
+            "description": "Default LLM model identifier for new task runs. Must be set together with `runtime_adapter` on the acp arm, or with `runtime` on the pi arm."
         },
         "reasoning_effort": {
             "anyOf": [
@@ -26,6 +26,19 @@
             ],
             "description": "Default reasoning effort for models that expose an effort control.\n\n* `low` - low\n* `medium` - medium\n* `high` - high\n* `xhigh` - xhigh\n* `max` - max\n* `ultracode` - ultracode"
         },
+        "runtime": {
+            "anyOf": [
+                {
+                    "description": "* `acp` - ACP\n* `pi` - Pi",
+                    "enum": ["acp", "pi"],
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Agent runtime this preference launches. 'acp' (the default, matching rows stored before this field) pairs `runtime_adapter` with `model`; 'pi' forbids `runtime_adapter` and requires `model`.\n\n* `acp` - ACP\n* `pi` - Pi"
+        },
         "runtime_adapter": {
             "anyOf": [
                 {
@@ -37,7 +50,7 @@
                     "type": "null"
                 }
             ],
-            "description": "Default agent runtime adapter for new task runs. Use 'claude' for the Claude runtime or 'codex' for the Codex runtime. Must be set together with `model`.\n\n* `claude` - claude\n* `codex` - codex"
+            "description": "Default agent runtime adapter for new task runs. Use 'claude' for the Claude runtime or 'codex' for the Codex runtime. Must be set together with `model`, and left null when `runtime` is 'pi'.\n\n* `claude` - claude\n* `codex` - codex"
         }
     },
     "type": "object"
