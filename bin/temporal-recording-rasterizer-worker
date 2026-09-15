@@ -77,17 +77,16 @@ fi
 # runs from the Helm chart, not this script.
 echo "Starting recording-rasterizer container..."
 video_storage_endpoint="${VIDEO_EXPORT_OBJECT_STORAGE_ENDPOINT:-http://posthog-objectstorage-1:19000}"
-case "$video_storage_endpoint" in
-    http://127.0.0.1:*|http://localhost:*)
-        video_storage_endpoint="http://host.docker.internal:${video_storage_endpoint#http://*:}"
-        ;;
-esac
+if [[ "$video_storage_endpoint" =~ ^http://(127\.0\.0\.1|localhost)([:/?#].*)?$ ]]; then
+    video_storage_endpoint="http://host.docker.internal${BASH_REMATCH[2]}"
+fi
 # nosemgrep: trailofbits.generic.container-privileged.container-privileged
 docker run --rm \
     --name "$CONTAINER_NAME" \
     --network posthog_default \
     --platform linux/amd64 \
     --add-host localhost:host-gateway \
+    --add-host host.docker.internal:host-gateway \
     --security-opt seccomp=unconfined \
     --security-opt apparmor=unconfined \
     -e NODE_ENV=development \
