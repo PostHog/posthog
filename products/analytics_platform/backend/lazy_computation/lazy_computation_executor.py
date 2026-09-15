@@ -538,6 +538,7 @@ class LazyComputationTable(StrEnum):
     WEB_VITALS_PATHS_PREAGGREGATED = "web_vitals_paths_preaggregated"
     WEB_STATS_FRUSTRATION_PREAGGREGATED = "web_stats_frustration_preaggregated"
     WEB_GOALS_PREAGGREGATED = "web_goals_preaggregated"
+    WEB_BOTS_PREAGGREGATED = "web_bots_preaggregated"
     # Fixed-dimension tables driven by the scheduled web_dimensional_precompute
     # Dagster job (the precomputation-framework successor to v2 pre-aggregation).
     WEB_STATS_DIMENSIONAL_PREAGGREGATED = "web_stats_dimensional_preaggregated"
