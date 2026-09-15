@@ -2706,7 +2706,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             // rapid successive toggle clicks don't cancel each other and lose earlier changes.
             let patch = insightFilter
             if (!props.setQuery) {
-                // breakpoint cancels earlier dispatches, so merge their patches and apply them together.
+                // breakpoint drops earlier dispatches, so merge their patches.
                 cache.pendingInsightFilterPatch = { ...cache.pendingInsightFilterPatch, ...insightFilter }
                 await breakpoint(300)
                 patch = cache.pendingInsightFilterPatch

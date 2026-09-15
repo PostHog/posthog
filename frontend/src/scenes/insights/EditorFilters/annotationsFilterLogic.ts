@@ -95,7 +95,7 @@ export const annotationsFilterLogic = kea<annotationsFilterLogicType>([
         commitSearch: true,
     }),
     reducers({
-        // updateInsightFilter saves after a debounce, so edits made before it lands must build on this value.
+        // Holds edits until the debounced updateInsightFilter saves them.
         pendingFilter: [
             null as AnnotationsFilter | null,
             {
@@ -135,7 +135,6 @@ export const annotationsFilterLogic = kea<annotationsFilterLogicType>([
                     }
                 }
                 const loaded = [...counts.entries()].sort((a, b) => b[1] - a[1]).map(([emoji]) => emoji)
-                // Keep switches for hidden emojis that no loaded annotation uses, so the user can still clear them.
                 return [...loaded, ...hiddenEmojis.filter((emoji) => !counts.has(emoji))]
             },
         ],
