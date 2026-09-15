@@ -93,7 +93,38 @@ vi.mock("@posthog/ui/features/canvas/hooks/useProjectTaskFeeds", () => ({
 }));
 vi.mock("@posthog/ui/shell/analytics", () => ({ track: vi.fn() }));
 vi.mock("@posthog/ui/features/canvas/components/ActivityHoverCard", () => ({
-  ActivityHoverCard: () => <div>Recent activity card</div>,
+  ActivityHoverCard: ({
+    onActivate,
+    onReportActivate,
+  }: {
+    onActivate: (item: {
+      id: string;
+      taskId: string;
+      channelId: string | null;
+    }) => void;
+    onReportActivate: (report: { id: string }) => void;
+  }) => (
+    <div>
+      Recent activity card
+      <button
+        type="button"
+        onClick={() =>
+          onActivate({ id: "activity-1", taskId: "task-1", channelId: null })
+        }
+      >
+        Open activity task
+      </button>
+      <button
+        type="button"
+        onClick={() => onReportActivate({ id: "report-1" })}
+      >
+        Open activity report
+      </button>
+    </div>
+  ),
+}));
+vi.mock("@posthog/ui/features/inbox/components/InboxHoverCard", () => ({
+  InboxHoverCard: () => <div>Recent self-driving card</div>,
 }));
 
 import { browserTabsStore } from "@posthog/core/browser-tabs/browserTabsStore";
@@ -480,6 +511,50 @@ describe("NavRail", () => {
 
     await new Promise((resolve) => setTimeout(resolve, 400));
     expect(screen.queryByText("Recent activity card")).not.toBeInTheDocument();
+  });
+
+  it.each([
+    ["Open activity task", { item: "activity-1", session: "task-1" }],
+    ["Open activity report", { item: "report-1", report: "report-1" }],
+  ])("opens %s inside Activity", async (label, search) => {
+    const user = userEvent.setup();
+    render(<NavRail />);
+
+    await user.hover(screen.getByLabelText("Activity"));
+    await user.click(await screen.findByText(label));
+
+    expect(mocks.navigate).toHaveBeenCalledWith({
+      to: "/activity",
+      search,
+    });
+  });
+
+  it("peeks at Self-driving on hover while another destination is active", async () => {
+    const user = userEvent.setup();
+    render(<NavRail />);
+
+    await user.hover(screen.getByLabelText("Self-driving"));
+
+    expect(
+      await screen.findByText(
+        "Recent self-driving card",
+        {},
+        { timeout: 1_000 },
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("does not show a Self-driving peek while Self-driving is active", () => {
+    mocks.fullPath = "/inbox";
+    mocks.href = "/inbox";
+    render(<NavRail />);
+
+    expect(screen.getByLabelText("Self-driving")).not.toHaveAttribute(
+      "aria-haspopup",
+    );
+    expect(
+      screen.queryByText("Recent self-driving card"),
+    ).not.toBeInTheDocument();
   });
 
   it("lights the last square of the Spaces mark while a space is open", () => {

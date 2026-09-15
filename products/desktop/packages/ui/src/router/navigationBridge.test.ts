@@ -133,6 +133,16 @@ describe("canonical report navigation", () => {
     expect(navigate.mock.calls[0][0].search).toEqual({});
   });
 
+  it("uses an explicit source instead of the current route", () => {
+    navigateToReport("report-1", { sourceHref: "/inbox" });
+    expect(navigate.mock.calls[0][0].search).toEqual({ from: "/inbox" });
+  });
+
+  it("rejects an unsafe explicit source", () => {
+    navigateToReport("report-1", { sourceHref: "https://example.com" });
+    expect(navigate.mock.calls[0][0].search).toEqual({});
+  });
+
   it("keeps the original source when opening another report", () => {
     mocks.getRouterOrNull.mockReturnValue({
       navigate,

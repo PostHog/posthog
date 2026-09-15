@@ -18,10 +18,12 @@ export function InboxPaneRow({
   report,
   isSelected,
   optionValue,
+  onActivate,
 }: {
   report: SignalReport;
   isSelected: boolean;
   optionValue: string;
+  onActivate?: (report: SignalReport) => void;
 }): ReactElement {
   const { isUnread, enabled, setRead } = useInboxReportReadState(report.id);
   const { pointerHandlers } = useInboxReportDetailPrefetch({
@@ -52,7 +54,11 @@ export function InboxPaneRow({
             "h-auto w-full items-start py-1.5 pr-8 text-left ring-offset-0 data-highlighted:border-transparent data-highlighted:bg-fill-hover data-highlighted:ring-0 [&>span]:w-full [&>span]:items-start [&>span]:gap-2",
             isSelected && "bg-fill-selected",
           )}
-          onClick={() => navigateToInboxReportDetail(report.id)}
+          onClick={() =>
+            onActivate
+              ? onActivate(report)
+              : navigateToInboxReportDetail(report.id)
+          }
           {...pointerHandlers}
         >
           <span className="mt-0.5 shrink-0">

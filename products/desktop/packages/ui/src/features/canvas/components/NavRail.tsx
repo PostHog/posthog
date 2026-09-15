@@ -28,6 +28,10 @@ import {
 import { useProjectTaskFeeds } from "@posthog/ui/features/canvas/hooks/useProjectTaskFeeds";
 import { useRailPane } from "@posthog/ui/features/canvas/hooks/useRailSurface";
 import { useTaskActivity } from "@posthog/ui/features/canvas/hooks/useTaskActivity";
+import {
+  selectActivityItem,
+  selectActivityReport,
+} from "@posthog/ui/features/canvas/stores/activityDetailStore";
 import { useActivityFilterStore } from "@posthog/ui/features/canvas/stores/activityFilterStore";
 import {
   formatHotkey,
@@ -37,6 +41,7 @@ import { useCommandCenterActiveCount } from "@posthog/ui/features/command-center
 import { useContextLayerFlag } from "@posthog/ui/features/feature-flags/useContextLayerFlag";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import { useInboxAvailable } from "@posthog/ui/features/feature-flags/useInboxAvailable";
+import { InboxHoverCard } from "@posthog/ui/features/inbox/components/InboxHoverCard";
 import { useInboxDecisionCount } from "@posthog/ui/features/inbox/hooks/useInboxDecisionCount";
 import { openSettings } from "@posthog/ui/features/settings/hooks/useOpenSettings";
 import { ProjectSwitcher } from "@posthog/ui/features/sidebar/components/ProjectSwitcher";
@@ -149,7 +154,12 @@ function ActivityHoverPopover({ trigger }: { trigger: ReactElement }) {
         render={trigger}
       />
       {open && (
-        <ActivityHoverCard side="right" onClose={() => setOpen(false)} />
+        <ActivityHoverCard
+          side="right"
+          onClose={() => setOpen(false)}
+          onActivate={selectActivityItem}
+          onReportActivate={selectActivityReport}
+        />
       )}
     </Popover>
   );
@@ -178,6 +188,50 @@ function ActivityNavItem({
 
   if (isActive) return bell;
   return <ActivityHoverPopover trigger={bell} />;
+}
+
+function InboxHoverPopover({ trigger }: { trigger: ReactElement }) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger
+        openOnHover
+        delay={300}
+        closeDelay={100}
+        onClick={(event) => event.preventBaseUIHandler()}
+        render={trigger}
+      />
+      {open && <InboxHoverCard side="right" onClose={() => setOpen(false)} />}
+    </Popover>
+  );
+}
+
+function InboxNavItem({
+  icon,
+  label,
+  isActive,
+  badge,
+  onClick,
+}: {
+  icon: ReactNode;
+  label: string;
+  isActive: boolean;
+  badge: ReactNode;
+  onClick: MouseEventHandler<HTMLButtonElement>;
+}) {
+  const button = (
+    <NavButton
+      icon={icon}
+      label={label}
+      isActive={isActive}
+      onClick={onClick}
+      badge={badge}
+    />
+  );
+
+  if (isActive) return button;
+  return <InboxHoverPopover trigger={button} />;
 }
 
 /**
@@ -275,6 +329,18 @@ function NavRailImpl() {
       return (
         <ActivityNavItem
           key={pane}
+          isActive={isActive}
+          badge={badge}
+          onClick={onClick}
+        />
+      );
+    }
+    if (pane === "inbox") {
+      return (
+        <InboxNavItem
+          key={pane}
+          icon={<Icon size={16} weight={isActive ? "fill" : "regular"} />}
+          label={label}
           isActive={isActive}
           badge={badge}
           onClick={onClick}

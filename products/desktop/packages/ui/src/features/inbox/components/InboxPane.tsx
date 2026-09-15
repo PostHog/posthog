@@ -1,4 +1,5 @@
 import { filterReportsBySearch } from "@posthog/core/inbox/reportFiltering";
+import type { SignalReport } from "@posthog/shared/types";
 import { InboxFilterMenu } from "@posthog/ui/features/inbox/components/InboxFilterMenu";
 import { InboxPanePresentation } from "@posthog/ui/features/inbox/components/InboxPanePresentation";
 import { InboxPaneRow } from "@posthog/ui/features/inbox/components/InboxPaneRow";
@@ -12,11 +13,19 @@ import { reportIdFromHref } from "@posthog/ui/router/reportNavigation";
 import { useRouterState } from "@tanstack/react-router";
 import { type ReactElement, useMemo, useState } from "react";
 
+interface InboxPaneProps {
+  className?: string;
+  onReportActivate?: (report: SignalReport) => void;
+}
+
 /**
  * Self-driving's column beside the rail. The list is the navigation, so it
  * stays put while you move between the reports it opens.
  */
-export function InboxPane({ className }: { className?: string }): ReactElement {
+export function InboxPane({
+  className,
+  onReportActivate,
+}: InboxPaneProps): ReactElement {
   const inbox = useInboxSectionedReports();
   const [query, setQuery] = useState("");
   const hasActiveFilters = useInboxSignalsFilterStore(
@@ -67,6 +76,7 @@ export function InboxPane({ className }: { className?: string }): ReactElement {
           report={report}
           optionValue={report.id}
           isSelected={report.id === selectedReportId}
+          onActivate={onReportActivate}
         />
       )}
       onClearFilters={resetFilters}
