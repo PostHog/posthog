@@ -96,8 +96,8 @@ def test_parse_pr_number(url, expected):
     assert parse_pr_number(url) == expected
 
 
-def _seed_dead(team, *roots: str):
-    inventory = upsert_inventory(team_id=team.id, repository="o/r", scope="flags")
+def _seed_dead(team, *roots: str, scope: str = "flags"):
+    inventory = upsert_inventory(team_id=team.id, repository="o/r", scope=scope)
     record_scan(inventory, converge(_hit(root) for root in roots), head_sha="abc", now=NOW)
     for cluster in ReaperCluster.objects.filter(inventory=inventory):
         ReaperArtefact.append(
@@ -130,6 +130,18 @@ class TestDispatchHarvest:
         assert "Delete the flag check in a.py" in kwargs["description"]
         assert 'label "reaperhog"' in kwargs["description"]
         assert "reaper/a" in kwargs["description"]
+
+    def test_a_root_another_scope_already_took_is_not_harvested_twice(self, team, user):
+        taken = _seed_dead(team, "a", scope="all")
+        ReaperCluster.objects.filter(inventory=taken, root="a").update(status=ClusterStatus.HARVESTING)
+        _seed_dead(team, "a")
+        create = MagicMock(return_value=MagicMock(task_id=uuid4()))
+
+        with patch(f"{_MODULE}.tasks_facade.create_and_run_task", create):
+            result = dispatch_harvest(HarvestRequest(team_id=team.id, user_id=user.id, repository="o/r", scope="flags"))
+
+        assert (result.dispatched, result.skipped_duplicate) == (0, 1)
+        create.assert_not_called()
 
     def test_open_pull_requests_count_against_the_budget(self, team, user):
         inventory = _seed_dead(team, "a", "b")
