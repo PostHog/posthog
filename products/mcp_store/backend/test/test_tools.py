@@ -199,15 +199,23 @@ class TestFetchUpstreamTools(ClickhouseTestMixin, APIBaseTest):
         with pytest.raises(ToolsFetchError, match="URL not allowed"):
             fetch_upstream_tools(installation)
 
+    @parameterized.expand(
+        [
+            ("connect_error", httpx.ConnectError("nope"), "unreachable"),
+            ("proxy_error", httpx.ProxyError("429 Too Many Requests"), "Egress proxy refused the connection"),
+        ]
+    )
     @patch("products.mcp_store.backend.url_policy.is_url_allowed", return_value=(True, None))
     @patch("products.mcp_store.backend.tools.httpx.Client")
-    def test_fetch_upstream_tools_raises_on_connect_error(self, mock_client_cls, _allow):
+    def test_fetch_upstream_tools_raises_on_transport_error(
+        self, _name, side_effect, expected, mock_client_cls, _allow
+    ):
         installation = self._installation()
         client = MagicMock()
-        client.post.side_effect = httpx.ConnectError("nope")
+        client.post.side_effect = side_effect
         mock_client_cls.return_value.__enter__.return_value = client
 
-        with pytest.raises(ToolsFetchError, match="unreachable"):
+        with pytest.raises(ToolsFetchError, match=expected):
             fetch_upstream_tools(installation)
 
     @patch("products.mcp_store.backend.url_policy.is_url_allowed", return_value=(True, None))
@@ -329,6 +337,17 @@ class TestCallUpstreamTool(ClickhouseTestMixin, APIBaseTest):
         _install_handshake_mock(mock_client_cls, tools_list_response=_build_response(body=body))
 
         with pytest.raises(ToolCallError, match=expected_message):
+            call_upstream_tool(installation, "create_issue", {})
+
+    @patch("products.mcp_store.backend.url_policy.is_url_allowed", return_value=(True, None))
+    @patch("products.mcp_store.backend.tools.httpx.Client")
+    def test_call_raises_on_egress_proxy_refusal(self, mock_client_cls, _allow):
+        installation = self._installation()
+        client = MagicMock()
+        client.post.side_effect = httpx.ProxyError("429 Too Many Requests")
+        mock_client_cls.return_value.__enter__.return_value = client
+
+        with pytest.raises(ToolCallError, match="Egress proxy refused the connection"):
             call_upstream_tool(installation, "create_issue", {})
 
     @patch("products.mcp_store.backend.url_policy.is_url_allowed", return_value=(False, "Private IP"))

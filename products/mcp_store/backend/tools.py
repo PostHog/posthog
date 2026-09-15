@@ -16,7 +16,7 @@ import structlog
 from .models import MCPServerInstallation, MCPServerInstallationTool
 from .oauth import TokenRefreshError, is_token_expiring, refresh_installation_token
 from .policy import SYNC_DEFAULT_APPROVAL_STATE
-from .proxy import build_upstream_auth_headers, validated_same_origin_redirect_url
+from .proxy import build_upstream_auth_headers, upstream_transport_error_message, validated_same_origin_redirect_url
 from .url_policy import check_mcp_url_policy, trust_environment_proxy
 
 logger = structlog.get_logger(__name__)
@@ -108,10 +108,8 @@ def fetch_upstream_tools(installation: MCPServerInstallation) -> list[dict[str, 
                 # here are purely janitorial and must not mask real errors above.
                 if session_id:
                     _mcp_terminate_session(client, upstream_url, session_headers)
-    except httpx.ConnectError as exc:
-        raise ToolsFetchError("Upstream MCP server unreachable") from exc
-    except httpx.TimeoutException as exc:
-        raise ToolsFetchError("Upstream MCP server timed out") from exc
+    except httpx.TransportError as exc:
+        raise ToolsFetchError(upstream_transport_error_message(exc)) from exc
 
 
 def call_upstream_tool(
@@ -158,10 +156,8 @@ def call_upstream_tool(
             finally:
                 if session_id:
                     _mcp_terminate_session(client, upstream_url, session_headers)
-    except httpx.ConnectError as exc:
-        raise ToolCallError("Upstream MCP server unreachable") from exc
-    except httpx.TimeoutException as exc:
-        raise ToolCallError("Upstream MCP server timed out") from exc
+    except httpx.TransportError as exc:
+        raise ToolCallError(upstream_transport_error_message(exc)) from exc
 
 
 def _post_with_same_origin_redirect(
