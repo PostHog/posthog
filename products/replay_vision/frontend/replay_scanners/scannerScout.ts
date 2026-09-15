@@ -1,9 +1,12 @@
+import { capitalizeFirstLetter } from 'lib/utils/strings'
+
 import type { ScannerTypeEnumApi } from 'products/replay_vision/frontend/generated/api.schemas'
 import type { ScannerScoutCreateApi } from 'products/replay_vision/frontend/generated/api.schemas'
 import type {
     SignalScoutConfigApi,
     SignalScoutOutputDestinationsApi,
 } from 'products/signals/frontend/generated/api.schemas'
+import { SIGNALS_SCOUT_SKILL_PREFIX } from 'products/signals/frontend/inbox/utils/scoutRunsWindow'
 
 // pinned: what a scout's config records as its owner, alongside the scanner id in `source_id`.
 // Signals stores the pair; the backend has the same constant in `scout_source.py`, and the two must
@@ -19,8 +22,12 @@ export function isScannerScoutConfig(config: SignalScoutConfigApi, scannerId: st
 // Every morning at 9:00 in the project timezone: the default cadence for every template.
 export const SCANNER_SCOUT_CRON = '0 9 * * *'
 
+/** What the name field accepts, and the only bound on it: the typed name is recorded as the scout
+ * config's `display_name` and nothing else is derived from it. Kept in sync with the `display_name`
+ * maxLength on the Signals scout config API. */
+export const SCOUT_DISPLAY_NAME_MAX_LENGTH = 200
+
 const SKILL_NAME_MAX_LENGTH = 64
-const SKILL_NAME_PREFIX = 'signals-scout-'
 // Room for the `-2`..`-99` a collision appends.
 const COLLISION_SUFFIX_LENGTH = 3
 
@@ -33,22 +40,31 @@ function slugify(value: string): string {
         .replace(/^-|-$/g, '')
 }
 
-/** Turns the name a person typed into a valid, unique `signals-scout-*` skill name, suffixing
- * while taken.
+/** The scout's skill name, which is its id: fixed at creation, unique per team, and what the
+ * runtime loads the scout's prompt by. Derived from the scanner and the template the person picked,
+ * never from the name they typed — a name nothing is derived from is a name nothing has to bound,
+ * which is why the form can take one of any length. Suffixes while taken.
  *
- * The scanner's name goes in the slug because skill names are unique per team, not per scanner.
- * Without it the second scanner's "Daily digest" becomes `signals-scout-daily-digest-2`, which
- * reads as a second digest on that scanner rather than the first, and the numbering climbs with
- * every scanner a team sets up. */
-export function scoutNameToSkillName(label: string, scannerName: string, takenNames: string[]): string {
-    const labelSlug = slugify(label) || 'digest'
-    // The label is what tells two scouts on one scanner apart, so it keeps its full length and the
-    // scanner name gives way when the two together would overrun the cap.
-    const room = SKILL_NAME_MAX_LENGTH - SKILL_NAME_PREFIX.length - COLLISION_SUFFIX_LENGTH - labelSlug.length - 1
+ * The scanner is in the slug because skill names are unique per team, not per scanner. Without it
+ * the second scanner's daily digest becomes `signals-scout-daily-digest-2`, which reads as a second
+ * digest on that scanner rather than the first, and the numbering climbs with every scanner a team
+ * sets up. Template keys are already valid slugs and short, so only the scanner gives way to the
+ * cap — and shortening it shortens the id alone, never a name anyone reads. */
+export function scoutSkillName(
+    scannerName: string,
+    templateKey: ScannerScoutTemplateKey,
+    takenNames: string[]
+): string {
+    const room =
+        SKILL_NAME_MAX_LENGTH - SIGNALS_SCOUT_SKILL_PREFIX.length - COLLISION_SUFFIX_LENGTH - templateKey.length - 1
     const scannerSlug = slugify(scannerName).slice(0, Math.max(0, room)).replace(/-$/, '')
-    const base = `${SKILL_NAME_PREFIX}${[scannerSlug, labelSlug].filter(Boolean).join('-')}`
+    // The cap must hold whatever the key's length does, so the assembled base is clamped too rather
+    // than trusted to the `room` arithmetic above.
+    const base = `${SIGNALS_SCOUT_SKILL_PREFIX}${[scannerSlug, templateKey]
+        .filter(Boolean)
+        .join('-')
         .slice(0, SKILL_NAME_MAX_LENGTH - COLLISION_SUFFIX_LENGTH)
-        .replace(/-$/, '')
+        .replace(/-$/, '')}`
     const taken = new Set(takenNames)
     if (!taken.has(base)) {
         return base
@@ -67,7 +83,6 @@ export interface ScannerScoutTemplate {
     key: ScannerScoutTemplateKey
     title: string
     description: string
-    /** Human-readable cadence for the template card, e.g. "Daily at 8:00". */
     /** The name the create form starts with; the user can rename before creating. */
     defaultName: string
     cron: string
@@ -233,9 +248,23 @@ const TREND_LENSES: Record<ScannerTypeEnumApi, TrendLens> = {
     },
 }
 
+/** The name the create form starts with. It leads with the scanner because the scout also lands in
+ * the Signals fleet beside every other product's, where "Daily digest" on its own doesn't say which
+ * scanner files it. The skill name used to carry the scanner into that list; now that the displayed
+ * name is the person's own, the default is where the scanner belongs. Editable like any other. */
+function scoutDefaultName(scannerName: string, phrase: string): string {
+    const scanner = scannerName.trim()
+    const named = scanner && /[\p{L}\p{N}]/u.test(scanner)
+    const name = named ? `${scanner} ${phrase}` : capitalizeFirstLetter(phrase)
+    // The scanner's name field allows 255; the display name only 200. A default seeded past the
+    // bound would be rejected on save, so it is clamped here.
+    return name.slice(0, SCOUT_DISPLAY_NAME_MAX_LENGTH)
+}
+
 export function scannerScoutTemplates(
     scannerId: string,
-    scannerType: ScannerTypeEnumApi | undefined
+    scannerType: ScannerTypeEnumApi | undefined,
+    scannerName: string
 ): ScannerScoutTemplate[] {
     const lens = TREND_LENSES[scannerType ?? 'monitor'] ?? TREND_LENSES.monitor
     return [
@@ -243,7 +272,7 @@ export function scannerScoutTemplates(
             key: 'daily-digest',
             title: 'Daily digest',
             description: 'A daily summary of what this scanner found, and the sessions worth watching.',
-            defaultName: 'Daily digest',
+            defaultName: scoutDefaultName(scannerName, 'daily digest'),
             cron: SCANNER_SCOUT_CRON,
             body: buildScoutBody(scannerId, {
                 heading: 'Replay Vision scanner digest',
@@ -277,7 +306,7 @@ Lead the summary with whatever the window is actually about, and lean on:
             key: 'trend-watch',
             title: 'Trend watch',
             description: lens.description,
-            defaultName: 'Trend watch',
+            defaultName: scoutDefaultName(scannerName, 'trend watch'),
             cron: SCANNER_SCOUT_CRON,
             body: buildScoutBody(scannerId, {
                 heading: 'Replay Vision scanner trend watch',
@@ -297,7 +326,7 @@ ${lens.skip}`,
             key: 'new-issues',
             title: 'New issue watch',
             description: 'Reports problems this scanner has never seen before, dated to what changed.',
-            defaultName: 'New issue watch',
+            defaultName: scoutDefaultName(scannerName, 'new issue watch'),
             cron: SCANNER_SCOUT_CRON,
             body: buildScoutBody(scannerId, {
                 heading: 'Replay Vision new issue watch',
@@ -324,7 +353,7 @@ ${lens.skip}`,
             key: 'scratch',
             title: 'Start from scratch',
             description: 'A working skeleton. You fill in what to watch for and what counts as notable.',
-            defaultName: 'Custom scout',
+            defaultName: scoutDefaultName(scannerName, 'custom scout'),
             cron: SCANNER_SCOUT_CRON,
             // Ships the mechanics that make a scout run (which tools to call, how to file exactly one
             // digest) and leaves the judgment to the user. `<ALL CAPS>` marks what has to be replaced;
@@ -358,9 +387,10 @@ export function scoutBodyPlaceholders(body: string): string[] {
 export function scannerScoutTemplate(
     key: ScannerScoutTemplateKey,
     scannerId: string,
-    scannerType: ScannerTypeEnumApi | undefined
+    scannerType: ScannerTypeEnumApi | undefined,
+    scannerName: string
 ): ScannerScoutTemplate {
-    const templates = scannerScoutTemplates(scannerId, scannerType)
+    const templates = scannerScoutTemplates(scannerId, scannerType, scannerName)
     return templates.find((template) => template.key === key) ?? templates[0]
 }
 
