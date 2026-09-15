@@ -4377,6 +4377,131 @@ class TestWatchFeedAPI(_VisionAPITestCase):
             items[1]["reason"]["notability_reason"], "Tried the same export three times and never saw an error."
         )
 
+    def test_notability_reason_stays_off_rows_that_did_not_rank_on_notability(self) -> None:
+        # The scan writes a notability_reason on every session, so a routine or signal row carries one
+        # too; it must not override the copy those rows earned from their own reason kind.
+        scanner = self._create_scanner(name="m")
+        self._succeeded_observation(
+            scanner,
+            "routine",
+            10,
+            {
+                "model_output": {
+                    "scanner_type": "monitor",
+                    "verdict": "no",
+                    "reasoning": "r",
+                    "confidence": 0.9,
+                    "notability": 0.1,
+                    "notability_reason": "Nothing stands out in this session.",
+                },
+                "signals_count": 0,
+            },
+        )
+        self._succeeded_observation(
+            scanner,
+            "signal",
+            20,
+            {
+                "model_output": {
+                    "scanner_type": "monitor",
+                    "verdict": "no",
+                    "reasoning": "r",
+                    "confidence": 0.9,
+                    "notability": 0.1,
+                    "notability_reason": "Nothing stands out in this session.",
+                },
+                "signals_count": 2,
+            },
+        )
+
+        reasons = {
+            item["observation"]["session_id"]: item["reason"]
+            for item in self.client.get(self.feed_url).json()["results"]
+        }
+        self.assertEqual(reasons["signal"]["kind"], "signal_emitted")
+        self.assertNotIn("notability_reason", reasons["signal"])
+        self.assertEqual(reasons["routine"]["kind"], "unviewed_recent")
+        self.assertNotIn("notability_reason", reasons["routine"])
+
+    def test_notability_breaks_ties_between_rows_in_the_same_tier(self) -> None:
+        # Two unviewed plain rows share a tier, so the scan's notability score orders them.
+        scanner = self._create_scanner(name="m")
+        self._succeeded_observation(
+            scanner,
+            "lower",
+            10,
+            {
+                "model_output": {
+                    "scanner_type": "monitor",
+                    "verdict": "no",
+                    "reasoning": "r",
+                    "confidence": 0.9,
+                    "notability": 0.2,
+                },
+                "signals_count": 0,
+            },
+        )
+        self._succeeded_observation(
+            scanner,
+            "higher",
+            20,
+            {
+                "model_output": {
+                    "scanner_type": "monitor",
+                    "verdict": "no",
+                    "reasoning": "r",
+                    "confidence": 0.9,
+                    "notability": 0.5,
+                },
+                "signals_count": 0,
+            },
+        )
+
+        sessions = [item["observation"]["session_id"] for item in self.client.get(self.feed_url).json()["results"]]
+        self.assertEqual(sessions, ["higher", "lower"])
+
+    def test_stored_notability_is_clamped_and_booleans_are_ignored(self) -> None:
+        # ge/le only bind the LLM response; a stored row can carry anything, and bool is an int subclass.
+        scanner = self._create_scanner(name="m")
+        self._succeeded_observation(
+            scanner,
+            "out-of-range",
+            10,
+            {
+                "model_output": {
+                    "scanner_type": "monitor",
+                    "verdict": "no",
+                    "reasoning": "r",
+                    "confidence": 0.9,
+                    "notability": 5.0,
+                },
+                "signals_count": 0,
+            },
+        )
+        self._succeeded_observation(
+            scanner,
+            "boolean",
+            20,
+            {
+                "model_output": {
+                    "scanner_type": "monitor",
+                    "verdict": "no",
+                    "reasoning": "r",
+                    "confidence": 0.9,
+                    "notability": True,
+                },
+                "signals_count": 0,
+            },
+        )
+
+        reasons = {
+            item["observation"]["session_id"]: item["reason"]
+            for item in self.client.get(self.feed_url).json()["results"]
+        }
+        self.assertEqual(reasons["out-of-range"]["kind"], "notable")
+        self.assertEqual(reasons["out-of-range"]["notability"], 1.0)
+        self.assertEqual(reasons["boolean"]["kind"], "unviewed_recent")
+
     def test_no_verdict_monitor_negation_is_not_friction(self) -> None:
         # "Did they struggle? No" reasoning restates the question; keyword matching must not
         # read the negation as a friction hit.

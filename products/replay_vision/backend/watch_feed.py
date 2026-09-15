@@ -112,7 +112,13 @@ def _parse_candidate(row: dict[str, Any]) -> _Candidate:
         tags=tuple(tag for tag in tags if isinstance(tag, str)),
         summary_tokens=frozenset(_TOKEN_RE.findall(summary_text.lower())),
         friction=friction_eligible and bool(_FRICTION_RE.search(" ".join([prose, *tags]))),
-        notability=float(notability) if isinstance(notability, int | float) else None,
+        # The LLM-response schema bounds this to 0-1, but a stored row (or a bool, since bool is an int
+        # subclass) can carry anything, so clamp defensively — an out-of-range value would outrank its tier.
+        notability=(
+            min(1.0, max(0.0, float(notability)))
+            if isinstance(notability, int | float) and not isinstance(notability, bool)
+            else None
+        ),
         notability_reason=notability_reason if isinstance(notability_reason, str) and notability_reason else None,
     )
 
@@ -252,8 +258,10 @@ def rank_watch_feed_candidates(rows: list[dict[str, Any]]) -> list[WatchFeedEntr
             reason = {"kind": "unviewed_recent"}
         else:
             reason = {"kind": "recent"}
-        # The scan's own sentence beats any phrasing we could derive, so carry it wherever it exists.
-        if candidate.notability_reason:
+        # The scan writes a notability_reason on every session (including "nothing stands out"), so only
+        # carry it when this row actually ranks on notability — otherwise it would override the signal,
+        # hit, or friction copy the row earned.
+        if candidate.notability_reason and notable:
             reason["notability_reason"] = candidate.notability_reason
         sort_key = (
             has_signal,
@@ -261,7 +269,8 @@ def rank_watch_feed_candidates(rows: list[dict[str, Any]]) -> list[WatchFeedEntr
             not candidate.viewed,
             notable,
             candidate.friction,
-            candidate.notability or 0.0,
+            # -1.0 keeps an unjudged row (pre-notability, None) below a judged-routine 0.0 in the tiebreak.
+            candidate.notability if candidate.notability is not None else -1.0,
             candidate.created_at,
         )
         scored.append((sort_key, WatchFeedEntry(observation_id=candidate.observation_id, reason=reason)))
