@@ -28,9 +28,11 @@ class TestBufferedSlackAgentDesignStream(SimpleTestCase):
         ]
     )
     @patch.object(SlackThreadHandler, "_get_client")
-    def test_strips_buffered_code_elements(
+    def test_buffered_code_elements_reach_slack_intact(
         self, _name: str, fence: str, closed: bool, mock_get_client: MagicMock
     ) -> None:
+        # A tag cut by a flush boundary is held back and sent whole in the next one, so a fenced
+        # example arrives as the agent typed it: nothing dropped, nothing sent twice.
         client = mock_get_client.return_value
         context = SlackThreadContext(integration_id=1, channel="C001", thread_ts="1234.5678")
         updates = [f"Before\n\n{fence}xml\n", '<insight id="1">', "Example</insight>\n"]
@@ -52,7 +54,7 @@ class TestBufferedSlackAgentDesignStream(SimpleTestCase):
         streamed = "".join(
             chunk.get("text", "") for call in client.chat_appendStream.call_args_list for chunk in call.kwargs["chunks"]
         )
-        assert streamed == "".join(updates).replace('<insight id="1">Example</insight>', "")
+        assert streamed == "".join(updates)
 
 
 @override_settings(SITE_URL="https://us.posthog.com")
@@ -68,7 +70,9 @@ class TestSlackAgentDesignStream(TestCase):
         cls.integration = Integration.objects.create(team=cls.team, kind="slack", integration_id="T123", config={})
 
     @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.stop_status_stream")
-    def test_streamed_final_answer_removes_object_elements(self, mock_stop) -> None:
+    def test_streamed_final_answer_links_object_elements(self, mock_stop) -> None:
+        # Slack renders none of the tags, so dropping one takes the agent's own label with it.
+        # The project comes from the thread's integration, so the link opens where the reader is.
         stop_slack_agent_design_stream(
             StopSlackAgentDesignStreamInput(
                 slack_thread_context={"integration_id": self.integration.id, "channel": "C1", "thread_ts": "1.0"},
@@ -79,7 +83,9 @@ class TestSlackAgentDesignStream(TestCase):
 
         mock_stop.assert_called_once()
         final_markdown = mock_stop.call_args.kwargs["final_markdown"]
-        assert final_markdown == "The  dropped."
+        assert final_markdown == (
+            f"The [checkout funnel](https://us.posthog.com/project/{self.team.id}/insights/9pQx3?unfurl=false) dropped."
+        )
 
     @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.stop_status_stream", autospec=True)
     def test_closing_the_stream_hands_the_reply_the_turns_trace_id(self, mock_stop) -> None:

@@ -131,6 +131,11 @@ class TestRewriteObjectTagsForSlack(unittest.TestCase):
                 '<hogql label="a &amp; b">SELECT 1</hogql>',
                 f"[a & b]({PROJECT}/sql?open_query=SELECT%201&unfurl=false)",
             ),
+            (
+                "a_broadcast_in_a_label_cannot_ping_the_channel",
+                '<insight id="1" title="&lt;!channel&gt;"/>',
+                f"[&lt;!channel&gt;]({PROJECT}/insights/1?unfurl=false)",
+            ),
         ]
     )
     def test_rewrites(self, _name: str, text: str, expected: str) -> None:
