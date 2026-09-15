@@ -2,7 +2,11 @@ import { expectLogic } from 'kea-test-utils'
 
 import { initKeaTests } from '~/test/init'
 
-import { hogFunctionsPartialUpdate, hogFunctionsRetrieve } from 'products/cdp/frontend/generated/api'
+import {
+    hogFunctionsCreate,
+    hogFunctionsPartialUpdate,
+    hogFunctionsRetrieve,
+} from 'products/cdp/frontend/generated/api'
 import { signalsScoutConfigDestroy, signalsScoutConfigUpdate } from 'products/signals/frontend/generated/api'
 import type { SignalScoutConfigApi } from 'products/signals/frontend/generated/api.schemas'
 import { scoutFleetLogic } from 'products/signals/frontend/inbox/logics/scoutFleetLogic'
@@ -32,6 +36,7 @@ const mockScoutsCreate = visionScannersScoutsCreate as jest.MockedFunction<typeo
 const mockHogFunctionsRetrieve = hogFunctionsRetrieve as jest.MockedFunction<typeof hogFunctionsRetrieve>
 const mockHogFunctionsPartialUpdate = hogFunctionsPartialUpdate as jest.MockedFunction<typeof hogFunctionsPartialUpdate>
 const mockSkillRetrieve = llmSkillsNameRetrieve as jest.MockedFunction<typeof llmSkillsNameRetrieve>
+const mockHogFunctionsCreate = hogFunctionsCreate as jest.MockedFunction<typeof hogFunctionsCreate>
 
 const SCANNER_ID = '01a014ea-854f-72b5-8192-bb6ac9f212a5'
 const SKILL_NAME = 'signals-scout-daily-digest'
@@ -148,7 +153,9 @@ describe('scannerScoutLogic', () => {
         expect(logic.values.skillPrompt).toEqual({ skillName: SKILL_NAME, body: 'Watch checkout.', latestVersion: 4 })
     })
 
-    it('keeps the rename when the instructions fail to publish', async () => {
+    it('keeps the rename and the delivery when the instructions fail to publish', async () => {
+        // The instructions PATCH is the only call here a concurrent edit can reject. Running it
+        // before the others hands the rejection every other edit made in the same modal.
         await mountWithReports([])
         const config = makeConfig({ output_destinations: {} })
         scoutFleetLogic.findMounted()!.actions.loadScoutConfigsSuccess([config])
@@ -156,6 +163,7 @@ describe('scannerScoutLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
         logic.actions.loadSkillPromptSuccess({ skillName: SKILL_NAME, body: 'Watch this scanner.', latestVersion: 3 })
         jest.mocked(signalsScoutConfigUpdate).mockResolvedValue({ ...config, display_name: 'Checkout / daily digest' })
+        mockHogFunctionsCreate.mockResolvedValue({ id: 'hog-new' } as any)
         jest.mocked(llmSkillsNamePartialUpdate).mockRejectedValue({ status: 409 })
 
         logic.actions.saveScoutSettings({
@@ -163,14 +171,31 @@ describe('scannerScoutLogic', () => {
             body: 'Watch checkout.',
             cron: config.run_cron_schedule!,
             outputDestinations: {},
-            webhookUrl: '',
+            webhookUrl: 'https://example.com/hooks/scout',
         })
         await expectLogic(logic).toFinishAllListeners()
 
         expect(signalsScoutConfigUpdate).toHaveBeenCalledWith(expect.any(String), config.id, {
             display_name: 'Checkout / daily digest',
         })
+        expect(mockHogFunctionsCreate).toHaveBeenCalled()
         expect(logic.values.settingsSkillName).toBe(SKILL_NAME)
+    })
+
+    it('waits for a fresh read instead of reseeding the instructions a previous open left behind', async () => {
+        // The form seeds from whatever the loader holds for this scout. Reopening after a conflict
+        // with the stale body still in place seeds the losing text and the version it was read at,
+        // so the next save publishes over the edit that caused the conflict.
+        await mountWithReports([])
+        scoutFleetLogic.findMounted()!.actions.loadScoutConfigsSuccess([makeConfig()])
+        logic.actions.openScoutSettings(SKILL_NAME)
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.loadSkillPromptSuccess({ skillName: SKILL_NAME, body: 'Watch this scanner.', latestVersion: 3 })
+
+        logic.actions.openScoutSettings(SKILL_NAME)
+
+        expect(logic.values.skillPrompt).toBeNull()
+        expect(logic.values.scoutDelivery).toBeNull()
     })
 
     it('publishes the whole body when the instructions arrive over more than one page', async () => {

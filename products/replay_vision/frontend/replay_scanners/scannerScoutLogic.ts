@@ -845,6 +845,12 @@ export const scannerScoutLogic = kea<scannerScoutLogicType>([
                 actions.loadOpenedReport()
             },
             openScoutSettings: () => {
+                // Both loaders keep their last value while the next read is in flight, and the form
+                // seeds from whatever is already there for this scout. Clearing them first makes the
+                // form wait for this open's read, so reopening after a conflict cannot seed the body
+                // and the version that the conflict already made stale.
+                actions.loadSkillPromptSuccess(null)
+                actions.loadScoutDeliverySuccess(null)
                 actions.loadSkillPrompt()
                 actions.loadScoutDelivery()
             },
@@ -904,23 +910,6 @@ export const scannerScoutLogic = kea<scannerScoutLogicType>([
                         await signalsScoutConfigUpdate(String(teamId), config.id, configUpdates)
                         actions.loadScoutConfigs()
                     }
-                    // A body edit publishes a new skill version, so the API rejects it without the
-                    // version the form was read at. This runs after the config updates, so a rejected
-                    // body does not take the rename and the schedule down with it.
-                    const prompt = values.skillPrompt
-                    if (prompt && form.body !== prompt.body) {
-                        const published = await llmSkillsNamePartialUpdate(String(projectId), config.skill_name, {
-                            body: form.body,
-                            base_version: prompt.latestVersion,
-                        })
-                        // A second save from the same open modal must not send the version this one
-                        // already replaced.
-                        actions.loadSkillPromptSuccess({
-                            skillName: prompt.skillName,
-                            body: published.body,
-                            latestVersion: published.version,
-                        })
-                    }
                     // Reads the destination from the id the config records, so a retry after a
                     // partial failure patches what exists instead of provisioning a second one.
                     if (!(await reconcileDelivery(config, form))) {
@@ -928,12 +917,33 @@ export const scannerScoutLogic = kea<scannerScoutLogicType>([
                         // user's delivery edits in front of them instead of closing over the failure.
                         return
                     }
+                    // A body edit publishes a new skill version, so the API rejects it without the
+                    // version the form was read at. It runs last because it is the only call here a
+                    // concurrent edit can reject, and the rename, the schedule and the delivery must
+                    // not go down with it.
+                    const prompt = values.skillPrompt
+                    if (prompt && form.body !== prompt.body) {
+                        const published = await llmSkillsNamePartialUpdate(String(projectId), config.skill_name, {
+                            body: form.body,
+                            base_version: prompt.latestVersion,
+                        })
+                        // A second save from the same open modal must not send the version this one
+                        // already replaced. Only while the modal is still on this scout: a save that
+                        // outlives its own modal would leave one scout's body under another's form.
+                        if (values.settingsSkillName === prompt.skillName) {
+                            actions.loadSkillPromptSuccess({
+                                skillName: prompt.skillName,
+                                body: published.body,
+                                latestVersion: published.version,
+                            })
+                        }
+                    }
                     lemonToast.success('Scout updated. Changes take effect on its next run.')
                     actions.closeScoutSettings()
                 } catch (error: any) {
                     lemonToast.error(
                         error?.status === 409
-                            ? 'The instructions changed somewhere else while you were editing. Close the settings and open them again to get the current version.'
+                            ? 'These instructions changed somewhere else while you were editing. Copy your edits, then close the settings and open them again to work from the current version.'
                             : `Couldn't save the scout${error?.detail ? `: ${error.detail}` : ''}`
                     )
                 } finally {
