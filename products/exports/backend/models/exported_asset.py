@@ -166,8 +166,7 @@ class ExportedAsset(models.Model):
         if export_format in (cls.ExportFormat.CSV, cls.ExportFormat.XLSX, cls.ExportFormat.JSONL):
             return SEVEN_DAYS
         elif export_format in (cls.ExportFormat.MP4, cls.ExportFormat.WEBM, cls.ExportFormat.GIF):
-            # The bucket's `exports-video` lifecycle rule drops the file at 30 days, so a longer row
-            # would outlive what it points at.
+            # Matches the bucket's `exports-video` lifecycle rule, which drops the file at 30 days.
             return THIRTY_DAYS
         return SIX_MONTHS
 

@@ -1487,9 +1487,9 @@ class TestExports(APIBaseTest):
             ("image/png", timedelta(days=180)),
             ("text/csv", timedelta(days=7)),
             ("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", timedelta(days=7)),
-            ("video/mp4", timedelta(days=365)),
-            ("video/webm", timedelta(days=365)),
-            ("image/gif", timedelta(days=365)),
+            ("video/mp4", timedelta(days=30)),
+            ("video/webm", timedelta(days=30)),
+            ("image/gif", timedelta(days=30)),
             ("application/pdf", timedelta(days=180)),
         ]
     )
