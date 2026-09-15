@@ -10,6 +10,8 @@ const SUBMIT_DELAY_MS = 260;
 interface SlotMachineSubmitProps {
   /** Blocks the pull and greys out the handle (empty editor / external block). */
   disabled: boolean;
+  /** What the surface refuses on, when it is not just an empty editor. */
+  blockedReason?: string;
   /** Fires the prompt. Called on the lever's downswing. */
   onSubmit: () => void;
   /**
@@ -27,6 +29,7 @@ interface SlotMachineSubmitProps {
  */
 export function SlotMachineSubmit({
   disabled,
+  blockedReason,
   onSubmit,
   tourTarget,
 }: SlotMachineSubmitProps) {
@@ -66,7 +69,11 @@ export function SlotMachineSubmit({
 
   return (
     <Tooltip
-      content={disabled ? "Enter a message" : "Pull to gamble on your task 🎰"}
+      content={
+        disabled
+          ? (blockedReason ?? "Enter a message")
+          : "Pull to gamble on your task 🎰"
+      }
     >
       <button
         type="button"

@@ -129,6 +129,12 @@ interface UseTaskCreationOptions {
 interface UseTaskCreationReturn {
   isCreatingTask: boolean;
   canSubmit: boolean;
+  /**
+   * Why this hook refuses to create a task, phrased for the send button, or
+   * null when it is willing. Only covers the checks the hook makes itself —
+   * a caller adds its own for what it blocks on.
+   */
+  submitBlockedReason: string | null;
   handleSubmit: (
     contentOverride?: EditorContent,
     promptContent?: EditorContent,
@@ -284,6 +290,15 @@ export function useTaskCreation({
     !isCreatingTask &&
     !submissionBlocked;
   const canSubmit = !!editorRef.current && canSubmitBase && !editorIsEmpty;
+  const submitBlockedReason = !isAuthenticated
+    ? "Log in to create a task"
+    : !isOnline
+      ? "No internet connection"
+      : !hasRequiredPath
+        ? workspaceMode === "cloud"
+          ? "Pick a repository first"
+          : "Pick a folder first"
+        : null;
 
   const handleSubmit = useCallback(
     async (
@@ -721,6 +736,7 @@ export function useTaskCreation({
   return {
     isCreatingTask,
     canSubmit,
+    submitBlockedReason,
     handleSubmit,
     additionalDirectories,
     setAdditionalDirectories: setAdditionalDirectoriesOverride,

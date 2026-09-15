@@ -59,6 +59,11 @@ export interface UseTiptapEditorOptions {
   placeholder?: string;
   disabled?: boolean;
   submitDisabled?: boolean;
+  /**
+   * Called when Enter lands on a composer that refuses to send, so a keypress
+   * that does nothing is still measurable.
+   */
+  onSubmitBlocked?: (promptLengthChars: number) => void;
   isLoading?: boolean;
   autoFocus?: boolean;
   context?: DraftContext;
@@ -243,6 +248,7 @@ export function useTiptapEditor(options: UseTiptapEditorOptions) {
     placeholder = "",
     disabled = false,
     submitDisabled = false,
+    onSubmitBlocked,
     isLoading = false,
     autoFocus = false,
     context,
@@ -290,6 +296,9 @@ export function useTiptapEditor(options: UseTiptapEditorOptions) {
 
   const submitDisabledRef = useRef(submitDisabled);
   submitDisabledRef.current = submitDisabled;
+
+  const onSubmitBlockedRef = useRef(onSubmitBlocked);
+  onSubmitBlockedRef.current = onSubmitBlocked;
 
   const getPromptHistoryRef = useRef(getPromptHistory);
   getPromptHistoryRef.current = getPromptHistory;
@@ -383,7 +392,17 @@ export function useTiptapEditor(options: UseTiptapEditorOptions) {
           }
 
           if (isSendMessageSubmitKey(event)) {
-            if (!view.editable || submitDisabledRef.current) return false;
+            if (!view.editable) return false;
+            if (submitDisabledRef.current) {
+              // Holding Enter repeats the keydown; only the first press is an
+              // attempt, so the rest must not each report one.
+              if (!event.repeat) {
+                onSubmitBlockedRef.current?.(
+                  view.state.doc.textContent.trim().length,
+                );
+              }
+              return false;
+            }
             if (hasVisibleSuggestionPopup(sessionId)) return false;
             event.preventDefault();
             historyActions.reset();

@@ -789,16 +789,19 @@ export function SessionView({
                           spendStop !== null
                         }
                         clearOnSubmit={false}
-                        submitTooltipOverride={
-                          !isOnline
-                            ? "No internet connection"
-                            : attachmentsUploading
-                              ? "Uploading attachments…"
-                              : attachmentUploadFailed
-                                ? "Attachment upload failed"
-                                : spendStop
-                                  ? spendStopMessage(spendStop)
-                                  : undefined
+                        surface="session"
+                        submitDisabledReason={
+                          !isRunning
+                            ? "Waiting for the agent"
+                            : !isOnline
+                              ? "No internet connection"
+                              : attachmentsUploading
+                                ? "Uploading attachments…"
+                                : attachmentUploadFailed
+                                  ? "Attachment upload failed"
+                                  : spendStop
+                                    ? spendStopMessage(spendStop)
+                                    : undefined
                         }
                         isLoading={!!isPromptPending}
                         isActiveSession={isActiveSession}
