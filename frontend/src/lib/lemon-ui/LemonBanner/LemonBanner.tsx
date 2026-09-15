@@ -28,6 +28,13 @@ export interface LemonBannerProps {
     hideIcon?: boolean
     square?: boolean
     icon?: React.ReactNode
+    /**
+     * Cross-axis alignment of the icon and close button against the content.
+     * Keep the default for one-line banners: the row grows to the banner's 3rem min-height,
+     * so centering is what holds a single line in the middle rather than at the top edge.
+     * Use 'start' when the content is a stack tall enough to make a centered icon look adrift.
+     */
+    alignItems?: 'center' | 'start'
 }
 
 /** Generic alert message. */
@@ -41,6 +48,7 @@ export function LemonBanner({
     hideIcon,
     square = false,
     icon,
+    alignItems = 'center',
 }: LemonBannerProps): JSX.Element | null {
     const logic = lemonBannerLogic({ dismissKey })
     const { isDismissed } = useValues(logic)
@@ -67,7 +75,7 @@ export function LemonBanner({
                 square && 'LemonBanner--square'
             )}
         >
-            <div className="flex items-center gap-2 grow @md:!px-1">
+            <div className={clsx('flex gap-2 grow @md:!px-1', alignItems === 'start' ? 'items-start' : 'items-center')}>
                 {!hideIcon &&
                     (icon ? (
                         icon

@@ -27,7 +27,7 @@ export function RealtimeCohortsWaitlistBanner(): JSX.Element | null {
     }
 
     return (
-        <LemonBanner type="info" dismissKey={DISMISS_KEY}>
+        <LemonBanner type="info" dismissKey={DISMISS_KEY} alignItems="start">
             <div className="flex flex-col gap-2">
                 <div className="flex flex-wrap items-center gap-1.5">
                     <span className="font-semibold">Realtime cohorts are coming soon</span>

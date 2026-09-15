@@ -147,3 +147,22 @@ export const NarrowWithButtons: Story = {
     },
     parameters: wideParameters,
 }
+
+export const TallContentTopAligned: Story = {
+    render: renderWide,
+    args: {
+        type: 'info',
+        alignItems: 'start',
+        dismissKey: 'storybook-banner-tall',
+        children: (
+            <div className="flex flex-col gap-2">
+                <div className="font-semibold">Realtime cohorts are coming soon</div>
+                <p className="m-0">
+                    With content this tall, a centered icon and close button drift to the middle of the banner, away
+                    from the heading they belong to. Setting alignItems to start pins both to the top.
+                </p>
+            </div>
+        ),
+    },
+    parameters: wideParameters,
+}
