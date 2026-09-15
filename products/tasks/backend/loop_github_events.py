@@ -36,7 +36,6 @@ _EVENT_THROTTLE_WINDOW_SECONDS = 300
 # on the delivery too. Bounding it degrades to a missed match instead. Same cap as the GitHub
 # attribution lookup in posthog/github/attribution.py.
 _MATCH_STATEMENT_TIMEOUT_MS = 800
-_MATCH_MODELS = (Integration, LoopTrigger)
 
 LoopGithubEventOutcome = Literal["matched", "deduped", "skipped", "throttled", "fired", "error"]
 
@@ -94,10 +93,7 @@ def handle_github_event_for_loops(event_type: str, payload: dict[str, Any], deli
     summary = _build_event_summary(event_type, payload)
 
     try:
-        with bounded_statement_timeout(_MATCH_STATEMENT_TIMEOUT_MS, models=_MATCH_MODELS):
-            triggers = _matching_triggers(
-                installation_id, repository_full_name, event_type, action, payload, delivery_id
-            )
+        triggers = _matching_triggers(installation_id, repository_full_name, event_type, action, payload, delivery_id)
     except Exception as e:
         if not is_statement_timeout(e):
             raise
@@ -133,8 +129,16 @@ def _matching_triggers(
     payload: dict[str, Any],
     delivery_id: str,
 ) -> list[LoopTrigger]:
+    """Collect the triggers every team on this installation matches.
+
+    Only the installation lookup is capped here. Each team's trigger lookup carries its own cap,
+    so a cancelled statement for one team leaves the matches the other teams already produced.
+    """
+    with bounded_statement_timeout(_MATCH_STATEMENT_TIMEOUT_MS, models=[Integration]):
+        integrations = list(Integration.objects.filter(kind="github", integration_id=installation_id))
+
     triggers: list[LoopTrigger] = []
-    for integration in Integration.objects.filter(kind="github", integration_id=installation_id):
+    for integration in integrations:
         triggers.extend(
             _matching_triggers_for_integration(
                 integration, repository_full_name, event_type, action, payload, delivery_id
@@ -155,26 +159,35 @@ def _matching_triggers_for_integration(
 
     A lookup failure for one team (e.g. a stale team reference) must not stop the
     same delivery from firing loops for every other team sharing the installation.
+
+    The cap sits on this query rather than around the whole match, because a cancelled statement
+    aborts the transaction it was installed in. One transaction per team keeps that abort local.
     """
     try:
-        triggers = list(
-            LoopTrigger.objects.for_team(integration.team_id)
-            .filter(
-                type=LoopTrigger.TriggerType.GITHUB,
-                enabled=True,
-                loop__enabled=True,
-                loop__deleted=False,
-                github_integration_id=integration.id,
-                repository__iexact=repository_full_name,
-                event_types__contains=[event_type],
+        with bounded_statement_timeout(_MATCH_STATEMENT_TIMEOUT_MS, models=[LoopTrigger]):
+            triggers = list(
+                LoopTrigger.objects.for_team(integration.team_id)
+                .filter(
+                    type=LoopTrigger.TriggerType.GITHUB,
+                    enabled=True,
+                    loop__enabled=True,
+                    loop__deleted=False,
+                    github_integration_id=integration.id,
+                    repository__iexact=repository_full_name,
+                    event_types__contains=[event_type],
+                )
+                .select_related("loop")
             )
-            .select_related("loop")
-        )
     except Exception as e:
-        # A cancelled statement aborts the transaction the cap installed, so the next team's
-        # query cannot run either. Let it out so the caller reports the whole delivery skipped.
         if is_statement_timeout(e):
-            raise
+            logger.warning(
+                "loop_github_events_trigger_lookup_timed_out",
+                integration_id=integration.id,
+                team_id=integration.team_id,
+                delivery_id=delivery_id,
+            )
+            _observe_github_event("skipped")
+            return []
         logger.exception("loop_github_event_team_lookup_failed", team_id=integration.team_id, delivery_id=delivery_id)
         capture_exception(e)
         _observe_github_event("error")
