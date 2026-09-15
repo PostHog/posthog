@@ -2487,8 +2487,7 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            # `signals-scout-inbox-validation` is the real on-disk scout declaring
-            # `scout-role: operational`; `signals-scout-general` is an on-disk specialist.
+            # Both names are real on-disk canonical scouts, one of each role.
             (
                 "operational_canonical",
                 "signals-scout-inbox-validation",
@@ -2496,8 +2495,6 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
                 "operational",
             ),
             ("specialist_canonical", "signals-scout-general", {"seeded_by": HARNESS_SEEDED_BY}, "specialist"),
-            # A team's own skill under an operational name inherits nothing from disk, so it must
-            # not read as a scout the harness refuses to pause or delete.
             ("hand_authored_lookalike", "signals-scout-inbox-validation", {}, "specialist"),
         ]
     )
@@ -3181,8 +3178,7 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         assert not SignalScoutConfig.all_teams.filter(id=config.id).exists()
 
     def test_destroy_refuses_an_operational_scout(self) -> None:
-        # The roster hides delete for it, but the API is what makes that a rule: this scout is the
-        # only thing re-checking whether shipped fixes held, and it is not the project's to remove.
+        # The roster hides delete for it, but the API is what makes that a rule.
         config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-inbox-validation")
         LLMSkill.objects.create(
             team=self.team,

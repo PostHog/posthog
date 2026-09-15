@@ -2979,8 +2979,7 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(serializers.ChoiceField(choices=ScoutRole.choices))
     def get_scout_role(self, obj: SignalScoutConfig) -> str:
-        # Same single-query `skill_info` map as `get_description`. A config with no skill row has
-        # no canonical scout behind it, so it cannot be operational.
+        # Same single-query `skill_info` map as `get_description`.
         info = (self.context.get("skill_info") or {}).get(obj.skill_name)
         return info.role if info else "specialist"
 

@@ -2765,9 +2765,8 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         config = SignalScoutConfig.objects.unscoped().filter(team_id=team_id, id=config_id).first()
         if config is None:
             raise exceptions.NotFound()
-        # Never the orphan cleanup this endpoint is for: an operational scout's skill ships on
-        # disk, so the next coordinator tick seeds the row straight back. Refusing here is what
-        # makes the roster's hidden delete a rule rather than a UI choice.
+        # Never the orphan cleanup this endpoint is for, because an operational scout's skill
+        # ships on disk and the next coordinator tick seeds the row straight back.
         info = _skill_info_for(team_id, [config.skill_name]).get(config.skill_name)
         if info is not None and info.role == SCOUT_ROLE_OPERATIONAL:
             raise exceptions.ValidationError(

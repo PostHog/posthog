@@ -316,8 +316,6 @@ class TestDiscoverCanonicalSkills:
             discover_canonical_skills(tmp_path)
 
     def test_parses_scout_role(self, tmp_path: Path) -> None:
-        # The role is what tells the harness not to gate, warn or pause this scout, so a dropped
-        # value is a scout the harness is free to silence.
         _write_canonical_skill(
             tmp_path,
             dir_name="signals-scout-bar",
@@ -333,8 +331,7 @@ class TestDiscoverCanonicalSkills:
         assert discover_canonical_skills(tmp_path)[0].role == "operational"
 
     def test_defaults_to_the_specialist_role(self, tmp_path: Path) -> None:
-        # Silence is the failure mode the role guards against, so the default has to be the
-        # posture that keeps every control on.
+        # The default has to be the posture that keeps every control on.
         _write_canonical_skill(
             tmp_path,
             dir_name="signals-scout-bar",
@@ -350,8 +347,7 @@ class TestDiscoverCanonicalSkills:
 
     @pytest.mark.parametrize("scout_role_yaml", ["scout-role: infrastructure", "scout-role:", "scout-role:\n  - ops"])
     def test_rejects_unknown_scout_role(self, tmp_path: Path, scout_role_yaml: str) -> None:
-        # A typo must fail the parse rather than fall back to `specialist`: a silently downgraded
-        # operational scout is exactly the silencing the role exists to prevent.
+        # Falling back to `specialist` would silence the scout the role exists to protect.
         _write_canonical_skill(
             tmp_path,
             dir_name="signals-scout-bar",
@@ -1063,9 +1059,7 @@ class TestSeedCanonicalSkillsAlias(BaseTest):
         assert "Signals scout" in loaded.body
 
     def test_real_fleet_operational_scout_seeds_enabled_and_exempt(self) -> None:
-        # The whole path the follow-up check depends on: `scout-role` in the in-repo SKILL.md →
-        # a config the inactivity sweep skips. No mocking, so dropping the frontmatter key or the
-        # seed fails here rather than by quietly pausing the scout weeks later.
+        # No mocking, so a dropped frontmatter key fails here and not by a pause weeks later.
         seed_canonical_skills(self.team)
         register_missing_configs(self.team.id)
 

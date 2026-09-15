@@ -74,7 +74,8 @@ export function ScoutLifecycleBadge({ config }: { config: SignalScoutConfig }): 
 /**
  * Why the inactivity sweep leaves this scout alone, in the terms the exemption came from: the role
  * PostHog ships it with, or a choice someone made on this project. Nothing renders for a scout the
- * sweep still judges. The role shows in any group — it says what the scout is, not how it is doing.
+ * sweep still judges. The role shows in any group, because it says what the scout is rather
+ * than how its run window went.
  */
 export function ScoutExemptionBadge({
     config,
