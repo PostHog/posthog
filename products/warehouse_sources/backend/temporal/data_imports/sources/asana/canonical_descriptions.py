@@ -21,6 +21,24 @@ def _columns(**overrides: str) -> dict[str, str]:
     return {**_COMMON_COLUMNS, **overrides}
 
 
+# /status_updates returns one object shape, but which `status_type` values are valid depends on the
+# parent kind — and each status-update table fans out over exactly one kind.
+def _status_update_columns(parent: str, status_types: str) -> dict[str, str]:
+    return _columns(
+        title="Title of the status update.",
+        text="Plain-text body of the status update.",
+        html_text="Body of the status update, as HTML.",
+        status_type=f"Overall state the update reports ({status_types}).",
+        resource_subtype=f"Subtype of the update, always `{parent}_status_update` in this table.",
+        author="The user who wrote the status update.",
+        created_at="Time at which the status update was posted.",
+        created_by="The user who posted the status update.",
+        modified_at="Time at which the status update was last edited.",
+        parent=f"The {parent} the update was posted on.",
+        num_likes="Number of users who liked the status update.",
+    )
+
+
 CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     "workspaces": {
         "description": "A workspace or organization — the highest-level container for all Asana data.",
@@ -239,9 +257,9 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         "docs_url": "https://developers.asana.com/reference/custom-field-settings",
         "columns": _columns(
             custom_field="The custom field the setting applies.",
-            parent="The project or portfolio the custom field is applied to.",
+            parent="The project the custom field is applied to. Asana also applies custom fields to portfolios, but this table syncs project settings only.",
             project="The project the custom field is applied to (deprecated in favor of parent).",
-            is_important="Whether the field is shown in the list and grid views of its parent.",
+            is_important="Whether the field is shown in the list and grid views of its project.",
         ),
     },
     "team_memberships": {
@@ -285,53 +303,17 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     "project_status_updates": {
         "description": "A status update posted on a project, giving its state and a narrative at a point in time.",
         "docs_url": "https://developers.asana.com/reference/status-updates",
-        "columns": _columns(
-            title="Title of the status update.",
-            text="Plain-text body of the status update.",
-            html_text="Body of the status update, as HTML.",
-            status_type="Overall state the update reports (on_track, at_risk, off_track, on_hold, complete).",
-            resource_subtype="Which kind of parent the update was posted on (project, portfolio or goal).",
-            author="The user who wrote the status update.",
-            created_at="Time at which the status update was posted.",
-            created_by="The user who posted the status update.",
-            modified_at="Time at which the status update was last edited.",
-            parent="The project, portfolio or goal the update was posted on.",
-            num_likes="Number of users who liked the status update.",
-        ),
+        "columns": _status_update_columns("project", "on_track, at_risk, off_track, on_hold, complete, dropped"),
     },
     "goal_status_updates": {
         "description": "A status update posted on a goal, giving its state and a narrative at a point in time.",
         "docs_url": "https://developers.asana.com/reference/status-updates",
-        "columns": _columns(
-            title="Title of the status update.",
-            text="Plain-text body of the status update.",
-            html_text="Body of the status update, as HTML.",
-            status_type="Overall state the update reports (on_track, at_risk, off_track, on_hold, complete).",
-            resource_subtype="Which kind of parent the update was posted on (project, portfolio or goal).",
-            author="The user who wrote the status update.",
-            created_at="Time at which the status update was posted.",
-            created_by="The user who posted the status update.",
-            modified_at="Time at which the status update was last edited.",
-            parent="The project, portfolio or goal the update was posted on.",
-            num_likes="Number of users who liked the status update.",
-        ),
+        "columns": _status_update_columns("goal", "on_track, at_risk, off_track, achieved, partial, missed, dropped"),
     },
     "portfolio_status_updates": {
         "description": "A status update posted on a portfolio, giving its state and a narrative at a point in time.",
         "docs_url": "https://developers.asana.com/reference/status-updates",
-        "columns": _columns(
-            title="Title of the status update.",
-            text="Plain-text body of the status update.",
-            html_text="Body of the status update, as HTML.",
-            status_type="Overall state the update reports (on_track, at_risk, off_track, on_hold, complete).",
-            resource_subtype="Which kind of parent the update was posted on (project, portfolio or goal).",
-            author="The user who wrote the status update.",
-            created_at="Time at which the status update was posted.",
-            created_by="The user who posted the status update.",
-            modified_at="Time at which the status update was last edited.",
-            parent="The project, portfolio or goal the update was posted on.",
-            num_likes="Number of users who liked the status update.",
-        ),
+        "columns": _status_update_columns("portfolio", "on_track, at_risk, off_track, on_hold, complete, dropped"),
     },
     "ai_studio_runs": {
         "description": "A single AI Studio run (rule execution), with the credits it consumed. Requires an AI Studio-licensed organization.",

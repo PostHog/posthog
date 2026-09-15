@@ -513,7 +513,7 @@ Diffed against: <https://raw.githubusercontent.com/Asana/openapi/master/defs/asa
 - [x] `projects/{project_gid}/project_memberships` — who is on which project and in what role; joins users to projects we already sync (high)
 - [x] `goals (+ goals/{gid}/parentGoals)` — Asana's headline OKR object with progress/status, entirely absent today (high)
 - [x] `time_tracking_entries` — actual hours logged per task/user, the basis of any effort or capacity analysis (high)
-- [x] `projects/{project_gid}/custom_field_settings` — lookup mapping synced custom_fields to the projects/portfolios that use them (high)
+- [x] `projects/{project_gid}/custom_field_settings` — lookup mapping synced custom_fields to the projects/portfolios that use them; lands as `custom_field_settings`, covering the project endpoint only (high)
 - [x] `status_updates` — project/goal/portfolio status history (color + narrative) over time; the endpoint takes one `parent` gid, so it lands as `project_status_updates`, `goal_status_updates` and `portfolio_status_updates` (medium)
 - [x] `team_memberships` — user-to-team membership lookup joining synced users and teams (medium)
 - [x] `portfolios (+ portfolios/{gid}/items)` — program-level rollup grouping projects we already sync (medium)
