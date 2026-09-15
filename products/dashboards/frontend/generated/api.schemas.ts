@@ -642,13 +642,13 @@ export interface DashboardFiltersOpenApiApi {
 
 export interface _TileLayoutBoxOpenApiApi {
     /** Column position in the dashboard grid (0-indexed). */
-    x?: number
+    x: number
     /** Row position in the dashboard grid (0-indexed). */
-    y?: number
+    y: number
     /** Width in grid columns. The desktop grid is 12 columns wide. */
-    w?: number
+    w: number
     /** Height in grid rows. */
-    h?: number
+    h: number
 }
 
 export interface _TileLayoutsOpenApiApi {
@@ -1151,7 +1151,7 @@ export interface DashboardPatchWidgetOpenApiApi {
 export interface DashboardPatchTileOpenApiApi {
     /** Dashboard tile ID to update. */
     id?: number
-    /** Grid position and size per breakpoint. Works for every tile type, including insight tiles. Boxes are stored as sent and overlaps are not resolved, so send sm boxes that do not overlap, and include every tile you move in the same request. */
+    /** Grid position and size per breakpoint. Works for every tile type, including insight tiles. A write replaces the tile's whole layout, so send a complete sm box rather than the one value you want to change. Boxes are stored as sent and overlaps are not resolved, so send sm boxes that do not overlap, and include every tile you move in the same request. */
     layouts?: _TileLayoutsOpenApiApi
     /** Nested widget row updates. */
     widget?: DashboardPatchWidgetOpenApiApi

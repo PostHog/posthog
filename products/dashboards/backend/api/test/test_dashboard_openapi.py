@@ -63,6 +63,13 @@ class TestDashboardPatchOpenApiContract:
         assert {"x", "y", "w", "h"}.issubset(sm_field.fields), (
             f"Tile layout box must expose x/y/w/h. Got: {sorted(sm_field.fields)}."
         )
+        # _update_existing_tile_display_fields assigns `layouts` wholesale, so a box that omits a key
+        # drops it from the stored layout and the dashboard falls back to a default for it.
+        optional = sorted(name for name, field in sm_field.fields.items() if not field.required)
+        assert not optional, (
+            "Every tile layout box field must be required, because a write replaces the tile's whole "
+            f"layouts value instead of merging into it. Optional: {optional}."
+        )
 
     def test_filters_documented_as_writable_patch_field(self) -> None:
         # filters is a SerializerMethodField on DashboardSerializer (read-only in the inferred schema),
