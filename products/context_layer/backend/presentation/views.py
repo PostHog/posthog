@@ -21,6 +21,7 @@ from products.context_layer.backend.facade import api as facade
 from products.context_layer.backend.presentation.serializers import (
     ChannelWikiPageSerializer,
     CommitBundleSerializer,
+    ContextLayerOnboardingStatusSerializer,
     ContextLayerStatusSerializer,
     DreamRunDetailSerializer,
     DreamRunListSerializer,
@@ -362,7 +363,7 @@ class ContextLayerViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     @extend_schema(
         request=None,
-        responses={201: ContextLayerStatusSerializer},
+        responses={201: ContextLayerOnboardingStatusSerializer},
         summary="Enable the context layer",
         description=(
             "Create the organization's wiki with the default structure and import existing channel "
@@ -373,16 +374,17 @@ class ContextLayerViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def enable(self, request: Request, **kwargs) -> Response:
         user_id = request.user.id if request.user and request.user.is_authenticated else None
         try:
-            config = facade.enable_context_layer(self.organization.id, created_by_id=user_id)
+            context_status = facade.enable_context_layer(self.organization.id, created_by_id=user_id)
         except facade.ContextLayerStoreError as error:
             return _store_error_response(error)
         return Response(
-            ContextLayerStatusSerializer({"head_sha": config.head_sha}).data, status=status.HTTP_201_CREATED
+            ContextLayerOnboardingStatusSerializer(context_status).data,
+            status=status.HTTP_201_CREATED,
         )
 
     @extend_schema(
         responses={
-            200: ContextLayerStatusSerializer,
+            200: ContextLayerOnboardingStatusSerializer,
             404: OpenApiResponse(description="The context layer is not enabled."),
         },
         summary="Get the wiki head",
@@ -390,10 +392,10 @@ class ContextLayerViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @action(methods=["GET"], detail=False)
     def status(self, request: Request, **kwargs) -> Response:
         try:
-            config = facade.get_config(self.organization.id)
+            context_status = facade.get_context_layer_status(self.organization.id)
         except facade.ContextLayerStoreError as error:
             return _store_error_response(error)
-        return Response(ContextLayerStatusSerializer({"head_sha": config.head_sha}).data)
+        return Response(ContextLayerOnboardingStatusSerializer(context_status).data)
 
     @extend_schema(
         responses={200: WikiTreeSerializer, 404: OpenApiResponse(description="The context layer is not enabled.")},

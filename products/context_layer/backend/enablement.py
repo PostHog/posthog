@@ -41,6 +41,7 @@ def enable_context_layer(
     # head behind. Callers use this sha as `base_head`, and a stale one costs
     # them a spurious conflict on their first write.
     config.refresh_from_db()
+    config = store.resolve_company_context(organization_id)
     transaction.on_commit(lambda: _trigger_bootstrap_dream(str(organization_id)), robust=True)
     return config
 

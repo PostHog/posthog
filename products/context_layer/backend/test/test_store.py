@@ -15,6 +15,7 @@ from posthog.storage.object_storage import UnavailableStorage
 
 from products.context_layer.backend import repo_lint, store
 from products.context_layer.backend.models import ContextLayerConfig, WikiPageProposal
+from products.context_layer.backend.scaffold import ORG_OVERVIEW_MD
 
 
 class TestRepoWriterLock(SimpleTestCase):
@@ -113,6 +114,8 @@ class TestContextLayerStore(BaseTest):
         config = store.initialize_repo(self.organization.id, created_by_id=self.user.id)
 
         assert len(config.head_sha) == 40
+        assert config.has_company_context is False
+        assert config.company_context_head_sha == config.head_sha
         with store.checkout_repo(self.organization.id) as checkout:
             assert checkout.head_sha == config.head_sha
             assert (checkout.path / "AGENTS.md").is_file()
@@ -141,8 +144,110 @@ class TestContextLayerStore(BaseTest):
         assert new_head != config.head_sha
         config.refresh_from_db()
         assert config.head_sha == new_head
+        assert config.has_company_context is False
+        assert config.company_context_head_sha == new_head
         with store.checkout_repo(self.organization.id) as checkout:
             assert (checkout.path / "areas" / "analytics.md").is_file()
+
+    def test_landing_tracks_company_context_and_reset_to_scaffold(self) -> None:
+        store.initialize_repo(self.organization.id)
+
+        def reformat_overview(root: Path) -> None:
+            (root / "org" / "overview.md").write_text(ORG_OVERVIEW_MD.replace("\n\nWhat", "\n\n\nWhat"))
+
+        whitespace_head = store.apply_changes(
+            self.organization.id,
+            message="Reformat organization overview",
+            mutate=reformat_overview,
+        )
+        after_whitespace = ContextLayerConfig.objects.get(organization_id=self.organization.id)
+        assert after_whitespace.has_company_context is False
+        assert after_whitespace.company_context_head_sha == whitespace_head
+
+        def populate_overview(root: Path) -> None:
+            (root / "org" / "overview.md").write_text(
+                ORG_OVERVIEW_MD.replace("- Mission:", "- Mission: Build products.")
+            )
+
+        populated_head = store.apply_changes(
+            self.organization.id, message="Populate organization overview", mutate=populate_overview
+        )
+        after_population = ContextLayerConfig.objects.get(organization_id=self.organization.id)
+        assert after_population.has_company_context is True
+        assert after_population.company_context_head_sha == populated_head
+
+        def reset_overview(root: Path) -> None:
+            (root / "org" / "overview.md").write_text(ORG_OVERVIEW_MD)
+
+        reset_head = store.apply_changes(
+            self.organization.id,
+            message="Reset organization overview",
+            mutate=reset_overview,
+        )
+        after_reset = ContextLayerConfig.objects.get(organization_id=self.organization.id)
+        assert after_reset.has_company_context is False
+        assert after_reset.company_context_head_sha == reset_head
+
+        def remove_overview(root: Path) -> None:
+            (root / "org" / "overview.md").unlink()
+
+        missing_head = store.apply_changes(
+            self.organization.id,
+            message="Remove organization overview",
+            mutate=remove_overview,
+        )
+        after_removal = ContextLayerConfig.objects.get(organization_id=self.organization.id)
+        assert after_removal.has_company_context is False
+        assert after_removal.company_context_head_sha == missing_head
+
+    def test_resolve_company_context_persists_unknown_state(self) -> None:
+        config = store.initialize_repo(self.organization.id)
+        ContextLayerConfig.objects.filter(id=config.id).update(has_company_context=None, company_context_head_sha=None)
+
+        resolved = store.resolve_company_context(self.organization.id)
+
+        assert resolved.has_company_context is False
+        assert resolved.company_context_head_sha == resolved.head_sha
+        config.refresh_from_db()
+        assert config.has_company_context is False
+        assert config.company_context_head_sha == config.head_sha
+
+    def test_resolve_company_context_retries_when_head_moves(self) -> None:
+        initial_head = store.initialize_repo(self.organization.id).head_sha
+
+        def populate_overview(root: Path) -> None:
+            (root / "org" / "overview.md").write_text(
+                ORG_OVERVIEW_MD.replace("- Mission:", "- Mission: Build products.")
+            )
+
+        populated_head = store.apply_changes(
+            self.organization.id,
+            message="Populate organization overview",
+            mutate=populate_overview,
+        )
+        ContextLayerConfig.objects.filter(organization_id=self.organization.id).update(
+            head_sha=initial_head,
+            has_company_context=None,
+            company_context_head_sha=None,
+        )
+        original_has_company_context = store._has_company_context
+        did_move_head = False
+
+        def move_head_during_resolution(root: Path) -> bool:
+            nonlocal did_move_head
+            if not did_move_head:
+                ContextLayerConfig.objects.filter(organization_id=self.organization.id, head_sha=initial_head).update(
+                    head_sha=populated_head
+                )
+                did_move_head = True
+            return original_has_company_context(root)
+
+        with patch.object(store, "_has_company_context", side_effect=move_head_during_resolution):
+            resolved = store.resolve_company_context(self.organization.id)
+
+        assert resolved.head_sha == populated_head
+        assert resolved.has_company_context is True
+        assert resolved.company_context_head_sha == populated_head
 
     def test_apply_changes_rejects_lint_violations_without_moving_head(self) -> None:
         config = store.initialize_repo(self.organization.id)

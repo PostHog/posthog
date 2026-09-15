@@ -12,6 +12,7 @@ import type {
     ChannelWikiPageApi,
     CommitBundleApi,
     ContextLayerAgentPagesRetrieveParams,
+    ContextLayerOnboardingStatusApi,
     ContextLayerPagesRetrieveParams,
     ContextLayerProposalsListParams,
     ContextLayerStatusApi,
@@ -123,8 +124,8 @@ export const getContextLayerEnableCreateUrl = (organizationId: string) => {
 export const contextLayerEnableCreate = async (
     organizationId: string,
     options?: RequestInit
-): Promise<ContextLayerStatusApi> => {
-    return apiMutator<ContextLayerStatusApi>(getContextLayerEnableCreateUrl(organizationId), {
+): Promise<ContextLayerOnboardingStatusApi> => {
+    return apiMutator<ContextLayerOnboardingStatusApi>(getContextLayerEnableCreateUrl(organizationId), {
         ...options,
         method: 'POST',
     })
@@ -261,8 +262,8 @@ export const getContextLayerStatusRetrieveUrl = (organizationId: string) => {
 export const contextLayerStatusRetrieve = async (
     organizationId: string,
     options?: RequestInit
-): Promise<ContextLayerStatusApi> => {
-    return apiMutator<ContextLayerStatusApi>(getContextLayerStatusRetrieveUrl(organizationId), {
+): Promise<ContextLayerOnboardingStatusApi> => {
+    return apiMutator<ContextLayerOnboardingStatusApi>(getContextLayerStatusRetrieveUrl(organizationId), {
         ...options,
         method: 'GET',
     })

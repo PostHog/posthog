@@ -155,6 +155,16 @@ export interface DreamRunDetailApi {
 }
 
 /**
+ * Response shape for the wiki's current state.
+ */
+export interface ContextLayerOnboardingStatusApi {
+    /** Commit sha of the wiki's current head. */
+    head_sha: string
+    /** Whether the organization overview has content beyond the initial scaffold. */
+    has_company_context: boolean
+}
+
+/**
  * Response shape for a wiki bundle export.
  */
 export interface WikiExportApi {

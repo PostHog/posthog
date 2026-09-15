@@ -7,6 +7,7 @@ the store, pages, and enablement internals only through here.
 from __future__ import annotations
 
 import uuid
+from typing import TypedDict
 
 from django.urls import reverse
 
@@ -27,7 +28,7 @@ from products.context_layer.backend.dreams import (
     get_dream_run,
     list_dream_runs,
 )
-from products.context_layer.backend.enablement import enable_context_layer
+from products.context_layer.backend.enablement import enable_context_layer as _enable_context_layer
 from products.context_layer.backend.models import ContextLayerConfig
 from products.context_layer.backend.pages import (
     PAGE_MAX_BYTES,
@@ -67,6 +68,7 @@ from products.context_layer.backend.store import (
     get_config,
     land_commit_bundle,
     land_dream_branch,
+    resolve_company_context,
 )
 
 logger = structlog.get_logger(__name__)
@@ -95,6 +97,7 @@ __all__ = [
     "BundleConflictError",
     "CommitAuthor",
     "ContextLayerMount",
+    "ContextLayerStatus",
     "ContextLayerStoreError",
     "DependencyUnavailableError",
     "ActiveDreamRun",
@@ -116,6 +119,7 @@ __all__ = [
     "enable_context_layer",
     "get_bundle_export",
     "get_config",
+    "get_context_layer_status",
     "get_dream_run",
     "get_page",
     "get_health_report",
@@ -134,6 +138,11 @@ __all__ = [
 ]
 
 
+class ContextLayerStatus(TypedDict):
+    head_sha: str
+    has_company_context: bool
+
+
 @frozen
 class ContextLayerMount:
     """Everything a provisioner needs to clone the wiki into a sandbox."""
@@ -149,6 +158,24 @@ def is_context_layer_enabled(*, organization_id: str, distinct_id: str) -> bool:
     except Exception:
         logger.exception("context_layer_flag_check_failed", organization_id=organization_id)
         return False
+
+
+def enable_context_layer(
+    organization_id: uuid.UUID | str,
+    *,
+    created_by_id: int | None = None,
+) -> ContextLayerStatus:
+    return _to_context_layer_status(_enable_context_layer(organization_id, created_by_id=created_by_id))
+
+
+def get_context_layer_status(organization_id: uuid.UUID | str) -> ContextLayerStatus:
+    return _to_context_layer_status(resolve_company_context(organization_id))
+
+
+def _to_context_layer_status(config: ContextLayerConfig) -> ContextLayerStatus:
+    assert config.has_company_context is not None
+    assert config.company_context_head_sha == config.head_sha
+    return {"head_sha": config.head_sha, "has_company_context": config.has_company_context}
 
 
 def sandbox_environment_variables(organization_id: uuid.UUID | str, team_id: int) -> dict[str, str]:

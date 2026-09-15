@@ -104,7 +104,30 @@ class TestContextLayerAPI(APIBaseTest):
 
         head = self._enable()
 
-        assert self.client.get(f"{self.base_url}/status/").json()["head_sha"] == head
+        status_response = self.client.get(f"{self.base_url}/status/")
+        assert status_response.json()["head_sha"] == head
+        assert status_response.json()["has_company_context"] is False
+
+    def test_enable_and_status_return_company_context_state(self, _flag) -> None:
+        enable_response = self.client.post(f"{self.base_url}/enable/")
+        assert enable_response.status_code == 201, enable_response.content
+        assert enable_response.json()["has_company_context"] is False
+
+        status_response = self.client.get(f"{self.base_url}/status/")
+        assert status_response.status_code == 200, status_response.content
+        assert status_response.json()["has_company_context"] is False
+
+    def test_status_reports_populated_organization_overview(self, _flag) -> None:
+        head = self._enable()
+        overview = store.ORG_OVERVIEW_MD.replace("- Mission:", "- Mission: Build products.")
+        response = self.client.put(
+            f"{self.base_url}/pages/",
+            {"path": "org/overview.md", "content": overview, "base_head": head},
+            format="json",
+        )
+        assert response.status_code == 200, response.content
+
+        assert self.client.get(f"{self.base_url}/status/").json()["has_company_context"] is True
 
     def test_enable_scaffolds_wiki_and_imports_channel_context(self, _flag) -> None:
         with team_scope(self.team.id):

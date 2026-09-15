@@ -12,6 +12,12 @@ class ContextLayerStatusSerializer(serializers.Serializer):
     head_sha = serializers.CharField(help_text="Commit sha of the wiki's current head.")
 
 
+class ContextLayerOnboardingStatusSerializer(ContextLayerStatusSerializer):
+    has_company_context = serializers.BooleanField(
+        help_text="Whether the organization overview has content beyond the initial scaffold."
+    )
+
+
 class WikiTreeSerializer(serializers.Serializer):
     """Response shape for the wiki's page listing."""
 
