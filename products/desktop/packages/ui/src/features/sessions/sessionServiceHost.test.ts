@@ -7080,15 +7080,111 @@ describe("SessionService", () => {
       );
     });
 
-    it("throws when session is connecting", async () => {
+    it("queues message when session is connecting", async () => {
+      vi.useFakeTimers();
       const service = getSessionService();
-      mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(
-        createMockSession({ status: "connecting" }),
-      );
+      try {
+        mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(
+          createMockSession({ status: "connecting" }),
+        );
+        const prompt: ContentBlock[] = [{ type: "text", text: "Hello" }];
 
-      await expect(service.sendPrompt("task-123", "Hello")).rejects.toThrow(
-        "Session is still connecting",
-      );
+        const result = await service.sendPrompt("task-123", prompt);
+
+        expect(result.stopReason).toBe("queued");
+        expect(mockSessionStoreSetters.enqueueMessage).toHaveBeenCalledWith(
+          "task-123",
+          "text",
+          prompt,
+        );
+      } finally {
+        service.reset();
+        vi.useRealTimers();
+      }
+    });
+
+    it("shows one connecting notice after 20 seconds for each session", async () => {
+      vi.useFakeTimers();
+      try {
+        vi.setSystemTime(new Date("2026-09-13T00:00:00Z"));
+        const service = getSessionService();
+        const session = createMockSession({
+          status: "connecting",
+          startedAt: Date.now(),
+        });
+        mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(session);
+
+        await expect(service.sendPrompt("task-123", "Hello")).resolves.toEqual({
+          stopReason: "queued",
+        });
+        await expect(service.sendPrompt("task-123", "Hello")).resolves.toEqual({
+          stopReason: "queued",
+        });
+
+        expect(mockToast.error).not.toHaveBeenCalled();
+        await vi.advanceTimersByTimeAsync(20_000);
+        expect(mockToast.error).toHaveBeenCalledOnce();
+
+        session.startedAt = Date.now();
+        await expect(service.sendPrompt("task-123", "Hello")).resolves.toEqual({
+          stopReason: "queued",
+        });
+        await vi.advanceTimersByTimeAsync(20_000);
+        expect(mockToast.error).toHaveBeenCalledTimes(2);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("keeps a queued prompt without showing a notice when the session connects", async () => {
+      vi.useFakeTimers();
+      const service = getSessionService();
+      try {
+        vi.setSystemTime(new Date("2026-09-13T00:00:00Z"));
+        const session = createMockSession({
+          status: "connecting",
+          startedAt: Date.now(),
+        });
+        mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(session);
+
+        await expect(service.sendPrompt("task-123", "Hello")).resolves.toEqual({
+          stopReason: "queued",
+        });
+        session.status = "connected";
+
+        await vi.advanceTimersByTimeAsync(20_000);
+
+        expect(mockToast.error).not.toHaveBeenCalled();
+        expect(mockSessionStoreSetters.enqueueMessage).toHaveBeenCalledWith(
+          "task-123",
+          "Hello",
+          "Hello",
+        );
+      } finally {
+        service.reset();
+        vi.useRealTimers();
+      }
+    });
+
+    it("cancels a pending connecting notice when the service resets", async () => {
+      vi.useFakeTimers();
+      try {
+        vi.setSystemTime(new Date("2026-09-13T00:00:00Z"));
+        const service = getSessionService();
+        mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(
+          createMockSession({ status: "connecting", startedAt: Date.now() }),
+        );
+
+        await expect(service.sendPrompt("task-123", "Hello")).resolves.toEqual({
+          stopReason: "queued",
+        });
+        service.reset();
+        await vi.advanceTimersByTimeAsync(20_000);
+
+        expect(mockToast.error).not.toHaveBeenCalled();
+      } finally {
+        vi.useRealTimers();
+      }
     });
 
     it("queues message when prompt is already pending", async () => {
@@ -10204,6 +10300,95 @@ describe("SessionService", () => {
       const stored = mockSessionStoreSetters.setSession.mock.calls.at(-1)?.[0];
       expect(stored.messageQueue).toBe(queued);
       expect(stored.editingQueuedId).toBe("q-1");
+    });
+
+    it("keeps a connecting notice timer when reconnect replaces the session", async () => {
+      vi.useFakeTimers();
+      const service = getSessionService();
+      try {
+        vi.setSystemTime(new Date("2026-09-13T00:00:00Z"));
+        const startedAt = Date.now();
+        const originalSession = createMockSession({
+          status: "connecting",
+          logUrl: "https://logs.example.com/run-123",
+          startedAt,
+        });
+        let currentSession = originalSession;
+        mockSessionStoreSetters.getSessionByTaskId.mockImplementation(
+          () => currentSession,
+        );
+        mockSessionStoreSetters.getSessions.mockImplementation(() => ({
+          "run-123": currentSession,
+        }));
+        mockSessionStoreSetters.setSession.mockImplementation(
+          (session: AgentSession) => {
+            currentSession = session;
+          },
+        );
+        mockSessionStoreSetters.updateSession.mockImplementation(
+          (_taskRunId, updates) => {
+            currentSession = { ...currentSession, ...updates };
+          },
+        );
+        const queuedMessage = {
+          id: "q-1",
+          content: "Hello",
+          rawPrompt: "Hello",
+          queuedAt: 1,
+        };
+        mockSessionStoreSetters.enqueueMessage.mockImplementation(() => {
+          originalSession.messageQueue.push(queuedMessage);
+        });
+        mockSessionStoreSetters.dequeueMessages.mockReturnValue([
+          queuedMessage,
+        ]);
+        mockTrpcWorkspace.verify.query.mockResolvedValue({ exists: true });
+        mockTrpcLogs.readLocalLogs.query.mockResolvedValue("");
+        mockTrpcAgent.prompt.mutate.mockResolvedValue({
+          stopReason: "end_turn",
+        });
+
+        await expect(service.sendPrompt("task-123", "Hello")).resolves.toEqual({
+          stopReason: "queued",
+        });
+        await vi.advanceTimersByTimeAsync(1_000);
+
+        let resolveReconnect: (value: {
+          sessionId: string;
+          channel: string;
+          configOptions: never[];
+        }) => void = () => {};
+        const reconnectResult = new Promise<{
+          sessionId: string;
+          channel: string;
+          configOptions: never[];
+        }>((resolve) => {
+          resolveReconnect = resolve;
+        });
+        mockTrpcAgent.reconnect.mutate.mockReturnValue(reconnectResult);
+
+        const reconnectPromise = service.clearSessionError("task-123", "/repo");
+        await vi.advanceTimersByTimeAsync(19_000);
+
+        expect(mockToast.error).toHaveBeenCalledOnce();
+        expect(currentSession.startedAt).toBe(startedAt);
+
+        resolveReconnect({
+          sessionId: "run-123",
+          channel: "agent-event:run-123",
+          configOptions: [],
+        });
+        await reconnectPromise;
+        await vi.advanceTimersByTimeAsync(1);
+
+        expect(mockTrpcAgent.prompt.mutate).toHaveBeenCalledWith({
+          sessionId: "run-123",
+          prompt: [{ type: "text", text: "Hello" }],
+        });
+      } finally {
+        service.reset();
+        vi.useRealTimers();
+      }
     });
 
     it("creates fresh session when initialPrompt is set (prompt never delivered)", async () => {

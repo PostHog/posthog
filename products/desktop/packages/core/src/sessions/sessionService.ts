@@ -1763,6 +1763,11 @@ export function classifyTurnEventKind(
 
 export class SessionService {
   private connectingTasks = new Map<string, Promise<void>>();
+  private connectingToastTimers = new Map<
+    string,
+    { startedAt: number; timer: ReturnType<typeof setTimeout> }
+  >();
+  private shownConnectingToastSessions = new Map<string, number>();
   private reconcilingTasks = new Set<string>();
   private reconcileSkipLogged = new Set<string>();
   private taskCreationMarks = new Map<string, number>();
@@ -2249,6 +2254,11 @@ export class SessionService {
     }
 
     if (previous) {
+      // A fast-painted connecting session can be replaced before reconnect finishes.
+      // Keep its timestamp so the delayed notice stays attached to this attempt.
+      if (previous.status === "connecting") {
+        session.startedAt = previous.startedAt;
+      }
       session.optimisticItems = previous.optimisticItems;
       session.messageQueue = previous.messageQueue;
       // Keep the in-place edit hold with the queue it guards: dropping it here
@@ -2420,6 +2430,7 @@ export class SessionService {
             ),
           );
         }
+        this.flushQueuedMessagesIfIdle(taskId);
         return true;
       } else {
         this.d.log.warn("Reconnect returned null", { taskId, taskRunId });
@@ -3311,6 +3322,11 @@ export class SessionService {
     }
     for (const timer of this.eventEvictionTimers.values()) clearTimeout(timer);
     this.eventEvictionTimers.clear();
+    for (const { timer } of this.connectingToastTimers.values()) {
+      clearTimeout(timer);
+    }
+    this.connectingToastTimers.clear();
+    this.shownConnectingToastSessions.clear();
     this.evictedRunIds.clear();
     this.residentBackgroundRunIds.clear();
     this.connectingTasks.clear();
@@ -4228,9 +4244,15 @@ export class SessionService {
         );
       }
       if (session.status === "connecting") {
-        throw new Error(
-          "Session is still connecting. Please wait and try again.",
-        );
+        const promptText = extractPromptText(prompt);
+        this.d.store.enqueueMessage(taskId, promptText, prompt);
+        this.scheduleConnectingToast(session.taskId, session.startedAt);
+        this.d.log.info("Message queued", {
+          taskId,
+          queueLength: session.messageQueue.length + 1,
+          reason: "connecting",
+        });
+        return { stopReason: "queued" };
       }
       throw new Error(`Session is not ready (status: ${session.status})`);
     }
@@ -4297,6 +4319,40 @@ export class SessionService {
 
     return this.sendLocalPrompt(session, blocks, promptText, {
       optimisticApplied: true,
+    });
+  }
+
+  private scheduleConnectingToast(taskId: string, startedAt: number): void {
+    if (this.shownConnectingToastSessions.get(taskId) === startedAt) return;
+
+    const existing = this.connectingToastTimers.get(taskId);
+    if (existing?.startedAt === startedAt) return;
+    if (existing) clearTimeout(existing.timer);
+
+    const delay = Math.max(0, startedAt + 20_000 - Date.now());
+    if (delay === 0) {
+      this.showConnectingToast(taskId, startedAt);
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      this.connectingToastTimers.delete(taskId);
+      const session = this.d.store.getSessionByTaskId(taskId);
+      if (session?.status !== "connecting") return;
+      // A resume repaints the session and gives the replacement a fresh
+      // `startedAt`, so the session connecting now is rarely the one this timer
+      // was armed against. Follow that session and wait out the rest of its own
+      // delay, rather than dropping the notice the wait was measured for.
+      this.scheduleConnectingToast(taskId, session.startedAt);
+    }, delay);
+    this.connectingToastTimers.set(taskId, { startedAt, timer });
+  }
+
+  private showConnectingToast(taskId: string, startedAt: number): void {
+    if (this.shownConnectingToastSessions.get(taskId) === startedAt) return;
+    this.shownConnectingToastSessions.set(taskId, startedAt);
+    this.d.toast.error("Session is still connecting.", {
+      id: `session-connecting-${taskId}-${startedAt}`,
     });
   }
 
