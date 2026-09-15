@@ -1,3 +1,4 @@
+from collections.abc import Iterator
 from typing import Any
 
 import pytest
@@ -16,6 +17,7 @@ SERIES = np.array([100.0, 104.0, 98.0, 101.0, 99.0, 103.0, 40.0])
 
 
 class _FakeOrganization:
+    id = "org-1"
     is_ai_data_processing_approved: bool | None = True
 
 
@@ -26,7 +28,13 @@ class _FakeTeam:
 
 
 class _FakeUser:
-    pass
+    distinct_id = "user-1"
+
+
+@pytest.fixture(autouse=True)
+def _in_the_rollout() -> Iterator[None]:
+    with patch("products.alerts.backend.llm_detector_limits.posthoganalytics.feature_enabled", return_value=True):
+        yield
 
 
 def _context(**overrides: Any) -> DetectionContext:
@@ -171,11 +179,14 @@ class TestLLMDetectorVerdictMapping:
         assert result.all_scores == [None] * 5 + [0.9, None, None, None, 0.9]
 
     def test_metadata_carries_the_verdict_for_the_notification(self) -> None:
-        result = _detect(LLMDetector({"type": "llm"}), _verdict(kind="drop"))
+        result = _detect(LLMDetector({"type": "llm"}), _verdict(kind="drop", is_anomaly=False, confidence=0.2))
 
         assert result.metadata["kind"] == "drop"
         assert result.metadata["model"]
         assert result.metadata["rationale"].startswith("Pageviews fell")
+        # The score alone cannot say which way the model voted, so the verdict rides along.
+        assert result.metadata["verdict_is_anomaly"] is False
+        assert result.metadata["confidence"] == 0.2
 
     def test_too_short_a_series_does_not_call_the_model(self) -> None:
         with patch.object(LLMDetector, "_ask_model") as ask:
@@ -208,6 +219,18 @@ class TestLLMDetectorFailureIsLoud:
 
         with pytest.raises(LLMDetectorMisconfiguredError, match="AI data processing is turned off"):
             LLMDetector({"type": "llm"}).detect_in_context(SERIES, _context(team=team))
+
+    def test_call_is_refused_once_the_rollout_is_revoked(self) -> None:
+        # The flag must stop spend on alerts created while it was on, not only new ones.
+        with (
+            patch(
+                "products.alerts.backend.llm_detector_limits.posthoganalytics.feature_enabled", return_value=False
+            ) as flag,
+            pytest.raises(LLMDetectorMisconfiguredError, match="not enabled for your account"),
+        ):
+            LLMDetector({"type": "llm"}).detect_in_context(SERIES, _context())
+
+        flag.assert_called_once_with("alerts-llm-detector", "user-1", groups={"organization": "org-1"})
 
     def test_rationale_is_bounded_before_it_reaches_the_breach_text(self) -> None:
         result = _detect(LLMDetector({"type": "llm"}), _verdict(rationale="x" * 5000))
@@ -253,6 +276,18 @@ class TestLLMDetectorPrompt:
         assert "2026-01-05" in message
         assert "2026-01-04" not in message
         assert "The final point (index 2) is the point under judgment" in message
+
+    def test_undated_series_is_described_without_dates_or_seasonality(self) -> None:
+        # A SQL result has no timestamps, so the prompt must not ask for a date or a weekly shape.
+        with patch("posthog.tasks.alerts.detectors.llm.prompt.render_series_chart", return_value=None):
+            message = build_human_message(
+                data=SERIES, context=_context(dates=(None,) * 7, interval=None), window=90, judge_every_point=False
+            )
+
+        assert isinstance(message, str)
+        assert "These points have no timestamps" in message
+        assert "Points (index, label, value)" in message
+        assert "point 6" in message
 
     def test_batch_prompt_does_not_pin_judgment_to_the_final_point(self) -> None:
         # A backfill asks for every anomalous index; a system-level "the final point is the one

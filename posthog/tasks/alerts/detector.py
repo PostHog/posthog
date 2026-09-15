@@ -112,6 +112,11 @@ def _compute_min_samples_for_detector(detector_config: dict[str, Any]) -> int:
     # matches what the detector will read (the AI detector reads more than the statistical ones).
     window = detector_config.get("window") or DETECTOR_DEFAULT_WINDOWS.get(detector_type, DETECTOR_DEFAULT_WINDOW)
 
+    # The AI detector reads the window as it is: no training point is held back and no
+    # preprocessing runs, so a series of exactly the window is enough.
+    if detector_type == DetectorType.LLM:
+        return max(window, guard)
+
     # Statistical detectors exclude training_offset_n trailing points from the fit (default 1);
     # a caller-configured larger offset needs the same headroom here as detect()/detect_batch()
     # apply, or every check silently falls short of _validate_data's minimum and never fires.

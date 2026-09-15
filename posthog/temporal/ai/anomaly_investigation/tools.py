@@ -102,10 +102,15 @@ def _run_detector_simulation(
     """Thin wrapper around ``simulate_detector_on_insight`` that returns either the sim
     dict or a short error string. Kept as a sync helper so it can be pushed to a thread
     via ``sync_to_async`` from the async tool handlers.
+
+    An AI-detector alert is never re-scored here: the verdict that fired is already on the
+    check, and every extra scoring pass would be another billable model call that the agent
+    could repeat on every tool use. Its series comes back unscored.
     """
     # Imported lazily because the workflow module can't pull in heavy query machinery
     # at Temporal workflow-definition time — only activities can.
     from products.alerts.backend.evaluation.detector import simulate_detector_on_insight
+    from products.alerts.backend.llm_detector_limits import is_llm_detector_config
 
     try:
         return simulate_detector_on_insight(
@@ -123,6 +128,7 @@ def _run_detector_simulation(
             config=alert.config,
             date_from=date_from,
             user=alert.created_by,
+            score=not is_llm_detector_config(alert.detector_config),
         )
     except Exception as err:
         return str(err)
@@ -212,6 +218,11 @@ class InvestigationToolkit:
             return "Error: no insight bound to this investigation."
         if not self.alert.detector_config:
             return "Error: alert has no detector_config; simulation requires anomaly-detection mode."
+        if self.alert.detector_config.get("type") == "llm":
+            return (
+                "The AI detector is not re-run during an investigation: its verdict and rationale are "
+                "on the alert check that started this one. Use fetch_metric_series for the values."
+            )
 
         sim = await sync_to_async(_run_detector_simulation, thread_sensitive=False)(
             alert=self.alert,

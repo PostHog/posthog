@@ -2206,6 +2206,7 @@
                         "instructions": {
                             "anyOf": [
                                 {
+                                    "maxLength": 2000,
                                     "type": "string"
                                 },
                                 {
@@ -2217,6 +2218,8 @@
                         "threshold": {
                             "anyOf": [
                                 {
+                                    "maximum": 1,
+                                    "minimum": 0,
                                     "type": "number"
                                 },
                                 {
@@ -2233,13 +2236,15 @@
                         "window": {
                             "anyOf": [
                                 {
+                                    "maximum": 400,
+                                    "minimum": 5,
                                     "type": "number"
                                 },
                                 {
                                     "type": "null"
                                 }
                             ],
-                            "description": "How many recent points the model is shown (default: based on calculation interval)"
+                            "description": "How many recent points the model is shown (default: 90)"
                         }
                     },
                     "type": "object"

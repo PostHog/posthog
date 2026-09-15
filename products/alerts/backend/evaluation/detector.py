@@ -169,7 +169,11 @@ def _detection_metadata(detection: DetectionResult, detector_type_str: str) -> d
     if detector_type_str != DetectorType.LLM.value:
         return {}
     metadata = detection.metadata or {}
-    return {key: metadata[key] for key in ("rationale", "kind") if metadata.get(key)}
+    return {
+        key: metadata[key]
+        for key in ("rationale", "kind", "verdict_is_anomaly", "confidence")
+        if metadata.get(key) is not None
+    }
 
 
 # The breach message a person reads names the detector. Every statistical type is already
@@ -335,8 +339,14 @@ def simulate_detector_on_insight(
     date_from: str | None = None,
     user: Optional[User] = None,
     config: dict[str, Any] | None = None,
+    *,
+    score: bool = True,
 ) -> dict[str, Any]:
-    """Run a detector over historical insight data for chart visualization. Read-only (no AlertCheck)."""
+    """Run a detector over historical insight data for chart visualization. Read-only (no AlertCheck).
+
+    ``score=False`` returns the extracted series with no scores: for a caller that only wants
+    the points, such as the investigation agent's chart, and must not pay for a model call.
+    """
     if insight.query is None:
         raise ValueError("Insight has no valid query.")
 
@@ -393,9 +403,14 @@ def simulate_detector_on_insight(
         interval=interval_value,
         metric_description=_metric_description(insight, series_index),
         user=user,
+        score=score,
     )
 
     if result.is_breakdown:
+        if detector_type_str == DetectorType.LLM.value:
+            # One model call per breakdown value is the cost profile the saved-alert path
+            # refuses; the preview must refuse it before the first call, not after the last.
+            raise ValueError("The AI detector does not support breakdown insights yet.")
         breakdown_sims = [_sim_from_series(s, detector_config, detector_type_str, sim_context) for s in result.series]
         return {
             "data": [],
@@ -426,6 +441,7 @@ class _SimulationSeriesContext:
     interval: str | None
     metric_description: str
     user: User | None
+    score: bool = True
 
 
 def _sim_from_series(
@@ -435,17 +451,20 @@ def _sim_from_series(
     sim_context: _SimulationSeriesContext,
 ) -> dict[str, Any]:
     """Score a single extracted series with detect_batch and shape it for the simulation chart."""
-    context = _detection_context(
-        series,
-        detector_config,
-        insight=sim_context.insight,
-        user=sim_context.user,
-        interval=sim_context.interval,
-        metric_description=sim_context.metric_description,
-    )
-    detection = get_detector(detector_config).detect_batch_in_context(
-        np.array([p.value for p in series.points]), context
-    )
+    if sim_context.score:
+        context = _detection_context(
+            series,
+            detector_config,
+            insight=sim_context.insight,
+            user=sim_context.user,
+            interval=sim_context.interval,
+            metric_description=sim_context.metric_description,
+        )
+        detection = get_detector(detector_config).detect_batch_in_context(
+            np.array([p.value for p in series.points]), context
+        )
+    else:
+        detection = DetectionResult(is_anomaly=False)
     triggered = detection.triggered_indices or []
     scores = detection.all_scores if detection.all_scores else [None] * len(series.points)
 

@@ -40,6 +40,37 @@ LLM_DETECTOR_CONSENT_MESSAGE = (
     "for your organization. Turn it on in organization settings to use this detector."
 )
 
+LLM_DETECTOR_ROLLOUT_MESSAGE = "The AI detector is not enabled for your account."
+
+
+def is_llm_detector_rolled_out(*, distinct_id: str, organization_id: Any) -> bool:
+    """Whether the rollout flag is on for this person in this organization.
+
+    Scoped to the alert's organization, not the person's current one, so a member of several
+    organizations cannot borrow a flag-on organization to use the detector in a flag-off one.
+    """
+    return bool(
+        posthoganalytics.feature_enabled(
+            LLM_DETECTOR_FLAG,
+            distinct_id,
+            groups={"organization": str(organization_id)},
+        )
+    )
+
+
+def llm_detector_access_error(*, distinct_id: str, organization: Any) -> str | None:
+    """The message to show when this organization cannot use the AI detector at all.
+
+    One check for every path that can start a model call: the API and Max writers that add
+    an enabled AI alert, the simulate endpoint, and the detector itself on a scheduled check.
+    The rollout flag and AI-processing consent are independent, so both are tested.
+    """
+    if not is_llm_detector_rolled_out(distinct_id=distinct_id, organization_id=organization.id):
+        return LLM_DETECTOR_ROLLOUT_MESSAGE
+    if organization.is_ai_data_processing_approved is not True:
+        return LLM_DETECTOR_CONSENT_MESSAGE
+    return None
+
 
 def is_llm_detector_config(detector_config: Any) -> bool:
     return isinstance(detector_config, dict) and detector_config.get("type") == DetectorType.LLM.value
