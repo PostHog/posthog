@@ -1047,7 +1047,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 )
 
             # Generate semantic descriptions for the synced table. Gated up front on actual need
-            # (feature flag + AI consent AND unannotated columns / missing table description, resolved in
+            # (AI consent AND unannotated columns / missing table description, resolved in
             # create_external_data_job_model_activity) so a steady-state sync — which re-fires every few
             # minutes — doesn't spawn a child that immediately no-ops; the activity re-checks as a safety
             # net and is idempotent. Keyed per schema so only one runs per schema at a time: a concurrent

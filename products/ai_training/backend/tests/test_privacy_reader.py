@@ -63,10 +63,10 @@ class TestTrainingDataKeyReader(TestCase):
         self.assertIn(location, reader.read([location]))
         self.assertIn(location, reader.read([location]))
         self.assertEqual(kms.decrypt.call_count, 1)
-        month = TrainingKeyLocation(pk="month:2025-09", sk="deleted")
-        rows[month] = {**month.encoded(), "deleted": {"BOOL": True}}
+        team_block = TrainingKeyLocation(pk="team:7", sk="deleted")
+        rows[team_block] = {**team_block.encoded(), "deleted": {"BOOL": True}}
         self.assertEqual(reader.read([location]), {})
-        del rows[month]
+        del rows[team_block]
         self.assertIn(location, reader.read([location]))
         rows[location].pop("wrapped_key")
         rows[location]["deleted"] = {"BOOL": True}
