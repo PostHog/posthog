@@ -129,9 +129,9 @@ async def test_timeline_interleaves_prose_and_task_cards_in_arrival_order():
     assert stop_input.trace_id == "trace-1"
 
 
-async def test_timeline_merges_consecutive_tool_calls_into_one_card():
-    # A burst of tool calls with no narrative between them must render as one
-    # collapsible card that accumulates the calls, not a column of one-line cards.
+async def test_each_tool_call_gets_its_own_card_and_its_outcome_lands_on_it():
+    # One card per call, and a finished call's result must flip that call's card
+    # (filling its output), not the card of whichever call ran last.
     async with _RelayEnv() as relay:
         handle = await relay.start_relay(STREAM_MODE_TIMELINE)
         await handle.signal(
@@ -150,17 +150,41 @@ async def test_timeline_merges_consecutive_tool_calls_into_one_card():
         await handle.result()
 
     tasks = [c.task_update for c in relay.rec.ordered_chunks() if c.task_update]
-    assert len({t.id for t in tasks}) == 1
-    last = tasks[-1]
-    assert last.status == "in_progress"
-    assert last.title == "posthog/exec (2)"
-    assert last.details is not None
-    assert "insight list → 12 rows" in last.details
-    assert "query run" in last.details
+    ids = {t.id for t in tasks}
+    assert len(ids) == 2
+    card_one_id = next(t.id for t in tasks if t.details == "insight list")
+    card_one_final = [t for t in tasks if t.id == card_one_id][-1]
+    assert card_one_final.status == "complete"
+    assert card_one_final.output == "12 rows"
 
+    card_two_id = next(t.id for t in tasks if t.details == "query run")
     stop_input = relay.rec.calls[-1][1]
     assert isinstance(stop_input, StopSlackAgentDesignStreamInput)
-    assert stop_input.complete_task_id == last.id
+    assert stop_input.complete_task_id == card_two_id
+
+
+async def test_failed_tool_call_marks_its_card_as_error_and_stop_leaves_it_alone():
+    # An error status must survive the close: the stop path completing the card
+    # again would repaint the failure as success.
+    async with _RelayEnv() as relay:
+        handle = await relay.start_relay(STREAM_MODE_TIMELINE)
+        await handle.signal(
+            SlackAgentDesignRelayWorkflow.agent_status_update,
+            {"title": "Bash", "details": "make test", "tool_call_id": "tc-1"},
+        )
+        await handle.signal(
+            SlackAgentDesignRelayWorkflow.agent_status_update,
+            {"kind": "tool_result", "tool_call_id": "tc-1", "output": "exit 1", "failed": True},
+        )
+        await handle.signal(SlackAgentDesignRelayWorkflow.complete_turn, None)
+        await handle.result()
+
+    tasks = [c.task_update for c in relay.rec.ordered_chunks() if c.task_update]
+    assert tasks[-1].status == "error"
+    assert tasks[-1].output == "exit 1"
+    stop_input = relay.rec.calls[-1][1]
+    assert isinstance(stop_input, StopSlackAgentDesignStreamInput)
+    assert stop_input.complete_task_id is None
 
 
 async def test_timeline_narrative_breaks_the_card_burst():

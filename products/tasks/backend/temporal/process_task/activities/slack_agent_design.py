@@ -38,8 +38,9 @@ class TaskUpdateChunk:
 
     id: str
     title: str
-    status: str  # "in_progress" | "complete"
+    status: str  # "in_progress" | "complete" | "error"
     details: Optional[str] = None
+    output: Optional[str] = None
 
 
 @dataclass
@@ -116,7 +117,16 @@ def _ordered_chunk_dicts(chunks: list[StreamChunk], integration_id: int) -> list
     for chunk in chunks:
         if chunk.task_update is not None:
             t = chunk.task_update
-            out.append({"type": "task_update", "id": t.id, "title": t.title, "status": t.status, "details": t.details})
+            out.append(
+                {
+                    "type": "task_update",
+                    "id": t.id,
+                    "title": t.title,
+                    "status": t.status,
+                    "details": t.details,
+                    "output": t.output,
+                }
+            )
         elif chunk.markdown_text:
             out.append({"type": "markdown_text", "text": _rewrite_object_tags(chunk.markdown_text, integration_id)})
     return out

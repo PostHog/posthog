@@ -77,8 +77,9 @@ def _task_update_chunk(
     title: str,
     status: str,
     details: str | None,
+    output: str | None = None,
 ) -> dict[str, Any]:
-    """task_update chunk with title/details truncated to Slack's 256-char cap."""
+    """task_update chunk with title/details/output truncated to Slack's 256-char cap."""
     chunk: dict[str, Any] = {
         "type": "task_update",
         "id": task_id,
@@ -87,6 +88,8 @@ def _task_update_chunk(
     }
     if details:
         chunk["details"] = details[:_TASK_FIELD_LIMIT]
+    if output:
+        chunk["output"] = output[:_TASK_FIELD_LIMIT]
     return chunk
 
 
@@ -381,7 +384,9 @@ class SlackThreadHandler:
                 status = chunk.get("status")
                 if not task_id or not title or not status:
                     continue
-                chunks.append(_task_update_chunk(str(task_id), str(title), str(status), chunk.get("details")))
+                chunks.append(
+                    _task_update_chunk(str(task_id), str(title), str(status), chunk.get("details"), chunk.get("output"))
+                )
             elif chunk.get("type") == "markdown_text" and chunk.get("text"):
                 for piece in _split_markdown_text(normalize_labeled_mentions_to_bare(str(chunk["text"]))):
                     chunks.append({"type": "markdown_text", "text": piece})

@@ -108,14 +108,23 @@ class TestSlackAgentDesignSignalEmitter:
         ]
         assert repeat == []
 
-    def test_tool_outcomes_without_a_rendered_step_or_content_stay_silent(self) -> None:
+    def test_tool_outcome_without_a_rendered_step_stays_silent(self) -> None:
         emitter = SlackAgentDesignSignalEmitter(SLACK_CTX)
         emitter.process(_text_chunk("thinking"))
         emitter.process(_tool_call("call-1", "Read", "/etc/hosts"))
 
-        # No rendered step for this id, and a clean finish with nothing to show.
         assert emitter.process(_tool_result("call-unknown", "data")) == []
-        assert emitter.process(_tool_result("call-1")) == []
+
+    def test_clean_finish_without_output_still_flips_the_cards_status(self) -> None:
+        emitter = SlackAgentDesignSignalEmitter(SLACK_CTX)
+        emitter.process(_text_chunk("thinking"))
+        emitter.process(_tool_call("call-1", "Read", "/etc/hosts"))
+
+        signals = emitter.process(_tool_result("call-1"))
+
+        assert signals == [
+            ("agent_status_update", {"kind": "tool_result", "tool_call_id": "call-1", "output": None, "failed": False})
+        ]
 
     def test_failed_tool_call_reports_even_without_output(self) -> None:
         emitter = SlackAgentDesignSignalEmitter(SLACK_CTX)

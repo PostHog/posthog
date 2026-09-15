@@ -867,11 +867,14 @@ def _extract_tool_call_result(event_data: dict, emitted: set[str], seen_results:
     if status not in _TERMINAL_TOOL_CALL_STATUSES:
         return None
     seen_results.add(tool_call_id)
-    output = _tool_result_preview(update)
-    failed = status == "failed"
-    if not output and not failed:
-        return None
-    return {"kind": "tool_result", "tool_call_id": tool_call_id, "output": output, "failed": failed}
+    # Emitted even with nothing to show: the terminal status is what flips the
+    # call's card from in_progress to complete or error.
+    return {
+        "kind": "tool_result",
+        "tool_call_id": tool_call_id,
+        "output": _tool_result_preview(update),
+        "failed": status == "failed",
+    }
 
 
 def _tool_result_preview(update: dict) -> str | None:
