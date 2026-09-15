@@ -127,16 +127,22 @@ class MetricsHistogramQueryRunner(AnalyticsQueryRunner[MetricsHistogramQueryResp
             for f in self.query.filters or []
         )
 
-        runner = MetricQueryRunner(
-            team=self.team,
-            metric_name=self.query.metricName,
-            aggregation="histogram_quantile",
-            date_from=date_from,
-            date_to=date_to,
-            filters=filters,
-            interval=interval,
-            quantile=0.5,  # unused by the grid query; required by the constructor
-        )
+        try:
+            runner = MetricQueryRunner(
+                team=self.team,
+                metric_name=self.query.metricName,
+                aggregation="histogram_quantile",
+                date_from=date_from,
+                date_to=date_to,
+                filters=filters,
+                interval=interval,
+                quantile=0.5,  # unused by the grid query; required by the constructor
+            )
+        except ValueError as exc:
+            # The runner signals user errors (inverted range, too-wide span, unknown
+            # interval, too many buckets) with ValueError; /query only exposes typed
+            # errors, so a bare ValueError would surface as a 500 instead of a 400.
+            raise ExposedHogQLError(str(exc)) from exc
 
         # Reuse the per-bucket distribution query directly rather than the quantile post-processing.
         query = runner._build_histogram_query()
@@ -147,6 +153,10 @@ class MetricsHistogramQueryRunner(AnalyticsQueryRunner[MetricsHistogramQueryResp
             workload=Workload.LOGS,
             settings=_QUERY_SETTINGS,
         )
+        try:
+            runner._raise_on_truncation(response.results)
+        except ValueError as exc:
+            raise ExposedHogQLError(str(exc)) from exc
 
         # The runner floors date_from onto the bucket grid in the team timezone and returns
         # tz-aware bucket starts; rebuild the same grid so response rows land on columns exactly.

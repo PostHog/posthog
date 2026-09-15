@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { SpinnerOverlay } from '@posthog/lemon-ui'
 
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
+import { InsightErrorState } from 'scenes/insights/EmptyStates'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { AnyResponseType, MetricsHistogramQuery, MetricsHistogramQueryResponse } from '~/queries/schema/schema-general'
@@ -34,13 +35,15 @@ export function MetricsHistogramQueryNode(props: {
 
     useAttachedLogic(logic, props.attachTo)
 
-    const { response, responseLoading } = useValues(logic)
+    const { response, responseLoading, responseError } = useValues(logic)
     const histogram = response as MetricsHistogramQueryResponse | undefined
     const unit = props.query.unit
 
     return (
         <div className="relative flex flex-col w-full h-full min-h-[200px]">
-            {histogram && histogram.times?.length ? (
+            {responseError ? (
+                <InsightErrorState query={props.query} excludeDetail title={responseError} />
+            ) : histogram && histogram.times?.length ? (
                 <HeatmapPanel response={histogram} unit={unit} />
             ) : !responseLoading ? (
                 <div className="flex-1 flex items-center justify-center text-secondary text-sm">

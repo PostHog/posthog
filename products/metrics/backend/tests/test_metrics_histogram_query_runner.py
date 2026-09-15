@@ -8,6 +8,8 @@ from parameterized import parameterized
 
 from posthog.schema import MetricsHistogramQuery
 
+from posthog.hogql.errors import ExposedHogQLError
+
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
@@ -135,6 +137,16 @@ class TestMetricsHistogramQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 interval="minute",
             )
         self.assertIn("interval", str(ctx.exception).lower())
+
+    def test_invalid_range_surfaces_as_client_error_not_500(self):
+        with self.assertRaises(ExposedHogQLError):
+            self._run(
+                dateRange={
+                    "date_from": self.anchor.isoformat(),
+                    "date_to": (self.anchor - dt.timedelta(minutes=5)).isoformat(),
+                    "explicitDate": True,
+                }
+            )
 
     @parameterized.expand(
         [
