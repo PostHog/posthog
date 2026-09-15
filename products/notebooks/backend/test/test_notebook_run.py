@@ -4,6 +4,7 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from posthog.models.scoping import team_scope
+from posthog.models.utils import UUIDT
 
 from products.notebooks.backend.models import Notebook, NotebookNodeRun, NotebookRun
 from products.notebooks.backend.notebook_run import node_run_request_for
@@ -143,6 +144,40 @@ class TestNotebookRunEndpoints(APIBaseTest):
         assert payload["current_node_id"] == "s1"
         assert [(cell["node_id"], cell["status"]) for cell in payload["cells"]] == [("s1", "done"), ("p1", None)]
         assert payload["cells"][0]["run_id"] == str(node_run.id)
+
+    def test_a_cell_error_from_an_unreachable_source_is_withheld(self, _start, _flag) -> None:
+        # Notebook plus query access does not imply source access, and an engine error can
+        # carry its own detail. The cell-result endpoint refuses outright; this one serves
+        # many cells, so it drops the error and keeps the rest readable.
+        run_id = self.client.post(self.runs_url, data={}, format="json").json()["run_id"]
+        source_id = UUIDT()
+        with team_scope(self.team.id):
+            notebook_run = NotebookRun.objects.get(id=run_id)
+            NotebookNodeRun.objects.create(
+                team=self.team,
+                notebook=self.notebook,
+                notebook_run=notebook_run,
+                node_id="s1",
+                code="select 1",
+                connection_id=source_id,
+                status=NotebookNodeRun.Status.FAILED,
+                error='relation "secret_table" does not exist',
+            )
+
+        with patch(
+            "products.notebooks.backend.presentation.views.notebook.get_direct_connection_source",
+            return_value=None,
+        ):
+            withheld = self.client.get(f"{self.runs_url}{run_id}/").json()
+        with patch(
+            "products.notebooks.backend.presentation.views.notebook.get_direct_connection_source",
+            return_value=object(),
+        ):
+            allowed = self.client.get(f"{self.runs_url}{run_id}/").json()
+
+        assert withheld["cells"][0]["status"] == "failed"
+        assert withheld["cells"][0]["error"] is None
+        assert allowed["cells"][0]["error"] == 'relation "secret_table" does not exist'
 
     def test_interrupt_stops_the_run_and_is_idempotent(self, _start, _flag) -> None:
         run_id = self.client.post(self.runs_url, data={}, format="json").json()["run_id"]
