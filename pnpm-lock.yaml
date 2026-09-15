@@ -100,7 +100,7 @@ catalogs:
       specifier: ^0.57.0
       version: 0.57.0
     posthog-js:
-      specifier: ^1.433.3
+      specifier: ^1.433.2
       version: 1.433.3
     query-selector-shadow-dom:
       specifier: ^1.0.0
@@ -30206,7 +30206,7 @@ snapshots:
 
   '@posthog/core@1.51.1':
     dependencies:
-      '@posthog/types': 1.409.2
+      '@posthog/types': 1.412.0
 
   '@posthog/core@1.51.2':
     dependencies:

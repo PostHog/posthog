@@ -1455,7 +1455,7 @@ importers:
         specifier: ^11.17.0
         version: 11.17.0
       posthog-js:
-        specifier: ^1.433.3
+        specifier: ^1.433.2
         version: 1.433.3(@types/react@19.2.17)(react@19.2.6)
       radix-themes-tw:
         specifier: 0.2.3
@@ -1751,7 +1751,7 @@ importers:
         specifier: workspace:*
         version: link:../../packages/shared
       posthog-js:
-        specifier: ^1.433.3
+        specifier: ^1.433.2
         version: 1.433.3(@types/react@19.2.17)(react@19.2.6)
       react:
         specifier: 19.2.6
