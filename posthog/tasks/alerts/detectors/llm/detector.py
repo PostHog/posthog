@@ -10,6 +10,7 @@ author's own notes on what counts as strange.
 """
 
 import uuid
+import threading
 from typing import Any
 
 import numpy as np
@@ -49,6 +50,18 @@ DEFAULT_WINDOW = 90
 MAX_PROMPT_POINTS = 400
 
 MIN_POINTS_TO_JUDGE = 5
+
+# The rationale is appended to the breach text that every destination renders. Discord
+# rejects a message over 2,000 characters, and the breach prefix and the other breaches in
+# the same message need room too.
+MAX_RATIONALE_CHARS = 600
+
+# The evaluate activity runs this call on the worker's shared default thread pool, next to
+# every other alert's database work. Bounding the calls in flight keeps a slow model from
+# holding that whole pool and stalling alerts that make no model call at all.
+MAX_CONCURRENT_MODEL_CALLS = 8
+MODEL_CALL_SLOT_WAIT_SECONDS = 30.0
+_model_call_slots = threading.BoundedSemaphore(MAX_CONCURRENT_MODEL_CALLS)
 
 
 @register_detector(DetectorType.LLM)
@@ -100,13 +113,26 @@ class LLMDetector(BaseDetector):
                 "Recreate the alert to fix it."
             )
 
+        # The rollout flag and this consent are independent, and an alert created while
+        # consent was on keeps being checked after it is withdrawn. Refusing here covers
+        # every path to the model, scheduled or previewed.
+        if context.team.organization.is_ai_data_processing_approved is not True:
+            raise LLMDetectorMisconfiguredError(
+                "AI data processing is turned off for this organization, so the AI detector cannot "
+                "send this insight's data to a model. Turn it on in organization settings, or switch "
+                "this alert to a statistical detector."
+            )
+
         # Deferred so importing the detector registry does not pull langchain into every
         # process that touches an alert.
+        from langchain_core.callbacks import BaseCallbackHandler  # noqa: PLC0415
         from langchain_core.messages import HumanMessage, SystemMessage  # noqa: PLC0415
+        from langchain_core.runnables import RunnableConfig  # noqa: PLC0415
         from posthoganalytics.ai.langchain.callbacks import CallbackHandler  # noqa: PLC0415
 
         from ee.hogai.llm import MaxChatAnthropic  # noqa: PLC0415
         from ee.hogai.utils.exceptions import LLM_API_EXCEPTIONS, LLM_TRANSIENT_EXCEPTIONS  # noqa: PLC0415
+        from ee.hogai.utils.feature_flags import is_privacy_mode_enabled  # noqa: PLC0415
 
         instructions_present = bool(context.instructions)
         # No temperature: Sonnet 5 rejects non-default sampling params with a 400.
@@ -138,7 +164,7 @@ class LLMDetector(BaseDetector):
             ),
         ]
 
-        callbacks = []
+        callbacks: list[BaseCallbackHandler] = []
         if posthoganalytics.default_client is not None:
             callbacks.append(
                 CallbackHandler(
@@ -146,11 +172,16 @@ class LLMDetector(BaseDetector):
                     distinct_id=str(context.team.id),
                     trace_id=f"alert-llm-detector-{uuid.uuid4()}",
                     properties={"ai_product": LLM_DETECTOR_AI_PRODUCT, "team_id": context.team.id},
+                    privacy_mode=is_privacy_mode_enabled(context.team),
                 )
             )
 
+        if not _model_call_slots.acquire(timeout=MODEL_CALL_SLOT_WAIT_SECONDS):
+            raise LLMDetectorUnavailableError(
+                f"The AI detector is already running {MAX_CONCURRENT_MODEL_CALLS} model calls on this worker."
+            )
         try:
-            verdict = model.invoke(messages, config={"callbacks": callbacks})
+            verdict = model.invoke(messages, config=RunnableConfig(callbacks=callbacks))
         except LLM_TRANSIENT_EXCEPTIONS as error:
             raise LLMDetectorUnavailableError(f"The AI detector could not reach the model: {error}") from error
         except LLM_API_EXCEPTIONS as error:
@@ -159,6 +190,8 @@ class LLMDetector(BaseDetector):
             ) from error
         except Exception as error:
             raise LLMDetectorUnavailableError(f"The AI detector could not read the model response: {error}") from error
+        finally:
+            _model_call_slots.release()
 
         if not isinstance(verdict, LLMDetectionVerdict):
             raise LLMDetectorUnavailableError(
@@ -185,17 +218,20 @@ class LLMDetector(BaseDetector):
         is_anomaly = verdict.is_anomaly and confident
 
         index_offset = max(0, len(data) - window)
-        reported_indices = [index + index_offset for index in verdict.triggered_indices] if judge_every_point else []
+        reported_indices = [index + index_offset for index in verdict.triggered_indices]
         indices = self._clamp_indices(reported_indices, length=len(data))
+        latest_point_flagged = (len(data) - 1) in indices
         if not judge_every_point:
-            # A live check judges one point, so a verdict about the latest point is the only
-            # trigger that can fire — whatever else the model listed is history.
+            # A live check judges one point. The prompt asks the model to list the final index
+            # when, and only when, that point is the anomaly, so a verdict that flags only
+            # history (or nothing) must not page anyone about a normal current value.
+            is_anomaly = is_anomaly and latest_point_flagged
             indices = [len(data) - 1] if is_anomaly else []
         elif not is_anomaly:
             indices = []
 
         metadata: dict[str, Any] = {
-            "rationale": verdict.rationale,
+            "rationale": verdict.rationale[:MAX_RATIONALE_CHARS],
             "kind": verdict.kind,
             "model": LLM_DETECTOR_MODEL,
         }
@@ -203,6 +239,8 @@ class LLMDetector(BaseDetector):
             # Worth seeing in the check history: the model did flag something, the
             # confidence gate is what stopped the alert.
             metadata["below_threshold"] = True
+        if verdict.is_anomaly and confident and not judge_every_point and not latest_point_flagged:
+            metadata["latest_point_not_flagged"] = True
 
         anomaly_score = self._anomaly_score(verdict)
         return DetectionResult(

@@ -60,6 +60,33 @@ def test_marks_the_alerted_series_by_index() -> None:
     assert 'Other series in this insight (index 0): unique users (DAU) of event "$pageview"' in described
 
 
+@parameterized.expand(
+    [
+        ("formula_nodes", {"formulaNodes": [{"formula": "A / B", "custom_name": "Refund rate"}, {"formula": "A - B"}]}),
+        ("formulas", {"formulas": ["A / B", "A - B"]}),
+    ]
+)
+def test_describes_the_selected_formula_as_the_alerted_result(_name: str, trends_filter: dict) -> None:
+    # With formulas, series_index picks a formula result, not a raw series. Labeling a raw
+    # series as "alerted" would hand the model a confidently wrong definition.
+    query = {
+        "kind": "TrendsQuery",
+        "series": [
+            {"kind": "EventsNode", "event": "refund", "math": "total"},
+            {"kind": "EventsNode", "event": "purchase", "math": "total"},
+        ],
+        "trendsFilter": trends_filter,
+    }
+
+    described = describe_metric_definition(query, series_index=0)
+
+    assert "Alerted result (index 0): formula A / B" in described
+    assert "Other result in this insight (index 1): formula A - B" in described
+    assert 'Input series A (index 0): total event count of event "refund"' in described
+    assert 'Input series B (index 1): total event count of event "purchase"' in described
+    assert "Alerted series" not in described
+
+
 def test_flattens_nested_property_groups() -> None:
     query = {
         "kind": "TrendsQuery",

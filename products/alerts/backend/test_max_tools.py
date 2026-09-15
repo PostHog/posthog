@@ -408,6 +408,45 @@ class TestUpsertAlertTool(BaseTest):
 
     @pytest.mark.django_db
     @pytest.mark.asyncio
+    async def test_update_rejects_enabling_an_ai_alert_over_the_team_cap(self):
+        # Max is a second writer of alerts, so it must apply the same AI-alert cap as the API.
+        insight = await self._create_insight()
+        llm_config = {"type": "llm", "threshold": 0.7, "window": 90}
+        active = await self._create_alert(insight, name="Active")
+        disabled = await self._create_alert(insight, name="Disabled", enabled=False)
+        await sync_to_async(AlertConfiguration.objects.filter(id__in=[active.id, disabled.id]).update)(
+            detector_config=llm_config
+        )
+        tool = self._setup_tool()
+
+        with mock.patch("products.alerts.backend.llm_detector_limits.max_llm_alerts_per_team", return_value=1):
+            content, artifact = await tool._arun_impl(action=UpdateAlertAction(alert_id=str(disabled.id), enabled=True))
+
+        assert "alerts using the AI detector" in content
+        assert artifact["error"] == "plan_limit_reached"
+        await disabled.arefresh_from_db()
+        assert disabled.enabled is False
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_update_rejects_moving_an_ai_alert_to_real_time(self):
+        await self._enable_real_time_alerts(limit=5)
+        insight = await self._create_insight()
+        alert = await self._create_alert(insight, name="AI")
+        await sync_to_async(AlertConfiguration.objects.filter(id=alert.id).update)(
+            detector_config={"type": "llm", "threshold": 0.7, "window": 90}
+        )
+        tool = self._setup_tool()
+
+        content, artifact = await tool._arun_impl(
+            action=UpdateAlertAction(alert_id=str(alert.id), calculation_interval=AlertCalculationInterval.REAL_TIME)
+        )
+
+        assert "cannot run on the real-time cadence" in content
+        assert artifact["error"] == "validation_failed"
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
     async def test_rejects_insight_from_other_team(self):
         other_org = await sync_to_async(Organization.objects.create)(name="Other Org")
         other_team = await sync_to_async(Team.objects.create)(organization=other_org, name="Other Team")

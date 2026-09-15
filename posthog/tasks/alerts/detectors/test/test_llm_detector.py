@@ -7,7 +7,7 @@ import numpy as np
 from parameterized import parameterized
 
 from posthog.tasks.alerts.detectors.base import DetectionContext, DetectionResult
-from posthog.tasks.alerts.detectors.llm.detector import LLMDetector
+from posthog.tasks.alerts.detectors.llm.detector import MAX_RATIONALE_CHARS, LLMDetector
 from posthog.tasks.alerts.detectors.llm.errors import LLMDetectorMisconfiguredError, LLMDetectorUnavailableError
 from posthog.tasks.alerts.detectors.llm.prompt import INSTRUCTIONS_FENCE, SYSTEM_PROMPT, build_human_message
 from posthog.tasks.alerts.detectors.llm.verdict import LLMDetectionVerdict
@@ -15,9 +15,14 @@ from posthog.tasks.alerts.detectors.llm.verdict import LLMDetectionVerdict
 SERIES = np.array([100.0, 104.0, 98.0, 101.0, 99.0, 103.0, 40.0])
 
 
+class _FakeOrganization:
+    is_ai_data_processing_approved: bool | None = True
+
+
 class _FakeTeam:
     id = 1
     name = "Test"
+    organization = _FakeOrganization()
 
 
 class _FakeUser:
@@ -116,6 +121,26 @@ class TestLLMDetectorVerdictMapping:
 
         assert result.triggered_indices == [len(SERIES) - 1]
 
+    @parameterized.expand([("history_only", [1, 2]), ("no_indices", [])])
+    def test_live_check_does_not_fire_unless_the_latest_point_is_flagged(
+        self, _name: str, triggered_indices: list[int]
+    ) -> None:
+        # A confident "anomaly" about a point in the history must not page anyone about a
+        # normal current value.
+        result = _detect(LLMDetector({"type": "llm"}), _verdict(triggered_indices=triggered_indices))
+
+        assert result.is_anomaly is False
+        assert result.triggered_indices == []
+        assert result.metadata["latest_point_not_flagged"] is True
+
+    def test_live_check_maps_the_final_prompt_index_through_the_truncation_offset(self) -> None:
+        # With a window smaller than the series, the prompt renumbers from zero; the final
+        # prompt index must still count as the latest point.
+        result = _detect(LLMDetector({"type": "llm", "window": 3}), _verdict(triggered_indices=[2]))
+
+        assert result.is_anomaly is True
+        assert result.triggered_indices == [len(SERIES) - 1]
+
     @parameterized.expand(
         [
             ("out_of_range", [3, 999, -1], [3]),
@@ -175,6 +200,20 @@ class TestLLMDetectorFailureIsLoud:
         with pytest.raises(LLMDetectorMisconfiguredError):
             LLMDetector({"type": "llm"}).detect_in_context(SERIES, _context(**overrides))
 
+    @parameterized.expand([("withdrawn", False), ("never_given", None)])
+    def test_call_is_refused_without_ai_processing_consent(self, _name: str, approved: bool | None) -> None:
+        team = _FakeTeam()
+        team.organization = _FakeOrganization()
+        team.organization.is_ai_data_processing_approved = approved
+
+        with pytest.raises(LLMDetectorMisconfiguredError, match="AI data processing is turned off"):
+            LLMDetector({"type": "llm"}).detect_in_context(SERIES, _context(team=team))
+
+    def test_rationale_is_bounded_before_it_reaches_the_breach_text(self) -> None:
+        result = _detect(LLMDetector({"type": "llm"}), _verdict(rationale="x" * 5000))
+
+        assert len(result.metadata["rationale"]) == MAX_RATIONALE_CHARS
+
 
 class TestLLMDetectorPrompt:
     def test_chart_failure_degrades_to_text_only(self) -> None:
@@ -213,4 +252,15 @@ class TestLLMDetectorPrompt:
         # Only the last three dates, and the judged index is stated relative to what was sent.
         assert "2026-01-05" in message
         assert "2026-01-04" not in message
-        assert "Judge the final point (index 2)" in message
+        assert "The final point (index 2) is the point under judgment" in message
+
+    def test_batch_prompt_does_not_pin_judgment_to_the_final_point(self) -> None:
+        # A backfill asks for every anomalous index; a system-level "the final point is the one
+        # under judgment" would contradict that and can collapse the answer to one point.
+        assert "point under judgment" not in SYSTEM_PROMPT
+        with patch("posthog.tasks.alerts.detectors.llm.prompt.render_series_chart", return_value=None):
+            message = build_human_message(data=SERIES, context=_context(), window=90, judge_every_point=True)
+
+        assert isinstance(message, str)
+        assert "point under judgment" not in message
+        assert "Return every index in this table you consider anomalous" in message

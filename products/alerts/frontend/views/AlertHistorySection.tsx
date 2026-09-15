@@ -153,6 +153,12 @@ export function AlertHistorySection({
     const isAnyRowSqlAlert = isAnyRowHogQLConfig(alert?.config)
     // Only the AI detector reports a reason, so no other alert type gets an always-empty column.
     const isLLMDetectorAlert = alert?.detector_config?.type === DetectorType.LLM
+    // Past AI checks keep their reason after the alert moves to another detector.
+    const showWhyColumn =
+        isLLMDetectorAlert ||
+        alertHistoryChecksSortedDesc.some(
+            (check) => !!(check.triggered_metadata as { rationale?: string } | null)?.rationale
+        )
 
     const checkHistoryColumns = useMemo((): LemonTableColumn<AlertCheck, keyof AlertCheck | undefined>[] => {
         const columns: LemonTableColumn<AlertCheck, keyof AlertCheck | undefined>[] = [
@@ -188,7 +194,7 @@ export function AlertHistorySection({
                 },
             })
         }
-        if (isLLMDetectorAlert) {
+        if (showWhyColumn) {
             columns.push({
                 title: 'Why',
                 render: (_value, check) => {
@@ -266,7 +272,7 @@ export function AlertHistorySection({
             },
         })
         return columns
-    }, [alertHistoryIsAnomalyDetection, investigationAgentEnabled, isAnyRowSqlAlert, isLLMDetectorAlert])
+    }, [alertHistoryIsAnomalyDetection, investigationAgentEnabled, isAnyRowSqlAlert, isLLMDetectorAlert, showWhyColumn])
 
     if (!alert) {
         return null

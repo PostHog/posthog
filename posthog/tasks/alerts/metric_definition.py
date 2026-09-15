@@ -113,7 +113,13 @@ def _describe(query: Any, series_index: int) -> str:
 
     series = source.get("series")
     clauses = source.get("clauses")
-    if isinstance(series, list) and series:
+    formulas = _formulas(source)
+    if isinstance(series, list) and series and formulas:
+        # With formulas, the alerted result is a formula over the series, and series_index
+        # picks a formula, not a raw series.
+        lines.extend(_describe_formulas(formulas, series_index))
+        lines.extend(_describe_series(series, series_index=None))
+    elif isinstance(series, list) and series:
         lines.extend(_describe_series(series, series_index))
     elif isinstance(clauses, list) and clauses:
         lines.extend(_describe_clauses(clauses))
@@ -140,10 +146,47 @@ def unwrap_query_source(query: Any) -> dict[str, Any] | None:
     return None
 
 
-def _describe_series(series: list[Any], series_index: int) -> list[str]:
+def _formulas(source: dict[str, Any]) -> list[tuple[str, str | None]]:
+    """Every formula on the query as (expression, custom name), across the three shapes the
+    trends filter has carried: ``formulaNodes``, ``formulas``, and the single ``formula``."""
+    trends_filter = source.get("trendsFilter")
+    if not isinstance(trends_filter, dict):
+        return []
+    nodes = trends_filter.get("formulaNodes")
+    if isinstance(nodes, list) and nodes:
+        return [
+            (str(node.get("formula") or ""), node.get("custom_name") or None)
+            for node in nodes
+            if isinstance(node, dict)
+        ]
+    formulas = trends_filter.get("formulas")
+    if isinstance(formulas, list) and formulas:
+        return [(str(formula), None) for formula in formulas]
+    formula = trends_filter.get("formula")
+    return [(str(formula), None)] if formula else []
+
+
+def _describe_formulas(formulas: list[tuple[str, str | None]], series_index: int) -> list[str]:
+    lines: list[str] = []
+    for index, (expression, name) in enumerate(formulas):
+        label = "Alerted result" if index == series_index else "Other result in this insight"
+        named = f' named "{name}"' if name else ""
+        lines.append(
+            f"- {label} (index {index}): formula {_clip(expression, MAX_VALUE_CHARS)}{named}, "
+            "combining the input series below by letter (A is the first input series)"
+        )
+    if series_index >= len(formulas):
+        lines.append(f"- (The alerted result index {series_index} is past the {len(formulas)} formulas defined.)")
+    return lines
+
+
+def _describe_series(series: list[Any], series_index: int | None) -> list[str]:
     lines: list[str] = []
     for index, node in enumerate(series[:MAX_DESCRIBED_SERIES]):
-        label = "Alerted series" if index == series_index else "Other series in this insight"
+        if series_index is None:
+            label = f"Input series {chr(ord('A') + index)}" if index < 26 else "Input series"
+        else:
+            label = "Alerted series" if index == series_index else "Other series in this insight"
         lines.append(f"- {label} (index {index}): {_describe_series_node(node)}")
     if len(series) > MAX_DESCRIBED_SERIES:
         lines.append(f"- ({len(series) - MAX_DESCRIBED_SERIES} further series omitted.)")
@@ -213,12 +256,6 @@ def _describe_query_scope(source: dict[str, Any]) -> list[str]:
     breakdown = _describe_breakdown(source.get("breakdownFilter"))
     if breakdown:
         lines.append(f"- Breakdown: {breakdown}")
-
-    trends_filter = source.get("trendsFilter")
-    if isinstance(trends_filter, dict):
-        formula = trends_filter.get("formula") or trends_filter.get("formulas")
-        if formula:
-            lines.append(f"- Formula combining the series: {_format_value(formula)}")
 
     date_range = source.get("dateRange")
     if isinstance(date_range, dict) and (date_range.get("date_from") or date_range.get("date_to")):
