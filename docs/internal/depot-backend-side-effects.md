@@ -1,0 +1,32 @@
+# Backend CI routing between GitHub Actions and Depot CI
+
+Each Backend CI event runs on exactly one engine. Both workflows call
+`.github/scripts/ci_backend_route.py` from their first job and skip every heavy
+job when the answer is not them, so the tests and their side effects (snapshot
+commits, uploads, comment posters, telemetry) never run twice.
+
+## The switch
+
+- `CI_BACKEND_DEPOT_PERCENT`, a GitHub repository variable from 0 to 100. A pull
+  request routes to Depot when `pr_number % 100 < percent`, so one PR stays on
+  one engine across pushes. GitHub Actions reads it through `vars`; Depot CI reads
+  it through the REST API with its ambient token. Unreadable or invalid means 0.
+- Labels override the percent for one PR: `ci-backend-github` wins over
+  `ci-backend-depot`. Fork PRs and `no-ci` drafts always route to GitHub.
+- Manual dispatches run on the engine that received them. Master pushes prime
+  each engine's own schema cache, on Depot only while the percent is above 0.
+
+Change the percent with `gh variable set CI_BACKEND_DEPOT_PERCENT --repo PostHog/posthog --body <n>`.
+Setting it to 0 routes every new run to GitHub Actions; runs already in flight finish where they started.
+
+## What the Depot workflow exposes
+
+The `sample` job outputs `route`, plus `sampled` and `side_effects`, which are
+both true only when the route is `depot`. Every ported side effect gates on
+`needs.sample.outputs.side_effects`, so it runs exactly when Depot runs the tests.
+
+The required `Django Tests Pass` check stays a GitHub Actions job. When a PR is
+routed to Depot, that job relays Depot's gate conclusion instead of running the
+matrix. Branch protection does not change during the rollout.
+
+Hourly scheduling and `mirror-schema-cache` remain on GitHub Actions for now.
