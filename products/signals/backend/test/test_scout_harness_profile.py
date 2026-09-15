@@ -74,6 +74,7 @@ from products.signals.backend.scout_harness.profile.builders import (
     _top_events,
 )
 from products.signals.backend.scout_harness.profile.schema import ScoutFleetEntry
+from products.signals.backend.scout_harness.tools.emit import emit_eligibility, emit_eligibility_for_run
 from products.signals.backend.scout_harness.tools.profile import (
     PROFILE_TTL,
     compute_project_profile,
@@ -238,13 +239,80 @@ class TestSignalSourceConfigs(BaseTest):
 
 
 class TestEmitEligibility(BaseTest):
+    def _scout_run(self, *, emit: bool) -> SignalScoutRun:
+        Task, TaskRun = apps.get_model("tasks", "Task"), apps.get_model("tasks", "TaskRun")
+        task = Task.objects.create(team=self.team, title="scout", description="d")
+        task_run = TaskRun.objects.create(team=self.team, task=task)
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-general", emit=emit)
+        return SignalScoutRun.objects.create(
+            team=self.team,
+            task_run=task_run,
+            scout_config=config,
+            skill_name="signals-scout-general",
+            skill_version=1,
+        )
+
     def test_can_emit_when_ai_approved_and_source_on(self) -> None:
         # Default org has AI processing approved; scout source is fail-open (no disabled row).
         result = _emit_eligibility(self.team)
         assert result["ai_processing_approved"] is True
         assert result["source_enabled"] is True
         assert result["can_emit"] is True
+        assert result["blocking_reason"] is None
         assert result["remediation"] is None
+        # What a profile row stores can't answer for one scout's config — the endpoint re-derives it.
+        assert result["scout_emit_enabled"] is None
+
+    def test_dry_run_scout_cannot_emit_though_the_team_gates_pass(self) -> None:
+        # The relapse this guards: the team gates pass, so the stored profile said `can_emit=true`,
+        # and the scout only learned at write time that its own config discards everything. Asking
+        # with the run in hand has to return the gate the write will actually apply.
+        run = self._scout_run(emit=False)
+        baseline = _emit_eligibility(self.team)
+        assert baseline["can_emit"] is True
+
+        result = emit_eligibility(team=self.team, run=run)
+        assert result["scout_emit_enabled"] is False
+        assert result["can_emit"] is False
+        assert result["blocking_reason"] == "scout_emit_disabled"
+        assert result["remediation"] and "emit" in result["remediation"]
+
+    def test_emitting_scout_reads_the_team_baseline(self) -> None:
+        result = emit_eligibility(team=self.team, run=self._scout_run(emit=True))
+        assert result["scout_emit_enabled"] is True
+        assert result["can_emit"] is True
+        assert result["blocking_reason"] is None
+
+    def test_team_gate_still_blocks_an_emitting_scout(self) -> None:
+        # Gate order matters: the per-scout toggle is checked first, so an emitting scout on a team
+        # without AI consent must still report the team gate rather than a clean pass.
+        run = self._scout_run(emit=True)
+        self.team.organization.is_ai_data_processing_approved = False
+        self.team.organization.save()
+
+        result = emit_eligibility(team=self.team, run=run)
+        assert result["scout_emit_enabled"] is True
+        assert result["can_emit"] is False
+        assert result["blocking_reason"] == "ai_processing_not_approved"
+
+    def test_run_whose_config_is_gone_fails_closed(self) -> None:
+        run = self._scout_run(emit=True)
+        assert run.scout_config is not None
+        run.scout_config.delete()
+
+        result = emit_eligibility(team=self.team, run=run)
+        # Unknown rather than False: there is no config left to read the toggle off.
+        assert result["scout_emit_enabled"] is None
+        assert result["can_emit"] is False
+        assert result["blocking_reason"] == "scout_config_missing"
+
+    def test_eligibility_for_run_ignores_another_teams_run(self) -> None:
+        other = Team.objects.create(organization=self.organization, name="Other")
+        run = self._scout_run(emit=False)
+
+        assert emit_eligibility_for_run(team_id=other.id, run_id=str(run.id)) is None
+        # Resolvable on its own team, so the None above is the team check and not a broken lookup.
+        assert emit_eligibility_for_run(team_id=self.team.id, run_id=str(run.id)) is not None
 
     def test_blocked_with_remediation_when_ai_not_approved(self) -> None:
         # Mutate through team.organization — the exact instance the builder reads — so the change is

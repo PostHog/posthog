@@ -572,3 +572,70 @@ def remediation_for_skip(skipped_reason: str | None) -> str | None:
     if skipped_reason is None:
         return None
     return EMIT_SKIP_REMEDIATION.get(skipped_reason)
+
+
+# What the per-scout `emit` toggle was, given the gate `_preflight_emit_gates` stopped on. That
+# check runs first, so the reason it returns already fixes the toggle's value: only
+# `scout_emit_disabled` means the toggle is off, `scout_config_missing` means there was no config
+# to read it off, and every later reason (or no reason at all) means the toggle was on. Derived
+# rather than re-queried, so the reported value cannot disagree with the gate that produced it.
+_SCOUT_EMIT_ENABLED_BY_REASON: dict[str | None, bool | None] = {
+    "scout_emit_disabled": False,
+    "scout_config_missing": None,
+}
+
+
+def emit_eligibility(*, team: Team, run: SignalScoutRun | None) -> dict[str, Any]:
+    """Whether a scout's findings and reports can actually reach the inbox, as the profile reports it.
+
+    One value, one gate. `can_emit` is `blocking_reason is None`, and with a `run` in hand
+    `blocking_reason` comes straight from `_preflight_emit_gates`, the same call `emit_report` and
+    `edit_report` make at write time. That shared derivation is the point: a scout closes out on
+    what it reads while orienting, so an eligibility answer derived separately from the write gate
+    can tell it to spend a whole run on research the write path then refuses.
+
+    `run=None` is the team-wide floor the shared cached profile stores. The profile row is per team
+    and every scout on the team reads the same one, so it cannot answer for a particular scout's
+    config: `scout_emit_enabled` is null there, and the endpoint re-derives the block for whichever
+    scout is reading (see `SignalProjectProfileViewSet`). The two team gates are still evaluated in
+    the preflight's order so the floor's `blocking_reason` names the same gate the write would.
+    """
+    ai_processing_approved = bool(team.organization.is_ai_data_processing_approved)
+    source_enabled = SignalSourceConfig.is_source_enabled(team.id, SOURCE_PRODUCT, SOURCE_TYPE)
+    if run is None:
+        blocking_reason = (
+            None
+            if ai_processing_approved and source_enabled
+            else ("ai_processing_not_approved" if not ai_processing_approved else "source_disabled")
+        )
+        scout_emit_enabled: bool | None = None
+    else:
+        blocking_reason = _preflight_emit_gates(team, run)
+        scout_emit_enabled = _SCOUT_EMIT_ENABLED_BY_REASON.get(blocking_reason, True)
+    return {
+        "ai_processing_approved": ai_processing_approved,
+        "source_enabled": source_enabled,
+        "scout_emit_enabled": scout_emit_enabled,
+        "can_emit": blocking_reason is None,
+        "blocking_reason": blocking_reason,
+        "remediation": remediation_for_skip(blocking_reason),
+    }
+
+
+def emit_eligibility_for_run(*, team_id: int, run_id: str | None) -> dict[str, Any] | None:
+    """`emit_eligibility` for the scout executing `run_id`, or None when no run of this team resolves.
+
+    None means there is no scout to answer for, which covers a person reading the profile and a run
+    id belonging to another project, and leaves the cached team-wide floor in place. It never
+    fabricates a block, because the write path still fails closed on its own.
+
+    The run carries its own canonical team, which is the team the gate must be evaluated against
+    (`_preflight_emit_gates` reads the org consent off it), so `select_related` it rather than
+    re-fetching a team the caller resolved separately.
+    """
+    if run_id is None:
+        return None
+    run = SignalScoutRun.all_teams.select_related("team__organization").filter(pk=run_id, team_id=team_id).first()
+    if run is None:
+        return None
+    return emit_eligibility(team=run.team, run=run)
