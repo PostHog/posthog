@@ -81,9 +81,35 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         return queryset.filter(team_id=self.team_id)
 
-    @extend_schema(responses={200: KnowledgeSourceSerializer(many=True)})
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "search",
+                OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Case-insensitive substring match against the source name and URL.",
+            ),
+            OpenApiParameter(
+                "source_type",
+                OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                enum=[choice.value for choice in SourceType],
+                description="Filter to a single source type (text, url, or file).",
+            ),
+        ],
+        responses={200: KnowledgeSourceSerializer(many=True)},
+    )
     def list(self, request: Request, **kwargs) -> Response:
-        sources = logic.list_for_team(self.team_id)
+        source_type = request.query_params.get("source_type") or None
+        if source_type is not None and source_type not in SourceType.values:
+            raise exceptions.ValidationError({"source_type": "Must be one of: text, url, file."})
+        sources = logic.list_for_team(
+            self.team_id,
+            search=request.query_params.get("search") or None,
+            source_type=source_type,
+        )
         page = self.paginate_queryset(sources)
         if page is not None:
             return self.get_paginated_response(KnowledgeSourceSerializer(instance=page, many=True).data)
