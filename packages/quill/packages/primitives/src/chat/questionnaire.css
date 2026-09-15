@@ -15,7 +15,7 @@
         width: fit-content;
         min-width: 14ch;
         min-height: 1lh;
-        font-size: var(--text-xs, 0.75rem);
+        font-size: var(--quill-ui-text, 0.8125rem);
         font-weight: 500;
         font-variant-numeric: tabular-nums;
         color: var(--muted-foreground);
@@ -51,7 +51,7 @@
 
     .quill-questionnaire__description {
         margin: 0;
-        font-size: var(--text-xs, 0.75rem);
+        font-size: var(--quill-ui-text, 0.8125rem);
         line-height: 1.625;
         color: var(--muted-foreground);
         text-wrap: pretty;
@@ -76,7 +76,7 @@
         min-width: 0;
         padding-block: 0.4375rem;
         padding-inline: 0.5rem;
-        font-size: var(--text-xs, 0.75rem);
+        font-size: var(--quill-ui-text, 0.8125rem);
         line-height: 1.375;
         text-align: start;
         cursor: pointer;
@@ -322,7 +322,7 @@
     }
 
     .quill-questionnaire__error {
-        font-size: var(--text-xs, 0.75rem);
+        font-size: var(--quill-ui-text, 0.8125rem);
         line-height: 1.625;
         color: var(--destructive-foreground);
     }

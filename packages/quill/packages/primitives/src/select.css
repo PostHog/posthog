@@ -118,7 +118,7 @@
         min-height: 1.75rem;
         padding-block: 0.25rem;
         padding-inline: 0.5rem;
-        font-size: var(--quill-control-text, 0.8125rem);
+        font-size: var(--quill-ui-text, 0.8125rem);
         line-height: 1.625;
         border-radius: var(--radius-sm);
         outline: none;

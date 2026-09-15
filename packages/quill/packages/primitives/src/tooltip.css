@@ -5,7 +5,7 @@
         max-width: 20rem;
         padding-block: 0.375rem;
         padding-inline: 0.75rem;
-        font-size: var(--text-xs, 0.75rem);
+        font-size: var(--quill-ui-text, 0.8125rem);
         color: var(--background);
         background-color: var(--foreground);
         border-radius: var(--radius-sm);

@@ -177,7 +177,7 @@
         min-height: 2rem;
         padding-block: 0.75;
         padding-inline: 0.75rem;
-        font-size: var(--quill-control-text, 0.8125rem);
+        font-size: var(--quill-ui-text, 0.8125rem);
         line-height: 1.625;
         background-color: color-mix(in oklab, var(--input) 20%, transparent);
         background-clip: padding-box;

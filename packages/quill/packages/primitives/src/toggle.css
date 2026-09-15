@@ -1,6 +1,6 @@
 @layer components {
     .quill-toggle {
-        font-size: var(--quill-control-text, 0.8125rem);
+        font-size: var(--quill-ui-text, 0.8125rem);
         font-weight: 500;
         cursor: pointer;
         border-radius: var(--radius-sm);

@@ -15,7 +15,7 @@
 
     .quill-accordion__trigger {
         padding: 0.5rem;
-        font-size: var(--text-xs, 0.75rem);
+        font-size: var(--quill-ui-text, 0.8125rem);
         font-weight: 500;
         line-height: 1.625;
         text-align: start;
@@ -61,7 +61,7 @@
         height: var(--accordion-panel-height);
         padding-inline: 0.5rem;
         overflow: hidden;
-        font-size: var(--text-xs, 0.75rem);
+        font-size: var(--quill-ui-text, 0.8125rem);
         line-height: 1.625;
         transition: height 200ms ease-out;
     }

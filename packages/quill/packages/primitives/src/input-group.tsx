@@ -140,7 +140,7 @@ function InputGroupNumberInput({
                     ref={inputRef}
                     data-slot="input-group-control"
                     className={cn(
-                        'quill-input-group__control h-8 w-full min-w-0 px-2 py-0.5 text-xs tabular-nums text-center outline-none placeholder:text-muted-foreground disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50',
+                        'quill-input-group__control h-8 w-full min-w-0 px-2 py-0.5 text-[length:var(--quill-ui-text,0.8125rem)] tabular-nums text-center outline-none placeholder:text-muted-foreground disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50',
                         className
                     )}
                 />

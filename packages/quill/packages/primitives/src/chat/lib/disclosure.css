@@ -15,7 +15,7 @@
         align-items: center;
         width: 100%;
         min-height: 1rem;
-        font-size: var(--text-xs, 0.75rem);
+        font-size: var(--quill-ui-text, 0.8125rem);
         line-height: 1.625;
         color: var(--muted-foreground);
         text-align: left;

@@ -30,7 +30,7 @@
     }
 
     .quill-empty__content {
-        font-size: var(--text-xs, 0.75rem);
+        font-size: var(--quill-ui-text, 0.8125rem);
         line-height: 1.625;
         text-wrap: balance;
     }

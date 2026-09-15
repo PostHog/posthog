@@ -85,7 +85,7 @@
     }
 
     .quill-thread-item__timestamp {
-        font-size: var(--text-xs, 0.75rem);
+        font-size: var(--quill-ui-text, 0.8125rem);
         color: var(--muted-foreground);
         white-space: nowrap;
     }
@@ -148,7 +148,7 @@
         gap: 0.25rem;
         align-items: center;
         padding: 0;
-        font-size: var(--text-xs, 0.75rem);
+        font-size: var(--quill-ui-text, 0.8125rem);
         color: var(--subtle-foreground, var(--muted-foreground));
         cursor: pointer;
         background: none;
@@ -223,7 +223,7 @@
         align-items: center;
         height: 1.5rem;
         padding-inline: 0.5rem;
-        font-size: var(--text-xs, 0.75rem);
+        font-size: var(--quill-ui-text, 0.8125rem);
         font-weight: 500;
         color: var(--foreground);
         cursor: pointer;

@@ -3,7 +3,7 @@
        Base
        ========================================================================= */
     .quill-button {
-        font-size: var(--text-xs, 0.75rem);
+        font-size: var(--quill-ui-text, 0.8125rem);
         font-weight: 500;
         line-height: 1.625;
         cursor: pointer;
@@ -294,14 +294,15 @@
        Sizes — height/width/padding/gap/font-size + icon-child size
        ========================================================================= */
 
-    /* `--quill-control-text` is the text size every control shares (buttons, list
-       rows, inputs, select items, tabs, toggles). Set it on an ancestor to rescale them together. */
+    /* `--quill-ui-text` is the primary UI text size: controls, list rows, chat, and the body
+       text of cards, dialogs and popovers. Secondary text (descriptions, labels, tables) stays
+       at `--text-xs`. Set it on an ancestor to rescale the primary text together. */
     .quill-button--size-default,
     .quill-button--size-row {
         gap: 0.5rem;
         height: 1.75rem;
         padding-inline: 0.5rem;
-        font-size: var(--quill-control-text, 0.8125rem);
+        font-size: var(--quill-ui-text, 0.8125rem);
         line-height: 1.625;
     }
 
@@ -373,7 +374,7 @@
         gap: 0.5rem;
         height: 2rem;
         padding-inline: 0.625rem;
-        font-size: var(--text-xs, 0.75rem);
+        font-size: var(--quill-ui-text, 0.8125rem);
         line-height: 1.625;
     }
 

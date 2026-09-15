@@ -111,7 +111,7 @@ function MenubarCheckboxItem({
             className={cn(
                 // Match the focus-visible ring on the inner <Button> that MenubarItem uses, so
                 // keyboard navigation through checkbox/radio items shows the same affordance.
-                'quill-menu-item--inset relative flex min-h-7 cursor-default items-center gap-2 rounded-sm py-1.5 pe-2 text-xs outline-hidden select-none hover:bg-[var(--fill-hover)] focus:bg-[var(--fill-hover)] focus-visible:shadow-[0_0_0_2px_color-mix(in_oklab,var(--ring)_30%,transparent)] data-disabled:pointer-events-none data-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0',
+                'quill-menu-item--inset relative flex min-h-7 cursor-default items-center gap-2 rounded-sm py-1.5 pe-2 text-[length:var(--quill-ui-text,0.8125rem)] outline-hidden select-none hover:bg-[var(--fill-hover)] focus:bg-[var(--fill-hover)] focus-visible:shadow-[0_0_0_2px_color-mix(in_oklab,var(--ring)_30%,transparent)] data-disabled:pointer-events-none data-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0',
                 className
             )}
             checked={checked}
@@ -145,7 +145,7 @@ function MenubarRadioItem({
             data-slot="menubar-radio-item"
             data-inset={inset}
             className={cn(
-                "quill-menu-item--inset relative flex min-h-7 cursor-default items-center gap-2 rounded-sm py-1.5 pe-2 text-xs outline-hidden select-none hover:bg-[var(--fill-hover)] focus:bg-[var(--fill-hover)] focus-visible:shadow-[0_0_0_2px_color-mix(in_oklab,var(--ring)_30%,transparent)] data-disabled:pointer-events-none data-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-3.5",
+                "quill-menu-item--inset relative flex min-h-7 cursor-default items-center gap-2 rounded-sm py-1.5 pe-2 text-[length:var(--quill-ui-text,0.8125rem)] outline-hidden select-none hover:bg-[var(--fill-hover)] focus:bg-[var(--fill-hover)] focus-visible:shadow-[0_0_0_2px_color-mix(in_oklab,var(--ring)_30%,transparent)] data-disabled:pointer-events-none data-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-3.5",
                 className
             )}
             {...props}
@@ -220,7 +220,7 @@ function MenubarSubTrigger({
             data-slot="menubar-sub-trigger"
             data-inset={inset}
             className={cn(
-                "min-h-7 gap-2 rounded-sm px-2 py-1 text-xs focus:bg-fill-hover data-open:bg-fill-selected [&_svg:not([class*='size-'])]:size-3.5",
+                "min-h-7 gap-2 rounded-sm px-2 py-1 text-[length:var(--quill-ui-text,0.8125rem)] focus:bg-fill-hover data-open:bg-fill-selected [&_svg:not([class*='size-'])]:size-3.5",
                 inset && 'quill-menu-item--inset',
                 className
             )}
