@@ -41,9 +41,15 @@ __FULL_DIFF__
 
 3. Read the full diff carefully. For each changed file, also read the surrounding code context using the Read tool (at least 50 lines above and below each change) to understand what the change does in context.
 
-4. Apply your assigned review checklist systematically. For each item, determine if the change introduces a risk.
+4. Check every PATCH or partial-update path for client knowledge and persistence semantics:
+   - Identify the fields that a client knows before it reads the current resource.
+   - Check that omitted fields keep their stored values when the API accepts a partial update.
+   - If the API replaces a full object, check that its contract requires every field needed to keep it valid.
+   - Check that the code persists serializer-normalized data, not raw request data.
 
-5. Produce your review in this EXACT format:
+5. Apply your assigned review checklist systematically. For each item, determine if the change introduces a risk.
+
+6. Produce your review in this EXACT format:
 
 **Risk Level:** CRITICAL / HIGH / MEDIUM / LOW / NONE
 

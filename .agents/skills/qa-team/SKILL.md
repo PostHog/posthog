@@ -147,6 +147,8 @@ You have no prior context about the codebase — approach it with fresh eyes.
 Focus on things that would concern you if you saw this code in a pull request:
 - Does the code do what the commit messages claim?
 - Are there obvious bugs, logic errors, or edge cases?
+- For a partial update, can the client know every required field before it reads the current resource?
+- Does an omitted field keep its stored value?
 - Is error handling adequate? What happens when things fail?
 - Are there race conditions or concurrency issues?
 - Is the code readable and maintainable?
@@ -171,6 +173,7 @@ edge-case dataset. For each change, ask:
 - What if two requests hit this code at the same time?
 - What if this runs against a database with millions of rows?
 - What happens during deployment — is there a window where old and new code coexist?
+- What happens when a client sends only the field it wants to change in a partial update?
 - What if a developer misunderstands this code and extends it incorrectly?
 
 Do NOT focus on style or readability. Focus on breakability.

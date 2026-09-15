@@ -117,6 +117,7 @@ Personas have intentional overlap to enable convergence checking across independ
 - Serialization format changes crossing language/service boundaries
 - Cache data format changes (what does existing cached data look like?)
 - API contract changes (request/response shape, field renames, deprecations)
+- PATCH semantics: client-known fields, omitted-field preservation, full-replacement requirements, normalized persistence
 - SDK extension code referencing core SDK APIs (version compatibility)
 - Fetch/XHR wrapper changes affecting request body handling
 - Helm/ArgoCD value restructuring atomicity
