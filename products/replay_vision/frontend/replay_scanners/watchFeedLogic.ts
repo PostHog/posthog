@@ -34,12 +34,12 @@ export interface watchFeedLogicActions {
         errorObject?: any
     }
     loadFeedSuccess: (
-        feedItems: WatchFeedItemApi[] | null,
+        feedItems: WatchFeedItemApi[],
         payload?: {
             value: true
         }
     ) => {
-        feedItems: WatchFeedItemApi[] | null
+        feedItems: WatchFeedItemApi[]
         payload?: {
             value: true
         }
