@@ -3,9 +3,6 @@ from uuid import UUID
 
 import pytest
 
-from django.db import connection
-from django.test.utils import CaptureQueriesContext
-
 from posthog.schema import ErrorTrackingIssueStatus
 
 from posthog.constants import AvailableFeature
@@ -49,20 +46,22 @@ def test_query_new_error_issues_window_boundaries_and_status(team):
 
 
 @pytest.mark.parametrize("with_organization", [False, True])
-def test_query_teams_for_digest_pages_a_batch_in_one_query(organization, with_organization):
+def test_query_teams_for_digest_loads_the_used_fields_in_one_query(
+    organization, with_organization, django_assert_num_queries
+):
     internal_organization = Organization.objects.create(name="internal metrics", for_internal_metrics=True)
     Team.objects.create(organization=internal_organization, name="internal metrics team")
     Team.objects.create(organization=organization, name="demo team", is_demo=True)
     digest_teams = [Team.objects.create(organization=organization, name=f"digest team {i}") for i in range(3)]
 
-    with CaptureQueriesContext(connection) as queries:
-        paged = []
+    paged_ids = []
+    with django_assert_num_queries(1):
         for team in query_teams_for_digest(with_organization=with_organization):
-            # The fields the digest activities read off a paged team. Any one of them missing
-            # from the query would be lazily loaded here, one extra query per team.
-            paged.append((team.id, team.project_id, team.organization_id))
+            # Every team field the digest activities read. One left out of the query would load
+            # lazily here instead, costing an extra query per team.
+            _ = team.project_id, team.organization_id
             if with_organization:
                 team.organization.is_feature_available(AvailableFeature.ACCESS_CONTROL)
+            paged_ids.append(team.id)
 
-    assert [team_id for team_id, _, _ in paged] == [team.id for team in digest_teams]
-    assert len(queries) == 1
+    assert paged_ids == [team.id for team in digest_teams]
