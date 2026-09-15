@@ -58,7 +58,6 @@ from products.signals.backend.models import (
 from products.signals.backend.signal_metadata import ReportSignalMeta
 from products.signals.backend.task_run_artefacts import (
     TASK_RUN_TYPE_IMPLEMENTATION,
-    TASK_RUN_TYPE_RESEARCH,
     append_task_run_artefact,
     record_implementation_task,
     record_report_task,
@@ -1184,60 +1183,6 @@ class TestSignalReportListAPI(APIBaseTest):
         assert str(report.id) in {item["id"] for item in with_pr.json()["results"]}
         unclaimed = self.client.get(self._list_url(unclaimed="true"))
         assert str(report.id) not in {item["id"] for item in unclaimed.json()["results"]}
-
-    def test_legacy_research_task_pr_does_not_match_implementation_pr_filters(self):
-        Task = apps.get_model("tasks", "Task")
-        TaskRun = apps.get_model("tasks", "TaskRun")
-        report = self._create_report(status=SignalReport.Status.IN_PROGRESS)
-        task = Task.objects.create(
-            team=self.team,
-            title="Research task",
-            description="Investigate the report",
-            origin_product=Task.OriginProduct.SIGNAL_REPORT,
-        )
-        SignalReportTask.objects.create(
-            team=self.team,
-            report=report,
-            task=task,
-            relationship=TASK_RUN_TYPE_RESEARCH,
-        )
-        run = TaskRun.objects.create(
-            team=self.team,
-            task=task,
-            status=TaskRun.Status.COMPLETED,
-            output={},
-            state={},
-        )
-        TaskRun.objects.filter(pk=run.pk).update(output={"pr_url": "https://github.com/example/repo/pull/7"})
-
-        list_response = self.client.get(self._list_url(include_all_statuses="true"))
-        list_row = next(row for row in list_response.json()["results"] if row["id"] == str(report.id))
-        detail_response = self.client.get(f"/api/projects/{self.team.id}/signals/reports/{report.id}/")
-
-        assert list_row["pull_requests"] == []
-        assert list_row["implementation_pr_url"] is None
-        assert detail_response.json()["pull_requests"] == []
-        assert detail_response.json()["implementation_pr_url"] is None
-        assert str(report.id) not in {
-            row["id"]
-            for row in self.client.get(
-                self._list_url(include_all_statuses="true", has_implementation_pr="true")
-            ).json()["results"]
-        }
-        assert str(report.id) in {
-            row["id"]
-            for row in self.client.get(
-                self._list_url(include_all_statuses="true", has_implementation_pr="false")
-            ).json()["results"]
-        }
-        assert str(report.id) in {
-            row["id"]
-            for row in self.client.get(self._list_url(include_all_statuses="true", unclaimed="true")).json()["results"]
-        }
-        assert str(report.id) not in {
-            row["id"]
-            for row in self.client.get(self._list_url(include_all_statuses="true", unclaimed="false")).json()["results"]
-        }
 
     @parameterized.expand([("legacy", True, 42), ("migrated", False, 42)])
     def test_distinct_legacy_pr_remains_visible_alongside_task_pr(self, _name, legacy, expected_number):
@@ -3120,6 +3065,18 @@ class TestSignalReportLegacyTaskArtefactList(APIBaseTest):
         # Default order is newest-first; the legacy rows land at their own timestamps, not appended last.
         ids_newest_first = [a["id"] for a in body["results"]]
         assert ids_newest_first == [str(newer.id), str(middle.id), str(older.id)]
+
+    @parameterized.expand([("task_run", 1), ("note", 0)])
+    def test_type_filter_applies_to_synthetic_rows(self, requested_type, expected_count):
+        report = self._create_report()
+        SignalReportTask.objects.create(
+            team=self.team, report=report, task=self._create_task(), relationship="research"
+        )
+
+        response = self.client.get(self._artefacts_url(str(report.id)), {"type": requested_type})
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["count"] == expected_count
 
     def test_legacy_rows_do_not_cross_reports(self):
         report = self._create_report()

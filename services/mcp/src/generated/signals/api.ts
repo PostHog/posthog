@@ -319,7 +319,7 @@ export const SignalsReportsStateCreateBody = () => zod.object({
 })
 
 /**
- * List every artefact on a report — the full work log: signal findings (the evidence behind the report), status judgments (safety / actionability / priority, repo selection, suggested reviewers — the newest row of each status type is canonical), and log entries (code references, commits, task runs, notes). `suggested_reviewers` content is enriched with PostHog user info at read time.
+ * List every artefact on a report — the full work log: signal findings (the evidence behind the report), status judgments (safety / actionability / priority, repo selection, suggested reviewers — the newest row of each status type is canonical), and log entries (code references, commits, task runs, notes). `suggested_reviewers` content is enriched with PostHog user info at read time. Pass `type` to read only the rows of one or more artefact types.
  * @summary List a report's artefacts
  */
 export const SignalsReportArtefactsListParams = () => zod.object({
@@ -338,6 +338,13 @@ export const SignalsReportArtefactsListParams = () => zod.object({
 export const SignalsReportArtefactsListQueryParams = () => zod.object({
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
+    type: zod
+        .string()
+        .min(1)
+        .optional()
+        .describe(
+            'Comma-separated artefact types. Only rows of these types are returned and counted, so a reader that needs one status type (a card showing the current suggested reviewers) does not download the whole log. Omit to list every artefact. One of: actionability_judgment, channel_assignment, code_reference, code_review, commit, dismissal, note, priority_judgment, pull_request, related_to, repo_selection, safety_judgment, signal_finding, suggested_reviewers, summary_change, task_run, title_change, video_segment, work_claim, work_release.'
+        ),
 })
 
 /**
