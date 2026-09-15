@@ -18,6 +18,7 @@ from posthog.migration_helpers import (
     DropIndexConcurrently,
     SafeAddIndexConcurrently,
     SafeRemoveIndexConcurrently,
+    concurrent_index,
 )
 
 
@@ -440,3 +441,35 @@ def test_safe_ops_deconstruct_round_trips(op):
     assert args == []
     rebuilt = type(op)(**kwargs)
     assert rebuilt.deconstruct() == op.deconstruct()
+
+
+@pytest.mark.django_db(transaction=True)
+def test_safe_add_index_concurrently_survives_index_created_after_the_check(temp_model, monkeypatch):
+    """Forcing the check to miss reproduces the window between the check and the CREATE."""
+    table, state = temp_model
+    idx_name = f"{table}_col_idx"
+    with connection.cursor() as cursor:
+        cursor.execute(f'CREATE INDEX "{idx_name}" ON "{table}" (col)')
+    monkeypatch.setattr(concurrent_index, "_index_validity", lambda *args, **kwargs: None)
+
+    op = SafeAddIndexConcurrently(model_name=MODEL_NAME, index=models.Index(fields=["col"], name=idx_name))
+    _apply_forwards(op, state)
+
+    assert _index_is_valid(idx_name)
+
+
+@pytest.mark.django_db(transaction=True)
+def test_safe_add_index_concurrently_reports_non_index_name_collision(temp_model):
+    """A same-named relation that is not an index collides with the CREATE too."""
+    table, state = temp_model
+    idx_name = f"{table}_col_idx"
+    with connection.cursor() as cursor:
+        cursor.execute(f'CREATE VIEW "{idx_name}" AS SELECT 1 AS col')
+
+    op = SafeAddIndexConcurrently(model_name=MODEL_NAME, index=models.Index(fields=["col"], name=idx_name))
+    try:
+        with pytest.raises(RuntimeError, match="already exists and is not an index"):
+            _apply_forwards(op, state)
+    finally:
+        with connection.cursor() as cursor:
+            cursor.execute(f'DROP VIEW IF EXISTS "{idx_name}"')
