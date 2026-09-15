@@ -141,7 +141,7 @@ function UsedInSummary({ usedIn, isExpanded, setIsExpanded }: UsedInSummaryProps
                             </h5>
                             <ul className="list-disc pl-4 mb-0">
                                 {items.map(({ key, url, label }) => (
-                                    <li key={key} className="truncate">
+                                    <li key={key}>
                                         <Link to={url}>{label}</Link>
                                     </li>
                                 ))}
