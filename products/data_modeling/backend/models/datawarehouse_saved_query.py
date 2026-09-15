@@ -26,7 +26,10 @@ from posthog.hogql.database.direct_redshift_table import DirectRedshiftTable
 from posthog.hogql.database.direct_snowflake_table import DirectSnowflakeTable
 from posthog.hogql.database.direct_trino_table import DirectTrinoTable
 from posthog.hogql.database.models import FieldOrTable, SavedQuery
-from posthog.hogql.database.s3_table import DataWarehouseTable as HogQLDataWarehouseTable
+from posthog.hogql.database.s3_table import (
+    DataWarehouseTable as HogQLDataWarehouseTable,
+    S3Table,
+)
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMetaFields, UUIDTModel
@@ -536,7 +539,8 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
     ]:
         if self.table is not None and self.is_materialized and modifiers is not None and modifiers.useMaterializedViews:
             table = self.table.hogql_definition(modifiers)
-            table.saved_query_id = str(self.id)
+            if isinstance(table, S3Table):
+                table.saved_query_id = str(self.id)
             return table
 
         query = self.query or {}

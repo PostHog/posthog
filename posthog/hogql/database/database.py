@@ -2179,7 +2179,8 @@ class Database(BaseModel):
 
                     with timings.measure(f"table_{table.name}"):
                         s3_table = table.hogql_definition(modifiers)
-                        s3_table.saved_query_id = saved_query_ids_by_table.get(table.pk)
+                        if isinstance(s3_table, S3Table):
+                            s3_table.saved_query_id = saved_query_ids_by_table.get(table.pk)
 
                         sync_warnings = get_warehouse_sync_warnings(table, now=sync_warnings_now)
                         if sync_warnings:

@@ -1381,11 +1381,10 @@ class Resolver(CloningVisitor):
                         raise
                     database_table = opaque_table
 
-            saved_query_id = (
-                database_table.id if isinstance(database_table, SavedQuery) else database_table.saved_query_id
-            )
-            if saved_query_id is not None:
-                self.context.referenced_saved_query_ids.add(saved_query_id)
+            if isinstance(database_table, SavedQuery):
+                self.context.referenced_saved_query_ids.add(database_table.id)
+            elif isinstance(database_table, S3Table) and database_table.saved_query_id is not None:
+                self.context.referenced_saved_query_ids.add(database_table.saved_query_id)
 
             if self.dialect == "trino":
                 database_table = lower_trino_table(database_table, self.context)
