@@ -197,21 +197,50 @@ def setup_insights(team):
         team=team,
     )
 
-    return i1, i2, i3, i4, i5, i6, i7, i8
+    # float version (TrendsQuery): the query schema types version as a float, so the serializer
+    # stores a stale 5 as 5.0
+    i9 = Insight.objects.create(
+        query={
+            "kind": "InsightVizNode",
+            "source": {
+                "kind": "TrendsQuery",
+                "series": [{"kind": "EventsNode", "event": "$pageview", "version": 8}],
+                "version": 5.0,
+            },
+            "version": 4,
+        },
+        team=team,
+    )
+
+    # string version (TrendsQuery): upgrade() cannot read it, so the scan must skip it
+    i10 = Insight.objects.create(
+        query={
+            "kind": "InsightVizNode",
+            "source": {
+                "kind": "TrendsQuery",
+                "series": [{"kind": "EventsNode", "event": "$pageview", "version": 8}],
+                "version": "5",
+            },
+            "version": 4,
+        },
+        team=team,
+    )
+
+    return i1, i2, i3, i4, i5, i6, i7, i8, i9, i10
 
 
 class TestUpgradeQueriesWorkflow(QueryMatchingTest):
     @pytest.mark.django_db
     def test_get_insights_to_migrate_activity(self, activity_environment, team):
-        i1, i2, i3, i4, i5, i6, i7, i8 = setup_insights(team)
+        i1, i2, i3, i4, i5, i6, i7, i8, i9, i10 = setup_insights(team)
         inputs = GetInsightsToMigrateActivityInputs()
 
         with snapshot_postgres_queries_context(self):
             result = activity_environment.run(get_insights_to_migrate, inputs)
 
-        expected_ids = [i2.id, i3.id, i4.id, i7.id, i8.id]
+        expected_ids = [i2.id, i3.id, i4.id, i7.id, i8.id, i9.id]
         assert sorted(result.insight_ids) == expected_ids
-        assert result.last_id == i8.id
+        assert result.last_id == i9.id
 
     @pytest.mark.django_db
     def test_get_insights_to_migrate_activity_with_no_migrations(self, activity_environment, team):
@@ -227,9 +256,9 @@ class TestUpgradeQueriesWorkflow(QueryMatchingTest):
 
     @pytest.mark.django_db
     def test_migrate_insights_batch_activity(self, activity_environment, team):
-        i1, i2, i3, i4, i5, i6, i7, i8 = setup_insights(team)
+        i1, i2, i3, i4, i5, i6, i7, i8, i9, i10 = setup_insights(team)
         inputs = MigrateInsightsBatchActivityInputs(
-            insight_ids=[i2.id, i3.id, i4.id, i7.id, i8.id],
+            insight_ids=[i2.id, i3.id, i4.id, i7.id, i8.id, i9.id],
         )
 
         activity_environment.run(migrate_insights_batch, inputs)
@@ -243,10 +272,15 @@ class TestUpgradeQueriesWorkflow(QueryMatchingTest):
         i4.refresh_from_db()
         assert i4.query["source"]["series"][0]["version"] == 8
 
+        # float version
+        i9.refresh_from_db()
+        assert i9.query["source"]["version"] == 6
+        assert i9.query["source"]["interval"] == "day"
+
     @pytest.mark.asyncio
     @pytest.mark.django_db(transaction=True)
     async def test_upgrade_queries_workflow(self, team):
-        i1, i2, i3, i4, i5, i6, i7, i8 = await sync_to_async(setup_insights)(team)
+        i1, i2, i3, i4, i5, i6, i7, i8, i9, i10 = await sync_to_async(setup_insights)(team)
 
         async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
             async with Worker(
