@@ -1806,14 +1806,14 @@ class TestQuotaLimiting(BaseTest):
 
     @patch("posthoganalytics.capture")
     def test_logs_and_traces_count_against_one_shared_quota(self, patch_capture) -> None:
-        with self.settings(USE_TZ=False), freeze_time("2021-01-25T00:00:00Z"):
+        with self.settings(USE_TZ=False), time_machine.travel("2021-01-25T00:00:00Z", tick=False):
             self.organization.usage = {
                 "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
-                "logs_and_traces_bytes_ingested": {"usage": 0, "limit": 3_000_000, "todays_usage": 0},
+                "logs_mb_ingested": {"usage": 0, "limit": 2, "todays_usage": 0},
             }
             self.organization.save()
 
-            # Neither signal crosses the shared byte limit alone. Together they do.
+            # Each signal stays under the shared limit alone. Together they exceed it.
             for app_source in ("logs", "traces"):
                 create_app_metric2(
                     team_id=self.team.id,
@@ -1826,17 +1826,17 @@ class TestQuotaLimiting(BaseTest):
             result = update_all_orgs_billing_quotas()
 
             org_id = str(self.organization.id)
-            assert result.quota_limited_orgs["logs_and_traces_bytes_ingested"] == {org_id: 1612137599}
-            assert self.redis_client.zrange("@posthog/quota-limits/logs_and_traces_bytes_ingested", 0, -1) == [
+            assert result.quota_limited_orgs["logs_mb_ingested"] == {org_id: 1612137599}
+            assert self.redis_client.zrange("@posthog/quota-limits/logs_mb_ingested", 0, -1) == [
                 self.team.api_token.encode("UTF-8")
             ]
 
     @patch("posthoganalytics.capture")
     def test_traces_alone_can_exceed_the_shared_quota(self, patch_capture) -> None:
-        with self.settings(USE_TZ=False), freeze_time("2021-01-25T00:00:00Z"):
+        with self.settings(USE_TZ=False), time_machine.travel("2021-01-25T00:00:00Z", tick=False):
             self.organization.usage = {
                 "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
-                "logs_and_traces_bytes_ingested": {"usage": 0, "limit": 1000, "todays_usage": 0},
+                "logs_mb_ingested": {"usage": 0, "limit": 2, "todays_usage": 0},
             }
             self.organization.save()
 
@@ -1844,15 +1844,15 @@ class TestQuotaLimiting(BaseTest):
                 team_id=self.team.id,
                 app_source="traces",
                 metric_name="bytes_ingested",
-                count=1200,
+                count=2_500_000,
                 timestamp=now(),
             )
 
             result = update_all_orgs_billing_quotas()
 
             org_id = str(self.organization.id)
-            assert result.quota_limited_orgs["logs_and_traces_bytes_ingested"] == {org_id: 1612137599}
-            assert self.redis_client.zrange("@posthog/quota-limits/logs_and_traces_bytes_ingested", 0, -1) == [
+            assert result.quota_limited_orgs["logs_mb_ingested"] == {org_id: 1612137599}
+            assert self.redis_client.zrange("@posthog/quota-limits/logs_mb_ingested", 0, -1) == [
                 self.team.api_token.encode("UTF-8")
             ]
 

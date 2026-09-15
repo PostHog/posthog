@@ -46,7 +46,7 @@ from posthog.tasks.usage_report import (
     get_teams_with_rows_synced_in_period,
     get_teams_with_signals_credits_used_in_period,
     get_teams_with_survey_responses_count_in_period,
-    get_teams_with_traces_usage_in_period,
+    get_teams_with_apm_tracing_usage_in_period,
     get_teams_with_workflow_billable_invocations_in_period,
     get_teams_with_workflow_emails_sent_in_period,
     get_teams_with_workflow_push_sent_in_period,
@@ -1112,8 +1112,8 @@ def update_all_orgs_billing_quotas(
     logs_bytes = convert_team_usage_rows_to_dict(
         _timed_query("logs_bytes", get_teams_with_logs_bytes_in_period, period.start, period.end)
     )
-    traces_bytes = convert_team_usage_rows_to_dict(
-        _timed_query("traces_usage", get_teams_with_traces_usage_in_period, period.start, period.end)["bytes"]
+    apm_tracing_bytes = convert_team_usage_rows_to_dict(
+        _timed_query("apm_tracing_usage", get_teams_with_apm_tracing_usage_in_period, period.start, period.end)["bytes"]
     )
 
     # Clickhouse is good at counting things so we count across all teams rather than doing it one by one
@@ -1199,8 +1199,8 @@ def update_all_orgs_billing_quotas(
         # Logs and traces share one bucket, so a team that stays under the limit on each signal alone
         # but exceeds it combined has to be limited on both.
         "teams_with_logs_mb_in_period": {
-            team_id: int((logs_bytes.get(team_id, 0) + traces_bytes.get(team_id, 0)) // 1_000_000)
-            for team_id in logs_bytes.keys() | traces_bytes.keys()
+            team_id: int((logs_bytes.get(team_id, 0) + apm_tracing_bytes.get(team_id, 0)) // 1_000_000)
+            for team_id in logs_bytes.keys() | apm_tracing_bytes.keys()
         },
     }
 
