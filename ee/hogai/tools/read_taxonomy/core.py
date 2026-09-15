@@ -6,7 +6,13 @@ from posthog.event_usage import EventSource
 from posthog.models import Team, User
 
 from ee.hogai.chat_agent.query_planner.toolkit import TaxonomyAgentToolkit
+from ee.hogai.chat_agent.taxonomy.entities import resolve_entity_name
 from ee.hogai.utils.helpers import format_events_yaml, get_event_description
+
+ENTITY_FIELD_DESCRIPTION = (
+    "The entity to read: `person`, `session` for the columns of the `sessions` table, or a group type name. "
+    "The plural form of any of these is accepted too."
+)
 
 
 class ReadEvents(BaseModel):
@@ -28,7 +34,7 @@ class ReadEntityProperties(BaseModel):
     """Returns the properties list for a provided entity."""
 
     kind: Literal["entity_properties"] = "entity_properties"
-    entity: str = Field(description="The type of the entity that you want to retrieve properties for.")
+    entity: str = Field(description=ENTITY_FIELD_DESCRIPTION)
     # Keep entity as string to allow for dynamic entity types.
 
 
@@ -43,7 +49,7 @@ class ReadEntitySamplePropertyValues(BaseModel):
     """For a provided entity and a property, returns a list of maximum 25 sample values that the combination has."""
 
     kind: Literal["entity_property_values"] = "entity_property_values"
-    entity: str = Field(description="The type of the entity that you want to retrieve properties for.")
+    entity: str = Field(description=ENTITY_FIELD_DESCRIPTION)
     # Keep entity as string to allow for dynamic entity types.
     property_name: str = Field(description="Verified property name of an entity.")
 
@@ -124,7 +130,7 @@ def execute_taxonomy_query(
             return toolkit.retrieve_event_or_action_property_values(query.action_id, query.property_name)
         case ReadEntityProperties():
             result = toolkit.retrieve_entity_properties(query.entity)
-            if query.entity == "person":
+            if resolve_entity_name(query.entity, ["person"]) == "person":
                 return f"{result}\n\n{DYNAMIC_PERSON_PROPERTIES_HINT}"
             return result
         case ReadEntitySamplePropertyValues():

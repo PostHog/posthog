@@ -9597,6 +9597,7 @@ export const externalDataSources = [
     'Skio',
     'Smartlead',
     'Substack',
+    'ElectricityMaps',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]
