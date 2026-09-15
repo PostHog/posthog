@@ -5490,6 +5490,10 @@ def _list_tasks_queryset(
     if origin_product:
         qs = qs.filter(origin_product=origin_product)
 
+    client_provenance = filters.get("client_provenance")
+    if client_provenance:
+        qs = qs.filter(client_provenance=client_provenance)
+
     exclude_origin_product = filters.get("exclude_origin_product")
     if exclude_origin_product:
         qs = qs.exclude(origin_product=exclude_origin_product)
