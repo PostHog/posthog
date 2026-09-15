@@ -415,7 +415,7 @@ class TestUpsertAlertTool(BaseTest):
         llm_config = {"type": "llm", "threshold": 0.7, "window": 90}
         active = await self._create_alert(insight, name="Active")
         disabled = await self._create_alert(insight, name="Disabled", enabled=False, lower_threshold=100.0)
-        await sync_to_async(AlertConfiguration.objects.filter(id__in=[active.id, disabled.id]).update)(
+        await sync_to_async(AlertConfiguration.objects.filter(team=self.team, id__in=[active.id, disabled.id]).update)(
             detector_config=llm_config
         )
         tool = self._setup_tool()
@@ -440,7 +440,7 @@ class TestUpsertAlertTool(BaseTest):
     async def test_update_rejects_enabling_an_ai_alert_outside_the_rollout(self, _flag):
         insight = await self._create_insight()
         disabled = await self._create_alert(insight, name="Disabled", enabled=False)
-        await sync_to_async(AlertConfiguration.objects.filter(id=disabled.id).update)(
+        await sync_to_async(AlertConfiguration.objects.filter(team=self.team, id=disabled.id).update)(
             detector_config={"type": "llm", "threshold": 0.7, "window": 90}
         )
         tool = self._setup_tool()
@@ -458,7 +458,7 @@ class TestUpsertAlertTool(BaseTest):
         await self._enable_real_time_alerts(limit=5)
         insight = await self._create_insight()
         alert = await self._create_alert(insight, name="AI")
-        await sync_to_async(AlertConfiguration.objects.filter(id=alert.id).update)(
+        await sync_to_async(AlertConfiguration.objects.filter(team=self.team, id=alert.id).update)(
             detector_config={"type": "llm", "threshold": 0.7, "window": 90}
         )
         tool = self._setup_tool()
@@ -569,7 +569,7 @@ class TestUpsertAlertTool(BaseTest):
     async def test_update_alert(self, _name, create_kwargs, update_kwargs, check):
         insight = await self._create_insight()
         alert = await self._create_alert(insight, **create_kwargs)
-        await sync_to_async(AlertConfiguration.objects.filter(id=alert.id).update)(
+        await sync_to_async(AlertConfiguration.objects.filter(team=self.team, id=alert.id).update)(
             state=AlertState.FIRING,
             next_check_at=datetime(2027, 1, 1, tzinfo=UTC),
         )
