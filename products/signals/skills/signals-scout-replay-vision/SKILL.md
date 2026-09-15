@@ -9,7 +9,8 @@ compatibility: >
   (scratchpad) + signal_scout_report:write (report channel), plus the replay-vision tools in
   the MCP tools section (execute-sql over `$recording_observed`, read-data-schema, and the
   feature-gated vision-scanners-list / -get / -observations-list / vision-observations-list /
-  vision-quota-retrieve when available — leads with `$recording_observed` SQL when absent).
+  vision-quota-retrieve when available — leads with `$recording_observed` SQL when absent), plus
+  the scanner write tools on a scout granted `replay_scanner:write`.
 allowed_tools:
   - emit_report
   - edit_report
@@ -255,7 +256,18 @@ Harness-level:
 - `scout-emit-report` / `scout-edit-report` — author a report / edit an existing one (the report-channel contract is in the harness prompt).
 - `scout-scratchpad-remember` / `scout-scratchpad-forget` — remember / prune stale memory keys.
 
-Don't create, update, delete, or trigger scanners — your scopes are read-only there. If an aggregate finding deserves a sharper standing watch, _recommend_ a scanner change (name the type, prompt sketch, target query) as part of the report and let the team decide.
+## Maintaining scanners (only when you hold `replay_scanner:write`)
+
+Without the grant your scanner scopes are read-only: don't create, update, delete, or trigger scanners. If an aggregate finding deserves a sharper standing watch, _recommend_ a scanner change (name the type, prompt sketch, target query) as part of the report and let the team decide.
+
+With the grant, the harness prompt carries a *Write access* section naming the scanners, and a fix your skill points you at is yours to make rather than describe. The tools are `vision-scanners-update`, `vision-scanners-create`, `vision-scanners-prompt-suggestions-generate` / `-apply` / `-dismiss`, and `vision-observations-label-create` / `-destroy`. Four rules on top of the generic write-access ones:
+
+- **Retune before you add.** A scanner drifting off its own baseline usually needs a sharper prompt or a narrower query, not a second scanner beside it. The built-in loop is the first thing to reach for: rate observations with `vision-observations-label-create` (the same shared thumbs up/down a person sets), then `vision-scanners-prompt-suggestions-generate` over the rated set and `-apply` the suggestion you'd stand behind. `-dismiss` the ones you wouldn't, so the next run doesn't re-derive them.
+- **A prompt edit resets the baseline.** `scanner_version` and `updated_at` move, and the scanner's output distribution after the edit is no longer comparable to the weeks before it. Write a `pattern:` entry saying what you changed and when, so a later run doesn't report your own edit as a shift.
+- **Set a `credit_limit` on any scanner you create or enable.** The API requires it and refuses a write that clears one, because a scanner spends credits on every session it observes. Check `vision-quota-retrieve` for the org's remaining budget and `vision-scanners-estimate-create` for what the scanner would spend per month, then size the limit from that.
+- **You cannot delete a scanner.** `vision-scanners-delete` comes back forbidden. To stop one, set `enabled: false` via `vision-scanners-update`, which also keeps its past observations.
+
+Name every scanner you changed in the report the change belongs to and in your close-out, with a link.
 
 ## When to stop
 

@@ -729,6 +729,22 @@ def get_authenticator_scopes(authenticator) -> list[str] | None:
     return None
 
 
+SCOUT_SANDBOX_SCOPE_PREFIX = "signal_scout_internal:"
+
+
+def is_scout_sandbox_request(request) -> bool:
+    """Whether a request is authenticated with a Signals scout sandbox token.
+
+    The scout harness is the only issuer of `signal_scout_internal:*`, so those scopes identify a
+    scout run. The scope object is internal, so session auth and ordinary API keys never carry
+    them. Shared rather than reimplemented per product: a viewset that restricts what a scout may
+    do has to read the same signal as every other one, or a rule holds on one surface and not the
+    next.
+    """
+    scopes = get_authenticator_scopes(getattr(request, "successful_authenticator", None))
+    return scopes is not None and any(scope.startswith(SCOUT_SANDBOX_SCOPE_PREFIX) for scope in scopes)
+
+
 def get_authenticator_scoped_organization_ids(authenticator) -> list[str] | None:
     """The organizations a scoped token is confined to, or None when the credential carries no
     organization restriction (session auth, or a token scoped to every organization).
