@@ -313,9 +313,6 @@ tools:
     organizations-projects-default-release-conditions-update:
         operation: organizations_projects_default_release_conditions_update
         enabled: false
-    organizations-projects-delete-now-create:
-        operation: organizations_projects_delete_now_create
-        enabled: false
     organizations-projects-event-ingestion-restrictions-list:
         operation: organizations_projects_event_ingestion_restrictions_list
         enabled: false
