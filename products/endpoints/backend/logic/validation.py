@@ -281,6 +281,10 @@ def validate_endpoint_request(data: EndpointRequest, team: Team, user: User, str
     if not query and strict:
         raise ValidationError({"query": "This field is required."})
 
+    # Materialization only rejects an unsupported value once it reaches the query transform,
+    # where it raises a plain ValueError and surfaces as a 500 instead of a 400.
+    validate_bucket_overrides(data.bucket_overrides)
+
     name = data.name
     if not name:
         if name is not None or strict:
