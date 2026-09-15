@@ -86,19 +86,18 @@ def _to_issue_preview(issue) -> contracts.ErrorTrackingIssuePreview:
         severity=issue.severity,
         name=issue.name,
         description=issue.description,
-        first_seen=getattr(issue, "first_seen", None),
         assignee=_to_issue_assignee(getattr(issue, "assignment", None)),
     )
 
 
-def _to_issue(issue) -> contracts.ErrorTrackingIssue:
+def _to_issue(issue, *, first_seen: datetime | None) -> contracts.ErrorTrackingIssue:
     return contracts.ErrorTrackingIssue(
         id=issue.id,
         status=issue.status,
         severity=issue.severity,
         name=issue.name,
         description=issue.description,
-        first_seen=getattr(issue, "first_seen", None),
+        first_seen=first_seen,
         assignee=_to_issue_assignee(getattr(issue, "assignment", None)),
         external_issues=[_to_external_reference(reference) for reference in issue.external_issues.all()],
         cohort=_to_issue_cohort(issue),
@@ -160,16 +159,17 @@ def query_new_error_issues(period_start: datetime, period_end: datetime) -> Quer
 
 def get_issue(issue_id: UUID, team_id: int) -> contracts.ErrorTrackingIssue:
     issue = logic.get_issue(issue_id=issue_id, team_id=team_id)
-    return _to_issue(issue)
+    return _to_issue(issue, first_seen=getattr(issue, "first_seen", None))
 
 
 def list_issues_detailed(
     team_id: int, *, limit: int | None = None, offset: int = 0
 ) -> tuple[list[contracts.ErrorTrackingIssue], int]:
-    qs = logic.get_issue_detail_queryset(team_id).order_by("-id")
+    qs = logic.get_issue_detail_queryset(team_id).order_by("-created_at", "-id")
     total = qs.count()
-    rows = qs if limit is None else qs[offset : offset + limit]
-    return [_to_issue(issue) for issue in rows], total
+    rows = list(qs if limit is None else qs[offset : offset + limit])
+    first_seen_by_issue = logic.get_first_seen_by_issue(team_id, [issue.id for issue in rows])
+    return [_to_issue(issue, first_seen=first_seen_by_issue.get(issue.id)) for issue in rows], total
 
 
 def issue_exists(team_id: int) -> bool:

@@ -11,6 +11,7 @@ from products.error_tracking.backend.models import (
     ErrorTrackingIssue,
     ErrorTrackingIssueAssignment,
     ErrorTrackingIssueFingerprintV2,
+    ErrorTrackingIssueQuerySet,
     ErrorTrackingRelease,
     ErrorTrackingSettings,
     ErrorTrackingSpikeDetectionConfig,
@@ -51,19 +52,18 @@ class ErrorTrackingIssueNotFoundError(Exception):
     pass
 
 
-# The issue list carries a per-row first_seen subquery, so an unbounded read scales with the
-# team's whole issue table. Cap it, and let callers that need more page with a narrower filter.
+# An unbounded read scales with the team's whole issue table. Cap it, and let callers that
+# need more page with a narrower filter.
 MAX_LISTED_ISSUES = 1000
 
 
 def get_issue_list_queryset(team_id: int) -> QuerySet[ErrorTrackingIssue]:
-    return ErrorTrackingIssue.objects.with_first_seen().select_related("assignment").filter(team_id=team_id)
+    return ErrorTrackingIssue.objects.select_related("assignment").filter(team_id=team_id)
 
 
-def get_issue_detail_queryset(team_id: int) -> QuerySet[ErrorTrackingIssue]:
+def get_issue_detail_queryset(team_id: int) -> ErrorTrackingIssueQuerySet:
     return (
-        ErrorTrackingIssue.objects.with_first_seen()
-        .select_related("assignment")
+        ErrorTrackingIssue.objects.select_related("assignment")
         .prefetch_related("external_issues__integration")
         .prefetch_related("cohorts__cohort")
         .filter(team_id=team_id)
@@ -79,7 +79,7 @@ def list_issues_created_since(team_id: int, since: datetime, limit: int) -> list
 
 
 def get_issue(issue_id: UUID, team_id: int) -> ErrorTrackingIssue:
-    issue = get_issue_detail_queryset(team_id).filter(id=issue_id).first()
+    issue = get_issue_detail_queryset(team_id).with_first_seen().filter(id=issue_id).first()
     if issue is None:
         raise ErrorTrackingIssueNotFoundError
     return issue
@@ -114,6 +114,17 @@ def list_fingerprints(team_id: int, issue_id: UUID | None = None) -> QuerySet[Er
     if issue_id is not None:
         queryset = queryset.filter(issue_id=issue_id)
     return queryset
+
+
+def get_first_seen_by_issue(team_id: int, issue_ids: list[UUID]) -> dict[UUID, datetime | None]:
+    """Earliest fingerprint first_seen per issue, resolved in one query for a whole page."""
+    rows = (
+        ErrorTrackingIssueFingerprintV2.objects.filter(team_id=team_id, issue_id__in=issue_ids)
+        .order_by("issue_id", "first_seen")
+        .distinct("issue_id")
+        .values_list("issue_id", "first_seen")
+    )
+    return dict(rows)
 
 
 def list_first_fingerprints(team_id: int, issue_ids: list[UUID]) -> list[ErrorTrackingIssueFingerprintV2]:

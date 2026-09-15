@@ -78,7 +78,6 @@ class ErrorTrackingIssuePreview:
     severity: str | None
     name: str | None
     description: str | None
-    first_seen: datetime | None
     assignee: ErrorTrackingIssueAssignee | None
 
 
