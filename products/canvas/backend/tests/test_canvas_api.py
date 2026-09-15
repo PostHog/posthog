@@ -168,6 +168,48 @@ class TestCanvasCrud(CanvasAPIBaseTest):
         assert self.client.get(f"{base}/source/").status_code == status.HTTP_404_NOT_FOUND
         assert self._publish(str(notebook_canvas.id)).status_code == status.HTTP_404_NOT_FOUND
 
+    def _canvas_in_another_users_personal_space(self, **canvas_kwargs) -> Canvas:
+        owner = self._create_user(f"space-owner-{uuid4().hex}@example.com")
+        with team_scope(self.team.id):
+            space = Channel.objects.create(
+                team=self.team,
+                name="theirs",
+                channel_type=Channel.ChannelType.PERSONAL,
+                created_by=owner,
+            )
+            return Canvas.objects.create(
+                team=self.team,
+                channel=space,
+                name="Theirs",
+                created_by=owner,
+                **canvas_kwargs,
+            )
+
+    def test_reading_a_canvas_in_an_unshared_space_is_forbidden_not_missing(self):
+        canvas = self._canvas_in_another_users_personal_space()
+
+        response = self.client.get(f"/api/projects/{self.team.id}/canvases/{canvas.id}/")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert response.json()["detail"] == "This canvas is in a space that has not been shared with you."
+
+    def test_writing_to_a_canvas_in_an_unshared_space_stays_missing(self):
+        canvas = self._canvas_in_another_users_personal_space()
+
+        assert self._publish(str(canvas.id)).status_code == status.HTTP_404_NOT_FOUND
+
+    def test_deleted_canvas_in_an_unshared_space_stays_missing(self):
+        canvas = self._canvas_in_another_users_personal_space(deleted=True)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/canvases/{canvas.id}/")
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_unknown_canvas_stays_missing(self):
+        response = self.client.get(f"/api/projects/{self.team.id}/canvases/{uuid4()}/")
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
     def test_can_file_canvas_to_another_visible_channel(self):
         canvas_id = self._create_canvas()
         with team_scope(self.team.id):
