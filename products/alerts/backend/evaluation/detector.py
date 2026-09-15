@@ -1,13 +1,15 @@
+from collections.abc import Callable
 from typing import Any, Optional, cast
 from zoneinfo import ZoneInfo
 
 import numpy as np
 
-from posthog.schema import TrendsAlertConfig, TrendsQuery
+from posthog.schema import DetectorType, TrendsAlertConfig, TrendsQuery
 
 from posthog.api.services.query import ExecutionMode
 from posthog.caching.calculate_results import calculate_for_query_based_insight
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+from posthog.dataclasses import frozen
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.schema_migrations.upgrade_manager import upgrade_insight
@@ -20,7 +22,8 @@ from posthog.tasks.alerts.detector import (
     _extract_sub_detector_scores,
     _prepare_series,
 )
-from posthog.tasks.alerts.detectors import get_detector
+from posthog.tasks.alerts.detectors import DetectionResult, get_detector
+from posthog.tasks.alerts.metric_definition import MetricDateRange, describe_metric_definition
 from posthog.tasks.alerts.trends import (
     TrendResult,
     _has_breakdown,
@@ -32,12 +35,21 @@ from posthog.tasks.alerts.utils import WRAPPER_NODE_KINDS, AlertEvaluationResult
 from posthog.utils import get_from_dict_or_attr, relative_date_parse
 
 from products.alerts.backend.evaluation.contract import (
+    AlertExtractionError,
     ComparableSeries,
     ExtractionResult,
     SeriesPoint,
     SimulationContext,
     execution_mode_for_alert,
 )
+from products.alerts.backend.judge import (
+    JudgeAttribution,
+    LLMDetectorMisconfiguredError,
+    SeriesContext,
+    SeriesJudge,
+    SeriesJudgment,
+)
+from products.alerts.backend.judge.llm import LLMSeriesJudge
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.product_analytics.backend.facade.models import Insight
 
@@ -116,12 +128,89 @@ def _triggered_dates(series: ComparableSeries, triggered_indices: list[int]) -> 
     return [date for i in triggered_indices if i < len(series.points) and (date := series.points[i].date) is not None]
 
 
-def _anomaly_breach(
-    label: str, current_value: float, score: float | None, detector_type_str: str, suffix: str = ""
+def _metric_description(
+    insight: Insight | None, series_index: int, effective_date_range: MetricDateRange | None = None
 ) -> str:
-    score_str = f" (anomaly probability: {score:.0%})" if score is not None else ""
-    return (
-        f"Anomaly detected in {label}: value {current_value:.2f}{score_str} using {detector_type_str} detector{suffix}"
+    """Render the insight's query definition once per check, not once per breakdown value."""
+    query = insight.query if insight is not None else None
+    if not query:
+        return ""
+    return describe_metric_definition(query, series_index=series_index, effective_date_range=effective_date_range)
+
+
+def _effective_date_range(result: ExtractionResult) -> MetricDateRange | None:
+    """First and last date of the points the detector scores.
+
+    Extraction widens the insight's saved range when the detector needs more buckets than it
+    holds, so the saved range would describe a shorter span than the points beside it.
+    """
+    for series in result.series:
+        dates = [point.date for point in series.points if point.date]
+        if dates:
+            return MetricDateRange(start=dates[0], end=dates[-1])
+    return None
+
+
+def _series_context(
+    series: ComparableSeries,
+    detector_config: dict[str, Any],
+    *,
+    insight: Insight | None,
+    interval: str | None,
+    metric_description: str,
+) -> SeriesContext:
+    """What the judge reads about the series that the values array cannot carry."""
+    return SeriesContext(
+        dates=tuple(point.date for point in series.points),
+        interval=interval,
+        series_label=series.label,
+        metric_description=metric_description,
+        insight_name=(insight.name or "") if insight is not None else "",
+        instructions=str(detector_config.get("instructions") or ""),
+    )
+
+
+def _judge_attribution(
+    *, team: Team | None, user: User | None, evaluation_id: str | None, is_agent_billable: bool
+) -> JudgeAttribution:
+    """Who the judge's charged call runs as. Refused loudly when there is no one to attribute it to."""
+    if team is None or user is None:
+        raise LLMDetectorMisconfiguredError(
+            "The AI detector needs a project and a user to attribute its model calls to. This "
+            "alert has neither, which happens when the person who created it was deleted. "
+            "Recreate the alert to fix it."
+        )
+    return JudgeAttribution(team=team, user=user, evaluation_id=evaluation_id, is_agent_billable=is_agent_billable)
+
+
+def _series_judge(detector_config: dict[str, Any]) -> SeriesJudge:
+    """The judge for a config whose type is not a registry detector. Only the AI judge today."""
+    return LLMSeriesJudge(detector_config)
+
+
+@frozen
+class _ScoredSeries:
+    """One series after the detector or judge has scored it, reduced to what the alert reads."""
+
+    data: np.ndarray
+    # None when nothing scored the series: the judge had too few points to ask the model.
+    detection: DetectionResult | None
+    # The slice of the score worth persisting on the check. A judgment's verdict fields; empty
+    # for a statistical detector, whose metadata is fit state (means, thresholds) that nothing
+    # downstream reads.
+    persisted_metadata: dict[str, Any]
+    breach_suffix: str
+
+
+def _detection_from_judgment(judgment: SeriesJudgment | None) -> DetectionResult | None:
+    """The judgment on the shape the rest of the evaluation reads. None is a series too short to judge."""
+    if judgment is None:
+        return None
+    return DetectionResult(
+        is_anomaly=judgment.fires,
+        score=judgment.score,
+        triggered_indices=list(judgment.triggered_indices),
+        all_scores=list(judgment.all_scores),
     )
 
 
@@ -133,59 +222,149 @@ def _format_sub_detector(sub_result: dict[str, Any]) -> str:
     return f"{sub_result.get('type', 'unknown')}: {score_pct}{fired}"
 
 
-def evaluate_with_detector(result: ExtractionResult, detector_config: dict[str, Any]) -> AlertEvaluationResult:
+def _ensemble_suffix(detection: DetectionResult) -> str:
+    sub_results = (detection.metadata or {}).get("sub_results", [])
+    if not sub_results:
+        return ""
+    return f" | sub-detectors: {', '.join(_format_sub_detector(sr) for sr in sub_results)}"
+
+
+def _score_series(
+    series: ComparableSeries,
+    detector_config: dict[str, Any],
+    *,
+    every_point: bool,
+    series_context: SeriesContext,
+    attribution: Callable[[], JudgeAttribution],
+) -> _ScoredSeries:
+    """Score one series with whatever its config names: a registry detector, or the AI judge.
+
+    ``attribution`` is resolved only on the judge path, so an alert with no creator still
+    evaluates on a statistical detector and only fails when a charged call would need someone
+    to run as.
+    """
+    data = np.array([p.value for p in series.points])
+    detector_type_str = detector_config.get("type", "zscore")
+    if detector_type_str == DetectorType.LLM.value:
+        judge = _series_judge(detector_config)
+        judge_method = judge.judge_every_point if every_point else judge.judge_latest
+        judgment = judge_method(data, series=series_context, attribution=attribution())
+        rationale = judgment.rationale.strip() if judgment is not None else ""
+        return _ScoredSeries(
+            data=data,
+            detection=_detection_from_judgment(judgment),
+            persisted_metadata=judgment.persisted_metadata() if judgment is not None else {},
+            breach_suffix=f". {rationale}" if rationale else "",
+        )
+    detector = get_detector(detector_config)
+    detection = detector.detect_batch(data) if every_point else detector.detect(data)
+    return _ScoredSeries(
+        data=data,
+        detection=detection,
+        persisted_metadata={},
+        breach_suffix=_ensemble_suffix(detection) if detector_type_str == "ensemble" else "",
+    )
+
+
+# The breach message a person reads names the detector. Every statistical type is already
+# a recognizable name; "llm" is not something the alert editor ever calls it.
+_DETECTOR_DISPLAY_NAMES = {DetectorType.LLM.value: "AI"}
+
+
+def _anomaly_breach(label: str, scored: _ScoredSeries, detector_type_str: str) -> str:
+    current_value = float(scored.data[-1])
+    score = scored.detection.score if scored.detection is not None else None
+    # The model's number is its own stated confidence, not a calibrated probability, so
+    # the message must not present it as one.
+    score_label = "model confidence" if detector_type_str == DetectorType.LLM.value else "anomaly probability"
+    score_str = f" ({score_label}: {score:.0%})" if score is not None else ""
+    name = _DETECTOR_DISPLAY_NAMES.get(detector_type_str, detector_type_str)
+    return (
+        f"Anomaly detected in {label}: value {current_value:.2f}{score_str} using {name} detector{scored.breach_suffix}"
+    )
+
+
+def evaluate_with_detector(
+    result: ExtractionResult,
+    detector_config: dict[str, Any],
+    *,
+    insight: Insight | None = None,
+    alert: AlertConfiguration | None = None,
+    evaluation_id: str | None = None,
+) -> AlertEvaluationResult:
     """Score an extracted trends series with an anomaly detector (the non-threshold alert path).
 
     Breakdown alerts fire on the first anomalous breakdown value; non-breakdown alerts score the
-    single selected series.
+    single selected series. ``insight`` and ``alert`` supply what the AI judge reads about the
+    series and who its call runs as; the statistical detectors score identically without them.
     """
     detector_type_str = detector_config.get("type", "zscore")
+    if result.is_breakdown and detector_type_str == DetectorType.LLM.value:
+        raise AlertExtractionError("The AI detector does not support breakdown insights yet.")
     interval_value = result.interval_type.value if result.interval_type else None
+    series_index = ((alert.config if alert is not None else None) or {}).get("series_index", 0)
 
     if not result.series:
         # Empty query → the metric is genuinely 0; rows present but unscorable → uncomputed (None).
         value: float | None = 0 if result.empty_query_result else None
         return AlertEvaluationResult(value=value, breaches=[], interval=interval_value)
 
+    metric_description = _metric_description(insight, series_index, _effective_date_range(result))
+
+    def score(series: ComparableSeries) -> _ScoredSeries:
+        return _score_series(
+            series,
+            detector_config,
+            every_point=False,
+            series_context=_series_context(
+                series, detector_config, insight=insight, interval=interval_value, metric_description=metric_description
+            ),
+            attribution=lambda: _judge_attribution(
+                team=insight.team if insight is not None else None,
+                user=alert.created_by if alert is not None else None,
+                evaluation_id=evaluation_id,
+                is_agent_billable=True,
+            ),
+        )
+
     if result.is_breakdown:
         for bd_index, s in enumerate(result.series):
-            data = np.array([p.value for p in s.points])
-            detection = get_detector(detector_config).detect(data)
-            if detection.is_anomaly:
-                current_value = float(data[-1])
+            scored = score(s)
+            if scored.detection is not None and scored.detection.is_anomaly:
                 return AlertEvaluationResult(
-                    value=current_value,
-                    breaches=[_anomaly_breach(s.label, current_value, detection.score, detector_type_str)],
-                    anomaly_scores=detection.all_scores or None,
-                    triggered_points=detection.triggered_indices or None,
-                    triggered_dates=_triggered_dates(s, detection.triggered_indices or []) or None,
+                    value=float(scored.data[-1]),
+                    breaches=[_anomaly_breach(s.label, scored, detector_type_str)],
+                    anomaly_scores=scored.detection.all_scores or None,
+                    triggered_points=scored.detection.triggered_indices or None,
+                    triggered_dates=_triggered_dates(s, scored.detection.triggered_indices or []) or None,
                     interval=interval_value,
-                    triggered_metadata={"series_index": bd_index},
+                    triggered_metadata={"series_index": bd_index, **scored.persisted_metadata},
                 )
         return AlertEvaluationResult(value=None, breaches=[], interval=interval_value)
 
     s = result.series[0]
-    data = np.array([p.value for p in s.points])
-    detection = get_detector(detector_config).detect(data)
+    scored = score(s)
+    if scored.detection is None:
+        # Nothing judged the series, so the check is uncomputed rather than a healthy value
+        # that never reached the model.
+        return AlertEvaluationResult(value=None, breaches=[], interval=interval_value)
 
     breaches: list[str] = []
-    if detection.is_anomaly:
-        current_value = float(data[-1])
-        suffix = ""
-        if detector_type_str == "ensemble" and detection.metadata:
-            sub_results = detection.metadata.get("sub_results", [])
-            if sub_results:
-                parts = [_format_sub_detector(sr) for sr in sub_results]
-                suffix = f" | sub-detectors: {', '.join(parts)}"
-        breaches.append(_anomaly_breach(s.label, current_value, detection.score, detector_type_str, suffix))
+    if scored.detection.is_anomaly:
+        breaches.append(_anomaly_breach(s.label, scored, detector_type_str))
 
     return AlertEvaluationResult(
-        value=float(data[-1]) if len(data) > 0 else None,
+        value=float(scored.data[-1]) if len(scored.data) > 0 else None,
         breaches=breaches,
-        anomaly_scores=detection.all_scores or None,
-        triggered_points=detection.triggered_indices or None,
-        triggered_dates=_triggered_dates(s, detection.triggered_indices or []) or None,
+        anomaly_scores=scored.detection.all_scores or None,
+        triggered_points=scored.detection.triggered_indices or None,
+        triggered_dates=_triggered_dates(s, scored.detection.triggered_indices or []) or None,
         interval=interval_value,
+        # The series index rides along so an investigation that starts after the alert is
+        # repointed still reads the series this verdict was about.
+        triggered_metadata={"series_index": series_index, **scored.persisted_metadata}
+        if scored.persisted_metadata
+        else None,
     )
 
 
@@ -239,8 +418,15 @@ def simulate_detector_on_insight(
     date_from: str | None = None,
     user: Optional[User] = None,
     config: dict[str, Any] | None = None,
+    *,
+    score: bool = True,
+    is_agent_billable: bool = True,
 ) -> dict[str, Any]:
-    """Run a detector over historical insight data for chart visualization. Read-only (no AlertCheck)."""
+    """Run a detector over historical insight data for chart visualization. Read-only (no AlertCheck).
+
+    ``score=False`` returns the extracted series with no scores: for a caller that only wants
+    the points, such as the investigation agent's chart, and must not pay for a model call.
+    """
     if insight.query is None:
         raise ValueError("Insight has no valid query.")
 
@@ -292,8 +478,21 @@ def simulate_detector_on_insight(
             "Return more rows or reduce the window size."
         )
 
+    sim_context = _SimulationSeriesContext(
+        insight=insight,
+        interval=interval_value,
+        metric_description=_metric_description(insight, series_index, _effective_date_range(result)),
+        user=user,
+        score=score,
+        is_agent_billable=is_agent_billable,
+    )
+
     if result.is_breakdown:
-        breakdown_sims = [_sim_from_series(s, detector_config, detector_type_str) for s in result.series]
+        if detector_type_str == DetectorType.LLM.value:
+            # One model call per breakdown value is the cost profile the saved-alert path
+            # refuses; the preview must refuse it before the first call, not after the last.
+            raise ValueError("The AI detector does not support breakdown insights yet.")
+        breakdown_sims = [_sim_from_series(s, detector_config, detector_type_str, sim_context) for s in result.series]
         return {
             "data": [],
             "dates": [],
@@ -306,16 +505,57 @@ def simulate_detector_on_insight(
             "breakdown_results": breakdown_sims,
         }
 
-    sim = _sim_from_series(result.series[0], detector_config, detector_type_str)
+    sim = _sim_from_series(result.series[0], detector_config, detector_type_str, sim_context)
     sim.pop("label", None)
     return {**sim, "interval": interval_value}
 
 
+@frozen
+class _SimulationSeriesContext:
+    """The alert-less inputs a simulated series needs for the judge.
+
+    A simulation runs outside any alert, so the user who asked for the preview is passed
+    explicitly rather than read off ``alert.created_by``.
+    """
+
+    insight: Insight
+    interval: str | None
+    metric_description: str
+    user: User | None
+    score: bool = True
+    is_agent_billable: bool = True
+
+
 def _sim_from_series(
-    series: ComparableSeries, detector_config: dict[str, Any], detector_type_str: str
+    series: ComparableSeries,
+    detector_config: dict[str, Any],
+    detector_type_str: str,
+    sim_context: _SimulationSeriesContext,
 ) -> dict[str, Any]:
-    """Score a single extracted series with detect_batch and shape it for the simulation chart."""
-    detection = get_detector(detector_config).detect_batch(np.array([p.value for p in series.points]))
+    """Score a single extracted series over every point and shape it for the simulation chart."""
+    if sim_context.score:
+        detection = _score_series(
+            series,
+            detector_config,
+            every_point=True,
+            series_context=_series_context(
+                series,
+                detector_config,
+                insight=sim_context.insight,
+                interval=sim_context.interval,
+                metric_description=sim_context.metric_description,
+            ),
+            attribution=lambda: _judge_attribution(
+                team=sim_context.insight.team,
+                user=sim_context.user,
+                evaluation_id=None,
+                is_agent_billable=sim_context.is_agent_billable,
+            ),
+        ).detection
+    else:
+        detection = None
+    if detection is None:
+        detection = DetectionResult(is_anomaly=False)
     triggered = detection.triggered_indices or []
     scores = detection.all_scores if detection.all_scores else [None] * len(series.points)
 

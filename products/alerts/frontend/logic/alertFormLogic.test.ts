@@ -200,6 +200,24 @@ describe('alertFormLogic', () => {
         }
     )
 
+    it('drops a preview that resolves after the settings it was run with were cleared', async () => {
+        // A clear does not cancel the request the model is still judging, so its verdict must not
+        // repopulate the chart against detector settings the model never saw.
+        let resolveSimulation: (result: any) => void = () => {}
+        jest.spyOn(api.alerts, 'simulate').mockImplementation(
+            () => new Promise((resolve) => (resolveSimulation = resolve))
+        )
+        const logic = mountForm()
+        logic.actions.setAlertFormValue('detector_config', { type: 'zscore', threshold: 0.95, window: 30 })
+
+        logic.actions.simulateAlert()
+        logic.actions.clearSimulation()
+        resolveSimulation({ data: [1], dates: ['2026-01-01'], scores: [0.1], triggered_indices: [], total_points: 1 })
+
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.simulationResult).toBeNull()
+    })
+
     it('shows success toast and no error toast when create succeeds', async () => {
         const logic = mountForm()
 

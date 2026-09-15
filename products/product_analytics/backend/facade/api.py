@@ -75,6 +75,15 @@ def create_insight_variable(
     return _to_variable_definition(variable)
 
 
+def lock_insight_for_evaluation(*, team_id: int, insight_id: int) -> bool:
+    """Hold the insight definition stable while saving a dependent evaluation.
+
+    Call inside a transaction, before locking dependent rows. Returns False if the insight
+    does not exist in this team. The lock remains until the caller's transaction ends.
+    """
+    return logic.lock_insight_for_evaluation(team_id=team_id, insight_id=insight_id)
+
+
 def record_insight_view(*, insight_id: int, team_id: int | None = None, user_id: int | None = None) -> None:
     """Mark an insight as viewed now, moving the timestamp if this viewer already has a row.
 

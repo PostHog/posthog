@@ -1,5 +1,6 @@
 from typing import Any
 
+import pytest
 from unittest.mock import MagicMock, patch
 
 from posthog.schema import (
@@ -14,8 +15,9 @@ from posthog.schema import (
 
 from posthog.caching.insight_result import InsightResult
 from posthog.temporal.ai.anomaly_investigation.tools import _run_detector_simulation
+from posthog.temporal.ai.anomaly_investigation.workflow import _build_multimodal_context, _evaluated_series_index
 
-from products.alerts.backend.models.alert import AlertConfiguration
+from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
 from products.product_analytics.backend.facade.models import Insight
 
 
@@ -60,6 +62,69 @@ def test_run_detector_simulation_returns_the_alerts_configured_series(mock_calcu
 
     assert not isinstance(result, str)
     assert result["data"] == configured_series[:-1]
+
+
+@pytest.mark.parametrize("triggered_dates,expected_indices", [(["2026-07-09"], [8]), (["2026-06-01"], [])])
+@pytest.mark.parametrize("current_detector_type", ["llm", "mad"])
+@patch("products.alerts.backend.judge.llm.LLMSeriesJudge._ask_model")
+@patch("products.alerts.backend.evaluation.detector.calculate_for_query_based_insight")
+def test_run_detector_simulation_never_rescores_an_ai_alert(
+    mock_calculate: MagicMock,
+    mock_ask: MagicMock,
+    triggered_dates: list[str],
+    expected_indices: list[int],
+    current_detector_type: str,
+) -> None:
+    series = [10.0, 11.0, 10.0, 9.0] * 3
+    mock_calculate.return_value = InsightResult(
+        result=[_trend_result("series 0", series)],
+        columns=[],
+        timezone="UTC",
+        last_refresh=None,
+        cache_key="",
+        is_cached=False,
+    )
+    insight = MagicMock(spec=Insight)
+    insight.query = TrendsQuery(
+        series=[EventsNode(event="series_0", math=BaseMathType.TOTAL)],
+        trendsFilter=TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH),
+        interval=IntervalType.DAY,
+    ).model_dump()
+    alert = MagicMock(spec=AlertConfiguration)
+    alert.insight = insight
+    alert.config = {"type": "TrendsAlertConfig", "series_index": 0}
+    alert.detector_config = {"type": "llm", "threshold": 0.7, "window": 10}
+    alert.created_by = None
+
+    result = _run_detector_simulation(alert=alert, team=MagicMock(), date_from=None)
+
+    assert not isinstance(result, str)
+    assert result["data"] == series[:-1]
+    assert result["triggered_indices"] == []
+    alert.detector_config = {"type": current_detector_type, "threshold": 0.7, "window": 10}
+    with patch(
+        "posthog.temporal.ai.anomaly_investigation.workflow.render_series_chart", return_value=b"chart"
+    ) as render:
+        context = _build_multimodal_context(
+            alert=alert, context_text="Investigate the change.", triggered_dates=triggered_dates
+        )
+    assert isinstance(context, list)
+    assert render.call_args.kwargs["triggered_indices"] == expected_indices
+    mock_ask.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "triggered_metadata,expected_index",
+    [({"series_index": 1, "kind": "drop"}, 1), ({"kind": "drop"}, 2), ({"series_index": True}, 2)],
+)
+def test_investigation_reads_the_series_the_check_judged(triggered_metadata: dict, expected_index: int) -> None:
+    # The alert can be repointed while the investigation waits, so the check's own record wins.
+    alert = MagicMock(spec=AlertConfiguration)
+    alert.config = {"type": "TrendsAlertConfig", "series_index": 2}
+    check = MagicMock(spec=AlertCheck)
+    check.triggered_metadata = triggered_metadata
+
+    assert _evaluated_series_index(alert, check) == expected_index
 
 
 @patch("products.alerts.backend.evaluation.hogql.calculate_for_query_based_insight")
