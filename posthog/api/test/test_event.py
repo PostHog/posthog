@@ -24,6 +24,7 @@ from dateutil.relativedelta import relativedelta
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.clickhouse.client.limit import CONCURRENCY_LIMIT_USER_MESSAGE, ConcurrencyLimitExceeded
 from posthog.models import Element, Organization, PropertyDefinition, User
 from posthog.models.event.legacy_events_query import _execute_events_list_query
 from posthog.test.persons import create_person
@@ -1331,6 +1332,22 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         ).json()
 
         assert [r["event"] for r in response["results"]] == ["should_be_included"]
+
+    def test_concurrency_limit_returns_throttled_and_is_not_captured(self):
+        # The per-team concurrency limiter is a deliberate throttle, so it must reach the client as
+        # a retryable 429 with a clean message, not as a 500 that also lands in error tracking.
+        raw = "Exceeded maximum concurrency limit: 2 for key: app:events:per-team:abc and task: def"
+        with (
+            patch("posthog.api.event.LegacyEventsListQuery.run", side_effect=ConcurrencyLimitExceeded(raw)),
+            patch("posthog.api.event.capture_exception") as mock_capture,
+        ):
+            response = self.client.get(f"/api/projects/{self.team.id}/events/")
+
+        assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+        detail = response.json()["detail"]
+        assert detail == CONCURRENCY_LIMIT_USER_MESSAGE
+        assert "app:events:per-team" not in detail
+        mock_capture.assert_not_called()
 
 
 class TestEventListRestrictedProperties(ClickhouseTestMixin, APIBaseTest):

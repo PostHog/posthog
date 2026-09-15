@@ -48,7 +48,7 @@ from posthog.api.streaming import sse_streaming_response
 from posthog.api.utils import action, is_async_query, is_insight_actors_options_query, is_insight_actors_query
 from posthog.api_queries_budget import get_request_query_cost, reset_request_query_cost
 from posthog.clickhouse.client.execute_async import QueryNotFoundError, cancel_query, get_query_status
-from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
+from posthog.clickhouse.client.limit import CONCURRENCY_LIMIT_USER_MESSAGE, ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import get_query_tag_value, get_query_tags, tag_queries
 from posthog.constants import AvailableFeature
 from posthog.errors import ExposedCHQueryError, InternalCHQueryError
@@ -82,10 +82,6 @@ logger = structlog.get_logger(__name__)
 
 tracer = trace.get_tracer(__name__)
 
-# Shown to the user when the org's concurrent-query limiter rejects a request. The raw limiter
-# exception embeds an internal Redis key + task id, so we log that for debugging and surface this
-# friendly message instead of leaking implementation details into the UI.
-CONCURRENCY_LIMIT_USER_MESSAGE = "Too many queries are running right now — please try again in a moment."
 MANAGED_WAREHOUSE_QUERY_UNAVAILABLE_MESSAGE = (
     "This managed warehouse connection is no longer available. Select a source and run the query again."
 )

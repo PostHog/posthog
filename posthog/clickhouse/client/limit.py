@@ -421,6 +421,12 @@ class ConcurrencyLimitExceeded(Exception):
     pass
 
 
+# Shown to the user when a concurrent-query limiter rejects a request. The raw limiter exception
+# embeds an internal Redis key + task id, so we log that for debugging and surface this friendly
+# message instead of leaking implementation details into the UI.
+CONCURRENCY_LIMIT_USER_MESSAGE = "Too many queries are running right now — please try again in a moment."
+
+
 def limit_concurrency(
     max_concurrent_tasks: int, key: Optional[Callable] = None, ttl: int = 60 * 15, limit_name: str = ""
 ) -> Callable:
