@@ -13,6 +13,7 @@ import {
 import { useService } from "@posthog/di/react";
 import {
   type AcpMessage,
+  type Adapter,
   FAST_MODE_FLAG,
   type ModelAccess,
 } from "@posthog/shared";
@@ -33,6 +34,7 @@ import { useDraftStore } from "@posthog/ui/features/message-editor/draftStore";
 import { useAutoFocusOnTyping } from "@posthog/ui/features/message-editor/useAutoFocusOnTyping";
 import { resolveAndAttachDroppedFiles } from "@posthog/ui/features/message-editor/utils/persistFile";
 import { PermissionSelector } from "@posthog/ui/features/permissions/PermissionSelector";
+import { BillingSwitchQueuedDialog } from "@posthog/ui/features/sessions/components/BillingSwitchQueuedDialog";
 import { CloudStreamDisconnectedBanner } from "@posthog/ui/features/sessions/components/CloudSessionLifecycle";
 import { ComposerWidth } from "@posthog/ui/features/sessions/components/ComposerWidth";
 import { ContextUsageIndicator } from "@posthog/ui/features/sessions/components/ContextUsageIndicator";
@@ -57,6 +59,7 @@ import {
   submitComposerPrompt,
 } from "@posthog/ui/features/sessions/components/submitComposerPrompt";
 import { ThreadView } from "@posthog/ui/features/sessions/components/ThreadView";
+import { usePendingBillingSwitch } from "@posthog/ui/features/sessions/components/usePendingBillingSwitch";
 import { usePendingModelSwitch } from "@posthog/ui/features/sessions/components/usePendingModelSwitch";
 import { CHAT_CONTENT_MAX_WIDTH } from "@posthog/ui/features/sessions/constants";
 import { useAutoCompact } from "@posthog/ui/features/sessions/hooks/useAutoCompact";
@@ -71,6 +74,7 @@ import {
   useModeConfigOptionForTask,
   useModelConfigOptionForTask,
   usePendingPermissionsForTask,
+  useQueuedMessagesForTask,
   useSessionSelector,
   useThoughtLevelConfigOptionForTask,
 } from "@posthog/ui/features/sessions/sessionStore";
@@ -314,12 +318,32 @@ export function SessionView({
     adapter && !isCloudRun
       ? (runBilling?.[adapter] ?? liveModelAccess)
       : undefined;
+  const queuedCount = useQueuedMessagesForTask(taskId).length;
+  const applyBillingChange = useCallback(
+    (billingAdapter: Adapter, access: ModelAccess) => {
+      if (!taskId) return;
+      sessionService.setSessionModelAccess(taskId, billingAdapter, access);
+    },
+    [taskId, sessionService],
+  );
+  const {
+    pendingBillingSwitch,
+    interceptBillingSwitch,
+    confirmBillingSwitch,
+    cancelBillingSwitch,
+  } = usePendingBillingSwitch({
+    taskId,
+    queuedCount,
+    currentAccess: billingScopedValue,
+    onApply: applyBillingChange,
+  });
   const handleBillingChange = useCallback(
     (access: ModelAccess) => {
       if (!taskId || !adapter) return;
-      sessionService.setSessionModelAccess(taskId, adapter, access);
+      if (interceptBillingSwitch(adapter, access)) return;
+      applyBillingChange(adapter, access);
     },
-    [taskId, adapter, sessionService],
+    [taskId, adapter, interceptBillingSwitch, applyBillingChange],
   );
 
   const editorRef = useRef<PromptInputHandle>(null);
@@ -895,6 +919,12 @@ export function SessionView({
         contextTokens={contextUsage?.used}
         onConfirm={confirmModelSwitch}
         onCancel={cancelModelSwitch}
+      />
+      <BillingSwitchQueuedDialog
+        open={pendingBillingSwitch !== null}
+        queuedCount={pendingBillingSwitch?.queuedCount ?? 0}
+        onConfirm={confirmBillingSwitch}
+        onCancel={cancelBillingSwitch}
       />
       <ContextMenu.Content size="1">
         <ContextMenu.Item

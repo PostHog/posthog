@@ -4209,6 +4209,11 @@ export class SessionService {
    * localBillingRespawnNeeded), and the session's own fields still hold the live
    * value. A per-run choice, so it never changes another conversation or the
    * default for new tasks.
+   *
+   * Queued messages are dropped when the billing actually changes: the respawn
+   * resends the whole conversation, so a queue that survived it would replay
+   * under the switched billing. Dropping them is the safe choice for now. The
+   * UI warns the user before this runs.
    */
   setSessionModelAccess(
     taskId: string,
@@ -4222,10 +4227,13 @@ export class SessionService {
       codex: session.codexModelAccess,
       claude: session.claudeModelAccess,
     };
+    if (current[adapter] === access) return;
     this.d.billingStore.setBilling(taskRunId, {
       ...current,
       [adapter]: access,
     });
+    this.d.store.clearMessageQueue(taskId);
+    this.d.store.clearEditingQueuedMessage(taskId);
   }
 
   /**

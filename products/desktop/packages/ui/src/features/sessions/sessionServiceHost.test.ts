@@ -7601,6 +7601,33 @@ describe("SessionService", () => {
       expect(mockTrpcAgent.reconnect.mutate).toHaveBeenCalledTimes(1);
     });
 
+    it("discards queued messages when the run's billing changes", () => {
+      const service = getSessionService();
+      mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(
+        createMockSession({ claudeModelAccess: "own-subscription" }),
+      );
+
+      service.setSessionModelAccess("task-123", "claude", "posthog-gateway");
+
+      expect(mockSessionStoreSetters.clearMessageQueue).toHaveBeenCalledWith(
+        "task-123",
+      );
+      expect(
+        mockSessionStoreSetters.clearEditingQueuedMessage,
+      ).toHaveBeenCalledWith("task-123");
+    });
+
+    it("keeps queued messages when the billing selection does not change", () => {
+      const service = getSessionService();
+      mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(
+        createMockSession({ claudeModelAccess: "own-subscription" }),
+      );
+
+      service.setSessionModelAccess("task-123", "claude", "own-subscription");
+
+      expect(mockSessionStoreSetters.clearMessageQueue).not.toHaveBeenCalled();
+    });
+
     it("reuses attachments uploaded before sending cloud follow-ups", async () => {
       const service = getSessionService();
       mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(
