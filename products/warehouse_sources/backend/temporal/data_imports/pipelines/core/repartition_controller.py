@@ -44,10 +44,6 @@ if TYPE_CHECKING:
 
 WAREHOUSE_AUTO_REPARTITION_FLAG = "data-warehouse-auto-repartition"
 WAREHOUSE_AUTO_COARSEN_FLAG = "data-warehouse-auto-coarsen"
-# Gates pausing a schema's imports while a multi-budget rewrite converges. Separate from the
-# repartition flag, and off by default: repartitioning a table costs us worker time, pausing its
-# imports costs the customer freshness, so the second is not a decision the first should make.
-WAREHOUSE_REPARTITION_HOLD_FLAG = "data-warehouse-repartition-hold"
 
 # Coarsening gates. The two directions deliberately don't meet: a table is split finer above the budget
 # and merged coarser only below an eighth of it, and a coarsen aims at half the budget. So a freshly
@@ -107,10 +103,6 @@ def is_auto_repartition_enabled(schema: ExternalDataSchema) -> bool:
 
 def is_auto_coarsen_enabled(schema: ExternalDataSchema) -> bool:
     return is_schema_flag_enabled(schema, WAREHOUSE_AUTO_COARSEN_FLAG)
-
-
-def is_repartition_hold_enabled(schema: ExternalDataSchema) -> bool:
-    return is_schema_flag_enabled(schema, WAREHOUSE_REPARTITION_HOLD_FLAG)
 
 
 def base_event_props(schema: ExternalDataSchema, source: ExternalDataSource, job_id: str | None) -> dict[str, Any]:

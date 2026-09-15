@@ -731,6 +731,7 @@ class TestFeatureFlagGate:
             s3_folder_name="usages",
             pending={**PENDING_TARGET, "trigger_reason": trigger_reason},
             swap=swap,
+            rewrite={"temp_uri": "s3://bucket/t", "rows_written": 10, "held_at": "2026-01-01T00:00:00+00:00"},
         )
         mock_schema_model.objects.select_related.return_value.get.return_value = schema
         mock_repartition.return_value = {"outcome": "completed"}
@@ -741,6 +742,12 @@ class TestFeatureFlagGate:
         )
 
         assert mock_repartition.await_count == (1 if expect_rewrite else 0)
+        # Releasing the rewrite has to drop its checkpoint, or the checkpoint keeps holding this
+        # schema's imports for up to two days after the flag was turned off to free the table.
+        if expect_rewrite:
+            schema.clear_repartition_rewrite.assert_not_called()
+        else:
+            schema.clear_repartition_rewrite.assert_called_once()
 
 
 class TestMaybeFlagPreExtraction:
