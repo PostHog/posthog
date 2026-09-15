@@ -19,7 +19,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { visionScannersBulkObserveCreate, visionScannersObservationsList } from '../generated/api'
 import type { ReplayObservationApi } from '../generated/api.schemas'
 import { visionScannersBulkObserveCreateBodySessionIdsMax } from '../generated/api.zod'
-import { scheduleObservationPoll } from '../logics/observationPolling'
+import { OBSERVE_POLL_GRACE_MS, scheduleObservationPoll, shouldPollObservations } from '../logics/observationPolling'
 import { replayScannerLogic } from './replayScannerLogic'
 
 export interface RowObservation {
@@ -73,6 +73,7 @@ export interface scannerRunTabLogicValues {
     bulkScanning: boolean
     observationBySession: Record<string, RowObservation>
     pendingId: string | null
+    pollUntil: number
     refreshingObservations: boolean
     shouldPoll: boolean
     visibleSessionIds: string[]
@@ -93,8 +94,8 @@ export interface scannerRunTabLogicActions {
     triggerOnDemandObservationSuccess: () => {
         value: true
     } // replayScannerLogic
-    bulkScanDone: () => {
-        value: true
+    bulkScanDone: (started: number) => {
+        started: number
     }
     loadObservations: (background?: any) => {
         background: any
@@ -156,7 +157,7 @@ export const scannerRunTabLogic = kea<scannerRunTabLogicType>([
         setVisibleSessionIds: (sessionIds: string[]) => ({ sessionIds }),
         startScan: (sessionId: string) => ({ sessionId }),
         startBulkScan: (sessionIds: string[]) => ({ sessionIds }),
-        bulkScanDone: true,
+        bulkScanDone: (started: number) => ({ started }),
         setPendingId: (sessionId: string) => ({ sessionId }),
         loadObservations: (background = false) => ({ background }),
         loadObservationsSuccess: (bySession: Record<string, RowObservation>) => ({ bySession }),
@@ -203,6 +204,15 @@ export const scannerRunTabLogic = kea<scannerRunTabLogicType>([
                 bulkScanDone: () => false,
             },
         ],
+        // A bulk trigger only starts the workflows; each row is inserted moments later. Nothing else
+        // holds the poll open for them — unlike a single scan, which keeps `pendingId` until its row lands.
+        pollUntil: [
+            0,
+            {
+                bulkScanDone: (state: number, { started }: { started: number }) =>
+                    started > 0 ? Date.now() + OBSERVE_POLL_GRACE_MS : state,
+            },
+        ],
     }),
 
     selectors({
@@ -224,7 +234,11 @@ export const scannerRunTabLogic = kea<scannerRunTabLogicType>([
     listeners(({ actions, props, values, cache }) => {
         // Rescheduled on failure too — a transient API hiccup shouldn't permanently kill the polling cycle.
         const reschedulePoll = (): void =>
-            scheduleObservationPoll(cache.disposables, values.shouldPoll, () => actions.loadObservations(true))
+            scheduleObservationPoll(
+                cache.disposables,
+                shouldPollObservations(values.shouldPoll, values.pollUntil),
+                () => actions.loadObservations(true)
+            )
         return {
             setVisibleSessionIds: ({ sessionIds }) => {
                 if (sessionIds.length > 0) {
@@ -243,7 +257,7 @@ export const scannerRunTabLogic = kea<scannerRunTabLogicType>([
             startBulkScan: async ({ sessionIds }) => {
                 const teamId = teamLogic.values.currentTeamId
                 if (!teamId || sessionIds.length === 0) {
-                    actions.bulkScanDone()
+                    actions.bulkScanDone(0)
                     return
                 }
                 // The backend scans what fits and reports the rest — surface the split so the user
@@ -312,10 +326,11 @@ export const scannerRunTabLogic = kea<scannerRunTabLogicType>([
                             : `Bulk scan failed${detail}`
                     )
                 } finally {
+                    // Arm the poll window before the refetch, which can beat the row inserts.
+                    actions.bulkScanDone(started)
                     // Started scans create pending observations server-side — refetch to reflect them.
                     // Also on failure: an earlier batch can have started scans before a later one failed.
                     actions.loadObservations()
-                    actions.bulkScanDone()
                 }
             },
 

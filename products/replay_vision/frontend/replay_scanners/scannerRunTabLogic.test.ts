@@ -167,4 +167,44 @@ describe('scannerRunTabLogic', () => {
         // The quota that bound on the first batch binds on every later one, so asking again only burns requests.
         expect(postedBatches).toHaveLength(1)
     })
+
+    it('keeps polling after a bulk scan whose refetch beats the new observation rows', async () => {
+        // toFinishAllListeners hangs under fake timers (msw resolves responses on the clock),
+        // so the whole test advances fake time instead, which also flushes microtasks.
+        jest.useFakeTimers()
+        try {
+            let lookups = 0
+            useMocks({
+                get: {
+                    '/api/projects/:team/vision/scanners/:id/observations/': ({ request }: { request: Request }) => {
+                        if (request.url.includes('session_id=')) {
+                            lookups += 1
+                        }
+                        // A bulk trigger only starts the workflows; the rows are written by their
+                        // first activity, so the refetch right after it can still see nothing.
+                        return [200, { results: [], count: 0 }]
+                    },
+                },
+                post: {
+                    '/api/projects/:team/vision/scanners/:id/bulk_observe/': () => [
+                        202,
+                        { started: 1, results: [{ session_id: 's9', scan_outcome: 'started' }] },
+                    ],
+                },
+            })
+
+            logic.actions.setVisibleSessionIds(['s9'])
+            logic.actions.startBulkScan(['s9'])
+            await jest.advanceTimersByTimeAsync(1_000)
+            const afterScan = lookups
+            expect(afterScan).toBeGreaterThan(0)
+
+            await jest.advanceTimersByTimeAsync(3_000)
+            // Nothing is in progress and no row landed, so without a grace window the timer is
+            // disposed here and the started rows read "Not scanned" until the scene reloads.
+            expect(lookups).toBeGreaterThan(afterScan)
+        } finally {
+            jest.useRealTimers()
+        }
+    })
 })
