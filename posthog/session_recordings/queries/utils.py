@@ -14,6 +14,7 @@ from posthog.schema import (
     FilterLogicalOperator,
     GroupPropertyFilter,
     HogQLPropertyFilter,
+    HogQLQueryModifiers,
     PersonPropertyFilter,
     PersonsOnEventsMode,
     PropertyOperator,
@@ -25,12 +26,13 @@ from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.errors import QueryError
+from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.property import action_to_expr
 from posthog.hogql.resolver import resolve_types_from_table
 
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_DATA_WAREHOUSE
 from posthog.hogql_queries.legacy_compatibility.clean_properties import clean_entity_properties
-from posthog.models import Entity, Team
+from posthog.models import Entity, Team, User
 from posthog.types import AnyPropertyFilter
 
 from products.actions.backend.models.action import Action
@@ -171,13 +173,28 @@ def _strip_person_and_event_and_cohort_properties(
     return properties_to_keep
 
 
-def validate_replay_scope_expr(expr: ast.Expr, team: Team) -> None:
+def validate_replay_scope_expr(
+    expr: ast.Expr,
+    team: Team,
+    user: User | None = None,
+    modifiers: HogQLQueryModifiers | None = None,
+) -> None:
     """Reject a filter whose fields do not exist on the recordings table.
 
     Compiling it instead makes the resolver fail much later, which returns a 500 and does not say
     which filter to rewrite.
     """
-    context = HogQLContext(team_id=team.pk, team=team, database=Database.create_for(team=team))
+    # The check must see the schema the query itself runs against. A database built without the user
+    # denies every warehouse table and saved expression, and the modifiers choose which sessions
+    # table the recordings table joins to, so either omission rejects a filter that does resolve.
+    resolved_modifiers = create_default_modifiers_for_team(team, modifiers)
+    context = HogQLContext(
+        team_id=team.pk,
+        team=team,
+        user=user,
+        modifiers=resolved_modifiers,
+        database=Database.create_for(team=team, user=user, modifiers=resolved_modifiers),
+    )
 
     try:
         resolve_types_from_table(expr, ["raw_session_replay_events"], context, "clickhouse")

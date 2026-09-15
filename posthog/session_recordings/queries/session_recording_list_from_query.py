@@ -610,7 +610,9 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
         if remaining_properties:
             capture_exception(UnexpectedQueryProperties(remaining_properties))
             remaining_expr = property_to_expr(remaining_properties, team=self._team, scope="replay")
-            validate_replay_scope_expr(remaining_expr, self._team)
+            validate_replay_scope_expr(
+                remaining_expr, self._team, user=self._user, modifiers=self._hogql_query_modifiers
+            )
             optional_exprs.append(remaining_expr)
 
         if self._query.console_log_filters:
