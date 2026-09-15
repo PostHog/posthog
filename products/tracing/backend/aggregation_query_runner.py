@@ -56,7 +56,7 @@ from posthog.models.filters.mixins.utils import cached_property
 # _ROW_LIMIT lives in logic.py so the presentation layer can reach it through the
 # facade-allowed `logic` module; imported here (and re-exported) for the sibling runners.
 from .logic import _ROW_LIMIT, TIME_BUCKET_DATE_RANGE_WHERE, translate_span_filter, with_span_attribute_type_suffix
-from .models import resolved_tracing_identity_attribute_keys
+from .models import TracingIdentityAttributeKeys, resolved_tracing_identity_attribute_keys
 from .span_identity import identity_value_expr
 
 if TYPE_CHECKING:
@@ -257,15 +257,11 @@ class TraceSpansAggregationQueryRunner(_SpanAggregationMixin, AnalyticsQueryRunn
         return TraceSpansAggregationQueryResponse(results=current_rows, compare=previous_rows)
 
     @cached_property
-    def _identity_exprs(self) -> tuple[ast.Expr, ast.Expr]:
-        """The (session, person) value expressions, resolved from one Postgres read.
-
-        A cached_property so a compare run resolves it on the request thread. `_build_query` runs
-        once per window, and with `compareFilter` the two windows run on their own threads, where
-        a Django read would open a second connection.
-        """
-        session_keys, person_keys = resolved_tracing_identity_attribute_keys(self.team)
-        return identity_value_expr(session_keys), identity_value_expr(person_keys)
+    def _identity_keys(self) -> TracingIdentityAttributeKeys:
+        """A cached_property so a compare run resolves this on the request thread. `_build_query`
+        runs once per window, and with `compareFilter` the two windows run on their own threads,
+        where a Django read would open a second connection."""
+        return resolved_tracing_identity_attribute_keys(self.team)
 
     def _build_query(self, query_date_range: QueryDateRange) -> ast.SelectQuery:
         # Single table scan plus hash aggregate. Cheap enough to run unscoped.
@@ -280,7 +276,8 @@ class TraceSpansAggregationQueryRunner(_SpanAggregationMixin, AnalyticsQueryRunn
         # HyperLogLog-based and skips NULLs. `_row_from_clickhouse` reads these by position.
         impact_columns = ""
         if self.query.includeImpact:
-            placeholders["session_value"], placeholders["person_value"] = self._identity_exprs
+            placeholders["session_value"] = identity_value_expr(self._identity_keys.session)
+            placeholders["person_value"] = identity_value_expr(self._identity_keys.distinct_id)
             impact_columns = """,
                 uniq({session_value}) AS sessions,
                 uniq({person_value}) AS users,

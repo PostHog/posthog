@@ -64,7 +64,7 @@ class TraceSpansImpactQueryRunner(TraceSpansScalarQueryRunnerMixin, AnalyticsQue
         )
 
     def to_query(self) -> ast.SelectQuery:
-        session_keys, person_keys = resolved_tracing_identity_attribute_keys(self.team)
+        identity_keys = resolved_tracing_identity_attribute_keys(self.team)
         # uniq() and topK() are HyperLogLog-based, so about 1-2% off an exact count(DISTINCT)
         # and much cheaper. They skip NULLs, so spans carrying no identity need no predicate.
         query = parse_select(
@@ -84,8 +84,8 @@ class TraceSpansImpactQueryRunner(TraceSpansScalarQueryRunnerMixin, AnalyticsQue
             )
             """,
             placeholders={
-                "session_value": identity_value_expr(session_keys),
-                "person_value": identity_value_expr(person_keys),
+                "session_value": identity_value_expr(identity_keys.session),
+                "person_value": identity_value_expr(identity_keys.distinct_id),
                 "where": self.where_with_exact_timestamps(),
                 "top_n": ast.Constant(value=TOP_IDENTITY_VALUES),
             },

@@ -7,6 +7,7 @@ from django.contrib.postgres.fields import ArrayField
 from django.db import models
 from django.db.models import Value
 
+from posthog.dataclasses import frozen
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.team.extensions import register_team_extension_signal
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
@@ -76,13 +77,18 @@ SESSION_ID_ATTRIBUTE_KEY_CONVENTIONS = [
 ]
 
 
-def resolved_tracing_identity_attribute_keys(team: "Team") -> tuple[list[str], list[str]]:
-    """The (session, distinct id) attribute keys that link a span to a session and a person.
+@frozen
+class TracingIdentityAttributeKeys:
+    """The attribute keys that link a span to a session and to a person."""
 
-    Each list is the team's configured keys, or the default when unconfigured, followed by the
-    built-in conventions the UI links regardless of config. Deduped, configured keys first.
-    Both come from one config read, because every caller needs both.
-    """
+    session: list[str]
+    distinct_id: list[str]
+
+
+def resolved_tracing_identity_attribute_keys(team: "Team") -> TracingIdentityAttributeKeys:
+    """Each list is the team's configured keys, or the default when unconfigured, followed by the
+    built-in conventions the UI links regardless of config. Deduped, configured keys first. Both
+    come from one config read, because every caller needs both."""
     config = TeamTracingConfig.objects.filter(team=team).first()
     session_keys = (
         config.tracing_session_id_attribute_keys if config else None
@@ -90,9 +96,9 @@ def resolved_tracing_identity_attribute_keys(team: "Team") -> tuple[list[str], l
     distinct_id_keys = (
         config.tracing_distinct_id_attribute_keys if config else None
     ) or DEFAULT_TRACING_DISTINCT_ID_ATTRIBUTE_KEYS
-    return (
-        list(dict.fromkeys([*session_keys, *SESSION_ID_ATTRIBUTE_KEY_CONVENTIONS])),
-        list(dict.fromkeys([*distinct_id_keys, *DISTINCT_ID_ATTRIBUTE_KEY_CONVENTIONS])),
+    return TracingIdentityAttributeKeys(
+        session=list(dict.fromkeys([*session_keys, *SESSION_ID_ATTRIBUTE_KEY_CONVENTIONS])),
+        distinct_id=list(dict.fromkeys([*distinct_id_keys, *DISTINCT_ID_ATTRIBUTE_KEY_CONVENTIONS])),
     )
 
 

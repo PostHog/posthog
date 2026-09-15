@@ -5,8 +5,8 @@ import ViewRecordingButton, {
     ViewRecordingButtonVariant,
 } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { humanFriendlyLargeNumber } from 'lib/utils/numbers'
-import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 
+import { PersonDisplay } from 'products/persons/frontend/components/PersonDisplay'
 import type {
     _TracingImpactResponseApi,
     _TracingImpactTopValueApi,
