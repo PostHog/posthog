@@ -3,6 +3,7 @@ import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { MAX_SIDE_PANEL_ID } from 'scenes/max/components/PhaiSidePanelChat'
 import { urls } from 'scenes/urls'
 
@@ -138,8 +139,22 @@ export const newWorkflowAgentLogic = kea<newWorkflowAgentLogicType>([
             ) {
                 return
             }
-            const workflowId = await findCreatedWorkflowId(resolveToolCall(event.invocation).innerInput?.name)
-            if (!workflowId || cache.handedOff) {
+            let workflowId: string | null = null
+            try {
+                workflowId = await findCreatedWorkflowId(resolveToolCall(event.invocation).innerInput?.name)
+            } catch {
+                // A rejected list call (a network failure, or a name the search endpoint refuses) reads the
+                // same to the person as a name that matches nothing: the draft is saved and this page cannot
+                // open it. Both leave the run on screen, so the thread continues either way.
+                workflowId = null
+            }
+            if (cache.handedOff) {
+                return
+            }
+            if (!workflowId) {
+                lemonToast.error(
+                    'Your workflow was created, but it could not be opened. Find it in the workflows list.'
+                )
                 return
             }
             cache.handedOff = true

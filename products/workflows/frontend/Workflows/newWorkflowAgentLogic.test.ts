@@ -1,6 +1,7 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { MAX_SIDE_PANEL_ID } from 'scenes/max/components/PhaiSidePanelChat'
 import { maxMocks } from 'scenes/max/testUtils'
@@ -106,6 +107,27 @@ describe('newWorkflowAgentLogic', () => {
         expect(sidePanelStateLogic.values.selectedTab).toBe(SidePanelTab.Max)
         expect(sidePanelStateLogic.values.sidePanelOpen).toBe(true)
         expect(removeProjectIdIfPresent(router.values.location.pathname)).toBe(`/workflows/${WORKFLOW_ID}/workflow`)
+    })
+
+    // The draft is already saved by the time this runs, so a lookup that cannot find it must say where it
+    // went instead of leaving the person on the composer. A rejection covers both a network failure and a
+    // name the search endpoint refuses, since a workflow name may be twice as long as a search term.
+    it.each([
+        { name: 'the lookup fails', response: () => [500, { detail: 'boom' }] },
+        { name: 'no workflow matches', response: () => [200, { results: [], count: 0 }] },
+    ])('says the draft could not be opened when $name', async ({ response }) => {
+        useMocks({ get: { '/api/environments/:team_id/hog_flows/': response } })
+        const toast = jest.spyOn(lemonToast, 'error')
+
+        await expectLogic(logic, () => {
+            toolStreamEventsLogic.actions.emitToolEvent(createEvent({}))
+        }).toFinishAllListeners()
+
+        expect(toast).toHaveBeenCalledTimes(1)
+        expect(sidePanelStateLogic.values.sidePanelOpen).toBe(false)
+        expect(removeProjectIdIfPresent(router.values.location.pathname)).toBe('/workflows/new/workflow')
+
+        toast.mockRestore()
     })
 
     // The bus is global: a replay on reload, another run's create, or a still-streaming call must not
