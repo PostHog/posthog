@@ -198,6 +198,7 @@ export interface sourceCatalogLogicMeta {
                       | 'AmazonSellingPartner'
                       | 'AmazonSNS'
                       | 'AmazonSQS'
+                      | 'Amplemarket'
                       | 'Amplitude'
                       | 'AnodotCost'
                       | 'Anomalo'
