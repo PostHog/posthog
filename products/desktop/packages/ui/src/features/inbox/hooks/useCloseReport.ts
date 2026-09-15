@@ -17,7 +17,10 @@ export function useCloseReport(): (() => void) | null {
   const href = resolveNavigationSource(useReportSourceHref())?.href;
   const triageOrigin = useInboxTriageOrigin();
   return useMemo(
-    () => (href ? () => navigateToReportSource(href, triageOrigin) : null),
+    () =>
+      href
+        ? () => navigateToReportSource(href, triageOrigin?.reportId ?? null)
+        : null,
     [href, triageOrigin],
   );
 }
