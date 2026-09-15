@@ -3,15 +3,15 @@ import '@testing-library/jest-dom'
 import { cleanup, render, screen } from '@testing-library/react'
 
 import {
-    SourceConfig,
+    SourceConfigResponseApi,
     SourceFieldInputConfig,
-    SourceFieldSelectConfig,
-    SourceFieldSwitchGroupConfig,
-} from '~/queries/schema/schema-general'
+    SourceFieldSelectConfigApi,
+    SourceFieldSwitchGroupConfigApi,
+} from 'products/warehouse_sources/frontend/generated/api.schemas'
 
 import { sourceFieldToElement } from './SourceForm'
 
-const SELECT_FIELD: SourceFieldSelectConfig = {
+const SELECT_FIELD: SourceFieldSelectConfigApi = {
     type: 'select',
     name: 'response_types',
     label: 'Responses to sync',
@@ -24,9 +24,9 @@ const SELECT_FIELD: SourceFieldSelectConfig = {
     caption: 'Changing this triggers a full refresh of the responses table.',
 }
 
-const SOURCE_CONFIG = { name: 'Typeform', fields: [] } as unknown as SourceConfig
+const SOURCE_CONFIG = { name: 'Typeform', fields: [] } as unknown as SourceConfigResponseApi
 
-const SWITCH_GROUP_FIELD: SourceFieldSwitchGroupConfig = {
+const SWITCH_GROUP_FIELD: SourceFieldSwitchGroupConfigApi = {
     type: 'switch-group',
     name: 'custom_properties',
     label: 'Customize synced properties',
