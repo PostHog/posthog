@@ -20,5 +20,4 @@ type Property struct {
 type Catalog struct {
 	Tables     map[string]Table      `json:"tables"`
 	Properties map[string][]Property `json:"properties"`
-	Functions  []string              `json:"functions,omitempty"`
 }

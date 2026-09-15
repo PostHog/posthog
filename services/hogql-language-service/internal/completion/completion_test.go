@@ -24,7 +24,7 @@ func testCatalog() *catalog.Catalog {
 		"person":  {{Name: "$geo_city", ValueType: "String"}},
 		"session": {{Name: "$entry_current_url", ValueType: "String"}},
 		"group:0": {{Name: "industry", ValueType: "String"}},
-	}, Functions: []string{"coalesce", "count", "countIf", "toDateTime"}}
+	}}
 }
 
 func TestCompletionRejectsQueriesOutsideResourceLimits(t *testing.T) {
@@ -130,6 +130,7 @@ func TestCompletesSQLSyntaxForCursorContext(t *testing.T) {
 		excluded   string
 	}{
 		{name: "function in select", query: "SELECT cou FROM orders", position: len("SELECT cou"), label: "count", kind: "function", insertText: "count()"},
+		{name: "embedded function in select", query: "SELECT geoD FROM orders", position: len("SELECT geoD"), label: "geoDistance", kind: "function", insertText: "geoDistance()"},
 		{name: "function in where", query: "SELECT * FROM orders WHERE coa", position: len("SELECT * FROM orders WHERE coa"), label: "coalesce", kind: "function", insertText: "coalesce()"},
 		{name: "operator after field", query: "SELECT * FROM orders WHERE amount ", position: len("SELECT * FROM orders WHERE amount "), label: "=", kind: "operator", insertText: "=", excluded: "AND"},
 		{name: "boolean after predicate", query: "SELECT * FROM orders WHERE amount > 0 ", position: len("SELECT * FROM orders WHERE amount > 0 "), label: "AND", kind: "keyword", insertText: "AND", excluded: "="},
@@ -150,21 +151,6 @@ func TestCompletesSQLSyntaxForCursorContext(t *testing.T) {
 				t.Fatalf("unexpected suggestion %q in %#v", test.excluded, result.Suggestions)
 			}
 		})
-	}
-}
-
-func TestCompletesCommonFunctionsWithoutCatalogFunctions(t *testing.T) {
-	schema := testCatalog()
-	schema.Functions = nil
-	query := "SELECT cou FROM orders"
-
-	result, err := Complete(schema, query, len("SELECT cou"), PositionEncodingUTF8, "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	suggestion, ok := findSuggestion(result.Suggestions, "count")
-	if !ok || suggestion.InsertText != "count()" {
-		t.Fatalf("suggestions = %#v; parse error = %q", result.Suggestions, result.ParseError)
 	}
 }
 
@@ -235,7 +221,7 @@ func findSuggestion(suggestions []Suggestion, label string) (Suggestion, bool) {
 }
 
 func BenchmarkCompleteContextualCatalog(b *testing.B) {
-	schema := &catalog.Catalog{Tables: make(map[string]catalog.Table, 1024), Functions: make([]string, 861)}
+	schema := &catalog.Catalog{Tables: make(map[string]catalog.Table, 1024)}
 	for tableIndex := 0; tableIndex < 1024; tableIndex++ {
 		fields := make(map[string]catalog.Field, 25)
 		for fieldIndex := 0; fieldIndex < 25; fieldIndex++ {
@@ -245,16 +231,13 @@ func BenchmarkCompleteContextualCatalog(b *testing.B) {
 		name := fmt.Sprintf("table_%04d", tableIndex)
 		schema.Tables[name] = catalog.Table{Name: name, Type: "data_warehouse", Fields: fields}
 	}
-	for index := range schema.Functions {
-		schema.Functions[index] = fmt.Sprintf("function_%03d", index)
-	}
 	for _, benchmark := range []struct {
 		name     string
 		query    string
 		position int
 	}{
 		{name: "operator", query: "SELECT * FROM table_0500 WHERE column_10 ", position: len("SELECT * FROM table_0500 WHERE column_10 ")},
-		{name: "function prefix", query: "SELECT function_ FROM table_0500", position: len("SELECT function_")},
+		{name: "function prefix", query: "SELECT countD FROM table_0500", position: len("SELECT countD")},
 	} {
 		b.Run(benchmark.name, func(b *testing.B) {
 			result, err := Complete(schema, benchmark.query, benchmark.position, PositionEncodingUTF8, "")

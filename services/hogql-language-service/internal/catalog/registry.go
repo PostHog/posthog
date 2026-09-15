@@ -154,8 +154,5 @@ func estimatedSize(value *Catalog) int64 {
 			size += int64(len(property.Name) + len(property.ValueType) + 32)
 		}
 	}
-	for _, function := range value.Functions {
-		size += int64(len(function) + 16)
-	}
 	return size
 }

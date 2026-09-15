@@ -120,7 +120,7 @@ func Complete(schema *catalog.Catalog, query string, position int, positionEncod
 			suggestions = appendFields(suggestions, schema.Tables[tableName], lowerPrefix)
 		}
 		if mode == completionModeExpression {
-			suggestions = appendFunctions(suggestions, schema.Functions, lowerPrefix)
+			suggestions = appendFunctions(suggestions, lowerPrefix)
 		}
 		for _, keyword := range keywords {
 			if hasLowerPrefix(keyword, lowerPrefix) {
@@ -245,23 +245,14 @@ func appendFields(out []Suggestion, table catalog.Table, lowerPrefix string) []S
 	return out
 }
 
-func appendFunctions(out []Suggestion, available []string, lowerPrefix string) []Suggestion {
-	if len(available) == 0 {
-		available = commonFunctions
-	}
+func appendFunctions(out []Suggestion, lowerPrefix string) []Suggestion {
 	if lowerPrefix == "" {
-		availableSet := make(map[string]bool, len(available))
-		for _, name := range available {
-			availableSet[strings.ToLower(name)] = true
-		}
 		for _, name := range commonFunctions {
-			if availableSet[strings.ToLower(name)] {
-				out = append(out, Suggestion{Label: name, Kind: "function", Detail: "HogQL function", InsertText: name + "()"})
-			}
+			out = append(out, Suggestion{Label: name, Kind: "function", Detail: "HogQL function", InsertText: name + "()"})
 		}
 		return out
 	}
-	for _, name := range available {
+	for _, name := range hogQLFunctions {
 		if hasLowerPrefix(name, lowerPrefix) {
 			out = append(out, Suggestion{Label: name, Kind: "function", Detail: "HogQL function", InsertText: name + "()"})
 		}
