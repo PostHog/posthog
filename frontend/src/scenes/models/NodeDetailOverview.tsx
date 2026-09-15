@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import type { ReactNode } from 'react'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -10,11 +11,12 @@ import { urls } from 'scenes/urls'
 import { DataModelingSyncInterval } from '~/types'
 
 import { ModelHealthSummary } from 'products/data_modeling/frontend/nodeDetail/ModelHealthSummary'
+import { ModelViewSummary } from 'products/data_modeling/frontend/nodeDetail/ModelViewSummary'
 import { SERVING_ENGINE } from 'products/data_modeling/frontend/suspension'
 
 import { nodeDetailSceneLogic } from './nodeDetailSceneLogic'
 
-export function NodeDetailOverview({ id }: { id: string }): JSX.Element | null {
+export function NodeDetailOverview({ id, metadata }: { id: string; metadata?: ReactNode }): JSX.Element | null {
     const {
         node,
         savedQuery: sceneSavedQuery,
@@ -45,15 +47,20 @@ export function NodeDetailOverview({ id }: { id: string }): JSX.Element | null {
     }
     if (!(savedQuery?.is_materialized ?? isMaterialized)) {
         return node.type === 'table' ? (
-            effectiveLastRunAt ? (
-                <p className="text-sm text-secondary mb-0">
-                    Last synced <TZLabel time={effectiveLastRunAt} />
-                </p>
-            ) : null
+            <div className="flex flex-wrap items-start gap-x-8 gap-y-3">
+                {effectiveLastRunAt && (
+                    <p className="text-sm text-secondary mb-0">
+                        Last synced <TZLabel time={effectiveLastRunAt} />
+                    </p>
+                )}
+                {metadata}
+            </div>
         ) : (
-            <p className="text-sm text-secondary mb-0">
-                This view runs its query when used. Materialize it to store results and refresh them on a schedule.
-            </p>
+            <ModelViewSummary
+                downstreamCount={node.downstream_count}
+                lineageUrl={urls.nodeDetail(id, 'lineage')}
+                metadata={metadata}
+            />
         )
     }
     // Only ClickHouse serves queries, so a marker on a shadow engine means the comparison
@@ -78,6 +85,7 @@ export function NodeDetailOverview({ id }: { id: string }): JSX.Element | null {
 
     return (
         <ModelHealthSummary
+            metadata={metadata}
             status={latestJob?.status ?? savedQuery?.status ?? effectiveLastRunStatus}
             suspended={suspended}
             error={suspension?.reason ?? latestJob?.error ?? savedQuery?.latest_error ?? node.last_run_error}
