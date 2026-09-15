@@ -73,7 +73,7 @@ Sales and subscription reports also need your vendor number (App Store Connect â
 
 The analytics tables need a key with the Admin role. Apple lets only an Admin key start an analytics report.
 
-The analytics tables can stay empty at first. PostHog reuses your app's existing report request, or starts one when the app has none. Apple needs 1 to 2 days to produce the first report for a new request. A sync that returns no rows creates no table to query, so those tables appear after a later sync.
+The analytics tables can stay empty at first. This is normal and not an error. PostHog reuses your app's existing report request, or starts one when the app has none. Apple can take a few days to produce the first report for a new request (see [Apple's documentation](https://developer.apple.com/documentation/appstoreconnectapi/downloading-analytics-reports)). A sync that returns no rows creates no table to query, so those tables appear after a later sync.
 
 Leave **app IDs** blank to sync every app the key can read. To sync only some of your apps, list their Apple IDs, separated by commas. You can find an app's Apple ID in App Store Connect under **App Information â†’ General Information**. The filter covers the apps, versions, reviews, review responses, in-app purchases, subscription groups and analytics tables. Builds, TestFlight groups and the sales reports cover your whole account, so they are not filtered."""
         restatement_note = restatement_caption()

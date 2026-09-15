@@ -95,3 +95,17 @@ export const NoTableYet: Story = {
         return <SchemasTab {...props} />
     },
 }
+
+export const NoTableYetAppStoreConnect: Story = {
+    render: (props) => {
+        useStorybookMocks({
+            get: {
+                '/api/environments/:team_id/external_data_sources/:id': () => {
+                    return [200, { ...noTableYetSourceMock, source_type: 'AppStoreConnect' }]
+                },
+            },
+        })
+
+        return <SchemasTab {...props} />
+    },
+}

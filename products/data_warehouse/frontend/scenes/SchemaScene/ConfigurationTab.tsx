@@ -109,6 +109,7 @@ export function ConfigurationTab({
             return (
                 <DetailsSection
                     schema={schema}
+                    source={source}
                     reloadSchema={reloadSchema}
                     cancelSchema={cancelSchema}
                     updateSchema={updateSchema}
@@ -177,6 +178,7 @@ function SectionHeader({ title, description }: { title: string; description?: st
 
 function DetailsSection({
     schema,
+    source,
     reloadSchema,
     cancelSchema,
     updateSchema,
@@ -184,6 +186,7 @@ function DetailsSection({
     syncHistoryUrl,
 }: {
     schema: ExternalDataSourceSchema
+    source: SchemaSceneSource | null
     reloadSchema: (schema: ExternalDataSourceSchema) => void
     cancelSchema: (schema: ExternalDataSourceSchema) => void
     updateSchema: (schema: ExternalDataSourceSchema) => void
@@ -301,7 +304,7 @@ function DetailsSection({
                             <code>{syncedTableName}</code>
                         </Link>
                     ) : schemaHasNoTableYet(schema) ? (
-                        <NoTableYetLabel />
+                        <NoTableYetLabel sourceType={source?.source_type} />
                     ) : (
                         <span className="text-muted">Not yet synced</span>
                     )}
