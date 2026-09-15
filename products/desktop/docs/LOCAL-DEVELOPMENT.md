@@ -68,6 +68,16 @@ openssl genrsa 2048 | openssl pkcs8 -topk8 -nocrypt -outform PEM | \
 # Add to your PostHog .env as OIDC_RSA_PRIVATE_KEY="<generated_key>"
 ```
 
+## Bundled agent versions
+
+The desktop app bundles Codex 0.154.0 and Claude Code 2.1.270 from Claude Agent SDK 0.3.270.
+Codex 0.154.0 includes GPT-6-Astra support.
+Updating a separately installed CLI does not update the app's bundled agents.
+
+When changing Codex versions, update both `packages/agent/package.json` and `apps/code/scripts/download-binaries.mjs` so Codex and its code-mode host stay on the same release.
+The downloader skips existing binaries, so remove `apps/code/resources/codex-acp/codex` and `apps/code/resources/codex-acp/codex-code-mode-host` before running it again after a version change (use the `.exe` filenames on Windows).
+For Claude Code, keep the Claude Agent SDK versions in `packages/agent/package.json` and `packages/workspace-server/package.json` aligned and regenerate the desktop lockfile.
+
 ## Run the app
 
 Already working in the posthog/posthog monorepo? Skip the clone: the app lives at `products/desktop`. Note it needs Node 22 (see `.node-version`), not the Node version the monorepo's flox environment provides, so switch with your version manager first.
