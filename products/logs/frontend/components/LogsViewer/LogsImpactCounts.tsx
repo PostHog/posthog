@@ -1,3 +1,6 @@
+import { useValues } from 'kea'
+import { useEffect, useState } from 'react'
+
 import { LemonButton, LemonDropdown, Tooltip } from '@posthog/lemon-ui'
 
 import ViewRecordingButton, {
@@ -5,6 +8,7 @@ import ViewRecordingButton, {
     ViewRecordingButtonVariant,
 } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { humanFriendlyLargeNumber, percentage } from 'lib/utils/numbers'
+import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
 
 import type { _LogsImpactResponseApi, _LogsImpactTopValueApi } from 'products/logs/frontend/generated/api.schemas'
 import { PersonDisplay } from 'products/persons/frontend/components/PersonDisplay'
@@ -28,6 +32,16 @@ export function LogsImpactCounts({
     onGroupBySessions,
     onGroupByUsers,
 }: LogsImpactCountsProps): JSX.Element | null {
+    const { activeSessionRecording } = useValues(sessionPlayerModalLogic)
+    const [sessionsDropdownVisible, setSessionsDropdownVisible] = useState(false)
+
+    // The player modal renders below the popover layer, so an open drill-down would cover the recording.
+    useEffect(() => {
+        if (activeSessionRecording) {
+            setSessionsDropdownVisible(false)
+        }
+    }, [activeSessionRecording])
+
     if (impact.total === 0) {
         return null
     }
@@ -68,6 +82,8 @@ export function LogsImpactCounts({
                 <LemonDropdown
                     placement="bottom-start"
                     closeOnClickInside={false}
+                    visible={sessionsDropdownVisible}
+                    onVisibilityChange={setSessionsDropdownVisible}
                     overlay={
                         <TopValuesOverlay
                             caption={sessionsCaption}
