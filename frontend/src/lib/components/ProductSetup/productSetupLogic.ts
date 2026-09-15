@@ -65,8 +65,12 @@ export interface productSetupLogicActions {
     openGlobalSetup: () => {
         value: true
     } // globalSetupLogic
-    setHighlightSelector: (selector: string | null) => {
-        selector: string | null
+    setHighlight: (
+        selector: string,
+        pathname: string
+    ) => {
+        selector: string
+        pathname: string
     } // globalSetupLogic
     unmarkTaskAsCompleted: (taskIdOrIds: SetupTaskId | SetupTaskId[]) => {
         taskIdOrIds: AvailableSetupTaskIdsEnumApi | AvailableSetupTaskIdsEnumApi[]
@@ -185,7 +189,7 @@ export const productSetupLogic = kea<productSetupLogicType>([
                 'unmarkTaskAsCompleted',
                 'markTaskAsSkipped',
                 'unmarkTaskAsSkipped',
-                'setHighlightSelector',
+                'setHighlight',
             ],
         ],
     })),
@@ -365,6 +369,14 @@ export const productSetupLogic = kea<productSetupLogicType>([
                 return
             }
 
+            posthog.capture('product setup task run', {
+                product: props.productKey,
+                task: taskId,
+                task_type: task.taskType,
+                destination: task.getUrl ? 'internal' : task.docsUrl ? 'docs' : 'none',
+                has_target_selector: !!task.targetSelector,
+            })
+
             // Special cases that need non-navigation actions
             switch (taskId) {
                 case SetupTaskId.SetUpWebAnalyticsConversionGoals:
@@ -379,11 +391,6 @@ export const productSetupLogic = kea<productSetupLogicType>([
                     break
             }
 
-            // Set highlight selector before navigation so it can highlight after page loads (if we even have to navigate)
-            if (task.targetSelector) {
-                actions.setHighlightSelector(task.targetSelector)
-            }
-
             // Use task's getUrl if available, otherwise fall back to docsUrl
             if (task.getUrl) {
                 // Close modal before internal navigation (keeps the full "Quick start" button visible)
@@ -392,6 +399,12 @@ export const productSetupLogic = kea<productSetupLogicType>([
             } else if (task.docsUrl) {
                 // Keep modal open for external docs links
                 window.open(task.docsUrl, '_blank')
+            }
+
+            // Bind the highlight to the route we landed on, so it cannot pulse an element
+            // on a page the user goes to later
+            if (task.targetSelector) {
+                actions.setHighlight(task.targetSelector, router.values.location.pathname)
             }
         },
         dismissSetup: () => {
