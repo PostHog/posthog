@@ -169,14 +169,12 @@ async def test_retrieve_due_alerts_records_capacity_and_selected_alert_counters(
                 ScheduleDueAlertChecksWorkflowInputs(max_alerts_per_run=max_alerts_per_run),
             )
 
-    assert [metric_call.args[0] for metric_call in meter.create_counter.call_args_list] == [
+    expected_counter_names = [
         "insight_alert_scheduler_capacity",
         "insight_alert_scheduler_alerts_selected",
-        "insight_alert_scheduler_capacity",
-        "insight_alert_scheduler_alerts_selected",
-        "insight_alert_scheduler_capacity",
-        "insight_alert_scheduler_alerts_selected",
-    ]
+    ] * 3
+    created_counter_names = [metric_call.args[0] for metric_call in meter.create_counter.call_args_list]
+    assert created_counter_names == expected_counter_names
     assert capacity_counter.add.call_args_list == [call(11), call(10), call(9)]
     assert selected_counter.add.call_args_list == [call(9), call(9), call(9)]
     meter.with_additional_attributes.assert_not_called()
