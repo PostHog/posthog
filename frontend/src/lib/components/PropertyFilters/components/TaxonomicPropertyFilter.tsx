@@ -37,6 +37,7 @@ import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { AnyPropertyFilter, GroupTypeIndex, PropertyDefinitionType, PropertyFilterType } from '~/types'
 
+import { CohortRealtimeTag } from 'products/cohorts/frontend/realtime/CohortRealtimeTag'
 import { joinsLogic } from 'products/data_warehouse/frontend/shared/logics/joinsLogic'
 
 import { FILTER_ROW_FRAME_CLASSES } from './filterRowFrame'
@@ -165,13 +166,9 @@ export function TaxonomicPropertyFilter({
     // Look up cohort name, if not already provided in filter
     const cohortValue =
         filter?.type === PropertyFilterType.Cohort && !Array.isArray(filter?.value) ? filter.value : undefined
-    const cohortName =
-        filter?.type === PropertyFilterType.Cohort
-            ? filter.cohort_name ||
-              (cohortValue !== undefined
-                  ? cohortsById[cohortValue]?.name || cohortsById[String(cohortValue)]?.name
-                  : undefined)
-            : undefined
+    const cohort =
+        cohortValue !== undefined ? (cohortsById[cohortValue] ?? cohortsById[String(cohortValue)]) : undefined
+    const cohortName = filter?.type === PropertyFilterType.Cohort ? filter.cohort_name || cohort?.name : undefined
 
     const taxonomicFilter = (
         <TaxonomicFilter
@@ -264,25 +261,30 @@ export function TaxonomicPropertyFilter({
     const filterType = filter?.type as PropertyFilterType | undefined
 
     const filterContent =
-        filter?.type === 'cohort'
-            ? cohortName || `Cohort #${filter?.value}`
-            : filter?.type === PropertyFilterType.EventMetadata && filter?.key?.startsWith('$group_')
-              ? filter.label || `Group ${filter?.value}`
-              : (filter?.type === PropertyFilterType.Flag ||
-                      filterType === PropertyFilterType.AccountRelationship ||
-                      filter?.type === PropertyFilterType.AccountCustomProperty) &&
-                  filter &&
-                  'label' in filter &&
-                  filter.label
-                ? filter.label
-                : filter?.key && (
-                      <PropertyKeyInfo
-                          value={filter.key}
-                          disablePopover
-                          ellipsis
-                          type={PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE[filter.type]}
-                      />
-                  )
+        filter?.type === 'cohort' ? (
+            <span className="flex items-center gap-2 min-w-0">
+                <span className="truncate">{cohortName || `Cohort #${filter?.value}`}</span>
+                <CohortRealtimeTag realtime={cohort?.realtime} />
+            </span>
+        ) : filter?.type === PropertyFilterType.EventMetadata && filter?.key?.startsWith('$group_') ? (
+            filter.label || `Group ${filter?.value}`
+        ) : (filter?.type === PropertyFilterType.Flag ||
+              filterType === PropertyFilterType.AccountRelationship ||
+              filter?.type === PropertyFilterType.AccountCustomProperty) &&
+          filter &&
+          'label' in filter &&
+          filter.label ? (
+            filter.label
+        ) : (
+            filter?.key && (
+                <PropertyKeyInfo
+                    value={filter.key}
+                    disablePopover
+                    ellipsis
+                    type={PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE[filter.type]}
+                />
+            )
+        )
 
     const legacyDropdown = (
         <LemonDropdown

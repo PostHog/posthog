@@ -37,6 +37,7 @@ import {
 } from '~/types'
 
 import { cohortsEmptyState } from 'products/cohorts/frontend/emptyState/cohortsEmptyState'
+import { CohortRealtimeTag } from 'products/cohorts/frontend/realtime/CohortRealtimeTag'
 
 export const scene: SceneExport = {
     component: Cohorts,
@@ -64,15 +65,20 @@ export function Cohorts(): JSX.Element {
             dataIndex: 'name',
             width: '30%',
             sorter: (a, b) => (a.name || '').localeCompare(b.name || ''),
-            render: function Render(name, { id, description }) {
+            render: function Render(name, { id, description, realtime }) {
                 return (
-                    <>
-                        <LemonTableLink
-                            to={combineUrl(urls.cohort(id), searchParams).url}
-                            title={name ? <>{name}</> : 'Untitled'}
-                            description={description}
-                        />
-                    </>
+                    <LemonTableLink
+                        to={combineUrl(urls.cohort(id), searchParams).url}
+                        // In the title rather than beside the link, so a row with a description
+                        // keeps the state on the name's line instead of wrapping under it.
+                        title={
+                            <>
+                                {name || 'Untitled'}
+                                <CohortRealtimeTag realtime={realtime} />
+                            </>
+                        }
+                        description={description}
+                    />
                 )
             },
         },
@@ -90,7 +96,7 @@ export function Cohorts(): JSX.Element {
         {
             title: 'Last calculated',
             tooltip:
-                'PostHog calculates what users belong to each cohort. This is then used when filtering on cohorts in the Trends page etc. Calculating happens every 24 hours, or whenever a cohort is updated',
+                'When PostHog last worked out who belongs to this cohort. That count is what insights, breakdowns and the people list use, and it is recalculated once a day and whenever the cohort is edited.',
             render: function RenderCalculation(_: any, cohort: CohortType) {
                 if (cohort.is_static) {
                     return <>N/A</>

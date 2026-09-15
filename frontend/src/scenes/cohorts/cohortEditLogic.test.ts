@@ -7,6 +7,7 @@ import { v4 as uuidv4 } from 'uuid'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { scrollToFormError } from 'lib/forms/scrollToFormError'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { CohortLogicProps, cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
 import { CRITERIA_VALIDATIONS, NEW_CRITERIA, ROWS } from 'scenes/cohorts/CohortFilters/constants'
 import { BehavioralFilterKey } from 'scenes/cohorts/CohortFilters/types'
@@ -29,7 +30,10 @@ import {
     TimeUnitType,
 } from '~/types'
 
-import type { CohortUsedInResponseApi } from 'products/cohorts/frontend/generated/api.schemas'
+import type {
+    CohortRealtimeReadinessApi,
+    CohortUsedInResponseApi,
+} from 'products/cohorts/frontend/generated/api.schemas'
 
 jest.mock('uuid', () => ({
     v4: jest.fn().mockReturnValue('mocked-uuid'),
@@ -188,6 +192,65 @@ describe('cohortEditLogic', () => {
                     last_import_unmatched_count: 3,
                 }),
             })
+        })
+    })
+
+    describe('realtime history build polling', () => {
+        const buildingRealtime: CohortRealtimeReadinessApi = {
+            state: 'building',
+            ready_at: null,
+            build: { phase: 'scanning', percent_complete: 40, updated_at: '2026-09-15T10:00:00Z' },
+        }
+        const readyRealtime: CohortRealtimeReadinessApi = {
+            state: 'ready',
+            ready_at: '2026-09-15T10:20:00Z',
+            build: null,
+        }
+
+        it('merges the readiness without discarding unsaved criteria, and keeps watching', async () => {
+            // The build runs for tens of minutes, so every poll lands on a form the user may be
+            // part-way through editing. Merging the whole cohort back would throw those edits away.
+            useMocks({
+                get: { '/api/projects/:team_id/cohorts/:id/': { ...mockCohort, realtime: readyRealtime } },
+            })
+            await initCohortLogic({ id: 1 })
+            await expectLogic(logic, () => {
+                logic.actions.setCohort({ ...mockCohort, realtime: buildingRealtime })
+                logic.actions.setOuterGroupsType(FilterLogicalOperator.And)
+            }).toMatchValues({ cohort: partial({ realtime: buildingRealtime }) })
+
+            await expectLogic(logic, () => {
+                logic.actions.pollRealtimeReadiness()
+            })
+                .toDispatchActions(['pollRealtimeReadiness', 'armRealtimeReadinessPoll'])
+                .toFinishAllListeners()
+                .toMatchValues({
+                    cohort: partial({
+                        realtime: readyRealtime,
+                        filters: partial({ properties: partial({ type: FilterLogicalOperator.And }) }),
+                    }),
+                })
+        })
+
+        it('announces the ready moment once, not on every check after it', async () => {
+            useMocks({
+                get: { '/api/projects/:team_id/cohorts/:id/': { ...mockCohort, realtime: readyRealtime } },
+            })
+            await initCohortLogic({ id: 1 })
+            await expectLogic(logic, () => {
+                logic.actions.setCohort({ ...mockCohort, realtime: buildingRealtime })
+            }).toMatchValues({ cohort: partial({ realtime: buildingRealtime }) })
+
+            await expectLogic(logic, () => {
+                logic.actions.pollRealtimeReadiness()
+            }).toFinishAllListeners()
+            expect(lemonToast.success).toHaveBeenCalledWith('This cohort is ready. Feature flags can target it now.')
+
+            ;(lemonToast.success as jest.Mock).mockClear()
+            await expectLogic(logic, () => {
+                logic.actions.pollRealtimeReadiness()
+            }).toFinishAllListeners()
+            expect(lemonToast.success).not.toHaveBeenCalled()
         })
     })
 

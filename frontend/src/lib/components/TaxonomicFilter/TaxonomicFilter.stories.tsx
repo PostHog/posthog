@@ -712,6 +712,56 @@ export const FailedFetchOffersRetry: Story = {
     },
 }
 
+export const CohortsWithRealtimeStates: Story = {
+    args: {
+        taxonomicFilterLogicKey: 'cohorts-realtime',
+        taxonomicGroupTypes: [TaxonomicFilterGroupType.Cohorts],
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/cohorts/': [
+                    {
+                        id: 1,
+                        name: 'Viewed pricing this week',
+                        count: 4321,
+                        is_static: false,
+                        realtime: { state: 'ready', ready_at: '2023-07-03T09:40:00Z', build: null },
+                    },
+                    {
+                        id: 2,
+                        name: 'Completed onboarding',
+                        count: 210,
+                        is_static: false,
+                        realtime: {
+                            state: 'building',
+                            ready_at: null,
+                            build: { phase: 'scanning', percent_complete: 45, updated_at: '2023-07-03T23:58:00Z' },
+                        },
+                    },
+                    {
+                        id: 3,
+                        name: 'Churn risk',
+                        count: 76,
+                        is_static: false,
+                        realtime: { state: 'needs_attention', ready_at: null, build: null },
+                    },
+                    { id: 4, name: 'Beta testers', count: 89, is_static: true, realtime: null },
+                    { id: 5, name: 'Signed up last month', count: 1200, is_static: false, realtime: null },
+                ],
+            },
+        }),
+    ],
+    parameters: {
+        testOptions: { waitForSelector: '.taxonomic-infinite-list' },
+        docs: {
+            description: {
+                story: 'Cohort rows carry their realtime trait, so someone picking one for a feature flag sees which cohorts flags can already target and which are still being prepared.',
+            },
+        },
+    },
+}
+
 export const EmptyEventsWithStaleToggle: Story = {
     render: (args) => {
         useMountedLogic(actionsModel)

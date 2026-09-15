@@ -73,6 +73,7 @@ import {
     TeamType,
 } from '~/types'
 
+import { CohortRealtimeTag } from 'products/cohorts/frontend/realtime/CohortRealtimeTag'
 import { joinsLogic } from 'products/data_warehouse/frontend/shared/logics/joinsLogic'
 import { experimentsLogic } from 'products/experiments/frontend/scenes/experimentsLogic'
 import { HogFlowTaxonomicFilters } from 'products/workflows/frontend/Workflows/hogflows/filters/HogFlowTaxonomicFilters'
@@ -784,6 +785,7 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
             clientFilterFirstPage: true,
             getName: (cohort: CohortType) => cohort.name || `Cohort ${cohort.id}`,
             getValue: (cohort: CohortType) => cohort.id,
+            getTag: (cohort: CohortType) => <CohortRealtimeTag realtime={cohort.realtime} />,
             getPopoverHeader: (cohort: CohortType) => `${cohort.is_static ? 'Static' : 'Dynamic'} Cohort`,
             getIcon: function _getIcon(): JSX.Element {
                 return <IconCohort className="taxonomy-icon taxonomy-icon-muted" />
@@ -805,6 +807,7 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
             options: COHORTS_WITH_ALL_USERS_OPTIONS,
             getName: (cohort: CohortType) => cohort.name || `Cohort ${cohort.id}`,
             getValue: (cohort: CohortType) => cohort.id,
+            getTag: (cohort: CohortType) => <CohortRealtimeTag realtime={cohort.realtime} />,
             getPopoverHeader: () => `All Users`,
             getIcon: function _getIcon(): JSX.Element {
                 return <IconCohort className="taxonomy-icon taxonomy-icon-muted" />

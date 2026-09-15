@@ -4,13 +4,13 @@ import { LemonButton, LemonSnack, LemonTag } from '@posthog/lemon-ui'
 import { allOperatorsToHumanName } from 'lib/components/DefinitionPopover/utils'
 import { isPropertyFilterWithOperator } from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { IconOpenInNew, IconSubArrowRight } from 'lib/lemon-ui/icons'
+import { IconSubArrowRight } from 'lib/lemon-ui/icons'
 import { isDistinctIdFilter, withResolvedFlagLabels } from 'scenes/feature-flags/featureFlagReleaseConditionsLogic'
-import { urls } from 'scenes/urls'
 
 import { getFilterLabel } from '~/taxonomy/helpers'
 import { AnyPropertyFilter, FeatureFlagGroupType, PropertyFilterType } from '~/types'
 
+import { CohortConditionLink } from './CohortConditionLink'
 import { rolloutOf } from './releaseConditionsDiff'
 
 export interface FeatureFlagConditionSetCardProps {
@@ -41,11 +41,7 @@ function PropertyValueDisplay({
     getDistinctIdName: (distinctId: string) => string
 }): JSX.Element {
     if (property.type === PropertyFilterType.Cohort) {
-        return (
-            <LemonButton type="secondary" size="xsmall" to={urls.cohort(property.value)} sideIcon={<IconOpenInNew />}>
-                {property.cohort_name || `ID ${property.value}`}
-            </LemonButton>
-        )
+        return <CohortConditionLink property={property} />
     }
 
     const propertyValues = Array.isArray(property.value) ? property.value : [property.value]

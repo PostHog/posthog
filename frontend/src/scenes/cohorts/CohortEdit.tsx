@@ -52,6 +52,7 @@ import { Query } from '~/queries/Query/Query'
 import { ActivityScope, CohortType, InsightShortId, SidePanelTab } from '~/types'
 
 import type { CohortUsedInResponseApi } from 'products/cohorts/frontend/generated/api.schemas'
+import { CohortRealtimeStatus } from 'products/cohorts/frontend/realtime/CohortRealtimeStatus'
 
 import { AddPersonToCohortModal } from './AddPersonToCohortModal'
 import { addPersonToCohortModalLogic } from './addPersonToCohortModalLogic'
@@ -513,54 +514,63 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
                                         )}
 
                                         {!isNewCohort && !cohort?.is_static && (
-                                            <div className="flex flex-col gap-y-2">
-                                                <div className="flex items-center gap-x-2 my-0">
-                                                    <strong>Last calculated:</strong>
-                                                    {isCalculatingOrPending ? (
-                                                        <div className="flex items-center gap-x-2">
-                                                            <Spinner size="small" />
-                                                            <span className="text-muted">In progress...</span>
-                                                        </div>
-                                                    ) : cohort.last_calculation ? (
-                                                        <TZLabel time={cohort.last_calculation} />
-                                                    ) : (
-                                                        <span className="text-muted">Not yet calculated</span>
-                                                    )}
-                                                </div>
+                                            <>
+                                                <div className="flex flex-col gap-y-2">
+                                                    <div className="flex items-center gap-x-2 my-0">
+                                                        <strong>Last calculated:</strong>
+                                                        <Tooltip title="When PostHog last worked out who belongs to this cohort. That count is what insights, breakdowns and the people list below use, and it is recalculated once a day and whenever you edit the cohort.">
+                                                            <IconInfo className="text-secondary text-base" />
+                                                        </Tooltip>
+                                                        {isCalculatingOrPending ? (
+                                                            <div className="flex items-center gap-x-2">
+                                                                <Spinner size="small" />
+                                                                <span className="text-muted">In progress...</span>
+                                                            </div>
+                                                        ) : cohort.last_calculation ? (
+                                                            <TZLabel time={cohort.last_calculation} />
+                                                        ) : (
+                                                            <span className="text-muted">Not yet calculated</span>
+                                                        )}
+                                                    </div>
 
-                                                {isCalculatingOrPending ? (
-                                                    <LemonBanner type="warning">
-                                                        {isPendingCalculation && !cohort.is_calculating
-                                                            ? cohort.last_calculation
-                                                                ? "We're queuing a recalculation. The table below shows results from the previous calculation."
-                                                                : "We're queuing the calculation. It should be ready in a few minutes."
-                                                            : cohort.last_calculation
-                                                              ? "We're recalculating the cohort. The table below shows results from the previous calculation."
-                                                              : "We're calculating the cohort. It should be ready in a few minutes."}
-                                                    </LemonBanner>
-                                                ) : cohort.errors_calculating ? (
-                                                    <LemonBanner
-                                                        type="error"
-                                                        action={{
-                                                            onClick: () => submitCohort(),
-                                                            children: 'Retry',
-                                                        }}
-                                                    >
-                                                        <strong>Calculation failed:</strong>{' '}
-                                                        {cohort.last_error_message ||
-                                                            'Unable to calculate this cohort. Please check your matching criteria and try again.'}{' '}
-                                                        If it fails again,{' '}
-                                                        <Link
-                                                            onClick={() =>
-                                                                openSidePanel(SidePanelTab.Support, 'bug:cohorts::true')
-                                                            }
+                                                    {isCalculatingOrPending ? (
+                                                        <LemonBanner type="warning">
+                                                            {isPendingCalculation && !cohort.is_calculating
+                                                                ? cohort.last_calculation
+                                                                    ? "We're queuing a recalculation. The table below shows results from the previous calculation."
+                                                                    : "We're queuing the calculation. It should be ready in a few minutes."
+                                                                : cohort.last_calculation
+                                                                  ? "We're recalculating the cohort. The table below shows results from the previous calculation."
+                                                                  : "We're calculating the cohort. It should be ready in a few minutes."}
+                                                        </LemonBanner>
+                                                    ) : cohort.errors_calculating ? (
+                                                        <LemonBanner
+                                                            type="error"
+                                                            action={{
+                                                                onClick: () => submitCohort(),
+                                                                children: 'Retry',
+                                                            }}
                                                         >
-                                                            contact support
-                                                        </Link>
-                                                        .
-                                                    </LemonBanner>
-                                                ) : null}
-                                            </div>
+                                                            <strong>Calculation failed:</strong>{' '}
+                                                            {cohort.last_error_message ||
+                                                                'Unable to calculate this cohort. Please check your matching criteria and try again.'}{' '}
+                                                            If it fails again,{' '}
+                                                            <Link
+                                                                onClick={() =>
+                                                                    openSidePanel(
+                                                                        SidePanelTab.Support,
+                                                                        'bug:cohorts::true'
+                                                                    )
+                                                                }
+                                                            >
+                                                                contact support
+                                                            </Link>
+                                                            .
+                                                        </LemonBanner>
+                                                    ) : null}
+                                                </div>
+                                                <CohortRealtimeStatus realtime={cohort.realtime} />
+                                            </>
                                         )}
                                     </div>
                                 </div>

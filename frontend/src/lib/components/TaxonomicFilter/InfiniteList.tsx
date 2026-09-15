@@ -607,6 +607,7 @@ export const InfiniteListRow = ({
             localListGroup,
             fallbackGroup: group ?? itemGroup,
         })
+        const itemTag = resolvedItemGroup.getTag?.(item)
 
         return (
             <div
@@ -638,6 +639,7 @@ export const InfiniteListRow = ({
                     isActive,
                     selectedRenameMeta: isSelected ? getSelectedItemRenameMeta(selectedItemMeta, itemValue) : null,
                 })}
+                {itemTag ? <span className="flex shrink-0 ml-auto pl-2">{itemTag}</span> : null}
                 {isCrossGroupItem && (
                     <LemonTag size="small" type="highlight">
                         {localListLabel ? `${itemGroup.name} - ${localListLabel}` : itemGroup.name}

@@ -65,7 +65,10 @@ import {
 } from '~/types'
 
 import { cohortsUsedInRetrieve } from 'products/cohorts/frontend/generated/api'
-import type { CohortUsedInResponseApi } from 'products/cohorts/frontend/generated/api.schemas'
+import type {
+    CohortRealtimeStateEnumApi,
+    CohortUsedInResponseApi,
+} from 'products/cohorts/frontend/generated/api.schemas'
 import { personsLogic } from 'products/persons/frontend/logics/personsLogic'
 
 import type { UserBasicType } from '../../types'
@@ -79,6 +82,14 @@ export type StaticCohortMode = 'criteria' | 'people'
 export type CohortEditTab = 'overview' | 'history'
 
 const isCohortEditTab = (value: unknown): value is CohortEditTab => value === 'overview' || value === 'history'
+
+// While history is being built, flags can't target the cohort yet, so the scene keeps asking. The
+// build takes tens of minutes, so this is slow polling, unlike the 1s loop the daily calculation uses.
+const REALTIME_POLL_INTERVAL_MS = 15_000
+const BUILDING_STATES: CohortRealtimeStateEnumApi[] = ['building', 'rebuilding']
+
+const isBuildingHistory = (cohort: CohortType): boolean =>
+    !!cohort.realtime && BUILDING_STATES.includes(cohort.realtime.state)
 
 const checkIsPendingCalculation = (cohort: CohortType): boolean =>
     cohort.pending_version != null &&
@@ -244,6 +255,12 @@ export interface cohortEditLogicActions {
             id: string
             newGroup: Partial<CohortGroupType>
         }
+    }
+    armRealtimeReadinessPoll: () => {
+        value: true
+    }
+    pollRealtimeReadiness: () => {
+        value: true
     }
     refreshPersonsData: () => {
         value: true
@@ -515,6 +532,8 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
         onCriteriaChange: (newGroup: Partial<CohortGroupType>, id: string) => ({ newGroup, id }),
         setPollTimeout: (pollTimeout: number | null) => ({ pollTimeout }),
         checkIfFinishedCalculating: (cohort: CohortType) => ({ cohort }),
+        armRealtimeReadinessPoll: true,
+        pollRealtimeReadiness: true,
 
         setOuterGroupsType: (type: FilterLogicalOperator) => ({ type }),
         setFilterTestAccounts: (filterTestAccounts: boolean) => ({ filterTestAccounts }),
@@ -1055,7 +1074,7 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
             },
         ],
     })),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, cache }) => ({
         setCriteria: ({ newCriteria, groupIndex, criteriaIndex }) => {
             // When the person property key changes, auto-reset the operator to match the
             // property type (DateTime → "on the date", non-DateTime → "equals").
@@ -1122,6 +1141,44 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                     'There was an error submitting this cohort. Make sure the cohort filters are correct.',
             })
         },
+        armRealtimeReadinessPoll: () => {
+            if (!isBuildingHistory(values.cohort)) {
+                return
+            }
+            cache.disposables.add(() => {
+                const timeoutId = window.setTimeout(() => actions.pollRealtimeReadiness(), REALTIME_POLL_INTERVAL_MS)
+                return () => window.clearTimeout(timeoutId)
+            }, 'realtimeReadinessPoll')
+        },
+        pollRealtimeReadiness: async (_, breakpoint) => {
+            const id = values.cohort.id
+            if (typeof id !== 'number') {
+                return
+            }
+
+            const wasBuilding = isBuildingHistory(values.cohort)
+            try {
+                const fetched = await api.cohorts.get(id)
+                breakpoint()
+                // Only the readiness merges back: the user may be part-way through editing the
+                // criteria, and this poll runs for as long as the build does.
+                actions.setCohort({ ...values.cohort, realtime: fetched.realtime })
+                if (wasBuilding && fetched.realtime?.state === 'ready') {
+                    lemonToast.success('This cohort is ready. Feature flags can target it now.')
+                }
+            } catch (error: any) {
+                if (isBreakpoint(error)) {
+                    return
+                }
+                // Keep watching: a failed request says nothing about the build, and dropping the
+                // banner would read as the build having finished.
+            }
+            actions.armRealtimeReadinessPoll()
+        },
+        // Both entry points already carry a fresh readiness, the fetch from the page load and the
+        // save from its own response, so they only have to start the clock.
+        fetchCohortSuccess: () => actions.armRealtimeReadinessPoll(),
+        saveCohortSuccess: () => actions.armRealtimeReadinessPoll(),
         checkIfFinishedCalculating: async ({ cohort }, breakpoint) => {
             const isPendingCalculation = checkIsPendingCalculation(cohort)
             const isCalculatingOrPending = cohort.is_calculating || isPendingCalculation

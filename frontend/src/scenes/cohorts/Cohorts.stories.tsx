@@ -42,6 +42,31 @@ const mockCohorts: CohortType[] = [
     createCohort(3, 'Beta testers', 89, true),
 ]
 
+const withRealtime = (cohort: CohortType, realtime: CohortType['realtime']): CohortType => ({ ...cohort, realtime })
+
+const realtimeCohorts: CohortType[] = [
+    withRealtime(createCohort(4, 'Viewed pricing this week', 4321, false), {
+        state: 'ready',
+        ready_at: '2023-07-03T09:40:00Z',
+        build: null,
+    }),
+    // Just saved: the daily calculation and the realtime build run at the same time, and the page
+    // has to keep the two apart.
+    withRealtime(createCohort(5, 'Completed onboarding', 210, false, true), {
+        state: 'building',
+        ready_at: null,
+        build: { phase: 'scanning', percent_complete: 45, updated_at: '2023-07-03T23:58:00Z' },
+    }),
+    withRealtime(
+        { ...createCohort(6, 'Churn risk', 76, false), description: 'Logged in less than twice in the last month' },
+        {
+            state: 'needs_attention',
+            ready_at: null,
+            build: null,
+        }
+    ),
+]
+
 const cohortApiMocks = {
     '/api/projects/:team_id/actions/': toPaginatedResponse([]),
     '/api/projects/:team_id/cohorts/': toPaginatedResponse(mockCohorts),
@@ -63,6 +88,15 @@ export const CohortsEmpty: Story = {
     decorators: [mswDecorator({ get: { '/api/projects/:team_id/cohorts/': toPaginatedResponse([]) } })],
 }
 
+export const CohortsWithRealtimeStates: Story = {
+    parameters: { pageUrl: urls.cohorts() },
+    decorators: [
+        mswDecorator({
+            get: { '/api/projects/:team_id/cohorts/': toPaginatedResponse([...mockCohorts, ...realtimeCohorts]) },
+        }),
+    ],
+}
+
 export const CohortNew: Story = {
     parameters: { pageUrl: urls.cohort('new') },
     decorators: [mswDecorator({ get: cohortApiMocks })],
@@ -71,6 +105,40 @@ export const CohortNew: Story = {
 export const CohortEditDynamic: Story = {
     parameters: { pageUrl: urls.cohort(1) },
     decorators: [mswDecorator({ get: { '/api/projects/:team_id/cohorts/1/': mockCohorts[0], ...cohortApiMocks } })],
+}
+
+export const CohortEditRealtimeReady: Story = {
+    parameters: { pageUrl: urls.cohort(4) },
+    decorators: [mswDecorator({ get: { '/api/projects/:team_id/cohorts/4/': realtimeCohorts[0], ...cohortApiMocks } })],
+}
+
+export const CohortEditRealtimePreparing: Story = {
+    parameters: { pageUrl: urls.cohort(5) },
+    decorators: [mswDecorator({ get: { '/api/projects/:team_id/cohorts/5/': realtimeCohorts[1], ...cohortApiMocks } })],
+}
+
+export const CohortEditRealtimeRebuilding: Story = {
+    parameters: { pageUrl: urls.cohort(5) },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/cohorts/5/': withRealtime(
+                    { ...realtimeCohorts[1], is_calculating: false },
+                    {
+                        state: 'rebuilding',
+                        ready_at: null,
+                        build: { phase: 'checking', percent_complete: null, updated_at: '2023-07-03T23:58:00Z' },
+                    }
+                ),
+                ...cohortApiMocks,
+            },
+        }),
+    ],
+}
+
+export const CohortEditRealtimeNotAvailable: Story = {
+    parameters: { pageUrl: urls.cohort(6) },
+    decorators: [mswDecorator({ get: { '/api/projects/:team_id/cohorts/6/': realtimeCohorts[2], ...cohortApiMocks } })],
 }
 
 export const CohortEditStatic: Story = {
