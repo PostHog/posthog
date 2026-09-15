@@ -80,6 +80,8 @@ Ingestion separately requires `LOGS_JSON_ATTRIBUTE_PARSING_ENABLED_TEAMS`: an em
 
 PostHog parses the selected attribute's JSON object or array and adds up to 50 flattened fields, prefixed with the selected key. Selecting `attributes` for `{"sessionId":"example-session","personId":"example-user"}` adds `attributes.sessionId` and `attributes.personId`. Both structured JSON values and JSON stored as a string are supported.
 
+JSON body and attribute parsing share the 1 MiB output limit used by Logs transformations. The limit counts the combined UTF-8 bytes of the body, severity text, and keys and values in both attribute maps. Each parsing step skips extraction if its flattened fields or the combined output exceed the limit. The log keeps its values from before that step, including the source JSON. Flattening checks the byte limit during traversal to prevent oversized intermediate output.
+
 Use `attributes.sessionId` in **Link to session** and `attributes.personId` in **Link to person**, provided their values are the PostHog session ID and one of the person's PostHog distinct IDs. These settings match the flattened keys literally. The fields can also be used in log filters.
 
 The original attribute is preserved. If fields share the same key, PostHog uses this order:

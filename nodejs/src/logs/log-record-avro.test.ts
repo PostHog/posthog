@@ -15,6 +15,7 @@ import {
     processLogMessageBuffer,
     transformDecodedLogRecordsInPlace,
 } from './log-record-avro'
+import { MAX_LOG_RECORD_BYTES, logRecordSizeBytes } from './log-record-size'
 
 const LOG_RECORD_SCHEMA = avro.parse(`{
 "type": "record",
@@ -407,6 +408,55 @@ describe('log-record-avro', () => {
     })
 
     describe('processLogMessageBuffer', () => {
+        it.each(['body', 'attribute'])(
+            'keeps the original record when %s extraction exceeds the byte budget',
+            async (source) => {
+                const json = JSON.stringify({
+                    ['🦔'.repeat(8192)]: Object.fromEntries(Array.from({ length: 50 }, (_, index) => [index, index])),
+                })
+                const record = {
+                    body: source === 'body' ? json : null,
+                    attributes: source === 'attribute' ? { context: json } : null,
+                } as LogRecord
+                const original = { ...record }
+                await transformDecodedLogRecordsInPlace([record], {
+                    json_parse_logs: source === 'body',
+                    json_parse_logs_attribute_key: source === 'attribute' ? 'context' : '',
+                })
+                expect(record).toEqual(original)
+            }
+        )
+
+        it.each([
+            ['body', 0],
+            ['body', 1],
+            ['attribute', 0],
+            ['attribute', 1],
+        ])(
+            'applies the complete record byte budget to %s extraction, excess bytes: %i',
+            async (source, excessBytes) => {
+                const json = '{"n":1}'
+                const record = {
+                    body: source === 'body' ? json : 'log',
+                    severity_text: 'INFO',
+                    attributes: source === 'attribute' ? { context: json } : {},
+                    resource_attributes: { padding: '' },
+                } as unknown as LogRecord
+                const field = source === 'body' ? 'n' : 'context.n'
+                record.resource_attributes!.padding = 'x'.repeat(
+                    MAX_LOG_RECORD_BYTES - logRecordSizeBytes(record) - Buffer.byteLength(field) - 1 + excessBytes
+                )
+                const originalAttributes = record.attributes
+                await transformDecodedLogRecordsInPlace([record], {
+                    json_parse_logs: source === 'body',
+                    json_parse_logs_attribute_key: source === 'attribute' ? 'context' : '',
+                })
+                expect(record.attributes).toEqual(
+                    excessBytes ? originalAttributes : { ...originalAttributes, [field]: '1' }
+                )
+            }
+        )
+
         it.each([
             [
                 'structured object',

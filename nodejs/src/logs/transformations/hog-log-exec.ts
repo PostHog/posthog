@@ -6,6 +6,7 @@ import { execHogImmediate } from '~/cdp/utils/hog-exec'
 
 import { decodeLogAttributeValue, encodeLogAttributeValue } from '../attribute-value'
 import type { LogRecord } from '../log-record-avro'
+import { MAX_LOG_RECORD_BYTES, logRecordSizeBytes } from '../log-record-size'
 import { idToHex } from '../metrics-rules/tally'
 
 // Per-record execution primitives for log transformations. Pure functions, no I/O:
@@ -21,10 +22,8 @@ export const LOG_TRANSFORMATION_MEMORY_LIMIT_BYTES = 8 * 1024 * 1024
  * since a transformation can run hundreds of thousands of times per second. */
 export const MAX_LOG_TRANSFORMATION_PRINT_LOGS = 5
 
-/** Capture bounds whole ingest requests at 2MB; a transformation must not inflate a
- * stored record past that boundary. The cap applies to the complete transformed
- * output (body + severity + attribute map totals); oversize output is invalid. */
-export const MAX_TRANSFORMED_FIELD_BYTES = 1024 * 1024
+/** Share the JSON extraction limit so neither path can inflate the combined body and attribute output. */
+export const MAX_TRANSFORMED_FIELD_BYTES = MAX_LOG_RECORD_BYTES
 
 export interface LogTransformationGlobals {
     project: { id: number; name: string; url: string }
@@ -254,23 +253,12 @@ export function applyTransformResult(record: LogRecord, execResult: unknown): 'm
     // stored record past the boundary.
     // Retained fields count too: a partial result (e.g. {body}) must not slip the
     // record past the cap by riding on large fields it left untouched.
-    let totalBytes = 0
-    const finalBody = body !== undefined ? body : record.body
-    const finalSeverity = severityText !== undefined ? severityText : record.severity_text
-    for (const text of [finalBody, finalSeverity]) {
-        if (typeof text === 'string') {
-            totalBytes += Buffer.byteLength(text)
-        }
-    }
-    const finalAttributes = attributes !== undefined ? attributes : record.attributes
-    const finalResourceAttributes = resourceAttributes !== undefined ? resourceAttributes : record.resource_attributes
-    for (const map of [finalAttributes, finalResourceAttributes]) {
-        if (map) {
-            for (const [key, value] of Object.entries(map)) {
-                totalBytes += Buffer.byteLength(key) + Buffer.byteLength(value)
-            }
-        }
-    }
+    const totalBytes = logRecordSizeBytes({
+        body: body !== undefined ? body : record.body,
+        severity_text: severityText !== undefined ? severityText : record.severity_text,
+        attributes: attributes !== undefined ? attributes : record.attributes,
+        resource_attributes: resourceAttributes !== undefined ? resourceAttributes : record.resource_attributes,
+    })
     if (totalBytes > MAX_TRANSFORMED_FIELD_BYTES) {
         return 'invalid'
     }

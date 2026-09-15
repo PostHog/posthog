@@ -9,6 +9,7 @@ import type { LogsSettings } from '~/types'
 import { recordLogProcessingDuration } from './ingestion-otel-metrics'
 import { type LogBodyParseResult, parseLogBodyForIngestion } from './log-body-parse'
 import { EMPTY_PII, type PiiScrubStats, scrubLogRecord } from './log-pii-scrub'
+import { MAX_LOG_RECORD_BYTES, logRecordSizeBytes } from './log-record-size'
 import {
     type DropStats,
     EMPTY_DROP_STATS,
@@ -194,24 +195,34 @@ export function flattenJson(
     obj: unknown,
     prefix = '',
     result: Record<string, any> = {},
-    maxAttributes = Infinity
-): Record<string, any> {
+    maxAttributes = Infinity,
+    maxBytes = MAX_LOG_RECORD_BYTES
+): Record<string, any> | null {
+    let bytes = 0
+    for (const [key, value] of Object.entries(result)) {
+        bytes += Buffer.byteLength(key) + Buffer.byteLength(JSON.stringify(value))
+    }
+    const prefixBytes = Buffer.byteLength(prefix)
+    if (bytes > maxBytes || prefixBytes > maxBytes) {
+        return null
+    }
     if (obj === null || obj === undefined) {
         if (prefix) {
-            result[prefix] = String(obj)
+            return flattenJson({ [prefix]: String(obj) }, '', result, maxAttributes, maxBytes)
         }
         return result
     }
 
     if (typeof obj !== 'object') {
         if (prefix) {
-            result[prefix] = obj
+            return flattenJson({ [prefix]: obj }, '', result, maxAttributes, maxBytes)
         }
         return result
     }
 
-    // Lazy iterators avoid recursion and stop visiting children once the output budget is exhausted.
-    const stack = [{ entries: jsonEntries(obj), prefix }]
+    // Retain path segments instead of full prefixes so deep objects cannot duplicate large keys on the stack.
+    const path = prefix ? [prefix] : []
+    const stack = [{ entries: jsonEntries(obj), pathLength: path.length, pathBytes: prefixBytes }]
     let count = Object.keys(result).length
     while (stack.length > 0 && count < maxAttributes) {
         const frame = stack[stack.length - 1]
@@ -221,14 +232,30 @@ export function flattenJson(
             continue
         }
         const [key, value] = next.value
-        const newKey = frame.prefix ? `${frame.prefix}.${key}` : key
+        const keyBytes = frame.pathBytes + (frame.pathBytes > 0 ? 1 : 0) + Buffer.byteLength(key)
+        if (keyBytes > maxBytes) {
+            return null
+        }
+        path.length = frame.pathLength
+        if (keyBytes > 0) {
+            path.push(key)
+        }
         if (value !== null && typeof value === 'object') {
-            stack.push({ entries: jsonEntries(value), prefix: newKey })
-        } else if (newKey) {
-            if (!Object.hasOwn(result, newKey)) {
+            stack.push({ entries: jsonEntries(value), pathLength: path.length, pathBytes: keyBytes })
+        } else if (keyBytes > 0) {
+            const normalized = value === null || value === undefined ? String(value) : value
+            const valueBytes = Buffer.byteLength(JSON.stringify(normalized))
+            const newKey = path.join('.')
+            const exists = Object.hasOwn(result, newKey)
+            const previousBytes = exists ? keyBytes + Buffer.byteLength(JSON.stringify(result[newKey])) : 0
+            bytes += keyBytes + valueBytes - previousBytes
+            if (bytes > maxBytes) {
+                return null
+            }
+            if (!exists) {
                 count++
             }
-            result[newKey] = value === null || value === undefined ? String(value) : value
+            result[newKey] = normalized
         }
     }
 
@@ -238,13 +265,16 @@ export function flattenJson(
 function jsonAttributesFromBodyParse(
     bodyParse: LogBodyParseResult,
     prefix = '',
-    maxAttributes = Infinity
+    maxAttributes = MAX_JSON_ATTRIBUTES
 ): Record<string, string> {
     if (bodyParse.kind !== 'json_object_or_array') {
         return {}
     }
 
     const flattened = flattenJson(bodyParse.value, prefix, {}, maxAttributes)
+    if (flattened === null) {
+        return {}
+    }
     const newAttributes: Record<string, string> = {}
     let count = 0
 
@@ -259,14 +289,22 @@ function jsonAttributesFromBodyParse(
     return newAttributes
 }
 
-function addJsonAttributes(record: LogRecord, jsonAttributes: Record<string, string>): void {
+function addJsonAttributes(
+    record: LogRecord,
+    jsonAttributes: Record<string, string>,
+    preservedAttributes = record.attributes
+): void {
     if (Object.keys(jsonAttributes).length === 0) {
         return
     }
 
-    record.attributes = {
+    const attributes = {
+        ...record.attributes,
         ...jsonAttributes,
-        ...record.attributes, // existing attributes take precedence
+        ...preservedAttributes, // sender-supplied attributes take precedence over both extraction sources
+    }
+    if (logRecordSizeBytes({ ...record, attributes }) <= MAX_LOG_RECORD_BYTES) {
+        record.attributes = attributes
     }
 }
 
@@ -286,7 +324,7 @@ export function extractJsonAttributesFromBody(body: string | null): Record<strin
  * avoids a second parse of the same body string.
  */
 export function enrichLogRecordWithJsonAttributes(record: LogRecord, bodyParse?: LogBodyParseResult): LogRecord {
-    if (!record.body) {
+    if (!record.body || logRecordSizeBytes(record) > MAX_LOG_RECORD_BYTES) {
         return record
     }
 
@@ -312,7 +350,7 @@ const enrichBatchAttributeJsonAttributes = instrumented({
 })((records: LogRecord[], attributeKey: string, originalAttributes?: LogRecord['attributes'][]): Promise<void> => {
     for (const [index, record] of records.entries()) {
         const attribute = record.attributes?.[attributeKey]
-        if (typeof attribute !== 'string') {
+        if (typeof attribute !== 'string' || logRecordSizeBytes(record) > MAX_LOG_RECORD_BYTES) {
             continue
         }
         let parsed = parseLogBodyForIngestion(attribute)
@@ -321,13 +359,7 @@ const enrichBatchAttributeJsonAttributes = instrumented({
             parsed = parseLogBodyForIngestion(parsed.value)
         }
         const jsonAttributes = jsonAttributesFromBodyParse(parsed, attributeKey, MAX_JSON_ATTRIBUTES)
-        if (Object.keys(jsonAttributes).length > 0) {
-            record.attributes = {
-                ...record.attributes,
-                ...jsonAttributes,
-                ...(originalAttributes ? originalAttributes[index] : record.attributes),
-            }
-        }
+        addJsonAttributes(record, jsonAttributes, originalAttributes ? originalAttributes[index] : record.attributes)
     }
     return Promise.resolve()
 })
