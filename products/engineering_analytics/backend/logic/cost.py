@@ -120,7 +120,8 @@ def _depot_vcpu(label: str) -> int:
 
 def billing_multiplier(tier: RunnerTier) -> int:
     """Depot billing multiplier for a tier; unknown sizes fall back to vcpu/2 (>=1)."""
-    return _MULTIPLIER_BY_VCPU.get(tier.vcpu, max(1, tier.vcpu // 2))
+    fallback_multiplier = max(1, tier.vcpu // 2)
+    return _MULTIPLIER_BY_VCPU.get(tier.vcpu, fallback_multiplier)
 
 
 def runner_descriptor(labels: list[str]) -> tuple[str, str]:
