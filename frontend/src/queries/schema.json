@@ -10112,6 +10112,10 @@
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
                 },
+                "hasMore": {
+                    "description": "Whether another page of individual model identifiers is available.",
+                    "type": "boolean"
+                },
                 "hogql": {
                     "description": "Generated HogQL query.",
                     "type": "string"
@@ -27345,7 +27349,10 @@
                 "Cybersource",
                 "GoogleAdSense",
                 "Sequenzy",
-                "Skio"
+                "Skio",
+                "Smartlead",
+                "Substack",
+                "ElectricityMaps"
             ],
             "type": "string"
         },
@@ -32634,13 +32641,28 @@
                 "filterTestAccounts": {
                     "type": "boolean"
                 },
+                "includeAllModels": {
+                    "description": "Return individual reported models, excluding Unknown, instead of the top-six grouping.",
+                    "type": "boolean"
+                },
                 "kind": {
                     "const": "MCPModelBreakdownQuery",
                     "type": "string"
                 },
+                "limit": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Page size when includeAllModels is enabled.",
+                    "maximum": 100,
+                    "minimum": 1
+                },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
+                },
+                "offset": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Number of individual models to skip when includeAllModels is enabled.",
+                    "minimum": 0
                 },
                 "properties": {
                     "items": {
@@ -32668,6 +32690,10 @@
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
+                },
+                "hasMore": {
+                    "description": "Whether another page of individual model identifiers is available.",
+                    "type": "boolean"
                 },
                 "hogql": {
                     "description": "Generated HogQL query.",
@@ -39946,6 +39972,7 @@
                 "error_tracking_issue_sorting",
                 "error_tracking_docs_viewed",
                 "error_tracking_issue_explained",
+                "error_tracking_scan_with_vision",
                 "llm_analytics_viewed",
                 "llm_analytics_trace_viewed",
                 "llm_analytics_docs_viewed",
@@ -47800,6 +47827,10 @@
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
                         },
+                        "hasMore": {
+                            "description": "Whether another page of individual model identifiers is available.",
+                            "type": "boolean"
+                        },
                         "hogql": {
                             "description": "Generated HogQL query.",
                             "type": "string"
@@ -52696,6 +52727,11 @@
             },
             "required": ["id", "tool_call_id", "content"],
             "type": "object"
+        },
+        "SubscriptionAIContextLimit": {
+            "const": 3,
+            "description": "Maximum number of dashboards and insights an AI subscription may use as context.",
+            "type": "number"
         },
         "SubscriptionAIPromptMaxLength": {
             "const": 4000,

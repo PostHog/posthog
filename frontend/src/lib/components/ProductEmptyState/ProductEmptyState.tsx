@@ -1,5 +1,5 @@
-import { useActions } from 'kea'
-import posthog from 'posthog-js'
+import { useActions, useValues } from 'kea'
+import { useEffect } from 'react'
 
 import { IconBook, IconGear } from '@posthog/icons'
 
@@ -10,6 +10,7 @@ import { TeamMembershipLevel } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { cn } from 'lib/utils/css-classes'
 import { useWizardCommand } from 'scenes/onboarding/shared/useWizardCommand'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { productSetupStatusLogic } from './productSetupStatusLogic'
 import type {
@@ -23,6 +24,7 @@ import type {
 export interface ProductEmptyStateProps {
     config: ProductEmptyStateConfig
     mode: ProductEmptyStateMode
+    preview?: boolean
 }
 
 const ACCENT_TEXT = 'text-[var(--empty-state-accent)] dark:text-[var(--empty-state-accent-dark)]'
@@ -55,15 +57,25 @@ function resolveWizard(
  * a product has been set up — gate it with `ProductEmptyStateGate` (or declare
  * `emptyState` on the scene's `SceneExport` and the app shell gates for you).
  */
-export function ProductEmptyState({ config, mode }: ProductEmptyStateProps): JSX.Element {
+export function ProductEmptyState({ config, mode, preview = false }: ProductEmptyStateProps): JSX.Element {
     const wizard = resolveWizard(config.wizard, mode)
     const { wizardCommand, isCloudOrDev } = useWizardCommand(wizard?.slug, {
         pinProjectId: wizard?.pinProjectId,
     })
-    const { skipEmptyState } = useActions(productSetupStatusLogic({ productKey: config.productKey }))
+    const { skipEmptyState, reportSetupShown, reportSetupInteraction } = useActions(
+        productSetupStatusLogic({ productKey: config.productKey })
+    )
+    const { currentTeam } = useValues(teamLogic)
+    const projectUuid = currentTeam?.uuid
+
+    useEffect(() => {
+        reportSetupShown(mode, preview)
+    }, [mode, preview, projectUuid, reportSetupShown])
 
     const captureClick = (action: string): void => {
-        posthog.capture(`product empty state ${action}`, { product_key: config.productKey, mode })
+        const route =
+            action === 'wizard command copied' ? 'wizard' : action === 'manual setup clicked' ? 'manual' : null
+        reportSetupInteraction(action, mode, route, preview)
     }
 
     // Mode-specific text overrides the base; missing fields fall back to it.
@@ -217,6 +229,8 @@ export function ProductEmptyState({ config, mode }: ProductEmptyStateProps): JSX
                         ) : null}
 
                         {callToAction}
+
+                        {config.SetupActions ? <config.SetupActions mode={mode} preview={preview} /> : null}
 
                         {config.statusIndicator ? <div className="text-xs">{config.statusIndicator}</div> : null}
 

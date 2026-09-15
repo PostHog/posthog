@@ -286,6 +286,16 @@ def increment_sandbox_wedge_probe(verdict: str, write_stage: str) -> None:
         pass
 
 
+def increment_tool_call_only_heartbeat() -> None:
+    try:
+        _metric_meter().create_counter(
+            "tasks_tool_call_only_heartbeat",
+            "Run keep-alives carried only by an unfinished tool call through a long event silence",
+        ).add(1)
+    except Exception:
+        pass
+
+
 def increment_pr_babysit_decision(decision: str) -> None:
     try:
         meter = workflow.metric_meter().with_additional_attributes({"decision": decision})

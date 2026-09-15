@@ -53,6 +53,21 @@ function stripFullSnapshots(line: string): string {
     })
 }
 
+// A window that opened without ever sending its initial DOM: the full snapshot is stripped and the
+// remaining events are spread over `spanMs`, so the blank span clears the player's warning threshold.
+function windowWithoutFullSnapshot(line: string, startOffsetMs: number, spanMs: number): string {
+    const parsed = JSON.parse(line)
+    const events = parsed.data.filter((e: { type: number }) => e.type !== 2)
+    const stepMs = spanMs / (events.length - 1)
+    return JSON.stringify({
+        window_id: parsed.window_id,
+        data: events.map((e: { timestamp: number }, index: number) => ({
+            ...e,
+            timestamp: BASE_TS + startOffsetMs + Math.round(index * stepMs),
+        })),
+    })
+}
+
 function lastEventTimestamp(line: string): number {
     const parsed = JSON.parse(line)
     return parsed.data[parsed.data.length - 1].timestamp
@@ -79,6 +94,16 @@ const RECORDINGS: Record<string, MockRecording> = {
     [`${SESSION_ID}-late`]: {
         meta: metaVariant(`${SESSION_ID}-late`, 6000),
         blobs: [lateFullSnapshotAsJSONLines(BASE_TS, 5000).trim()],
+    },
+    // A second window opens without a full snapshot, then the first window comes back. rrweb draws
+    // its own cursor over the 40s it cannot build a document for, and playback runs straight through.
+    [`${SESSION_ID}-windownofs`]: {
+        meta: metaVariant(`${SESSION_ID}-windownofs`, 56000),
+        blobs: [
+            windowOneJSONL,
+            windowWithoutFullSnapshot(windowTwoJSONL, 8000, 40000),
+            shiftJSONLine(windowOneJSONL, 50000),
+        ],
     },
     // No full snapshot at all — the recording can never render.
     [`${SESSION_ID}-nofs`]: {
@@ -307,6 +332,14 @@ test.describe('Session replay player', () => {
             timeout: 30000,
         })
         await expect(bufferingIndicator(page)).not.toBeVisible()
+    })
+
+    test('warns about the part a window without a full snapshot cannot render', async ({ page }) => {
+        await page.goto(`/replay/${SESSION_ID}-windownofs?pause=true&t=0`)
+        await expect(playerFrame(page)).toBeVisible({ timeout: 30000 })
+        await expect(page.getByText("of this recording can't be played")).toBeVisible({ timeout: 30000 })
+        await revealControls(page)
+        await expect(page.locator('.PlayerSeekbar__unplayable')).toBeVisible()
     })
 
     test('buffers while a source is still loading and recovers when it arrives', async ({ page }) => {

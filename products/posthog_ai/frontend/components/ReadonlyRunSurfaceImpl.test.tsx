@@ -24,7 +24,7 @@ jest.mock('../logics/runStreamLogic', () => ({
 jest.mock('../logics/taskLogic', () => ({ taskLogic: jest.fn(() => ({ __mock: 'taskLogic' })) }))
 
 jest.mock('./ThreadView', () => ({ ThreadView: () => <div data-attr="thread" /> }))
-jest.mock('./ContextUsageBar', () => ({ ContextUsageBar: () => <div data-attr="context" /> }))
+jest.mock('./ContextUsageChip', () => ({ ContextUsageChip: () => <div data-attr="context" /> }))
 jest.mock('./PermissionInput', () => ({ PermissionInput: () => <div data-attr="permission" /> }))
 jest.mock('./QuestionInput', () => ({ QuestionInput: () => <div data-attr="question" /> }))
 jest.mock('./RunLogSkeleton', () => ({ RunLogSkeleton: () => <div data-attr="run-log-skeleton" /> }))

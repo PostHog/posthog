@@ -10,7 +10,6 @@ import ViewRecordingButton, {
 } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { IconTableChart } from 'lib/lemon-ui/icons'
 import { cn } from 'lib/utils/css-classes'
-import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
@@ -18,6 +17,7 @@ import { AttributeBreakdowns } from 'products/logs/frontend/AttributeBreakdowns'
 import { logsViewerLogic } from 'products/logs/frontend/components/LogsViewer/logsViewerLogic'
 import { logsConfigLogic } from 'products/logs/frontend/logsConfigLogic'
 import { isDistinctIdKey, isSessionIdKey } from 'products/logs/frontend/utils'
+import { PersonDisplay } from 'products/persons/frontend/components/PersonDisplay'
 
 export interface LogAttributesProps {
     attributes: Record<string, string>
