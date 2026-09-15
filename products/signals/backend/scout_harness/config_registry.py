@@ -15,8 +15,15 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
+from django.db import transaction
+from django.db.models import Q
+from django.utils import timezone
+
 import structlog
 from croniter import CroniterError, croniter
+
+from posthog.models.activity_logging.activity_log import Trigger
+from posthog.models.activity_logging.model_activity import ActivityTriggerContext
 
 from products.signals.backend.models import SignalScoutConfig
 from products.signals.backend.scout_harness.lazy_seed import (
@@ -24,6 +31,7 @@ from products.signals.backend.scout_harness.lazy_seed import (
     SCOUT_SKILL_CATEGORY,
     canonical_config_tags_for,
     canonical_skill_names,
+    is_operational_scout,
 )
 from products.signals.backend.scout_harness.limits import MAX_ENABLED_SCOUTS_PER_TEAM
 from products.signals.backend.scout_harness.skill_loader import SIGNALS_SCOUT_SKILL_PREFIX
@@ -46,6 +54,8 @@ CRON_SCHEDULE_MAX_LENGTH = 100
 # Occurrences sampled by the min-gap check. Enough to expose sub-30-minute patterns
 # (a `*/15` fires 96×/day) while staying trivially cheap for sparse schedules.
 _CRON_SAMPLE_OCCURRENCES = 100
+
+_OPERATIONAL_RECONCILE_JOB_TYPE = "signals_scout_operational_reconcile"
 
 
 def cron_schedule_error(value: str) -> str | None:
@@ -90,7 +100,8 @@ def ensure_scout_category(team_id: int, skill_name: str | None = None) -> None:
         rows = rows.filter(name=skill_name)
     else:
         rows = rows.filter(name__in=SignalScoutConfig.objects.for_team(team_id).values_list("skill_name", flat=True))
-    rows.update(category=SCOUT_SKILL_CATEGORY)
+    # QuerySet.update() skips auto_now, but the shared marketplace version uses updated_at.
+    rows.update(category=SCOUT_SKILL_CATEGORY, updated_at=timezone.now())
 
 
 def enabled_scout_count(team_id: int, *, exclude_skill: str | None = None) -> int:
@@ -213,6 +224,12 @@ def register_missing_configs(
     allowlisted scout registers disabled once the team is at the cap. Both checks are best-effort
     (count + create, no lock) — a race can briefly overshoot by one, which the coordinator's
     per-tick caps still bound.
+
+    A canonical scout declaring `scout-role: operational` (`lazy_seed.is_operational_scout`) is
+    outside all of that: it watches the self-driving system rather than a product surface, so it
+    seeds enabled, exempt from the inactivity sweep, past the allowlist and past the cap, and
+    `reconcile_operational_configs` keeps rows seeded before the role existed on those terms. The
+    holdback still applies — a withheld scout is dropped above, whatever its role.
     """
     enabled_skills, enabled_interval = _resolve_seed_posture(seed_config_layers)
     rows = list(
@@ -241,6 +258,9 @@ def register_missing_configs(
         for name, metadata in rows
         if (metadata or {}).get("seeded_by") == HARNESS_SEEDED_BY and name in on_disk_canonical
     }
+    # Read off the canonical set, not the raw names: the role lives on disk, so a team's own scout
+    # sharing an operational name must not inherit the posture that skips the harness's gates.
+    operational_names = {name for name in canonical_names if is_operational_scout(name)}
 
     configs = SignalScoutConfig.objects.for_team(team_id)
     existing = set(configs.values_list("skill_name", flat=True))
@@ -248,14 +268,22 @@ def register_missing_configs(
     enabled = enabled_scout_count(team_id) if missing else 0
     for name in missing:
         at_cap = enabled >= MAX_ENABLED_SCOUTS_PER_TEAM
-        # A canonical scout is gated by the allowlist (when one is set); a custom scout never is.
-        # The explicit `is not None` keeps the membership check well-typed (mypy can't carry the
-        # narrowing through `gated`).
-        gated = enabled_skills is not None and name in canonical_names
+        operational = name in operational_names
+        # A canonical scout is gated by the allowlist (when one is set); a custom scout never is,
+        # and neither is an operational one. The explicit `is not None` keeps the membership check
+        # well-typed (mypy can't carry the narrowing through `gated`).
+        gated = enabled_skills is not None and name in canonical_names and not operational
         in_allowlist = (not gated) or (enabled_skills is not None and name in enabled_skills)
-        seed_enabled = in_allowlist and not at_cap
+        # The cap bounds what a team spends watching its own product, so an operational scout
+        # seeds enabled past it. It still counts toward the cap, so its slot stays visible.
+        seed_enabled = in_allowlist and (operational or not at_cap)
 
         defaults: dict = {} if seed_enabled else {"enabled": False}
+        if operational:
+            # The sweep reads the column, not the role, and writing memory hourly while filing a
+            # report rarely is exactly the `no_output` shape it warns on.
+            defaults["auto_pause_exempt"] = True
+            defaults["auto_pause_exempt_by_role"] = True
         # A canonical scout can claim a product surface's tag in its SKILL.md frontmatter
         # (`scout-tags`) — that's what lands it in that product's own scout list. Seeded at
         # creation like the rest of the posture, so a person who later removes the tag keeps it
@@ -285,8 +313,91 @@ def register_missing_configs(
                 cap=MAX_ENABLED_SCOUTS_PER_TEAM,
             )
 
+    reconcile_operational_configs(team_id, operational_names & skill_names, withheld_skill_names)
+
     # Keep the skills UI's Scouts tab in sync: stamp `category="scout"` on any scout skill rows
     # not yet categorized (custom scouts authored via the skills API). Runs every reconcile tick,
     # and after the loop above so a row created on this tick is stamped on this tick.
     ensure_scout_category(team_id)
     return skill_names | live_scout_skill_names(team_id, withheld_skill_names)
+
+
+@transaction.atomic
+def reconcile_operational_configs(
+    team_id: int,
+    skill_names: set[str],
+    withheld_skill_names: frozenset[str] | set[str] | None = None,
+) -> None:
+    """Put already-seeded operational scouts back on the posture their role asks for.
+
+    The rest of the seed posture is forward-only on purpose: an existing row is the team's to
+    tune, and re-stamping it every tick would revert people's choices. An operational scout is
+    the exception because it watches the self-driving system itself — when it is off, the thing
+    that notices nothing is working is the thing that stopped working — so the harness's own
+    earlier decisions about it are undone rather than left standing.
+
+    Two of them. The exemption is stamped whenever it is missing, so the inactivity sweep stops
+    reading the scout's designed quiet as waste. And a scout the harness silenced is resumed: a
+    sweep warning or pause through `transition_status_by_system` under the sweep's own reason,
+    and a row the seed created disabled (recognized by a `paused_by_user` status no writer has
+    moved since creation) by a direct write, since the lifecycle rightly refuses to overrule a
+    human pause and that is what an untouched seed row is stored as.
+
+    What it never touches: a pause a person made, and a pause the failure breaker owns. A scout
+    whose runs keep failing has its own half-open probe, and resuming it here would spend runs on
+    a scout that cannot finish one.
+    """
+    configs = (
+        SignalScoutConfig.objects.for_team(team_id)
+        .select_for_update()
+        .filter(Q(skill_name__in=skill_names) | Q(auto_pause_exempt_by_role=True))
+        .exclude(skill_name__in=withheld_skill_names or ())
+    )
+    for config in configs:
+        trigger = Trigger(
+            job_type=_OPERATIONAL_RECONCILE_JOB_TYPE,
+            job_id=str(config.id),
+            payload={"skill_name": config.skill_name},
+        )
+        with ActivityTriggerContext(trigger):
+            if config.skill_name not in skill_names:
+                config.auto_pause_exempt = False
+                config.auto_pause_exempt_by_role = False
+                config.save(update_fields=["auto_pause_exempt", "auto_pause_exempt_by_role", "updated_at"])
+                continue
+            if not config.auto_pause_exempt:
+                config.auto_pause_exempt = True
+                config.auto_pause_exempt_by_role = True
+                config.save(update_fields=["auto_pause_exempt", "auto_pause_exempt_by_role", "updated_at"])
+                logger.info(
+                    "signals_scout: operational scout exempted from the inactivity sweep",
+                    team_id=team_id,
+                    skill_name=config.skill_name,
+                )
+            _resume_operational_config(config)
+
+
+def _resume_operational_config(config: SignalScoutConfig) -> None:
+    """Undo the harness's own silencing of one operational scout, and nothing else."""
+    if config.pause_reason in SignalScoutConfig.INACTIVITY_PAUSE_REASONS:
+        resumed = config.transition_status_by_system(
+            SignalScoutConfig.Status.ACTIVE,
+            pause_reason=SignalScoutConfig.PauseReason(config.pause_reason),
+        )
+    elif config.status == SignalScoutConfig.Status.PAUSED_BY_USER and config.status_changed_at is None:
+        # `save` stores an `enabled=False` create as `paused_by_user`, so a row the seed disabled
+        # is shaped like a human pause. The missing `status_changed_at` is what tells them apart:
+        # it is stamped on every transition, and null only while the row still sits as created.
+        config.status = SignalScoutConfig.Status.ACTIVE
+        config.enabled = True
+        config.pause_reason = None
+        config.save(update_fields=["status", "enabled", "pause_reason", "updated_at"])
+        resumed = True
+    else:
+        return
+    if resumed:
+        logger.info(
+            "signals_scout: operational scout resumed",
+            team_id=config.team_id,
+            skill_name=config.skill_name,
+        )

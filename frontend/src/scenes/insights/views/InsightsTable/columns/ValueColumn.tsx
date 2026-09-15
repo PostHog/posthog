@@ -2,11 +2,12 @@ import { ReactNode, memo } from 'react'
 
 import { DateDisplay } from 'lib/components/DateDisplay'
 import { formatAggregationValue } from 'scenes/insights/utils'
-import { IndexedTrendResult } from 'scenes/trends/types'
 
 import { FormatPropertyValueForDisplayFunction } from '~/models/propertyDefinitionsModel'
 import { ResolvedDateRangeResponse } from '~/queries/schema/schema-general'
 import { IntervalType } from '~/types'
+
+import { IndexedTrendResult } from 'products/product_analytics/frontend/insights/trends/types'
 
 type ValueColumnTitleProps = {
     index: number

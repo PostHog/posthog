@@ -404,12 +404,10 @@ class TestValidateSchemaAndUpdateTable:
         # A reported 0 must not zero a table that was just republished.
         assert table.row_count == 150
 
-    # Published files at zero rows mean a resumed or redelivered run counted only its own attempt.
-    # Trusting row_count there left the data in S3 with no table to query it through.
-    @pytest.mark.parametrize("published_file_count,expect_table", [(0, False), (18, True)])
-    def test_zero_row_sync_creates_a_table_only_when_files_were_published(
-        self, team, published_file_count: int, expect_table: bool
-    ):
+    def test_zero_row_sync_creates_no_table(self, team):
+        # The publish step republishes the whole delta table every run, so files being queryable
+        # says nothing about this run writing any. A table born here has no column types to take -
+        # the run wrote no arrow batches - and registers empty, which reads as data loss.
         schema, job = self._schema_and_job(team)
         assert schema.table is None
 
@@ -424,18 +422,11 @@ class TestValidateSchemaAndUpdateTable:
                 row_count=0,
                 table_format=DataWarehouseTableFormat.DeltaS3Wrapper,
                 queryable_folder="s3://bucket/orders",
-                published_file_count=published_file_count,
             )
 
         schema.refresh_from_db()
-        tables = DataWarehouseTable.objects.filter(external_data_source=schema.source, deleted=False)
-        if not expect_table:
-            assert schema.table is None
-            assert not tables.exists()
-        else:
-            assert schema.table_id == tables.get().id
-            # A reported 0 must not register a table full of published files as empty.
-            assert tables.get().row_count == 150
+        assert schema.table is None
+        assert not DataWarehouseTable.objects.filter(external_data_source=schema.source, deleted=False).exists()
 
     def test_relinks_a_table_an_earlier_run_left_unlinked(self, team):
         # An orphan must be adopted and repointed, not left unlinked and not duplicated.
@@ -454,7 +445,6 @@ class TestValidateSchemaAndUpdateTable:
                 row_count=0,
                 table_format=DataWarehouseTableFormat.DeltaS3Wrapper,
                 queryable_folder="s3://bucket/orders_v2",
-                published_file_count=18,
             )
 
         schema.refresh_from_db()
@@ -483,10 +473,9 @@ class TestValidateSchemaAndUpdateTable:
                 run_id=str(sibling_job.id),
                 team_id=team.pk,
                 schema_id=sibling.id,
-                row_count=0,
+                row_count=10,
                 table_format=DataWarehouseTableFormat.DeltaS3Wrapper,
                 queryable_folder="s3://bucket/orders_v2",
-                published_file_count=18,
             )
 
         owner.refresh_from_db()

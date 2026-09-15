@@ -239,6 +239,22 @@ export const DataCatalogMetricsChecksPartialUpdateBody = /* @__PURE__ */ zod
     .describe('The subject is implied by the URL (the parent saved query or table), never part of the body.')
 
 /**
+ * CRUD for one subject's checks, plus the actions that run them and report on them.
+ */
+export const DataCatalogMetricsChecksSchedulePartialUpdateBody = /* @__PURE__ */ zod.object({
+    interval: zod
+        .enum(['1hour', '6hour', '12hour', '24hour', '7day'])
+        .describe(
+            '\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day'
+        )
+        .optional()
+        .describe(
+            'How often all enabled checks on the metric run.\n\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day'
+        ),
+    enabled: zod.boolean().optional().describe('Whether checks run automatically on this schedule.'),
+})
+
+/**
  * Run the named checks now, or every enabled check in the project when none are named. Returns the suite run to poll for the report.
  */
 export const DataQualityRunsCreateBody = /* @__PURE__ */ zod

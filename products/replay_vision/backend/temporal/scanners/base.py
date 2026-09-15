@@ -5,10 +5,11 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Annotated, Any, ClassVar, Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from posthog.dataclasses import frozen
 
+from products.replay_vision.backend.temporal.conversation import DEFAULT_MAX_TOOL_ITERATIONS
 from products.replay_vision.backend.temporal.scanners.prompt_env import render_prompt
 
 # `(t 123)` / `(t 123, 456)` / `(t 12, t 34)` citation markers. The prompt asks for one moment per parens, but the
@@ -95,6 +96,12 @@ class SignalsResponse(BaseModel, frozen=True):
             "reveals. Usually empty: most sessions show nothing video-only. List each issue separately."
         ),
     )
+
+    @model_validator(mode="after")
+    def _validate_time_ranges(self) -> "SignalsResponse":
+        if any(signal.end_time < signal.start_time for signal in self.signals):
+            raise ValueError("end_time must be greater than or equal to start_time")
+        return self
 
 
 @dataclass(frozen=True)
@@ -189,6 +196,7 @@ class BaseScanner(BaseModel, frozen=True):
         events_truncated: bool = False,
         product_context: str = "",
         event_descriptions: dict[str, str] | None = None,
+        tool_budget: int = DEFAULT_MAX_TOOL_ITERATIONS,
     ) -> str:
         """The conversation's shared opening: framing, footer, events tool, calibration, navigation timeline, and
         session metadata and identity. `navigation` and `session_identity` take dumped model dicts (plain dicts keep
@@ -203,6 +211,8 @@ class BaseScanner(BaseModel, frozen=True):
             events_truncated=events_truncated,
             product_context=product_context,
             event_descriptions=event_descriptions or {},
+            tool_budget=tool_budget,
+            default_tool_budget=DEFAULT_MAX_TOOL_ITERATIONS,
         )
 
     def core_steps(self) -> list[MissionStep]:

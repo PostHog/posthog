@@ -18,17 +18,24 @@ from posthog.slo.types import SloOperation
 from posthog.tasks.alerts.schedule_restriction import snap_candidate_utc_to_schedule_restriction
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
-from products.alerts.backend.delivery_slo import alert_delivery_slo
-from products.alerts.backend.destinations import (
+from products.alerts.backend.facade.contracts import AlertDelivery
+from products.alerts.backend.facade.delivery_slo import alert_delivery_slo
+from products.alerts.backend.facade.destinations import (
     ALERT_NOTIFICATION_FLUSH_TIMEOUT_SECONDS,
-    AlertDelivery,
     alert_internal_event_delivered,
     flush_alert_internal_events,
     list_active_alert_destinations,
     produce_alert_internal_event,
     serialize_deliveries,
 )
-from products.alerts.backend.facade.api import send_alert_email
+from products.alerts.backend.facade.email import send_alert_email
+from products.alerts.backend.facade.scheduling import (
+    EVERY_15_MINUTES_CADENCE_MINUTES as EVERY_15_MINUTES_CADENCE_MINUTES,
+    REAL_TIME_CADENCE_MINUTES as REAL_TIME_CADENCE_MINUTES,
+    is_weekend,
+    next_calendar_check_time,
+    to_calendar_interval,
+)
 from products.alerts.backend.insight_alert_state_machine import (
     apply_invalid_configuration,
     apply_outcome,
@@ -36,13 +43,6 @@ from products.alerts.backend.insight_alert_state_machine import (
     should_notify,
 )
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, derive_detector_event_fields
-from products.alerts.backend.scheduling import (
-    EVERY_15_MINUTES_CADENCE_MINUTES as EVERY_15_MINUTES_CADENCE_MINUTES,
-    REAL_TIME_CADENCE_MINUTES as REAL_TIME_CADENCE_MINUTES,
-    is_weekend,
-    next_calendar_check_time,
-    to_calendar_interval,
-)
 from products.exports.backend.facade import api as exports
 
 logger = structlog.get_logger(__name__)

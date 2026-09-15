@@ -1,0 +1,177 @@
+from datetime import UTC, datetime
+
+from unittest.mock import Mock, patch
+
+from django.core.cache import cache
+from django.test import SimpleTestCase, override_settings
+
+from parameterized import parameterized
+
+from posthog.ingress.contracts import ProviderSpec, WebhookConsumer, WebhookDelivery
+from posthog.ingress.dispatch.budget import DEFAULT_DELIVERY_BUDGET_SECONDS, DeliveryBudget, delivery_budget_seconds
+from posthog.ingress.dispatch.dedup import DeliveryDedup
+from posthog.ingress.dispatch.dispatcher import WebhookDispatcher
+from posthog.ingress.dispatch.registry import ConsumerRegistry
+
+SPEC = ProviderSpec(provider="github", app="posthog", event_types=frozenset({"pull_request"}))
+
+
+def _delivery(delivery_id: str | None = "delivery-1") -> WebhookDelivery:
+    return WebhookDelivery(
+        provider="github",
+        app="posthog",
+        delivery_id=delivery_id,
+        event_type="pull_request",
+        payload={},
+        received_at=datetime(2026, 9, 14, tzinfo=UTC),
+        context={},
+    )
+
+
+def _consumer(name: str, handler, *, dedup: bool = True) -> WebhookConsumer:
+    return WebhookConsumer(
+        name=name,
+        provider="github",
+        app="posthog",
+        event_types=frozenset({"pull_request"}),
+        handler=handler,
+        dedup=dedup,
+    )
+
+
+def _dispatcher(consumers: list[WebhookConsumer], *, budget_seconds: float | None = None) -> WebhookDispatcher:
+    return WebhookDispatcher(
+        ConsumerRegistry(providers=[SPEC], consumers=consumers),
+        budget_seconds=budget_seconds,
+    )
+
+
+@override_settings(CACHES={"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}})
+class TestWebhookDispatcher(SimpleTestCase):
+    def setUp(self) -> None:
+        cache.clear()
+
+    def test_runs_consumers_in_name_order(self) -> None:
+        ran: list[str] = []
+        consumers = [
+            _consumer("zulu", lambda delivery: ran.append("zulu")),
+            _consumer("alpha", lambda delivery: ran.append("alpha")),
+        ]
+
+        _dispatcher(consumers).dispatch(_delivery())
+
+        self.assertEqual(ran, ["alpha", "zulu"])
+
+    def test_one_failing_consumer_does_not_stop_the_others(self) -> None:
+        failing = Mock(side_effect=RuntimeError("consumer failed"))
+        surviving = Mock()
+
+        with patch("posthog.ingress.dispatch.dispatcher.capture_exception") as capture:
+            _dispatcher([_consumer("alpha", failing), _consumer("zulu", surviving)]).dispatch(_delivery())
+
+        surviving.assert_called_once()
+        capture.assert_called_once()
+
+    def test_dedup_marks_before_the_run_and_releases_when_the_consumer_raises(self) -> None:
+        failing = Mock(side_effect=RuntimeError("consumer failed"))
+        succeeding = Mock()
+        dispatcher = _dispatcher([_consumer("alpha", failing), _consumer("zulu", succeeding)])
+
+        with patch("posthog.ingress.dispatch.dispatcher.capture_exception"):
+            dispatcher.dispatch(_delivery())
+
+        self.assertIsNone(cache.get(DeliveryDedup.key(provider="github", consumer="alpha", delivery_id="delivery-1")))
+        self.assertTrue(cache.get(DeliveryDedup.key(provider="github", consumer="zulu", delivery_id="delivery-1")))
+
+        with patch("posthog.ingress.dispatch.dispatcher.capture_exception"):
+            dispatcher.dispatch(_delivery())
+
+        self.assertEqual(failing.call_count, 2)
+        self.assertEqual(succeeding.call_count, 1)
+
+    def test_a_provider_without_a_delivery_id_skips_dedup(self) -> None:
+        handler = Mock()
+        dispatcher = _dispatcher([_consumer("alpha", handler)])
+
+        dispatcher.dispatch(_delivery(delivery_id=None))
+        dispatcher.dispatch(_delivery(delivery_id=None))
+
+        self.assertEqual(handler.call_count, 2)
+
+    def test_a_consumer_that_opted_out_of_dedup_runs_on_every_redelivery(self) -> None:
+        opted_out = Mock()
+        sibling = Mock()
+        dispatcher = _dispatcher([_consumer("alpha", opted_out, dedup=False), _consumer("zulu", sibling)])
+
+        dispatcher.dispatch(_delivery())
+        dispatcher.dispatch(_delivery())
+
+        self.assertEqual(opted_out.call_count, 2)
+        self.assertEqual(sibling.call_count, 1)
+        self.assertIsNone(cache.get(DeliveryDedup.key(provider="github", consumer="alpha", delivery_id="delivery-1")))
+
+    def test_a_cache_outage_fails_open_rather_than_dropping_the_delivery(self) -> None:
+        handler = Mock()
+        with patch.object(cache, "add", side_effect=RuntimeError("cache down")):
+            _dispatcher([_consumer("alpha", handler)]).dispatch(_delivery())
+
+        handler.assert_called_once()
+
+    def test_a_spent_budget_skips_the_rest_without_marking_them_deduped(self) -> None:
+        elapsed = {"seconds": 0.0}
+
+        def spend_the_budget(delivery: WebhookDelivery) -> None:
+            elapsed["seconds"] += 30.0
+
+        skipped = Mock()
+        dispatcher = _dispatcher([_consumer("alpha", spend_the_budget), _consumer("zulu", skipped)], budget_seconds=8)
+
+        with (
+            patch("time.monotonic", lambda: elapsed["seconds"]),
+            patch("posthog.ingress.dispatch.dispatcher.observe_consumer_run") as observe,
+        ):
+            dispatcher.dispatch(_delivery())
+
+        skipped.assert_not_called()
+        self.assertIn(
+            {"provider": "github", "consumer": "zulu", "outcome": "budget_exceeded"},
+            [call.kwargs for call in observe.call_args_list],
+        )
+        self.assertIsNone(cache.get(DeliveryDedup.key(provider="github", consumer="zulu", delivery_id="delivery-1")))
+
+        dispatcher_with_room = _dispatcher([_consumer("zulu", skipped)], budget_seconds=10)
+        dispatcher_with_room.dispatch(_delivery())
+        skipped.assert_called_once()
+
+    def test_a_budget_passed_in_spans_every_delivery_of_one_request(self) -> None:
+        elapsed = {"seconds": 0.0}
+
+        def spend_the_budget(delivery: WebhookDelivery) -> None:
+            elapsed["seconds"] += 30.0
+
+        second = Mock()
+        dispatcher = _dispatcher([_consumer("alpha", spend_the_budget)])
+
+        with patch("time.monotonic", lambda: elapsed["seconds"]):
+            budget = DeliveryBudget(8)
+            dispatcher.dispatch(_delivery(delivery_id="delivery-1"), budget=budget)
+            _dispatcher([_consumer("alpha", second)]).dispatch(_delivery(delivery_id="delivery-2"), budget=budget)
+
+        second.assert_not_called()
+
+
+class TestDeliveryBudgetSeconds(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("zero_would_skip_every_consumer", 0, DEFAULT_DELIVERY_BUDGET_SECONDS),
+            ("negative_would_skip_every_consumer", -1, DEFAULT_DELIVERY_BUDGET_SECONDS),
+            ("infinity_would_remove_the_backstop", float("inf"), DEFAULT_DELIVERY_BUDGET_SECONDS),
+            ("nan_would_remove_the_backstop", float("nan"), DEFAULT_DELIVERY_BUDGET_SECONDS),
+            ("a_positive_finite_value_is_honored", 2.5, 2.5),
+        ]
+    )
+    def test_a_misconfigured_setting_falls_back_to_the_default(
+        self, _name: str, configured: float, expected: float
+    ) -> None:
+        with override_settings(INGRESS_DELIVERY_BUDGET_SECONDS=configured):
+            self.assertEqual(delivery_budget_seconds(), expected)

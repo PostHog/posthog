@@ -45,6 +45,8 @@ class TestTeamWorkflowsConfig(APIBaseTest):
         assert response.json()["workflows_config"] == {
             "capture_workflows_engagement_events": False,
             "email_tracking_consent_mode": "off",
+            "workflow_task_rate_limit_per_day": None,
+            "workflow_task_team_rate_limit_per_day": None,
         }
 
     def test_patch_enables_capture(self) -> None:
@@ -104,4 +106,6 @@ class TestTeamWorkflowsConfig(APIBaseTest):
         assert response.json()["workflows_config"] == {
             "capture_workflows_engagement_events": True,
             "email_tracking_consent_mode": "off",
+            "workflow_task_rate_limit_per_day": None,
+            "workflow_task_team_rate_limit_per_day": None,
         }

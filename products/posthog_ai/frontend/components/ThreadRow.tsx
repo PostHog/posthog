@@ -14,7 +14,7 @@ import { ReasoningAnswer } from '../messages/ReasoningAnswer'
 import type { ProgressStep, ThreadItem } from '../types/streamTypes'
 import { resolveToolCall } from '../utils/toolResolver'
 import { Activity } from './ActivityPrimitives'
-import { RunAlertActivity } from './RunAlertActivity'
+import { RunErrorRow } from './RunErrorRow'
 import { CompactBoundaryItem, ConversationClearedItem, StatusItem, TaskNotificationItem } from './ThreadItems'
 import { ToolCallCard } from './tool/ToolCallCard'
 
@@ -101,6 +101,8 @@ export interface ThreadRowProps {
     toolInvocations: ToolInvocations
     turnComplete: boolean
     turnCancelled: boolean
+    /** The current run reached a terminal status; only then is the last error the run's ending. */
+    runEnded?: boolean
 }
 
 /**
@@ -114,6 +116,7 @@ export const ThreadRow = memo(function ThreadRow({
     toolInvocations,
     turnComplete,
     turnCancelled,
+    runEnded = true,
 }: ThreadRowProps): JSX.Element | null {
     if (item.type === 'human_message') {
         return (
@@ -148,13 +151,7 @@ export const ThreadRow = memo(function ThreadRow({
         return <ToolCallCard message={message} turnComplete={turnComplete} turnCancelled={turnCancelled} />
     }
     if (item.type === 'error') {
-        return (
-            <RunAlertActivity
-                id={item.id}
-                kind={item.variant === 'crash' ? 'agent_crash' : 'agent_error'}
-                message={item.errorMessage}
-            />
-        )
+        return <RunErrorRow item={item} isLast={isLast && runEnded} />
     }
     if (item.type === 'status') {
         return <StatusItem item={item} />
