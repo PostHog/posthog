@@ -1,6 +1,7 @@
 from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
+from django.db import OperationalError
 
 from parameterized import parameterized
 from rest_framework import status
@@ -10,11 +11,13 @@ from posthog.api.project import ProjectViewSet
 from posthog.api.project_tags import MAX_TAGS_PER_FILTER
 from posthog.api.test.test_team import EnvironmentToProjectRewriteClient, team_api_test_factory
 from posthog.constants import AvailableFeature
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.person.util import get_person_by_uuid
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.project import Project
 from posthog.models.tag import Tag
+from posthog.models.user import User
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.test.persons import create_person, delete_person
 
@@ -956,6 +959,20 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
         self.assertEqual(response.json()["tags"], ["production"])
+
+    def test_project_creation_survives_a_failed_current_team_switch(self):
+        self._set_unlimited_projects()
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        with patch.object(User, "save", side_effect=OperationalError("canceling statement due to statement timeout")):
+            response = self.client.post("/api/projects/", {"name": "Resilient", "tags": ["prod"]}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+        self.assertEqual(response.json()["tags"], ["prod"])
+        self.assertTrue(
+            ActivityLog.objects.filter(scope="Project", item_id=str(response.json()["id"]), activity="created").exists()
+        )
 
     @parameterized.expand(
         [
