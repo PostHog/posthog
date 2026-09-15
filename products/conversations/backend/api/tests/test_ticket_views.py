@@ -330,7 +330,7 @@ class TestTicketViewFiltersValidation(SimpleTestCase):
                     "priority": ["high", "critical"],
                     "channel": "email",
                     "sla": "at-risk",
-                    "aiTriageResult": ["escalated_no_reply", "in_progress"],
+                    "aiTriageResult": ["escalated_no_reply", "in_progress", "suggested", "escalated_with_findings"],
                     "assignee": ["me", "unassigned", {"type": "user", "id": 1}, {"type": "role", "id": "abc"}],
                     "tags": ["billing"],
                     "tagsMatch": "all",

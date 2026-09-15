@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import timedelta
 from typing import Any
 from uuid import uuid5
@@ -23,14 +24,24 @@ from products.conversations.backend.temporal.ai_reply.activities.safety_filter i
 from products.conversations.backend.temporal.ai_reply.activities.validate import support_validate_activity
 from products.conversations.backend.temporal.ai_reply.constants import (
     AI_REPLY_TRACE_NAMESPACE,
+    BLOCKER_AWARE_LOOP_PATCH,
     DEFER_KNOWLEDGE_GAPS_UNTIL_RESOLUTION_PATCH,
+    LEGACY_MAX_ATTEMPTS,
     MAX_ATTEMPTS,
     MAX_SAFETY_REVIEWED_CHARS,
     SCORE_THRESHOLD,
 )
+from products.conversations.backend.temporal.ai_reply.gate import (
+    FINDINGS_WITHHELD_REASON,
+    decide_reply_action,
+    findings_reason_for,
+    format_findings_comment,
+    should_persist_findings,
+)
 from products.conversations.backend.temporal.ai_reply.schemas import (
     ClassifyInput,
     DraftInput,
+    DraftOutput,
     PersistKnowledgeGapInput,
     PersistReplyInput,
     RecordTriageInput,
@@ -40,6 +51,8 @@ from products.conversations.backend.temporal.ai_reply.schemas import (
     SafetyFilterInput,
     SupportReplyInput,
     ValidateInput,
+    ValidateOutput,
+    coerce_dataclass,
 )
 
 # These modules (Django models, langchain, pydantic models, etc.) are non-deterministic
@@ -68,8 +81,9 @@ class SupportReplyWorkflow:
     """Grounded self-validating support reply pipeline.
 
     Loop: refine -> retrieve -> draft -> validate
-    Iterate while validate score < threshold, hard cap MAX_ATTEMPTS.
-    Feed validate.missing back into refine on each iteration.
+    Iterate while the current gate says retry, hard cap MAX_ATTEMPTS (2) when
+    BLOCKER_AWARE_LOOP_PATCH is present. Without that marker, replay uses
+    LEGACY_MAX_ATTEMPTS and SCORE_THRESHOLD so the recorded command count matches.
 
     Triage lifecycle (`ai_triage.status`), recorded via `_record_triage`:
       - in_progress: run started, context built, draft loop not yet terminal.
@@ -82,14 +96,18 @@ class SupportReplyWorkflow:
       - skipped_unactionable: classifier judged the ticket has no answerable
         question (spam / bare feedback); draft loop skipped. Distinct from
         escalated_no_reply, which means we tried and failed.
-      - persisted: a draft cleared SCORE_THRESHOLD and passed the output review
-        gate; auto-sent to the customer (allow_bot_reply=True).
+      - persisted: a draft cleared the auto-send gate (or SCORE_THRESHOLD when
+        BLOCKER_AWARE_LOOP_PATCH is absent) and passed the output review gate;
+        auto-sent to the customer (allow_bot_reply=True).
+      - suggested: grounded private note with a proposed reply, below auto-send.
       - blocked_unsafe_reply: a draft was good enough to send but the output
         review gate caught a PII leak / exfil, so it was withheld.
-      - escalated_with_best: exhausted MAX_ATTEMPTS without clearing the
-        threshold, but the best draft (>0 confidence) passed output review and
-        was saved as an internal/human-gated note (allow_bot_reply=False).
-      - escalated_no_reply: exhausted MAX_ATTEMPTS with no usable draft at all;
+      - escalated_with_findings: investigation notes only, never a reply
+        presented as an answer.
+      - escalated_with_best: histories without BLOCKER_AWARE_LOOP_PATCH: best
+        draft (>0 confidence) saved as an internal/human-gated note
+        (allow_bot_reply=False). Replay only.
+      - escalated_no_reply: exhausted attempts with no usable draft or findings;
         nothing persisted, ticket handed to a human cold.
     """
 
@@ -226,8 +244,34 @@ class SupportReplyWorkflow:
             best_citations: list[str] = []
             best_sources: list[dict[str, str]] = []
             best_missing: list[str] = []
+            last_draft = None
+            last_validate = None
+            attempts_used = 0
+            blocker_aware = workflow.patched(BLOCKER_AWARE_LOOP_PATCH)
+            max_attempts = MAX_ATTEMPTS if blocker_aware else LEGACY_MAX_ATTEMPTS
 
-            for attempt in range(MAX_ATTEMPTS):
+            def _base_triage() -> dict[str, Any]:
+                return {
+                    "ticket_type": ticket_type,
+                    "needs_diagnostics": needs_diagnostics,
+                    "diagnostics_allowed": ctx_output.diagnostics_allowed,
+                }
+
+            def _judge_triage(draft: DraftOutput, validate: ValidateOutput) -> dict[str, Any]:
+                return {
+                    "verdict": draft.verdict,
+                    "blocker": validate.blocker,
+                    "unknowns": list(draft.unknowns),
+                    "clarifying_questions": list(draft.clarifying_questions),
+                    "investigation_summary": draft.investigation_summary,
+                    "draft_confidence": draft.confidence,
+                    "validator_confidence": validate.confidence,
+                    "coverage": validate.coverage,
+                    "grounded": validate.grounded,
+                }
+
+            for attempt in range(max_attempts):
+                attempts_used = attempt + 1
                 widen = attempt > 0
 
                 # Refine queries
@@ -265,45 +309,52 @@ class SupportReplyWorkflow:
                     workflow.logger.info("support_reply: no seed chunks; drafting via MCP tools only")
 
                 # Draft via sandbox
-                draft_output = await workflow.execute_activity(
-                    support_draft_activity,
-                    DraftInput(
-                        team_id=input.team_id,
-                        ticket_context=reviewed_context,
-                        chunk_ids=retrieve_output.chunk_ids,
-                        prior_reply=prior_reply,
-                        prior_missing=missing,
-                        always_on_context=ctx_output.always_on_context,
-                        ticket_type=ticket_type,
-                        needs_diagnostics=needs_diagnostics,
-                        diagnostics_allowed=ctx_output.diagnostics_allowed,
-                        auto_publishable=auto_publishable,
+                draft_output = coerce_dataclass(
+                    DraftOutput,
+                    await workflow.execute_activity(
+                        support_draft_activity,
+                        DraftInput(
+                            team_id=input.team_id,
+                            ticket_context=reviewed_context,
+                            chunk_ids=retrieve_output.chunk_ids,
+                            prior_reply=prior_reply,
+                            prior_missing=missing,
+                            always_on_context=ctx_output.always_on_context,
+                            ticket_type=ticket_type,
+                            needs_diagnostics=needs_diagnostics,
+                            diagnostics_allowed=ctx_output.diagnostics_allowed,
+                            auto_publishable=auto_publishable,
+                        ),
+                        start_to_close_timeout=timedelta(minutes=20),
+                        retry_policy=RetryPolicy(maximum_attempts=2),
                     ),
-                    start_to_close_timeout=timedelta(minutes=20),
-                    retry_policy=RetryPolicy(maximum_attempts=2),
                 )
-                # Default 0.0 on histories recorded before DraftOutput.sandbox_seconds existed.
-                sandbox_seconds += getattr(draft_output, "sandbox_seconds", 0.0) or 0.0
+                sandbox_seconds += draft_output.sandbox_seconds or 0.0
 
                 if draft_output.task_run_id:
                     draft_task_run_ids.append(draft_output.task_run_id)
 
                 # Validate
-                validate_output = await _llm(
-                    support_validate_activity,
-                    ValidateInput(
-                        team_id=input.team_id,
-                        ticket_context=reviewed_context,
-                        reply=draft_output.reply,
-                        citations=draft_output.citations,
-                        chunk_ids=retrieve_output.chunk_ids,
-                        sources=draft_output.sources,
-                        ticket_type=ticket_type,
-                        trace_id=trace_id,
-                        ticket_id=ticket_id,
+                validate_output = coerce_dataclass(
+                    ValidateOutput,
+                    await _llm(
+                        support_validate_activity,
+                        ValidateInput(
+                            team_id=input.team_id,
+                            ticket_context=reviewed_context,
+                            reply=draft_output.reply,
+                            citations=draft_output.citations,
+                            chunk_ids=retrieve_output.chunk_ids,
+                            sources=draft_output.sources,
+                            ticket_type=ticket_type,
+                            trace_id=trace_id,
+                            ticket_id=ticket_id,
+                        ),
+                        timeout=timedelta(minutes=2),
                     ),
-                    timeout=timedelta(minutes=2),
                 )
+                last_draft = draft_output
+                last_validate = validate_output
 
                 # Track best-so-far by the validator's confidence (the trusted score, same
                 # signal the threshold gate uses) — not the draft's self-reported confidence —
@@ -314,6 +365,79 @@ class SupportReplyWorkflow:
                     best_citations = draft_output.citations
                     best_sources = draft_output.sources
                     best_missing = validate_output.missing
+
+                if blocker_aware:
+                    action = decide_reply_action(
+                        grounded=validate_output.grounded,
+                        coverage=validate_output.coverage,
+                        validator_confidence=validate_output.confidence,
+                        draft_confidence=draft_output.confidence,
+                        blocker=validate_output.blocker,
+                        verdict=draft_output.verdict,
+                        attempt=attempt,
+                        max_attempts=max_attempts,
+                    )
+                    if action in ("auto_send", "suggest"):
+                        review_output = await _llm(
+                            support_review_reply_activity,
+                            ReviewReplyInput(
+                                team_id=input.team_id,
+                                ticket_context=reviewed_context,
+                                reply=draft_output.reply,
+                                sources=draft_output.sources,
+                                ticket_type=ticket_type,
+                                trace_id=trace_id,
+                                ticket_id=ticket_id,
+                            ),
+                            timeout=timedelta(minutes=2),
+                        )
+                        if not review_output.safe:
+                            workflow.logger.info(
+                                "support_reply: reply blocked by output review",
+                                extra={"reason": review_output.reason},
+                            )
+                            outcome = {
+                                **_base_triage(),
+                                **_judge_triage(draft_output, validate_output),
+                                "result": "blocked_unsafe_reply",
+                                "confidence": validate_output.confidence,
+                                "attempts": attempt + 1,
+                            }
+                            return "blocked_unsafe_reply"
+
+                        result_name = "persisted" if action == "auto_send" else "suggested"
+                        await workflow.execute_activity(
+                            support_persist_reply_activity,
+                            PersistReplyInput(
+                                team_id=input.team_id,
+                                ticket_id=input.ticket_id,
+                                reply=draft_output.reply,
+                                citations=draft_output.citations,
+                                confidence=validate_output.confidence,
+                                ticket_type=ticket_type,
+                                allow_bot_reply=action == "auto_send",
+                            ),
+                            start_to_close_timeout=timedelta(minutes=1),
+                            retry_policy=RetryPolicy(maximum_attempts=3),
+                        )
+                        if validate_output.missing:
+                            await _persist_gaps(validate_output.missing, ticket_type, result_name)
+                        outcome = {
+                            **_base_triage(),
+                            **_judge_triage(draft_output, validate_output),
+                            "result": result_name,
+                            "confidence": validate_output.confidence,
+                            "attempts": attempt + 1,
+                            "missing": validate_output.missing,
+                        }
+                        return f"{result_name} (confidence={validate_output.confidence:.2f}, attempts={attempt + 1})"
+
+                    if action == "retry":
+                        missing = validate_output.missing
+                        prior_citations = draft_output.citations
+                        prior_reply = draft_output.reply
+                        continue
+                    break
 
                 if validate_output.confidence >= SCORE_THRESHOLD:
                     # Output safety gate: check for PII leaks / exfil before the reply reaches
@@ -378,6 +502,103 @@ class SupportReplyWorkflow:
                 prior_citations = best_citations
                 prior_reply = best_reply
 
+            if blocker_aware:
+                if last_draft is not None and last_validate is not None:
+                    last_draft = coerce_dataclass(DraftOutput, last_draft)
+                    last_validate = coerce_dataclass(ValidateOutput, last_validate)
+                    last_verdict = last_draft.verdict
+                    last_blocker = last_validate.blocker
+                    findings_reason = findings_reason_for(
+                        blocker=last_blocker,
+                        verdict=last_verdict,
+                        grounded=last_validate.grounded,
+                    )
+                    if should_persist_findings(
+                        investigation_summary=last_draft.investigation_summary,
+                        unknowns=list(last_draft.unknowns),
+                        clarifying_questions=list(last_draft.clarifying_questions),
+                        citations=list(last_draft.citations),
+                        blocker=last_blocker,
+                        verdict=last_verdict,
+                    ):
+                        findings_text = format_findings_comment(
+                            investigation_summary=last_draft.investigation_summary,
+                            unknowns=list(last_draft.unknowns),
+                            clarifying_questions=list(last_draft.clarifying_questions),
+                            findings_reason=findings_reason,
+                            citations=list(last_draft.citations),
+                        )
+                        review_output = await _llm(
+                            support_review_reply_activity,
+                            ReviewReplyInput(
+                                team_id=input.team_id,
+                                ticket_context=reviewed_context,
+                                reply=findings_text,
+                                sources=last_draft.sources,
+                                ticket_type=ticket_type,
+                                trace_id=trace_id,
+                                ticket_id=ticket_id,
+                            ),
+                            timeout=timedelta(minutes=2),
+                        )
+                        if not review_output.safe:
+                            last_draft = replace(
+                                last_draft,
+                                investigation_summary="",
+                                unknowns=[],
+                                clarifying_questions=[],
+                            )
+                            findings_reason = FINDINGS_WITHHELD_REASON
+                            findings_text = format_findings_comment(
+                                investigation_summary="",
+                                unknowns=[],
+                                clarifying_questions=[],
+                                findings_reason=findings_reason,
+                                citations=list(last_draft.citations),
+                            )
+                        await workflow.execute_activity(
+                            support_persist_reply_activity,
+                            PersistReplyInput(
+                                team_id=input.team_id,
+                                ticket_id=input.ticket_id,
+                                reply=findings_text,
+                                citations=last_draft.citations,
+                                confidence=last_validate.confidence,
+                                ticket_type=ticket_type,
+                                allow_bot_reply=False,
+                                persist_as="findings",
+                                investigation_summary=last_draft.investigation_summary,
+                                unknowns=list(last_draft.unknowns),
+                                clarifying_questions=list(last_draft.clarifying_questions),
+                                findings_reason=findings_reason,
+                            ),
+                            start_to_close_timeout=timedelta(minutes=1),
+                            retry_policy=RetryPolicy(maximum_attempts=3),
+                        )
+                        if last_validate.missing:
+                            await _persist_gaps(last_validate.missing, ticket_type, "escalated_with_findings")
+                        outcome = {
+                            **_base_triage(),
+                            **_judge_triage(last_draft, last_validate),
+                            "result": "escalated_with_findings",
+                            "confidence": last_validate.confidence,
+                            "attempts": attempts_used,
+                            "missing": last_validate.missing,
+                        }
+                        return f"escalated_with_findings (confidence={last_validate.confidence:.2f})"
+                    if last_validate.missing:
+                        await _persist_gaps(last_validate.missing, ticket_type, "escalated_no_reply")
+                    outcome = {
+                        **_base_triage(),
+                        **_judge_triage(last_draft, last_validate),
+                        "result": "escalated_no_reply",
+                        "attempts": attempts_used,
+                        "missing": last_validate.missing,
+                    }
+                    return "escalated_no_reply"
+                outcome = {**_base_triage(), "result": "escalated_no_reply", "attempts": max_attempts}
+                return "escalated_no_reply"
+
             # Exhausted attempts — persist best if we have one with non-zero confidence
             if best_reply and best_confidence > 0:
                 review_output = await _llm(
@@ -403,7 +624,7 @@ class SupportReplyWorkflow:
                         "needs_diagnostics": needs_diagnostics,
                         "diagnostics_allowed": ctx_output.diagnostics_allowed,
                         "confidence": best_confidence,
-                        "attempts": MAX_ATTEMPTS,
+                        "attempts": LEGACY_MAX_ATTEMPTS,
                     }
                     return "blocked_unsafe_reply"
 
@@ -429,7 +650,7 @@ class SupportReplyWorkflow:
                     "needs_diagnostics": needs_diagnostics,
                     "diagnostics_allowed": ctx_output.diagnostics_allowed,
                     "confidence": best_confidence,
-                    "attempts": MAX_ATTEMPTS,
+                    "attempts": LEGACY_MAX_ATTEMPTS,
                     "missing": best_missing,
                 }
                 return f"escalated_with_best (confidence={best_confidence:.2f})"
@@ -441,7 +662,7 @@ class SupportReplyWorkflow:
                 "ticket_type": ticket_type,
                 "needs_diagnostics": needs_diagnostics,
                 "diagnostics_allowed": ctx_output.diagnostics_allowed,
-                "attempts": MAX_ATTEMPTS,
+                "attempts": LEGACY_MAX_ATTEMPTS,
                 "missing": best_missing,
             }
             return "escalated_no_reply"
