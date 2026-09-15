@@ -26,9 +26,25 @@ def normalize_apns_integrations(apps, schema_editor):
 
     for integration in integrations:
         config = dict(integration.config or {})
-        team_id_apple = (config.get("team_id") or "").strip()
-        bundle_id = (config.get("bundle_id") or "").strip()
-        key_id = (config.get("key_id") or "").strip()
+        team_id_apple = config.get("team_id")
+        bundle_id = config.get("bundle_id")
+        key_id = config.get("key_id")
+
+        # The create path took any truthy JSON value for these until now, so a stored value is not
+        # always a string. A row holding a number or a list has no id to compute, and raising on it
+        # would abort the whole migration, so it keeps the row it has and this names the team.
+        if not isinstance(team_id_apple, str) or not isinstance(bundle_id, str):
+            logger.warning(
+                "apns_integration_config_not_a_string",
+                team_id=integration.team_id,
+                integration_id=integration.integration_id,
+            )
+            continue
+
+        team_id_apple = team_id_apple.strip()
+        bundle_id = bundle_id.strip()
+        if isinstance(key_id, str):
+            key_id = key_id.strip()
         if not team_id_apple or not bundle_id:
             continue
 
