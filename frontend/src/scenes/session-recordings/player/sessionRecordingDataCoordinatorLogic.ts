@@ -65,14 +65,18 @@ export const OVERSIZED_RECORDING_AVG_EVENT_BYTES = 100 * 1024
 // Adds concentrated in one playback second freeze the tab; the same adds spread out play fine
 export const OVERSIZED_MUTATION_WINDOW_MS = 1000
 export const OVERSIZED_MUTATION_WINDOW_ADDED_NODES = 15000
+// A few seconds of a torn DOM beat a blank player for the rest of the recording, so a skip that
+// finds no full snapshot to recover on ends here instead of running to the end of the window
+export const OVERSIZED_MUTATION_MAX_SKIP_MS = OVERSIZED_MUTATION_WINDOW_MS * 10
 
 export interface OversizedMutationRange {
     start: number
-    // Exclusive; Infinity when no full snapshot follows the burst
+    // Exclusive
     end: number
 }
 
 // A full snapshot rebuilds the DOM from scratch, so a burst and everything up to the next full snapshot can be dropped safely
+// A skip that reaches OVERSIZED_MUTATION_MAX_SKIP_MS without one ends there instead
 export function findOversizedMutationRanges(events: eventWithTime[]): OversizedMutationRange[] {
     const ranges: OversizedMutationRange[] = []
     const windowMutations: { timestamp: number; adds: number; index: number }[] = []
@@ -96,18 +100,15 @@ export function findOversizedMutationRanges(events: eventWithTime[]): OversizedM
             continue
         }
         const start = windowMutations[0].timestamp
+        let end = start + OVERSIZED_MUTATION_MAX_SKIP_MS
         // The recovery point can sit inside the sliding window, before the mutation that tripped the threshold
-        let end = Infinity
-        for (let j = windowMutations[0].index; j < events.length; j++) {
+        for (let j = windowMutations[0].index; j < events.length && events[j].timestamp < end; j++) {
             if (events[j].type === EventType.FullSnapshot && events[j].timestamp > start) {
                 end = events[j].timestamp
                 break
             }
         }
         ranges.push({ start, end })
-        if (end === Infinity) {
-            break
-        }
         // Rescan from the recovery point so mutations kept past it count toward the next window
         let resume = windowMutations[0].index
         while (resume < events.length && events[resume].timestamp < end) {
@@ -1156,7 +1157,30 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
             void values.sessionPlayerData
         }
     }),
-    subscriptions(({ values }) => ({
+    subscriptions(({ values, props }) => ({
+        // The skip happens in the player and leaves no other trace, so there is no other way to
+        // count how many recordings it degrades
+        oversizedMutationRanges: (
+            rangesByWindowId: Record<number, OversizedMutationRange[]> | undefined,
+            previousRangesByWindowId: Record<number, OversizedMutationRange[]> | undefined
+        ) => {
+            // Snapshots load in batches, so report the first batch that trips rather than every batch
+            if (Object.values(previousRangesByWindowId || {}).flat().length > 0) {
+                return
+            }
+            const ranges = Object.values(rangesByWindowId || {}).flat()
+            if (ranges.length === 0) {
+                return
+            }
+            posthog.capture('replay oversized mutations skipped', {
+                watchedSession: props.sessionRecordingId,
+                teamId: values.currentTeam?.id,
+                rangeCount: ranges.length,
+                cappedRangeCount: ranges.filter((range) => range.end - range.start === OVERSIZED_MUTATION_MAX_SKIP_MS)
+                    .length,
+                skippedMs: ranges.reduce((total, range) => total + (range.end - range.start), 0),
+            })
+        },
         isRecentAndInvalid: (prev: boolean, next: boolean) => {
             if (!prev && next) {
                 posthog.capture('recording cannot playback yet', {
