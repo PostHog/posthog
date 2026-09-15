@@ -11,6 +11,7 @@ from products.tasks.backend.constants import (
     AGENT_RUN_OTEL_TELEMETRY_FEATURE_FLAG,
     DEV_STACK_IMAGE_BAKE_FEATURE_FLAG,
     MCP_EXEC_SKILLS_FEATURE_FLAG,
+    PI_CLOUD_RUNTIME_FEATURE_FLAG,
     WORKFLOW_DISPATCH_ASYNC_FEATURE_FLAG,
     WORKFLOW_DISPATCH_RESTART_FEATURE_FLAG,
     WORKFLOW_DISPATCH_SHADOW_FEATURE_FLAG,
@@ -147,6 +148,31 @@ def is_agent_otel_telemetry_enabled(*, distinct_id: str, organization_id: str) -
         )
     except Exception:
         logger.exception("agent_otel_telemetry_flag_check_failed")
+        return False
+
+
+def is_pi_cloud_runtime_enabled(*, distinct_id: str | None, organization_id: str | None) -> bool:
+    """Whether this user may run the Pi harness in the cloud; fail-closed when evaluation fails.
+
+    Lives here rather than in the facade so the run-defaults service can gate a stored Pi
+    preference without importing the facade, which imports this module's own callers.
+    """
+    if not distinct_id or not organization_id:
+        return False
+
+    try:
+        return bool(
+            posthoganalytics.feature_enabled(
+                PI_CLOUD_RUNTIME_FEATURE_FLAG,
+                distinct_id,
+                groups={"organization": organization_id},
+                group_properties={"organization": {"id": organization_id}},
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
+        )
+    except Exception:
+        logger.exception("pi-harness flag check failed; treating as disabled")
         return False
 
 

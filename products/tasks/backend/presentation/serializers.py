@@ -22,6 +22,7 @@ from posthog.models.integration import Integration
 from posthog.models.user_integration import UserIntegration
 from posthog.security.url_validation import is_url_allowed, resolve_url_hosts_ips
 
+from products.tasks.backend.constants import PI_THINKING_LEVEL_CHOICES
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.api import CHANNEL_INSTRUCTIONS_MAX_BYTES
 from products.tasks.backend.facade.client_provenance import is_sandbox_oauth_request
@@ -66,7 +67,6 @@ from products.tasks.backend.facade.run_config import (
 
 logger = logging.getLogger(__name__)
 
-PI_THINKING_LEVEL_CHOICES = ("off", "minimal", "low", "medium", "high", "xhigh", "max")
 TASK_RUN_REASONING_EFFORT_CHOICES = [
     "off",
     "minimal",
@@ -4545,16 +4545,27 @@ class AgentProxyCallbackResponseSerializer(serializers.Serializer):
 
 
 class TasksAIRunPreferencesSerializer(serializers.Serializer):
-    """The default AI run triple stored at team or user level.
+    """The default AI run selection stored at team or user level.
 
     Write payload for the tasks config endpoints and the `ai_run_preferences` block of
-    their responses. `runtime_adapter` and `model` must be set together; send all three
-    as null to clear a stored preference.
+    their responses. What a complete selection is depends on the harness: an ACP default
+    sets `runtime_adapter` and `model` together, a Pi default sets `model` alone. Send
+    every field as null to clear a stored preference.
     """
 
     RUNTIME_ADAPTER_CHOICES = [adapter.value for adapter in RuntimeAdapter]
-    REASONING_EFFORT_CHOICES = [effort.value for effort in PUBLIC_REASONING_EFFORTS]
+    REASONING_EFFORT_CHOICES = TASK_RUN_REASONING_EFFORT_CHOICES
 
+    runtime = serializers.ChoiceField(
+        choices=tasks_facade.TaskRuntime.choices,
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text=(
+            "Harness the default runs on: 'acp' for the Claude and Codex adapters, 'pi' for the "
+            "Pi harness. Defaults to 'acp' when omitted."
+        ),
+    )
     runtime_adapter = serializers.ChoiceField(
         choices=RUNTIME_ADAPTER_CHOICES,
         required=False,
@@ -4562,7 +4573,8 @@ class TasksAIRunPreferencesSerializer(serializers.Serializer):
         default=None,
         help_text=(
             "Default agent runtime adapter for new task runs. Use 'claude' for the Claude "
-            "runtime or 'codex' for the Codex runtime. Must be set together with `model`."
+            "runtime or 'codex' for the Codex runtime. Must be set together with `model`, and "
+            "must be null when `runtime` is 'pi'."
         ),
     )
     model = serializers.CharField(
@@ -4570,26 +4582,57 @@ class TasksAIRunPreferencesSerializer(serializers.Serializer):
         allow_null=True,
         allow_blank=False,
         default=None,
-        help_text="Default LLM model identifier for new task runs. Must be set together with `runtime_adapter`.",
+        help_text=(
+            "Default LLM model identifier for new task runs. Must be set together with "
+            "`runtime_adapter` on the ACP harness, and is required on its own for a Pi default."
+        ),
     )
     reasoning_effort = serializers.ChoiceField(
         choices=REASONING_EFFORT_CHOICES,
         required=False,
         allow_null=True,
         default=None,
-        help_text="Default reasoning effort for models that expose an effort control.",
+        help_text=(
+            "Default reasoning effort for models that expose an effort control. A Pi default "
+            "stores a Pi thinking level here, which also allows 'off' and 'minimal'."
+        ),
     )
+
+    def validate(self, attrs):
+        """Reject a depth the chosen harness does not offer.
+
+        The field lists every depth either harness offers, because one `ChoiceField` cannot
+        depend on another field's value. The harness owns the subset, so the pairing is
+        checked here. The storage rules themselves live in the run-defaults service, which
+        every write path goes through.
+        """
+        reasoning_effort = attrs.get("reasoning_effort")
+        if reasoning_effort is None:
+            return attrs
+
+        is_pi = attrs.get("runtime") == tasks_facade.TaskRuntime.PI
+        allowed = PI_THINKING_LEVEL_CHOICES if is_pi else [effort.value for effort in PUBLIC_REASONING_EFFORTS]
+        if reasoning_effort not in allowed:
+            label = "thinking level" if is_pi else "reasoning effort"
+            raise serializers.ValidationError(
+                {"reasoning_effort": f"This {label} is not supported by the '{attrs.get('runtime') or 'acp'}' harness."}
+            )
+        return attrs
 
 
 class TasksResolvedAIRunDefaultsSerializer(serializers.Serializer):
-    """The AI run triple a new run will effectively use when the caller pins nothing,
+    """The AI run selection a new run will effectively use when the caller pins nothing,
     plus which preference level supplied it."""
 
     # Not bound to `ResolvedAIRunConfig` via DataclassSerializer: that dataclass also carries the
     # internal `explicit` resolution state this endpoint never returns, and its per-field defaults
     # would mark every field optional when the response always sends all four.
+    runtime = serializers.CharField(
+        help_text="Harness the effective default runs on: 'acp' or 'pi'. 'acp' when no preference is stored."
+    )
     runtime_adapter = serializers.CharField(
-        allow_null=True, help_text="Effective default runtime adapter, or null when no preference is stored."
+        allow_null=True,
+        help_text="Effective default runtime adapter, or null when no preference is stored or the harness is Pi.",
     )
     model = serializers.CharField(
         allow_null=True, help_text="Effective default model identifier, or null when no preference is stored."

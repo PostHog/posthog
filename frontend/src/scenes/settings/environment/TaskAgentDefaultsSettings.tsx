@@ -17,8 +17,11 @@ import {
     listRuntimeAdapters,
     modelsForRuntimeAdapter,
 } from 'products/posthog_ai/frontend/utils/composerModels'
+import { TaskRuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 
 import { type AIRunPreferenceDraft, taskAgentDefaultsLogic } from './taskAgentDefaultsLogic'
+
+const PI_HARNESS_LABEL = 'Pi'
 
 function PreferenceEditor({
     draft,
@@ -44,20 +47,32 @@ function PreferenceEditor({
 }): JSX.Element {
     const { catalogue } = useValues(modelCatalogueLogic)
 
+    const isPi = draft.runtime === TaskRuntimeEnumApi.Pi
     // Grouped by harness off the same catalogue the composer renders, so a model you can pick for a
     // run is always settable as a default and vice versa — including the Codex models that only
     // Slack and PostHog Desktop drive today.
-    const modelOptions = useMemo(
-        () =>
-            listRuntimeAdapters(catalogue).map((adapter) => ({
-                title: getRuntimeAdapterLabel(adapter),
-                options: modelsForRuntimeAdapter(catalogue, adapter).map((choice) => ({
-                    value: choice.model,
-                    label: choice.display_name,
-                })),
+    const modelOptions = useMemo(() => {
+        const adapterGroups = listRuntimeAdapters(catalogue).map((adapter) => ({
+            title: getRuntimeAdapterLabel(adapter),
+            options: modelsForRuntimeAdapter(catalogue, adapter).map((choice) => ({
+                value: choice.model,
+                label: choice.display_name,
             })),
-        [catalogue]
-    )
+        }))
+        if (!isPi || !draft.model) {
+            return adapterGroups
+        }
+        // Pi runs models the ACP catalogue never lists, and the select cannot show a value it has no
+        // option for. Carrying the stored pick as its own group keeps a Pi default readable here, and
+        // leaves every other option free to move the default onto Claude or Codex.
+        return [
+            {
+                title: PI_HARNESS_LABEL,
+                options: [{ value: draft.model, label: getModelLabel(catalogue, draft.model) }],
+            },
+            ...adapterGroups,
+        ]
+    }, [catalogue, isPi, draft.model])
     const effortOptions = useMemo(() => getEffortsForModel(catalogue, draft.model), [catalogue, draft.model])
 
     return (
@@ -66,17 +81,23 @@ function PreferenceEditor({
                 <LemonSelect
                     fullWidth
                     value={draft.model}
-                    onChange={(model) =>
+                    onChange={(model) => {
+                        // Every model in the list other than the stored Pi pick belongs to an ACP
+                        // adapter, so choosing one moves the default off the Pi harness.
+                        const staysOnPi = isPi && model === draft.model
                         onChange({
                             model,
                             // A model switch may invalidate the picked effort; drop it rather than store one
                             // the model can't run, and let the server-side default apply instead.
                             reasoning_effort:
                                 draft.reasoning_effort && model
-                                    ? filterEffortForModel(catalogue, draft.reasoning_effort, model)
+                                    ? staysOnPi
+                                        ? draft.reasoning_effort
+                                        : filterEffortForModel(catalogue, draft.reasoning_effort, model)
                                     : null,
+                            runtime: model ? (staysOnPi ? TaskRuntimeEnumApi.Pi : TaskRuntimeEnumApi.Acp) : null,
                         })
-                    }
+                    }}
                     options={[{ options: [{ value: null as string | null, label: inheritLabel }] }, ...modelOptions]}
                     placeholder={inheritLabel}
                     disabledReason={restrictionReason ?? (saving ? 'Saving…' : undefined)}
@@ -93,7 +114,14 @@ function PreferenceEditor({
                         ...effortOptions.map(({ value, label }) => ({ value: value as string, label })),
                     ]}
                     disabledReason={
-                        restrictionReason ?? (saving ? 'Saving…' : draft.model ? undefined : 'Pick a model first')
+                        restrictionReason ??
+                        (saving
+                            ? 'Saving…'
+                            : isPi
+                              ? 'Set the thinking level for Pi in PostHog Desktop'
+                              : draft.model
+                                ? undefined
+                                : 'Pick a model first')
                     }
                     data-attr="task-agent-default-effort"
                 />
@@ -172,9 +200,16 @@ export function TaskAgentMyPreferenceSettings(): JSX.Element {
                 {resolvedDefaults?.model ? (
                     <>
                         Runs you start without picking a model will use{' '}
-                        <strong>{getModelLabel(catalogue, resolvedDefaults.model)}</strong>
+                        <strong>
+                            {resolvedDefaults.runtime === TaskRuntimeEnumApi.Pi ? `${PI_HARNESS_LABEL} · ` : ''}
+                            {getModelLabel(catalogue, resolvedDefaults.model)}
+                        </strong>
                         {resolvedDefaults.reasoning_effort ? (
-                            <> ({getEffortLabel(resolvedDefaults.reasoning_effort)} effort)</>
+                            <>
+                                {' '}
+                                ({getEffortLabel(resolvedDefaults.reasoning_effort)}{' '}
+                                {resolvedDefaults.runtime === TaskRuntimeEnumApi.Pi ? 'thinking' : 'effort'})
+                            </>
                         ) : null}{' '}
                         from {resolvedDefaults.source === 'user' ? 'your default above' : 'the project default'}.
                     </>

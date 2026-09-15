@@ -4384,32 +4384,40 @@ export interface TaskThreadMessageWriteApi {
 }
 
 /**
- * The default AI run triple stored at team or user level.
+ * The default AI run selection stored at team or user level.
  *
  * Write payload for the tasks config endpoints and the `ai_run_preferences` block of
- * their responses. `runtime_adapter` and `model` must be set together; send all three
- * as null to clear a stored preference.
+ * their responses. What a complete selection is depends on the harness: an ACP default
+ * sets `runtime_adapter` and `model` together, a Pi default sets `model` alone. Send
+ * every field as null to clear a stored preference.
  */
 export interface TasksAIRunPreferencesApi {
-    /** Default agent runtime adapter for new task runs. Use 'claude' for the Claude runtime or 'codex' for the Codex runtime. Must be set together with `model`.
+    /** Harness the default runs on: 'acp' for the Claude and Codex adapters, 'pi' for the Pi harness. Defaults to 'acp' when omitted.
+     *
+     * * `acp` - ACP
+     * * `pi` - Pi */
+    runtime?: TaskRuntimeEnumApi | null
+    /** Default agent runtime adapter for new task runs. Use 'claude' for the Claude runtime or 'codex' for the Codex runtime. Must be set together with `model`, and must be null when `runtime` is 'pi'.
      *
      * * `claude` - claude
      * * `codex` - codex */
     runtime_adapter?: RuntimeAdapterEnumApi | null
     /**
-     * Default LLM model identifier for new task runs. Must be set together with `runtime_adapter`.
+     * Default LLM model identifier for new task runs. Must be set together with `runtime_adapter` on the ACP harness, and is required on its own for a Pi default.
      * @nullable
      */
     model?: string | null
-    /** Default reasoning effort for models that expose an effort control.
+    /** Default reasoning effort for models that expose an effort control. A Pi default stores a Pi thinking level here, which also allows 'off' and 'minimal'.
      *
+     * * `off` - off
+     * * `minimal` - minimal
      * * `low` - low
      * * `medium` - medium
      * * `high` - high
      * * `xhigh` - xhigh
      * * `max` - max
      * * `ultracode` - ultracode */
-    reasoning_effort?: ReasoningEffortEnumApi | null
+    reasoning_effort?: TaskRunReasoningEffortEnumApi | null
 }
 
 /**
@@ -4427,12 +4435,14 @@ export const TasksResolvedAIRunDefaultsSourceEnumApi = {
 } as const
 
 /**
- * The AI run triple a new run will effectively use when the caller pins nothing,
+ * The AI run selection a new run will effectively use when the caller pins nothing,
  * plus which preference level supplied it.
  */
 export interface TasksResolvedAIRunDefaultsApi {
+    /** Harness the effective default runs on: 'acp' or 'pi'. 'acp' when no preference is stored. */
+    runtime: string
     /**
-     * Effective default runtime adapter, or null when no preference is stored.
+     * Effective default runtime adapter, or null when no preference is stored or the harness is Pi.
      * @nullable
      */
     runtime_adapter: string | null

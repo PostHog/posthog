@@ -54,7 +54,7 @@ describe('taskAgentDefaultsLogic', () => {
             .toDispatchActions(['loadMyConfigSuccess'])
             .toMatchValues({
                 canResetMyPreference: true,
-                myDraft: { model: 'claude-opus-5', reasoning_effort: 'high' },
+                myDraft: { model: 'claude-opus-5', reasoning_effort: 'high', runtime: 'acp' },
             })
 
         logic.actions.resetMyPreference()
@@ -62,11 +62,11 @@ describe('taskAgentDefaultsLogic', () => {
         await expectLogic(logic)
             .toDispatchActions(['saveMyPreferencesSuccess'])
             .toMatchValues({
-                myDraft: { model: null, reasoning_effort: null },
+                myDraft: { model: null, reasoning_effort: null, runtime: null },
                 canResetMyPreference: false,
                 myDraftDirty: false,
             })
-        expect(posted).toEqual([{ runtime_adapter: null, model: null, reasoning_effort: null }])
+        expect(posted).toEqual([{ runtime: null, runtime_adapter: null, model: null, reasoning_effort: null }])
     })
 
     // Nothing stored and nothing picked means there's nothing to fall back to — the button has to say so
@@ -83,6 +83,40 @@ describe('taskAgentDefaultsLogic', () => {
         // An unsaved pick is resettable too: reset discards it as well as anything stored.
         logic.actions.setMyDraft({ model: 'claude-opus-5' })
         await expectLogic(logic).toMatchValues({ canResetMyPreference: true, myDraftDirty: true })
+    })
+
+    // The ACP catalogue owns neither Pi's harness nor its model ids, so deriving an adapter on every
+    // save would store a Pi default as a Claude one — a default nobody picked, on a harness the person
+    // had moved away from.
+    it('saves a Pi default back as Pi, with no adapter', async () => {
+        useConfigMocks({ runtime: 'pi', model: 'gpt-5.6-terra', reasoning_effort: 'off' })
+        mount()
+        await expectLogic(logic)
+            .toDispatchActions(['loadMyConfigSuccess'])
+            .toMatchValues({ myDraft: { model: 'gpt-5.6-terra', reasoning_effort: 'off', runtime: 'pi' } })
+
+        logic.actions.submitMyDraft()
+
+        await expectLogic(logic).toDispatchActions(['saveMyPreferencesSuccess'])
+        expect(posted).toEqual([
+            { runtime: 'pi', runtime_adapter: null, model: 'gpt-5.6-terra', reasoning_effort: 'off' },
+        ])
+    })
+
+    // Every model the picker offers other than the stored Pi one belongs to an ACP adapter, so
+    // choosing one is how a person moves their default off Pi from the web.
+    it('moves a Pi default onto the ACP harness when an ACP model is picked', async () => {
+        useConfigMocks({ runtime: 'pi', model: 'gpt-5.6-terra', reasoning_effort: 'off' })
+        mount()
+        await expectLogic(logic).toDispatchActions(['loadMyConfigSuccess'])
+
+        logic.actions.setMyDraft({ model: 'claude-opus-5', reasoning_effort: null, runtime: 'acp' })
+        logic.actions.submitMyDraft()
+
+        await expectLogic(logic).toDispatchActions(['saveMyPreferencesSuccess'])
+        expect(posted).toEqual([
+            { runtime: 'acp', runtime_adapter: 'claude', model: 'claude-opus-5', reasoning_effort: null },
+        ])
     })
 
     // Saving the project default refetches the personal config; that load result used to
@@ -103,7 +137,7 @@ describe('taskAgentDefaultsLogic', () => {
             .toDispatchActions(['submitTeamDraft', 'saveTeamPreferencesSuccess', 'loadMyConfigSuccess'])
             .toFinishAllListeners()
             .toMatchValues({
-                myDraft: { model: 'claude-opus-5', reasoning_effort: null },
+                myDraft: { model: 'claude-opus-5', reasoning_effort: null, runtime: null },
                 myDraftDirty: true,
             })
     })
