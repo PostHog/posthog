@@ -46,6 +46,7 @@ export interface notebookAnalyzeLogicValues {
     isMaxAvailable: boolean // maxGlobalLogic
     canEditNotebook: boolean // props.notebookLogic
     content: JSONContent // props.notebookLogic
+    isEditable: boolean // props.notebookLogic
     isShared: boolean // props.notebookLogic
     title: string // props.notebookLogic
     analyzeEnabled: boolean
@@ -136,7 +137,7 @@ export const notebookAnalyzeLogic = kea<notebookAnalyzeLogicType>([
     connect((props: NotebookAnalyzeLogicProps) => ({
         values: [
             props.notebookLogic,
-            ['content', 'title', 'canEditNotebook', 'isShared'],
+            ['content', 'title', 'canEditNotebook', 'isEditable', 'isShared'],
             maxGlobalLogic,
             ['effectivePhaiView', 'isMaxAvailable'],
             featureFlagLogic,
@@ -221,9 +222,10 @@ export const notebookAnalyzeLogic = kea<notebookAnalyzeLogicType>([
             // pinned: analytics event name, renaming it breaks dashboards
             posthog.capture('notebook analyze more clicked', {
                 short_id: cell.notebookShortId,
+                node_type: cell.nodeType,
                 cell_kind: cell.kind,
                 has_insight_id: !!cell.insightShortId,
-                can_edit: values.canEditNotebook,
+                notebook_mode: values.isEditable ? 'edit' : 'view',
             })
 
             // No leading `!`, so the panel prefills the prompt and waits for the reader to send it.
@@ -264,7 +266,7 @@ export const notebookAnalyzeLogic = kea<notebookAnalyzeLogicType>([
             // pinned: analytics event name, renaming it breaks dashboards
             posthog.capture('notebook ai result added', {
                 short_id: cell.notebookShortId,
-                source_cell_kind: cell.kind,
+                source_node_type: cell.nodeType,
                 inserted_node_type: insertedCell.type,
                 tool_name: payload.toolName,
                 appended_at_end: appendedAtEnd,
