@@ -27,20 +27,20 @@ def _config_model_openapi_prefix(config_model: type[BaseModel]) -> str:
     return name
 
 
-# Every field is required because a write replaces the tile's whole layouts value rather than
-# merging into it. A box that omits a key drops that key from the stored layout, and the dashboard
-# then falls back to a default for it, which moves or resizes the tile the caller meant to keep.
 class _TileLayoutBoxOpenApiSerializer(serializers.Serializer):
     x = serializers.IntegerField(
+        required=False,
         help_text="Column position in the dashboard grid (0-indexed).",
     )
     y = serializers.IntegerField(
+        required=False,
         help_text="Row position in the dashboard grid (0-indexed).",
     )
     w = serializers.IntegerField(
+        required=False,
         help_text="Width in grid columns. The desktop grid is 12 columns wide.",
     )
-    h = serializers.IntegerField(help_text="Height in grid rows.")
+    h = serializers.IntegerField(required=False, help_text="Height in grid rows.")
 
 
 class _TileLayoutsOpenApiSerializer(serializers.Serializer):
@@ -49,6 +49,27 @@ class _TileLayoutsOpenApiSerializer(serializers.Serializer):
         help_text="Layout for the standard (desktop) breakpoint. The grid is 12 columns wide.",
     )
     xs = _TileLayoutBoxOpenApiSerializer(
+        required=False,
+        help_text=(
+            "Layout for the small (mobile) breakpoint, on a 1-column grid. The dashboard derives this layout "
+            "from the sm order and heights, so a stored xs box does not change what renders."
+        ),
+    )
+
+
+class _DashboardPatchTileLayoutBoxOpenApiSerializer(serializers.Serializer):
+    x = serializers.IntegerField(help_text="Column position in the dashboard grid (0-indexed).")
+    y = serializers.IntegerField(help_text="Row position in the dashboard grid (0-indexed).")
+    w = serializers.IntegerField(help_text="Width in grid columns. The desktop grid is 12 columns wide.")
+    h = serializers.IntegerField(help_text="Height in grid rows.")
+
+
+class _DashboardPatchTileLayoutsOpenApiSerializer(serializers.Serializer):
+    sm = _DashboardPatchTileLayoutBoxOpenApiSerializer(
+        required=False,
+        help_text="Layout for the standard (desktop) breakpoint. The grid is 12 columns wide.",
+    )
+    xs = _DashboardPatchTileLayoutBoxOpenApiSerializer(
         required=False,
         help_text=(
             "Layout for the small (mobile) breakpoint, on a 1-column grid. The dashboard derives this layout "
@@ -249,7 +270,7 @@ class DashboardPatchWidgetOpenApiSerializer(serializers.Serializer):
 
 class DashboardPatchTileOpenApiSerializer(serializers.Serializer):
     id = serializers.IntegerField(required=False, help_text="Dashboard tile ID to update.")
-    layouts = _TileLayoutsOpenApiSerializer(
+    layouts = _DashboardPatchTileLayoutsOpenApiSerializer(
         required=False,
         help_text=(
             "Grid position and size per breakpoint. Works for every tile type, including insight tiles. "

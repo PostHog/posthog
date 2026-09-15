@@ -42,9 +42,6 @@ class TestDashboardPatchOpenApiContract:
         )
 
     def test_tile_layouts_documented_as_writable_patch_field(self) -> None:
-        # The PATCH runtime writes `layouts` for any tile through DashboardSerializer.TILE_DISPLAY_FIELDS,
-        # but tiles is a SerializerMethodField, so nothing infers the nested tile schema. Without this field
-        # the dashboard-update MCP tool cannot size or place a tile at all.
         tiles_field = PatchedDashboardOpenApiSerializer().fields["tiles"]
         assert isinstance(tiles_field, serializers.ListSerializer)
         tile_serializer = tiles_field.child
@@ -63,8 +60,6 @@ class TestDashboardPatchOpenApiContract:
         assert {"x", "y", "w", "h"}.issubset(sm_field.fields), (
             f"Tile layout box must expose x/y/w/h. Got: {sorted(sm_field.fields)}."
         )
-        # _update_existing_tile_display_fields assigns `layouts` wholesale, so a box that omits a key
-        # drops it from the stored layout and the dashboard falls back to a default for it.
         optional = sorted(name for name, field in sm_field.fields.items() if not field.required)
         assert not optional, (
             "Every tile layout box field must be required, because a write replaces the tile's whole "

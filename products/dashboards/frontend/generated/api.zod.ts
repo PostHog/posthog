@@ -1642,12 +1642,19 @@ export const DashboardsWidgetsBatchCreateBody = /* @__PURE__ */ zod
                             .object({
                                 sm: zod
                                     .object({
-                                        x: zod.number().describe('Column position in the dashboard grid (0-indexed).'),
-                                        y: zod.number().describe('Row position in the dashboard grid (0-indexed).'),
+                                        x: zod
+                                            .number()
+                                            .optional()
+                                            .describe('Column position in the dashboard grid (0-indexed).'),
+                                        y: zod
+                                            .number()
+                                            .optional()
+                                            .describe('Row position in the dashboard grid (0-indexed).'),
                                         w: zod
                                             .number()
+                                            .optional()
                                             .describe('Width in grid columns. The desktop grid is 12 columns wide.'),
-                                        h: zod.number().describe('Height in grid rows.'),
+                                        h: zod.number().optional().describe('Height in grid rows.'),
                                     })
                                     .optional()
                                     .describe(
@@ -1655,12 +1662,19 @@ export const DashboardsWidgetsBatchCreateBody = /* @__PURE__ */ zod
                                     ),
                                 xs: zod
                                     .object({
-                                        x: zod.number().describe('Column position in the dashboard grid (0-indexed).'),
-                                        y: zod.number().describe('Row position in the dashboard grid (0-indexed).'),
+                                        x: zod
+                                            .number()
+                                            .optional()
+                                            .describe('Column position in the dashboard grid (0-indexed).'),
+                                        y: zod
+                                            .number()
+                                            .optional()
+                                            .describe('Row position in the dashboard grid (0-indexed).'),
                                         w: zod
                                             .number()
+                                            .optional()
                                             .describe('Width in grid columns. The desktop grid is 12 columns wide.'),
-                                        h: zod.number().describe('Height in grid rows.'),
+                                        h: zod.number().optional().describe('Height in grid rows.'),
                                     })
                                     .optional()
                                     .describe(
@@ -1881,12 +1895,19 @@ export const DashboardsWidgetsBatchCreateBody = /* @__PURE__ */ zod
                             .object({
                                 sm: zod
                                     .object({
-                                        x: zod.number().describe('Column position in the dashboard grid (0-indexed).'),
-                                        y: zod.number().describe('Row position in the dashboard grid (0-indexed).'),
+                                        x: zod
+                                            .number()
+                                            .optional()
+                                            .describe('Column position in the dashboard grid (0-indexed).'),
+                                        y: zod
+                                            .number()
+                                            .optional()
+                                            .describe('Row position in the dashboard grid (0-indexed).'),
                                         w: zod
                                             .number()
+                                            .optional()
                                             .describe('Width in grid columns. The desktop grid is 12 columns wide.'),
-                                        h: zod.number().describe('Height in grid rows.'),
+                                        h: zod.number().optional().describe('Height in grid rows.'),
                                     })
                                     .optional()
                                     .describe(
@@ -1894,12 +1915,19 @@ export const DashboardsWidgetsBatchCreateBody = /* @__PURE__ */ zod
                                     ),
                                 xs: zod
                                     .object({
-                                        x: zod.number().describe('Column position in the dashboard grid (0-indexed).'),
-                                        y: zod.number().describe('Row position in the dashboard grid (0-indexed).'),
+                                        x: zod
+                                            .number()
+                                            .optional()
+                                            .describe('Column position in the dashboard grid (0-indexed).'),
+                                        y: zod
+                                            .number()
+                                            .optional()
+                                            .describe('Row position in the dashboard grid (0-indexed).'),
                                         w: zod
                                             .number()
+                                            .optional()
                                             .describe('Width in grid columns. The desktop grid is 12 columns wide.'),
-                                        h: zod.number().describe('Height in grid rows.'),
+                                        h: zod.number().optional().describe('Height in grid rows.'),
                                     })
                                     .optional()
                                     .describe(
@@ -2042,12 +2070,19 @@ export const DashboardsWidgetsBatchCreateBody = /* @__PURE__ */ zod
                             .object({
                                 sm: zod
                                     .object({
-                                        x: zod.number().describe('Column position in the dashboard grid (0-indexed).'),
-                                        y: zod.number().describe('Row position in the dashboard grid (0-indexed).'),
+                                        x: zod
+                                            .number()
+                                            .optional()
+                                            .describe('Column position in the dashboard grid (0-indexed).'),
+                                        y: zod
+                                            .number()
+                                            .optional()
+                                            .describe('Row position in the dashboard grid (0-indexed).'),
                                         w: zod
                                             .number()
+                                            .optional()
                                             .describe('Width in grid columns. The desktop grid is 12 columns wide.'),
-                                        h: zod.number().describe('Height in grid rows.'),
+                                        h: zod.number().optional().describe('Height in grid rows.'),
                                     })
                                     .optional()
                                     .describe(
@@ -2055,12 +2090,19 @@ export const DashboardsWidgetsBatchCreateBody = /* @__PURE__ */ zod
                                     ),
                                 xs: zod
                                     .object({
-                                        x: zod.number().describe('Column position in the dashboard grid (0-indexed).'),
-                                        y: zod.number().describe('Row position in the dashboard grid (0-indexed).'),
+                                        x: zod
+                                            .number()
+                                            .optional()
+                                            .describe('Column position in the dashboard grid (0-indexed).'),
+                                        y: zod
+                                            .number()
+                                            .optional()
+                                            .describe('Row position in the dashboard grid (0-indexed).'),
                                         w: zod
                                             .number()
+                                            .optional()
                                             .describe('Width in grid columns. The desktop grid is 12 columns wide.'),
-                                        h: zod.number().describe('Height in grid rows.'),
+                                        h: zod.number().optional().describe('Height in grid rows.'),
                                     })
                                     .optional()
                                     .describe(
@@ -2208,12 +2250,19 @@ export const DashboardsWidgetsBatchCreateBody = /* @__PURE__ */ zod
                             .object({
                                 sm: zod
                                     .object({
-                                        x: zod.number().describe('Column position in the dashboard grid (0-indexed).'),
-                                        y: zod.number().describe('Row position in the dashboard grid (0-indexed).'),
+                                        x: zod
+                                            .number()
+                                            .optional()
+                                            .describe('Column position in the dashboard grid (0-indexed).'),
+                                        y: zod
+                                            .number()
+                                            .optional()
+                                            .describe('Row position in the dashboard grid (0-indexed).'),
                                         w: zod
                                             .number()
+                                            .optional()
                                             .describe('Width in grid columns. The desktop grid is 12 columns wide.'),
-                                        h: zod.number().describe('Height in grid rows.'),
+                                        h: zod.number().optional().describe('Height in grid rows.'),
                                     })
                                     .optional()
                                     .describe(
@@ -2221,12 +2270,19 @@ export const DashboardsWidgetsBatchCreateBody = /* @__PURE__ */ zod
                                     ),
                                 xs: zod
                                     .object({
-                                        x: zod.number().describe('Column position in the dashboard grid (0-indexed).'),
-                                        y: zod.number().describe('Row position in the dashboard grid (0-indexed).'),
+                                        x: zod
+                                            .number()
+                                            .optional()
+                                            .describe('Column position in the dashboard grid (0-indexed).'),
+                                        y: zod
+                                            .number()
+                                            .optional()
+                                            .describe('Row position in the dashboard grid (0-indexed).'),
                                         w: zod
                                             .number()
+                                            .optional()
                                             .describe('Width in grid columns. The desktop grid is 12 columns wide.'),
-                                        h: zod.number().describe('Height in grid rows.'),
+                                        h: zod.number().optional().describe('Height in grid rows.'),
                                     })
                                     .optional()
                                     .describe(
@@ -2283,12 +2339,19 @@ export const DashboardsWidgetsBatchCreateBody = /* @__PURE__ */ zod
                             .object({
                                 sm: zod
                                     .object({
-                                        x: zod.number().describe('Column position in the dashboard grid (0-indexed).'),
-                                        y: zod.number().describe('Row position in the dashboard grid (0-indexed).'),
+                                        x: zod
+                                            .number()
+                                            .optional()
+                                            .describe('Column position in the dashboard grid (0-indexed).'),
+                                        y: zod
+                                            .number()
+                                            .optional()
+                                            .describe('Row position in the dashboard grid (0-indexed).'),
                                         w: zod
                                             .number()
+                                            .optional()
                                             .describe('Width in grid columns. The desktop grid is 12 columns wide.'),
-                                        h: zod.number().describe('Height in grid rows.'),
+                                        h: zod.number().optional().describe('Height in grid rows.'),
                                     })
                                     .optional()
                                     .describe(
@@ -2296,12 +2359,19 @@ export const DashboardsWidgetsBatchCreateBody = /* @__PURE__ */ zod
                                     ),
                                 xs: zod
                                     .object({
-                                        x: zod.number().describe('Column position in the dashboard grid (0-indexed).'),
-                                        y: zod.number().describe('Row position in the dashboard grid (0-indexed).'),
+                                        x: zod
+                                            .number()
+                                            .optional()
+                                            .describe('Column position in the dashboard grid (0-indexed).'),
+                                        y: zod
+                                            .number()
+                                            .optional()
+                                            .describe('Row position in the dashboard grid (0-indexed).'),
                                         w: zod
                                             .number()
+                                            .optional()
                                             .describe('Width in grid columns. The desktop grid is 12 columns wide.'),
-                                        h: zod.number().describe('Height in grid rows.'),
+                                        h: zod.number().optional().describe('Height in grid rows.'),
                                     })
                                     .optional()
                                     .describe(
@@ -2340,12 +2410,19 @@ export const DashboardsWidgetsBatchCreateBody = /* @__PURE__ */ zod
                             .object({
                                 sm: zod
                                     .object({
-                                        x: zod.number().describe('Column position in the dashboard grid (0-indexed).'),
-                                        y: zod.number().describe('Row position in the dashboard grid (0-indexed).'),
+                                        x: zod
+                                            .number()
+                                            .optional()
+                                            .describe('Column position in the dashboard grid (0-indexed).'),
+                                        y: zod
+                                            .number()
+                                            .optional()
+                                            .describe('Row position in the dashboard grid (0-indexed).'),
                                         w: zod
                                             .number()
+                                            .optional()
                                             .describe('Width in grid columns. The desktop grid is 12 columns wide.'),
-                                        h: zod.number().describe('Height in grid rows.'),
+                                        h: zod.number().optional().describe('Height in grid rows.'),
                                     })
                                     .optional()
                                     .describe(
@@ -2353,12 +2430,19 @@ export const DashboardsWidgetsBatchCreateBody = /* @__PURE__ */ zod
                                     ),
                                 xs: zod
                                     .object({
-                                        x: zod.number().describe('Column position in the dashboard grid (0-indexed).'),
-                                        y: zod.number().describe('Row position in the dashboard grid (0-indexed).'),
+                                        x: zod
+                                            .number()
+                                            .optional()
+                                            .describe('Column position in the dashboard grid (0-indexed).'),
+                                        y: zod
+                                            .number()
+                                            .optional()
+                                            .describe('Row position in the dashboard grid (0-indexed).'),
                                         w: zod
                                             .number()
+                                            .optional()
                                             .describe('Width in grid columns. The desktop grid is 12 columns wide.'),
-                                        h: zod.number().describe('Height in grid rows.'),
+                                        h: zod.number().optional().describe('Height in grid rows.'),
                                     })
                                     .optional()
                                     .describe(
@@ -2427,12 +2511,19 @@ export const DashboardsWidgetsBatchCreateBody = /* @__PURE__ */ zod
                             .object({
                                 sm: zod
                                     .object({
-                                        x: zod.number().describe('Column position in the dashboard grid (0-indexed).'),
-                                        y: zod.number().describe('Row position in the dashboard grid (0-indexed).'),
+                                        x: zod
+                                            .number()
+                                            .optional()
+                                            .describe('Column position in the dashboard grid (0-indexed).'),
+                                        y: zod
+                                            .number()
+                                            .optional()
+                                            .describe('Row position in the dashboard grid (0-indexed).'),
                                         w: zod
                                             .number()
+                                            .optional()
                                             .describe('Width in grid columns. The desktop grid is 12 columns wide.'),
-                                        h: zod.number().describe('Height in grid rows.'),
+                                        h: zod.number().optional().describe('Height in grid rows.'),
                                     })
                                     .optional()
                                     .describe(
@@ -2440,12 +2531,19 @@ export const DashboardsWidgetsBatchCreateBody = /* @__PURE__ */ zod
                                     ),
                                 xs: zod
                                     .object({
-                                        x: zod.number().describe('Column position in the dashboard grid (0-indexed).'),
-                                        y: zod.number().describe('Row position in the dashboard grid (0-indexed).'),
+                                        x: zod
+                                            .number()
+                                            .optional()
+                                            .describe('Column position in the dashboard grid (0-indexed).'),
+                                        y: zod
+                                            .number()
+                                            .optional()
+                                            .describe('Row position in the dashboard grid (0-indexed).'),
                                         w: zod
                                             .number()
+                                            .optional()
                                             .describe('Width in grid columns. The desktop grid is 12 columns wide.'),
-                                        h: zod.number().describe('Height in grid rows.'),
+                                        h: zod.number().optional().describe('Height in grid rows.'),
                                     })
                                     .optional()
                                     .describe(
@@ -2533,12 +2631,19 @@ export const DashboardsWidgetsBatchCreateBody = /* @__PURE__ */ zod
                             .object({
                                 sm: zod
                                     .object({
-                                        x: zod.number().describe('Column position in the dashboard grid (0-indexed).'),
-                                        y: zod.number().describe('Row position in the dashboard grid (0-indexed).'),
+                                        x: zod
+                                            .number()
+                                            .optional()
+                                            .describe('Column position in the dashboard grid (0-indexed).'),
+                                        y: zod
+                                            .number()
+                                            .optional()
+                                            .describe('Row position in the dashboard grid (0-indexed).'),
                                         w: zod
                                             .number()
+                                            .optional()
                                             .describe('Width in grid columns. The desktop grid is 12 columns wide.'),
-                                        h: zod.number().describe('Height in grid rows.'),
+                                        h: zod.number().optional().describe('Height in grid rows.'),
                                     })
                                     .optional()
                                     .describe(
@@ -2546,12 +2651,19 @@ export const DashboardsWidgetsBatchCreateBody = /* @__PURE__ */ zod
                                     ),
                                 xs: zod
                                     .object({
-                                        x: zod.number().describe('Column position in the dashboard grid (0-indexed).'),
-                                        y: zod.number().describe('Row position in the dashboard grid (0-indexed).'),
+                                        x: zod
+                                            .number()
+                                            .optional()
+                                            .describe('Column position in the dashboard grid (0-indexed).'),
+                                        y: zod
+                                            .number()
+                                            .optional()
+                                            .describe('Row position in the dashboard grid (0-indexed).'),
                                         w: zod
                                             .number()
+                                            .optional()
                                             .describe('Width in grid columns. The desktop grid is 12 columns wide.'),
-                                        h: zod.number().describe('Height in grid rows.'),
+                                        h: zod.number().optional().describe('Height in grid rows.'),
                                     })
                                     .optional()
                                     .describe(

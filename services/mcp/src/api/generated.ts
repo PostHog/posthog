@@ -3289,13 +3289,13 @@ export namespace Schemas {
 
     export interface _TileLayoutBoxOpenApi {
       /** Column position in the dashboard grid (0-indexed). */
-      x: number;
+      x?: number;
       /** Row position in the dashboard grid (0-indexed). */
-      y: number;
+      y?: number;
       /** Width in grid columns. The desktop grid is 12 columns wide. */
-      w: number;
+      w?: number;
       /** Height in grid rows. */
-      h: number;
+      h?: number;
     }
 
     export interface _TileLayoutsOpenApi {
@@ -22073,6 +22073,24 @@ export namespace Schemas {
       properties?: unknown;
     }
 
+    export interface _DashboardPatchTileLayoutBoxOpenApi {
+      /** Column position in the dashboard grid (0-indexed). */
+      x: number;
+      /** Row position in the dashboard grid (0-indexed). */
+      y: number;
+      /** Width in grid columns. The desktop grid is 12 columns wide. */
+      w: number;
+      /** Height in grid rows. */
+      h: number;
+    }
+
+    export interface _DashboardPatchTileLayoutsOpenApi {
+      /** Layout for the standard (desktop) breakpoint. The grid is 12 columns wide. */
+      sm?: _DashboardPatchTileLayoutBoxOpenApi;
+      /** Layout for the small (mobile) breakpoint, on a 1-column grid. The dashboard derives this layout from the sm order and heights, so a stored xs box does not change what renders. */
+      xs?: _DashboardPatchTileLayoutBoxOpenApi;
+    }
+
     /**
      * * `activity_events_list` - activity_events_list
      * * `conversations_recent_tickets` - conversations_recent_tickets
@@ -22127,7 +22145,7 @@ export namespace Schemas {
       /** Dashboard tile ID to update. */
       id?: number;
       /** Grid position and size per breakpoint. Works for every tile type, including insight tiles. A write replaces the tile's whole layout, so send a complete sm box rather than the one value you want to change. Boxes are stored as sent and overlaps are not resolved, so send sm boxes that do not overlap, and include every tile you move in the same request. */
-      layouts?: _TileLayoutsOpenApi;
+      layouts?: _DashboardPatchTileLayoutsOpenApi;
       /** Nested widget row updates. */
       widget?: DashboardPatchWidgetOpenApi;
     }
