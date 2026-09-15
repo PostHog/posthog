@@ -198,18 +198,6 @@ export function isCloudflareModelId(modelId: string): boolean {
   return modelId.startsWith("@cf/");
 }
 
-export function isGlmModelId(modelId: string): boolean {
-  return modelId.toLowerCase().includes("glm");
-}
-
-export function isGlm53ModelId(modelId: string): boolean {
-  return modelId.toLowerCase() === "zai-org/glm-5.3";
-}
-
-export function isGlm53FlashModelId(modelId: string): boolean {
-  return modelId.toLowerCase() === "zai-org/glm-5.3-flash";
-}
-
 export function isCloudflareModel(model: GatewayModel): boolean {
   return isCloudflareModelId(model.id) || model.owned_by === "cloudflare";
 }

@@ -173,16 +173,9 @@ class TestAvailableModelChoices:
         assert [c.label for c in choices] == ["DeepSeek V4 Flash", "GLM-5.3 Flash", "Kimi K3"]
 
 
-def test_every_gated_model_resolves_to_its_catalog_flag() -> None:
+def test_every_model_resolves_to_its_catalog_flag() -> None:
     # The gate and the pickers read one field now, so this fails if a row gains an
     # access_flag the entitlement check cannot see, whichever spelling the caller sends.
-    gated = [model for model in model_catalog.MODELS if model.access_flag]
-    assert gated, "the catalog gates no model, so this guard proves nothing"
-
-    for model in gated:
+    for model in model_catalog.MODELS:
         assert get_required_model_flag(model.id) == model.access_flag
         assert get_required_model_flag(f"anthropic/{model.id}") == model.access_flag
-
-    for model in model_catalog.MODELS:
-        if model.access_flag is None:
-            assert get_required_model_flag(model.id) is None

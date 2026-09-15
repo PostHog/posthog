@@ -100,6 +100,10 @@ from products.tasks.backend.presentation.serializers import (
 from products.tasks.backend.presentation.views import api as views_api
 from products.tasks.backend.temporal.process_task.utils import get_cached_github_user_token
 
+# The catalog gates no model behind a rollout flag now, so the write paths that re-check
+# entitlement are exercised with a stand-in rather than with whichever model is mid-rollout.
+GATED_MODEL_FLAG = "tasks-test-model-gate"
+
 
 def _grant_user_github_access(user: User, *, refresh_ttl_seconds: int = 15897600) -> UserIntegration:
     now = int(time.time())
@@ -3761,8 +3765,11 @@ class TestTaskAPI(BaseTaskAPITest):
 
     @override_settings(DEBUG=False)
     @patch("products.tasks.backend.feature_flags.posthoganalytics.feature_enabled", return_value=False)
+    @patch("products.tasks.backend.feature_flags.get_required_model_flag", return_value=GATED_MODEL_FLAG)
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
-    def test_run_endpoint_rejects_a_gated_model_the_caller_cannot_access(self, mock_workflow, mock_feature_enabled):
+    def test_run_endpoint_rejects_a_gated_model_the_caller_cannot_access(
+        self, mock_workflow, _mock_required_flag, mock_feature_enabled
+    ):
         # The Desktop picker hides gated models, but a stored preference or a direct API
         # call reaches this endpoint without one, so the entitlement is re-checked here.
         task = self.create_task()
@@ -3779,7 +3786,7 @@ class TestTaskAPI(BaseTaskAPITest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["attr"] == "model"
-        assert mock_feature_enabled.call_args.args[0] == "tasks-kimi-k3"
+        assert mock_feature_enabled.call_args.args[0] == GATED_MODEL_FLAG
         mock_workflow.assert_not_called()
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
@@ -4430,8 +4437,12 @@ class TestTaskAPI(BaseTaskAPITest):
         "products.tasks.backend.feature_flags.posthoganalytics.feature_enabled",
         side_effect=lambda flag, *_args, **_kwargs: flag == "tasks",
     )
+    @patch("products.tasks.backend.feature_flags.get_required_model_flag", return_value=GATED_MODEL_FLAG)
+    @patch("products.tasks.backend.facade.api.get_required_model_flag", return_value=GATED_MODEL_FLAG)
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
-    def test_run_endpoint_resume_rejects_inherited_gated_model(self, mock_workflow, mock_feature_enabled):
+    def test_run_endpoint_resume_rejects_inherited_gated_model(
+        self, mock_workflow, _mock_facade_required_flag, _mock_required_flag, mock_feature_enabled
+    ):
         # A resume omits `model`, so the serializer sees None and passes. The inherited
         # model is the one that actually runs, so entitlement is re-checked after it lands.
         task = self.create_task()
@@ -4450,7 +4461,7 @@ class TestTaskAPI(BaseTaskAPITest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["attr"] == "model"
-        assert mock_feature_enabled.call_args.args[0] == "tasks-kimi-k3"
+        assert mock_feature_enabled.call_args.args[0] == GATED_MODEL_FLAG
         mock_workflow.assert_not_called()
 
     def test_run_endpoint_rejects_invalid_sandbox_environment_id(self):
@@ -13195,8 +13206,9 @@ class TestCloudUsageGate(BaseTaskAPITest):
     @patch("products.tasks.backend.facade.api.warm_task_sandbox")
     @patch("products.tasks.backend.presentation.views.api.TaskViewSet._warm_enabled", return_value=True)
     @patch("products.tasks.backend.feature_flags.posthoganalytics.feature_enabled", return_value=False)
+    @patch("products.tasks.backend.feature_flags.get_required_model_flag", return_value=GATED_MODEL_FLAG)
     def test_warm_rejects_a_gated_model_the_caller_cannot_access(
-        self, mock_feature_enabled, _mock_warm_enabled, mock_warm
+        self, _mock_required_flag, mock_feature_enabled, _mock_warm_enabled, mock_warm
     ):
         # Warming boots a sandbox and starts the agent on this model, so it bills like a run.
         response = self.client.post(
@@ -13207,12 +13219,13 @@ class TestCloudUsageGate(BaseTaskAPITest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["attr"] == "model"
-        assert mock_feature_enabled.call_args.args[0] == "tasks-kimi-k3"
+        assert mock_feature_enabled.call_args.args[0] == GATED_MODEL_FLAG
         mock_warm.assert_not_called()
 
     @override_settings(DEBUG=False)
     @patch("products.tasks.backend.feature_flags.posthoganalytics.feature_enabled", return_value=False)
-    def test_create_rejects_a_gated_model_hint(self, mock_feature_enabled):
+    @patch("products.tasks.backend.feature_flags.get_required_model_flag", return_value=GATED_MODEL_FLAG)
+    def test_create_rejects_a_gated_model_hint(self, _mock_required_flag, mock_feature_enabled):
         # The create hint is write-only, but it is what selects a warm Run to activate,
         # so a gated value here would run the gated model without ever reaching run_task.
         response = self.client.post(
@@ -13228,7 +13241,7 @@ class TestCloudUsageGate(BaseTaskAPITest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["attr"] == "model"
-        assert mock_feature_enabled.call_args.args[0] == "tasks-kimi-k3"
+        assert mock_feature_enabled.call_args.args[0] == GATED_MODEL_FLAG
         assert not Task.objects.filter(title="Gated").exists()
 
     def _inbox_task(self, origin: Task.OriginProduct) -> Task:

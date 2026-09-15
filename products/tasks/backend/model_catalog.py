@@ -71,6 +71,10 @@ class CatalogModel:
     checked in and the desktop app auto-updates into it, so it is readable by anyone and can
     be stale. Whether a run may actually use the model stays a server question, answered by
     ``get_model_access_error`` on every write path.
+
+    Both gates fail closed, so clear ``access_flag`` when the rollout reaches everyone. A flag
+    left behind keeps the model away from every caller the flag service cannot answer for, and
+    from every surface that reads flags before they load.
     """
 
     id: str
@@ -84,19 +88,11 @@ MODELS: tuple[CatalogModel, ...] = (
     # GLM 5.2 is Cloudflare-served and driven through the `claude` adapter: the LLM gateway
     # exposes it over its Anthropic-Messages surface and translates the `@cf/` id upstream,
     # so the `anthropic` provider is the intended routing rather than a direct Anthropic call.
-    CatalogModel("@cf/zai-org/glm-5.2", CLAUDE, _GLM, label="GLM-5.2", access_flag="posthog-code-glm-model"),
-    CatalogModel("zai-org/glm-5.3", CLAUDE, _GLM, label="GLM-5.3", access_flag="posthog-code-glm-53-model"),
-    CatalogModel(
-        "zai-org/glm-5.3-flash", CLAUDE, _GLM, label="GLM-5.3 Flash", access_flag="posthog-code-glm-53-flash-model"
-    ),
-    CatalogModel("moonshotai/kimi-k3", CLAUDE, _NO_EFFORT, label="Kimi K3", access_flag="tasks-kimi-k3"),
-    CatalogModel(
-        "deepseek-ai/deepseek-v4-flash-0731",
-        CLAUDE,
-        _NO_EFFORT,
-        label="DeepSeek V4 Flash",
-        access_flag="posthog-code-deepseek-model",
-    ),
+    CatalogModel("@cf/zai-org/glm-5.2", CLAUDE, _GLM, label="GLM-5.2"),
+    CatalogModel("zai-org/glm-5.3", CLAUDE, _GLM, label="GLM-5.3"),
+    CatalogModel("zai-org/glm-5.3-flash", CLAUDE, _GLM, label="GLM-5.3 Flash"),
+    CatalogModel("moonshotai/kimi-k3", CLAUDE, _NO_EFFORT, label="Kimi K3"),
+    CatalogModel("deepseek-ai/deepseek-v4-flash-0731", CLAUDE, _NO_EFFORT, label="DeepSeek V4 Flash"),
     CatalogModel("claude-opus-4-5", CLAUDE, _STANDARD),
     CatalogModel("claude-opus-4-6", CLAUDE, _THROUGH_MAX),
     CatalogModel("claude-opus-4-7", CLAUDE, _EXTENDED),
