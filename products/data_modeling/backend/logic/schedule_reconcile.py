@@ -36,7 +36,13 @@ from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.exceptions_capture import capture_exception
 from posthog.temporal.common.client import async_connect, sync_connect
-from posthog.temporal.common.schedule import a_create_schedule, a_delete_schedule, a_update_schedule, delete_schedule
+from posthog.temporal.common.schedule import (
+    a_create_schedule,
+    a_delete_schedule,
+    a_update_schedule,
+    delete_schedule,
+    is_transient_rpc_error,
+)
 from posthog.temporal.common.search_attributes import POSTHOG_DAG_ID_KEY
 
 from products.data_modeling.backend.logic.cohort_scheduling import (
@@ -129,10 +135,13 @@ def _bootstrap_dag_best_effort(dag: DAG, requested_by: "DataWarehouseSavedQuery 
     except Exception as error:
         logger.exception("Freshness schedule bootstrap failed", dag_id=str(dag.id), team_id=dag.team_id)
         capture_exception(error)
-        if requested_by is not None:
-            # A bootstrap that fails creates no schedule, so nothing will ever run the query that
-            # asked for one. Retract the claim here rather than re-raise: this runs after the
-            # caller's transaction committed, so there is no longer a caller to catch it.
+        # A bootstrap that fails creates no schedule, so nothing will ever run the query that asked
+        # for one. Retract the claim here rather than re-raise: this runs after the caller's
+        # transaction committed, so there is no longer a caller to catch it. A transient Temporal
+        # failure is not that case — the seeded targets survive, the schedule may well have landed,
+        # and a later reconcile converges either way — so keep the query materialized rather than
+        # let one slow RPC stop a live refresh.
+        if requested_by is not None and not is_transient_rpc_error(error):
             requested_by.is_materialized = False
             requested_by.save(update_fields=["is_materialized"])
 
@@ -553,7 +562,9 @@ async def _apply_reconciliation(
 
     # Create/update every desired tier before deleting stale schedules so nodes are never left
     # uncovered; on failure, best-effort-delete the tiers we created (already-applied updates
-    # stay — a re-run converges) without letting a failed delete mask the original error.
+    # stay — a re-run converges) without letting a failed delete mask the original error. A
+    # transient RPC failure is the exception: the tiers already created keep covering their nodes
+    # until a re-run finishes the converge, which beats taking away coverage Temporal accepted.
     created: list[str] = []
     try:
         for schedule_id, (tier, node_ids) in plan.to_create.items():
@@ -572,7 +583,14 @@ async def _apply_reconciliation(
         for schedule_id, (tier, node_ids) in plan.to_update.items():
             schedule = _build_tier_schedule(dag_id, team_id, team_timezone, tier, node_ids)
             await a_update_schedule(temporal, id=schedule_id, schedule=schedule, search_attributes=search_attributes)
-    except Exception:
+    except Exception as error:
+        if is_transient_rpc_error(error):
+            logger.warning(
+                "Keeping partly created cadence tiers after a transient Temporal failure",
+                dag_id=dag_id,
+                created_schedule_ids=created,
+            )
+            raise
         for schedule_id in created:
             try:
                 await a_delete_schedule(temporal, schedule_id=schedule_id)

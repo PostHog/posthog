@@ -3,6 +3,9 @@ from datetime import timedelta
 from posthog.test.base import BaseTest
 from unittest import mock
 
+from parameterized import parameterized
+from temporalio.service import RPCError, RPCStatusCode
+
 from products.data_modeling.backend.logic.cohort_scheduling import is_tier_schedule_id
 from products.data_modeling.backend.logic.freshness import UnsupportedFrequencyTargetError
 from products.data_modeling.backend.logic.node_frequency import get_declared_target, set_declared_target
@@ -17,6 +20,8 @@ MODEL = "products.data_modeling.backend.models.datawarehouse_saved_query"
 GET_V2_DAG_IDS = "products.data_modeling.backend.schedule.get_v2_scheduled_dag_ids"
 RECONCILE = "products.data_modeling.backend.logic.schedule_reconcile"
 NODE_MAT = "products.data_modeling.backend.logic.node_materialization"
+
+RPC_TIMEOUT = RPCError("Timeout expired", RPCStatusCode.DEADLINE_EXCEEDED, b"")
 
 
 def _no_schedules():
@@ -121,19 +126,25 @@ class TestScheduleMaterializationV2Guard(BaseTest):
         self.sq.refresh_from_db()
         assert self.sq.sync_frequency_interval is None
 
-    def test_failed_bootstrap_retracts_the_materialized_claim(self):
-        # the reconcile runs after the caller's transaction commits, so a failure has no caller
-        # left to raise into: leaving is_materialized set would report a schedule that was
-        # never created
+    @parameterized.expand(
+        [
+            # the reconcile runs after the caller's transaction commits, so a failure has no
+            # caller left to raise into: leaving is_materialized set would report a schedule that
+            # was never created
+            ("permanent", Exception("schedule rejected"), False),
+            # a timeout says nothing about whether Temporal applied the schedule, so retracting
+            # would stop a refresh that is most likely still running
+            ("transient", RPC_TIMEOUT, True),
+        ]
+    )
+    def test_failed_bootstrap_retracts_the_materialized_claim(self, _name, error, still_materialized):
         self.sq.is_materialized = True
         self.sq.save(update_fields=["is_materialized"])
         with (
             mock.patch(GET_V2_DAG_IDS, return_value=set()),
             mock.patch(f"{RECONCILE}.sync_connect"),
             mock.patch(f"{RECONCILE}.async_connect", new=mock.AsyncMock(return_value=_no_schedules())),
-            mock.patch(
-                f"{RECONCILE}.a_create_schedule", new=mock.AsyncMock(side_effect=Exception("temporal unavailable"))
-            ),
+            mock.patch(f"{RECONCILE}.a_create_schedule", new=mock.AsyncMock(side_effect=error)),
             mock.patch(f"{RECONCILE}.capture_exception"),
             mock.patch(f"{NODE_MAT}.sync_connect"),
             self.captureOnCommitCallbacks(execute=True),
@@ -141,7 +152,7 @@ class TestScheduleMaterializationV2Guard(BaseTest):
             self.sq.schedule_materialization()
 
         self.sq.refresh_from_db()
-        assert self.sq.is_materialized is False
+        assert self.sq.is_materialized is still_materialized
 
     def test_rejected_frequency_leaves_a_virgin_dag_unbootstrapped(self):
         # the bootstrap is all side effects, and on_commit fires immediately for the callers that
@@ -223,10 +234,16 @@ class TestScheduleMaterializationV2Guard(BaseTest):
         # visible for retry
         assert self.sq.sync_frequency_interval == timedelta(minutes=45)
 
-    def test_disables_materialization_when_v2_lookup_fails(self):
+    @parameterized.expand(
+        [
+            ("permanent", Exception("temporal unavailable"), False),
+            ("transient", RPC_TIMEOUT, True),
+        ]
+    )
+    def test_disables_materialization_when_v2_lookup_fails(self, _name, error, still_materialized):
         self.sq.is_materialized = True
         self.sq.save(update_fields=["is_materialized"])
-        with mock.patch(GET_V2_DAG_IDS, side_effect=Exception("temporal unavailable")):
+        with mock.patch(GET_V2_DAG_IDS, side_effect=error):
             self.sq.schedule_materialization()
         self.sq.refresh_from_db()
-        assert self.sq.is_materialized is False
+        assert self.sq.is_materialized is still_materialized
