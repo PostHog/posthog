@@ -51,6 +51,49 @@ from products.tasks.backend.temporal.process_task.workflow import ProcessTaskInp
 
 logger = logging.getLogger(__name__)
 
+READY_SENTINEL = Path("/tmp/dispatcher-ready")
+HEARTBEAT_SENTINEL = Path("/tmp/dispatcher-heartbeat")
+SENTINEL_REFRESH_SECONDS = 5
+
+
+class DispatcherSentinels:
+    """The probe files for this pod, refreshed on their own clock rather than by the poll loop.
+
+    The loop blocks for legitimate reasons — the Temporal client connecting, a database poll
+    backing off, every concurrency slot busy — and touching the files from inside it read all
+    three as a stalled pod. The refresher keeps its own cadence, but reports the loop's last
+    iteration, so a wedged loop still stops the heartbeat and gets the pod replaced.
+    """
+
+    def __init__(self) -> None:
+        self._last_iteration = monotonic()
+        self._ready = False
+
+    def record_iteration(self) -> None:
+        self._last_iteration = monotonic()
+
+    def mark_ready(self) -> None:
+        self._ready = True
+
+    def stall_threshold_seconds(self) -> float:
+        """How long the loop may go without an iteration before the pod counts as wedged.
+
+        Two lease periods: a loop that has not come round in the time its own claims take to
+        expire has stopped dispatching, whatever it is waiting on.
+        """
+        return 2 * settings.TASKS_DISPATCHER_LEASE_SECONDS
+
+    async def refresh_until(self, stop: asyncio.Event) -> None:
+        while not stop.is_set():
+            if monotonic() - self._last_iteration < self.stall_threshold_seconds():
+                HEARTBEAT_SENTINEL.touch()
+                if self._ready:
+                    READY_SENTINEL.touch()
+            try:
+                await asyncio.wait_for(stop.wait(), timeout=SENTINEL_REFRESH_SECONDS)
+            except TimeoutError:
+                pass
+
 
 def _user_can_dispatch(run: TaskRun, options: WorkflowDispatchOptions | None) -> bool:
     if options is not None and options.skip_user_check:
@@ -89,8 +132,10 @@ class Command(BaseCommand):
         loop = asyncio.get_running_loop()
         for sig in (signal.SIGTERM, signal.SIGINT):
             loop.add_signal_handler(sig, stop.set)
+        sentinels = DispatcherSentinels()
+        refresher = asyncio.create_task(sentinels.refresh_until(stop))
         client = await async_connect()
-        Path("/tmp/dispatcher-ready").touch()
+        sentinels.mark_ready()
         semaphore = asyncio.Semaphore(settings.TASKS_DISPATCHER_CONCURRENCY)
         lease = timedelta(seconds=settings.TASKS_DISPATCHER_LEASE_SECONDS)
         in_flight: set[asyncio.Task[None]] = set()
@@ -99,7 +144,7 @@ class Command(BaseCommand):
         last_metrics_sample = 0.0
         try:
             while not stop.is_set():
-                Path("/tmp/dispatcher-heartbeat").touch()
+                sentinels.record_iteration()
                 try:
                     if monotonic() - last_metrics_sample >= 15:
                         await sync_to_async(sample_dispatch_metrics)()
@@ -134,6 +179,7 @@ class Command(BaseCommand):
                 await asyncio.gather(*in_flight, return_exceptions=True)
             stop.set()
             await renewer
+            await refresher
             await sync_to_async(release_claims)(instance_id)
 
     async def _renew(self, instance_id: str, dispatch_ids: set[object], lease: timedelta, stop: asyncio.Event) -> None:

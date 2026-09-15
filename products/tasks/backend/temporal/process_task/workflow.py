@@ -417,7 +417,8 @@ _PATCH_ID_SNAPSHOT_BEFORE_CI_FOLLOW_UP = "tasks-snapshot-before-ci-follow-up"
 
 AGENT_LOST_ERROR_MESSAGE = "The agent stopped before finishing its turn"
 
-# Replays of pre-rollout histories must keep recording an idle exit as completed.
+# Gates the turn-ended wake, the state change that opens a turn, and the in-flight idle floor
+# those two read. Replays of pre-rollout histories must keep recording an idle exit as completed.
 _PATCH_ID_TURN_OPENS_ON_DISPATCH = "tasks-turn-opens-on-dispatch"
 
 
@@ -867,7 +868,10 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             inactivity_timeout = max(base_timeout, ci_follow_up_floor)
         else:
             inactivity_timeout = base_timeout
-        if self._end_of_turn_received is False and not testing_override_active:
+        # On the same patch gate as the state change that opens the turn: `agent_state_changed(True)`
+        # sets the flag on pre-rollout histories too, so an ungated floor would give an in-flight run
+        # the longer idle window while the wake it belongs with is still gated off.
+        if self._end_of_turn_received is False and not testing_override_active and _turn_opens_on_dispatch():
             inactivity_timeout = max(inactivity_timeout, timedelta(seconds=IN_FLIGHT_TURN_IDLE_TIMEOUT_SECONDS))
 
         workflow.set_current_details(
