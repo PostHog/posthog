@@ -1090,6 +1090,17 @@ jobs:
                   path: playwright/junit-results.xml
                   if-no-files-found: ignore
 
+            # Exports TRUNK_CODEOWNERS_PATH for the upload below, so Trunk attributes each test to
+            # the team that owns its file. The guard is for an unrebased branch: this job checks out
+            # the PR head ref, which may predate the script. Without it the uploader keeps reading
+            # .github/CODEOWNERS, as it did before.
+            - name: Build the Trunk ownership map
+              if: ${{ !cancelled() && env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]' && vars.TRUNK_UPLOAD_ENABLED == 'true' }}
+              shell: bash
+              run: |
+                  script=.github/scripts/trunk-codeowners.sh
+                  if [ -x "$script" ]; then "$script" "$RUNNER_TEMP/trunk-codeowners"; fi
+
             # Best-effort Trunk upload (continue-on-error); the "Fail on Playwright failure" step
             # below is the verdict, so a Trunk outage can't red a passing job. Internal PRs only
             # (needs the secret); cli-version pinned, not 'latest' (skips the release redirect).
