@@ -1395,6 +1395,28 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         assert body["id"] == dashboard_id
         assert DashboardTile.objects_including_soft_deleted.get(id=tile.id).deleted is True
 
+    @parameterized.expand(
+        [
+            ("negative x", {"x": -1, "y": 0, "w": 6, "h": 5}),
+            ("negative y", {"x": 0, "y": -1, "w": 6, "h": 5}),
+            ("zero width", {"x": 0, "y": 0, "w": 0, "h": 5}),
+            ("zero height", {"x": 0, "y": 0, "w": 6, "h": 0}),
+            ("extends past grid", {"x": 10, "y": 0, "w": 3, "h": 5}),
+        ]
+    )
+    def test_layout_patch_rejects_invalid_desktop_grid_box(self, _name: str, layout: dict[str, int]) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+        insight_id, _ = self.dashboard_api.create_insight({"dashboards": [dashboard_id], "name": "insight"})
+        tile = DashboardTile.objects.get(insight_id=insight_id, dashboard_id=dashboard_id)
+
+        _, response = self.dashboard_api.update_dashboard(
+            dashboard_id,
+            {"tiles": [{"id": tile.id, "layouts": {"sm": layout}}]},
+            expected_status=status.HTTP_400_BAD_REQUEST,
+        )
+
+        assert response["attr"].startswith("layouts__sm__")
+
     def test_layout_patch_succeeds_on_dashboard_with_mixed_tile_state(self):
         """
         Coverage for layout edits on a dashboard with a realistic mix of tile states:

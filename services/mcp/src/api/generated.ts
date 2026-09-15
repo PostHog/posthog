@@ -22074,13 +22074,27 @@ export namespace Schemas {
     }
 
     export interface _DashboardPatchTileLayoutBoxOpenApi {
-      /** Column position in the dashboard grid (0-indexed). */
+      /**
+         * Column position in the dashboard grid (0-indexed).
+         * @minimum 0
+         * @maximum 11
+         */
       x: number;
-      /** Row position in the dashboard grid (0-indexed). */
+      /**
+         * Row position in the dashboard grid (0-indexed).
+         * @minimum 0
+         */
       y: number;
-      /** Width in grid columns. The desktop grid is 12 columns wide. */
+      /**
+         * Width in grid columns. The desktop grid is 12 columns wide.
+         * @minimum 1
+         * @maximum 12
+         */
       w: number;
-      /** Height in grid rows. */
+      /**
+         * Height in grid rows.
+         * @minimum 1
+         */
       h: number;
     }
 

@@ -6,6 +6,7 @@ from drf_spectacular.utils import PolymorphicProxySerializer, extend_schema_fiel
 from pydantic import BaseModel
 from rest_framework import serializers
 
+from products.dashboards.backend.constants import DASHBOARD_GRID_COLUMN_COUNT
 from products.dashboards.backend.facade.enums import RestrictionLevel
 from products.dashboards.backend.models.dashboard import DASHBOARD_GRID_COMPACTION_MODES, DASHBOARD_GRID_SPACING_GAPS
 from products.dashboards.backend.widget_specs.pydantic_openapi import pydantic_config_field, pydantic_stub_serializer
@@ -58,10 +59,18 @@ class _TileLayoutsOpenApiSerializer(serializers.Serializer):
 
 
 class _DashboardPatchTileLayoutBoxOpenApiSerializer(serializers.Serializer):
-    x = serializers.IntegerField(help_text="Column position in the dashboard grid (0-indexed).")
-    y = serializers.IntegerField(help_text="Row position in the dashboard grid (0-indexed).")
-    w = serializers.IntegerField(help_text="Width in grid columns. The desktop grid is 12 columns wide.")
-    h = serializers.IntegerField(help_text="Height in grid rows.")
+    x = serializers.IntegerField(
+        min_value=0,
+        max_value=DASHBOARD_GRID_COLUMN_COUNT - 1,
+        help_text="Column position in the dashboard grid (0-indexed).",
+    )
+    y = serializers.IntegerField(min_value=0, help_text="Row position in the dashboard grid (0-indexed).")
+    w = serializers.IntegerField(
+        min_value=1,
+        max_value=DASHBOARD_GRID_COLUMN_COUNT,
+        help_text="Width in grid columns. The desktop grid is 12 columns wide.",
+    )
+    h = serializers.IntegerField(min_value=1, help_text="Height in grid rows.")
 
 
 class _DashboardPatchTileLayoutsOpenApiSerializer(serializers.Serializer):

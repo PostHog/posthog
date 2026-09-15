@@ -241,6 +241,19 @@ export const DashboardsPartialUpdateQueryParams = () => zod.object({
 export const dashboardsPartialUpdateBodyNameMax = 400
 
 export const dashboardsPartialUpdateBodyBreakdownColorsItemColorTokenRegExp = new RegExp('^preset-[1-9][0-9]\*$')
+export const dashboardsPartialUpdateBodyTilesItemLayoutsOneSmOneXMin = 0
+export const dashboardsPartialUpdateBodyTilesItemLayoutsOneSmOneXMax = 11
+
+export const dashboardsPartialUpdateBodyTilesItemLayoutsOneSmOneYMin = 0
+
+export const dashboardsPartialUpdateBodyTilesItemLayoutsOneSmOneWMax = 12
+
+export const dashboardsPartialUpdateBodyTilesItemLayoutsOneXsOneXMin = 0
+export const dashboardsPartialUpdateBodyTilesItemLayoutsOneXsOneXMax = 11
+
+export const dashboardsPartialUpdateBodyTilesItemLayoutsOneXsOneYMin = 0
+
+export const dashboardsPartialUpdateBodyTilesItemLayoutsOneXsOneWMax = 12
 
 export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOneLimitDefault = 25
 export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOneLimitMax = 50
@@ -410,24 +423,42 @@ export const DashboardsPartialUpdateBody = () => zod
                         .object({
                             sm: zod
                                 .object({
-                                    x: zod.number().describe('Column position in the dashboard grid (0-indexed).'),
-                                    y: zod.number().describe('Row position in the dashboard grid (0-indexed).'),
+                                    x: zod
+                                        .number()
+                                        .min(dashboardsPartialUpdateBodyTilesItemLayoutsOneSmOneXMin)
+                                        .max(dashboardsPartialUpdateBodyTilesItemLayoutsOneSmOneXMax)
+                                        .describe('Column position in the dashboard grid (0-indexed).'),
+                                    y: zod
+                                        .number()
+                                        .min(dashboardsPartialUpdateBodyTilesItemLayoutsOneSmOneYMin)
+                                        .describe('Row position in the dashboard grid (0-indexed).'),
                                     w: zod
                                         .number()
+                                        .min(1)
+                                        .max(dashboardsPartialUpdateBodyTilesItemLayoutsOneSmOneWMax)
                                         .describe('Width in grid columns. The desktop grid is 12 columns wide.'),
-                                    h: zod.number().describe('Height in grid rows.'),
+                                    h: zod.number().min(1).describe('Height in grid rows.'),
                                 })
                                 .describe(
                                     "Layout for the standard (desktop) breakpoint. The grid is 12 columns wide. A write replaces the tile's whole layout and the dashboard reads desktop placement from this box, so send it whenever you send layouts."
                                 ),
                             xs: zod
                                 .object({
-                                    x: zod.number().describe('Column position in the dashboard grid (0-indexed).'),
-                                    y: zod.number().describe('Row position in the dashboard grid (0-indexed).'),
+                                    x: zod
+                                        .number()
+                                        .min(dashboardsPartialUpdateBodyTilesItemLayoutsOneXsOneXMin)
+                                        .max(dashboardsPartialUpdateBodyTilesItemLayoutsOneXsOneXMax)
+                                        .describe('Column position in the dashboard grid (0-indexed).'),
+                                    y: zod
+                                        .number()
+                                        .min(dashboardsPartialUpdateBodyTilesItemLayoutsOneXsOneYMin)
+                                        .describe('Row position in the dashboard grid (0-indexed).'),
                                     w: zod
                                         .number()
+                                        .min(1)
+                                        .max(dashboardsPartialUpdateBodyTilesItemLayoutsOneXsOneWMax)
                                         .describe('Width in grid columns. The desktop grid is 12 columns wide.'),
-                                    h: zod.number().describe('Height in grid rows.'),
+                                    h: zod.number().min(1).describe('Height in grid rows.'),
                                 })
                                 .optional()
                                 .describe(

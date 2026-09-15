@@ -559,7 +559,8 @@ class TileLayoutBoxSerializer(serializers.Serializer):
     x = serializers.IntegerField(required=False, help_text="Column position in the dashboard grid (0-indexed).")
     y = serializers.IntegerField(required=False, help_text="Row position in the dashboard grid (0-indexed).")
     w = serializers.IntegerField(
-        required=False, help_text="Width in grid columns. The desktop grid is 12 columns wide."
+        required=False,
+        help_text="Width in grid columns. The desktop grid is 12 columns wide.",
     )
     h = serializers.IntegerField(required=False, help_text="Height in grid rows.")
 
@@ -572,6 +573,37 @@ class TileLayoutsSerializer(serializers.Serializer):
     xs = TileLayoutBoxSerializer(
         required=False,
         help_text="Layout for the small (mobile) breakpoint. The grid is 1 column wide.",
+    )
+
+
+class DashboardPatchTileLayoutBoxSerializer(TileLayoutBoxSerializer):
+    x = serializers.IntegerField(
+        min_value=0,
+        max_value=DASHBOARD_GRID_COLUMN_COUNT - 1,
+        help_text="Column position in the dashboard grid (0-indexed).",
+    )
+    y = serializers.IntegerField(min_value=0, help_text="Row position in the dashboard grid (0-indexed).")
+    w = serializers.IntegerField(
+        min_value=1,
+        max_value=DASHBOARD_GRID_COLUMN_COUNT,
+        help_text="Width in grid columns. The desktop grid is 12 columns wide.",
+    )
+    h = serializers.IntegerField(min_value=1, help_text="Height in grid rows.")
+
+    def validate(self, attrs: dict[str, int]) -> dict[str, int]:
+        if attrs["x"] + attrs["w"] > DASHBOARD_GRID_COLUMN_COUNT:
+            raise serializers.ValidationError("The tile must fit within the 12-column dashboard grid.")
+        return attrs
+
+
+class DashboardPatchTileLayoutsSerializer(serializers.Serializer):
+    sm = DashboardPatchTileLayoutBoxSerializer(
+        required=False,
+        help_text="Layout for the standard desktop breakpoint. The grid is 12 columns wide.",
+    )
+    xs = TileLayoutBoxSerializer(
+        required=False,
+        help_text="Optional layout for the small breakpoint.",
     )
 
 
@@ -1975,6 +2007,10 @@ class DashboardSerializer(DashboardMetadataSerializer):
     @staticmethod
     def _extract_display_defaults(tile_data: dict) -> dict:
         defaults = {k: tile_data[k] for k in DashboardSerializer.TILE_DISPLAY_FIELDS if k in tile_data}
+        if "layouts" in defaults:
+            layouts_serializer = DashboardPatchTileLayoutsSerializer(data=defaults["layouts"])
+            if not layouts_serializer.is_valid():
+                raise serializers.ValidationError({"layouts": layouts_serializer.errors})
         # `filters_overrides` is opaque JSON with the same `properties` shape ambiguity as dashboard
         # `filters` — normalize a PropertyGroupFilter dict on `properties` to the flat-list contract so
         # a malformed tile override can't be persisted for the merge/contradiction code to trip on.
