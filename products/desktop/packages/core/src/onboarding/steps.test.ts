@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   computeActiveSteps,
+  isFinalActiveStepRemoved,
   isFirstStep,
   isLastStep,
   nearestActiveStep,
@@ -163,6 +164,23 @@ describe("step navigation", () => {
       expect(activeSteps.at(-1)).toBe(finalStep);
     },
   );
+
+  it("identifies when a final active step is removed", () => {
+    const previousActiveSteps = computeActiveSteps({
+      ...allSteps,
+      hasGithubIntegration: false,
+      cliReady: false,
+    });
+    const activeSteps = computeActiveSteps({
+      ...allSteps,
+      hasGithubIntegration: true,
+      cliReady: false,
+    });
+
+    expect(
+      isFinalActiveStepRemoved(previousActiveSteps, activeSteps, "install-cli"),
+    ).toBe(true);
+  });
 
   it("advances and retreats within bounds", () => {
     expect(nextStep(steps, 0)).toBe(steps[1]);

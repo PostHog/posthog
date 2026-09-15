@@ -41,7 +41,7 @@ import { openTaskInput } from "@posthog/ui/router/useOpenTask";
 import { track } from "@posthog/ui/shell/analytics";
 import { isMac, isWindows } from "@posthog/ui/utils/platform";
 import { AnimatePresence, motion } from "framer-motion";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useHotkeys } from "react-hotkeys-hook";
 import { ProjectSelectStep } from "./ProjectSelectStep";
 
@@ -214,12 +214,14 @@ function OnboardingHeader({
 export function OnboardingFlow({ onOpenSupport }: OnboardingFlowProps) {
   const [consentSubmitting, setConsentSubmitting] = useState(false);
   const [isCompleting, setIsCompleting] = useState(false);
+  const completionStartedRef = useRef(false);
   const {
     currentStep,
     currentIndex,
     activeSteps,
     direction,
     isLastStep,
+    finalActiveStepWasRemoved,
     next,
     back,
     consentSatisfied,
@@ -255,7 +257,7 @@ export function OnboardingFlow({ onOpenSupport }: OnboardingFlowProps) {
   }, [currentStep]);
 
   const viewedStepRef = useRef<OnboardingStep | null>(null);
-  const recordStepViewed = () => {
+  const recordStepViewed = useCallback(() => {
     if (currentIndex < 0 || viewedStepRef.current === currentStep) return;
     viewedStepRef.current = currentStep;
     track(ANALYTICS_EVENTS.ONBOARDING_STEP_VIEWED, {
@@ -263,7 +265,7 @@ export function OnboardingFlow({ onOpenSupport }: OnboardingFlowProps) {
       step_index: currentIndex,
       total_steps: activeSteps.length,
     });
-  };
+  }, [activeSteps.length, currentIndex, currentStep]);
 
   // The ordinary path: the step settles while the person is reading it. This
   // also covers a step entered by the self-heal in useOnboardingFlow, which
@@ -289,40 +291,58 @@ export function OnboardingFlow({ onOpenSupport }: OnboardingFlowProps) {
     return () => window.removeEventListener("beforeunload", handleBeforeUnload);
   }, [currentStep]);
 
-  const trackStepCompleted = (context?: StepCompletedContext) => {
-    track(
-      ANALYTICS_EVENTS.ONBOARDING_STEP_COMPLETED,
-      buildStepCompletedProps({
-        stepId: currentStep,
-        stepIndex: currentIndex,
-        totalSteps: activeSteps.length,
-        stepEnteredAtMs: stepEnteredAtRef.current,
-        nowMs: Date.now(),
-        context,
-      }),
-    );
-  };
+  const trackStepCompleted = useCallback(
+    (context?: StepCompletedContext) => {
+      track(
+        ANALYTICS_EVENTS.ONBOARDING_STEP_COMPLETED,
+        buildStepCompletedProps({
+          stepId: currentStep,
+          stepIndex: currentIndex,
+          totalSteps: activeSteps.length,
+          stepEnteredAtMs: stepEnteredAtRef.current,
+          nowMs: Date.now(),
+          context,
+        }),
+      );
+    },
+    [activeSteps.length, currentIndex, currentStep],
+  );
 
-  const handleComplete = (context?: StepCompletedContext) => {
-    if (isCompleting) return;
-    setIsCompleting(true);
-    recordStepViewed();
-    trackStepCompleted(context);
-    track(
-      ANALYTICS_EVENTS.ONBOARDING_COMPLETED,
-      buildCompletedProps({
-        flowStartedAtMs: flowStartedAtRef.current,
-        nowMs: Date.now(),
-        githubConnected: githubUserIntegrations.length > 0,
-      }),
-    );
-    if (githubUserIntegrations.length > 0) {
-      setLastUsedWorkspaceMode("cloud");
-    }
-    shipIt();
-    completeOnboarding();
-    openTaskInput();
-  };
+  const handleComplete = useCallback(
+    (context?: StepCompletedContext, includeStepCompletion = true) => {
+      if (isCompleting || completionStartedRef.current) return;
+      completionStartedRef.current = true;
+      setIsCompleting(true);
+      const githubConnected =
+        context?.github_connected === true || githubUserIntegrations.length > 0;
+      if (includeStepCompletion) {
+        recordStepViewed();
+        trackStepCompleted(context);
+      }
+      track(
+        ANALYTICS_EVENTS.ONBOARDING_COMPLETED,
+        buildCompletedProps({
+          flowStartedAtMs: flowStartedAtRef.current,
+          nowMs: Date.now(),
+          githubConnected,
+        }),
+      );
+      if (githubConnected) {
+        setLastUsedWorkspaceMode("cloud");
+      }
+      shipIt();
+      completeOnboarding();
+      openTaskInput();
+    },
+    [
+      completeOnboarding,
+      githubUserIntegrations.length,
+      isCompleting,
+      recordStepViewed,
+      setLastUsedWorkspaceMode,
+      trackStepCompleted,
+    ],
+  );
 
   const handleNext = (context?: StepCompletedContext) => {
     if (
@@ -341,6 +361,12 @@ export function OnboardingFlow({ onOpenSupport }: OnboardingFlowProps) {
     trackStepCompleted(safeContext);
     next();
   };
+
+  useEffect(() => {
+    if (finalActiveStepWasRemoved) {
+      handleComplete(undefined, false);
+    }
+  }, [finalActiveStepWasRemoved, handleComplete]);
 
   const handleBack = () => {
     if (currentStep === "consent" && consentSubmitting) return;

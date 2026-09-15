@@ -94,6 +94,17 @@ export function isLastStep(
   return currentIndex === activeSteps.length - 1;
 }
 
+export function isFinalActiveStepRemoved(
+  previousActiveSteps: OnboardingStep[],
+  activeSteps: OnboardingStep[],
+  currentStep: OnboardingStep,
+): boolean {
+  return (
+    previousActiveSteps.at(-1) === currentStep &&
+    !activeSteps.includes(currentStep)
+  );
+}
+
 export function nextStep(
   activeSteps: OnboardingStep[],
   currentIndex: number,

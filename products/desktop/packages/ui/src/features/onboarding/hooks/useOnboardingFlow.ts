@@ -4,6 +4,7 @@ import {
   isLastStep as computeIsLastStep,
   nextStep as computeNextStep,
   previousStep as computePreviousStep,
+  isFinalActiveStepRemoved,
   nearestActiveStep,
   type OnboardingStep,
   stepDirection,
@@ -126,6 +127,16 @@ export function useOnboardingFlow() {
     [hasGithubIntegration, cliReady, projectCount, consentRequired],
   );
   const activeSteps = useMemo(() => computeActiveSteps(stepGates), [stepGates]);
+  const previousActiveStepsRef = useRef(activeSteps);
+  const finalActiveStepWasRemoved = isFinalActiveStepRemoved(
+    previousActiveStepsRef.current,
+    activeSteps,
+    currentStep,
+  );
+
+  useEffect(() => {
+    previousActiveStepsRef.current = activeSteps;
+  }, [activeSteps]);
 
   useEffect(() => {
     if (!activeSteps.includes(currentStep)) {
@@ -166,6 +177,7 @@ export function useOnboardingFlow() {
     activeSteps,
     isFirstStep,
     isLastStep,
+    finalActiveStepWasRemoved,
     direction: directionRef.current,
     next,
     back,
