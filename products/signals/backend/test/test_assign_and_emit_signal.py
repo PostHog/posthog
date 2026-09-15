@@ -558,30 +558,15 @@ async def test_signal_between_buckets_is_still_assigned(ateam, patch_side_effect
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
-@pytest.mark.parametrize(
-    ("signals_researched", "starting_signal_count", "expected_reason", "expected_next_bucket"),
-    [
-        (4, 4, "below_next_bucket", 10),
-        (10, 10, "buckets_exhausted", None),
-    ],
-)
-async def test_withheld_research_emits_skipped_event(
-    ateam,
-    patch_side_effects,
-    signals_researched: int,
-    starting_signal_count: int,
-    expected_reason: str,
-    expected_next_bucket: int | None,
-):
-    """signal_report_reresearch_skipped is how the withheld research volume is measured, and
-    skip_reason is what separates a report waiting for its next bucket from one that is done."""
+async def test_withheld_research_emits_skipped_event(ateam, patch_side_effects):
+    """signal_report_reresearch_skipped is how the withheld research volume is measured."""
     report = await database_sync_to_async(SignalReport.objects.create)(
         team=ateam,
         status=SignalReport.Status.READY,
         total_weight=2.0,
-        signal_count=starting_signal_count,
+        signal_count=4,
         run_count=3,
-        signals_researched=signals_researched,
+        signals_researched=4,
     )
     input_ = _build_input(ateam.id, _existing_match(str(report.id)), weight=0.5)
 
@@ -595,14 +580,39 @@ async def test_withheld_research_emits_skipped_event(
         for c in patch_side_effects["capture"].call_args_list
         if c.kwargs["event"] == "signal_report_reresearch_skipped"
     )
+    assert skipped["team_id"] == ateam.id
     assert skipped["report_id"] == str(report.id)
-    assert skipped["signal_count"] == starting_signal_count + 1
+    assert skipped["signal_count"] == 5
     assert skipped["status"] == SignalReport.Status.READY
     assert skipped["run_count"] == 3
-    assert skipped["signals_researched"] == signals_researched
-    assert skipped["skip_reason"] == expected_reason
-    assert skipped["next_bucket"] == expected_next_bucket
+    assert skipped["signals_researched"] == 4
+    assert skipped["skip_reason"] == "below_next_bucket"
+    assert skipped["next_bucket"] == 10
     assert skipped["source_id"] == input_.source_id
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_report_past_its_last_bucket_emits_no_skipped_event(ateam, patch_side_effects):
+    """A report past its last bucket stays capped for life, so one event per future signal would
+    measure a permanent backlog instead of withheld work."""
+    report = await database_sync_to_async(SignalReport.objects.create)(
+        team=ateam,
+        status=SignalReport.Status.READY,
+        total_weight=2.0,
+        signal_count=10,
+        run_count=3,
+        signals_researched=10,
+    )
+    input_ = _build_input(ateam.id, _existing_match(str(report.id)), weight=0.5)
+
+    result = await assign_and_emit_signal_activity(input_)
+
+    assert result.promoted is False
+    events = [call.kwargs["event"] for call in patch_side_effects["capture"].call_args_list]
+    assert events == ["signal_assigned_to_report"]
+    refreshed = await database_sync_to_async(SignalReport.objects.get)(id=report.id)
+    assert refreshed.signal_count == 11
 
 
 @pytest.mark.asyncio
