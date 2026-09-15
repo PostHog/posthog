@@ -10,7 +10,7 @@ from django.utils import timezone
 from asgiref.sync import async_to_sync
 from parameterized import parameterized
 
-from posthog.schema import AssistantMessage, AssistantToolCall, AssistantToolCallMessage, HumanMessage
+from posthog.schema import AssistantMessage, AssistantToolCall, AssistantToolCallMessage, ContextMessage, HumanMessage
 
 from products.posthog_ai.backend.conversation_mirror import (
     LAST_MESSAGE_ID_KEY,
@@ -108,6 +108,21 @@ class TestProjectLegacyMessages(APIBaseTest):
                 [{"type": "human", "id": "h1", "content": "hi"}],
                 ["_posthog/run_started", "session/update:user_message_chunk"],
             ),
+            (
+                "compaction_summary_is_a_user_turn",
+                [
+                    {"type": "context", "id": "c1", "content": "Summary of earlier turns"},
+                    {"type": "human", "id": "h2", "content": "and now?"},
+                    {"type": "ai", "id": "a2", "content": "Now this."},
+                ],
+                [
+                    "_posthog/run_started",
+                    "session/update:user_message_chunk",
+                    "session/update:user_message_chunk",
+                    "session/update:agent_message",
+                    "_posthog/turn_complete",
+                ],
+            ),
         ]
     )
     def test_frame_sequence(self, _name: str, messages: list[dict[str, Any]], expected: list[str]) -> None:
@@ -139,6 +154,19 @@ class TestProjectLegacyMessages(APIBaseTest):
         assert call["_meta"]["claudeCode"]["toolInput"] == {"command": call_input["rawInput"]["command"]}
         assert result["_meta"]["claudeCode"]["toolResponse"] == result["rawOutput"]
         assert result["content"][0]["content"]["text"].startswith("Name: Pageviews")
+
+    def test_context_messages_are_hidden_from_the_thread(self) -> None:
+        frames = project_legacy_messages(
+            [
+                {"type": "context", "id": "c1", "content": "Summary of earlier turns"},
+                {"type": "human", "id": "h2", "content": "and now?"},
+            ],
+            run_id="run-1",
+            include_run_start=False,
+        )
+        summary, question = (f["notification"]["params"]["update"]["content"] for f in frames)
+        assert summary == {"type": "text", "text": "Summary of earlier turns", "_meta": {"ui": {"hidden": True}}}
+        assert question == {"type": "text", "text": "and now?"}
 
     def test_recordings_filters_ride_the_tool_result(self) -> None:
         filters = {"date_from": "-7d", "duration": [], "filter_group": {"type": "AND", "values": []}}
@@ -382,6 +410,19 @@ class TestMirrorConversation(APIBaseTest):
         ]
         assert self._mirror().skipped_reason == "task_deleted"
         assert len(self._log_methods()) == 4
+
+    def test_compaction_summary_is_copied(self) -> None:
+        self.state_messages = [
+            ContextMessage(content="Summary: the user asked about pageviews", id="c1"),
+            HumanMessage(content="and by device?", id="h2"),
+            AssistantMessage(content="Mostly mobile.", id="a2"),
+        ]
+
+        result = self._mirror()
+
+        assert TaskRun.objects.get(id=result.run_id).state[MESSAGES_COPIED_KEY] == 3
+        (content,) = self.logs.values()
+        assert '"hidden": true' in content and "Summary: the user asked about pageviews" in content
 
     def test_moved_conversation_renders_no_checkpoint_history(self):
         # Once the history is in the task's import run, the checkpoint must not render as well.

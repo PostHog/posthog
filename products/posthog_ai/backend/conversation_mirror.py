@@ -25,6 +25,8 @@ from django.utils import timezone
 import structlog
 from asgiref.sync import sync_to_async
 
+from posthog.schema import ContextMessage
+
 from posthog.dataclasses import frozen
 from posthog.models import Team, User
 
@@ -81,7 +83,7 @@ def _session_update(session_id: str, update: dict[str, Any]) -> dict[str, Any]:
     return _frame("session/update", {"sessionId": session_id, "update": update})
 
 
-def _text_content(text: str) -> dict[str, str]:
+def _text_content(text: str) -> dict[str, Any]:
     return {"type": "text", "text": text}
 
 
@@ -134,16 +136,21 @@ def project_legacy_messages(
 
     for message in messages:
         message_type = message.get("type")
-        if message_type == "human":
+        if message_type in ("human", "context"):
             if turn_has_agent_output:
                 frames.append(_frame("_posthog/turn_complete", {}))
                 turn_has_agent_output = False
+            content = _text_content(message.get("content") or "")
+            if message_type == "context":
+                # LangGraph sends context messages (compaction summary, mode notes) to the model as user
+                # turns nobody typed. The hidden marker keeps them out of the thread and in the resumed history.
+                content["_meta"] = {"ui": {"hidden": True}}
             frames.append(
                 _session_update(
                     session_id,
                     {
                         "sessionUpdate": "user_message_chunk",
-                        "content": _text_content(message.get("content") or ""),
+                        "content": content,
                         "_meta": {"importedUserPrompt": True, "imported": True},
                     },
                 )
@@ -243,7 +250,12 @@ async def _aload_messages(conversation: Conversation, team: Team, user: User) ->
     if state_result.state is None:
         return []
     enriched = await ArtifactManager(team, user).aenrich_messages(list(state_result.state.messages))
-    messages = [message.model_dump() for message in enriched if should_output_assistant_message(message)]
+    # Context messages are model-only; the thread never shows them, but the resumed agent needs them.
+    messages = [
+        message.model_dump()
+        for message in enriched
+        if isinstance(message, ContextMessage) or should_output_assistant_message(message)
+    ]
     return _completed_turns(messages)
 
 
