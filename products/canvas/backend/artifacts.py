@@ -108,7 +108,7 @@ def _shared_build_is_live(*, team_id: int, canvas_id: UUID, build_id: UUID, shar
             for candidate in SharingConfiguration.objects.filter(
                 SharingConfiguration.tokens_active_q(), team_id=team_id, canvas_id=canvas_id
             ).select_related("team__organization")
-            if _share_generation(candidate.access_token) == share
+            if candidate.access_token and _share_generation(candidate.access_token) == share
         ),
         None,
     )
