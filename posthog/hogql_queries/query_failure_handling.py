@@ -1,20 +1,24 @@
 from datetime import UTC, datetime
 from typing import Optional
 
+from clickhouse_driver.errors import ServerException
 from rest_framework.exceptions import APIException
 
 from posthog.hogql.constants import LimitContext
 
 from posthog.clickhouse.client.execute import KillSwitchLevel, get_kill_switch_level, get_team_kill_switch_level
-from posthog.errors import CHQueryErrorTooManyBytes
+from posthog.errors import CHQueryErrorTooManyBytes, wrap_clickhouse_query_error
 from posthog.exceptions import (
+    ClickHouseAtCapacity,
     ClickHouseBytesLimitExceeded,
+    ClickHouseClusterMemoryLimitExceeded,
     ClickHouseEstimatedQueryExecutionTimeTooLong,
     ClickHouseQueryMemoryLimitExceeded,
     ClickHouseQuerySizeExceeded,
     ClickHouseQueryTimeOut,
 )
 from posthog.query_cache.failures import BUDGET_EXTENDED, BUDGET_INTERACTIVE, Budget, FailureKind, QueryFailureRecord
+from posthog.query_cache.single_flight import SharedFailure
 
 # The app-side mapping between failure kinds and exception classes; the breaker itself only
 # knows kinds. The stored failure details get shown to users, including on public share links,
@@ -26,6 +30,56 @@ FAILURE_KIND_EXCEPTIONS: dict[FailureKind, type[APIException]] = {
     "query_size": ClickHouseQuerySizeExceeded,
     "too_many_bytes": ClickHouseBytesLimitExceeded,
 }
+
+# The app's ClickHouse limit exceptions a single flight leader can hand to its followers by name.
+# Their detail is user-safe copy, and rebuilding one by class keeps its status and machine code.
+SHAREABLE_API_FAILURES: dict[str, type[APIException]] = {
+    cls.__name__: cls
+    for cls in (
+        ClickHouseAtCapacity,
+        ClickHouseClusterMemoryLimitExceeded,
+        ClickHouseEstimatedQueryExecutionTimeTooLong,
+        ClickHouseQueryMemoryLimitExceeded,
+        ClickHouseQuerySizeExceeded,
+        ClickHouseQueryTimeOut,
+    )
+}
+
+
+def shareable_failure(error: Exception) -> Optional[SharedFailure]:
+    """The part of a leader's failure a follower can rebuild into the same exception.
+
+    A ClickHouse server error rebuilds from its code, because wrap_clickhouse_query_error derives
+    the class from the code and message. The app's ClickHouse limit exceptions rebuild by name.
+    Anything else (HogQL errors, concurrency and quota limits, transport errors) returns None and
+    leaves followers to run the query themselves."""
+    if isinstance(error, ServerException) and error.code is not None:
+        return SharedFailure(message=str(error.message), code=error.code)
+    cls = SHAREABLE_API_FAILURES.get(type(error).__name__)
+    if cls is not None and type(error) is cls and isinstance(error, APIException):
+        return SharedFailure(
+            message=str(error.detail),
+            class_name=cls.__name__,
+            is_per_query_limit=bool(getattr(error, "is_per_query_limit", False)),
+        )
+    return None
+
+
+def rebuild_shared_failure(failure: SharedFailure) -> Optional[Exception]:
+    """The leader's exception again, marked as served by the flight. None when the published
+    class is unknown to this code version, so the follower runs the query itself instead."""
+    error: Exception
+    if failure.code is not None:
+        error = wrap_clickhouse_query_error(ServerException(failure.message, code=failure.code))
+    else:
+        cls = SHAREABLE_API_FAILURES.get(failure.class_name or "")
+        if cls is None:
+            return None
+        error = cls(detail=failure.message)
+        if failure.is_per_query_limit:
+            error.is_per_query_limit = True  # type: ignore[attr-defined]
+    error.served_from_query_single_flight = True  # type: ignore[attr-defined]
+    return error
 
 
 def classify_failure(error: Exception, team_id: Optional[int] = None) -> Optional[FailureKind]:

@@ -1,6 +1,8 @@
+import json
 import time
 import uuid
 import threading
+from dataclasses import asdict
 from datetime import datetime
 from typing import Literal, Optional
 
@@ -70,7 +72,22 @@ end
 return 0
 """
 
-FlightOutcome = Literal["done", "released", "timeout"]
+FlightOutcome = Literal["done", "failed", "released", "timeout"]
+
+
+@frozen
+class SharedFailure:
+    """A leader's failure in the form a follower can rebuild into the same exception: a ClickHouse
+    server error by code, or one of the app's ClickHouse limit exceptions by class name."""
+
+    message: str
+    code: Optional[int] = None
+    class_name: Optional[str] = None
+    is_per_query_limit: bool = False
+
+    def __post_init__(self) -> None:
+        if (self.code is None) == (self.class_name is None):
+            raise ValueError("SharedFailure needs exactly one of code or class_name")
 
 
 @frozen
@@ -78,14 +95,17 @@ class FlightWait:
     outcome: FlightOutcome
     # last_refresh of the entry the leader wrote, present only when the outcome is "done".
     last_refresh: Optional[datetime] = None
+    # The failure the leader published, present only when the outcome is "failed".
+    failure: Optional[SharedFailure] = None
 
 
 class QuerySingleFlight:
     """Collapses concurrent blocking executions of one cache key onto one leader.
 
-    Followers wait for the leader, then serve the cache entry it published or run the query
-    themselves. Failures are never transported: repeated failures are the circuit breaker's
-    concern. Storage errors fail open to independent execution, never to a query failure.
+    Followers wait for the leader, then serve the cache entry it published, fail the way it
+    published, or run the query themselves. Only ClickHouse failures travel, since only those
+    rebuild into the same exception; repeated failures are the circuit breaker's concern. Storage
+    errors fail open to independent execution, never to a query failure.
     """
 
     def __init__(self, cache_key: str) -> None:
@@ -138,19 +158,24 @@ class QuerySingleFlight:
             self._storage_failed("extend")
             return False
 
-    def release(self, *, last_refresh: Optional[datetime] = None) -> None:
-        """Release the lock, publishing which entry the leader wrote when it has one to publish."""
+    def release(self, *, last_refresh: Optional[datetime] = None, failure: Optional[SharedFailure] = None) -> None:
+        """Release the lock, publishing the entry the leader wrote or the failure it can share."""
         if self._heartbeat is not None:
             self._heartbeat.stop()
             self._heartbeat = None
+        published: Optional[dict] = None
+        if last_refresh is not None:
+            published = {"last_refresh": last_refresh.isoformat()}
+        elif failure is not None:
+            published = {"failure": asdict(failure)}
         try:
             client = storage.query_cache_raw_client()
-            if last_refresh is None:
+            if published is None:
                 client.register_script(_RELEASE_OWN_LOCK_SCRIPT)(keys=[self.lock_key], args=[self._lock_value])  # type: ignore[union-attr]
             else:
                 client.register_script(_PUBLISH_RESULT_AND_RELEASE_OWN_LOCK_SCRIPT)(  # type: ignore[union-attr]
                     keys=[self.lock_key, self.result_key],
-                    args=[self._lock_value, last_refresh.isoformat(), FLIGHT_RESULT_TTL],
+                    args=[self._lock_value, json.dumps(published), FLIGHT_RESULT_TTL],
                 )
         except Exception:
             self._storage_failed("release")
@@ -183,8 +208,10 @@ class QuerySingleFlight:
             value = storage.query_cache_raw_client().get(self.result_key)
             if value is None:
                 return FlightWait(outcome="released")
-            raw = value.decode() if isinstance(value, bytes) else str(value)
-            return FlightWait(outcome="done", last_refresh=datetime.fromisoformat(raw))
+            published = json.loads(value)
+            if "failure" in published:
+                return FlightWait(outcome="failed", failure=SharedFailure(**published["failure"]))
+            return FlightWait(outcome="done", last_refresh=datetime.fromisoformat(published["last_refresh"]))
         except Exception:
             self._storage_failed("published_result")
             return FlightWait(outcome="released")

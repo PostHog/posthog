@@ -7,7 +7,7 @@ from django.test import SimpleTestCase
 
 from posthog.query_cache import single_flight, storage
 from posthog.query_cache.failures import BUDGET_EXTENDED, BUDGET_INTERACTIVE
-from posthog.query_cache.single_flight import FlightWait, QuerySingleFlight
+from posthog.query_cache.single_flight import FlightWait, QuerySingleFlight, SharedFailure
 
 
 def _cache_key() -> str:
@@ -58,6 +58,7 @@ class TestQuerySingleFlight(SimpleTestCase):
         with mock.patch.object(single_flight, "FLIGHT_LOCK_TTL", 0.05):
             leader = QuerySingleFlight(key)
             leader.acquire(budget=BUDGET_INTERACTIVE)
+            assert leader._heartbeat is not None
             leader._heartbeat.stop()  # the process died: no more heartbeats, no release
         with mock.patch.object(single_flight, "FLIGHT_POLL_INTERVAL", 0.01):
             assert QuerySingleFlight(key).wait(timeout_seconds=1) == FlightWait(outcome="released")
@@ -91,6 +92,16 @@ class TestQuerySingleFlight(SimpleTestCase):
         leader.release()
 
         assert QuerySingleFlight(key).wait(timeout_seconds=1) == FlightWait(outcome="released")
+
+    def test_released_with_a_failure_tells_followers_to_fail_the_same_way(self):
+        key = _cache_key()
+        leader = QuerySingleFlight(key)
+        leader.acquire(budget=BUDGET_INTERACTIVE)
+        failure = SharedFailure(message="Memory limit (for query) exceeded", code=241)
+        leader.release(failure=failure)
+
+        assert QuerySingleFlight(key).wait(timeout_seconds=1) == FlightWait(outcome="failed", failure=failure)
+        assert QuerySingleFlight(key).acquire(budget=BUDGET_INTERACTIVE) is True  # the failure does not hold the lock
 
     def test_followers_can_read_the_leaders_budget(self):
         key = _cache_key()

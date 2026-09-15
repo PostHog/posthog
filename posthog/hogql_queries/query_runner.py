@@ -143,6 +143,8 @@ from posthog.hogql_queries.query_failure_handling import (
     budget_for_limit_context,
     build_failure_exception,
     classify_failure,
+    rebuild_shared_failure,
+    shareable_failure,
 )
 from posthog.hogql_queries.query_metadata import extract_query_metadata
 from posthog.hogql_queries.utils.breakdowns import has_multi_breakdown, has_single_breakdown
@@ -2327,6 +2329,10 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                         # classified and captured when it happened.
                         slo.succeed(error_category="query_failure_cache")
                         raise
+                    if getattr(exc, "served_from_query_single_flight", False):
+                        # The leader ran the query, and it already classified and captured this failure.
+                        slo.succeed(error_category="query_single_flight")
+                        raise
                     # Don't pass execution_path here: whichever branch tag was set before the raise
                     # (cache_hit / cache_miss / blocking / async_dispatched) stays intact so
                     # dashboards can attribute errors to the path they happened in. Errors that fire
@@ -2420,7 +2426,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             # Recorded before the release so a follower that rechecks the breaker sees this failure.
             self._record_breaker_failure(cache_manager, exc)
             if flight is not None:
-                flight.release()
+                flight.release(failure=shareable_failure(exc))
             raise
         if flight is not None:
             flight.release(last_refresh=last_refresh_from_cached_result(response))
@@ -2449,6 +2455,11 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         analytics_props: Optional["AnalyticsProps"],
     ) -> Optional[CR]:
         wait = flight.wait(max(0.0, deadline - perf_counter()))
+        if wait.outcome == "failed" and wait.failure is not None:
+            error = rebuild_shared_failure(wait.failure)
+            if error is not None:
+                QUERY_SINGLE_FLIGHT_COUNTER.labels(action="follower_failed_with_leader").inc()
+                raise error
         # The follower serves the entry the leader published and nothing else. Any other entry
         # means the leader's write did not land, and the follower must run the query itself so
         # that failure is not masked by earlier data, even data still fresh for this request.

@@ -1,3 +1,4 @@
+from dataclasses import asdict
 from datetime import UTC, datetime, timedelta
 
 import time_machine
@@ -10,6 +11,7 @@ from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
 
 from posthog.hogql.constants import LimitContext
+from posthog.hogql.errors import QueryError
 
 from posthog.clickhouse.client.execute import KillSwitchLevel
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
@@ -26,8 +28,11 @@ from posthog.hogql_queries.query_failure_handling import (
     budget_for_limit_context,
     build_failure_exception,
     classify_failure,
+    rebuild_shared_failure,
+    shareable_failure,
 )
 from posthog.query_cache.failures import BUDGET_EXTENDED, BUDGET_INTERACTIVE, QueryFailureRecord
+from posthog.query_cache.single_flight import SharedFailure
 
 
 def _memory_error(message: str):
@@ -43,6 +48,37 @@ def _record(kind, consecutive_failures, detail, open_until=None):
         open_until=open_until,
         budget=BUDGET_INTERACTIVE,
     )
+
+
+class TestSharedFailures(SimpleTestCase):
+    @parameterized.expand(
+        [
+            (
+                "clickhouse_server_error",
+                lambda: wrap_clickhouse_query_error(ServerException("Cannot compare", code=386)),
+            ),
+            ("timeout", ClickHouseQueryTimeOut),
+            ("capacity", ClickHouseAtCapacity),
+            ("per_query_memory_limit", lambda: _memory_error("Memory limit (for query) exceeded")),
+        ]
+    )
+    def test_shared_failure_rebuilds_the_same_exception(self, _name, make_error):
+        original = make_error()
+        shared = shareable_failure(original)
+        assert shared is not None
+        rebuilt = rebuild_shared_failure(SharedFailure(**asdict(shared)))  # as it comes back from Redis
+        assert rebuilt is not None
+        assert type(rebuilt).__name__ == type(original).__name__
+        assert str(rebuilt) == str(original)
+        assert getattr(rebuilt, "is_per_query_limit", False) == getattr(original, "is_per_query_limit", False)
+        assert getattr(rebuilt, "served_from_query_single_flight", False)
+
+    @parameterized.expand([("hogql", lambda: QueryError("bad query")), ("plain", lambda: RuntimeError("boom"))])
+    def test_failures_without_a_faithful_rebuild_are_not_shared(self, _name, make_error):
+        assert shareable_failure(make_error()) is None
+
+    def test_unknown_published_class_is_not_rebuilt(self):
+        assert rebuild_shared_failure(SharedFailure(message="x", class_name="RenamedInANewerDeploy")) is None
 
 
 class TestQueryFailureHandling(SimpleTestCase):
