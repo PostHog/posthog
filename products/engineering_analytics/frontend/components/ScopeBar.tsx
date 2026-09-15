@@ -1,13 +1,21 @@
 // Shared scope bar: hierarchy chips (repo › workflow › run) on the left, dismissible filter chips on
-// the right, and the shared branch/date scope (engineeringAnalyticsFiltersLogic) so a window picked on
-// one page carries to the next.
+// the right, and the shared date scope (engineeringAnalyticsFiltersLogic) so a window picked on one page
+// carries to the next. The run-scope control lives here too, but pages dock it on their scope panel.
 
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { Fragment, ReactNode, useState } from 'react'
 
 import { IconX } from '@posthog/icons'
-import { LemonButton, LemonDropdown, LemonInput, LemonSelect, Link, Spinner } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonDropdown,
+    LemonInput,
+    LemonSegmentedButton,
+    LemonSelect,
+    Link,
+    Spinner,
+} from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { cn } from 'lib/utils/css-classes'
@@ -15,7 +23,11 @@ import { dateMapping } from 'lib/utils/dateFilters'
 import { urls } from 'scenes/urls'
 
 import { scopeFromValue, withScope } from '../lib/scope'
-import { SHARED_DEFAULT_DATE_FROM, engineeringAnalyticsFiltersLogic } from '../scenes/engineeringAnalyticsFiltersLogic'
+import {
+    RUN_SCOPE_OPTIONS,
+    SHARED_DEFAULT_DATE_FROM,
+    engineeringAnalyticsFiltersLogic,
+} from '../scenes/engineeringAnalyticsFiltersLogic'
 import { engineeringAnalyticsLogic } from '../scenes/engineeringAnalyticsLogic'
 import { workflowSwitcherLogic } from '../scenes/workflowSwitcherLogic'
 
@@ -192,77 +204,28 @@ export function WorkflowScopeChip({
     )
 }
 
-/** Branch chip opening a small picker — a shared CI scope: an exact head_branch, all branches, or the
- *  pull-request lens (non-default-branch runs). Only workflow health honors the PR lens; exact-branch
- *  surfaces fall back to all branches for it. No default-branch preset — the repo's default (master vs
- *  main) isn't known here, so type it exactly instead of guessing. */
-export function BranchScopeChip(): JSX.Element {
-    const { branchInput, appliedBranch, pullRequestScope } = useValues(engineeringAnalyticsFiltersLogic)
-    const { setBranchFilter, applyBranchFilter, setAppliedBranch, scopeToPullRequests } = useActions(
-        engineeringAnalyticsFiltersLogic
-    )
-    const [visible, setVisible] = useState(false)
+const RUN_SCOPE_SEGMENTS = RUN_SCOPE_OPTIONS.map((option) => ({
+    ...option,
+    'data-attr': `engineering-analytics-run-scope-${option.value}`,
+}))
 
+/** The shared run-scope control: four fixed groups that partition the repo's runs. Every workflow
+ *  surface sends the picked group, so a drill-down reports the same population as the list it came from. */
+export function RunScopeControl(): JSX.Element {
+    const { runScope } = useValues(engineeringAnalyticsFiltersLogic)
+    const { setRunScope } = useActions(engineeringAnalyticsFiltersLogic)
     return (
-        <LemonDropdown
-            visible={visible}
-            onVisibilityChange={setVisible}
-            closeOnClickInside={false}
-            overlay={
-                <div className="flex w-72 flex-col gap-2 p-1">
-                    <LemonInput
-                        type="search"
-                        size="small"
-                        placeholder="Branch name (exact)"
-                        value={branchInput}
-                        onChange={setBranchFilter}
-                        onPressEnter={() => {
-                            applyBranchFilter()
-                            setVisible(false)
-                        }}
-                        autoFocus
-                        data-attr="engineering-analytics-branch-filter"
-                    />
-                    <div className="flex flex-wrap gap-1">
-                        <LemonButton
-                            size="xsmall"
-                            type={pullRequestScope ? 'primary' : 'secondary'}
-                            onClick={() => {
-                                scopeToPullRequests()
-                                setVisible(false)
-                            }}
-                            tooltip="CI on pull-request branches, excluding master/main. Same-repo PRs only — fork PRs carry no attribution. Applies to workflow health."
-                        >
-                            Pull requests
-                        </LemonButton>
-                        <LemonButton
-                            size="xsmall"
-                            type={!pullRequestScope && !appliedBranch ? 'primary' : 'secondary'}
-                            onClick={() => {
-                                setAppliedBranch('')
-                                setVisible(false)
-                            }}
-                        >
-                            all branches
-                        </LemonButton>
-                    </div>
-                </div>
-            }
-        >
-            <span className={cn(CHIP_CLASS, 'cursor-pointer')} title="One CI scope for every section below">
-                {pullRequestScope ? (
-                    <strong className="font-semibold text-primary">pull requests</strong>
-                ) : appliedBranch ? (
-                    <>
-                        {'branch: '}
-                        <strong className="font-semibold text-primary">{appliedBranch}</strong>
-                    </>
-                ) : (
-                    <strong className="font-semibold text-tertiary">all branches</strong>
-                )}
-                <span className="text-[8px] text-tertiary">▼</span>
-            </span>
-        </LemonDropdown>
+        <LemonSegmentedButton
+            size="small"
+            value={runScope}
+            onChange={(value) => {
+                // Re-picking the active group would reload every surface for no change.
+                if (value !== runScope) {
+                    setRunScope(value)
+                }
+            }}
+            options={RUN_SCOPE_SEGMENTS}
+        />
     )
 }
 
@@ -282,11 +245,20 @@ export function ScopeDateFilter(): JSX.Element {
     )
 }
 
+/** The scope-panel rim both workflow pages share: run group on the left, window on the right. */
+export function WorkflowScopeControls(): JSX.Element {
+    return (
+        <>
+            <RunScopeControl />
+            <ScopeDateFilter />
+        </>
+    )
+}
+
 export function ScopeBar({
     repoSlot,
     crumbs = [],
     lensFilter,
-    showBranch = false,
     showDate = true,
     extra,
 }: {
@@ -296,7 +268,6 @@ export function ScopeBar({
     crumbs?: ScopeCrumb[]
     /** The active cross-cutting lens (pr: #N) — dismissible, zooms out to `to`. */
     lensFilter?: LensChip
-    showBranch?: boolean
     showDate?: boolean
     extra?: ReactNode
 }): JSX.Element {
@@ -329,7 +300,6 @@ export function ScopeBar({
                         </Link>
                     </span>
                 )}
-                {showBranch && <BranchScopeChip />}
                 {showDate && <ScopeDateFilter />}
                 {extra}
             </span>

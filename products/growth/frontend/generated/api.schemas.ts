@@ -51,7 +51,7 @@ export interface ConfigVersionApi {
     name: string
     /** Server-assigned version identity, e.g. v3. */
     version: string
-    /** System prompt; {email} is replaced with the signup email domain at runtime. At most 20000 characters. */
+    /** System prompt; {email} is replaced with the signup email domain at runtime. When the prompt asks for it, the model may call web_search and fetch_page (run through Firecrawl) to look things up; each call costs Firecrawl credits. At most 20000 characters. */
     prompt_text: string
     /** Gateway model id this version was authored against. */
     model: string
@@ -116,7 +116,7 @@ export interface RunRequestApi {
      */
     label: string
     /**
-     * System prompt; {email} is replaced with the signup email domain at runtime. At most 20000 characters.
+     * System prompt; {email} is replaced with the signup email domain at runtime. When the prompt asks for it, the model may call web_search and fetch_page (run through Firecrawl) to look things up; each call costs Firecrawl credits. At most 20000 characters.
      * @maxLength 20000
      */
     prompt_text: string
@@ -149,7 +149,7 @@ export interface SaveRequestApi {
      */
     version?: string
     /**
-     * System prompt; {email} is replaced with the signup email domain at runtime. At most 20000 characters.
+     * System prompt; {email} is replaced with the signup email domain at runtime. When the prompt asks for it, the model may call web_search and fetch_page (run through Firecrawl) to look things up; each call costs Firecrawl credits. At most 20000 characters.
      * @maxLength 20000
      */
     prompt_text: string
@@ -428,6 +428,13 @@ export const SdkHealthReportHealthEnumApi = {
  * * `posthog-kmp` - posthog-kmp
  * * `posthog-dotnet` - posthog-dotnet
  * * `posthog-elixir` - posthog-elixir
+ * * `posthog-unity` - posthog-unity
+ * * `posthog-node-mcp` - posthog-node-mcp
+ * * `posthog-python-mcp` - posthog-python-mcp
+ * * `posthog-edge` - posthog-edge
+ * * `posthog-convex` - posthog-convex
+ * * `posthog-rails` - posthog-rails
+ * * `posthog-aspnetcore` - posthog-aspnetcore
  */
 export type LibEnumApi = (typeof LibEnumApi)[keyof typeof LibEnumApi]
 
@@ -447,6 +454,13 @@ export const LibEnumApi = {
     PosthogKmp: 'posthog-kmp',
     PosthogDotnet: 'posthog-dotnet',
     PosthogElixir: 'posthog-elixir',
+    PosthogUnity: 'posthog-unity',
+    PosthogNodeMcp: 'posthog-node-mcp',
+    PosthogPythonMcp: 'posthog-python-mcp',
+    PosthogEdge: 'posthog-edge',
+    PosthogConvex: 'posthog-convex',
+    PosthogRails: 'posthog-rails',
+    PosthogAspnetcore: 'posthog-aspnetcore',
 } as const
 
 /**
@@ -525,7 +539,14 @@ export interface SdkAssessmentApi {
      * * `posthog-react-native` - posthog-react-native
      * * `posthog-kmp` - posthog-kmp
      * * `posthog-dotnet` - posthog-dotnet
-     * * `posthog-elixir` - posthog-elixir */
+     * * `posthog-elixir` - posthog-elixir
+     * * `posthog-unity` - posthog-unity
+     * * `posthog-node-mcp` - posthog-node-mcp
+     * * `posthog-python-mcp` - posthog-python-mcp
+     * * `posthog-edge` - posthog-edge
+     * * `posthog-convex` - posthog-convex
+     * * `posthog-rails` - posthog-rails
+     * * `posthog-aspnetcore` - posthog-aspnetcore */
     lib: LibEnumApi
     /** Human-readable SDK name matching the SDK Health UI (e.g. 'Python', 'Node.js', 'Web', 'iOS'). */
     readable_name: string

@@ -1699,7 +1699,7 @@ def get_daterange(
     return time_range
 
 
-def get_safe_cache(cache_key: str):
+def get_safe_cache(cache_key: str) -> Any:
     try:
         cached_result = cache.get(cache_key)  # cache.get is safe in most cases
         return cached_result

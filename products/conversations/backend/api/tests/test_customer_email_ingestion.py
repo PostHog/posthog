@@ -3,7 +3,7 @@ from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
@@ -242,7 +242,7 @@ class TestCustomerEmailIngestion(BaseTest):
         assert message.comment.content == "Can you help?"
 
     def test_pending_channel_rejects_expired_signed_challenge(self) -> None:
-        with freeze_time("2026-01-01 00:00:00"):
+        with time_machine.travel("2026-01-01 00:00:00", tick=False):
             setup = self._start_google_setup(expires_at=timezone.now() + timedelta(hours=48))
             challenge = create_forwarding_challenge(
                 team_id=self.team.id,
@@ -250,7 +250,7 @@ class TestCustomerEmailIngestion(BaseTest):
                 setup_id=setup.id,
             )
 
-        with freeze_time("2026-01-02 00:00:01"):
+        with time_machine.travel("2026-01-02 00:00:01", tick=False):
             response = self._post_email(
                 message_id="<expired-challenge@posthog.com>",
                 **{FORWARDING_CHALLENGE_HEADER: challenge.token},

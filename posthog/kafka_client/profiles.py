@@ -17,3 +17,4 @@ class KafkaClusterProfile(StrEnum):
     SHARED = "shared"
     REPLAY = "replay"
     TRACES = "traces"
+    LOGS = "logs"

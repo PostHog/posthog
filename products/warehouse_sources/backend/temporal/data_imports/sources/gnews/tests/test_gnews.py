@@ -2,7 +2,7 @@ from datetime import UTC, date, datetime
 from typing import Any
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from unittest.mock import MagicMock, patch
 
 import requests
@@ -35,12 +35,12 @@ class TestFormatFromValue:
         ]
     )
     def test_format(self, _name: str, value: Any, expected: str | None) -> None:
-        with freeze_time("2026-06-01T00:00:00Z"):
+        with time_machine.travel("2026-06-01T00:00:00Z", tick=False):
             assert _format_from_value(value) == expected
 
     def test_future_value_capped_to_now(self) -> None:
         # A future cursor would filter out every article; capping keeps the request a valid no-op.
-        with freeze_time("2026-06-01T12:00:00Z"):
+        with time_machine.travel("2026-06-01T12:00:00Z", tick=False):
             assert _format_from_value(datetime(2099, 1, 1, tzinfo=UTC)) == "2026-06-01T12:00:00Z"
 
 

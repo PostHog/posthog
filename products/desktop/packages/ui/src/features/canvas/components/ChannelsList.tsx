@@ -10,6 +10,7 @@ import {
   PlusIcon,
   StarIcon,
   TrashIcon,
+  UsersThreeIcon,
 } from "@phosphor-icons/react";
 import type { ChannelItemModel } from "@posthog/core/canvas/channelItems";
 import type { ChannelPresence } from "@posthog/core/canvas/presence";
@@ -107,6 +108,7 @@ import { requestSidebarSearchFocus } from "@posthog/ui/features/canvas/stores/si
 import { useSpaceTreeStore } from "@posthog/ui/features/canvas/stores/spaceTreeStore";
 import { copyChannelLink } from "@posthog/ui/features/canvas/utils/copyChannelLink";
 import { formatHotkey } from "@posthog/ui/features/command/keyboard-shortcuts";
+import { useArchivingTasksStore } from "@posthog/ui/features/sidebar/archivingTasksStore";
 import {
   TaskBadgeStack,
   TaskStatusDot,
@@ -119,6 +121,7 @@ import {
 import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
 import { HandoffTaskDialog } from "@posthog/ui/features/task-detail/components/HandoffTaskDialog";
 import { useMountedOnceOpened } from "@posthog/ui/hooks/useMountedOnceOpened";
+import { DotsCircleSpinner } from "@posthog/ui/primitives/DotsCircleSpinner";
 import {
   OverflowTickerText,
   useOverflowTickerReveal,
@@ -336,6 +339,18 @@ function SpaceAttentionDot({
 }
 
 /**
+ * The caret opens a space onto its sessions without entering it, so it reports
+ * on its own rather than as a nav click.
+ */
+function trackSpaceDisclosure(channelId: string, expanded: boolean): void {
+  track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
+    action_type: expanded ? "collapse_channel" : "expand_channel",
+    surface: "sidebar",
+    channel_id: channelId,
+  });
+}
+
+/**
  * The tree's disclosure caret, in its own fixed slot ahead of the space glyph.
  * Always drawn: a control that only appears on hover moves the row's contents
  * as the pointer crosses the list, and leaves the tree invisible to anyone who
@@ -415,6 +430,12 @@ function useOpenSpaceTask(): (spaceId: string, taskId: string) => void {
   const setCurrentChannel = useCurrentChannelStore((s) => s.setCurrentChannel);
 
   return (spaceId, taskId) => {
+    track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
+      action_type: "open_task",
+      surface: "sidebar",
+      channel_id: spaceId,
+      task_id: taskId,
+    });
     keepListForRoute(spaceId);
     // Still scoped: the space is where the session lives, so anything that then
     // asks for the channel pane opens on the right one.
@@ -452,6 +473,14 @@ const SpaceTaskRow = memo(function SpaceTaskRow({
   // a dozen spaces' worth of rows at once.
   const status = useChannelTaskStatus(item, { withPrStatus: false });
   const actions = useSpaceTaskActionsContext();
+  const archivePresentation = useArchivingTasksStore((state) =>
+    state.hiddenArchivingTaskIds.has(item.id)
+      ? "hidden"
+      : state.archivingTaskIds.has(item.id)
+        ? "progress"
+        : null,
+  );
+  const isArchiving = archivePresentation === "progress";
   // A boolean rather than the value itself, so a keypress re-renders only the
   // two rows whose answer changed.
   const isHighlighted = useSpaceTreeStore(
@@ -494,20 +523,31 @@ const SpaceTaskRow = memo(function SpaceTaskRow({
     [item, spaceId, actions, canHandoff],
   );
 
+  if (archivePresentation === "hidden") return null;
+
   const row = (
     <SpaceRowSurface
       asOption={asOption}
       optionValue={item.key}
       data-selected={isActive || undefined}
-      onClick={() => openTask(spaceId, item.id)}
+      aria-busy={isArchiving || undefined}
+      disabled={isArchiving}
+      onClick={isArchiving ? undefined : () => openTask(spaceId, item.id)}
       // A step in from its space's name, clear of the guide that runs between
       // the two columns.
-      className="pl-8"
+      className={cn("pl-8", isArchiving && "opacity-50")}
     >
       {/* The dot belongs to the title, not to the row: its own tighter gap
           keeps them one mark rather than two columns. */}
       <span className="flex min-w-0 items-center gap-1.5">
-        <TaskStatusDot dot={taskDot(status ?? {})} />
+        {isArchiving ? (
+          <>
+            <DotsCircleSpinner size={12} className="text-muted-foreground" />
+            <span className="sr-only">Archiving</span>
+          </>
+        ) : (
+          <TaskStatusDot dot={taskDot(status ?? {})} hitArea="row" />
+        )}
         <span
           className={cn(
             "truncate text-[13px]",
@@ -524,6 +564,9 @@ const SpaceTaskRow = memo(function SpaceTaskRow({
       )}
     </SpaceRowSurface>
   );
+
+  const tipped = <TaskStatusTooltips>{row}</TaskStatusTooltips>;
+  if (isArchiving) return tipped;
 
   return (
     <TaskRowContextMenu menu={menu}>
@@ -586,7 +629,14 @@ function ViewAllRow({
     <SpaceRowSurface
       asOption={asOption}
       optionValue={viewAllValue(spaceId)}
-      onClick={onOpenSpace}
+      onClick={() => {
+        track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
+          action_type: "view_more_tasks",
+          surface: "sidebar",
+          channel_id: spaceId,
+        });
+        onOpenSpace();
+      }}
       className={cn("pl-8 text-[13px]", ROW_LABEL_TONE)}
     >
       {/* The arrow takes the slot a session's status dot has, so the guide's
@@ -850,10 +900,27 @@ function useChannelActions(channel: Channel): {
               },
             },
           ];
+    // Only a private space has a member list; public and personal spaces do not.
+    const membersActions: ChannelActionItem[] =
+      channel.channelType === "private"
+        ? [
+            {
+              key: "members",
+              label: "Members",
+              icon: <UsersThreeIcon size={14} />,
+              onSelect: () =>
+                void navigate({
+                  to: "/spaces/$channelId/settings",
+                  params: { channelId: channel.id },
+                }),
+            },
+          ]
+        : [];
     const editableSpaceActions: ChannelActionItem[] =
       channel.channelType === "personal"
         ? []
         : [
+            ...membersActions,
             {
               key: "rename",
               label: `Rename ${noun}…`,
@@ -893,6 +960,7 @@ function useChannelActions(channel: Channel): {
     channel.channelType,
     channel.id,
     isStarred,
+    navigate,
     noun,
     toggleStar,
   ]);
@@ -1110,6 +1178,7 @@ const ChannelSection = memo(
 
     const glyph = channelGlyph(channel.name, {
       personal: channel.channelType === "personal",
+      private: channel.channelType === "private",
       size: 14,
       space: spacesLayout,
       weight: isUnread ? "bold" : undefined,
@@ -1174,7 +1243,10 @@ const ChannelSection = memo(
                       <SpaceDisclosure
                         expanded={expanded}
                         spaceName={channel.name}
-                        onToggle={() => onToggleExpanded(channel.id)}
+                        onToggle={() => {
+                          trackSpaceDisclosure(channel.id, expanded);
+                          onToggleExpanded(channel.id);
+                        }}
                       />
                     )}
                     {glyph}
@@ -1258,39 +1330,44 @@ const ChannelSection = memo(
                 <ChannelActionItems actions={actions} kind="context" />
               </ContextMenuContent>
             </ContextMenu>
-          </SpaceHoverCard>
-          {/* Hover actions stay visible while the menu is open. */}
-          <div className="absolute top-1 right-1">
-            <ButtonGroup>
-              <Tooltip>
-                <TooltipTrigger
-                  render={
-                    <Button
-                      variant="outline"
-                      size="icon-xs"
-                      aria-label={`New task in ${channel.name}`}
-                      className={cn(
-                        "gap-1 transition-opacity group-hover:border-border",
-                        menuOpen
-                          ? "opacity-100"
-                          : "opacity-0 group-hover/chan:opacity-100",
-                      )}
-                      onClick={newTask}
-                    >
-                      <PlusIcon size={12} weight="bold" />
-                    </Button>
-                  }
+            {/* Inside the card's trigger rather than beside it. These overlay
+                the row's own right edge, so reaching for one is not leaving
+                the row — and the card, which the trigger's bounds decide,
+                should read it that way too. Still positioned against
+                `group/chan`, which is the nearest positioned ancestor either
+                way. */}
+            <div className="absolute top-1 right-1">
+              <ButtonGroup>
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <Button
+                        variant="outline"
+                        size="icon-xs"
+                        aria-label={`New task in ${channel.name}`}
+                        className={cn(
+                          "gap-1 transition-opacity group-hover:border-border",
+                          menuOpen
+                            ? "opacity-100"
+                            : "opacity-0 group-hover/chan:opacity-100",
+                        )}
+                        onClick={newTask}
+                      >
+                        <PlusIcon size={12} weight="bold" />
+                      </Button>
+                    }
+                  />
+                  <TooltipContent side="top">New task</TooltipContent>
+                </Tooltip>
+                <ChannelMenu
+                  channelName={channel.name}
+                  actions={actions}
+                  open={menuOpen}
+                  onOpenChange={setMenuOpen}
                 />
-                <TooltipContent side="top">New task</TooltipContent>
-              </Tooltip>
-              <ChannelMenu
-                channelName={channel.name}
-                actions={actions}
-                open={menuOpen}
-                onOpenChange={setMenuOpen}
-              />
-            </ButtonGroup>
-          </div>
+              </ButtonGroup>
+            </div>
+          </SpaceHoverCard>
           {/* One modal for both the dropdown and context-menu "Rename" actions. */}
           {renameMounted && (
             <RenameChannelModal
@@ -1554,7 +1631,10 @@ const PersonalChannelRow = memo(function PersonalChannelRow({
             <SpaceDisclosure
               expanded={expanded}
               spaceName={PERSONAL_CHANNEL_LABEL}
-              onToggle={() => onToggleExpanded(meChannel.id)}
+              onToggle={() => {
+                trackSpaceDisclosure(meChannel.id, expanded);
+                onToggleExpanded(meChannel.id);
+              }}
             />
           )}
           {glyph}

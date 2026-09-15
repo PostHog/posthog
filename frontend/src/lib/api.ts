@@ -7,7 +7,7 @@ import { encodeParams } from 'kea-router'
 export type { EventSourceMessage } from '@microsoft/fetch-event-source'
 import posthog from 'posthog-js'
 
-import { ApiError, NetworkError, type NetworkFailureReason } from 'lib/api-error'
+import { ApiError, BROWSER_FETCH_FAILURE_MESSAGES, NetworkError, type NetworkFailureReason } from 'lib/api-error'
 import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
 import { ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
@@ -93,7 +93,6 @@ import {
     DashboardTemplateType,
     DashboardType,
     DataColorThemeModel,
-    DataModelingDAG,
     DataModelingEdge,
     DataModelingJob,
     DataModelingNode,
@@ -228,6 +227,7 @@ import type {
     ColumnConfigurationApi,
     PaginatedColumnConfigurationListApi,
 } from 'products/product_analytics/frontend/generated/api.schemas'
+import type { SignalUserAutonomyConfigCreateApi } from 'products/signals/frontend/generated/api.schemas'
 import {
     SignalReport,
     SignalReportArtefact,
@@ -312,6 +312,16 @@ export interface ActivityLogPaginatedResponse<T> extends PaginatedResponse<T> {
 export interface ApiMethodOptions {
     signal?: AbortSignal
     headers?: Record<string, any>
+}
+
+export interface ApiUploadProgress {
+    loaded: number
+    /** Null when the browser can't measure the body, so only `loaded` is meaningful. */
+    total: number | null
+}
+
+export interface ApiUploadOptions extends ApiMethodOptions {
+    onUploadProgress?: (progress: ApiUploadProgress) => void
 }
 
 export { ApiError, NetworkError }
@@ -1263,7 +1273,11 @@ export class ApiRequest {
     }
 
     public task(id: Task['id'], teamId?: TeamType['id']): ApiRequest {
-        return this.tasks(teamId).addPathComponent(id)
+        if (id === '.' || id === '..') {
+            throw new Error('Invalid task ID')
+        }
+
+        return this.tasks(teamId).addEncodedPathComponent(id)
     }
 
     public taskRuns(taskId: Task['id'], teamId?: TeamType['id']): ApiRequest {
@@ -1485,15 +1499,6 @@ export class ApiRequest {
 
     public dataModelingJobsRecent(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('data_modeling_jobs').addPathComponent('recent')
-    }
-
-    // # Data Modeling DAGs
-    public dataModelingDags(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('data_modeling_dags')
-    }
-
-    public dataModelingDag(id: DataModelingDAG['id'], teamId?: TeamType['id']): ApiRequest {
-        return this.dataModelingDags(teamId).addPathComponent(id)
     }
 
     // # Data Modeling Nodes
@@ -1936,10 +1941,6 @@ export class ApiRequest {
         return this.coreMemory().addPathComponent(id)
     }
 
-    public authenticateWizard(): ApiRequest {
-        return this.wizard().addPathComponent('authenticate')
-    }
-
     public messagingTemplates(): ApiRequest {
         return this.environmentsDetail().addPathComponent('messaging_templates')
     }
@@ -2014,10 +2015,6 @@ export class ApiRequest {
 
     public hogFlowTemplate(hogFlowTemplateId: HogFlowTemplate['id']): ApiRequest {
         return this.hogFlowTemplates().addPathComponent(hogFlowTemplateId)
-    }
-
-    public wizard(): ApiRequest {
-        return this.addPathComponent('wizard')
     }
 
     public evaluationRuns(teamId?: TeamType['id']): ApiRequest {
@@ -2270,8 +2267,8 @@ const api = {
         async create(data: any): Promise<InsightModel> {
             return await new ApiRequest().insights().create({ data })
         },
-        async update(id: number, data: any): Promise<InsightModel> {
-            return await new ApiRequest().insight(id).update({ data })
+        async update(id: number, data: any, options?: ApiMethodOptions): Promise<InsightModel> {
+            return await new ApiRequest().insight(id).update({ data, ...options })
         },
         async cancelQuery(clientQueryId: string, teamId: TeamType['id'] = ApiConfig.getCurrentTeamId()): Promise<void> {
             await new ApiRequest().insightsCancel(teamId).create({ data: { client_query_id: clientQueryId } })
@@ -3113,10 +3110,11 @@ const api = {
             event_type?: EventDefinitionType
             search?: string
             ordering?: string
+            names?: string[]
         }): Promise<CountedPaginatedResponse<EventDefinition>> {
             return new ApiRequest()
                 .eventDefinitions(teamId)
-                .withQueryString(toParams({ limit, ...params }))
+                .withQueryString(toParams({ limit, ...params }, true))
                 .get()
         },
         async primaryProperties({
@@ -3623,7 +3621,7 @@ const api = {
 
         async listForOrg(
             organizationId: OrganizationType['id'],
-            params: { limit?: number; offset?: number; search?: string } = {}
+            params: { limit?: number; offset?: number; search?: string; levels?: string; ordering?: string } = {}
         ): Promise<CountedPaginatedResponse<Pick<OrganizationMemberType, 'id' | 'user' | 'level' | 'last_login'>>> {
             return await new ApiRequest()
                 .organizationMembersForAccount()
@@ -4822,63 +4820,6 @@ const api = {
         ): Promise<Record<string, any>> {
             return await new ApiRequest().notebook(notebookId).withAction('kernel/execute').create({ data })
         },
-        async hogqlExecute(
-            notebookId: NotebookType['short_id'],
-            data: { query: string }
-        ): Promise<{ columns?: string[]; results?: any[]; error?: string }> {
-            return await new ApiRequest().notebook(notebookId).withAction('hogql/execute').create({ data })
-        },
-        async kernelExecuteStream(
-            notebookId: NotebookType['short_id'],
-            data: {
-                code: string
-                return_variables?: boolean
-                timeout?: number
-            },
-            {
-                onMessage,
-                onError,
-                signal,
-            }: {
-                onMessage: (data: EventSourceMessage) => void
-                onError: (error: any) => void
-                signal?: AbortSignal
-            }
-        ): Promise<void> {
-            const url = new ApiRequest().notebook(notebookId).withAction('kernel/execute/stream').assembleFullUrl(true)
-            await api.stream(url, {
-                method: 'POST',
-                data,
-                onMessage,
-                onError,
-                signal,
-            })
-        },
-        async kernelDataframe(
-            notebookId: NotebookType['short_id'],
-            params: {
-                variable_name: string
-                offset?: number
-                limit?: number
-                timeout?: number
-            }
-        ): Promise<{
-            columns: string[]
-            rows: Record<string, any>[]
-            rowCount: number
-        }> {
-            const response = await new ApiRequest()
-                .notebook(notebookId)
-                .withAction('kernel/dataframe')
-                .withQueryString(params)
-                .get()
-
-            return {
-                columns: response.columns ?? [],
-                rows: response.rows ?? [],
-                rowCount: response.row_count ?? 0,
-            }
-        },
         async kernelStart(notebookId: NotebookType['short_id']): Promise<Record<string, any>> {
             return await new ApiRequest().notebook(notebookId).withAction('kernel/start').create()
         },
@@ -4913,7 +4854,7 @@ const api = {
                 connection_id?: string | null
                 send_raw_query?: boolean
             }
-        ): Promise<{ run_id: string }> {
+        ): Promise<{ run_id: string; starts_sandbox?: boolean; sandbox_hourly_price?: number | null }> {
             return await new ApiRequest().notebook(notebookId).withAction('sql_v2/run').create({ data })
         },
         async sqlV2RunInterrupt(
@@ -5285,7 +5226,7 @@ const api = {
             }
         },
         async update(
-            data: Partial<SignalUserAutonomyConfig>,
+            data: SignalUserAutonomyConfigCreateApi,
             userId: string | '@me' = '@me'
         ): Promise<SignalUserAutonomyConfig> {
             return await new ApiRequest().signalUserAutonomy(userId).create({ data })
@@ -5678,10 +5619,15 @@ const api = {
         async refreshSchema(tableId: DataWarehouseTable['id']): Promise<void> {
             await new ApiRequest().dataWarehouseTable(tableId).withAction('refresh_schema').create()
         },
-        // FormData, not JSON — the browser sets the multipart boundary itself, so don't add a
-        // Content-Type header here (`api.createResponse` already skips it for FormData bodies).
-        async uploadFile(data: FormData): Promise<WarehouseTableFileUpload> {
-            return await new ApiRequest().dataWarehouseTables().withAction('upload_file').create({ data })
+        // Goes over XHR rather than fetch so the caller can follow how much of a large file has
+        // gone up. FormData, not JSON — the browser sets the multipart boundary itself, so neither
+        // this call nor the transport adds a Content-Type header.
+        async uploadFile(data: FormData, options?: ApiUploadOptions): Promise<WarehouseTableFileUpload> {
+            return await api.createWithUploadProgress(
+                new ApiRequest().dataWarehouseTables().withAction('upload_file').assembleFullUrl(),
+                data,
+                options
+            )
         },
         async createFromUpload(data: {
             upload_id: string
@@ -5793,31 +5739,9 @@ const api = {
         },
     },
 
-    dataModelingDags: {
-        async list(): Promise<PaginatedResponse<DataModelingDAG>> {
-            return await new ApiRequest().dataModelingDags().get()
-        },
-        async create(data: { name: string; description?: string; sync_frequency?: string }): Promise<DataModelingDAG> {
-            return await new ApiRequest().dataModelingDags().create({ data })
-        },
-        async update(
-            dagId: DataModelingDAG['id'],
-            data: Partial<Pick<DataModelingDAG, 'name' | 'description' | 'sync_frequency'>>
-        ): Promise<DataModelingDAG> {
-            return await new ApiRequest().dataModelingDag(dagId).update({ data })
-        },
-        async delete(dagId: DataModelingDAG['id']): Promise<void> {
-            await new ApiRequest().dataModelingDag(dagId).delete()
-        },
-    },
-
     dataModelingNodes: {
-        async list(dagId?: string): Promise<PaginatedResponse<DataModelingNode>> {
-            const req = new ApiRequest().dataModelingNodes()
-            if (dagId) {
-                return await req.withQueryString({ dag: dagId }).get()
-            }
-            return await req.get()
+        async list(): Promise<PaginatedResponse<DataModelingNode>> {
+            return await new ApiRequest().dataModelingNodes().get()
         },
         async get(nodeId: DataModelingNode['id']): Promise<DataModelingNode> {
             return await new ApiRequest().dataModelingNode(nodeId).get()
@@ -5836,11 +5760,6 @@ const api = {
         },
         async materialize(nodeId: DataModelingNode['id']): Promise<void> {
             await new ApiRequest().dataModelingNode(nodeId).withAction('materialize').create()
-        },
-        async dagIds(): Promise<{
-            dag_ids: Array<{ id: string; name: string }>
-        }> {
-            return await new ApiRequest().dataModelingNodes().withAction('dag_ids').get()
         },
         async lineage({
             nodeId,
@@ -5861,12 +5780,8 @@ const api = {
     },
 
     dataModelingEdges: {
-        async list(dagId?: string): Promise<PaginatedResponse<DataModelingEdge>> {
-            const req = new ApiRequest().dataModelingEdges()
-            if (dagId) {
-                return await req.withQueryString({ dag: dagId }).get()
-            }
-            return await req.get()
+        async list(): Promise<PaginatedResponse<DataModelingEdge>> {
+            return await new ApiRequest().dataModelingEdges().get()
         },
     },
 
@@ -6589,11 +6504,6 @@ const api = {
             return await new ApiRequest().coreMemoryDetail(coreMemoryId).update({ data: coreMemory })
         },
     },
-    wizard: {
-        async authenticateWizard(data: { hash: string; projectId: number }): Promise<{ success: boolean }> {
-            return await new ApiRequest().authenticateWizard().create({ data })
-        },
-    },
     messaging: {
         async getTemplates(): Promise<PaginatedResponse<MessageTemplate>> {
             return await new ApiRequest().messagingTemplates().get()
@@ -6656,7 +6566,7 @@ const api = {
             search?: string
             status?: HogFlow['status']
             created_by?: string
-            type?: 'messaging' | 'automation'
+            type?: 'messaging' | 'automation' | 'loop'
             /** JSON-encoded object the stored trigger must contain, e.g. `{"type":"batch"}`. */
             trigger?: string
             limit?: number
@@ -7225,6 +7135,21 @@ const api = {
         )
     },
 
+    /**
+     * POST a body and report how much of it has been sent.
+     *
+     * `fetch` exposes no upload progress at all, so a caller uploading a large file can only show
+     * an indeterminate spinner. This sends over XMLHttpRequest instead and wraps the result in a
+     * `Response`, so the call still goes through the same error, retry, and telemetry path as
+     * every other request.
+     */
+    async createWithUploadProgress<T = any>(url: string, data: FormData, options?: ApiUploadOptions): Promise<T> {
+        url = prepareUrl(url)
+        ensureProjectIdNotInvalid(url)
+        const response = await handleFetch(url, 'POST', () => xhrPost(url, data, options))
+        return await getJSONFromSuccessResponse(response, 'POST', url)
+    },
+
     async delete(url: string): Promise<any> {
         url = prepareUrl(url)
         ensureProjectIdNotInvalid(url)
@@ -7490,13 +7415,11 @@ function requestPathname(url: string): string {
  * carries that realm's `TypeError`, and a `fetch` replaced by a browser extension can reject with
  * its own error shape. Both keep the class name and the engine-specific message, so we match those
  * as well before a connectivity failure falls through to an unclassified `ApiError`.
+ *
+ * Matching a bare `TypeError` is safe here in a way it would not be elsewhere, because this runs
+ * only after a `fetch` call rejected. `isBrowserNetworkFailure` decides the same question about an
+ * arbitrary error, so it matches the message alone.
  */
-const BROWSER_FETCH_FAILURE_MESSAGES = [
-    'Failed to fetch',
-    'Load failed',
-    'NetworkError when attempting to fetch resource',
-]
-
 function isBrowserFetchFailure(error: unknown): boolean {
     if (error instanceof TypeError) {
         return true
@@ -7533,6 +7456,59 @@ function captureClientRequestFailure(properties: {
     if (posthog.capture) {
         posthog.capture('client_request_failure', properties)
     }
+}
+
+// The `Response` constructor rejects a body on these statuses, so they resolve with a null body.
+const NULL_BODY_STATUSES = new Set([204, 205, 304])
+
+function parseXhrHeaders(rawHeaders: string): Headers {
+    const headers = new Headers()
+    for (const line of rawHeaders.trim().split(/[\r\n]+/)) {
+        const separator = line.indexOf(':')
+        if (separator > 0) {
+            headers.append(line.slice(0, separator), line.slice(separator + 1).trim())
+        }
+    }
+    return headers
+}
+
+function xhrPost(url: string, data: FormData, options?: ApiUploadOptions): Promise<Response> {
+    return new Promise<Response>((resolve, reject) => {
+        const xhr = new XMLHttpRequest()
+        xhr.open('POST', url, true)
+        // No Content-Type: the body is always FormData, which carries its own multipart boundary.
+        const headers = {
+            ...objectClean(options?.headers ?? {}),
+            'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
+            ...tracingHeaders(),
+            ...oauthAuthHeaders(url),
+        }
+        for (const [name, value] of Object.entries(headers)) {
+            xhr.setRequestHeader(name, value)
+        }
+
+        const onUploadProgress = options?.onUploadProgress
+        if (onUploadProgress) {
+            xhr.upload.onprogress = (event) =>
+                onUploadProgress({ loaded: event.loaded, total: event.lengthComputable ? event.total : null })
+        }
+
+        // `fetch` rejects with a TypeError when the request never reached the server, and aborts
+        // surface as an AbortError. Match both so handleFetch classifies XHR failures the same way.
+        xhr.onerror = () => reject(new TypeError('Failed to fetch'))
+        xhr.onabort = () => reject(new DOMException('The user aborted a request.', 'AbortError'))
+        xhr.onload = () =>
+            resolve(
+                new Response(NULL_BODY_STATUSES.has(xhr.status) ? null : xhr.responseText, {
+                    status: xhr.status,
+                    statusText: xhr.statusText,
+                    headers: parseXhrHeaders(xhr.getAllResponseHeaders()),
+                })
+            )
+
+        options?.signal?.addEventListener('abort', () => xhr.abort())
+        xhr.send(data)
+    })
 }
 
 async function handleFetch(

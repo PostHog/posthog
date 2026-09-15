@@ -24,9 +24,10 @@ const puppeteerCapture = require('puppeteer-capture')
 
 const ORIGINAL_ENV = process.env
 
-function mockBrowser(): jest.Mocked<Browser> {
+function mockBrowser(spawnfile = '/usr/local/bin/chrome-headless-shell'): jest.Mocked<Browser> {
     const handlers: Record<string, () => void> = {}
     return {
+        process: jest.fn(() => ({ spawnfile })),
         newPage: jest.fn(),
         close: jest.fn(),
         on: jest.fn((event: string, handler: () => void) => {
@@ -94,6 +95,22 @@ describe('BrowserPool', () => {
         await pool.releasePage(p1)
         await pool.releasePage(p2)
         expect(pool.stats.activePages).toBe(0)
+    })
+
+    it('rejects launch() and closes the browser when it is not chrome-headless-shell', async () => {
+        const browser = mockBrowser('/usr/bin/chromium')
+        puppeteerCapture.launch.mockResolvedValue(browser)
+
+        pool = new BrowserPool(100)
+        await expect(pool.launch()).rejects.toThrow('/usr/bin/chromium')
+        expect(browser.close).toHaveBeenCalled()
+
+        // The refused browser must not stay in the idle pool for getPage to hand out.
+        const good = mockBrowser()
+        good.newPage.mockResolvedValue(mockPage())
+        puppeteerCapture.launch.mockResolvedValue(good)
+        await pool.getPage()
+        expect(puppeteerCapture.launch).toHaveBeenCalledTimes(2)
     })
 
     it('closes the browser instead of orphaning it when newPage throws', async () => {

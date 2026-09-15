@@ -74,13 +74,33 @@ class TraceQueryDateRange(QueryDateRange):
     def date_to(self) -> datetime:
         return super().date_to() + timedelta(minutes=self.FORWARD_CAPTURE_RANGE_MINUTES)
 
+    def date_to_for_filtering_as_hogql(self) -> ast.Expr:
+        # `format_date` rounds down to a whole second, which would drop the events inside the final
+        # second of the bound. Event timestamps carry microseconds, so the bound carries them too.
+        return ast.Call(
+            name="assumeNotNull",
+            args=[
+                ast.Call(
+                    name="toDateTime64",
+                    args=[
+                        ast.Constant(value=self.date_to_for_filtering().strftime("%Y-%m-%d %H:%M:%S.%f")),
+                        ast.Constant(value=6),
+                    ],
+                )
+            ],
+        )
+
 
 class TraceQueryRunner(AnalyticsQueryRunner[TraceQueryResponse]):
     query: TraceQuery
     cached_response: CachedTraceQueryResponse
 
-    def __init__(self, *args: Any, **kwargs: Any):
+    def __init__(self, *args: Any, bound_events_to_date_range: bool = False, **kwargs: Any):
         super().__init__(*args, **kwargs)
+        # The trace view wants the whole trace whatever the date picker says, so the default reads
+        # `ai_events` unbounded. A caller that grades a trace "as of" an instant opts in here, which
+        # holds the event rows to `dateRange.date_to` before the SQL aggregates the totals.
+        self._bound_events_to_date_range = bound_events_to_date_range
 
     def _calculate(self):
         query_result = query_ai_events(
@@ -137,19 +157,25 @@ class TraceQueryRunner(AnalyticsQueryRunner[TraceQueryResponse]):
                     argMin(deduped.distinct_id, deduped.timestamp)
                 ) AS first_distinct_id,
                 round(
-                    CASE
-                        -- If all events with latency are generations, sum them all
-                        WHEN countIf(deduped.latency > 0 AND deduped.event != '$ai_generation') = 0
-                             AND countIf(deduped.latency > 0 AND deduped.event = '$ai_generation') > 0
-                        THEN sumIf(deduped.latency,
-                                   deduped.event = '$ai_generation' AND deduped.latency > 0
-                             )
-                        -- Otherwise sum the direct children of the trace
-                        ELSE sumIf(deduped.latency,
-                                   deduped.parent_id IS NULL
-                                   OR deduped.parent_id = deduped.trace_id
-                             )
-                    END, 2
+                    coalesce(
+                        -- The root $ai_trace event reports the wall-clock latency of the whole
+                        -- trace, so its children are already inside that number. Same rule as
+                        -- products/ai_observability/backend/queries/sessions.sql.
+                        nullIf(maxIf(deduped.latency, deduped.event = '$ai_trace' AND deduped.latency > 0), 0),
+                        CASE
+                            -- If all events with latency are generations, sum them all
+                            WHEN countIf(deduped.latency > 0 AND deduped.event != '$ai_generation') = 0
+                                 AND countIf(deduped.latency > 0 AND deduped.event = '$ai_generation') > 0
+                            THEN sumIf(deduped.latency,
+                                       deduped.event = '$ai_generation' AND deduped.latency > 0
+                                 )
+                            -- Otherwise sum the direct children of the trace
+                            ELSE sumIf(deduped.latency,
+                                       deduped.parent_id IS NULL
+                                       OR deduped.parent_id = deduped.trace_id
+                                 )
+                        END
+                    ), 2
                 ) AS total_latency,
                 -- NULL means no event carried the field, 0 is a reported zero.
                 -- nullIf(sum, 0) would collapse a real zero into NULL.
@@ -240,7 +266,10 @@ class TraceQueryRunner(AnalyticsQueryRunner[TraceQueryResponse]):
         return {
             **super().get_cache_payload(),
             # When the response schema changes, increment this version to invalidate the cache.
-            "schema_version": 10,
+            "schema_version": 11,
+            # Not part of the query schema, but it changes the rows the response is built from, so
+            # a bounded and an unbounded read of the same trace must not share a cache entry.
+            "bound_events_to_date_range": self._bound_events_to_date_range,
         }
 
     @cached_property
@@ -270,6 +299,18 @@ class TraceQueryRunner(AnalyticsQueryRunner[TraceQueryResponse]):
                         right=self._date_range.date_to_as_hogql(),
                     ),
                 ]
+            )
+
+        if self._bound_events_to_date_range:
+            # `date_to_as_hogql` above carries the 7 day forward buffer, which is wider than the
+            # caller's bound, so the exact upper bound is added as its own clause. Only the upper
+            # bound: a lower bound would drop the early events of the trace.
+            where_exprs.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.LtEq,
+                    left=ast.Field(chain=["ai_events", "timestamp"]),
+                    right=self._date_range.date_to_for_filtering_as_hogql(),
+                )
             )
 
         where_exprs.append(

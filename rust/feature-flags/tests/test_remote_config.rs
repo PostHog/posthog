@@ -1295,8 +1295,37 @@ async fn test_remote_config_personal_key_updates_last_used_at() {
 }
 
 #[tokio::test]
+async fn test_remote_config_project_secret_key_updates_last_used_at() {
+    let config = Config::default_test_config();
+    let context = TestContext::new(Some(&config)).await;
+
+    let team = context.insert_new_team(None).await.unwrap();
+    let (psak_id, psak) = context
+        .create_project_secret_api_key(team.id, "RC PSAK LastUsed", Some(vec!["feature_flag:read"]))
+        .await
+        .unwrap();
+    insert_rc_flag(&context, team.id, "rc-psak-lastused", "plain", true, false).await;
+
+    let server = common::ServerHandle::for_config(config.clone()).await;
+    let response = reqwest::Client::new()
+        .get(url(&server.addr, team.id, "rc-psak-lastused"))
+        .header("Authorization", format!("Bearer {psak}"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200);
+
+    common::poll_for_psak_last_used_at(
+        &context,
+        &psak_id,
+        "Timed out waiting for last_used_at to be set for the remote_config project secret key",
+    )
+    .await;
+}
+
+#[tokio::test]
 async fn test_remote_config_skip_writes_does_not_update_last_used_at() {
-    // The shared State::record_pak_last_used helper must honor skip_writes: with it on, a
+    // The shared State::record_api_key_last_used helper must honor skip_writes: with it on, a
     // personal-key request still authenticates (200) but records no last_used_at. Complements
     // test_remote_config_personal_key_updates_last_used_at, which covers the write path.
     let mut config = Config::default_test_config();
@@ -1489,7 +1518,7 @@ async fn test_remote_config_project_secret_api_key_encrypted_returns_redacted() 
     config.flags_secret_keys = K1.to_string();
     let context = TestContext::new(Some(&config)).await;
     let team = context.insert_new_team(None).await.unwrap();
-    let psak = context
+    let (_, psak) = context
         .create_project_secret_api_key(team.id, "RC PSAK", Some(vec!["feature_flag:read"]))
         .await
         .unwrap();

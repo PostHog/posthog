@@ -2,7 +2,7 @@ import hashlib
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
@@ -128,7 +128,7 @@ class TestTeamAdminSetApiTokenView(BaseTest):
         assert self.team.api_token == "phc_admin_test_old"
 
 
-@freeze_time("2026-01-01T00:00:00Z")
+@time_machine.travel("2026-01-01T00:00:00Z", tick=False)
 class TestTeamAdminLLMGateway(BaseTest):
     def setUp(self) -> None:
         super().setUp()

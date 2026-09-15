@@ -3,6 +3,9 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
+from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.user import User
+
 from products.conversations.backend.facade.types import EmailThreadForAccountMatching
 from products.customer_analytics.backend.facade import api
 from products.customer_analytics.backend.facade.email_matching import (
@@ -12,7 +15,10 @@ from products.customer_analytics.backend.facade.email_matching import (
     schedule_email_thread_link_recalculation,
     schedule_email_thread_link_recalculation_for_threads,
 )
-from products.customer_analytics.backend.logic.email_account_matching import MatchedAccount
+from products.customer_analytics.backend.logic.email_account_matching import (
+    MatchedAccount,
+    match_accounts_for_gmail_emails,
+)
 from products.customer_analytics.backend.models import Account
 
 
@@ -66,6 +72,72 @@ class TestEmailAccountMatching(BaseTest):
             (str(domain.id), "email_domain"),
         }
 
+    def _create_account_member(self, *, email: str, organization: Organization | None = None) -> User:
+        member = User.objects.create(email=email)
+        OrganizationMembership.objects.create(user=member, organization=organization or self.organization)
+        return member
+
+    def test_matches_organization_member_for_gmail_email(self) -> None:
+        member = self._create_account_member(email="member@gmail.com")
+        account = self._create_account(name="Customer", external_id=str(self.organization.id))
+
+        matches = match_accounts_for_gmail_emails(self.team, [member.email])
+
+        assert [(str(match.account.id), match.source) for match in matches.values()] == [
+            (str(account.id), "organization_member")
+        ]
+
+    def test_direct_matching_does_not_use_organization_membership(self) -> None:
+        member = self._create_account_member(email="member@gmail.com")
+        self._create_account(name="Customer", external_id=str(self.organization.id))
+
+        matches = match_email_accounts(self.team.id, [member.email])
+
+        assert matches == []
+
+    def test_gmail_membership_skips_only_posthog_domain(self) -> None:
+        posthog_member = self._create_account_member(email="Member@PostHog.com")
+        subdomain_member = self._create_account_member(email="member@eu.posthog.com")
+        account = self._create_account(name="Customer", external_id=str(self.organization.id))
+
+        matches = match_accounts_for_gmail_emails(self.team, [posthog_member.email, subdomain_member.email])
+
+        assert [(email, str(match.account.id), match.source) for email, match in matches.items()] == [
+            (subdomain_member.email, str(account.id), "organization_member")
+        ]
+
+    def test_matches_a_mixed_case_organization_member_email(self) -> None:
+        self._create_account_member(email="Member@Gmail.com")
+        account = self._create_account(name="Customer", external_id=str(self.organization.id))
+
+        matches = match_accounts_for_gmail_emails(self.team, ["member@gmail.com"])
+
+        assert [(str(match.account.id), match.source) for match in matches.values()] == [
+            (str(account.id), "organization_member")
+        ]
+
+    def test_does_not_match_case_folded_duplicate_users(self) -> None:
+        self._create_account_member(email="member@gmail.com")
+        other_organization = Organization.objects.create(name="Other customer")
+        self._create_account_member(email="Member@Gmail.com", organization=other_organization)
+        self._create_account(name="First customer", external_id=str(self.organization.id))
+        self._create_account(name="Second customer", external_id=str(other_organization.id))
+
+        matches = match_accounts_for_gmail_emails(self.team, ["member@gmail.com"])
+
+        assert matches == {}
+
+    def test_does_not_match_an_organization_member_of_multiple_accounts(self) -> None:
+        member = self._create_account_member(email="member@gmail.com")
+        other_organization = Organization.objects.create(name="Other customer")
+        OrganizationMembership.objects.create(user=member, organization=other_organization)
+        self._create_account(name="First customer", external_id=str(self.organization.id))
+        self._create_account(name="Second customer", external_id=str(other_organization.id))
+
+        matches = match_accounts_for_gmail_emails(self.team, [member.email])
+
+        assert matches == {}
+
     @patch(
         "products.customer_analytics.backend.logic.email_account_matching.resolve_group_keys_by_email",
         return_value={},
@@ -102,8 +174,12 @@ class TestEmailAccountMatching(BaseTest):
         second = self._create_account(name="Second", external_id="second-account")
         mock_list_threads.side_effect = [
             [
-                EmailThreadForAccountMatching(id="thread-1", participant_emails=["First.Person@Example.com"]),
-                EmailThreadForAccountMatching(id="thread-2", participant_emails=["contact@other.example"]),
+                EmailThreadForAccountMatching(
+                    id="thread-1", participant_emails=["First.Person@Example.com"], gmail_owner_id=None
+                ),
+                EmailThreadForAccountMatching(
+                    id="thread-2", participant_emails=["contact@other.example"], gmail_owner_id=None
+                ),
             ],
             [],
         ]
@@ -115,8 +191,10 @@ class TestEmailAccountMatching(BaseTest):
         processed = recalculate_email_thread_links(self.team.id, batch_size=100)
 
         assert processed == 2
-        # The whole page is matched in a single pass, not once per thread.
-        mock_match.assert_called_once()
+        mock_match.assert_called_once_with(
+            self.team,
+            ["First.Person@Example.com", "contact@other.example"],
+        )
         links_by_thread = {call.args[1]: call.args[2] for call in mock_replace.call_args_list}
         assert [
             (link.account_id, link.account_external_id, link.match_source) for link in links_by_thread["thread-1"]
@@ -124,6 +202,75 @@ class TestEmailAccountMatching(BaseTest):
         assert [(link.account_id, link.match_source) for link in links_by_thread["thread-2"]] == [
             (str(second.id), "email_domain")
         ]
+
+    @patch("products.customer_analytics.backend.facade.email_matching.conversations.replace_email_thread_account_links")
+    @patch(
+        "products.customer_analytics.backend.facade.email_matching.conversations.list_email_threads_for_account_matching"
+    )
+    @patch("products.customer_analytics.backend.logic.account_member_search.posthog_feature_flag_enabled")
+    def test_recalculation_checks_each_gmail_owner_without_sharing_matches(
+        self,
+        mock_flag: MagicMock,
+        mock_list_threads: MagicMock,
+        mock_replace: MagicMock,
+    ) -> None:
+        self.user.is_staff = True
+        self.user.save(update_fields=["is_staff"])
+        disabled_owner = User.objects.create(
+            email="disabled-owner@posthog.com",
+            is_staff=True,
+            distinct_id="disabled-owner",
+        )
+        nonstaff_owner = User.objects.create(
+            email="nonstaff-owner@example.com",
+            distinct_id="nonstaff-owner",
+        )
+        inactive_owner = User.objects.create(
+            email="inactive-owner@posthog.com",
+            is_active=False,
+            is_staff=True,
+            distinct_id="inactive-owner",
+        )
+        member = self._create_account_member(email="member@gmail.com")
+        account = self._create_account(name="Customer", external_id=str(self.organization.id))
+        mock_flag.side_effect = lambda _flag, distinct_id, **_kwargs: distinct_id == str(self.user.distinct_id)
+        mock_list_threads.return_value = [
+            EmailThreadForAccountMatching(
+                id="enabled-thread",
+                participant_emails=[member.email],
+                gmail_owner_id=self.user.id,
+            ),
+            EmailThreadForAccountMatching(
+                id="disabled-thread",
+                participant_emails=[member.email],
+                gmail_owner_id=disabled_owner.id,
+            ),
+            EmailThreadForAccountMatching(
+                id="nonstaff-thread",
+                participant_emails=[member.email],
+                gmail_owner_id=nonstaff_owner.id,
+            ),
+            EmailThreadForAccountMatching(
+                id="inactive-thread",
+                participant_emails=[member.email],
+                gmail_owner_id=inactive_owner.id,
+            ),
+        ]
+
+        processed = recalculate_email_thread_links(self.team.id)
+
+        assert processed == 4
+        assert {call.args[1] for call in mock_flag.call_args_list} == {
+            str(self.user.distinct_id),
+            "disabled-owner",
+        }
+        links_by_thread = {call.args[1]: call.args[2] for call in mock_replace.call_args_list}
+        assert [(link.account_id, link.match_source) for link in links_by_thread["enabled-thread"]] == [
+            (str(account.id), "organization_member")
+        ]
+        assert links_by_thread["disabled-thread"] == []
+        assert links_by_thread["nonstaff-thread"] == []
+        assert links_by_thread["inactive-thread"] == []
 
     @patch("products.customer_analytics.backend.facade.api.schedule_email_thread_link_recalculation")
     def test_account_matching_changes_schedule_recalculation(self, mock_schedule: MagicMock) -> None:

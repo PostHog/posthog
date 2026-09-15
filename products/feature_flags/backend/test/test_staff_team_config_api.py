@@ -16,6 +16,7 @@ from products.feature_flags.backend.api.staff_team_config import (
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.models.team_feature_flags_config import (
     MAX_FEATURE_FLAGS_OVERRIDE_CEILING,
+    PropertyMatchingVersion,
     TeamFeatureFlagsConfig,
 )
 
@@ -50,8 +51,11 @@ class TestFeatureFlagsStaffTeamConfigAPI(APIBaseTest):
         other_team = Team.objects.create(organization=self.organization, name="Other team")
         config = get_or_create_team_extension(other_team, TeamFeatureFlagsConfig)
         config.minimal_flag_called_events = True
+        config.property_matching_version = PropertyMatchingVersion.EXPLICIT
         config.max_feature_flags_override = 5000
-        config.save(update_fields=["minimal_flag_called_events", "max_feature_flags_override"])
+        config.save(
+            update_fields=["minimal_flag_called_events", "property_matching_version", "max_feature_flags_override"]
+        )
         FeatureFlag.objects.create(team=other_team, created_by=self.user, key="other-1", filters={"groups": []})
         FeatureFlag.objects.create(team=other_team, created_by=self.user, key="other-2", filters={"groups": []})
 
@@ -62,6 +66,7 @@ class TestFeatureFlagsStaffTeamConfigAPI(APIBaseTest):
         results = {
             row["team_id"]: (
                 row["minimal_flag_called_events"],
+                row["property_matching_version"],
                 row["max_feature_flags_override"],
                 row["effective_max_feature_flags"],
                 row["feature_flag_count"],
@@ -75,8 +80,8 @@ class TestFeatureFlagsStaffTeamConfigAPI(APIBaseTest):
         self.assertEqual(
             results,
             {
-                self.team.id: (False, None, 2000, 0),
-                other_team.id: (True, 5000, 5000, 2),
+                self.team.id: (False, 1, None, 2000, 0),
+                other_team.id: (True, 2, 5000, 5000, 2),
             },
         )
 
@@ -94,6 +99,7 @@ class TestFeatureFlagsStaffTeamConfigAPI(APIBaseTest):
                 {
                     "team_id": self.team.id,
                     "minimal_flag_called_events": False,
+                    "property_matching_version": 1,
                     "max_feature_flags_override": None,
                     "effective_max_feature_flags": 2000,
                     "feature_flag_count": 0,
@@ -128,6 +134,7 @@ class TestFeatureFlagsStaffTeamConfigAPI(APIBaseTest):
             {
                 "team_id": self.team.id,
                 "minimal_flag_called_events": new_value,
+                "property_matching_version": 1,
                 "max_feature_flags_override": None,
                 "effective_max_feature_flags": 2000,
                 "feature_flag_count": 0,
@@ -139,6 +146,21 @@ class TestFeatureFlagsStaffTeamConfigAPI(APIBaseTest):
         # /flags and /decide read this value out of team_metadata_hypercache, and local-eval
         # SDKs read it out of the flag-definitions blob — a bare DB write has no effect until
         # both caches are rebuilt.
+        mock_metadata_task.delay.assert_called_once_with(self.team.id)
+        mock_flags_task.delay.assert_called_once_with(self.team.id)
+
+    def test_set_updates_property_matching_version_and_enqueues_cache_refresh_tasks(self):
+        with (
+            patch("posthog.tasks.team_metadata.update_team_metadata_cache_task") as mock_metadata_task,
+            patch("products.feature_flags.backend.tasks.update_team_flags_cache") as mock_flags_task,
+        ):
+            response = self.client.post(
+                SET_URL, {"team_id": self.team.id, "property_matching_version": 2}, format="json"
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["property_matching_version"], 2)
+        self.assertEqual(TeamFeatureFlagsConfig.objects.get(team=self.team).property_matching_version, 2)
         mock_metadata_task.delay.assert_called_once_with(self.team.id)
         mock_flags_task.delay.assert_called_once_with(self.team.id)
 
@@ -340,6 +362,11 @@ class TestStaffTeamConfigMutationSerializerBounds(SimpleTestCase):
     @parameterized.expand(
         [
             ("zero_rejected", {"team_id": 1, "max_feature_flags_override": 0}, "max_feature_flags_override"),
+            (
+                "unknown_matching_version_rejected",
+                {"team_id": 1, "property_matching_version": 3},
+                "property_matching_version",
+            ),
             (
                 "above_ceiling_rejected",
                 {"team_id": 1, "max_feature_flags_override": MAX_FEATURE_FLAGS_OVERRIDE_CEILING + 1},

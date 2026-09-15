@@ -8,7 +8,7 @@ class EvaluationConfig(models.Model):
         "posthog.Team",
         on_delete=models.CASCADE,
         primary_key=True,
-        related_name="evaluation_config",
+        related_name="+",
     )
 
     # Active BYOK key (single source of truth)

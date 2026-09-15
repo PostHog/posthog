@@ -8,7 +8,6 @@ import {
     insightSceneStoryParameters,
 } from 'scenes/insights/__mocks__/createInsightScene'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { TrendInsight } from 'scenes/trends/Trends'
 
 import { mswDecorator } from '~/mocks/browser'
 import trendsValueFixture from '~/mocks/fixtures/api/projects/team_id/insights/trendsValue.json'
@@ -18,6 +17,8 @@ import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { getCachedResults } from '~/queries/nodes/InsightViz/utils'
 import type { InsightLogicProps, InsightShortId } from '~/types'
 import { InsightType } from '~/types'
+
+import { TrendInsight } from 'products/product_analytics/frontend/insights/trends/Trends'
 
 import { TrendsBarChart } from './TrendsBarChart'
 

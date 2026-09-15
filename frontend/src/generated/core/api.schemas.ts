@@ -1756,6 +1756,8 @@ export interface TeamMarketingAnalyticsConfigApi {
      * * `time_decay` - Time Decay
      * * `position_based` - Position Based */
     attribution_mode?: AttributionModeEnumApi
+    /** Whether marketing analytics drops traffic matching the project's test-account filters. Off by default. */
+    filter_test_accounts?: boolean
     /** Manual campaign name aliases, keyed by integration type then by canonical campaign name, with the list of names that should be folded into it. Applied before automatic matching. */
     campaign_name_mappings?: MarketingAnalyticsCampaignNameMappingsApi
     /** Custom UTM source values to fold into an integration, keyed by integration type. A UTM source can only belong to one integration. */
@@ -1805,6 +1807,23 @@ export interface TeamWorkflowsConfigApi {
      * * `opt_out` - Opt Out
      * * `opt_in` - Opt In */
     email_tracking_consent_mode?: EmailTrackingConsentModeEnumApi
+    /**
+     * How many AI tasks one workflow can create in a rolling 24 hours. Null uses the default of 100; zero pauses task creation for every workflow in the project. Support raises the limit above 500.
+     * @minimum 0
+     * @nullable
+     */
+    workflow_task_rate_limit_per_day?: number | null
+    /**
+     * How many AI tasks all workflows in the project can create together in a rolling 24 hours. Null uses the default of 500; zero pauses task creation for the project. Support raises the limit above 2500.
+     * @minimum 0
+     * @nullable
+     */
+    workflow_task_team_rate_limit_per_day?: number | null
+}
+
+export interface TeamFeatureFlagPolicyConfigApi {
+    /** When enabled, a new feature flag needs at least one tag, and a tagged flag cannot lose its last one. A create that declares it comes from a survey, experiment, early access feature, product tour, or web experiment is exempt, because those forms have no tag input. The caller sets that declaration, so a flag can still be created without a tag. */
+    require_tags?: boolean
 }
 
 /**
@@ -2629,6 +2648,7 @@ export interface ProjectBackwardCompatApi {
     marketing_analytics_config?: TeamMarketingAnalyticsConfigApi
     customer_analytics_config?: TeamCustomerAnalyticsConfigApi
     workflows_config?: TeamWorkflowsConfigApi
+    feature_flag_policy_config?: TeamFeatureFlagPolicyConfigApi
     base_currency?: BaseCurrencyEnumApi
     /**
      * Enables capturing clicks that had no effect (rage-click detection).
@@ -2661,10 +2681,6 @@ export interface ProjectBackwardCompatApi {
     onboarding_tasks?: unknown
     /** @nullable */
     web_analytics_pre_aggregated_tables_enabled?: boolean | null
-    /** The team's events data retention window in months (plan-derived, synced from billing). When retention enforcement is active for the team, queries do not return events older than this many months. Read-only: this value follows your plan's data retention entitlement, so neither you nor PostHog support can change it unless your organization is on the enterprise plan. Background and discussion: https://github.com/PostHog/posthog/issues/17031 */
-    readonly event_retention_months: number
-    /** Whether events data retention is currently enforced for this team (cohort/flag gated). Read-only: neither you nor PostHog support can turn enforcement off, and the retention window itself only changes with your plan. Background and discussion: https://github.com/PostHog/posthog/issues/17031 */
-    readonly events_retention_enforced: boolean
 }
 
 export type PatchedProjectBackwardCompatApiGroupTypesItem = { [key: string]: unknown }
@@ -3489,6 +3505,7 @@ export interface PatchedProjectBackwardCompatApi {
     marketing_analytics_config?: TeamMarketingAnalyticsConfigApi
     customer_analytics_config?: TeamCustomerAnalyticsConfigApi
     workflows_config?: TeamWorkflowsConfigApi
+    feature_flag_policy_config?: TeamFeatureFlagPolicyConfigApi
     base_currency?: BaseCurrencyEnumApi
     /**
      * Enables capturing clicks that had no effect (rage-click detection).
@@ -3521,10 +3538,6 @@ export interface PatchedProjectBackwardCompatApi {
     onboarding_tasks?: unknown
     /** @nullable */
     web_analytics_pre_aggregated_tables_enabled?: boolean | null
-    /** The team's events data retention window in months (plan-derived, synced from billing). When retention enforcement is active for the team, queries do not return events older than this many months. Read-only: this value follows your plan's data retention entitlement, so neither you nor PostHog support can change it unless your organization is on the enterprise plan. Background and discussion: https://github.com/PostHog/posthog/issues/17031 */
-    readonly event_retention_months?: number
-    /** Whether events data retention is currently enforced for this team (cohort/flag gated). Read-only: neither you nor PostHog support can turn enforcement off, and the retention window itself only changes with your plan. Background and discussion: https://github.com/PostHog/posthog/issues/17031 */
-    readonly events_retention_enforced?: boolean
 }
 
 /**
@@ -4066,7 +4079,11 @@ export interface BulkUpdateTagsRequestApi {
      * * `remove` - remove
      * * `set` - set */
     action: BulkUpdateTagsActionEnumApi
-    /** Tag names to add, remove, or set. */
+    /**
+     * Tag names to add, remove, or set.
+     * @maxItems 100
+     * @items.maxLength 255
+     */
     tags: string[]
 }
 
@@ -4304,8 +4321,8 @@ export interface OrganizationApi {
      * @nullable
      */
     readonly is_ai_training_cta_shown: boolean | null
-    /** @nullable */
-    readonly is_hipaa: boolean | null
+    /** Whether the organization has a countersigned Business Associate Agreement on file. When true, AI training stays opted out and cannot be changed. */
+    readonly has_signed_baa: boolean
     /** Default statistical method for new experiments in this organization.
      *
      * * `bayesian` - Bayesian
@@ -4961,6 +4978,19 @@ export interface OnboardingSkipRequestApi {
 }
 
 /**
+ * Request body for PATCH /api/users/@me/product_intro_seen.
+ */
+export interface PatchedProductIntroSeenApi {
+    /**
+     * Which key in `has_seen_product_intro_for` to set. Any string is accepted: besides the product keys, the map holds keys composed per team and keys for surfaces that are not products.
+     * @maxLength 128
+     */
+    product_key?: string
+    /** Whether the intro counts as seen. Send false to show it again. */
+    seen?: boolean
+}
+
+/**
  * * `ios` - iOS
  * * `android` - Android
  * * `web` - Web
@@ -5439,3 +5469,5 @@ export type UsersLoginSessionsListParams = {
     email?: string
     is_staff?: boolean
 }
+
+export type UsersProductIntroSeenPartialUpdate200 = { [key: string]: boolean }

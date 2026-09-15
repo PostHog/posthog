@@ -1,10 +1,11 @@
 """Which model a Slack-triggered run actually uses.
 
 One precedence chain, resolved in one place: a model named in the mention itself
-("use fable for this one") beats the personal row, which beats the workspace row,
-which falls back to the Slack default. `slack_settings` owns the personal-vs-workspace
-half; this module owns the ends — the default underneath and the mention override on
-top — so no caller has to assemble a triple by hand.
+("use fable for this one") beats the central per-(user, project) default, which
+falls back to the Slack default. Model preferences live only in the central
+tasks config (the App Home, the web composer, and the MCP config tools all edit
+it); this module owns the ends — the default underneath and the mention override
+on top — so no caller has to assemble a triple by hand.
 
 The triple is not three independent values. The runtime adapter follows from the
 model, and which reasoning efforts exist depends on that pair, so every result is
@@ -29,11 +30,9 @@ from products.slack_app.backend.services.model_catalogue import (
     filter_unsupported_effort,
     runtime_adapter_for,
 )
-from products.slack_app.backend.services.slack_settings import AIPreferences, resolve_ai_preferences
+from products.slack_app.backend.services.slack_settings import AIPreferences
 
 if TYPE_CHECKING:
-    from posthog.models.integration import Integration
-
     from products.tasks.backend.logic.services.ai_run_defaults import ResolvedAIRunConfig
 
 # What a Slack run uses when neither the user nor the workspace has pinned a model.
@@ -81,8 +80,6 @@ def _coherent_preferences(
 
 
 def resolve_run_preferences(
-    integration: Integration,
-    slack_user_id: str | None,
     *,
     override: ModelOverride | None = None,
     team_id: int | None = None,
@@ -94,39 +91,34 @@ def resolve_run_preferences(
     the previous model must not ride along onto a different one. An effort named on its
     own applies to whichever model the run was already going to use. Either can be
     absent, and a request we can't honour — a model that isn't on offer, an effort the
-    model doesn't support — leaves the run on its saved preferences.
+    model doesn't support — leaves the run on the default it was already resolving to.
 
-    Below the saved rows sits the project/user default, which this looks up itself so
-    every Slack path — first run and follow-up alike — sits at the same rung. Slack's own
-    floor applies only when there is no central default to defer to. `team_id` and
-    `user_id` say whose defaults those are; omitting `team_id` skips the level, which is
-    what a caller with no project context (or a test exercising the Slack rungs alone)
-    wants.
-
-    Note that `resolve_ai_preferences` yields nothing at all for a workspace that
-    hasn't enabled `slack-app-home`, so there the chain is the fallback plus
-    whatever the mention asked for.
+    Below the mention sits the central project/user default, which this looks up
+    itself so every Slack path — first run and follow-up alike — sits at the same
+    rung. Slack's own floor applies only when there is no central default to defer
+    to. `team_id` and `user_id` say whose defaults those are; omitting `team_id`
+    skips the level, which is what a caller with no project context (or a test
+    exercising the Slack rungs alone) wants.
     """
     override_model = override.model if override else None
     override_effort = override.reasoning_effort if override else None
 
     if override_model:
-        # Only a model named in the mention needs the catalogue, and the saved rows
-        # can't influence the result, so neither is read on the other paths.
+        # Only a model named in the mention needs the catalogue, so it is not read
+        # on the other paths.
         choice = find_model_choice(override_model, available_model_choices())
         if choice is not None:
             return _coherent_preferences(choice.model, override_effort, fallback_runtime_adapter=choice.runtime_adapter)
 
-    saved = resolve_ai_preferences(integration, slack_user_id)
     # Slack's floor would make the project and user defaults unreachable from Slack: the
     # run would always carry an explicit model. Stepping aside when a central default
     # exists leaves the triple empty, so `create_run` resolves it (and a warm run
-    # provisioned under that default still matches). Anything pinned in Slack wins.
+    # provisioned under that default still matches).
     central_default = _central_run_default(team_id, user_id) if team_id is not None else None
-    base = _coherent_preferences(
-        saved.model or (None if central_default else SLACK_DEFAULT_MODEL),
-        saved.reasoning_effort,
-        fallback_runtime_adapter=saved.runtime_adapter,
+    base = (
+        AIPreferences()
+        if central_default
+        else _coherent_preferences(SLACK_DEFAULT_MODEL, None, fallback_runtime_adapter=None)
     )
     if not override_effort:
         return base
@@ -136,7 +128,7 @@ def resolve_run_preferences(
     # anyway — a run at a different effort is not the run it would have produced, so there
     # is nothing left to defer.
     target = base
-    if base.model is None and central_default is not None:
+    if central_default is not None:
         target = _coherent_preferences(
             central_default.model,
             central_default.reasoning_effort,
@@ -145,8 +137,8 @@ def resolve_run_preferences(
 
     # An effort this model can't do is dropped by `_coherent_preferences`; falling back
     # to `base` rather than to the stripped result means an impossible ask leaves the
-    # run alone — still deferring where it was deferring — instead of quietly clearing
-    # the saved effort as well.
+    # run alone — still deferring where it was deferring — instead of pinning a default
+    # it was never asked to pin.
     requested = _coherent_preferences(target.model, override_effort, fallback_runtime_adapter=target.runtime_adapter)
     return requested if requested.reasoning_effort else base
 

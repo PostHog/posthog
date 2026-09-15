@@ -3,6 +3,11 @@ import {
   buildBulkActionEvents,
   type InboxBulkActionType,
 } from "@posthog/core/inbox/engagement";
+import {
+  type InboxReportCacheSnapshot,
+  restoreInboxReportCaches,
+  updateInboxReportCaches,
+} from "@posthog/core/inbox/inboxQuery";
 import { inboxStatusLabel } from "@posthog/core/inbox/reportPresentation";
 import type { InboxReportActionSurface } from "@posthog/shared/analytics-events";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
@@ -55,6 +60,12 @@ interface BulkActionResult {
   failedIds: string[];
   durationMs: number;
   totalCount: number;
+}
+
+interface ReportStateMutationContext {
+  cacheSnapshot: InboxReportCacheSnapshot;
+  optimisticReports: SignalReport[];
+  selectedReports: SignalReport[];
 }
 
 async function runBulkAction(
@@ -253,9 +264,10 @@ export function useInboxBulkActions(
     (
       actionType: InboxBulkActionType,
       result: BulkActionResult,
+      sourceReports: SignalReport[],
       dismissal?: DismissReportDialogResult,
     ) => {
-      const byId = new Map(reports.map((report) => [report.id, report]));
+      const byId = new Map(sourceReports.map((report) => [report.id, report]));
       const succeeded = result.succeededIds
         .map((id) => byId.get(id))
         .filter((report): report is SignalReport => report !== undefined);
@@ -298,7 +310,7 @@ export function useInboxBulkActions(
         });
       }
     },
-    [reports, surface, triageId],
+    [surface, triageId],
   );
 
   /**
@@ -359,20 +371,67 @@ export function useInboxBulkActions(
       );
     },
     {
-      onSuccess: async (result, variables) => {
-        trackBulkAction("dismiss", result, variables.dismissal);
-        await invalidateInboxQueries();
+      onMutate: async (variables): Promise<ReportStateMutationContext> => {
+        await queryClient.cancelQueries({
+          queryKey: reportKeys.all,
+          exact: false,
+        });
+        const selectedIds = new Set(variables.reportIds);
+        const selectedReports = reports.filter((report) =>
+          selectedIds.has(report.id),
+        );
+        const optimisticReports = selectedReports.map(
+          (report): SignalReport => ({
+            ...report,
+            status: "suppressed",
+            dismissal_reason:
+              variables.dismissal?.reason ?? report.dismissal_reason,
+            dismissal_note:
+              variables.dismissal !== undefined
+                ? variables.dismissal.note || null
+                : report.dismissal_note,
+          }),
+        );
+        return {
+          cacheSnapshot: updateInboxReportCaches(
+            queryClient,
+            optimisticReports,
+            selectedReports,
+          ),
+          optimisticReports,
+          selectedReports,
+        };
+      },
+      onSuccess: (result, variables, context) => {
+        if (result.failureCount > 0) {
+          restoreInboxReportCaches(queryClient, context.cacheSnapshot);
+          const succeededIds = new Set(result.succeededIds);
+          updateInboxReportCaches(
+            queryClient,
+            context.optimisticReports.filter((report) =>
+              succeededIds.has(report.id),
+            ),
+          );
+        }
+        trackBulkAction(
+          "dismiss",
+          result,
+          context.selectedReports,
+          variables.dismissal,
+        );
         applyBulkResultToSelection(result);
+        void invalidateInboxQueries();
 
         if (result.failureCount > 0) {
           toast.error(formatBulkActionSummary("suppress", result));
-          return;
         }
-
-        toast.success(formatBulkActionSummary("suppress", result));
       },
-      onError: (error) => {
+      onError: (error, _variables, context) => {
+        if (context) {
+          restoreInboxReportCaches(queryClient, context.cacheSnapshot);
+        }
         toast.error(error.message || "Failed to dismiss reports");
+        void invalidateInboxQueries();
       },
     },
   );
@@ -389,20 +448,67 @@ export function useInboxBulkActions(
         ),
       ),
     {
-      onSuccess: async (result, variables) => {
-        trackBulkAction("snooze", result, variables.dismissal);
-        await invalidateInboxQueries();
+      onMutate: async (variables): Promise<ReportStateMutationContext> => {
+        await queryClient.cancelQueries({
+          queryKey: reportKeys.all,
+          exact: false,
+        });
+        const selectedIds = new Set(variables.reportIds);
+        const selectedReports = reports.filter((report) =>
+          selectedIds.has(report.id),
+        );
+        const optimisticReports = selectedReports.map(
+          (report): SignalReport => ({
+            ...report,
+            status: "potential",
+            dismissal_reason:
+              variables.dismissal?.reason ?? report.dismissal_reason,
+            dismissal_note:
+              variables.dismissal !== undefined
+                ? variables.dismissal.note || null
+                : report.dismissal_note,
+          }),
+        );
+        return {
+          cacheSnapshot: updateInboxReportCaches(
+            queryClient,
+            optimisticReports,
+            selectedReports,
+          ),
+          optimisticReports,
+          selectedReports,
+        };
+      },
+      onSuccess: (result, variables, context) => {
+        if (result.failureCount > 0) {
+          restoreInboxReportCaches(queryClient, context.cacheSnapshot);
+          const succeededIds = new Set(result.succeededIds);
+          updateInboxReportCaches(
+            queryClient,
+            context.optimisticReports.filter((report) =>
+              succeededIds.has(report.id),
+            ),
+          );
+        }
+        trackBulkAction(
+          "snooze",
+          result,
+          context.selectedReports,
+          variables.dismissal,
+        );
         applyBulkResultToSelection(result);
+        void invalidateInboxQueries();
 
         if (result.failureCount > 0) {
           toast.error(formatBulkActionSummary("snooze", result));
-          return;
         }
-
-        toast.success(formatBulkActionSummary("snooze", result));
       },
-      onError: (error) => {
+      onError: (error, _variables, context) => {
+        if (context) {
+          restoreInboxReportCaches(queryClient, context.cacheSnapshot);
+        }
         toast.error(error.message || "Failed to snooze reports");
+        void invalidateInboxQueries();
       },
     },
   );
@@ -414,7 +520,7 @@ export function useInboxBulkActions(
       ),
     {
       onSuccess: async (result) => {
-        trackBulkAction("delete", result);
+        trackBulkAction("delete", result, reports);
         await invalidateInboxQueries();
         applyBulkResultToSelection(result);
 
@@ -438,7 +544,7 @@ export function useInboxBulkActions(
       ),
     {
       onSuccess: async (result) => {
-        trackBulkAction("reingest", result);
+        trackBulkAction("reingest", result, reports);
         await invalidateInboxQueries();
         applyBulkResultToSelection(result);
 
@@ -492,7 +598,7 @@ export function useInboxBulkActions(
       }),
     {
       onSuccess: async (result) => {
-        trackBulkAction("remove_suggested_reviewer", result);
+        trackBulkAction("remove_suggested_reviewer", result, reports);
         // A reviewer-artefact write changes list membership, report detail, and
         // the reviewer artefacts, but not chart results, which are evidence
         // snapshots a reviewer change cannot alter. Skip chart-data queries so
@@ -528,11 +634,15 @@ export function useInboxBulkActions(
         return false;
       }
 
-      await suppressMutation.mutateAsync({
-        reportIds: eligibility.selectedIds,
-        ...(dismissal != null ? { dismissal } : {}),
-      });
-      return true;
+      try {
+        const result = await suppressMutation.mutateAsync({
+          reportIds: eligibility.selectedIds,
+          ...(dismissal != null ? { dismissal } : {}),
+        });
+        return result.failureCount === 0;
+      } catch {
+        return false;
+      }
     },
     [
       eligibility.suppressDisabledReason,
@@ -547,11 +657,15 @@ export function useInboxBulkActions(
         return false;
       }
 
-      await snoozeMutation.mutateAsync({
-        reportIds: eligibility.selectedIds,
-        ...(dismissal != null ? { dismissal } : {}),
-      });
-      return true;
+      try {
+        const result = await snoozeMutation.mutateAsync({
+          reportIds: eligibility.selectedIds,
+          ...(dismissal != null ? { dismissal } : {}),
+        });
+        return result.failureCount === 0;
+      } catch {
+        return false;
+      }
     },
     [eligibility.snoozeDisabledReason, eligibility.selectedIds, snoozeMutation],
   );

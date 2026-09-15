@@ -5,12 +5,27 @@ from __future__ import annotations
 from collections.abc import Iterable, Iterator
 from uuid import UUID
 
-from django.db import models as db_models
+from django.db import (
+    connections,
+    models as db_models,
+)
 
+from ..db import WRITER_DB
 from ..models import Artifact, Repo, RunSnapshot
 from ..storage import ArtifactStorage
 
 ARTIFACT_HASH_BATCH_SIZE = 500
+
+
+def lock_artifact_registry(repo_id: UUID) -> None:
+    """Serialize artifact registration and deletion for one repo until the transaction ends.
+
+    A run registers its hashes and learns which artifacts exist in one transaction. The
+    retention sweep cannot see those rows before the commit, so without this lock it could
+    delete an artifact the run was just told not to upload again.
+    """
+    with connections[WRITER_DB].cursor() as cursor:
+        cursor.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", [f"visual-review-artifacts:{repo_id}"])
 
 
 def _iter_batches(values: Iterable[str], batch_size: int) -> Iterator[list[str]]:

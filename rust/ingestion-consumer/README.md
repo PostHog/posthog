@@ -27,15 +27,20 @@ It measures the invariant at its end point: the worker's grouping stage processe
 Rebalances reset all baselines (`ingestion_consumer_rebalances_total{event}` counts them), so partition handoffs don't fire false positives.
 Null-key messages (e.g. overflow rerouting) are excluded from both checks: the producer deliberately forfeits per-key order for them, and the consumer routes each one individually rather than pinning it, so there is no invariant to check on either side.
 
-## Shadow offset ledger
+## Offset ledger
 
-`ledger_shadow.rs` runs the per-partition offset ledger from `common/kafka-consumer` next to the current commit path without changing what is committed.
-Every delivered message is charged to its partition's ledger during collection, and a committed batch completes its offsets there; the ledger's frontier is then compared with the offset the batch commits.
-`ingestion_consumer_ledger_mismatch_total{topic,partition,direction}` counts every disagreement, and a warning logs when a partition's disagreement starts and when it ends.
-`ingestion_consumer_ledger_uncommitted_offsets{topic,partition}` gauges each partition's window depth; `ingestion_consumer_ledger_uncommitted_events` and `ingestion_consumer_ledger_uncommitted_bytes` gauge the charge those offsets carry, where bytes is the payload plus key plus headers of each message.
-`ingestion_consumer_ledger_stale_slices_total{stage}` counts charges and settlements dropped because their partition was reassigned while they were in flight; a few around a rebalance are expected.
-`ingestion_consumer_ledger_errors_total{stage,kind}` counts contract violations in the ledger's accounting; it must stay 0. A violation resets that partition's ledger, and the consumer keeps running.
-`CONSUMER_OFFSET_LEDGER_SHADOW_ENABLED` (default `true`) is the kill switch: off, the consumer builds no ledger at all, so nothing is charged, settled, forgotten on rebalance, or reported.
+The consumer holds the per-partition offset ledger from `common/kafka-consumer`, which owns the commit.
+Every delivered message is charged to its partition's ledger during collection, and a committed batch completes its offsets there; the commit is then each partition's frontier, one past its longest completed prefix.
+A partition that settles without a frontier is not committed and stays on its last commit.
+A batch with no frontier on any partition is not committed at all; `ingestion_consumer_commits_skipped_total{reason}` counts those, where `rejected` means the ledger dropped every slice (expected around a rebalance) and `no_frontier` means an earlier batch is still incomplete at the front of every window the batch settled.
+Each frontier the consumer takes goes to the commit sentinel (`commit_sentinel.rs`), which checks it and passes it to the commit pacer (`commit_pacer.rs`); after settling a poll the consumer asks the pacer what is due and commits it in one call.
+The pacer is immediate for now, so every poll commits its frontiers as it completes; an interval pacer that coalesces per partition comes with per-partition commits (see the driver-model plan, cycle 8).
+The commit pacer holds no I/O: the consumer commits what it is given, and the commit monitor (`commit_monitor.rs`) reports the broker's committed offsets to the sentinel.
+A partition that leaves the assignment drops its pending frontier with its ledger, so a later commit cannot commit under another owner.
+The ledger emits its own metrics, so any consumer built on the crate reports the same series.
+`kafka_consumer_ledger_uncommitted_offsets{topic,partition}` gauges each partition's window depth; `kafka_consumer_ledger_uncommitted_events` and `kafka_consumer_ledger_uncommitted_bytes` gauge the charge those offsets carry, where bytes is the payload plus key plus headers of each message.
+`kafka_consumer_ledger_stale_slices_total{stage}` counts charges and settlements dropped because their partition was reassigned while they were in flight; a few around a rebalance are expected.
+`kafka_consumer_ledger_errors_total{stage,kind}` counts contract violations in the ledger's accounting; it must stay 0. A violation resets that partition's ledger and the consumer keeps running; the consumer logs the rejected slice with the batch and ledger generations and the window depth before the reset.
 
 ## Debug API
 

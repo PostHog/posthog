@@ -39,6 +39,8 @@ export const nameOrLinkToExperiment = (name: string | null, id?: string): JSX.El
 type AllowedExperimentFields = Pick<
     Experiment,
     | 'conclusion'
+    | 'conclusion_comment'
+    | 'status'
     | 'start_date'
     | 'end_date'
     | 'metrics'
@@ -306,6 +308,15 @@ export const getExperimentChangeDescription = (
         .with({ field: 'excluded_variants' }, () => {
             // The change is described by the `parameters` matcher, which the backend keeps
             // mirrored while `parameters` is deprecated — avoid a duplicate line.
+            return null
+        })
+        .with({ field: 'status' }, () => {
+            // Status only moves together with a lifecycle change (launch, stop, pause), and those
+            // already produce their own descriptions, so an "updated status" clause adds nothing.
+            return null
+        })
+        .with({ field: 'conclusion_comment' }, () => {
+            // The describer renders the comment text as the row's extended description instead.
             return null
         })
         .otherwise(({ field, action }) => {

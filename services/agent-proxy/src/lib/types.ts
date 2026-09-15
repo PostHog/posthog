@@ -102,6 +102,7 @@ export interface StreamReadTokenPayload {
     taskId: string
     teamId: number
     presenceGated: boolean
+    isTerminal: boolean
     originProduct: string
 }
 
@@ -111,6 +112,7 @@ export interface SandboxEventIngestTokenPayload {
     taskId: string
     teamId: number
     presenceGated: boolean
+    thinTail: boolean
     originProduct: string
 }
 
@@ -118,7 +120,13 @@ export interface SandboxEventIngestTokenPayload {
 // SSE stream connection outcome (matches Python StreamConnectionOutcome values)
 // ---------------------------------------------------------------------------
 
-export type StreamConnectionOutcome = 'completed' | 'stream_error' | 'unavailable' | 'client_disconnect' | 'rotated'
+export type StreamConnectionOutcome =
+    | 'completed'
+    | 'stream_error'
+    | 'unavailable'
+    | 'drained'
+    | 'client_disconnect'
+    | 'rotated'
 
 export type DisconnectClassification = 'run_over' | 'idle' | 'mid_turn'
 
@@ -155,7 +163,7 @@ export type IngestLine = IngestEventLine | IngestCompleteLine
 // Side-effect callback kind (matches Python callback contract in docs/DESIGN.md)
 // ---------------------------------------------------------------------------
 
-export type SideEffectKind = 'heartbeat' | 'awaiting_input' | 'command_dispatched' | 'agent_activity'
+export type SideEffectKind = 'heartbeat' | 'awaiting_input' | 'turn_failed' | 'command_dispatched' | 'agent_activity'
 
 // ---------------------------------------------------------------------------
 // TaskRunRedisStream method interface

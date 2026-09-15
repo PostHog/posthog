@@ -8,12 +8,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
 import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { useMocks } from '~/mocks/jest'
-import {
-    type ExperimentExposureCriteria,
-    NodeKind,
-    ProductIntentContext,
-    ProductKey,
-} from '~/queries/schema/schema-general'
+import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import type { Experiment } from '~/types'
 
@@ -39,7 +34,6 @@ describe('createExperimentLogic', () => {
     let scannerCreateSpy: jest.Mock
     let scannerRequestBody: Record<string, unknown> | null
     let productIntentBodies: Record<string, unknown>[]
-    let exposureEventSeenWithSessionId: boolean
 
     beforeEach(() => {
         // Clear persisted state to prevent it from affecting tests
@@ -47,7 +41,6 @@ describe('createExperimentLogic', () => {
         sessionStorage.clear()
         scannerRequestBody = null
         productIntentBodies = []
-        exposureEventSeenWithSessionId = true
         scannerCreateSpy = jest.fn(async ({ request }: { request: Request }) => {
             scannerRequestBody = (await request.json()) as Record<string, unknown>
             return [200, { id: 'scanner-123' }]
@@ -58,10 +51,6 @@ describe('createExperimentLogic', () => {
                 // saveExperiment verifies flag-key availability before building the payload
                 '/api/projects/:team_id/feature_flags/': () => [200, { results: [], count: 0 }],
                 '/api/projects/:team_id/experiments': () => [200, { results: [], count: 0 }],
-                '/api/projects/:team_id/property_definitions/seen_together': ({ request }) => {
-                    const eventNames = new URL(request.url).searchParams.getAll('event_names')
-                    return [200, Object.fromEntries(eventNames.map((name) => [name, exposureEventSeenWithSessionId]))]
-                },
             },
             post: {
                 [`/api/projects/${MOCK_TEAM_ID}/experiments`]: async ({ request }) => {
@@ -195,25 +184,13 @@ describe('createExperimentLogic', () => {
                 // `model` is required by the create serializer — omitting it 400s every create
                 provider: DEFAULT_PROVIDER,
                 model: DEFAULT_MODEL,
-                query: {
-                    filter_test_accounts: true,
-                    events: [
-                        {
-                            id: '$feature_flag_called',
-                            properties: expect.arrayContaining([
-                                expect.objectContaining({
-                                    key: '$feature_flag_response',
-                                    value: ['control', 'new-checkout'],
-                                }),
-                                expect.objectContaining({
-                                    key: '$feature_flag',
-                                    value: ['checkout-flow'],
-                                }),
-                            ]),
-                        },
-                    ],
-                },
+                experiment_targeting: { experiment_id: 123, variant: null },
+                query: { kind: 'RecordingsQuery', filter_test_accounts: true },
             })
+            // The API derives the exposure filter from the targeting and rejects one set in the
+            // query, so a hand-built population here is the regression to catch
+            expect(scannerRequestBody?.query).not.toHaveProperty('events')
+            expect(scannerRequestBody?.query).not.toHaveProperty('experiment_exposure')
             // A plain product intent is indistinguishable from someone reaching Replay Vision on their
             // own, so the cross-sell metadata is the only thing that attributes the scanner to experiments
             expect(productIntentBodies).toContainEqual(
@@ -234,53 +211,6 @@ describe('createExperimentLogic', () => {
                 })
             )
         })
-
-        it.each([
-            {
-                name: 'falls back to the flag-value filter for a default exposure event',
-                exposure_criteria: undefined,
-                expectedQuery: {
-                    properties: [expect.objectContaining({ key: '$feature/server-side-exposure', type: 'event' })],
-                },
-            },
-            {
-                name: 'keeps the custom exposure filter, never an unfiltered query',
-                exposure_criteria: {
-                    exposure_config: {
-                        kind: NodeKind.ExperimentEventExposureConfig,
-                        event: 'backend_assigned',
-                        properties: [],
-                    },
-                } satisfies ExperimentExposureCriteria as ExperimentExposureCriteria,
-                expectedQuery: {
-                    events: [expect.objectContaining({ id: 'backend_assigned' })],
-                },
-            },
-        ])(
-            // The check reports "never seen with a session ID", which for a minutes-old flag is
-            // mostly "never seen at all" — so it must never refuse, and must never leave the query
-            // empty, which would scan every recording in the project.
-            'creates a scoped scanner anyway when the exposure event looks unlinkable: $name',
-            async ({ exposure_criteria, expectedQuery }) => {
-                exposureEventSeenWithSessionId = false
-                await expectLogic(logic, () => {
-                    logic.actions.setCreateReplayVisionScanner(true)
-                    logic.actions.setExperiment({
-                        ...NEW_EXPERIMENT,
-                        name: 'Server-side exposure',
-                        description: 'Test hypothesis',
-                        feature_flag_key: 'server-side-exposure',
-                        ...(exposure_criteria ? { exposure_criteria } : {}),
-                    })
-                    logic.actions.saveExperiment()
-                })
-                    .toDispatchActions(['saveExperiment', 'createExperimentSuccess', 'saveExperimentSuccess'])
-                    .toFinishAllListeners()
-
-                expect(scannerCreateSpy).toHaveBeenCalledTimes(1)
-                expect(scannerRequestBody).toMatchObject({ query: expect.objectContaining(expectedQuery) })
-            }
-        )
 
         it.each([
             {

@@ -2,8 +2,12 @@ import {
   ArrowCounterClockwiseIcon,
   CheckCircleIcon,
   CopyIcon,
+  DesktopIcon,
+  EnvelopeSimpleIcon,
+  EnvelopeSimpleOpenIcon,
   EyeSlashIcon,
   GitPullRequestIcon,
+  GlobeIcon,
   UsersThreeIcon,
 } from "@phosphor-icons/react";
 import { extractRepoSelectionRepository } from "@posthog/core/inbox/artefacts";
@@ -31,6 +35,7 @@ import type { SignalReport } from "@posthog/shared/types";
 import { ReviewerSearchList } from "@posthog/ui/features/inbox/components/ReviewerSearchList";
 import { useCreatePrReport } from "@posthog/ui/features/inbox/hooks/useCreatePrReport";
 import { useInboxReportDismissAction } from "@posthog/ui/features/inbox/hooks/useInboxReportDismissAction";
+import { useInboxReportReadState } from "@posthog/ui/features/inbox/hooks/useInboxReportReadState";
 import { useInboxReportResolveAction } from "@posthog/ui/features/inbox/hooks/useInboxReportResolveAction";
 import { useInboxReportArtefacts } from "@posthog/ui/features/inbox/hooks/useInboxReports";
 import { useInboxRestoreReport } from "@posthog/ui/features/inbox/hooks/useInboxRestoreReport";
@@ -49,6 +54,11 @@ export function InboxReportContextMenuContent({
   report: SignalReport;
   open: boolean;
 }): React.JSX.Element {
+  const {
+    isUnread,
+    enabled: readStateEnabled,
+    setRead,
+  } = useInboxReportReadState(report.id);
   const [reviewersOpen, setReviewersOpen] = useState(false);
   const openedDialogRef = useRef(false);
   const fireAction = useReportActionTracker(report, "context_menu");
@@ -73,6 +83,8 @@ export function InboxReportContextMenuContent({
   });
 
   const isDismissed = report.status === "suppressed";
+  const readOnly =
+    report.status === "resolved" || (isDismissed && report.refund != null);
   const hasOpenPr =
     Boolean(report.implementation_pr_url) &&
     report.implementation_pr_merged !== true;
@@ -116,7 +128,19 @@ export function InboxReportContextMenuContent({
           return undefined;
         }}
       >
-        {isDismissed ? (
+        <ContextMenuItem
+          disabled={!readStateEnabled}
+          onClick={() => setRead(isUnread)}
+        >
+          {isUnread ? (
+            <EnvelopeSimpleOpenIcon size={14} />
+          ) : (
+            <EnvelopeSimpleIcon size={14} />
+          )}
+          {isUnread ? "Mark as read" : "Mark as unread"}
+        </ContextMenuItem>
+        <ContextMenuSeparator />
+        {readOnly ? null : isDismissed ? (
           <ContextMenuGroup>
             <ContextMenuItem
               disabled={restore.isPending}
@@ -148,7 +172,7 @@ export function InboxReportContextMenuContent({
             ) : null}
             {canResolveReport(report) ? (
               <ContextMenuSub>
-                <ContextMenuSubTrigger disabled={resolve.isPending}>
+                <ContextMenuSubTrigger disabled={resolve.isPending} openOnHover>
                   <CheckCircleIcon size={14} />
                   Resolve
                 </ContextMenuSubTrigger>
@@ -172,7 +196,7 @@ export function InboxReportContextMenuContent({
               </ContextMenuSub>
             ) : null}
             <ContextMenuSub>
-              <ContextMenuSubTrigger>
+              <ContextMenuSubTrigger openOnHover>
                 <EyeSlashIcon size={14} />
                 Dismiss
               </ContextMenuSubTrigger>
@@ -194,7 +218,7 @@ export function InboxReportContextMenuContent({
               </ContextMenuSubContent>
             </ContextMenuSub>
             <ContextMenuSub onOpenChange={setReviewersOpen}>
-              <ContextMenuSubTrigger>
+              <ContextMenuSubTrigger openOnHover>
                 <UsersThreeIcon size={14} />
                 Reviewers
               </ContextMenuSubTrigger>
@@ -210,15 +234,34 @@ export function InboxReportContextMenuContent({
         )}
         <ContextMenuSeparator />
         <ContextMenuGroup>
-          <ContextMenuItem
-            onClick={() => {
-              fireAction("copy_link");
-              copyInboxReportLink(report);
-            }}
-          >
-            <CopyIcon size={14} />
-            Copy link
-          </ContextMenuItem>
+          <ContextMenuSub>
+            <ContextMenuSubTrigger openOnHover>
+              <CopyIcon size={14} />
+              Copy link
+            </ContextMenuSubTrigger>
+            <ContextMenuSubContent className="min-w-44">
+              <ContextMenuItem
+                data-attr="inbox-copy-web-link"
+                onClick={() => {
+                  fireAction("copy_link");
+                  copyInboxReportLink(report, "web");
+                }}
+              >
+                <GlobeIcon size={14} />
+                Copy web link
+              </ContextMenuItem>
+              <ContextMenuItem
+                data-attr="inbox-copy-desktop-link"
+                onClick={() => {
+                  fireAction("copy_link");
+                  copyInboxReportLink(report, "desktop");
+                }}
+              >
+                <DesktopIcon size={14} />
+                Copy desktop link
+              </ContextMenuItem>
+            </ContextMenuSubContent>
+          </ContextMenuSub>
         </ContextMenuGroup>
       </ContextMenuContent>
       {resolve.dialog}

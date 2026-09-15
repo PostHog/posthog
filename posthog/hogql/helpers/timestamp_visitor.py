@@ -248,6 +248,9 @@ class IsTimeOrIntervalConstantVisitor(Visitor[bool]):
     def visit_field(self, node: ast.Field) -> bool:
         return False
 
+    def visit_property_access(self, node: ast.PropertyAccess) -> bool:
+        return False
+
     def visit_and(self, node: ast.And) -> bool:
         return False
 

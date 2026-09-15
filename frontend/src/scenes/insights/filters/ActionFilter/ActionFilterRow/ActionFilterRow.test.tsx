@@ -31,7 +31,8 @@ import {
 } from '~/types'
 
 import filtersJson from '../__mocks__/filters.json'
-import { ActionFilterRow, MathAvailability, taxonomicFilterGroupTypeToEntityType } from './ActionFilterRow'
+import { ActionFilterRow, taxonomicFilterGroupTypeToEntityType } from './ActionFilterRow'
+import { MathAvailability } from './types'
 
 // AutoSizer needs a mock because react-virtualized requires real DOM measurements
 jest.mock('lib/components/AutoSizer', () => ({

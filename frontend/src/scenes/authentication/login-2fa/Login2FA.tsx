@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
 import { LemonButton, LemonDivider, LemonInput } from '@posthog/lemon-ui'
@@ -9,6 +9,7 @@ import { supportLogic } from 'lib/components/Support/supportLogic'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Link } from 'lib/lemon-ui/Link'
+import { loginTelemetryLogic } from 'scenes/authentication/shared/loginTelemetryLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 
@@ -18,6 +19,8 @@ import { login2FALogic } from './login2FALogic'
 // elements, so inserting the conditional support link beside a bare text node crashes React
 // (insertBefore / removeChild NotFoundError, see react#11538).
 export function Login2FA(): JSX.Element {
+    // Mounted here so the login funnel is only reported from the auth scenes
+    useMountedLogic(loginTelemetryLogic)
     const { isTwofactortokenSubmitting, generalError, passkey2FALoading, passkeysAvailable, totpAvailable } =
         useValues(login2FALogic)
     const { beginPasskey2FA } = useActions(login2FALogic)

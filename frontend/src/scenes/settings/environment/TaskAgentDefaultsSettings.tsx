@@ -179,7 +179,7 @@ export function TaskAgentMyPreferenceSettings(): JSX.Element {
                         from {resolvedDefaults.source === 'user' ? 'your default above' : 'the project default'}.
                     </>
                 ) : (
-                    <>No default is set — runs use each surface's built-in model.</>
+                    <>No default is set. Runs use each surface's built-in model.</>
                 )}
             </p>
         </div>

@@ -299,9 +299,8 @@ export const BatchExportsCreateBody = /* @__PURE__ */ zod
                         type: zod.enum(['Snowflake']),
                         integration_id: zod
                             .number()
-                            .optional()
                             .describe(
-                                'ID of a snowflake-kind Integration providing the account, user and credentials. Preferred over inline credentials. Use the integrations-list MCP tool to find one.'
+                                'ID of a snowflake-kind Integration providing the account, user and credentials. Required when creating a batch export. Use the integrations-list MCP tool to find one.'
                             ),
                         config: zod
                             .object({
@@ -996,9 +995,8 @@ export const BatchExportsUpdateBody = /* @__PURE__ */ zod
                         type: zod.enum(['Snowflake']),
                         integration_id: zod
                             .number()
-                            .optional()
                             .describe(
-                                'ID of a snowflake-kind Integration providing the account, user and credentials. Preferred over inline credentials. Use the integrations-list MCP tool to find one.'
+                                'ID of a snowflake-kind Integration providing the account, user and credentials. Required when creating a batch export. Use the integrations-list MCP tool to find one.'
                             ),
                         config: zod
                             .object({
@@ -1448,9 +1446,8 @@ export const BatchExportsPartialUpdateBody = /* @__PURE__ */ zod
                         type: zod.enum(['Snowflake']),
                         integration_id: zod
                             .number()
-                            .optional()
                             .describe(
-                                'ID of a snowflake-kind Integration providing the account, user and credentials. Preferred over inline credentials. Use the integrations-list MCP tool to find one.'
+                                'ID of a snowflake-kind Integration providing the account, user and credentials. Required when creating a batch export. Use the integrations-list MCP tool to find one.'
                             ),
                         config: zod
                             .object({
@@ -1984,7 +1981,7 @@ export const BatchExportsPauseCreateBody = /* @__PURE__ */ zod
                     .number()
                     .nullish()
                     .describe(
-                        'ID of a team-scoped Integration providing credentials, for destinations that authenticate through one. Required for all of those except Snowflake, which still supports inline credentials.'
+                        'ID of a team-scoped Integration providing credentials, for destinations that authenticate through one. Required for all of them.'
                     ),
             })
             .describe(
@@ -2429,7 +2426,7 @@ export const BatchExportsRunTestStepCreateBody = /* @__PURE__ */ zod
                     .number()
                     .nullish()
                     .describe(
-                        'ID of a team-scoped Integration providing credentials, for destinations that authenticate through one. Required for all of those except Snowflake, which still supports inline credentials.'
+                        'ID of a team-scoped Integration providing credentials, for destinations that authenticate through one. Required for all of them.'
                     ),
             })
             .describe(
@@ -2863,7 +2860,7 @@ export const BatchExportsUnpauseCreateBody = /* @__PURE__ */ zod
                     .number()
                     .nullish()
                     .describe(
-                        'ID of a team-scoped Integration providing credentials, for destinations that authenticate through one. Required for all of those except Snowflake, which still supports inline credentials.'
+                        'ID of a team-scoped Integration providing credentials, for destinations that authenticate through one. Required for all of them.'
                     ),
             })
             .describe(
@@ -3318,7 +3315,7 @@ export const BatchExportsRunTestStepNewCreateBody = /* @__PURE__ */ zod
                     .number()
                     .nullish()
                     .describe(
-                        'ID of a team-scoped Integration providing credentials, for destinations that authenticate through one. Required for all of those except Snowflake, which still supports inline credentials.'
+                        'ID of a team-scoped Integration providing credentials, for destinations that authenticate through one. Required for all of them.'
                     ),
             })
             .describe(
@@ -3380,15 +3377,19 @@ export const BatchExportsRunTestStepNewCreateBody = /* @__PURE__ */ zod
  * Create and start a batch export on demand run to download a file.
  */
 export const fileDownloadBatchExportsCreateBodyOneFileFormatDefault = `Parquet`
+export const fileDownloadBatchExportsCreateBodyOneFileMaxSizeMbDefault = 1024
 export const fileDownloadBatchExportsCreateBodyOneFileMaxSizeMbMin = 0
 
 export const fileDownloadBatchExportsCreateBodyTwoFileFormatDefault = `Parquet`
+export const fileDownloadBatchExportsCreateBodyTwoFileMaxSizeMbDefault = 1024
 export const fileDownloadBatchExportsCreateBodyTwoFileMaxSizeMbMin = 0
 
 export const fileDownloadBatchExportsCreateBodyThreeFileFormatDefault = `Parquet`
+export const fileDownloadBatchExportsCreateBodyThreeFileMaxSizeMbDefault = 1024
 export const fileDownloadBatchExportsCreateBodyThreeFileMaxSizeMbMin = 0
 
 export const fileDownloadBatchExportsCreateBodyFourFileFormatDefault = `Parquet`
+export const fileDownloadBatchExportsCreateBodyFourFileMaxSizeMbDefault = 1024
 export const fileDownloadBatchExportsCreateBodyFourFileMaxSizeMbMin = 0
 
 export const FileDownloadBatchExportsCreateBody = /* @__PURE__ */ zod.union([
@@ -3418,7 +3419,10 @@ export const FileDownloadBatchExportsCreateBody = /* @__PURE__ */ zod.union([
                         .number()
                         .min(fileDownloadBatchExportsCreateBodyOneFileMaxSizeMbMin)
                         .nullish()
-                        .describe('Split download into multiple files of at most this size in MB'),
+                        .default(fileDownloadBatchExportsCreateBodyOneFileMaxSizeMbDefault)
+                        .describe(
+                            'Split the download into files of about this size in MiB. A file can go a little over. Set it to null or 0 to write a single file of any size.'
+                        ),
                 })
                 .describe('Typed configuration for a FileDownload batch-export destination.'),
             model: zod.enum(['events']),
@@ -3454,7 +3458,10 @@ export const FileDownloadBatchExportsCreateBody = /* @__PURE__ */ zod.union([
                         .number()
                         .min(fileDownloadBatchExportsCreateBodyTwoFileMaxSizeMbMin)
                         .nullish()
-                        .describe('Split download into multiple files of at most this size in MB'),
+                        .default(fileDownloadBatchExportsCreateBodyTwoFileMaxSizeMbDefault)
+                        .describe(
+                            'Split the download into files of about this size in MiB. A file can go a little over. Set it to null or 0 to write a single file of any size.'
+                        ),
                 })
                 .describe('Typed configuration for a FileDownload batch-export destination.'),
             model: zod.enum(['persons']),
@@ -3488,7 +3495,10 @@ export const FileDownloadBatchExportsCreateBody = /* @__PURE__ */ zod.union([
                         .number()
                         .min(fileDownloadBatchExportsCreateBodyThreeFileMaxSizeMbMin)
                         .nullish()
-                        .describe('Split download into multiple files of at most this size in MB'),
+                        .default(fileDownloadBatchExportsCreateBodyThreeFileMaxSizeMbDefault)
+                        .describe(
+                            'Split the download into files of about this size in MiB. A file can go a little over. Set it to null or 0 to write a single file of any size.'
+                        ),
                 })
                 .describe('Typed configuration for a FileDownload batch-export destination.'),
             model: zod.enum(['sessions']),
@@ -3522,7 +3532,10 @@ export const FileDownloadBatchExportsCreateBody = /* @__PURE__ */ zod.union([
                         .number()
                         .min(fileDownloadBatchExportsCreateBodyFourFileMaxSizeMbMin)
                         .nullish()
-                        .describe('Split download into multiple files of at most this size in MB'),
+                        .default(fileDownloadBatchExportsCreateBodyFourFileMaxSizeMbDefault)
+                        .describe(
+                            'Split the download into files of about this size in MiB. A file can go a little over. Set it to null or 0 to write a single file of any size.'
+                        ),
                 })
                 .describe('Typed configuration for a FileDownload batch-export destination.'),
             model: zod.enum(['hogql']),
@@ -3539,6 +3552,7 @@ export const FileDownloadBatchExportsCreateBody = /* @__PURE__ */ zod.union([
  * Cancel an ongoing file-download batch export.
  */
 export const fileDownloadBatchExportsCancelCreateBodyFileFormatDefault = `Parquet`
+export const fileDownloadBatchExportsCancelCreateBodyFileMaxSizeMbDefault = 1024
 export const fileDownloadBatchExportsCancelCreateBodyFileMaxSizeMbMin = 0
 
 export const FileDownloadBatchExportsCancelCreateBody = /* @__PURE__ */ zod
@@ -3567,7 +3581,10 @@ export const FileDownloadBatchExportsCancelCreateBody = /* @__PURE__ */ zod
                     .number()
                     .min(fileDownloadBatchExportsCancelCreateBodyFileMaxSizeMbMin)
                     .nullish()
-                    .describe('Split download into multiple files of at most this size in MB'),
+                    .default(fileDownloadBatchExportsCancelCreateBodyFileMaxSizeMbDefault)
+                    .describe(
+                        'Split the download into files of about this size in MiB. A file can go a little over. Set it to null or 0 to write a single file of any size.'
+                    ),
             })
             .describe('Typed configuration for a FileDownload batch-export destination.'),
         model: zod
