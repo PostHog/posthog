@@ -137,10 +137,6 @@ posthog/hogql_queries/ai/test/test_utils.py::TestMergeHeavyProperties
 posthog/hogql_queries/endpoints/test/test_endpoints_usage_query_runners.py::TestSafeFloat
 posthog/hogql_queries/legacy_compatibility/test/test_clean_properties.py::TestCleanEntityProperties
 posthog/hogql_queries/legacy_compatibility/test/test_clean_properties.py::TestCleanGlobalProperties
-posthog/hogql_queries/legacy_compatibility/test/test_filter_to_query.py::TestDashboardTemplateConversion
-posthog/hogql_queries/legacy_compatibility/test/test_filter_to_query.py::TestFilterToQuery
-posthog/hogql_queries/legacy_compatibility/test/test_filter_to_query.py::TestHiddenLegendKeysToBreakdowns
-posthog/hogql_queries/legacy_compatibility/test/test_filter_to_query.py::TestHiddenLegendKeysToIndexes
 posthog/hogql_queries/utils/test/test_formula_ast.py::TestFormulaAST
 posthog/hogql_queries/utils/test/test_sampling.py::TestQueriesUtil
 posthog/kafka_client/test/test_client.py::KafkaClientRoundtripTestCase
