@@ -568,6 +568,34 @@ def test_pull_request_fan_out_resumes_past_already_synced_pull_requests():
     assert [row["id"] for batch in batches for row in batch] == [502, 503]
 
 
+def test_pipeline_steps_drop_the_private_registry_password():
+    # A step pulling from a private registry carries the registry password in `image`;
+    # syncing it would hand the credential to anyone with warehouse query access
+    session = _session_returning(
+        _response({"values": [REPO_PAGE["values"][0]]}),
+        _response({"values": [{"uuid": "{p1}", "created_on": "2024-07-01T00:00:00Z"}], "page": 1}),
+        _response(
+            {
+                "values": [
+                    {"uuid": "{s1}", "image": {"name": "acme/build", "username": "ci", "password": "hunter2"}},
+                    {"uuid": "{s2}", "image": {"name": "python:3.12"}},
+                    {"uuid": "{s3}"},
+                ]
+            }
+        ),
+    )
+
+    with mock.patch.object(bitbucket, "_make_session", return_value=session):
+        batches = list(get_rows(BitbucketAuth(), "ws", "pipeline_steps", mock.Mock(), _manager()))
+
+    rows = [row for batch in batches for row in batch]
+    assert [row.get("image") for row in rows] == [
+        {"name": "acme/build", "username": "ci"},
+        {"name": "python:3.12"},
+        None,
+    ]
+
+
 def test_pull_request_comments_drops_unpublished_drafts():
     # `pending` comments are the connector identity's own unpublished drafts; the API has no
     # server-side filter for them, so syncing them would expose one person's drafts

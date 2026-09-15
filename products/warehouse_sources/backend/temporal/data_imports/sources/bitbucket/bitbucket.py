@@ -263,8 +263,19 @@ def _normalize_comment_row(row: dict[str, Any]) -> dict[str, Any]:
     return {**row, "pull_request_id": pull_request.get("id"), "user_uuid": user.get("uuid")}
 
 
+def _normalize_pipeline_step_row(row: dict[str, Any]) -> dict[str, Any]:
+    # A step that pulls its build container from a private registry carries the registry
+    # password in `image`. Persisting it would hand the credential to everyone with
+    # warehouse query access, including people with no access to the repository.
+    image = row.get("image")
+    if not isinstance(image, dict) or "password" not in image:
+        return row
+    return {**row, "image": {key: value for key, value in image.items() if key != "password"}}
+
+
 _ROW_MAPPERS: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
     "workspace_members": _normalize_member_row,
+    "pipeline_steps": _normalize_pipeline_step_row,
     "pull_request_activity": _normalize_activity_row,
     "pull_request_comments": _normalize_comment_row,
 }
