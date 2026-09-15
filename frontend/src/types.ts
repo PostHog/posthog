@@ -6163,6 +6163,7 @@ export enum ActivityScope {
     EVENT_DEFINITION = 'EventDefinition',
     PROPERTY_DEFINITION = 'PropertyDefinition',
     NOTEBOOK = 'Notebook',
+    GENERATED_WIDGET = 'GeneratedWidget',
     CANVAS = 'Canvas',
     DASHBOARD = 'Dashboard',
     REPLAY = 'Replay',

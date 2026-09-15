@@ -54944,7 +54944,7 @@ export namespace Schemas {
       allowed_cpu_cores: number[];
       /** Memory sizes in GB the kernel config endpoint accepts. */
       allowed_memory_gb: number[];
-      /** Idle timeouts in seconds the kernel config endpoint accepts. */
+      /** Maximum sandbox lifetimes in seconds that the kernel config endpoint accepts. */
       allowed_idle_timeout_seconds: number[];
     }
 
@@ -54953,7 +54953,7 @@ export namespace Schemas {
       cpu_cores?: number;
       /** Memory in GB for the notebook's sandbox kernel; must be a supported option. */
       memory_gb?: number;
-      /** Seconds of inactivity before the sandbox kernel shuts down. */
+      /** Maximum lifetime of the sandbox kernel in seconds. It shuts down this long after it starts, even while in use. A running kernel keeps its current lifetime until it restarts. */
       idle_timeout_seconds?: number;
     }
 
@@ -54969,7 +54969,7 @@ export namespace Schemas {
          */
       memory_gb?: number | null;
       /**
-         * Configured idle timeout in seconds; null means the default.
+         * Configured maximum sandbox lifetime in seconds; null means the default.
          * @nullable
          */
       idle_timeout_seconds?: number | null;
@@ -55000,7 +55000,7 @@ export namespace Schemas {
          */
       memory_gb?: number | null;
       /**
-         * Seconds of inactivity before the sandbox shuts down.
+         * Maximum lifetime of the sandbox in seconds. It shuts down this long after it starts, even while in use.
          * @nullable
          */
       idle_timeout_seconds?: number | null;
@@ -55072,7 +55072,7 @@ export namespace Schemas {
          */
       disk_size_gb?: number | null;
       /**
-         * Seconds of inactivity before the sandbox shuts down.
+         * Maximum lifetime of the sandbox in seconds. It shuts down this long after it starts, even while in use.
          * @nullable
          */
       idle_timeout_seconds?: number | null;
@@ -55986,20 +55986,6 @@ export namespace Schemas {
          */
       p50_seconds: number | null;
     }
-
-    /**
-     * * `quarantine` - QUARANTINE
-     * * `extend` - EXTEND
-     * * `remove` - REMOVE
-     */
-    export type OperationEnum = typeof OperationEnum[keyof typeof OperationEnum];
-
-
-    export const OperationEnum = {
-      Quarantine: 'quarantine',
-      Extend: 'extend',
-      Remove: 'remove',
-    } as const;
 
     /**
      * * `latest` - latest
@@ -74847,6 +74833,18 @@ export namespace Schemas {
     }
 
     /**
+     * * `published` - published
+     * * `deprecated` - deprecated
+     */
+    export type PublicationStatusEnum = typeof PublicationStatusEnum[keyof typeof PublicationStatusEnum];
+
+
+    export const PublicationStatusEnum = {
+      Published: 'published',
+      Deprecated: 'deprecated',
+    } as const;
+
+    /**
      * One CI check on a pull request's head commit — a GitHub Actions check run or a legacy commit
      * status, normalized to a common shape.
      */
@@ -75301,6 +75299,20 @@ export namespace Schemas {
     }
 
     /**
+     * * `quarantine` - QUARANTINE
+     * * `extend` - EXTEND
+     * * `remove` - REMOVE
+     */
+    export type QuarantineRequestOperationEnum = typeof QuarantineRequestOperationEnum[keyof typeof QuarantineRequestOperationEnum];
+
+
+    export const QuarantineRequestOperationEnum = {
+      Quarantine: 'quarantine',
+      Extend: 'extend',
+      Remove: 'remove',
+    } as const;
+
+    /**
      * * `pytest` - PYTEST
      * * `jest` - JEST
      * * `playwright` - PLAYWRIGHT
@@ -75320,7 +75332,7 @@ export namespace Schemas {
        * * `quarantine` - QUARANTINE
        * * `extend` - EXTEND
        * * `remove` - REMOVE */
-      operation: OperationEnum;
+      operation: QuarantineRequestOperationEnum;
       /** Test selector to act on: an exact test id, a file, a directory, a class prefix, or 'product:<dashed-name>'. */
       selector: string;
       /** Test runner the selector targets: 'pytest', 'jest', or 'playwright'. Existing entries and Jest file extensions are inferred for older clients that omit it; other selectors default to 'pytest'.
@@ -79416,6 +79428,265 @@ export namespace Schemas {
     export interface RetryResponse {
       /** Temporal workflow id for the re-run. The retried observation row is deleted; look up its replacement via GET /vision/scanners/{id}/observations/?session_id=<session_id>. */
       workflow_id: string;
+    }
+
+    /**
+     * Notebook-local input mappings keyed by contract slot. Each value names a source dataframe and may include pure Hog source for reshaping its rows.
+     */
+    export type ReusableWidgetAttachRequestInputBindings = {[key: string]: {
+      source: string;
+      hog?: string;
+    }};
+
+    export interface ReusableWidgetAttachRequest {
+      /** Reusable widget to place in this notebook node. */
+      widget_id: string;
+      /**
+         * Version to pin, or null to follow the reusable widget's latest version.
+         * @nullable
+         */
+      version_id?: string | null;
+      /** Notebook-local input mappings keyed by contract slot. Each value names a source dataframe and may include pure Hog source for reshaping its rows. */
+      input_bindings?: ReusableWidgetAttachRequestInputBindings;
+    }
+
+    export interface ReusableWidgetDemoDataRequest {
+      /** Current or draft version whose demo data should be edited. */
+      version_id: string;
+      /**
+         * Logical input slot whose saved rows should be replaced.
+         * @maxLength 200
+         */
+      frame_name: string;
+      /**
+         * Saved demo rows in input-contract column order. Replaces this slot's entire sample, up to 20 rows.
+         * @maxItems 20
+         */
+      rows: unknown[][];
+    }
+
+    export interface WidgetInputContractColumn {
+      /** Column name expected by the reusable widget. */
+      name: string;
+      /** Column type expected by the reusable widget. */
+      type: string;
+    }
+
+    export interface WidgetInputContractItem {
+      /** Stable logical input name used by the reusable widget. */
+      slot: string;
+      /** Original dataframe name when the widget was published. */
+      sourceName: string;
+      /** Columns the notebook-local binding must produce after its optional Hog mapping. */
+      columns?: WidgetInputContractColumn[];
+      /** Hash of the expected column schema. */
+      schemaHash: string;
+    }
+
+    export interface WidgetSecurityFinding {
+      /** Severity of this potential security issue.
+       *
+       * * `low` - low
+       * * `medium` - medium
+       * * `high` - high
+       * * `critical` - critical */
+      severity: ErrorTrackingIssueSeverityRuleEnum;
+      /** Short description of the potential security issue. */
+      title: string;
+      /** Why the source may be unsafe and what it could do. */
+      details: string;
+    }
+
+    export interface WidgetSecurityReview {
+      /** Highest severity found, or none when the review found no issues.
+       *
+       * * `none` - none
+       * * `low` - low
+       * * `medium` - medium
+       * * `high` - high
+       * * `critical` - critical */
+      severity: GeneratedWidgetVersionSecurityReviewSeverityEnum;
+      /** Concise result from the automated security review. */
+      summary: string;
+      /** Potential security issues found in the source. */
+      findings: WidgetSecurityFinding[];
+      /** Fast AI model used for the security review. */
+      model: string;
+      /** Version of the security review instructions and parser. */
+      review_version: string;
+      /** When this exact widget source was reviewed. */
+      reviewed_at: string;
+    }
+
+    export interface ReusableWidgetVersionDetail {
+      /** Immutable widget version identifier. */
+      id: string;
+      /** Title stored with this version. */
+      title: string;
+      /** One-based version number. */
+      version: number;
+      /** Action that created this version.
+       *
+       * * `initial` - initial
+       * * `regenerate` - regenerate
+       * * `improve` - improve
+       * * `revert` - revert */
+      operation: GeneratedWidgetVersionOperationEnum;
+      /**
+         * AI model that created this version, or null when none was recorded.
+         * @nullable
+         */
+      model: string | null;
+      /**
+         * Short-lived URL for the current widget preview.
+         * @nullable
+         */
+      artifact_url: string | null;
+      /** Preview build state.
+       *
+       * * `queued` - queued
+       * * `building` - building
+       * * `ready` - ready
+       * * `failed` - failed */
+      build_status: BuildStatusEnum | null;
+      /**
+         * SHA-256 integrity hash for the immutable preview artifact.
+         * @nullable
+         */
+      build_hash: string | null;
+      /** Logical dataframe slots accepted by this widget version. */
+      frame_names: string[];
+      /** Dataframe slots and schemas expected by this widget version. */
+      input_contract: WidgetInputContractItem[];
+      /** Automated source review for this version, if available. */
+      security_review: WidgetSecurityReview | null;
+      /** Whether this version has saved demo data. */
+      has_demo_data: boolean;
+      /** When this immutable version was created. */
+      created_at: string;
+    }
+
+    export interface ReusableWidgetDetail {
+      /** Stable reusable widget identifier. */
+      id: string;
+      /** Catalog name of the reusable widget. */
+      name: string;
+      /** Description of the reusable widget. */
+      description: string;
+      /** Searchable widget labels. */
+      tags: string[];
+      /** Catalog lifecycle of the reusable widget.
+       *
+       * * `published` - published
+       * * `deprecated` - deprecated */
+      publication_status: PublicationStatusEnum;
+      /** Current reusable widget version. */
+      current_version: ReusableWidgetVersionDetail;
+      /** Generated draft waiting for manual review, or null when no review is pending. */
+      pending_version: ReusableWidgetVersionDetail | null;
+      /** Number of immutable versions in this widget's history. */
+      version_count: number;
+      /** Number of notebook placements using this widget. */
+      instance_count: number;
+      /** When the widget identity was created. */
+      created_at: string;
+      /** When the widget became reusable. */
+      published_at: string;
+      /** When the reusable widget was last changed. */
+      updated_at: string;
+    }
+
+    export interface ReusableWidgetForkRequest {
+      /**
+         * Immutable version to fork, or null to copy the placement's pinned or latest version.
+         * @nullable
+         */
+      version_id?: string | null;
+    }
+
+    export interface ReusableWidgetSummary {
+      /** Stable reusable widget identifier. */
+      id: string;
+      /** Catalog name of the reusable widget. */
+      name: string;
+      /** Description of the reusable widget. */
+      description: string;
+      /** Searchable widget labels. */
+      tags: string[];
+      /** Catalog lifecycle of the reusable widget.
+       *
+       * * `published` - published
+       * * `deprecated` - deprecated */
+      publication_status: PublicationStatusEnum;
+      /** Current immutable version used by unpinned instances. */
+      current_version_id: string;
+      /** Number of immutable versions in this widget's history. */
+      version_count: number;
+      /** Number of notebook placements using this widget. */
+      instance_count: number;
+      /** When the widget identity was created. */
+      created_at: string;
+      /** When the widget became reusable. */
+      published_at: string;
+      /** When the reusable widget was last changed. */
+      updated_at: string;
+    }
+
+    export interface ReusableWidgetPage {
+      /** Reusable widgets in this page. */
+      results: ReusableWidgetSummary[];
+      /** Total reusable widgets matching the search. */
+      count: number;
+      /**
+         * Offset for the next page, or null when this is the final page.
+         * @nullable
+         */
+      next_offset: number | null;
+    }
+
+    export interface ReusableWidgetPublishRequest {
+      /**
+         * Name shown in the reusable widget catalog.
+         * @maxLength 400
+         */
+      name: string;
+      /**
+         * Short explanation of what the reusable widget shows and when to use it.
+         * @maxLength 2000
+         */
+      description?: string;
+      /**
+         * Searchable labels attached to the reusable widget.
+         * @maxItems 10
+         * @items.maxLength 50
+         */
+      tags?: string[];
+    }
+
+    export interface ReusableWidgetRestoreRequest {
+      /** Published version to copy into a new latest version. */
+      version_id: string;
+      /** Latest version observed before restoring. */
+      expected_current_version_id: string;
+    }
+
+    export interface ReusableWidgetReviewRequest {
+      /** Draft version being reviewed. */
+      pending_version_id: string;
+      /** Published version observed when the review action started. */
+      expected_current_version_id: string;
+    }
+
+    export interface ReusableWidgetVersionPage {
+      /** Published versions, newest first. */
+      results: ReusableWidgetVersionDetail[];
+      /** Total number of published versions. */
+      count: number;
+      /**
+         * Next page offset, or null on the final page.
+         * @nullable
+         */
+      next_offset: number | null;
     }
 
     export interface ReviewBlindSpotsConfig {
@@ -92257,6 +92528,14 @@ export namespace Schemas {
       started_at: string | null;
     }
 
+    export interface WidgetPinRequest {
+      /**
+         * Immutable version to pin, or null to follow the reusable widget's latest version.
+         * @nullable
+         */
+      version_id: string | null;
+    }
+
     export interface WidgetRevertRequest {
       /** Earlier version to restore as a new version. */
       version_id: string;
@@ -92264,45 +92543,18 @@ export namespace Schemas {
       expected_current_version_id: string;
     }
 
-    export interface WidgetSecurityFinding {
-      /** Severity of this potential security issue.
-       *
-       * * `low` - low
-       * * `medium` - medium
-       * * `high` - high
-       * * `critical` - critical */
-      severity: ErrorTrackingIssueSeverityRuleEnum;
-      /** Short description of the potential security issue. */
-      title: string;
-      /** Why the source may be unsafe and what it could do. */
-      details: string;
-    }
-
-    export interface WidgetSecurityReview {
-      /** Highest severity found, or none when the review found no issues.
-       *
-       * * `none` - none
-       * * `low` - low
-       * * `medium` - medium
-       * * `high` - high
-       * * `critical` - critical */
-      severity: GeneratedWidgetVersionSecurityReviewSeverityEnum;
-      /** Concise result from the automated security review. */
-      summary: string;
-      /** Potential security issues found in the source. */
-      findings: WidgetSecurityFinding[];
-      /** Fast AI model used for the security review. */
-      model: string;
-      /** Version of the security review instructions and parser. */
-      review_version: string;
-      /** When this exact widget source was reviewed. */
-      reviewed_at: string;
-    }
-
     export interface WidgetSource {
       /** Read-only source code for the current widget version. */
       source: string;
     }
+
+    /**
+     * Notebook-local mapping from each logical widget input slot to a dataframe and optional Hog transform.
+     */
+    export type WidgetStatusInputBindings = {[key: string]: {
+      source: string;
+      hog?: string;
+    }};
 
     export interface WidgetStatus {
       /** Current widget and preview state.
@@ -92338,11 +92590,20 @@ export namespace Schemas {
       artifact_url?: string | null;
       /** Logical dataframe slots available to the selected version. */
       frame_names: string[];
+      /** Notebook-local mapping from each logical widget input slot to a dataframe and optional Hog transform. */
+      input_bindings: WidgetStatusInputBindings;
+      /** Logical dataframe slots and output schemas required by the selected widget version. */
+      input_contract: WidgetInputContractItem[];
       /**
          * Selected immutable widget version.
          * @nullable
          */
       current_version_id: string | null;
+      /**
+         * Version explicitly pinned for this notebook placement, or null when it follows the latest version.
+         * @nullable
+         */
+      pinned_version_id: string | null;
       /**
          * Reusable widget identity.
          * @nullable
@@ -92359,6 +92620,8 @@ export namespace Schemas {
       active_job: WidgetJob | null;
       /** Automated review for the selected source, or null for a legacy unreviewed version. */
       security_review: WidgetSecurityReview | null;
+      /** Whether this widget identity is published in the reusable widget catalog. */
+      is_reusable: boolean;
       /**
          * Hex SHA-256 over the exact immutable artifact manifest selected for display.
          * @nullable
@@ -96332,6 +96595,7 @@ export namespace Schemas {
      * * `EventDefinition` - EventDefinition
      * * `PropertyDefinition` - PropertyDefinition
      * * `Notebook` - Notebook
+     * * `GeneratedWidget` - GeneratedWidget
      * * `Canvas` - Canvas
      * * `Endpoint` - Endpoint
      * * `EndpointVersion` - EndpointVersion
@@ -96431,6 +96695,7 @@ export namespace Schemas {
       EventDefinition: 'EventDefinition',
       PropertyDefinition: 'PropertyDefinition',
       Notebook: 'Notebook',
+      GeneratedWidget: 'GeneratedWidget',
       Canvas: 'Canvas',
       Endpoint: 'Endpoint',
       EndpointVersion: 'EndpointVersion',
@@ -96516,6 +96781,7 @@ export namespace Schemas {
      * * `EventDefinition` - EventDefinition
      * * `PropertyDefinition` - PropertyDefinition
      * * `Notebook` - Notebook
+     * * `GeneratedWidget` - GeneratedWidget
      * * `Canvas` - Canvas
      * * `Endpoint` - Endpoint
      * * `EndpointVersion` - EndpointVersion
@@ -96603,6 +96869,7 @@ export namespace Schemas {
       EventDefinition: 'EventDefinition',
       PropertyDefinition: 'PropertyDefinition',
       Notebook: 'Notebook',
+      GeneratedWidget: 'GeneratedWidget',
       Canvas: 'Canvas',
       Endpoint: 'Endpoint',
       EndpointVersion: 'EndpointVersion',
@@ -103641,6 +103908,40 @@ export namespace Schemas {
      * @maxLength 255
      */
     value?: string;
+    };
+
+    export type ReusableWidgetsListParams = {
+    limit?: number;
+    offset?: number;
+    search?: string;
+    };
+
+    export type ReusableWidgetsDemoFrameParams = {
+    /**
+     * Immutable version whose saved demo data should be returned.
+     */
+    version_id?: string;
+    };
+
+    export type ReusableWidgetsSourceParams = {
+    /**
+     * Immutable reusable widget version whose source should be returned.
+     */
+    version_id?: string;
+    };
+
+    export type ReusableWidgetsVersionsParams = {
+    /**
+     * Maximum versions to return.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number;
+    /**
+     * Zero-based version offset.
+     * @minimum 0
+     */
+    offset?: number;
     };
 
     export type NotebooksListParams = {
