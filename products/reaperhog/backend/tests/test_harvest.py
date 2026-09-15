@@ -89,6 +89,17 @@ def test_select_harvest_honors_budget_and_size(open_count, max_prs, expected_roo
     assert (selection.skipped_budget, selection.skipped_size) == (skipped_budget, skipped_size)
 
 
+def test_select_harvest_defers_a_candidate_that_touches_an_open_pull_request():
+    candidate = _candidate("strong")
+
+    selection = select_harvest(
+        [candidate], open_count=1, max_prs=3, open_paths=frozenset(candidate.verdict.files_to_delete)
+    )
+
+    assert selection.selected == ()
+    assert selection.skipped_conflict == 1
+
+
 def test_pr_body_carries_the_evidence_and_the_archive_checklist():
     body = render_pr_body(_candidate("hero-copy"))
 
@@ -280,7 +291,7 @@ class TestSyncHarvest:
             patch(f"{_MODULE}.pull_request_state") as state,
         ):
             state.return_value = PullRequestState(number=7, state="open")
-            sync_harvest(team_id=team.id, repository="o/r", scope="flags")
+            sync_harvest(team_id=team.id, repository="o/r")
 
         cluster = ReaperCluster.objects.get(inventory=inventory, root="a")
         assert (cluster.status, cluster.pr_number) == (expected_status, expected_number)
@@ -300,6 +311,6 @@ class TestSyncHarvest:
             patch(f"{_MODULE}.tasks_facade.get_latest_pr_url_by_task", return_value={}),
             patch(f"{_MODULE}.pull_request_state", return_value=PullRequestState(number=7, state=state)),
         ):
-            sync_harvest(team_id=team.id, repository="o/r", scope="flags")
+            sync_harvest(team_id=team.id, repository="o/r")
 
         assert ReaperCluster.objects.get(inventory=inventory, root="a").status == expected
