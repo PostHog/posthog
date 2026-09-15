@@ -124,6 +124,11 @@ pub struct HypercacheFlagsWrapper {
 pub struct Holdout {
     pub id: i64,
     pub exclusion_percentage: f64,
+    /// Captures unknown JSONB keys so they survive the cache round-trip unchanged.
+    /// See `FlagPropertyGroup.extra` for why a dropped key makes the Python
+    /// `verify_flags_cache` verifier report a spurious `FIELD_MISMATCH`.
+    #[serde(flatten)]
+    pub extra: serde_json::Map<String, serde_json::Value>,
 }
 
 impl Holdout {
@@ -178,11 +183,22 @@ pub struct MultivariateFlagVariant {
     pub key: String,
     pub name: Option<String>,
     pub rollout_percentage: f64,
+    /// Captures unknown JSONB keys, such as the `payload` and `split_percent` keys
+    /// seen in production, so they survive the cache round-trip unchanged. See
+    /// `FlagPropertyGroup.extra` for why a dropped key makes the Python
+    /// `verify_flags_cache` verifier report a spurious `FIELD_MISMATCH`.
+    #[serde(flatten)]
+    pub extra: serde_json::Map<String, serde_json::Value>,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct MultivariateFlagOptions {
     pub variants: Vec<MultivariateFlagVariant>,
+    /// Captures unknown JSONB keys so they survive the cache round-trip unchanged.
+    /// See `FlagPropertyGroup.extra` for why a dropped key makes the Python
+    /// `verify_flags_cache` verifier report a spurious `FIELD_MISMATCH`.
+    #[serde(flatten)]
+    pub extra: serde_json::Map<String, serde_json::Value>,
 }
 
 // Runtime Python mirror: products/feature_flags/backend/api/filters_schema.py validates
@@ -609,6 +625,7 @@ mod mock_impls {
                         ..Default::default()
                     },
                 ],
+                ..Default::default()
             }
         }
     }
@@ -639,7 +656,8 @@ mod mock_impls {
 mod unknown_key_passthrough_tests {
     //! Verify that unknown JSONB keys round-trip through deserialize/serialize
     //! unchanged via the `extra` field on `FlagFilters`, `FlagPropertyGroup`,
-    //! and `PropertyFilter`.
+    //! `PropertyFilter`, `MultivariateFlagOptions`, `MultivariateFlagVariant`,
+    //! and `Holdout`.
     //!
     //! Without this passthrough, the Python `verify_flags_cache` verifier reports
     //! spurious `FIELD_MISMATCH` against the Django JSONB passthrough because Rust
@@ -707,6 +725,57 @@ mod unknown_key_passthrough_tests {
             serde_json::to_value(&property).expect("PropertyFilter should serialize cleanly");
 
         assert_eq!(output["cohort_name"], "QA users");
+    }
+
+    #[test]
+    fn multivariate_flag_variant_preserves_unknown_keys() {
+        let input = serde_json::json!({
+            "key": "control",
+            "name": "Control",
+            "rollout_percentage": 50,
+            "payload": {"color": "blue"},
+            "split_percent": 25
+        });
+
+        let variant: MultivariateFlagVariant = serde_json::from_value(input)
+            .expect("MultivariateFlagVariant should deserialize cleanly with flatten extra");
+        let output = serde_json::to_value(&variant)
+            .expect("MultivariateFlagVariant should serialize cleanly");
+
+        assert_eq!(output["payload"], serde_json::json!({"color": "blue"}));
+        assert_eq!(output["split_percent"], 25);
+    }
+
+    #[test]
+    fn multivariate_flag_options_preserves_unknown_keys() {
+        let input = serde_json::json!({
+            "variants": [{"key": "control", "name": "Control", "rollout_percentage": 100}],
+            "payload": {"control": "blue"}
+        });
+
+        let options: MultivariateFlagOptions = serde_json::from_value(input)
+            .expect("MultivariateFlagOptions should deserialize cleanly with flatten extra");
+        let output = serde_json::to_value(&options)
+            .expect("MultivariateFlagOptions should serialize cleanly");
+
+        assert_eq!(output["payload"], serde_json::json!({"control": "blue"}));
+        assert_eq!(output["variants"][0]["key"], "control");
+    }
+
+    #[test]
+    fn holdout_preserves_unknown_keys() {
+        let input = serde_json::json!({
+            "id": 42,
+            "exclusion_percentage": 10,
+            "split_percent": 5
+        });
+
+        let holdout: Holdout = serde_json::from_value(input)
+            .expect("Holdout should deserialize cleanly with flatten extra");
+        let output = serde_json::to_value(&holdout).expect("Holdout should serialize cleanly");
+
+        assert_eq!(output["split_percent"], 5);
+        assert_eq!(output["id"], 42);
     }
 
     #[test]
