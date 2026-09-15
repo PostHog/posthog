@@ -230,6 +230,35 @@ describe("ToolCallBlock routing", () => {
     expect(screen.getByText(/Authentication failed/)).toBeInTheDocument();
   });
 
+  it("uses present tense while subagent details report running work", () => {
+    renderBlock({
+      toolCallId: "tc-running-subagents-after-turn",
+      title: "subagent",
+      kind: "other",
+      status: "in_progress",
+      details: {
+        mode: "parallel",
+        results: [
+          {
+            runId: "run-1",
+            agent: "General",
+            task: "Inspect the API routes",
+            state: "running",
+          },
+          {
+            runId: "run-2",
+            agent: "General",
+            task: "Review the interface states",
+            state: "running",
+          },
+        ],
+      },
+    });
+
+    expect(screen.getByText("Running 2 subagents")).toBeInTheDocument();
+    expect(screen.queryByText(/Ran 2 subagents/)).toBeNull();
+  });
+
   it("summarizes a completed workflow while its details are collapsed", () => {
     renderBlock({
       toolCallId: "tc-completed-workflow",
