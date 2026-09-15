@@ -58,6 +58,50 @@ describe("buildApiFetcher", () => {
     );
   });
 
+  it("records one logical request with its final response", async () => {
+    const record = vi.fn();
+    const onRequestStart = vi.fn(() => record);
+    mockFetch.mockResolvedValueOnce(ok());
+
+    const fetcher = buildApiFetcher({
+      getAccessToken: vi.fn().mockResolvedValue("token"),
+      refreshAccessToken: vi.fn().mockResolvedValue("new-token"),
+      appVersion: "test",
+      onRequestStart,
+    });
+
+    await fetcher.fetch(mockInput);
+
+    expect(onRequestStart).toHaveBeenCalledWith({
+      method: "GET",
+      path: "/test",
+    });
+    expect(record).toHaveBeenCalledWith({
+      durationMs: expect.any(Number),
+      outcome: "success",
+      status: 200,
+    });
+  });
+
+  it("records an HTTP error response", async () => {
+    const record = vi.fn();
+    mockFetch.mockResolvedValueOnce(err(404));
+    const fetcher = buildApiFetcher({
+      getAccessToken: vi.fn().mockResolvedValue("token"),
+      refreshAccessToken: vi.fn().mockResolvedValue("new-token"),
+      appVersion: "test",
+      onRequestStart: () => record,
+    });
+
+    await expect(fetcher.fetch(mockInput)).rejects.toThrow("[404]");
+
+    expect(record).toHaveBeenCalledWith({
+      durationMs: expect.any(Number),
+      outcome: "http_error",
+      status: 404,
+    });
+  });
+
   it("uses an injected fetch implementation and custom user agent", async () => {
     const injectedFetch = vi.fn().mockResolvedValueOnce(ok());
     const fetcher = buildApiFetcher({

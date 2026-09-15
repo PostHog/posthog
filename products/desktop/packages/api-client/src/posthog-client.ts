@@ -110,10 +110,18 @@ import {
 } from "./evidence-previews";
 import {
   ApiRequestError,
+  type ApiRequestMetricRecorder,
+  type ApiRequestMetricRequest,
   buildApiFetcher,
   type FetchImplementation,
   requestErrorStatus,
 } from "./fetcher";
+
+export type {
+  ApiRequestMetricRecorder,
+  ApiRequestMetricRequest,
+} from "./fetcher";
+
 import { type ResolvedPerson, targetedDistinctIds } from "./flag-audience";
 import { createApiClient, type Schemas } from "./generated";
 import type {
@@ -180,6 +188,9 @@ export interface PostHogAPIClientOptions {
   appVersion?: string;
   userAgent?: string | null;
   githubConnectFrom?: string;
+  onRequestStart?: (
+    request: ApiRequestMetricRequest,
+  ) => ApiRequestMetricRecorder | undefined;
 }
 
 export function getPosthogApiClientAppVersion(): string {
@@ -1914,6 +1925,7 @@ export class PostHogAPIClient {
         appVersion: options.appVersion ?? clientAppVersion,
         fetch: options.fetch,
         userAgent: options.userAgent,
+        onRequestStart: options.onRequestStart,
       }),
       baseUrl,
     );

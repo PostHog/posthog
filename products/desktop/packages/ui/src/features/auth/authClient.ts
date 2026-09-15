@@ -3,6 +3,7 @@ import type { AuthState } from "@posthog/core/auth/schemas";
 import type { HostTrpcClient } from "@posthog/host-router/client";
 import { useHostTRPCClient } from "@posthog/host-router/react";
 import { getCloudUrlFromRegion, NotAuthenticatedError } from "@posthog/shared";
+import { recordApiRequestStart } from "@posthog/ui/shell/apiRequestMetrics";
 import { useMemo } from "react";
 import { useAuthStateValue } from "./store";
 
@@ -20,6 +21,7 @@ export function createAuthenticatedClient(
     getValidAccessToken,
     refreshAccessToken,
     authState.currentProjectId ?? undefined,
+    { onRequestStart: recordApiRequestStart },
   );
 
   if (authState.currentProjectId) {
