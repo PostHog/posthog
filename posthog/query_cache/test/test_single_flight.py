@@ -100,7 +100,9 @@ class TestQuerySingleFlight(SimpleTestCase):
         failure = SharedFailure(message="Memory limit (for query) exceeded", code=241)
         leader.release(failure=failure)
 
-        assert QuerySingleFlight(key).wait(timeout_seconds=1) == FlightWait(outcome="failed", failure=failure)
+        assert QuerySingleFlight(key).wait(timeout_seconds=1) == FlightWait(
+            outcome="failed", failure=failure, leader_budget=BUDGET_INTERACTIVE
+        )
         assert QuerySingleFlight(key).acquire(budget=BUDGET_INTERACTIVE) is True  # the failure does not hold the lock
 
     def test_followers_can_read_the_leaders_budget(self):
@@ -131,7 +133,7 @@ class TestQuerySingleFlight(SimpleTestCase):
         flight = QuerySingleFlight(_cache_key())
         with mock.patch.object(single_flight.storage, "query_cache_raw_client", side_effect=RuntimeError("redis down")):
             assert flight.acquire(budget=BUDGET_INTERACTIVE) is True  # act alone rather than block the query
-            assert flight.extend() is False
+            assert flight.extend() is None  # ownership unknown, so the heartbeat keeps trying
             assert flight.leader_budget() is None
             assert flight.wait(timeout_seconds=1) == FlightWait(outcome="released")  # run it yourself
             flight.release(last_refresh=datetime(2026, 1, 1, tzinfo=UTC))  # swallowed

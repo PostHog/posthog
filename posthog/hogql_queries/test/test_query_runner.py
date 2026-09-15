@@ -1997,7 +1997,9 @@ class TestQuerySingleFlightRunner(BaseTest):
                     with self.assertRaises(error_class):
                         runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
 
-        assert QuerySingleFlight(runner.get_cache_key()).acquire(budget=BUDGET_INTERACTIVE) is True
+        probe = QuerySingleFlight(runner.get_cache_key())
+        self.addCleanup(probe.release)
+        assert probe.acquire(budget=BUDGET_INTERACTIVE) is True  # the leader released its lock
 
     def test_leader_records_its_failure_before_releasing_the_flight(self):
         runner_class = setup_test_query_runner_class()
@@ -2037,6 +2039,20 @@ class TestQuerySingleFlightRunner(BaseTest):
         assert ctx.exception.detail == "too long"
         assert getattr(ctx.exception, "served_from_query_single_flight", False)
 
+    def test_extended_budget_follower_runs_itself_after_an_interactive_leaders_timeout(self):
+        runner_class = setup_test_query_runner_class()
+        runner = runner_class(query={"some_attr": "bla"}, team=self.team, limit_context=LimitContext.QUERY_ASYNC)
+        self._become_follower(
+            FlightWait(
+                outcome="failed",
+                failure=SharedFailure(message="too long", class_name="ClickHouseQueryTimeOut"),
+                leader_budget=BUDGET_INTERACTIVE,
+            )
+        )
+        with mock.patch("posthoganalytics.feature_enabled", side_effect=_single_flight_flag):
+            response = runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+        assert response.is_cached is False  # its own budget may well succeed where the leader's did not
+
     @parameterized.expand(
         [
             ("leader_left_no_result", FlightWait(outcome="released")),
@@ -2075,7 +2091,9 @@ class TestQuerySingleFlightRunner(BaseTest):
     def test_interactive_follower_does_not_join_an_extended_budget_leader(self):
         runner_class = setup_test_query_runner_class()
         runner = runner_class(query={"some_attr": "bla"}, team=self.team)
-        assert QuerySingleFlight(runner.get_cache_key()).acquire(budget=BUDGET_EXTENDED) is True
+        extended_leader = QuerySingleFlight(runner.get_cache_key())
+        self.addCleanup(extended_leader.release)
+        assert extended_leader.acquire(budget=BUDGET_EXTENDED) is True
         with mock.patch.object(QuerySingleFlight, "wait", autospec=True) as mock_wait:
             with mock.patch("posthoganalytics.feature_enabled", side_effect=_single_flight_flag):
                 response = runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)

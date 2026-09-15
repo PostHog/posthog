@@ -145,6 +145,7 @@ from posthog.hogql_queries.query_failure_handling import (
     classify_failure,
     rebuild_shared_failure,
     shareable_failure,
+    shared_failure_covers,
 )
 from posthog.hogql_queries.query_metadata import extract_query_metadata
 from posthog.hogql_queries.utils.breakdowns import has_multi_breakdown, has_single_breakdown
@@ -2457,7 +2458,12 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         wait = flight.wait(max(0.0, deadline - perf_counter()))
         if wait.outcome == "failed" and wait.failure is not None:
             error = rebuild_shared_failure(wait.failure)
-            if error is not None:
+            if error is not None and shared_failure_covers(
+                error,
+                leader_budget=wait.leader_budget,
+                follower_budget=budget_for_limit_context(self.limit_context),
+                team_id=self.team.pk,
+            ):
                 QUERY_SINGLE_FLIGHT_COUNTER.labels(action="follower_failed_with_leader").inc()
                 raise error
         # The follower serves the entry the leader published and nothing else. Any other entry

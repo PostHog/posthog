@@ -82,6 +82,23 @@ def rebuild_shared_failure(failure: SharedFailure) -> Optional[Exception]:
     return error
 
 
+# Failure kinds that say nothing about a run with a larger execution budget.
+BUDGET_BOUND_KINDS: frozenset[FailureKind] = frozenset({"timeout", "too_slow"})
+
+
+def shared_failure_covers(
+    error: Exception, *, leader_budget: Optional[str], follower_budget: Budget, team_id: Optional[int] = None
+) -> bool:
+    """Whether a follower inherits the leader's failure or runs with its own budget instead.
+
+    The same rule as QueryFailureRecord.forbids: a failure under the extended budget covers every
+    run, and so does one that no budget would have avoided, but an interactive leader's timeout
+    says nothing about a follower that gets ten times the execution time."""
+    if follower_budget == BUDGET_INTERACTIVE or leader_budget == BUDGET_EXTENDED:
+        return True
+    return classify_failure(error, team_id) not in BUDGET_BOUND_KINDS
+
+
 def classify_failure(error: Exception, team_id: Optional[int] = None) -> Optional[FailureKind]:
     """Return the failure kind for errors that will repeat on retry, None for everything else."""
     if isinstance(error, ClickHouseQueryMemoryLimitExceeded):

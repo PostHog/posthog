@@ -95,8 +95,9 @@ class FlightWait:
     outcome: FlightOutcome
     # last_refresh of the entry the leader wrote, present only when the outcome is "done".
     last_refresh: Optional[datetime] = None
-    # The failure the leader published, present only when the outcome is "failed".
+    # The failure the leader published and the budget it ran under, present only when "failed".
     failure: Optional[SharedFailure] = None
+    leader_budget: Optional[str] = None
 
 
 class QuerySingleFlight:
@@ -113,11 +114,13 @@ class QuerySingleFlight:
         self.lock_key = f"query_flight:{{{cache_key}}}"
         self.result_key = f"query_flight_result:{{{cache_key}}}"
         self._token = uuid.uuid4().hex
+        self._budget: Optional[Budget] = None
         self._lock_value: Optional[str] = None
         self._heartbeat: Optional[_Heartbeat] = None
 
     def acquire(self, *, budget: Budget) -> bool:
         """Take the lead, advertising the execution budget this run holds."""
+        self._budget = budget
         self._lock_value = f"{self._token}:{budget}"
         try:
             client = storage.query_cache_raw_client()
@@ -146,8 +149,9 @@ class QuerySingleFlight:
         _, _, budget = raw.partition(":")
         return budget or None
 
-    def extend(self) -> bool:
-        """Push the lock's expiry out by one TTL. False once this leader no longer owns the lock."""
+    def extend(self) -> Optional[bool]:
+        """Push the lock's expiry out by one TTL. False once this leader no longer owns the lock,
+        None when storage was unreachable and ownership is unknown."""
         try:
             client = storage.query_cache_raw_client()
             extended = client.register_script(_EXTEND_OWN_LOCK_SCRIPT)(  # type: ignore[union-attr]
@@ -156,7 +160,7 @@ class QuerySingleFlight:
             return bool(extended)
         except Exception:
             self._storage_failed("extend")
-            return False
+            return None
 
     def release(self, *, last_refresh: Optional[datetime] = None, failure: Optional[SharedFailure] = None) -> None:
         """Release the lock, publishing the entry the leader wrote or the failure it can share."""
@@ -167,7 +171,7 @@ class QuerySingleFlight:
         if last_refresh is not None:
             published = {"last_refresh": last_refresh.isoformat()}
         elif failure is not None:
-            published = {"failure": asdict(failure)}
+            published = {"failure": asdict(failure), "leader_budget": self._budget}
         try:
             client = storage.query_cache_raw_client()
             if published is None:
@@ -210,7 +214,11 @@ class QuerySingleFlight:
                 return FlightWait(outcome="released")
             published = json.loads(value)
             if "failure" in published:
-                return FlightWait(outcome="failed", failure=SharedFailure(**published["failure"]))
+                return FlightWait(
+                    outcome="failed",
+                    failure=SharedFailure(**published["failure"]),
+                    leader_budget=published.get("leader_budget"),
+                )
             return FlightWait(outcome="done", last_refresh=datetime.fromisoformat(published["last_refresh"]))
         except Exception:
             self._storage_failed("published_result")
@@ -235,7 +243,9 @@ class _Heartbeat:
 
     def _run(self) -> None:
         while not self._stop.wait(FLIGHT_HEARTBEAT_INTERVAL):
-            if not self._flight.extend():
+            # Keep beating through a storage error: the lock is still ours until it expires, and
+            # stopping here would hand the flight to a follower while this leader still runs.
+            if self._flight.extend() is False:
                 break
 
     def stop(self) -> None:

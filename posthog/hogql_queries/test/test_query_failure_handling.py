@@ -30,6 +30,7 @@ from posthog.hogql_queries.query_failure_handling import (
     classify_failure,
     rebuild_shared_failure,
     shareable_failure,
+    shared_failure_covers,
 )
 from posthog.query_cache.failures import BUDGET_EXTENDED, BUDGET_INTERACTIVE, QueryFailureRecord
 from posthog.query_cache.single_flight import SharedFailure
@@ -79,6 +80,60 @@ class TestSharedFailures(SimpleTestCase):
 
     def test_unknown_published_class_is_not_rebuilt(self):
         assert rebuild_shared_failure(SharedFailure(message="x", class_name="RenamedInANewerDeploy")) is None
+
+    @parameterized.expand(
+        [
+            (
+                "interactive_follower_inherits_a_timeout",
+                ClickHouseQueryTimeOut,
+                BUDGET_INTERACTIVE,
+                BUDGET_INTERACTIVE,
+                True,
+            ),
+            (
+                "extended_follower_ignores_an_interactive_timeout",
+                ClickHouseQueryTimeOut,
+                BUDGET_INTERACTIVE,
+                BUDGET_EXTENDED,
+                False,
+            ),
+            (
+                "extended_follower_inherits_an_extended_timeout",
+                ClickHouseQueryTimeOut,
+                BUDGET_EXTENDED,
+                BUDGET_EXTENDED,
+                True,
+            ),
+            (
+                "extended_follower_ignores_an_interactive_too_slow",
+                ClickHouseEstimatedQueryExecutionTimeTooLong,
+                BUDGET_INTERACTIVE,
+                BUDGET_EXTENDED,
+                False,
+            ),
+            (
+                "extended_follower_inherits_a_memory_limit",
+                lambda: _memory_error("Memory limit (for query) exceeded"),
+                BUDGET_INTERACTIVE,
+                BUDGET_EXTENDED,
+                True,
+            ),
+            (
+                "extended_follower_inherits_a_deterministic_server_error",
+                lambda: wrap_clickhouse_query_error(ServerException("Cannot compare", code=386)),
+                BUDGET_INTERACTIVE,
+                BUDGET_EXTENDED,
+                True,
+            ),
+        ]
+    )
+    def test_shared_failure_covers_follows_the_breaker_budget_rule(
+        self, _name, make_error, leader_budget, follower_budget, expected
+    ):
+        assert (
+            shared_failure_covers(make_error(), leader_budget=leader_budget, follower_budget=follower_budget)
+            is expected
+        )
 
 
 class TestQueryFailureHandling(SimpleTestCase):
