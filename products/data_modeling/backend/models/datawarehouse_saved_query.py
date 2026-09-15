@@ -212,7 +212,15 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
                 fields=["team_id", "name"],
                 name="dwsavedquery_team_live_name",
                 condition=~models.Q(deleted=True),
-            )
+            ),
+            # The daily materialized view health check filters a batch of teams down to their
+            # materialized views. Without is_materialized in the predicate the planner reads
+            # every live saved query in the batch and discards most of them in the heap.
+            models.Index(
+                fields=["team_id"],
+                name="dwsavedquery_team_matview",
+                condition=models.Q(is_materialized=True) & ~models.Q(deleted=True),
+            ),
         ]
 
     @property
