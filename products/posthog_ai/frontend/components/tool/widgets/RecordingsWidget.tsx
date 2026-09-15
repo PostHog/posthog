@@ -11,6 +11,7 @@ import {
     sessionRecordingsPlaylistLogic,
 } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 
+import { RecordingsQuery } from '~/queries/schema/schema-general'
 import { RecordingUniversalFilters } from '~/types'
 
 import { MessageTemplate } from '../../../messages/MessageTemplate'
@@ -37,7 +38,7 @@ export function RecordingsWidget({
     const content = (
         <>
             <RecordingsFiltersSummary filters={filters} />
-            <RecordingsListContent />
+            <RecordingsListContent order={filters.order} />
             {onAcceptFilters && <AcceptFiltersBar filters={filters} onAccept={onAcceptFilters} />}
         </>
     )
@@ -71,7 +72,7 @@ function AcceptFiltersBar({
     )
 }
 
-function RecordingsListContent(): JSX.Element {
+function RecordingsListContent({ order }: { order: RecordingsQuery['order'] }): JSX.Element {
     const { otherRecordings, sessionRecordingsResponseLoading, hasNext } = useValues(sessionRecordingsPlaylistLogic)
     const { maybeLoadSessionRecordings } = useActions(sessionRecordingsPlaylistLogic)
     const { openSessionPlayer } = useActions(sessionPlayerModalLogic())
@@ -99,7 +100,7 @@ function RecordingsListContent(): JSX.Element {
                                 openSessionPlayer(recording)
                             }}
                         >
-                            <SessionRecordingPreview recording={recording} selectable={false} />
+                            <SessionRecordingPreview recording={recording} selectable={false} order={order} />
                         </div>
                     ))}
                     {hasNext && (
