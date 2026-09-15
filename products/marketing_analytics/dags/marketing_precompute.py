@@ -25,9 +25,11 @@ table the read won't consult would be wasted ClickHouse work, so both are evalua
 both paths, so a warmed job is byte-identical to the one a real read would create — same query hash,
 same job, no poisoning and no access-control bypass.
 
-Reads are precompute-only, so the audience is every team that uses marketing analytics (has a
-conversion goal), discovered from `TeamMarketingAnalyticsConfig`. The `MARKETING_PRECOMPUTE_TEAM_IDS`
-env var overrides that (comma-separated team IDs; set it to empty to disable warming entirely).
+Reads are precompute-only, so the audience is every team that has a conversion goal AND has opened
+marketing analytics recently (query_log), keeping the rolling warm set to the active population. Cold
+teams drop out and are warmed on-demand on their next visit. The `MARKETING_PRECOMPUTE_TEAM_IDS` env
+var overrides the audience (comma-separated team IDs; set it to empty to disable warming entirely);
+`MARKETING_PRECOMPUTE_ACTIVE_DAYS` tunes the activity window.
 """
 
 import os
@@ -45,7 +47,7 @@ from posthog.hogql import ast
 from posthog.hogql.database.database import Database
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 
-from posthog.clickhouse.client.execute import KillSwitchLevel, get_kill_switch_level
+from posthog.clickhouse.client.execute import KillSwitchLevel, get_kill_switch_level, sync_execute
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.dags.common import JobOwners, check_for_concurrent_runs, chunk_ranges
 from posthog.models import Team
@@ -101,9 +103,16 @@ COST_MATERIALIZATION_GRAINS = (
 )
 
 # Comma-separated team IDs to warm. When set, it wins (an explicit override / kill switch: set it to
-# empty to disable warming entirely). When unset, the warmer discovers every team that uses marketing
-# analytics — see get_selected_team_ids.
+# empty to disable warming entirely). When unset, the warmer discovers teams — see get_selected_team_ids.
 SELECTED_TEAM_IDS_ENV_VAR = "MARKETING_PRECOMPUTE_TEAM_IDS"
+
+# Only keep teams warm while they are actually using marketing analytics. A team that has not opened it
+# within this window drops out of the rolling warm set; its next visit reads not-ready and triggers a
+# one-off background warm. This bounds the fleet to the active population instead of every team that ever
+# set a goal. query_log retention caps the effective lookback (~14 days), which is the low end of the range
+# we want anyway.
+ACTIVE_DAYS_ENV_VAR = "MARKETING_PRECOMPUTE_ACTIVE_DAYS"
+DEFAULT_ACTIVE_DAYS = 30
 
 _TOUCHPOINTS_TABLE_LABEL = LazyComputationTable.MARKETING_TOUCHPOINTS_PREAGGREGATED.value
 _CONVERSIONS_TABLE_LABEL = LazyComputationTable.MARKETING_CONVERSIONS_PREAGGREGATED.value
@@ -126,25 +135,61 @@ MARKETING_PRECOMPUTE_TEAM_FAILED = Counter(
 )
 
 
+def _recently_active_team_ids(days: int) -> set[int] | None:
+    """Teams that ran a marketing-analytics query within `days`, from query_log. None on failure.
+
+    None means "couldn't tell" (query_log unavailable / errored) and the caller fails open to warming
+    every team with a goal, so a transient failure over-warms for one run rather than starving the fleet.
+    """
+    try:
+        rows = sync_execute(
+            """
+            SELECT DISTINCT JSONExtractInt(log_comment, 'team_id') AS team_id
+            FROM clusterAllReplicas(posthog, system, query_log)
+            WHERE type != 'QueryStart'
+              AND event_time > now() - toIntervalDay(%(days)s)
+              AND (query LIKE '%%query_MarketingAnalytics%%' OR query LIKE '%%query_NonIntegratedConversions%%')
+              AND team_id > 0
+            """,
+            {"days": days},
+        )
+        return {int(row[0]) for row in rows}
+    except Exception:
+        logger.exception("marketing_precompute_active_teams_query_failed")
+        return None
+
+
 def get_selected_team_ids() -> list[int]:
     """Resolve which teams to warm.
 
-    Reads are precompute-only, so every team that uses marketing analytics must be warmed or its
-    conversion-goal tiles report not-ready. The default audience is therefore every team with a
-    conversion goal configured — discovered from `TeamMarketingAnalyticsConfig`, not a static list.
+    Reads are precompute-only, so a team that uses marketing analytics must be kept warm or its
+    conversion-goal tiles read not-ready. The default audience is every team that both has a conversion
+    goal (`TeamMarketingAnalyticsConfig`) and has opened marketing analytics recently (query_log) — this
+    keeps the rolling warm set to the active population. Cold teams are warmed on-demand on their next
+    visit instead.
 
     The env var still wins when set (even to empty): a comma-separated override / kill switch, blank or
     invalid entries skipped. Per-team flag and eligibility checks inside the warmer still gate what is
-    actually materialized, so this default is a safe superset.
+    actually materialized.
     """
     raw = os.getenv(SELECTED_TEAM_IDS_ENV_VAR)
     if raw is not None:
         return [int(part.strip()) for part in raw.split(",") if part.strip().isdigit()]
-    return list(
+
+    goal_team_ids = set(
         TeamMarketingAnalyticsConfig.objects.exclude(_conversion_goals=[])
         .exclude(_conversion_goals__isnull=True)
         .values_list("team_id", flat=True)
     )
+    if not goal_team_ids:
+        return []
+
+    active_days = int(os.getenv(ACTIVE_DAYS_ENV_VAR, str(DEFAULT_ACTIVE_DAYS)))
+    active_team_ids = _recently_active_team_ids(active_days)
+    if active_team_ids is None:
+        # Fail open: couldn't determine activity, so warm every goal team this run rather than starve.
+        return sorted(goal_team_ids)
+    return sorted(goal_team_ids & active_team_ids)
 
 
 def _ensure_chunks(
