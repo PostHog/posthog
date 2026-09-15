@@ -7,22 +7,52 @@ from typing import Any
 JSON = dict[str, Any]
 
 # Teams sends HTML content -- strip <at> tags and common formatting
-_RE_AT_MENTION = re.compile(r"<at[^>]*>.*?</at>", re.IGNORECASE)
-_RE_HTML_TAG = re.compile(r"<[^>]+>")
+_RE_AT_MENTION_START = re.compile(r"<at", re.IGNORECASE)
+_RE_AT_MENTION_END = re.compile(r"</at>|\n", re.IGNORECASE)
 _RE_MULTI_NEWLINES = re.compile(r"\n{2,}")
 _RE_HORIZONTAL_WHITESPACE = re.compile(r"[^\S\n]+")
 
 
 def _strip_at_mentions(html_text: str) -> str:
     """Remove <at>...</at> mention tags from Teams HTML, leaving plain text."""
-    return _RE_AT_MENTION.sub("", html_text)
+    parts: list[str] = []
+    kept_from = 0
+    position = 0
+    boundary: re.Match[str] | None = None
+    while opening := _RE_AT_MENTION_START.search(html_text, position):
+        tag_end = html_text.find(">", opening.end())
+        if tag_end == -1:
+            break
+        # Reuse a failed line boundary so repeated openers never rescan its suffix.
+        if boundary is None or boundary.start() <= tag_end:
+            boundary = _RE_AT_MENTION_END.search(html_text, tag_end + 1)
+        if boundary is None:
+            break
+        if boundary.group() == "\n":
+            position = tag_end + 1
+            continue
+        parts.append(html_text[kept_from : opening.start()])
+        kept_from = position = boundary.end()
+    parts.append(html_text[kept_from:])
+    return "".join(parts)
+
+
+def _strip_html_tags(text: str) -> str:
+    parts = text.split(">")
+    for index in range(len(parts) - 1):
+        opening = parts[index].find("<")
+        if 0 <= opening < len(parts[index]) - 1:
+            parts[index] = parts[index][:opening]
+        else:
+            parts[index] += ">"
+    return "".join(parts)
 
 
 def _html_to_plain(html_text: str) -> str:
     """Basic HTML -> plain text: strip tags, unescape entities, normalize whitespace."""
     text = html_text.replace("<br>", "\n").replace("<br/>", "\n").replace("<br />", "\n")
     text = text.replace("</p>", "\n").replace("</div>", "\n")
-    text = _RE_HTML_TAG.sub("", text)
+    text = _strip_html_tags(text)
     text = html_mod.unescape(text)
     text = _RE_HORIZONTAL_WHITESPACE.sub(" ", text)
     text = _RE_MULTI_NEWLINES.sub("\n", text)
