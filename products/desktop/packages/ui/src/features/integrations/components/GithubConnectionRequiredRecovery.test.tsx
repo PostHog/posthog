@@ -32,7 +32,14 @@ vi.mock("@posthog/ui/features/folders/useFolders", () => ({
   useFolders: () => ({ folders: [] }),
 }));
 vi.mock("@posthog/ui/features/integrations/useIntegrations", () => ({
-  useRepositoryIntegration: () => integrationState,
+  useIntegrations: () => ({
+    isPending: integrationState.isLoadingIntegrations,
+  }),
+}));
+vi.mock("@posthog/ui/features/integrations/store", () => ({
+  useIntegrationSelectors: () => ({
+    hasGithubIntegration: integrationState.hasGithubIntegration,
+  }),
 }));
 vi.mock("@posthog/ui/shell/useHostCapabilities", () => ({
   useHostCapabilities: () => ({ localWorkspaces: false }),

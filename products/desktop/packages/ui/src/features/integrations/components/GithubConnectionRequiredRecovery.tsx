@@ -18,8 +18,9 @@ import {
 import type { Task } from "@posthog/shared/domain-types";
 import { useAuthStateValue } from "@posthog/ui/features/auth/store";
 import { useFolders } from "@posthog/ui/features/folders/useFolders";
+import { useIntegrationSelectors } from "@posthog/ui/features/integrations/store";
 import { useGithubConnect } from "@posthog/ui/features/integrations/useGithubUserConnect";
-import { useRepositoryIntegration } from "@posthog/ui/features/integrations/useIntegrations";
+import { useIntegrations } from "@posthog/ui/features/integrations/useIntegrations";
 import { toast } from "@posthog/ui/primitives/toast";
 import { openTaskInput } from "@posthog/ui/router/useOpenTask";
 import { logger } from "@posthog/ui/shell/logger";
@@ -59,8 +60,11 @@ export function GithubConnectionRequiredRecovery({
   const cloudRegion = useAuthStateValue((state) => state.cloudRegion);
   const { localWorkspaces } = useHostCapabilities();
   const { folders } = useFolders();
-  const { hasGithubIntegration, isLoadingIntegrations } =
-    useRepositoryIntegration();
+  // The integration list alone answers this. `useRepositoryIntegration` would
+  // also enumerate every repository of every installation, which this dialog
+  // never reads.
+  const { isPending: isLoadingIntegrations } = useIntegrations();
+  const { hasGithubIntegration } = useIntegrationSelectors();
   const sessionService = useService<SessionService>(SESSION_SERVICE);
   const repository = getTaskRepository(task);
   const localFolder = useMemo(
