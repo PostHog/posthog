@@ -108,7 +108,7 @@ describe('ImplementButton', () => {
         await openMenu()
 
         expect(screen.getByText('Implement with PostHog')).toBeInTheDocument()
-        expect(screen.getByText('Copy implementation prompt')).toBeInTheDocument()
+        expect(screen.getByText('Copy prompt for your agent')).toBeInTheDocument()
         expect(createPrFromReport).not.toHaveBeenCalled()
         expect(copyToClipboard).not.toHaveBeenCalled()
     })
@@ -147,7 +147,7 @@ describe('ImplementButton', () => {
         expect(prompt).toContain('claim the report with inbox-reports-claim')
         expect(prompt).toContain('pr_url to attach it')
         expect(prompt).toContain('release=true')
-        expect(copyToClipboard).toHaveBeenCalledWith(prompt, 'implementation prompt')
+        expect(copyToClipboard).toHaveBeenCalledWith(prompt, 'prompt for your agent')
         expect(captureInboxReportAction).toHaveBeenCalledWith(
             expect.objectContaining({
                 actionType: 'copy_implementation_prompt',
@@ -177,7 +177,7 @@ describe('ImplementButton', () => {
 
         expect(copyToClipboard).toHaveBeenCalledWith(
             expect.stringContaining('report ID: report-1'),
-            'implementation prompt'
+            'prompt for your agent'
         )
     })
 })

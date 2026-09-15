@@ -120,7 +120,7 @@ export function ImplementButton({ report }: { report: SignalReport }): JSX.Eleme
                                     actions={[
                                         {
                                             key: 'implementation',
-                                            label: 'implementation prompt',
+                                            label: 'prompt for your agent',
                                             buildPrompt: () => buildReportImplementationPrompt(report, reportUrl),
                                         },
                                     ]}
