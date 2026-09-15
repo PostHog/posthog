@@ -10,7 +10,7 @@ from datetime import UTC, date, datetime, timedelta
 from typing import TYPE_CHECKING, Any, Literal, Optional
 
 from django.conf import settings
-from django.db import models, transaction
+from django.db import connection, models, transaction
 from django.utils import timezone
 
 from dateutil import parser
@@ -1439,6 +1439,23 @@ def _update_labels(old_schemas: list["ExternalDataSchema"], new_schemas: dict[st
 class SchemaSyncResult:
     created: list[str]
     deleted: list[str]
+
+
+@contextmanager
+def schema_reconciliation_lock(source_id: str | uuid.UUID) -> Generator[None]:
+    """Serialize schema-list reconciliation without locking the source row.
+
+    Reconciliation reads and rewrites the complete schema set for one source, so concurrent
+    refreshes must not interleave. The source row is also updated by connection settings and is
+    referenced by schema rows, making it too hot to serve as that mutex.
+    """
+    with transaction.atomic():
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
+                [f"warehouse-schema-reconciliation:{source_id}"],
+            )
+        yield
 
 
 def sync_old_schemas_with_new_schemas(

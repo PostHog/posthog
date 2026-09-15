@@ -28,13 +28,17 @@ const makeSchema = (overrides: Partial<ExternalDataSourceSchema> = {}): External
     primary_key_columns: overrides.primary_key_columns ?? null,
 })
 
-const makeSource = (schemas: ExternalDataSourceSchema[]): ExternalDataSource =>
+const makeSource = (
+    schemas: ExternalDataSourceSchema[],
+    overrides: Partial<ExternalDataSource> = {}
+): ExternalDataSource =>
     ({
         id: 'source-1',
         source_type: 'Postgres',
         prefix: 'warehouse',
         access_method: 'direct',
         schemas,
+        ...overrides,
     }) as ExternalDataSource
 
 describe('sourceSettingsLogic', () => {
@@ -57,6 +61,40 @@ describe('sourceSettingsLogic', () => {
         featureFlagLogic.unmount()
         jest.useRealTimers()
         jest.restoreAllMocks()
+    })
+
+    it('refreshes direct schemas after a changed connection config is saved', async () => {
+        const source = makeSource([makeSchema()], { job_inputs: { host: 'old.example.com' } })
+        jest.spyOn(api.externalDataSources, 'get').mockResolvedValue(source)
+
+        let resolveUpdate: ((source: ExternalDataSource) => void) | undefined
+        const updatePromise = new Promise<ExternalDataSource>((resolve) => {
+            resolveUpdate = resolve
+        })
+        const updateSpy = jest.spyOn(api.externalDataSources, 'update').mockReturnValue(updatePromise)
+        const refreshSpy = jest.spyOn(api.externalDataSources, 'refreshSchemas').mockResolvedValue({
+            added: 0,
+            deleted: 0,
+            auto_enabled: 0,
+            total_tables_seen: 1,
+        })
+
+        logic = sourceSettingsLogic({ id: 'source-1' })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.setSourceConfigValues({ payload: { host: 'new.example.com' } })
+        logic.actions.submitSourceConfig()
+        await Promise.resolve()
+
+        expect(updateSpy).toHaveBeenCalledTimes(1)
+        expect(refreshSpy).not.toHaveBeenCalled()
+
+        resolveUpdate?.(makeSource([makeSchema()], { job_inputs: { host: 'new.example.com' } }))
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(refreshSpy).toHaveBeenCalledTimes(1)
+        expect(refreshSpy).toHaveBeenCalledWith('source-1')
     })
 
     it('debounces schema saves and only sends the latest queued change', async () => {
