@@ -16,10 +16,12 @@ Product imports remain deferred so loading URL configuration does not load every
 `dispatch.py` calls each consumer independently.
 An exception does not prevent sibling consumers from running.
 The first consumer that returns an HTTP response determines the response; otherwise, the dispatcher returns 200.
+If any consumer raises, the dispatcher returns 503 instead, because GitHub only redelivers a delivery that it saw fail.
 An HTTP error response alone does not raise an exception or release the delivery's deduplication entry.
 
 Deduplication uses the delivery ID and consumer name, with a 24-hour cache expiry.
 An exception releases that consumer's entry so a redelivery can retry it.
+A redelivery therefore runs only the consumers that raised.
 A cache failure allows processing to continue.
 Keep consumer names stable when moving code: names are part of the cache key.
 

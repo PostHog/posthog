@@ -56,7 +56,6 @@ def dispatch_github_event(
     delivery_id: str,
     handlers: list[tuple[str, GithubWebhookHandler]],
 ) -> HttpResponse:
-
     logger.info(
         "github_webhook_dispatch",
         event_type=event_type,
@@ -65,6 +64,7 @@ def dispatch_github_event(
     )
 
     response: HttpResponse | None = None
+    failed_handlers: list[str] = []
     for name, handler in handlers:
         if delivery_id and _is_duplicate_github_webhook_delivery(name, delivery_id):
             logger.info("github_webhook_handler_deduped", event_type=event_type, delivery_id=delivery_id, handler=name)
@@ -79,9 +79,22 @@ def dispatch_github_event(
             capture_exception(e)
             if delivery_id:
                 _release_github_webhook_delivery(name, delivery_id)
+            failed_handlers.append(name)
             continue
 
         if response is None and handler_response is not None:
             response = handler_response
+
+    if failed_handlers:
+        # GitHub never redelivers a delivery it saw succeed, so the release above only means
+        # something if the failure reaches the status code. Dedup is per handler, so the
+        # redelivery runs only the handlers that failed here.
+        logger.warning(
+            "github_webhook_delivery_failed",
+            event_type=event_type,
+            delivery_id=delivery_id,
+            failed_handlers=failed_handlers,
+        )
+        return HttpResponse(status=503)
 
     return response if response is not None else HttpResponse(status=200)
