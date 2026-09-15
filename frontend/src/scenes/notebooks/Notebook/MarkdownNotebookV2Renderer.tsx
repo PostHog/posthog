@@ -95,6 +95,15 @@ export function MarkdownNotebookV2({ debugOpen, onDebugOpenChange }: MarkdownNot
     const { featureFlags } = useValues(featureFlagLogic)
     const { user } = useValues(userLogic)
     const markdownRegistry = useMemo(() => getMarkdownRegistryForFeatureFlags(featureFlags), [featureFlags])
+    const enabledAIComponentTags = useMemo(
+        () => [
+            'Query',
+            ...Object.entries(markdownRegistry.components)
+                .filter(([, definition]) => definition.insertCommand)
+                .map(([tag]) => tag),
+        ],
+        [markdownRegistry]
+    )
     const hiddenInsertCommandKeys = useMemo(
         () => getHiddenInsertCommandKeysForFeatureFlags(featureFlags),
         [featureFlags]
@@ -433,7 +442,8 @@ export function MarkdownNotebookV2({ debugOpen, onDebugOpenChange }: MarkdownNot
                         currentMarkdown,
                         getInlineAIResponseNodeIndex(inlineAIRequest, inlineAIResponseNodeIndicesRef.current),
                         artifactMarkdown,
-                        replacedNodeCount
+                        replacedNodeCount,
+                        enabledAIComponentTags
                     )
                     inlineAIResponseNodeIndicesRef.current[inlineAIRequest.conversationId] = result.responseNodeIndex
                     setAICaretPosition(getNotebookAICaretPosition(result.markdown, result.responseNodeIndex))
@@ -446,7 +456,7 @@ export function MarkdownNotebookV2({ debugOpen, onDebugOpenChange }: MarkdownNot
 
             applyNotebookArtifactMarkdown(content, conversationId, mode)
         },
-        [applyNotebookArtifactMarkdown, getInlineAIRequest, updateMarkdownEditorValue]
+        [applyNotebookArtifactMarkdown, getInlineAIRequest, updateMarkdownEditorValue, enabledAIComponentTags]
     )
 
     const [openEntityPicker, setOpenEntityPicker] = useState<MarkdownNotebookEntityPickerKind | null>(null)
@@ -611,7 +621,8 @@ export function MarkdownNotebookV2({ debugOpen, onDebugOpenChange }: MarkdownNot
                     currentMarkdown,
                     getInlineAIResponseNodeIndex(request, inlineAIResponseNodeIndicesRef.current),
                     message.content,
-                    replacedNodeCount
+                    replacedNodeCount,
+                    enabledAIComponentTags
                 )
                 inlineAIResponseNodeIndicesRef.current[request.conversationId] = result.responseNodeIndex
                 inlineAIResponseNodeCountsRef.current[request.conversationId] = result.responseNodeCount
@@ -619,7 +630,7 @@ export function MarkdownNotebookV2({ debugOpen, onDebugOpenChange }: MarkdownNot
                 return result.markdown
             })
         },
-        [updateMarkdownEditorValue]
+        [updateMarkdownEditorValue, enabledAIComponentTags]
     )
 
     const captureInlineAIFinished = useCallback(
@@ -650,7 +661,8 @@ export function MarkdownNotebookV2({ debugOpen, onDebugOpenChange }: MarkdownNot
                         currentMarkdown,
                         getInlineAIResponseNodeIndex(request, inlineAIResponseNodeIndicesRef.current),
                         completion.message,
-                        replacedNodeCount
+                        replacedNodeCount,
+                        enabledAIComponentTags
                     )
                     inlineAIResponseNodeIndicesRef.current[request.conversationId] = result.responseNodeIndex
                     setAICaretPosition(getNotebookAICaretPosition(result.markdown, result.responseNodeIndex))
@@ -679,7 +691,13 @@ export function MarkdownNotebookV2({ debugOpen, onDebugOpenChange }: MarkdownNot
                 )
             }, 0)
         },
-        [captureInlineAIFinished, markAIPresenceInactive, retainAIPresenceForPrompt, updateMarkdownEditorValue]
+        [
+            captureInlineAIFinished,
+            markAIPresenceInactive,
+            retainAIPresenceForPrompt,
+            updateMarkdownEditorValue,
+            enabledAIComponentTags,
+        ]
     )
 
     const handleInlineAIError = useCallback(
@@ -691,7 +709,8 @@ export function MarkdownNotebookV2({ debugOpen, onDebugOpenChange }: MarkdownNot
                     currentMarkdown,
                     getInlineAIResponseNodeIndex(request, inlineAIResponseNodeIndicesRef.current),
                     completion.message,
-                    replacedNodeCount
+                    replacedNodeCount,
+                    enabledAIComponentTags
                 )
                 inlineAIResponseNodeIndicesRef.current[request.conversationId] = result.responseNodeIndex
                 setAICaretPosition(getNotebookAICaretPosition(result.markdown, result.responseNodeIndex))
@@ -705,7 +724,7 @@ export function MarkdownNotebookV2({ debugOpen, onDebugOpenChange }: MarkdownNot
                 currentRequests.filter((currentRequest) => currentRequest.conversationId !== request.conversationId)
             )
         },
-        [captureInlineAIFinished, markAIPresenceInactive, updateMarkdownEditorValue]
+        [captureInlineAIFinished, markAIPresenceInactive, updateMarkdownEditorValue, enabledAIComponentTags]
     )
 
     const aiWritingNodeIndexes = useMemo(
