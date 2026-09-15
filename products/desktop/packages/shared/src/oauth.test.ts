@@ -22,7 +22,7 @@ describe("OAUTH_SCOPES guard", () => {
       {
         "fingerprint": -2100722726,
         "scopeCount": 204,
-        "scopeVersion": 8,
+        "scopeVersion": 9,
       }
     `);
   });
