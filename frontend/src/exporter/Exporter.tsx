@@ -22,8 +22,9 @@ import { ExportType, ExportedData } from '~/exporter/types'
 import { isMetricInsightQuery } from '~/queries/utils'
 
 import { exporterViewLogic } from './exporterViewLogic'
+import { SharedPageActions } from './SharedPageActions'
 import { SharedPageHeader } from './SharedPageHeader'
-import { SharedPageShareButton } from './SharedPageShareButton'
+import { SharedPageTitleMenu } from './SharedPageTitleMenu'
 
 const LazyArtifactScene = lazyWithRetry(() => import('./scenes/ExporterArtifactScene'))
 const LazyCanvasScene = lazyWithRetry(() => import('./scenes/ExporterCanvasScene'))
@@ -94,10 +95,14 @@ export function Exporter(props: ExportedData): JSX.Element {
         interview,
         canvas,
         task_artifact: taskArtifact,
+        viewer,
         ...exportOptions
     } = props
     const { whitelabel, showInspector = false } = exportOptions
-    const forcedTheme = useResolvedForcedTheme(exportOptions.theme)
+    // A shared canvas or file has no theme of its own, so it follows the viewer: their PostHog choice
+    // when they are signed in, otherwise the OS setting.
+    const viewerTheme = canvas || taskArtifact ? viewer?.theme_mode || 'system' : undefined
+    const forcedTheme = useResolvedForcedTheme(exportOptions.theme ?? viewerTheme)
 
     // A metric insight sizes to a compact card rather than filling the viewport, so drop the 100vh floor
     // that would otherwise leave empty space below it (see Exporter.scss and ExportedInsight.scss).
@@ -230,13 +235,14 @@ export function Exporter(props: ExportedData): JSX.Element {
                     <div className="SharedCanvas">
                         {!whitelabel && type === ExportType.Scene && (
                             <SharedPageHeader
-                                title={canvas.name || 'Canvas'}
-                                description={canvas.description}
-                                teamName={currentTeam?.name}
-                                utmCampaign="shared-canvas"
-                                actions={
-                                    <SharedPageShareButton
+                                title={
+                                    <SharedPageTitleMenu
+                                        title={canvas.name || 'Canvas'}
                                         noun="canvas"
+                                        isCreator={viewer?.is_creator}
+                                        teamName={currentTeam?.name}
+                                        updatedAt={canvas.shared_at}
+                                        openPath={viewer?.open_path}
                                         // A copy starts from the build the link shows, so a gone build offers no copy.
                                         forkUrl={
                                             canvas.allow_forking && canvas.published && accessToken
@@ -245,6 +251,8 @@ export function Exporter(props: ExportedData): JSX.Element {
                                         }
                                     />
                                 }
+                                utmCampaign="shared-canvas"
+                                actions={<SharedPageActions noun="canvas" viewer={viewer} />}
                             />
                         )}
                         <Suspense fallback={<ExportedSceneSkeleton />}>
@@ -255,10 +263,17 @@ export function Exporter(props: ExportedData): JSX.Element {
                     <div className="SharedArtifact">
                         {!whitelabel && type === ExportType.Scene && (
                             <SharedPageHeader
-                                title={taskArtifact.name || 'File'}
-                                teamName={currentTeam?.name}
+                                title={
+                                    <SharedPageTitleMenu
+                                        title={taskArtifact.name || 'File'}
+                                        noun="file"
+                                        teamName={currentTeam?.name}
+                                        updatedAt={taskArtifact.uploaded_at}
+                                        openPath={viewer?.open_path}
+                                    />
+                                }
                                 utmCampaign="shared-artifact"
-                                actions={<SharedPageShareButton noun="file" />}
+                                actions={<SharedPageActions noun="file" viewer={viewer} />}
                             />
                         )}
                         <div className="SharedArtifact-body flex-1 p-4">
