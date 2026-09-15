@@ -172,7 +172,8 @@ def billed_elapsed_seconds(elapsed_seconds: float | None, provisioning_seconds: 
     """
     if elapsed_seconds is None:
         return None
-    return max(elapsed_seconds - (provisioning_seconds or 0), 0)
+    billable_seconds = elapsed_seconds - (provisioning_seconds or 0)
+    return max(billable_seconds, 0)
 
 
 def estimate_job_cost_usd(
