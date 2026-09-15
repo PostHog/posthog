@@ -1,10 +1,14 @@
-import { BREAKDOWN_BASELINE_STRING_LABEL } from 'scenes/insights/utils'
+import { BREAKDOWN_BASELINE_STRING_LABEL, BREAKDOWN_NULL_STRING_LABEL } from 'scenes/insights/utils'
 
-import { BreakdownItem, FunnelsActorsQuery } from '~/queries/schema/schema-general'
+import { BreakdownItem, FunnelsActorsQuery, InsightActorsQuery, NodeKind } from '~/queries/schema/schema-general'
 
-import { funnelBreakdownSelectValue, funnelStepBreakdownFromSelectValue } from './persons-modal-utils'
+import {
+    funnelBreakdownSelectValue,
+    funnelStepBreakdownFromSelectValue,
+    nullBreakdownNotesForQuery,
+} from './persons-modal-utils'
 
-describe('persons modal funnel breakdown helpers', () => {
+describe('persons modal breakdown helpers', () => {
     const options: BreakdownItem[] = [
         { label: 'Baseline', value: BREAKDOWN_BASELINE_STRING_LABEL },
         { label: 'Chrome', value: 'Chrome' },
@@ -36,6 +40,55 @@ describe('persons modal funnel breakdown helpers', () => {
             ['Safari', null], // no matching option must not fall back to Baseline
         ])('maps funnelStepBreakdown %p to selection %p', (funnelStepBreakdown, expected) => {
             expect(funnelBreakdownSelectValue(funnelStepBreakdown, options)).toEqual(expected)
+        })
+    })
+
+    describe('nullBreakdownNotesForQuery', () => {
+        const trendsActorsQuery = (
+            breakdown: InsightActorsQuery['breakdown'],
+            breakdownFilter: Record<string, unknown>
+        ): InsightActorsQuery =>
+            ({
+                kind: NodeKind.InsightActorsQuery,
+                breakdown,
+                source: {
+                    kind: NodeKind.TrendsQuery,
+                    series: [{ kind: NodeKind.EventsNode, event: '$pageview' }],
+                    breakdownFilter,
+                },
+            }) as InsightActorsQuery
+
+        it('explains the bucket the modal drills into', () => {
+            expect(
+                nullBreakdownNotesForQuery(
+                    trendsActorsQuery(BREAKDOWN_NULL_STRING_LABEL, {
+                        breakdown: '$pathname',
+                        breakdown_type: 'event',
+                    })
+                )?.explanation
+            ).toContain('Path name')
+        })
+
+        it('says nothing for a bucket that has a value', () => {
+            expect(
+                nullBreakdownNotesForQuery(
+                    trendsActorsQuery('/pricing', { breakdown: '$pathname', breakdown_type: 'event' })
+                )
+            ).toBeNull()
+        })
+
+        it('reads the breakdown of a funnel actors query, which uses its own field', () => {
+            expect(
+                nullBreakdownNotesForQuery({
+                    kind: NodeKind.FunnelsActorsQuery,
+                    funnelStepBreakdown: BREAKDOWN_NULL_STRING_LABEL,
+                    source: {
+                        kind: NodeKind.FunnelsQuery,
+                        series: [],
+                        breakdownFilter: { breakdown: '$pathname', breakdown_type: 'event' },
+                    },
+                } as unknown as FunnelsActorsQuery)?.explanation
+            ).toContain('Path name')
         })
     })
 })

@@ -7,6 +7,7 @@ import {
     formatBreakdownType,
     getDisplayNameFromEntityFilter,
     getDisplayNameFromEntityNode,
+    getNullBreakdownNotes,
     getTrendDatasetKey,
     NOT_IN_COHORT_ID,
 } from 'scenes/insights/utils'
@@ -21,7 +22,16 @@ import {
     NodeKind,
 } from '~/queries/schema/schema-general'
 import { isEventsNode } from '~/queries/utils'
-import { BaseMathType, CompareLabelType, Entity, EntityFilter, FilterType, InsightType, TeamType } from '~/types'
+import {
+    BaseMathType,
+    BreakdownKeyType,
+    CompareLabelType,
+    Entity,
+    EntityFilter,
+    FilterType,
+    InsightType,
+    TeamType,
+} from '~/types'
 
 import { IndexedTrendResult } from 'products/product_analytics/frontend/insights/trends/types'
 
@@ -580,6 +590,103 @@ describe('formatBreakdownLabel()', () => {
         expect(
             formatBreakdownLabel(cohort.id, breakdownFilter, [cohort as any], identity, multipleBreakdownIndex)
         ).toEqual(cohort.name)
+    })
+})
+
+describe('getNullBreakdownNotes()', () => {
+    const NULL = '$$_posthog_breakdown_null_$$'
+
+    it.each([
+        [
+            'names an event property the way the rest of the UI names it',
+            NULL,
+            { breakdown: '$pathname', breakdown_type: 'event' } as BreakdownFilter,
+            undefined,
+            'No value for the event property Path name. Results without that property set are grouped here.',
+        ],
+        [
+            'names a person property',
+            NULL,
+            { breakdown: 'email', breakdown_type: 'person' } as BreakdownFilter,
+            undefined,
+            'No value for the person property Email address. Results without that property set are grouped here.',
+        ],
+        [
+            'falls back to the raw key for a property with no definition',
+            NULL,
+            { breakdown: 'plan_tier', breakdown_type: 'event' } as BreakdownFilter,
+            undefined,
+            'No value for the event property plan_tier. Results without that property set are grouped here.',
+        ],
+        [
+            'picks the breakdown named by the column index',
+            ['Chrome', NULL],
+            {
+                breakdowns: [
+                    { property: '$browser', type: 'event' },
+                    { property: '$pathname', type: 'event' },
+                ],
+            } as BreakdownFilter,
+            1,
+            'No value for the event property Path name. Results without that property set are grouped here.',
+        ],
+        [
+            'finds the breakdown that has no value when no index is given',
+            ['Chrome', NULL],
+            {
+                breakdowns: [
+                    { property: '$browser', type: 'event' },
+                    { property: '$pathname', type: 'event' },
+                ],
+            } as BreakdownFilter,
+            undefined,
+            'No value for the event property Path name. Results without that property set are grouped here.',
+        ],
+        // Explaining a column that has a value would put the note on every row of the table
+        [
+            'says nothing about a column that has a value',
+            ['Chrome', NULL],
+            {
+                breakdowns: [
+                    { property: '$browser', type: 'event' },
+                    { property: '$pathname', type: 'event' },
+                ],
+            } as BreakdownFilter,
+            0,
+            null,
+        ],
+        ['says nothing for a value', '/pricing', { breakdown: '$pathname', breakdown_type: 'event' }, undefined, null],
+        ['says nothing for a cohort breakdown', NULL, { breakdown: 2, breakdown_type: 'cohort' }, undefined, null],
+        [
+            'says nothing for a SQL breakdown',
+            NULL,
+            { breakdown: 'properties.$pathname', breakdown_type: 'hogql' },
+            undefined,
+            null,
+        ],
+        ['says nothing without a breakdown', NULL, null, undefined, null],
+    ] as [string, BreakdownKeyType, BreakdownFilter | null, number | undefined, string | null][])(
+        '%s',
+        (_name, breakdownValue, breakdownFilter, multipleBreakdownIndex, expected) => {
+            expect(
+                getNullBreakdownNotes(breakdownValue, breakdownFilter, multipleBreakdownIndex)?.explanation ?? null
+            ).toEqual(expected)
+        }
+    )
+
+    it('warns that a person property is not the event property being grouped by', () => {
+        expect(
+            getNullBreakdownNotes(NULL, { breakdown: '$pathname', breakdown_type: 'event' })?.personPropertyHint
+        ).toEqual(
+            'A person property with a similar name is a different property. It can have a value when the event property does not.'
+        )
+    })
+
+    it('does not warn about person properties when the breakdown is one', () => {
+        expect(
+            getNullBreakdownNotes(NULL, { breakdown: '$initial_current_url', breakdown_type: 'person' })
+                ?.personPropertyHint
+        ).toBeNull()
     })
 })
 

@@ -58,6 +58,7 @@ import {
     cleanedInsightActorsQueryOptions,
     funnelBreakdownSelectValue,
     funnelStepBreakdownFromSelectValue,
+    nullBreakdownNotesForQuery,
 } from './persons-modal-utils'
 import { PersonModalLogicProps, personsModalLogic } from './personsModalLogic'
 import { SaveCohortModal } from './SaveCohortModal'
@@ -142,6 +143,8 @@ export function PersonsModal({
         return title
     }, [title, actorLabel.plural])
 
+    const breakdownNotes = nullBreakdownNotesForQuery(query)
+
     const hasGroups = actors.some((actor) => isGroupType(actor))
     const hasSessions = actors.some((actor) => isSessionType(actor))
 
@@ -161,6 +164,13 @@ export function PersonsModal({
                     <h3>{getTitle()}</h3>
                 </LemonModal.Header>
                 <div className="px-4 py-2">
+                    {breakdownNotes && (
+                        <LemonBanner type="info" className="mb-2">
+                            {breakdownNotes.explanation}
+                            {breakdownNotes.personPropertyHint ? ` ${breakdownNotes.personPropertyHint}` : ''}
+                        </LemonBanner>
+                    )}
+
                     {actorsResponse && !!missingActorsCount && !hasGroups && (
                         <MissingPersonsAlert actorLabel={actorLabel} missingActorsCount={missingActorsCount} />
                     )}

@@ -11,7 +11,7 @@ import { dayjs } from 'lib/dayjs'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { shortTimeZone } from 'lib/utils/timezones'
-import { formatAggregationValue } from 'scenes/insights/utils'
+import { formatAggregationValue, getNullBreakdownNotes } from 'scenes/insights/utils'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { FormatPropertyValueForDisplayFunction, propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
@@ -167,6 +167,13 @@ export function InsightTooltip({
         ? getTooltipTitle(seriesData, altRightTitle, formattedDate)
         : null
 
+    const nullBreakdownNotes = seriesData
+        ?.map((s) => getNullBreakdownNotes(s.breakdown_value, breakdownFilter))
+        .find((notes) => notes !== null)
+    const nullBreakdownFootnote = nullBreakdownNotes ? (
+        <div className="table-subtext">{nullBreakdownNotes.explanation}</div>
+    ) : null
+
     if (itemizeEntitiesAsColumns) {
         hideColorCol = true
         const dataSource = invertDataSource(seriesData, breakdownFilter, formatCompareLabel)
@@ -293,6 +300,7 @@ export function InsightTooltip({
                         }
                     />
                 </div>
+                {nullBreakdownFootnote}
                 {!hideInspectActorsSection && (
                     <ClickToInspectActors
                         inspectLabel={inspectLabel ?? defaultInspectLabel}
@@ -378,6 +386,7 @@ export function InsightTooltip({
                     }
                 />
             </div>
+            {nullBreakdownFootnote}
             {!hideInspectActorsSection && (
                 <ClickToInspectActors
                     inspectLabel={inspectLabel ?? defaultInspectLabel}

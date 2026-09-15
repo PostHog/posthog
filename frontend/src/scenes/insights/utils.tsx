@@ -16,12 +16,16 @@ import { ensureStringIsNotBlank } from 'lib/utils/strings'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { propertyFilterTypeToPropertyDefinitionType } from '~/lib/components/PropertyFilters/utils'
+import {
+    PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE,
+    propertyFilterTypeToPropertyDefinitionType,
+} from '~/lib/components/PropertyFilters/utils'
 import { FormatPropertyValueForDisplayFunction } from '~/models/propertyDefinitionsModel'
 import { examples } from '~/queries/examples'
 import {
     AnyDataWarehouseNode,
     AnyEntityNode,
+    Breakdown,
     BreakdownFilter,
     DashboardFilter,
     FileSystemIconType,
@@ -30,6 +34,7 @@ import {
     HogQLQueryModifiers,
     HogQLVariable,
     InsightVizNode,
+    MultipleBreakdownType,
     Node,
     NodeKind,
     PathsFilter,
@@ -48,11 +53,13 @@ import {
     isInsightVizNode,
 } from '~/queries/utils'
 import { cleanInsightQuery } from '~/scenes/insights/utils/queryUtils'
+import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 import { CORE_FILTER_DEFINITIONS_BY_GROUP } from '~/taxonomy/taxonomy'
 import {
     ActionFilter,
     AnyPartialFilterType,
     BreakdownKeyType,
+    BreakdownType,
     ChartDisplayType,
     CohortType,
     EntityFilter,
@@ -280,6 +287,77 @@ export function isNullBreakdown(breakdown_value: string | number | bigint | null
     )
 }
 
+/** How to name the property each breakdown type groups by, when explaining the null bucket. */
+const BREAKDOWN_TYPE_PROPERTY_NOUN: Partial<Record<BreakdownType | MultipleBreakdownType, string>> = {
+    event: 'event property',
+    event_metadata: 'event field',
+    person: 'person property',
+    session: 'session property',
+    group: 'group property',
+    data_warehouse: 'data warehouse field',
+    data_warehouse_person_property: 'data warehouse person property',
+    revenue_analytics: 'revenue property',
+}
+
+function resolveNestedBreakdown(
+    breakdownFilter: BreakdownFilter | null | undefined,
+    multipleBreakdownIndex: number | undefined
+): Breakdown | undefined {
+    return typeof multipleBreakdownIndex === 'number'
+        ? breakdownFilter?.breakdowns?.[multipleBreakdownIndex]
+        : undefined
+}
+
+/**
+ * Explain why a result landed in the "None (i.e. no value)" bucket. Null when the value is not that
+ * bucket, or when no single property can be named: a cohort or SQL breakdown, or a multiple
+ * breakdown whose null value cannot be tied to one property.
+ *
+ * `personPropertyHint` is for surfaces that also list person properties, such as the persons
+ * drill-down, where a similar looking person property is what makes the bucket look wrong.
+ */
+export function getNullBreakdownNotes(
+    breakdownValue: BreakdownKeyType | undefined,
+    breakdownFilter: BreakdownFilter | null | undefined,
+    multipleBreakdownIndex?: number
+): { explanation: string; personPropertyHint: string | null } | null {
+    // A multiple breakdown carries one value per property, so work out which property has no value.
+    const values = Array.isArray(breakdownValue) ? breakdownValue : [breakdownValue]
+    const index = multipleBreakdownIndex ?? values.findIndex((value) => isNullBreakdown(value))
+    if (index < 0 || !isNullBreakdown(values[index])) {
+        return null
+    }
+
+    const nestedBreakdown = resolveNestedBreakdown(breakdownFilter, index)
+    if (!nestedBreakdown && breakdownFilter?.breakdowns?.length) {
+        return null
+    }
+
+    const type = nestedBreakdown?.type ?? breakdownFilter?.breakdown_type ?? 'event'
+    const noun = BREAKDOWN_TYPE_PROPERTY_NOUN[type]
+    const property = nestedBreakdown?.property ?? breakdownFilter?.breakdown
+    if (!noun || typeof property !== 'string') {
+        return null
+    }
+
+    // Name the property the way every other breakdown surface names it
+    const name =
+        (type in PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE
+            ? getCoreFilterDefinition(
+                  property,
+                  PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE[type as PropertyFilterType]
+              )?.label
+            : null) || property
+
+    return {
+        explanation: `No value for the ${noun} ${name}. Results without that property set are grouped here.`,
+        personPropertyHint:
+            type === 'person' || type === 'data_warehouse_person_property'
+                ? null
+                : `A person property with a similar name is a different property. It can have a value when the ${noun} does not.`,
+    }
+}
+
 function isValidJsonArray(maybeJson: string): boolean {
     if (maybeJson.startsWith('[')) {
         try {
@@ -308,10 +386,7 @@ function formatNumericBreakdownLabel(
     }
 
     if (formatPropertyValueForDisplay) {
-        const nestedBreakdown =
-            typeof multipleBreakdownIndex === 'number'
-                ? breakdownFilter?.breakdowns?.[multipleBreakdownIndex]
-                : undefined
+        const nestedBreakdown = resolveNestedBreakdown(breakdownFilter, multipleBreakdownIndex)
 
         const groupIndex = (nestedBreakdown?.group_type_index ?? breakdownFilter?.breakdown_group_type_index) as
             | GroupTypeIndex

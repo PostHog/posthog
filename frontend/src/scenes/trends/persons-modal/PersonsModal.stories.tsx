@@ -2,8 +2,10 @@ import { Meta, StoryObj } from '@storybook/react'
 import { delay, HttpResponse } from 'msw'
 
 import { RawPropertiesTimelineResult } from 'lib/components/PropertiesTimeline/propertiesTimelineLogic'
+import { BREAKDOWN_NULL_STRING_LABEL } from 'scenes/insights/utils'
 
 import { useStorybookMocks } from '~/mocks/browser'
+import { InsightActorsQuery, NodeKind } from '~/queries/schema/schema-general'
 
 import EXAMPLE_PERSONS_RESPONSE from './__mocks__/examplePersonsResponse.json'
 import EXAMPLE_SESSION_ACTORS_RESPONSE from './__mocks__/exampleSessionActorsResponse.json'
@@ -162,6 +164,43 @@ export const ServerError: Story = {
         return (
             <div className="flex max-h-200">
                 <PersonsModalComponent title="Hello!" url="/api/projects/1/persons/trends/" inline />
+            </div>
+        )
+    },
+}
+
+export const NullBreakdownBucket: Story = {
+    render: () => {
+        useStorybookMocks({
+            post: {
+                '/api/environments/:team_id/query/:kind': {
+                    results: [[EXAMPLE_PERSONS_RESPONSE.results[0].people[0]]],
+                    columns: ['person'],
+                    hasMore: false,
+                    limit: 100,
+                    offset: 0,
+                    missing_actors_count: 0,
+                },
+            },
+        })
+
+        return (
+            <div className="flex max-h-200">
+                <PersonsModalComponent
+                    title="None (i.e. no value)"
+                    query={
+                        {
+                            kind: NodeKind.InsightActorsQuery,
+                            breakdown: BREAKDOWN_NULL_STRING_LABEL,
+                            source: {
+                                kind: NodeKind.TrendsQuery,
+                                series: [{ kind: NodeKind.EventsNode, event: '$pageview' }],
+                                breakdownFilter: { breakdown: '$pathname', breakdown_type: 'event' },
+                            },
+                        } as InsightActorsQuery
+                    }
+                    inline
+                />
             </div>
         )
     },
