@@ -27,15 +27,44 @@ import { LemonInputSelect, LemonInputSelectOption, LemonTag } from '@posthog/lem
 import { dayjs } from 'lib/dayjs'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
+import { IntegrationType } from '~/types'
+
 import type { GitHubRepoApi } from 'products/integrations/frontend/generated/api.schemas'
 
 import { githubIntegrationLogic } from './githubIntegrationLogic'
+
+/**
+ * The project's GitHub integration for anything that runs on the team's behalf rather than one
+ * person's: scheduled work, and settings a whole project shares.
+ *
+ * Must pick the same one as the backend's `resolve_team_github_integration` (org accounts first,
+ * then oldest; broken installs skipped), or a picker built on this offers repositories the
+ * server-side validation then rejects.
+ */
+export function resolveTeamGitHubIntegration(integrations: IntegrationType[]): IntegrationType | undefined {
+    return integrations
+        .filter(
+            (integration) =>
+                integration.errors !== 'TOKEN_REFRESH_FAILED' && !integration.config?.installation_unavailable_since
+        )
+        .sort(
+            (a, b) =>
+                // Missing account type sorts last, like Postgres NULLS LAST.
+                (a.config?.account?.type ?? '\uffff').localeCompare(b.config?.account?.type ?? '\uffff') ||
+                a.created_at.localeCompare(b.created_at) ||
+                a.id - b.id
+        )[0]
+}
 
 export type GitHubRepositoryPickerProps = {
     integrationId: number
     value: string
     onChange: (value: string) => void
     className?: string
+    /** Which repo field the picker stores and returns. Default 'name' keeps existing callers'
+     * stored short names working; 'full_name' is for callers matching a webhook delivery's
+     * "owner/repo" property, which carries no owner otherwise. */
+    valueKey?: 'name' | 'full_name'
 }
 
 export const GitHubRepositoryPicker = ({
@@ -43,8 +72,9 @@ export const GitHubRepositoryPicker = ({
     onChange,
     integrationId,
     className,
+    valueKey,
 }: GitHubRepositoryPickerProps): JSX.Element => {
-    const { options, loading } = useRepositories(integrationId)
+    const { options, loading } = useRepositories(integrationId, { valueKey })
 
     return (
         <LemonInputSelect
@@ -154,7 +184,10 @@ function RepoOptionLabel({ repo }: { repo: GitHubRepoApi }): JSX.Element {
     )
 }
 
-export function useRepositories(integrationId: number): { options: LemonInputSelectOption[]; loading: boolean } {
+export function useRepositories(
+    integrationId: number,
+    { valueKey = 'name' }: { valueKey?: 'name' | 'full_name' } = {}
+): { options: LemonInputSelectOption[]; loading: boolean } {
     const logic = githubIntegrationLogic({ id: integrationId })
     const { repositories, repositoriesLoading } = useValues(logic)
     const { loadRepositories } = useActions(logic)
@@ -168,8 +201,8 @@ export function useRepositories(integrationId: number): { options: LemonInputSel
             // Most-recently-pushed first so the repo the user is working in floats to the top.
             [...repositories]
                 .sort((a, b) => pushedAtMs(b.pushed_at) - pushedAtMs(a.pushed_at))
-                .map((r) => ({ key: r.name, label: r.full_name, labelComponent: <RepoOptionLabel repo={r} /> })),
-        [repositories]
+                .map((r) => ({ key: r[valueKey], label: r.full_name, labelComponent: <RepoOptionLabel repo={r} /> })),
+        [repositories, valueKey]
     )
 
     return { options, loading: repositoriesLoading }

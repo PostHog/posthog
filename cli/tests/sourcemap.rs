@@ -472,11 +472,11 @@ fn test_upload_set() {
 }
 
 #[test]
-fn test_event_mode_content_hash_is_stable_across_release_states() {
-    // The hash must not depend on which snippet variant is embedded. A chunk injected while
-    // no release was resolvable, the same chunk injected with a release, and the transition
-    // between the two all keep one chunk id, so they must hash identically or the server
-    // rejects the later upload as a content_hash_mismatch.
+fn test_event_mode_content_hash_tracks_the_snippet_variant() {
+    // The hash must ignore which release id is embedded, or every release re-uploads every
+    // chunk. It must still track whether a release id is embedded at all: the release snippet is
+    // longer, so it shifts the generated columns the uploaded map records. Equal hashes there
+    // make the server keep the first map and resolve later frames to the wrong positions.
     let case_path = get_case_path("inject");
     let load = || {
         read_pairs(vec![case_path.clone()], vec![], vec![], &None).expect("Failed to read pairs")
@@ -505,8 +505,14 @@ fn test_event_mode_content_hash_is_stable_across_release_states() {
         )
     };
 
-    assert_eq!(releaseless, with_release);
-    assert_eq!(releaseless, transitioned);
+    assert_ne!(
+        releaseless, with_release,
+        "a chunk that gains a release ships a different map, so it must not reuse the stored one"
+    );
+    assert_eq!(
+        with_release, transitioned,
+        "a different release id leaves the map identical, so the hash must not change"
+    );
 }
 
 const BUNDLER_DEBUG_ID: &str = "11111111-2222-4333-8444-555555555555";

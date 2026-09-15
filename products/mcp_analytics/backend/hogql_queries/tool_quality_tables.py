@@ -85,8 +85,9 @@ def _named_tool_where(
     categories: list[str] | None,
     *,
     tool_name: str | None = None,
+    search: str | None = None,
 ) -> ast.Expr:
-    """WHERE for tool-name-bearing $mcp_tool_call events in the window, filtered by category/tool."""
+    """Apply tool-name filters before aggregation so non-matching events skip the percentile and distinct aggregates."""
     exprs: list[ast.Expr] = [
         parse_expr("event = {event}", placeholders={"event": ast.Constant(value=MCP_TOOL_CALL_EVENT)}),
         parse_expr("timestamp >= {date_from}", placeholders={"date_from": date_range.date_from_as_hogql()}),
@@ -102,6 +103,16 @@ def _named_tool_where(
                 placeholders={
                     "effective_tool": parse_expr(EFFECTIVE_TOOL_SQL),
                     "tool": ast.Constant(value=tool_name),
+                },
+            )
+        )
+    if search:
+        exprs.append(
+            parse_expr(
+                "positionCaseInsensitive({effective_tool}, {search}) > 0",
+                placeholders={
+                    "effective_tool": parse_expr(EFFECTIVE_TOOL_SQL),
+                    "search": ast.Constant(value=search),
                 },
             )
         )
@@ -149,7 +160,6 @@ class MCPToolQualityRowsQueryRunner(AnalyticsQueryRunner[MCPToolQualityRowsQuery
             FROM events
             WHERE {where}
             GROUP BY tool
-            HAVING positionCaseInsensitive(tool, {search}) > 0
             ORDER BY total_calls DESC, tool ASC
             LIMIT {limit}
             OFFSET {offset}
@@ -160,8 +170,7 @@ class MCPToolQualityRowsQueryRunner(AnalyticsQueryRunner[MCPToolQualityRowsQuery
                 "_P50": parse_expr(_P50),
                 "_P95": parse_expr(_P95),
                 "_P99": parse_expr(_P99),
-                "where": _named_tool_where(self.query_date_range, self.query.categories),
-                "search": ast.Constant(value=search),
+                "where": _named_tool_where(self.query_date_range, self.query.categories, search=search),
                 "limit": ast.Constant(value=limit),
                 "offset": ast.Constant(value=offset),
             },

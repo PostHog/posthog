@@ -1,6 +1,6 @@
 import type { GitFileStatus } from "@posthog/shared/domain-types";
 
-export type StatusColor = "green" | "orange" | "red" | "blue" | "gray";
+type StatusColor = "green" | "orange" | "red" | "blue" | "gray";
 export interface StatusIndicator {
   label: string;
   fullLabel: string;

@@ -46,6 +46,16 @@ _DATA_QUALITY_INFORMATION_SCHEMA_TABLES = frozenset(
 
 _ACCOUNT_COMMUNICATION_LAZY_FIELDS = frozenset({"email_threads", "support_tickets"})
 
+# Scopes a system table's rows depend on beyond its own `access_scope`, because its visibility rules
+# read another access-controlled table. `system.activity_logs` limits Canvas rows to the canvases in
+# `system.canvases` (see activity_log_visibility.py), so its rows follow the caller's Canvas grants:
+# without partitioning on `canvas` too, two users with identical activity-log access but different
+# Canvas grants share one cache key, and the narrower one is served the wider one's Canvas rows.
+_TRANSITIVE_SYSTEM_TABLE_SCOPES: dict[str, frozenset[str]] = {
+    "system.activity_logs": frozenset({"canvas"}),
+    "system.customer_tasks": frozenset({"account"}),
+}
+
 
 def queried_access_controlled_resources(query, team: "Team") -> Optional[set[str]]:
     """The set of access-control scope names a query reads, e.g. "notebook", "warehouse_table".
@@ -111,6 +121,9 @@ def queried_access_controlled_resources(query, team: "Team") -> Optional[set[str
         ):
             scopes.add("ticket")
 
+        for name in table_names:
+            scopes |= _TRANSITIVE_SYSTEM_TABLE_SCOPES.get(name, frozenset())
+
         # The catalog-enriched information_schema tables aren't PostgresTables, so they're absent from
         # `access_controlled_system_tables()`; gate them explicitly on `data_catalog` read access.
         if table_names & _DATA_CATALOG_INFORMATION_SCHEMA_TABLES:
@@ -131,6 +144,7 @@ def queried_access_controlled_resources(query, team: "Team") -> Optional[set[str
         # allowed one's check configs and run counts on a hit. The specific denied object IDs fold
         # into the key via AnalyticsQueryRunner._get_object_access_restrictions.
         if table_names & _DATA_QUALITY_INFORMATION_SCHEMA_TABLES:
+            scopes.add("data_catalog")
             scopes.add("warehouse_table")
             scopes.add("warehouse_view")
 

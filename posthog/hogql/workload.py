@@ -19,10 +19,7 @@ class WorkloadCollector(TraversingVisitor):
 
         self.workloads.add(node.table.workload or self.default_workload)
 
-    def visit_lazy_table_type(self, node: ast.TableType):
-        if isinstance(node.table, FunctionCallTable):
-            return
-
+    def visit_lazy_table_type(self, node: ast.LazyTableType):
         if hasattr(node.table, "workload"):
             self.workloads.add(node.table.workload or self.default_workload)
 

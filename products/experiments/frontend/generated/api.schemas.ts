@@ -2030,6 +2030,21 @@ export interface ExperimentFlagCleanupTaskApi {
 }
 
 /**
+ * How the recordings tab's in-session exposure scope reads on this experiment.
+ */
+export interface ExperimentInSessionExposureApi {
+    /** Whether the in-session exposure scope can answer for this experiment. Mirrors the recordings query, which refuses `experiment_exposure.in_session` exactly when this is false. */
+    available: boolean
+    /**
+     * Why the in-session scope can't answer for this experiment, worded for display next to the disabled option. Null when available.
+     * @nullable
+     */
+    unavailable_reason: string | null
+    /** True when in-session evidence is the stamped `$feature/<flag_key>` property, which means the flag was active in the session, rather than the exposure event itself being captured there. Copy must not claim the exposure was captured in the session when this is set. */
+    uses_stamped_fallback: boolean
+}
+
+/**
  * * `manual` - Manual
  * * `agent_mcp` - Agent (MCP)
  * * `cold_run` - Cold Run
@@ -2042,9 +2057,10 @@ export interface ExperimentFlagCleanupTaskApi {
  * * `experiment_stop` - Experiment Stop
  * * `experiment_update` - Experiment Update
  */
-export type TriggerEnumApi = (typeof TriggerEnumApi)[keyof typeof TriggerEnumApi]
+export type ExperimentMetricsRecalculationTriggerEnumApi =
+    (typeof ExperimentMetricsRecalculationTriggerEnumApi)[keyof typeof ExperimentMetricsRecalculationTriggerEnumApi]
 
-export const TriggerEnumApi = {
+export const ExperimentMetricsRecalculationTriggerEnumApi = {
     Manual: 'manual',
     AgentMcp: 'agent_mcp',
     ColdRun: 'cold_run',
@@ -2075,7 +2091,7 @@ export interface RecalculateMetricsRequestApi {
      * * `experiment_launch` - Experiment Launch
      * * `experiment_stop` - Experiment Stop
      * * `experiment_update` - Experiment Update */
-    trigger?: TriggerEnumApi
+    trigger?: ExperimentMetricsRecalculationTriggerEnumApi
 }
 
 /**
@@ -2193,7 +2209,7 @@ export interface ExperimentMetricsRecalculationApi {
      * * `experiment_launch` - Experiment Launch
      * * `experiment_stop` - Experiment Stop
      * * `experiment_update` - Experiment Update */
-    readonly trigger: TriggerEnumApi
+    readonly trigger: ExperimentMetricsRecalculationTriggerEnumApi
     /** When the job was created */
     readonly created_at: string
     /**
@@ -2307,9 +2323,9 @@ export interface ExperimentSessionBucketResponseApi {
     considered_metrics: ExperimentSessionBucketMetricApi[]
     /** Requested metrics left out of the bucket because they can never match a recording, with the reason. They are reported rather than silently producing an empty result. */
     excluded_metrics: ExperimentSessionBucketExcludedMetricApi[]
-    /** Start of the window scanned: the experiment's run window, clamped to its most recent 30 days. Matches outside it are not returned. */
+    /** Start of the window scanned, never before the experiment started. At most 30 days before date_to when the scan found an exposure to anchor on. When it found none, how far back the search for one reached, which the project's recording retention bounds. Matches outside the window are not returned. */
     date_from: string
-    /** End of the window scanned: the experiment's end date, or now while it runs. */
+    /** End of the window scanned: 24 hours after the latest exposure captured in a session, capped at the experiment's end date or now. The pad covers the metric events a session fires after its exposure. The scan ends at the experiment's end date, or now while it runs, when that exposure can't be located, so an experiment whose exposures stopped long ago is still scanned where its sessions are. */
     date_to: string
     /** Whether the project's test-account filters were applied, following the experiment's exposure criteria, the same rule the experiment's recordings list uses. */
     filter_test_accounts: boolean
@@ -2402,7 +2418,7 @@ export interface ExperimentWatchCardApi {
 /**
  * One variant's compared population.
  */
-export interface ExperimentWatchArmApi {
+export interface ExperimentWatchVariantApi {
     /** The variant key. */
     key: string
     /** Exposed people the comparison covered for this variant. People rather than sessions because a variant can change how often the flag is evaluated again later, which moves a variant's session count without anyone behaving differently. Each person is read from the first session the comparison covers them in, so every variant gets the same amount of behavior per person. */
@@ -2424,6 +2440,22 @@ export const ExperimentWatchMultipleVariantHandlingEnumApi = {
 } as const
 
 /**
+ * * `too_early` - too_early
+ * * `no_separation` - no_separation
+ * * `no_recordings` - no_recordings
+ * * `no_session_linked_exposures` - no_session_linked_exposures
+ */
+export type ExperimentWatchEmptyReasonEnumApi =
+    (typeof ExperimentWatchEmptyReasonEnumApi)[keyof typeof ExperimentWatchEmptyReasonEnumApi]
+
+export const ExperimentWatchEmptyReasonEnumApi = {
+    TooEarly: 'too_early',
+    NoSeparation: 'no_separation',
+    NoRecordings: 'no_recordings',
+    NoSessionLinkedExposures: 'no_session_linked_exposures',
+} as const
+
+/**
  * The recordings worth watching for this experiment, grouped into cards.
  *
  * Descriptive, never a result: cards say where behavior visibly differed and hand over the
@@ -2431,10 +2463,10 @@ export const ExperimentWatchMultipleVariantHandlingEnumApi = {
  * state the magnitudes. Nothing here says a variant is winning.
  */
 export interface ExperimentSessionEventDeltaResponseApi {
-    /** The shelf, strongest comparison first, then the variant's own rendering, then metric shortcuts. Events the variants can't be told apart on get no card at all rather than a weak one, so an empty shelf means no difference was big enough to be sure of, not that nothing was measured. Group by kind before presenting: a 'variant_only' card outranks every real difference by construction, and reading the shelf in order would report it as the headline. */
+    /** The shelf, strongest comparison first, then the variant's own rendering, then metric shortcuts. Events the variants can't be told apart on get no card at all rather than a weak one, so an empty shelf means no difference was big enough to be sure of, not that nothing was measured. Empty also takes the metric shortcuts with it: a shelf of shortcuts and no finding restates what the experiment's results already answer while reading as a finding, so it is withheld. Read empty_reason and say what it reports instead of presenting an empty shelf. Group by kind before presenting: a 'variant_only' card outranks every real difference by construction, and reading the shelf in order would report it as the headline. */
     cards: ExperimentWatchCardApi[]
-    /** Every variant's compared population, in the flag's variant order. */
-    arms: ExperimentWatchArmApi[]
+    /** Every variant the analysis compares, with its population, in the flag's variant order. A variant the experiment excludes never appears here, because the analysis does not count it either, so read a missing key as excluded rather than as zero people. */
+    variants: ExperimentWatchVariantApi[]
     /** People who saw more than one variant and were left out of every card. Always 0 when the experiment attributes such users to the variant they saw first. */
     multiple_variant_persons: number
     /** How the experiment handles someone who saw more than one variant, followed here so the cards split their people the same way the analysis does.
@@ -2444,26 +2476,33 @@ export interface ExperimentSessionEventDeltaResponseApi {
     multiple_variant_handling: ExperimentWatchMultipleVariantHandlingEnumApi
     /** The events the experiment's own metrics count. A card on one of these carries metric_name and must be read as pointing at the experiment's results, which measure the same event over the whole run window with the statistics that go with a result. Cards state no magnitude for exactly this reason, so never turn one into a claim about how the metric moved. */
     metric_events: string[]
-    /** Start of what was actually compared. The requested window is the experiment's run window clamped to its most recent 14 days (2 when sessions are matched on the stamped flag property, which no event name can prune a scan on), but a busy experiment reaches the session ceiling long before that, and this reports where the compared sessions really begin - often hours rather than days back. Display this, not the experiment's own dates. */
+    /** Start of what was actually compared. The requested window is the experiment's run window clamped to its most recent 14 days, but a busy experiment reaches the session ceiling long before that, and this reports where the compared sessions really begin - often hours rather than days back. Display this, not the experiment's own dates. */
     date_from: string
     /** End of what was compared: the experiment's end date, or now while it runs. */
     date_to: string
     /** Whether the project's test-account filters were applied, following the experiment's exposure criteria, the same rule the experiment's recordings list uses. */
     filter_test_accounts: boolean
-    /** True when the compared sessions were matched on the stamped $feature/<flag key> event property instead of the exposure event, because the default exposure event has only ever been captured server-side and can never match a session. The sessions then mean 'the flag was active in this session', and the variant comes from the flag's value on each event, so a returning user can be counted under a variant they were re-bucketed into later. */
+    /** Always false. The compared population is the exposed population the experiment's results count, matched to sessions by person, so no stamped-property fallback exists any more. The field stays for compatibility with existing readers. */
     used_exposure_fallback: boolean
     /** True when the experiment had more exposed sessions in the requested window than one comparison covers, so the most recent ones were used and date_from is later than the experiment's own window. Every variant is still covered over the same stretch of time. */
     sessions_truncated: boolean
     /** True when the project has more distinct event names in the window than one comparison can rank, so some were never considered. */
     events_truncated: boolean
     /** How many exposed people a variant needs before it can be compared at all. Below it a variant's cards would be noise whatever the evidence bar allows. */
-    min_arm_persons: number
+    min_variant_persons: number
     /** The most recordings one card can carry. A card whose recording_count equals this hit the ceiling, so report it as 'at least this many' rather than as a count. */
     max_card_recordings: number
     /** How many cards were removed because their recordings were already another card's on the same shelf. Nothing was lost: the recordings are all reachable through the cards that stayed. */
     dropped_duplicate_cards: number
-    /** True when fewer than two variants have min_arm_persons exposed people, so no comparison exists and cards is empty. Say 'too early to compare' and show the arms' counts; an empty shelf presented without this would read as 'the variants behaved identically'. */
+    /** True when fewer than two variants have min_variant_persons exposed people, so no comparison exists and cards is empty. Show the variants' counts alongside it: an empty shelf presented without them would read as 'the variants behaved identically'. Read empty_reason before telling anyone to check back: this is also true when the variants are empty because the people exposed have no sessions we can see, which empty_reason reports as 'no_session_linked_exposures' and which more time does not fix on its own. */
     too_early: boolean
+    /** Why cards is empty, and null whenever cards is not empty. Report which of the four happened rather than reporting an empty shelf, because they ask different things of the reader. 'too_early': fewer than two variants have min_variant_persons exposed people, so nothing was compared yet and the answer can still change. 'no_separation': the variants were compared and no event told them apart, which is a result rather than a failure. 'no_recordings': events did tell the variants apart, but no recording behind them can be opened, so the project's session replay sampling and retention are what decide whether this surface can ever show anything. 'no_session_linked_exposures': the experiment has exposed people and none of them has a session we can see between date_from and date_to, so there was nothing to compare. Who counts as exposed is read over the whole run, so the exposures themselves can predate that window: date the claim to the window instead of reporting when anyone was exposed. Two things reach this state, and they ask for different answers: no browser or mobile SDK is capturing events, because sessions exist nowhere else, or the exposed people were last active before the window. Check which one before telling anyone to check back, because more exposures captured the same way yield more of the same. Never fill an empty shelf with the experiment's metrics: shortcut cards to those metrics' events are withheld here for exactly that reason.
+     *
+     * * `too_early` - too_early
+     * * `no_separation` - no_separation
+     * * `no_recordings` - no_recordings
+     * * `no_session_linked_exposures` - no_session_linked_exposures */
+    empty_reason: ExperimentWatchEmptyReasonEnumApi | null
 }
 
 export interface ShipVariantApi {

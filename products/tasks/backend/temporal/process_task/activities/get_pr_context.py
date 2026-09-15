@@ -108,7 +108,7 @@ def get_pr_context(input: GetPrContextInput) -> GetPrContextOutput | None:
         try:
             task_run = TaskRun.objects.get(id=ctx.run_id)
         except TaskRun.DoesNotExist:
-            activity.logger.warning("get_pr_context_task_run_not_found", run_id=ctx.run_id)
+            activity.logger.warning("get_pr_context_task_run_not_found", extra={"run_id": ctx.run_id})
             return None
 
         pr_url = (task_run.output or {}).get("pr_url")
@@ -124,8 +124,10 @@ def get_pr_context(input: GetPrContextInput) -> GetPrContextOutput | None:
         except ObjectDoesNotExist:
             activity.logger.warning(
                 "get_pr_context_github_integration_not_found",
-                github_integration_id=ctx.github_integration_id,
-                github_user_integration_id=ctx.github_user_integration_id,
+                extra={
+                    "github_integration_id": ctx.github_integration_id,
+                    "github_user_integration_id": ctx.github_user_integration_id,
+                },
             )
             return None
 

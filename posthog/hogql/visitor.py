@@ -296,7 +296,7 @@ class TraversingVisitor(Visitor[None]):
     def visit_table_type(self, node: ast.TableType):
         pass
 
-    def visit_lazy_table_type(self, node: ast.TableType):
+    def visit_lazy_table_type(self, node: ast.LazyTableType):
         pass
 
     def visit_field_traverser_type(self, node: ast.LazyJoinType):

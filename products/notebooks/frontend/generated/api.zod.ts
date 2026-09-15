@@ -21,7 +21,12 @@ export const notebooksCreateBodyVariablesItemNameMax = 200
 
 export const NotebooksCreateBody = /* @__PURE__ */ zod.object({
     title: zod.string().max(notebooksCreateBodyTitleMax).nullish().describe('Title of the notebook.'),
-    content: zod.unknown().optional().describe('Notebook content as a ProseMirror JSON document structure.'),
+    content: zod
+        .unknown()
+        .optional()
+        .describe(
+            'Notebook content as a ProseMirror JSON document. On create, the server stores it as a markdown notebook: one ph-markdown-notebook node that holds the converted markdown.'
+        ),
     text_content: zod.string().nullish().describe('Plain text representation of the notebook content for search.'),
     version: zod
         .number()
@@ -51,7 +56,7 @@ export const NotebooksCreateBody = /* @__PURE__ */ zod.object({
                         .unknown()
                         .optional()
                         .describe(
-                            "The variable's current value. A 'date' accepts an absolute date or a relative expression ('-7d', 'mStart'), resolved against the project timezone."
+                            "The variable's current value. A 'date' is an absolute date or datetime in ISO 8601 form ('2025-01-31', '2025-01-31T09:00:00Z'); relative expressions such as '-7d' are rejected."
                         ),
                 })
                 .describe("One notebook-level variable. Shared by the notebook's own `variables` field and a run body.")
@@ -75,7 +80,12 @@ export const notebooksUpdateBodyVariablesItemNameMax = 200
 
 export const NotebooksUpdateBody = /* @__PURE__ */ zod.object({
     title: zod.string().max(notebooksUpdateBodyTitleMax).nullish().describe('Title of the notebook.'),
-    content: zod.unknown().optional().describe('Notebook content as a ProseMirror JSON document structure.'),
+    content: zod
+        .unknown()
+        .optional()
+        .describe(
+            'Notebook content as a ProseMirror JSON document. On create, the server stores it as a markdown notebook: one ph-markdown-notebook node that holds the converted markdown.'
+        ),
     text_content: zod.string().nullish().describe('Plain text representation of the notebook content for search.'),
     version: zod
         .number()
@@ -105,7 +115,7 @@ export const NotebooksUpdateBody = /* @__PURE__ */ zod.object({
                         .unknown()
                         .optional()
                         .describe(
-                            "The variable's current value. A 'date' accepts an absolute date or a relative expression ('-7d', 'mStart'), resolved against the project timezone."
+                            "The variable's current value. A 'date' is an absolute date or datetime in ISO 8601 form ('2025-01-31', '2025-01-31T09:00:00Z'); relative expressions such as '-7d' are rejected."
                         ),
                 })
                 .describe("One notebook-level variable. Shared by the notebook's own `variables` field and a run body.")
@@ -129,7 +139,12 @@ export const notebooksPartialUpdateBodyVariablesItemNameMax = 200
 
 export const NotebooksPartialUpdateBody = /* @__PURE__ */ zod.object({
     title: zod.string().max(notebooksPartialUpdateBodyTitleMax).nullish().describe('Title of the notebook.'),
-    content: zod.unknown().optional().describe('Notebook content as a ProseMirror JSON document structure.'),
+    content: zod
+        .unknown()
+        .optional()
+        .describe(
+            'Notebook content as a ProseMirror JSON document. On create, the server stores it as a markdown notebook: one ph-markdown-notebook node that holds the converted markdown.'
+        ),
     text_content: zod.string().nullish().describe('Plain text representation of the notebook content for search.'),
     version: zod
         .number()
@@ -159,7 +174,7 @@ export const NotebooksPartialUpdateBody = /* @__PURE__ */ zod.object({
                         .unknown()
                         .optional()
                         .describe(
-                            "The variable's current value. A 'date' accepts an absolute date or a relative expression ('-7d', 'mStart'), resolved against the project timezone."
+                            "The variable's current value. A 'date' is an absolute date or datetime in ISO 8601 form ('2025-01-31', '2025-01-31T09:00:00Z'); relative expressions such as '-7d' are rejected."
                         ),
                 })
                 .describe("One notebook-level variable. Shared by the notebook's own `variables` field and a run body.")
@@ -296,60 +311,6 @@ export const NotebooksCollabSaveCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
- */
-export const notebooksHogqlExecuteCreateBodyTitleMax = 256
-
-export const notebooksHogqlExecuteCreateBodyVersionMin = -2147483648
-export const notebooksHogqlExecuteCreateBodyVersionMax = 2147483647
-
-export const notebooksHogqlExecuteCreateBodyVariablesItemNameMax = 200
-
-export const NotebooksHogqlExecuteCreateBody = /* @__PURE__ */ zod.object({
-    title: zod.string().max(notebooksHogqlExecuteCreateBodyTitleMax).nullish().describe('Title of the notebook.'),
-    content: zod.unknown().optional().describe('Notebook content as a ProseMirror JSON document structure.'),
-    text_content: zod.string().nullish().describe('Plain text representation of the notebook content for search.'),
-    version: zod
-        .number()
-        .min(notebooksHogqlExecuteCreateBodyVersionMin)
-        .max(notebooksHogqlExecuteCreateBodyVersionMax)
-        .optional()
-        .describe(
-            'Version number for optimistic concurrency control. Must match the current version when updating content.'
-        ),
-    deleted: zod.boolean().optional().describe('Whether the notebook has been soft-deleted.'),
-    variables: zod
-        .array(
-            zod
-                .object({
-                    name: zod
-                        .string()
-                        .max(notebooksHogqlExecuteCreateBodyVariablesItemNameMax)
-                        .describe(
-                            'Identifier the cell reads: `{name}` in a SQL cell, a plain global in a Python cell.'
-                        ),
-                    type: zod
-                        .string()
-                        .describe(
-                            "How to coerce the value: 'string', 'number', 'boolean', or 'date'. Unknown types read as 'string'."
-                        ),
-                    value: zod
-                        .unknown()
-                        .optional()
-                        .describe(
-                            "The variable's current value. A 'date' accepts an absolute date or a relative expression ('-7d', 'mStart'), resolved against the project timezone."
-                        ),
-                })
-                .describe("One notebook-level variable. Shared by the notebook's own `variables` field and a run body.")
-        )
-        .optional()
-        .describe(
-            'Notebook-level variables, in display order. A SQL cell reads one as a `{name}` placeholder and a Python cell as a global. Names must be unique.'
-        ),
-    _create_in_folder: zod.string().optional(),
-})
-
-/**
  * Set the notebook's kernel compute configuration. Applies at sandbox provision time: a currently running kernel keeps its resources until restarted.
  */
 export const NotebooksKernelConfigCreateBody = /* @__PURE__ */ zod.object({
@@ -379,7 +340,12 @@ export const notebooksKernelExecuteCreateBodyVariablesItemNameMax = 200
 
 export const NotebooksKernelExecuteCreateBody = /* @__PURE__ */ zod.object({
     title: zod.string().max(notebooksKernelExecuteCreateBodyTitleMax).nullish().describe('Title of the notebook.'),
-    content: zod.unknown().optional().describe('Notebook content as a ProseMirror JSON document structure.'),
+    content: zod
+        .unknown()
+        .optional()
+        .describe(
+            'Notebook content as a ProseMirror JSON document. On create, the server stores it as a markdown notebook: one ph-markdown-notebook node that holds the converted markdown.'
+        ),
     text_content: zod.string().nullish().describe('Plain text representation of the notebook content for search.'),
     version: zod
         .number()
@@ -409,65 +375,7 @@ export const NotebooksKernelExecuteCreateBody = /* @__PURE__ */ zod.object({
                         .unknown()
                         .optional()
                         .describe(
-                            "The variable's current value. A 'date' accepts an absolute date or a relative expression ('-7d', 'mStart'), resolved against the project timezone."
-                        ),
-                })
-                .describe("One notebook-level variable. Shared by the notebook's own `variables` field and a run body.")
-        )
-        .optional()
-        .describe(
-            'Notebook-level variables, in display order. A SQL cell reads one as a `{name}` placeholder and a Python cell as a global. Names must be unique.'
-        ),
-    _create_in_folder: zod.string().optional(),
-})
-
-/**
- * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
- */
-export const notebooksKernelExecuteStreamCreateBodyTitleMax = 256
-
-export const notebooksKernelExecuteStreamCreateBodyVersionMin = -2147483648
-export const notebooksKernelExecuteStreamCreateBodyVersionMax = 2147483647
-
-export const notebooksKernelExecuteStreamCreateBodyVariablesItemNameMax = 200
-
-export const NotebooksKernelExecuteStreamCreateBody = /* @__PURE__ */ zod.object({
-    title: zod
-        .string()
-        .max(notebooksKernelExecuteStreamCreateBodyTitleMax)
-        .nullish()
-        .describe('Title of the notebook.'),
-    content: zod.unknown().optional().describe('Notebook content as a ProseMirror JSON document structure.'),
-    text_content: zod.string().nullish().describe('Plain text representation of the notebook content for search.'),
-    version: zod
-        .number()
-        .min(notebooksKernelExecuteStreamCreateBodyVersionMin)
-        .max(notebooksKernelExecuteStreamCreateBodyVersionMax)
-        .optional()
-        .describe(
-            'Version number for optimistic concurrency control. Must match the current version when updating content.'
-        ),
-    deleted: zod.boolean().optional().describe('Whether the notebook has been soft-deleted.'),
-    variables: zod
-        .array(
-            zod
-                .object({
-                    name: zod
-                        .string()
-                        .max(notebooksKernelExecuteStreamCreateBodyVariablesItemNameMax)
-                        .describe(
-                            'Identifier the cell reads: `{name}` in a SQL cell, a plain global in a Python cell.'
-                        ),
-                    type: zod
-                        .string()
-                        .describe(
-                            "How to coerce the value: 'string', 'number', 'boolean', or 'date'. Unknown types read as 'string'."
-                        ),
-                    value: zod
-                        .unknown()
-                        .optional()
-                        .describe(
-                            "The variable's current value. A 'date' accepts an absolute date or a relative expression ('-7d', 'mStart'), resolved against the project timezone."
+                            "The variable's current value. A 'date' is an absolute date or datetime in ISO 8601 form ('2025-01-31', '2025-01-31T09:00:00Z'); relative expressions such as '-7d' are rejected."
                         ),
                 })
                 .describe("One notebook-level variable. Shared by the notebook's own `variables` field and a run body.")
@@ -491,7 +399,12 @@ export const notebooksKernelRestartCreateBodyVariablesItemNameMax = 200
 
 export const NotebooksKernelRestartCreateBody = /* @__PURE__ */ zod.object({
     title: zod.string().max(notebooksKernelRestartCreateBodyTitleMax).nullish().describe('Title of the notebook.'),
-    content: zod.unknown().optional().describe('Notebook content as a ProseMirror JSON document structure.'),
+    content: zod
+        .unknown()
+        .optional()
+        .describe(
+            'Notebook content as a ProseMirror JSON document. On create, the server stores it as a markdown notebook: one ph-markdown-notebook node that holds the converted markdown.'
+        ),
     text_content: zod.string().nullish().describe('Plain text representation of the notebook content for search.'),
     version: zod
         .number()
@@ -521,7 +434,7 @@ export const NotebooksKernelRestartCreateBody = /* @__PURE__ */ zod.object({
                         .unknown()
                         .optional()
                         .describe(
-                            "The variable's current value. A 'date' accepts an absolute date or a relative expression ('-7d', 'mStart'), resolved against the project timezone."
+                            "The variable's current value. A 'date' is an absolute date or datetime in ISO 8601 form ('2025-01-31', '2025-01-31T09:00:00Z'); relative expressions such as '-7d' are rejected."
                         ),
                 })
                 .describe("One notebook-level variable. Shared by the notebook's own `variables` field and a run body.")
@@ -545,7 +458,12 @@ export const notebooksKernelStartCreateBodyVariablesItemNameMax = 200
 
 export const NotebooksKernelStartCreateBody = /* @__PURE__ */ zod.object({
     title: zod.string().max(notebooksKernelStartCreateBodyTitleMax).nullish().describe('Title of the notebook.'),
-    content: zod.unknown().optional().describe('Notebook content as a ProseMirror JSON document structure.'),
+    content: zod
+        .unknown()
+        .optional()
+        .describe(
+            'Notebook content as a ProseMirror JSON document. On create, the server stores it as a markdown notebook: one ph-markdown-notebook node that holds the converted markdown.'
+        ),
     text_content: zod.string().nullish().describe('Plain text representation of the notebook content for search.'),
     version: zod
         .number()
@@ -575,7 +493,7 @@ export const NotebooksKernelStartCreateBody = /* @__PURE__ */ zod.object({
                         .unknown()
                         .optional()
                         .describe(
-                            "The variable's current value. A 'date' accepts an absolute date or a relative expression ('-7d', 'mStart'), resolved against the project timezone."
+                            "The variable's current value. A 'date' is an absolute date or datetime in ISO 8601 form ('2025-01-31', '2025-01-31T09:00:00Z'); relative expressions such as '-7d' are rejected."
                         ),
                 })
                 .describe("One notebook-level variable. Shared by the notebook's own `variables` field and a run body.")
@@ -599,7 +517,12 @@ export const notebooksKernelStopCreateBodyVariablesItemNameMax = 200
 
 export const NotebooksKernelStopCreateBody = /* @__PURE__ */ zod.object({
     title: zod.string().max(notebooksKernelStopCreateBodyTitleMax).nullish().describe('Title of the notebook.'),
-    content: zod.unknown().optional().describe('Notebook content as a ProseMirror JSON document structure.'),
+    content: zod
+        .unknown()
+        .optional()
+        .describe(
+            'Notebook content as a ProseMirror JSON document. On create, the server stores it as a markdown notebook: one ph-markdown-notebook node that holds the converted markdown.'
+        ),
     text_content: zod.string().nullish().describe('Plain text representation of the notebook content for search.'),
     version: zod
         .number()
@@ -629,7 +552,7 @@ export const NotebooksKernelStopCreateBody = /* @__PURE__ */ zod.object({
                         .unknown()
                         .optional()
                         .describe(
-                            "The variable's current value. A 'date' accepts an absolute date or a relative expression ('-7d', 'mStart'), resolved against the project timezone."
+                            "The variable's current value. A 'date' is an absolute date or datetime in ISO 8601 form ('2025-01-31', '2025-01-31T09:00:00Z'); relative expressions such as '-7d' are rejected."
                         ),
                 })
                 .describe("One notebook-level variable. Shared by the notebook's own `variables` field and a run body.")
@@ -706,7 +629,7 @@ export const NotebooksSqlV2RunCreateBody = /* @__PURE__ */ zod.object({
                         .unknown()
                         .optional()
                         .describe(
-                            "The variable's current value. A 'date' accepts an absolute date or a relative expression ('-7d', 'mStart'), resolved against the project timezone."
+                            "The variable's current value. A 'date' is an absolute date or datetime in ISO 8601 form ('2025-01-31', '2025-01-31T09:00:00Z'); relative expressions such as '-7d' are rejected."
                         ),
                 })
                 .describe("One notebook-level variable. Shared by the notebook's own `variables` field and a run body.")
@@ -727,4 +650,57 @@ export const NotebooksSqlV2RunCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Send the code to the selected connection verbatim instead of compiling it from HogQL first. Ignored without connection_id, and incompatible with references to other cells.'
         ),
+})
+
+/**
+ * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
+ */
+export const NotebooksWidgetCancelBody = /* @__PURE__ */ zod.object({
+    generation_id: zod.uuid().describe('Generation job to cancel.'),
+})
+
+/**
+ * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
+ */
+export const notebooksWidgetGenerateBodyPromptMax = 50000
+
+export const notebooksWidgetGenerateBodyModelDefault = `claude-sonnet-4-6`
+export const notebooksWidgetGenerateBodyGenerationOperationDefault = `regenerate`
+
+export const NotebooksWidgetGenerateBody = /* @__PURE__ */ zod.object({
+    prompt: zod
+        .string()
+        .max(notebooksWidgetGenerateBodyPromptMax)
+        .describe(
+            'Instructions for the generated widget. Initial and improvement instructions accept up to 20,000 characters; regeneration accepts complete instructions up to 50,000 characters.'
+        ),
+    generation_id: zod.uuid().describe('Idempotency key for this generation job.'),
+    model: zod
+        .enum(['claude-haiku-4-5', 'claude-sonnet-4-6', 'claude-sonnet-5', 'claude-opus-5'])
+        .describe(
+            '\* `claude-haiku-4-5` - claude-haiku-4-5\n\* `claude-sonnet-4-6` - claude-sonnet-4-6\n\* `claude-sonnet-5` - claude-sonnet-5\n\* `claude-opus-5` - claude-opus-5'
+        )
+        .default(notebooksWidgetGenerateBodyModelDefault)
+        .describe(
+            'AI model used to generate the widget.\n\n\* `claude-haiku-4-5` - claude-haiku-4-5\n\* `claude-sonnet-4-6` - claude-sonnet-4-6\n\* `claude-sonnet-5` - claude-sonnet-5\n\* `claude-opus-5` - claude-opus-5'
+        ),
+    generation_operation: zod
+        .enum(['initial', 'regenerate', 'improve'])
+        .describe('\* `initial` - initial\n\* `regenerate` - regenerate\n\* `improve` - improve')
+        .default(notebooksWidgetGenerateBodyGenerationOperationDefault)
+        .describe(
+            'Whether to generate from scratch or improve the current source.\n\n\* `initial` - initial\n\* `regenerate` - regenerate\n\* `improve` - improve'
+        ),
+    expected_current_version_id: zod
+        .uuid()
+        .optional()
+        .describe('Current widget version the improvement is based on. Required for improve operations.'),
+})
+
+/**
+ * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
+ */
+export const NotebooksWidgetRevertBody = /* @__PURE__ */ zod.object({
+    version_id: zod.uuid().describe('Earlier version to restore as a new version.'),
+    expected_current_version_id: zod.uuid().describe('Current version used for optimistic concurrency.'),
 })

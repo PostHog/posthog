@@ -75,14 +75,13 @@ class TestInstrumentationChecklist(ClickhouseTestMixin, APIBaseTest):
         # tag at the point the query would run instead.
         seen: list[Feature | None] = []
 
-        def record(team: Team) -> ChecklistStats:
+        def record(team: Team, *, force_refresh: bool = False) -> ChecklistStats:
             seen.append(get_query_tags().feature)
             return ChecklistStats(
                 generations=0,
                 events_with_session=0,
                 events_declining_session=0,
                 generations_with_tool_calls=0,
-                generations_with_tools_declared=0,
                 sdk_generations=0,
                 sdk_generations_identified=0,
                 spans=0,
@@ -103,6 +102,32 @@ class TestInstrumentationChecklist(ClickhouseTestMixin, APIBaseTest):
         # request failing while this still passes.
         assert response.status_code == status.HTTP_200_OK, response.content
         assert seen == [Feature.INSTRUMENTATION_CHECKLIST]
+
+    def test_only_a_refresh_regrades_against_events_that_arrived_since(self) -> None:
+        def graded_generations() -> int:
+            body = self.client.get(endpoint(self.team.pk)).json()
+            return check(body, "sessions")["stats"]["generations"]
+
+        assert graded_generations() == VOLUME_FLOOR
+
+        bulk_create_ai_events([generation(self.team, VOLUME_FLOOR + index) for index in range(3)])
+
+        assert graded_generations() == VOLUME_FLOOR
+
+        # A dismissal only changes which status a check reports, so it must regrade the counts it
+        # already has rather than paying for the aggregate again.
+        dismissed = self.client.post(endpoint(self.team.pk, "dismiss/"), {"check": "sessions"}, format="json")
+        assert dismissed.status_code == status.HTTP_200_OK, dismissed.content
+        assert check(dismissed.json(), "sessions")["stats"]["generations"] == VOLUME_FLOOR
+
+        refreshed = self.client.get(f"{endpoint(self.team.pk)}?refresh=true")
+        assert refreshed.status_code == status.HTTP_200_OK, refreshed.content
+        assert check(refreshed.json(), "sessions")["stats"]["generations"] == VOLUME_FLOOR + 3
+
+    def test_an_unreadable_refresh_is_rejected_rather_than_read_as_false(self) -> None:
+        response = self.client.get(f"{endpoint(self.team.pk)}?refresh=banana")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
 
     def test_get_returns_every_check_graded_over_the_teams_events(self) -> None:
         response = self.client.get(endpoint(self.team.pk))

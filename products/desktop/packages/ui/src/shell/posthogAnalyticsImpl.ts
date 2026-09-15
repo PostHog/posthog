@@ -1,3 +1,4 @@
+import type { NetworkMetricsRequest } from "posthog-js/dist/module.full.no-external";
 import posthog from "posthog-js/dist/module.full.no-external";
 // Import the recorder to set up __PosthogExtensions__.initSessionRecording
 // The module.full.no-external bundle includes rrweb but not the initSessionRecording function
@@ -7,6 +8,7 @@ import type {
   AnalyticsProperties,
   IAnalytics,
 } from "@posthog/platform/analytics";
+import type { Adapter, ModelAccess } from "@posthog/shared";
 import {
   type EventPropertyMap,
   isInboxAnalyticsEvent,
@@ -33,15 +35,15 @@ export type HostInfoProperties = { platform: string; arch: string };
 
 let isInitialized = false;
 
-export type CodexSubscriptionState = {
-  access: "posthog-gateway" | "own-subscription";
+export type AdapterSubscriptionState = {
+  access: ModelAccess;
   connected: boolean;
 };
 
 // Cached so it can be re-applied after posthog.reset() clears super properties.
 let registeredAppVersion: string | null = null;
 let registeredHostInfo: HostInfoProperties | null = null;
-let registeredCodexSubscription: CodexSubscriptionState | null = null;
+const registeredSubscriptions = new Map<Adapter, AdapterSubscriptionState>();
 
 // posthog.reset() wipes super properties, so these are re-registered after each reset.
 function registerPersistentSuperProperties(): void {
@@ -53,9 +55,7 @@ function registerPersistentSuperProperties(): void {
     ...(registeredHostInfo !== null
       ? hostInfoProperties(registeredHostInfo)
       : {}),
-    ...(registeredCodexSubscription !== null
-      ? codexSubscriptionProperties(registeredCodexSubscription)
-      : {}),
+    ...subscriptionSuperProperties(),
   });
 }
 
@@ -66,26 +66,35 @@ function hostInfoProperties({ platform, arch }: HostInfoProperties): {
   return { os_platform: platform, os_arch: arch };
 }
 
-function codexSubscriptionProperties({
-  access,
-  connected,
-}: CodexSubscriptionState): {
-  codex_model_access: string;
-  codex_subscription_connected: boolean;
-} {
+function subscriptionProperties(
+  adapter: Adapter,
+  { access, connected }: AdapterSubscriptionState,
+): Record<string, string | boolean> {
+  const effectiveAccess = connected ? access : "posthog-gateway";
   return {
-    codex_model_access: access,
-    codex_subscription_connected: connected,
+    [`${adapter}_model_access`]: effectiveAccess,
+    [`${adapter}_subscription_connected`]: connected,
   };
 }
 
-export function registerCodexSubscription(state: CodexSubscriptionState): void {
-  registeredCodexSubscription = state;
+function subscriptionSuperProperties(): Record<string, string | boolean> {
+  const properties: Record<string, string | boolean> = {};
+  for (const [adapter, state] of registeredSubscriptions) {
+    Object.assign(properties, subscriptionProperties(adapter, state));
+  }
+  return properties;
+}
+
+export function registerAdapterSubscription(
+  adapter: Adapter,
+  state: AdapterSubscriptionState,
+): void {
+  registeredSubscriptions.set(adapter, state);
   if (!isInitialized) {
     return;
   }
 
-  posthog.register(codexSubscriptionProperties(state));
+  posthog.register(subscriptionProperties(adapter, state));
 }
 
 type PendingFlagListener = {
@@ -101,6 +110,29 @@ const pendingFlagListeners = new Set<PendingFlagListener>();
 let flagsUnavailable = false;
 
 const SESSION_IDLE_TIMEOUT_SECONDS = 36_000;
+
+/**
+ * Path attribute for the automatic network-duration metric. posthog-js's default
+ * path templating only replaces numeric/uuid-like segments, so a presigned
+ * task-artifact download/preview URL (whose path embeds the artifact's original,
+ * user-controlled filename — see `_build_artifact_storage_path` in
+ * products/tasks/backend/facade/api.py) or any other non-API request would leak
+ * that filename into the shared Metrics project. Only requests to the app's own
+ * API host get path-based attribution; everything else collapses to a fixed
+ * value.
+ */
+export function networkMetricPath(
+  request: NetworkMetricsRequest,
+  apiHost: string,
+): string | undefined {
+  try {
+    const requestHost = new URL(request.url).host;
+    const appHost = new URL(apiHost).host;
+    return requestHost === appHost ? undefined : "external";
+  } catch {
+    return "external";
+  }
+}
 
 export function initializePostHog(sessionId?: string) {
   const apiKey = import.meta.env.VITE_POSTHOG_API_KEY;
@@ -126,6 +158,21 @@ export function initializePostHog(sessionId?: string) {
     defaults: "2026-05-30",
     api_host: apiHost,
     ui_host: uiHost,
+    metrics: {
+      serviceName: "posthog-desktop",
+      environment: import.meta.env.PROD ? "production" : "development",
+      // Records every fetch/XHR as an `http.client.request.duration` histogram,
+      // keyed by method/host/path (posthog-js templates numeric and uuid-like
+      // path segments to `:id` before dimensioning). posthog-js's own capture/flags/session-recording
+      // requests are excluded automatically. `attributes` keeps path-based
+      // attribution to this app's own API — see `networkMetricPath`.
+      network: {
+        attributes: (request) => {
+          const path = networkMetricPath(request, apiHost);
+          return path === undefined ? undefined : { path };
+        },
+      },
+    },
     // The epoch turns capture_pageview into "history_change". This app routes via
     // createHashHistory() (packages/ui/src/router/router.ts), so the route lives in
     // the URL hash and $pathname is identical for every screen — automatic pageviews

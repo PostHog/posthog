@@ -392,13 +392,15 @@ class TestAssistantContextManager(BaseTest):
 
     @parameterized.expand(
         [
-            ("sql_v2 enabled", True, SQL_V2_CELL_GUIDANCE, LEGACY_CELL_GUIDANCE),
-            ("sql_v2 disabled", False, LEGACY_CELL_GUIDANCE, SQL_V2_CELL_GUIDANCE),
+            ("sql_v2 and widgets", True, True, SQL_V2_CELL_GUIDANCE, LEGACY_CELL_GUIDANCE),
+            ("sql_v2 only", True, False, SQL_V2_CELL_GUIDANCE, LEGACY_CELL_GUIDANCE),
+            ("widgets only", False, True, LEGACY_CELL_GUIDANCE, SQL_V2_CELL_GUIDANCE),
+            ("neither enabled", False, False, LEGACY_CELL_GUIDANCE, SQL_V2_CELL_GUIDANCE),
         ]
     )
     async def test_markdown_notebook_context_offers_only_runnable_cell_tags(
-        self, _name: str, sql_v2_enabled: bool, expected: str, unexpected: str
-    ):
+        self, _name: str, sql_v2_enabled: bool, widgets_enabled: bool, expected: str, unexpected: str
+    ) -> None:
         ui_context = MaxUIContext(
             notebooks=[
                 MaxNotebookContext(
@@ -411,15 +413,19 @@ class TestAssistantContextManager(BaseTest):
             ]
         )
 
-        with patch(
-            "products.notebooks.backend.facade.api.is_sql_v2_enabled",
-            return_value=sql_v2_enabled,
+        with (
+            patch("products.notebooks.backend.widgets.settings", DEBUG=False, TEST=False),
+            patch("products.notebooks.backend.facade.api.is_sql_v2_enabled", return_value=sql_v2_enabled),
+            patch("products.notebooks.backend.widgets.posthoganalytics.feature_enabled", return_value=widgets_enabled),
         ):
             result = await self.context_manager._format_ui_context(ui_context)
 
         assert result is not None
         self.assertIn(expected, result)
         self.assertNotIn(unexpected, result)
+        self.assertEqual('<Widget title="' in result, widgets_enabled)
+        if widgets_enabled:
+            self.assertIn("click Generate widget", result)
 
     @patch("ee.hogai.context.notebook.context.NotebookContext.from_short_id")
     async def test_format_ui_context_markdown_notebook_escapes_user_controlled_fields(self, mock_from_short_id):

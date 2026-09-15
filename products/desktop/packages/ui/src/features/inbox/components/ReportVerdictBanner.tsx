@@ -1,38 +1,36 @@
 import {
-  ArchiveIcon,
   ArrowSquareOutIcon,
+  ArrowsOutSimpleIcon,
   ChatCircleIcon,
-  ClockIcon,
+  CheckCircleIcon,
+  EyeSlashIcon,
   GitPullRequestIcon,
 } from "@phosphor-icons/react";
 import { extractRepoSelectionRepository } from "@posthog/core/inbox/artefacts";
-import { canCreateImplementationPr } from "@posthog/core/inbox/reportActions";
-import { parsePrUrl } from "@posthog/core/inbox/reportPresentation";
 import {
-  deriveReportVerdict,
-  type ReportVerdictTone,
-} from "@posthog/core/inbox/reportVerdict";
+  canCreateImplementationPr,
+  canResolveReport,
+} from "@posthog/core/inbox/reportActions";
+import { parsePrUrl } from "@posthog/core/inbox/reportPresentation";
+import { deriveReportVerdict } from "@posthog/core/inbox/reportVerdict";
 import {
   Button,
-  cn,
   Field,
   FieldDescription,
   FieldLabel,
   Popover,
   PopoverContent,
   PopoverTrigger,
-  Spinner,
   Textarea,
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
 } from "@posthog/quill";
+import type { InboxReportActionSurface } from "@posthog/shared/analytics-events";
 import type { SignalReport, Task } from "@posthog/shared/types";
 import { useTaskChannels } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
+import { ReportVerdictCallout } from "@posthog/ui/features/inbox/components/ReportVerdictCallout";
 import { useCreatePrReport } from "@posthog/ui/features/inbox/hooks/useCreatePrReport";
 import { useDiscussReport } from "@posthog/ui/features/inbox/hooks/useDiscussReport";
-import { useInboxBulkActions } from "@posthog/ui/features/inbox/hooks/useInboxBulkActions";
 import { useInboxReportDismissAction } from "@posthog/ui/features/inbox/hooks/useInboxReportDismissAction";
+import { useInboxReportResolveAction } from "@posthog/ui/features/inbox/hooks/useInboxReportResolveAction";
 import { useInboxReportArtefacts } from "@posthog/ui/features/inbox/hooks/useInboxReports";
 import { useReportActionTracker } from "@posthog/ui/features/inbox/hooks/useReportActionTracker";
 import {
@@ -44,9 +42,11 @@ import {
 } from "@posthog/ui/features/inbox/hooks/useReportTasks";
 import { useReportChatPanelStore } from "@posthog/ui/features/inbox/stores/reportChatPanelStore";
 import { taskDetailQuery } from "@posthog/ui/features/tasks/queries";
+import { Spinner } from "@posthog/ui/primitives/Spinner";
+import { openTaskInput, useOpenTask } from "@posthog/ui/router/useOpenTask";
 import { openExternalUrl } from "@posthog/ui/shell/openExternal";
 import { useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 const isMac =
   typeof navigator !== "undefined" && /Mac/i.test(navigator.platform);
@@ -54,50 +54,83 @@ const isMac =
 // Same sizing as PrDecisionBlock: the decision is the page's one ask.
 const BIG_BUTTON = "h-9 gap-2 px-4 text-[14px]";
 
-const TONE_CLASS: Record<ReportVerdictTone, string> = {
-  decision: "border-(--amber-6) bg-(--amber-2)",
-  danger: "border-(--red-6) bg-(--red-2)",
-  progress: "border-(--gray-5) bg-(--gray-1)",
-  info: "border-(--gray-5) bg-(--gray-1)",
-};
+type ReportVerdictBannerVariant = "full" | "header-actions" | "triage-actions";
 
-type ReportVerdictBannerVariant = "full" | "header-actions";
+const TYPING_TAGS = new Set(["INPUT", "TEXTAREA", "SELECT"]);
+
+/**
+ * An open dialog owns the keyboard because its buttons are not typing targets
+ * and actions must not open underneath it.
+ */
+function isHotkeyBlocked(event: KeyboardEvent): boolean {
+  if (event.metaKey || event.ctrlKey || event.altKey) return true;
+  const target = event.target;
+  if (
+    target instanceof HTMLElement &&
+    (target.isContentEditable || TYPING_TAGS.has(target.tagName))
+  ) {
+    return true;
+  }
+  return (
+    document.querySelector('[role="dialog"], [role="alertdialog"]') !== null
+  );
+}
+
+/**
+ * Bind one banner action to a window-level shortcut. Shortcuts use the same
+ * guards as their buttons, so pass `undefined` while the action is unavailable.
+ */
+function useActionHotkey(
+  key: string | undefined,
+  run: (event: KeyboardEvent) => void,
+): void {
+  useEffect(() => {
+    if (!key) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== key || isHotkeyBlocked(event)) return;
+      run(event);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [key, run]);
+}
 
 interface ReportVerdictBannerProps {
   report: SignalReport;
-  /**
-   * full: status box + action row (the triage card). header-actions: the
-   * compact action row alone (the detail page's sticky top bar owns the
-   * verbs, and the page shows no status box).
-   */
   variant?: ReportVerdictBannerVariant;
-  /** Key that fires the primary action (triage mode passes "f"). */
-  actionHotkey?: string;
+  prHotkey?: string;
+  resolveHotkey?: string;
+  dismissHotkey?: string;
   /** Hide the full banner after the reader starts or resumes report work. */
   initialEngagementOnly?: boolean;
-  /**
-   * Called after an action opens the report's conversation dock. Surfaces
-   * without a dock (the triage card) navigate to the report here.
-   */
+  /** Called after an action opens the report's conversation dock. */
   onEngaged?: () => void;
+  /** Analytics and behavior context for actions rendered in this banner. */
+  surface?: InboxReportActionSurface;
+  triageId?: string;
 }
 
 /**
  * The report's decision bar, closing the document: what state the report is
  * in, what it asks of the reader, and every action that answers the ask -
- * start the fix (or continue the one in flight), defer, or archive.
+ * start the fix, review work in flight, discuss, or dismiss.
  */
 export function ReportVerdictBanner({
   report,
   variant = "full",
-  actionHotkey,
+  prHotkey,
+  resolveHotkey,
+  dismissHotkey,
   initialEngagementOnly = false,
   onEngaged,
+  surface = "detail_pane",
+  triageId,
 }: ReportVerdictBannerProps) {
   const compact = variant === "header-actions";
+  const triageActions = variant === "triage-actions";
   const buttonClass = BIG_BUTTON;
-  const canCreatePr = canCreateImplementationPr(report);
-  const { data: artefactsResp } = useInboxReportArtefacts(report.id);
+  const { data: artefactsResp, isLoading: artefactsLoading } =
+    useInboxReportArtefacts(report.id);
   const cloudRepository = extractRepoSelectionRepository(
     artefactsResp?.results,
   );
@@ -107,11 +140,18 @@ export function ReportVerdictBanner({
   // that task rather than spin up a duplicate PR. `report.implementation_pr_url`
   // alone is unreliable here — it can be stale or not yet set — so we also look
   // at the linked implementation task's own state.
-  const { data: reportTasks, isLoading: reportTasksLoading } = useReportTasks(
-    report.id,
-    report.status,
-  );
+  const {
+    data: reportTasks,
+    isLoading: reportTasksLoading,
+    isError: reportTasksFailed,
+  } = useReportTasks(report.id, report.status);
   const continuableTask = findContinuableImplementationTask(reportTasks);
+  const canCreatePr = canCreateImplementationPr(report, {
+    hasLiveImplementationTask: continuableTask !== null,
+    // A failed lookup leaves task state unknown, same as a pending one. Reading it
+    // as "no live task" would offer a second PR on work that already has one.
+    isTaskLookupPending: reportTasksLoading || reportTasksFailed,
+  });
   // A merged PR is history, not live work: the report only still exists
   // because evidence kept arriving after the fix, so it reads by its own
   // state (usually "needs your decision" again) rather than "review the PR".
@@ -127,6 +167,8 @@ export function ReportVerdictBanner({
   const existingPrUrl =
     livePrUrl ?? (continuableTask ? getTaskPrUrl(continuableTask) : null);
   const hasExistingPr = !!existingPrUrl || !!continuableTask;
+  const externalPrUrl =
+    existingPrUrl && parsePrUrl(existingPrUrl) ? existingPrUrl : null;
   const startedTaskId = useReportChatPanelStore(
     (state) => state.startedTaskIdByReport[report.id] ?? null,
   );
@@ -137,7 +179,8 @@ export function ReportVerdictBanner({
 
   const verdict = deriveReportVerdict(report, { hasExistingPr });
 
-  const fireAction = useReportActionTracker(report);
+  const fireAction = useReportActionTracker(report, surface, triageId);
+  const openTask = useOpenTask();
   const queryClient = useQueryClient();
   const [prOpen, setPrOpen] = useState(false);
   const [prFeedback, setPrFeedback] = useState("");
@@ -174,6 +217,8 @@ export function ReportVerdictBanner({
     reportId: report.id,
     reportTitle: report.title ?? null,
     cloudRepository,
+    surface,
+    triageId,
     // The dock binds to the new task the moment it exists — and only then does
     // the view advance. A failed create (offline, missing repo/integration/
     // model, API error) never reaches here, so the report and its actions stay
@@ -184,25 +229,24 @@ export function ReportVerdictBanner({
     report,
     channelId: taskChannelId,
     redirectOnSuccess: false,
+    surface,
+    triageId,
     onTaskCreated: handleTaskCreated,
   });
 
-  // Archive is the "no" beside Fix & monitor's "yes" — a decision, so it lives in
-  // the decision row. Offered wherever the report is waiting on a person
+  // Keep Dismiss beside Create PR because both resolve the review decision.
+  // Offer it wherever the report is waiting on a person
   // (several verdict bodies tell the reader to archive; the button should be
-  // right there). Running reports keep it out of the banner — the header's
+  // right there). Running reports keep it out of the banner because the header's
   // Dismiss covers that rare case.
   const { dialog: dismissDialog, openDialog: openDismissDialog } =
-    useInboxReportDismissAction(report);
-  // Defer = snooze: the report re-promotes itself when enough new evidence
-  // lands. Same mechanism the triage card's d key uses.
-  const reportsForBulk = useMemo(() => [report], [report]);
-  const bulkActions = useInboxBulkActions(
-    reportsForBulk,
-    report.id,
-    "detail_pane",
-  );
-  const canArchiveHere =
+    useInboxReportDismissAction(report, surface, triageId);
+  const {
+    dialog: resolveDialog,
+    isPending: resolvePending,
+    openDialog: openResolveDialog,
+  } = useInboxReportResolveAction(report, surface, triageId);
+  const canDismissHere =
     report.status === "ready" ||
     report.status === "failed" ||
     report.status === "pending_input";
@@ -211,7 +255,6 @@ export function ReportVerdictBanner({
     const trimmed = prFeedback.trim();
     fireAction("create_pr", {
       has_feedback: trimmed.length > 0,
-      ...(trimmed ? { feedback_text: trimmed.slice(0, 500) } : {}),
     });
     setPrFeedback("");
     setPrOpen(false);
@@ -220,15 +263,44 @@ export function ReportVerdictBanner({
     void createPrReport(trimmed || undefined);
   }, [createPrReport, fireAction, prFeedback]);
 
-  const handleContinuePr = useCallback(() => {
-    if (!continuableTask) return;
+  const handleComposeImplementation = useCallback(() => {
+    if (artefactsLoading || awaitingChannel) return;
+    fireAction("implement");
+    openTaskInput({
+      initialPrompt: "Implement the recommended next step in this report.",
+      initialCloudRepository: cloudRepository,
+      channelId: taskChannelId ?? undefined,
+      reportAssociation: {
+        reportId: report.id,
+        title: report.title ?? "Untitled report",
+      },
+    });
+  }, [
+    artefactsLoading,
+    awaitingChannel,
+    cloudRepository,
+    fireAction,
+    report.id,
+    report.title,
+    taskChannelId,
+  ]);
+
+  const handleOpenPr = useCallback(() => {
+    if (!externalPrUrl) return;
     fireAction("open_pr");
-    // The conversation opens docked beside the report — the full task page
-    // stays one click away in the dock header.
-    setEngaged(true);
-    setChatOpen(true);
-    onEngaged?.();
-  }, [continuableTask, fireAction, setChatOpen, onEngaged]);
+    openExternalUrl(externalPrUrl);
+  }, [externalPrUrl, fireAction]);
+
+  const handleOpenTask = useCallback(() => {
+    if (!continuableTask) return;
+    fireAction("open_task");
+    if (surface === "triage") {
+      setChatOpen(true);
+      onEngaged?.();
+      return;
+    }
+    void openTask(continuableTask);
+  }, [continuableTask, fireAction, onEngaged, openTask, setChatOpen, surface]);
 
   const handleAsk = useCallback(() => {
     if (isCreatingPr || isDiscussing || awaitingChannel || reportTasksLoading) {
@@ -263,57 +335,53 @@ export function ReportVerdictBanner({
     discussReport,
   ]);
 
-  // The banner carries the report's one action: create the PR, or continue the
-  // one in flight. Offer it whenever the report can start a PR (`canCreatePr`
+  // The banner carries the report's one action: create a PR, or review the one
+  // already in flight. Offer it whenever the report can start a PR (`canCreatePr`
   // already restricts that to ready-actionable and pending-input reports) or
-  // already holds live implementation work — matching the old decision block.
+  // already holds live implementation work.
   // Terminal reports (merged/archived) get no action; their verdict says so.
   const isTerminalReport =
     report.status === "resolved" ||
     report.status === "suppressed" ||
     report.status === "deleted";
   const showActions = !isTerminalReport;
+  const shouldComposeImplementation =
+    variant === "full" && !hasExistingPr && canCreatePr;
 
-  // One key fires the primary action (triage mode passes "f"): continue the
-  // task when a PR exists, otherwise start the fix with no extra direction.
-  useEffect(() => {
-    if (!actionHotkey) return;
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== actionHotkey) return;
-      if (event.metaKey || event.ctrlKey || event.altKey) return;
-      const target = event.target;
-      if (
-        target instanceof HTMLElement &&
-        (target.isContentEditable ||
-          ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName))
-      ) {
-        return;
-      }
-      // An open dialog owns the keyboard: its buttons aren't typing targets,
-      // but f must not start a PR underneath the archive dialog.
-      if (document.querySelector('[role="dialog"], [role="alertdialog"]')) {
-        return;
-      }
-      event.preventDefault();
+  const runPrHotkey = useCallback(
+    (event: KeyboardEvent) => {
       if (report.status !== "ready" || isCreatingPr) return;
-      if (hasExistingPr) {
-        if (continuableTask) handleContinuePr();
+      if (externalPrUrl) {
+        event.preventDefault();
+        handleOpenPr();
       } else if (canCreatePr) {
-        handleCreatePr();
+        event.preventDefault();
+        setPrOpen(true);
       }
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [
-    actionHotkey,
-    report.status,
-    isCreatingPr,
-    hasExistingPr,
-    continuableTask,
-    canCreatePr,
-    handleContinuePr,
-    handleCreatePr,
-  ]);
+    },
+    [report.status, isCreatingPr, externalPrUrl, canCreatePr, handleOpenPr],
+  );
+  const runResolveHotkey = useCallback(
+    (event: KeyboardEvent) => {
+      event.preventDefault();
+      openResolveDialog();
+    },
+    [openResolveDialog],
+  );
+  const runDismissHotkey = useCallback(
+    (event: KeyboardEvent) => {
+      event.preventDefault();
+      openDismissDialog();
+    },
+    [openDismissDialog],
+  );
+
+  useActionHotkey(prHotkey, runPrHotkey);
+  useActionHotkey(
+    canResolveReport(report) ? resolveHotkey : undefined,
+    runResolveHotkey,
+  );
+  useActionHotkey(dismissHotkey, runDismissHotkey);
 
   if (
     initialEngagementOnly &&
@@ -322,39 +390,70 @@ export function ReportVerdictBanner({
     return null;
   }
 
+  const dismissButton = canDismissHere && !compact && (
+    <Button
+      type="button"
+      variant="outline"
+      onClick={() => openDismissDialog()}
+      className={buttonClass}
+    >
+      <EyeSlashIcon size={15} />
+      {triageActions ? "Dismiss" : "Dismiss…"}
+    </Button>
+  );
+
   const actionsRow = showActions ? (
     <div className="flex flex-wrap items-center gap-2.5">
-      {report.status === "ready" && hasExistingPr ? (
-        <>
-          <Button
-            type="button"
-            variant="primary"
-            disabled={isCreatingPr || isDiscussing || !continuableTask}
-            onClick={handleContinuePr}
-            className={buttonClass}
-          >
-            {reportTasksLoading && !continuableTask ? (
-              <Spinner />
-            ) : (
-              <GitPullRequestIcon size={15} />
-            )}
-            Continue the task
-          </Button>
-          {existingPrUrl && !compact && (
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => {
-                if (existingPrUrl) openExternalUrl(existingPrUrl);
-              }}
-              className={buttonClass}
-            >
-              <ArrowSquareOutIcon size={16} />
-              View PR on GitHub
-            </Button>
-          )}
-        </>
-      ) : report.status === "ready" && canCreatePr ? (
+      {triageActions && canResolveReport(report) && (
+        <Button
+          type="button"
+          variant="outline"
+          onClick={() => openResolveDialog()}
+          loading={resolvePending}
+          disabled={resolvePending}
+          className={buttonClass}
+          data-attr="inbox-triage-resolve"
+        >
+          <CheckCircleIcon size={15} />
+          Resolve
+        </Button>
+      )}
+      {triageActions && dismissButton}
+      {shouldComposeImplementation ? (
+        <Button
+          type="button"
+          variant="primary"
+          onClick={handleComposeImplementation}
+          loading={artefactsLoading}
+          disabled={artefactsLoading || awaitingChannel}
+          className={buttonClass}
+          data-attr="inbox-report-implement"
+        >
+          <GitPullRequestIcon size={15} />
+          Implement
+        </Button>
+      ) : report.status === "ready" && externalPrUrl ? (
+        <Button
+          type="button"
+          variant="primary"
+          onClick={handleOpenPr}
+          className={buttonClass}
+        >
+          <ArrowSquareOutIcon size={16} />
+          View PR on GitHub
+        </Button>
+      ) : report.status === "ready" && continuableTask ? (
+        <Button
+          type="button"
+          variant="primary"
+          onClick={handleOpenTask}
+          className={buttonClass}
+          data-attr="inbox-report-view-task"
+        >
+          <ArrowsOutSimpleIcon />
+          {surface === "triage" ? "Continue in chat" : "View task"}
+        </Button>
+      ) : report.status === "ready" && !hasExistingPr && canCreatePr ? (
         <Popover
           open={prOpen}
           onOpenChange={(next) => {
@@ -371,7 +470,7 @@ export function ReportVerdictBanner({
                 className={buttonClass}
               >
                 {isCreatingPr ? <Spinner /> : <GitPullRequestIcon size={15} />}
-                Fix & monitor
+                Create PR
               </Button>
             }
           />
@@ -418,126 +517,96 @@ export function ReportVerdictBanner({
                 disabled={isCreatingPr || isDiscussing}
                 onClick={handleCreatePr}
               >
-                Fix & monitor
+                Create PR
               </Button>
             </div>
           </PopoverContent>
         </Popover>
       ) : null}
-      <Popover
-        open={askOpen}
-        onOpenChange={(next) => {
-          setAskOpen(next);
-          if (!next && !isDiscussing) setAskQuestion("");
-        }}
-      >
-        <PopoverTrigger
-          render={
-            <Button
-              type="button"
-              variant="outline"
-              disabled={
-                isCreatingPr ||
-                isDiscussing ||
-                awaitingChannel ||
-                reportTasksLoading
-              }
-              className={buttonClass}
-            >
-              <ChatCircleIcon size={16} />
-              Ask about it
-            </Button>
-          }
-        />
-        <PopoverContent
-          align="start"
-          side="bottom"
-          sideOffset={6}
-          className="flex w-[420px] flex-col gap-2 p-3"
+      {!triageActions && (
+        <Popover
+          open={askOpen}
+          onOpenChange={(next) => {
+            setAskOpen(next);
+            if (!next && !isDiscussing) setAskQuestion("");
+          }}
         >
-          <Field>
-            <FieldLabel
-              className="sr-only"
-              htmlFor={`report-question-${report.id}`}
-            >
-              Optional question for the agent
-            </FieldLabel>
-            <Textarea
-              id={`report-question-${report.id}`}
-              autoFocus
-              placeholder="Ask a question or add direction (optional)…"
-              rows={4}
-              value={askQuestion}
-              onChange={(event) => setAskQuestion(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
-                  event.preventDefault();
-                  handleAsk();
-                }
-              }}
-            />
-            <FieldDescription>
-              The full report and its evidence are included.
-            </FieldDescription>
-          </Field>
-          <div className="flex items-center justify-between gap-2">
-            <span className="text-[12px] text-gray-10">
-              {isMac ? "⌘↵" : "Ctrl+↵"} to start
-            </span>
-            <Button
-              type="button"
-              variant="primary"
-              size="sm"
-              loading={isDiscussing}
-              disabled={
-                isCreatingPr ||
-                isDiscussing ||
-                awaitingChannel ||
-                reportTasksLoading
-              }
-              onClick={handleAsk}
-            >
-              Start chat
-            </Button>
-          </div>
-        </PopoverContent>
-      </Popover>
-      {canArchiveHere && !compact && (
-        <Tooltip>
-          <TooltipTrigger
+          <PopoverTrigger
             render={
               <Button
                 type="button"
                 variant="outline"
                 disabled={
-                  bulkActions.snoozeDisabledReason !== null ||
-                  bulkActions.isSnoozing
+                  isCreatingPr ||
+                  isDiscussing ||
+                  awaitingChannel ||
+                  reportTasksLoading
                 }
-                onClick={() => void bulkActions.snoozeSelected()}
                 className={buttonClass}
               >
-                {bulkActions.isSnoozing ? <Spinner /> : <ClockIcon size={16} />}
-                Defer
+                <ChatCircleIcon size={16} />
+                Ask about it
               </Button>
             }
           />
-          <TooltipContent side="bottom">
-            {bulkActions.snoozeDisabledReason ??
-              "Snooze until enough new evidence arrives"}
-          </TooltipContent>
-        </Tooltip>
+          <PopoverContent
+            align="start"
+            side="bottom"
+            sideOffset={6}
+            className="flex w-[420px] flex-col gap-2 p-3"
+          >
+            <Field>
+              <FieldLabel
+                className="sr-only"
+                htmlFor={`report-question-${report.id}`}
+              >
+                Optional question for the agent
+              </FieldLabel>
+              <Textarea
+                id={`report-question-${report.id}`}
+                autoFocus
+                placeholder="Ask a question or add direction (optional)…"
+                rows={4}
+                value={askQuestion}
+                onChange={(event) => setAskQuestion(event.target.value)}
+                onKeyDown={(event) => {
+                  if (
+                    event.key === "Enter" &&
+                    (event.metaKey || event.ctrlKey)
+                  ) {
+                    event.preventDefault();
+                    handleAsk();
+                  }
+                }}
+              />
+              <FieldDescription>
+                The full report and its evidence are included.
+              </FieldDescription>
+            </Field>
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-[12px] text-gray-10">
+                {isMac ? "⌘↵" : "Ctrl+↵"} to start
+              </span>
+              <Button
+                type="button"
+                variant="primary"
+                size="sm"
+                loading={isDiscussing}
+                disabled={
+                  isCreatingPr ||
+                  isDiscussing ||
+                  awaitingChannel ||
+                  reportTasksLoading
+                }
+                onClick={handleAsk}
+              >
+                Start chat
+              </Button>
+            </div>
+          </PopoverContent>
+        </Popover>
       )}
-      {canArchiveHere && !compact && (
-        <Button
-          type="button"
-          variant="outline"
-          onClick={openDismissDialog}
-          className={buttonClass}
-        >
-          <ArchiveIcon size={15} />
-          Archive…
-        </Button>
-      )}
+      {!triageActions && dismissButton}
     </div>
   ) : null;
 
@@ -546,20 +615,22 @@ export function ReportVerdictBanner({
     return actionsRow;
   }
 
+  if (variant === "triage-actions") {
+    return (
+      <>
+        {actionsRow}
+        {resolveDialog}
+        {dismissDialog}
+      </>
+    );
+  }
+
   return (
-    <div
-      className={cn(
-        "flex select-none flex-col gap-3 rounded-lg border p-4",
-        TONE_CLASS[verdict.tone],
-      )}
-    >
-      <div className="flex flex-col gap-1">
-        <span className="flex items-center gap-2 font-semibold text-[15px] text-gray-12">
-          {verdict.tone === "progress" && <Spinner />}
-          {verdict.title}
-        </span>
-        <span className="text-[14px] text-gray-11">{verdict.body}</span>
-        {mergedPr && report.implementation_pr_url && (
+    <ReportVerdictCallout
+      verdict={verdict}
+      details={
+        mergedPr &&
+        report.implementation_pr_url && (
           <a
             href={report.implementation_pr_url}
             target="_blank"
@@ -570,11 +641,11 @@ export function ReportVerdictBanner({
             An earlier fix (#{mergedPr.number}) merged, but evidence kept
             arriving afterwards
           </a>
-        )}
-      </div>
-
+        )
+      }
+    >
       {actionsRow}
       {dismissDialog}
-    </div>
+    </ReportVerdictCallout>
   );
 }

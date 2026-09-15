@@ -1,8 +1,9 @@
 import type { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
-import type { IndexedTrendResult } from 'scenes/trends/types'
 
 import type { Noun } from '~/models/groupsModel'
 import type { ActionFilter } from '~/types'
+
+import type { IndexedTrendResult } from 'products/product_analytics/frontend/insights/trends/types'
 
 export type TrendsSeriesMeta = {
     action?: ActionFilter

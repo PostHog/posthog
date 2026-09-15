@@ -67,7 +67,7 @@ export const SqlBoxPlot = ({
                 y: chartSettings.showYAxisBorder ?? true,
             },
             tooltip: { pinnable: true, placement: 'cursor' },
-            legend: { show: chartSettings.showLegend ?? false, position: 'top' },
+            legend: { show: chartSettings.showLegend ?? false, position: chartSettings.legendPosition ?? 'top' },
         }),
         [chartSettings, yAxisSettings]
     )

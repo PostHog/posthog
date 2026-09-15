@@ -15,6 +15,7 @@ export const manifest: ProductManifest = {
             description:
                 'Experiments help you test changes to your product to see which changes will lead to optimal results. Automatic statistical calculations let you see if the results are valid or due to chance.',
             iconType: 'experiment',
+            docsHref: 'https://posthog.com/docs/experiments',
         },
     },
     routes: { '/experiments': ['Experiments', 'experiments'] },

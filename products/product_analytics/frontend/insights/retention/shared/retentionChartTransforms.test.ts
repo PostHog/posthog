@@ -1,11 +1,10 @@
 import type { Series, TooltipConfig, YAxisConfig } from '@posthog/quill-charts'
 
-import type { RetentionTrendPayload } from 'scenes/retention/types'
-
 import type { GoalLine as SchemaGoalLine } from '~/queries/schema/schema-general'
 
 import type { GoalLineLike } from 'products/product_analytics/frontend/insights/trends/shared/trendsChartDisplayOptions'
 
+import type { RetentionTrendPayload } from '../types'
 import {
     buildRetentionBarChartConfig,
     buildRetentionChartModel,
@@ -165,6 +164,20 @@ describe('retentionChartTransforms', () => {
                 cohortCount: 42,
             })
         })
+    })
+
+    it.each([
+        ['line', buildRetentionLineChartConfig],
+        ['bar', buildRetentionBarChartConfig],
+    ])('formats %s interval-view dates in the team timezone', (_name, buildConfig) => {
+        const config = buildConfig({
+            isPercentage: true,
+            series: [],
+            isIntervalView: true,
+            period: 'Day',
+            timezone: 'America/Chicago',
+        })
+        expect(config.xAxis).toEqual({ interval: 'day', timezone: 'America/Chicago' })
     })
 
     describe('buildRetentionLineChartConfig', () => {

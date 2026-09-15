@@ -6,6 +6,7 @@ import { urls } from 'scenes/urls'
 
 import { inboxUsageLogic } from '../../logics/inboxUsageLogic'
 import { signalSourcesLogic } from '../../signalSourcesLogic'
+import { RepoRoutingRules } from '../config/RepoRoutingRules'
 import { SelfDrivingSection } from '../config/SelfDrivingSection'
 import { SignalSourcesPanel } from '../config/SignalSourcesPanel'
 import { SlackNotificationsSection } from '../config/SlackNotificationsSection'
@@ -46,6 +47,7 @@ export function SettingsTab(): JSX.Element {
             >
                 {/* The OAuth round trip returns to `next`; land back on this tab so the result is in view. */}
                 <GithubIntegration next={urls.inbox('settings')} connectSurface="signals_agent_setup" />
+                <RepoRoutingRules />
             </SettingsSection>
             <SettingsSection
                 title="Notifications"

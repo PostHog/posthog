@@ -24,12 +24,12 @@ from posthog.hogql.errors import TableAccessDeniedError
 
 from posthog.api.services.query import process_query_dict
 from posthog.caching.calculate_results import calculate_for_query_based_insight
+from posthog.caching.insight_result import InsightResult
 from posthog.event_usage import AnalyticsProps, EventSource
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.query_creator_access import creator_access_revoked, report_creator_access_revoked
-from posthog.schema_migrations.upgrade_manager import upgrade_query
-from posthog.security.url_validation import is_url_allowed
+from posthog.schema_migrations.upgrade_manager import upgrade_insight
 from posthog.tasks.exporter import EXPORT_TIMER
 from posthog.utils import absolute_uri
 
@@ -42,6 +42,7 @@ from products.exports.backend.tasks.failure_handler import (
     InvalidExportContext,
     classify_failure_type,
 )
+from products.exports.backend.url_security import is_heatmap_url_allowed
 from products.product_analytics.backend.facade.api import insight_variables_for_team, map_stale_to_latest
 
 logger = structlog.get_logger(__name__)
@@ -71,15 +72,24 @@ MAX_WIDTH_PIXELS = 4000  # Max width for wide content like funnels with many ste
 MAX_HEIGHT_PIXELS = 5000  # Prevents Chrome from consuming excessive memory on very tall pages
 CONTENT_PADDING = 80  # Padding for card borders
 
-MEASURE_CONTENT_HEIGHT_JS = """
+REPLAY_WRAPPER_SELECTOR = ".replayer-wrapper"
+
+# The replay player mounts rrweb either in the app document or inside its own same-origin frame
+# document, and a document query never crosses into a frame, so look in both.
+FIND_REPLAY_WRAPPER_JS = f"""(
+    document.querySelector('{REPLAY_WRAPPER_SELECTOR}') ||
+    document.querySelector('iframe.PlayerFrame__document')?.contentDocument?.querySelector('{REPLAY_WRAPPER_SELECTOR}')
+)"""
+
+MEASURE_CONTENT_HEIGHT_JS = f"""
     const element = document.querySelector('.InsightCard__viz') ||
                   document.querySelector('.ExportedInsight__content') ||
-                  document.querySelector('.replayer-wrapper') ||
+                  {FIND_REPLAY_WRAPPER_JS} ||
                   document.querySelector('.heatmap-exporter');
-    if (element) {
+    if (element) {{
         const rect = element.getBoundingClientRect();
         return Math.max(rect.height, document.body.scrollHeight);
-    }
+    }}
     return document.body.scrollHeight;
 """
 
@@ -91,7 +101,7 @@ MEASURE_CONTENT_WIDTH_JS = f"""
             }}
 
             // Check for replay player
-            const replayElement = document.querySelector('.replayer-wrapper');
+            const replayElement = {FIND_REPLAY_WRAPPER_JS};
             if (replayElement) {{
                 return replayElement.offsetWidth;
             }}
@@ -242,7 +252,7 @@ def _export_to_png(
             url_to_render = absolute_uri(
                 f"/exporter?token={access_token}&t={exported_asset.export_context.get('timestamp') or 0}&fullscreen=true"
             )
-            wait_for_css_selector = exported_asset.export_context.get("css_selector", ".replayer-wrapper")
+            wait_for_css_selector = exported_asset.export_context.get("css_selector", REPLAY_WRAPPER_SELECTOR)
             screenshot_width = exported_asset.export_context.get("width", 1400)
             screenshot_height = exported_asset.export_context.get("height", 600)
 
@@ -256,7 +266,7 @@ def _export_to_png(
             )
         elif exported_asset.export_context and exported_asset.export_context.get("heatmap_url"):
             heatmap_url = exported_asset.export_context["heatmap_url"]
-            ok, err = is_url_allowed(heatmap_url)
+            ok, err = is_heatmap_url_allowed(heatmap_url, exported_asset.export_context.get("heatmap_type"))
             if not ok:
                 raise Exception(f"heatmap_url blocked by SSRF protection: {err}")
 
@@ -456,7 +466,12 @@ def _screenshot_asset_browserless(
 
             try:
                 page.goto(url_to_render, wait_until="domcontentloaded", timeout=page_load_timeout * 1000)
-                page.wait_for_selector(wait_for_css_selector, state="attached", timeout=page_load_timeout * 1000)
+                if wait_for_css_selector == REPLAY_WRAPPER_SELECTOR:
+                    page.wait_for_function(
+                        f"() => !!{FIND_REPLAY_WRAPPER_JS}", timeout=page_load_timeout * 1000, polling=100
+                    )
+                else:
+                    page.wait_for_selector(wait_for_css_selector, state="attached", timeout=page_load_timeout * 1000)
             except PlaywrightTimeoutError as e:
                 with posthoganalytics.new_context():
                     posthoganalytics.tag("stage", "image_exporter.page_load_timeout")
@@ -556,9 +571,10 @@ def export_image(
                     if tile:
                         tile_filters_override = tile.filters_overrides
 
+                result: InsightResult | None = None
                 if query_override:
                     # query_override is upgraded inside calculate_for_query_based_insight,
-                    # so we skip upgrade_query (which only upgrades insight.query we won't use).
+                    # so we skip upgrade_insight (which only upgrades insight.query we won't use).
                     # variables_override is None because query_override already encodes the
                     # user's full current state — applying saved dashboard variables on top
                     # would clobber unsaved variable selections.
@@ -574,8 +590,17 @@ def export_image(
                         query_override=query_override,
                         analytics_props=export_analytics_props,
                     )
+                elif exported_asset.insight.query is None:
+                    # Nothing to warm: the insight stores only legacy filters, which the render
+                    # converts in the browser. Failing here would lose an export the browser can
+                    # still produce, so the render just starts without a warm cache. The dashboard
+                    # branch below skips such a tile for the same reason.
+                    logger.info(
+                        "export_image.skip_warming_insight_without_query",
+                        insight_id=exported_asset.insight.id,
+                    )
                 else:
-                    with upgrade_query(exported_asset.insight):
+                    with upgrade_insight(exported_asset.insight):
                         result = calculate_for_query_based_insight(
                             exported_asset.insight,
                             team=exported_asset.team,
@@ -587,7 +612,7 @@ def export_image(
                             tile_filters_override=tile_filters_override,
                             analytics_props=export_analytics_props,
                         )
-                if result.cache_key:
+                if result is not None and result.cache_key:
                     insight_cache_keys[exported_asset.insight.id] = result.cache_key
             elif exported_asset.dashboard:
                 logger.info(
@@ -612,7 +637,7 @@ def export_image(
                     if not insight or not insight.query:
                         continue
 
-                    with upgrade_query(insight):
+                    with upgrade_insight(insight):
                         result = calculate_for_query_based_insight(
                             insight,
                             team=exported_asset.team,

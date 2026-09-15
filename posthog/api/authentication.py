@@ -47,7 +47,7 @@ from two_factor.views.utils import get_remember_device_cookie, validate_remember
 from webauthn.helpers import base64url_to_bytes, bytes_to_base64url, options_to_json
 from webauthn.helpers.structs import AuthenticatorTransport, PublicKeyCredentialDescriptor
 
-from posthog.api.email_verification import EmailVerifier, is_email_verification_disabled
+from posthog.api.email_verification import email_verification_code_verifier, is_email_verification_disabled
 from posthog.caching.login_device_cache import check_and_cache_login_device
 from posthog.constants import AUTH_BACKEND_DISPLAY_NAMES
 from posthog.email import is_email_available
@@ -56,7 +56,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.geoip import get_geoip_properties
 from posthog.helpers.dev_login import is_dev_login_allowed
 from posthog.helpers.email_utils import EmailLookupHandler
-from posthog.helpers.sso import get_safe_next_url, is_sso_reauth_begin, sso_failure_redirect_url
+from posthog.helpers.sso import is_sso_reauth_begin, sso_failure_redirect_url
 from posthog.helpers.two_factor_session import (
     CODE_MAX_ATTEMPTS,
     LOGIN_CODE_VERIFICATION_COUNTER,
@@ -96,6 +96,20 @@ class WebauthnCredentialPrecheck(TypedDict):
     id: str
     type: str
     transports: list[str]
+
+
+def sso_enforcement_for_login_address(email: str, user: User | None) -> str | None:
+    """
+    Return the SSO enforcement for a typed address or for the account it resolves to.
+
+    The account lookup folds case in Postgres, so a typed domain can differ from the domain on the account it
+    reaches: Postgres lowercases `İ` (U+0130) to `i`. Checking only the typed domain would let an address that
+    reaches an account on an enforced domain skip SSO, so the account's own address is checked too.
+    """
+    sso_enforcement = OrganizationDomain.objects.get_sso_enforcement_for_email_address(email)
+    if sso_enforcement or user is None:
+        return sso_enforcement
+    return OrganizationDomain.objects.get_sso_enforcement_for_email_address(user.email)
 
 
 @require_http_methods(["POST"])
@@ -200,9 +214,9 @@ class EmailVerificationPending(APIException):
         super().__init__(detail=user_uuid, code=self.default_code)
 
 
-def is_email_verified_for_login(user: User, next_url: str | None = None) -> bool:
+def is_email_verified_for_login(user: User) -> bool:
     """
-    Send a verification email when the login policy requires it.
+    Send a verification code when the login policy requires it.
 
     Returns whether login may continue for this user. Legacy users with a null
     verification state are still allowed to sign in.
@@ -216,7 +230,7 @@ def is_email_verified_for_login(user: User, next_url: str | None = None) -> bool
     if is_email_verification_disabled(user):
         return True
 
-    EmailVerifier.create_token_and_send_email_verification(user, next_url)
+    email_verification_code_verifier.send_code(user)
     if user.is_email_verified is False:
         return False
 
@@ -227,16 +241,6 @@ def is_email_verified_for_login(user: User, next_url: str | None = None) -> bool
 class LoginSerializer(serializers.Serializer):
     email = serializers.EmailField()
     password = serializers.CharField()
-    next = serializers.CharField(
-        required=False,
-        allow_blank=True,
-        write_only=True,
-        help_text=(
-            "Relative path to resume after login (e.g. an /oauth/authorize URL). "
-            "Embedded into email verification / login-verification links so the flow "
-            "can continue after the email step. Ignored unless it is a safe same-origin path."
-        ),
-    )
 
     def to_representation(self, instance: Any) -> dict[str, Any]:
         return {"success": True}
@@ -286,8 +290,10 @@ class LoginSerializer(serializers.Serializer):
         return True
 
     def create(self, validated_data: dict[str, str]) -> Any:
+        existing_user = EmailLookupHandler.get_user_by_email(validated_data["email"], is_active=None)
+
         # Check SSO enforcement (which happens at the domain level)
-        sso_enforcement = OrganizationDomain.objects.get_sso_enforcement_for_email_address(validated_data["email"])
+        sso_enforcement = sso_enforcement_for_login_address(validated_data["email"], existing_user)
         if sso_enforcement:
             raise serializers.ValidationError(
                 f"You can only login with SSO for this account ({sso_enforcement}).",
@@ -295,9 +301,7 @@ class LoginSerializer(serializers.Serializer):
             )
 
         request = self.context["request"]
-        next_url = get_safe_next_url(validated_data.get("next"), request)
 
-        existing_user = User.objects.filter(email__iexact=validated_data["email"]).first()
         evaluate_auth_attempt(
             request=request._request,
             email=validated_data["email"],
@@ -338,15 +342,10 @@ class LoginSerializer(serializers.Serializer):
 
             raise serializers.ValidationError("Invalid email or password.", code="invalid_credentials")
 
-        if not is_email_verified_for_login(user, next_url):
-            if EmailVerifier.use_verification_code(user):
-                # A fresh code was just emailed; hand the frontend the uuid so it can route to
-                # the code entry page. The legacy link flow keeps the plain error below.
-                raise EmailVerificationPending(str(user.uuid))
-            raise serializers.ValidationError(
-                "Your account is awaiting verification. Please check your email for a verification link.",
-                code="not_verified",
-            )
+        if not is_email_verified_for_login(user):
+            # A fresh code was just emailed; hand the frontend the uuid so it can route to
+            # the code entry page.
+            raise EmailVerificationPending(str(user.uuid))
 
         # Domain enforcement: refuse blocked members — blocked admins still get a gated session.
         if not resolve_login_organization(user):
@@ -426,6 +425,7 @@ class LoginPrecheckSerializer(serializers.Serializer):
 
         email = validated_data.get("email", "")
         # TODO: Refactor methods below to remove duplicate queries
+        user = EmailLookupHandler.get_user_by_email(email, is_active=None)
 
         credentials = WebauthnCredential.objects.get_verified_for_email(email)
         webauthn_credentials = [
@@ -440,7 +440,7 @@ class LoginPrecheckSerializer(serializers.Serializer):
         saml_available = IdentityProviderConfig.objects.get_is_saml_available_for_email(email)
 
         return {
-            "sso_enforcement": OrganizationDomain.objects.get_sso_enforcement_for_email_address(email),
+            "sso_enforcement": sso_enforcement_for_login_address(email, user),
             "saml_available": saml_available,
             "webauthn_credentials": webauthn_credentials,
             **self._available_local_methods(email, saml_available=saml_available),
@@ -458,8 +458,8 @@ class LoginPrecheckSerializer(serializers.Serializer):
         that are genuinely passwordless.
         """
         # Same lookup login itself uses (`UserManager.get_by_natural_key`), so precheck can never
-        # describe a different account than the one a password would authenticate: exact case first,
-        # then case-insensitive, and deterministic (last logged in) if case variations coexist.
+        # describe a different account than the one a password would authenticate: case-insensitive,
+        # and deterministic (active first, then last logged in) if case variations coexist.
         user = EmailLookupHandler.get_user_by_email(email)
         if user is None:
             return {"password_login_available": True, "social_providers": []}
@@ -1131,9 +1131,12 @@ class PasswordResetSerializer(serializers.Serializer):
 
     def create(self, validated_data):
         email = validated_data.pop("email")
+        # Same lookup login uses, so a reset link can never reach a different account than the
+        # password it replaces.
+        user = EmailLookupHandler.get_user_by_email(email)
 
         # Check SSO enforcement (which happens at the domain level)
-        if OrganizationDomain.objects.get_sso_enforcement_for_email_address(email):
+        if sso_enforcement_for_login_address(email, user):
             raise serializers.ValidationError(
                 "Password reset is disabled because SSO login is enforced for this domain.",
                 code="sso_enforced",
@@ -1144,14 +1147,6 @@ class PasswordResetSerializer(serializers.Serializer):
                 "Cannot reset passwords because email is not configured for your instance. Please contact your administrator.",
                 code="email_not_available",
             )
-
-        try:
-            user = User.objects.filter(is_active=True).get(email__iexact=email)
-        except User.DoesNotExist:
-            user = None
-        except User.MultipleObjectsReturned:
-            # If multiple users share the same email (different casing), use the exact match
-            user = User.objects.filter(is_active=True, email=email).first()
 
         if user:
             user.requested_password_reset_at = datetime.datetime.now(datetime.UTC)

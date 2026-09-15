@@ -13,6 +13,7 @@ from posthog.models import OrganizationMembership, Team, User
 from posthog.models.organization import Organization
 
 from products.web_analytics.backend.temporal.weekly_digest.activities import (
+    _build_and_send_for_org,
     _get_org_batch_page,
     _is_user_targeted_for_digest,
     _run_wa_digest_batch,
@@ -228,11 +229,56 @@ class TestSendDigestForUser(_DigestTestBase):
         assert [s["team"].id for s in sections] == [team_b.id, team_c.id, self.team.id]
 
 
+class TestBuildAndSendForOrg(_DigestTestBase):
+    def setUp(self):
+        super().setUp()
+        flag_patcher = patch(
+            "products.web_analytics.backend.temporal.weekly_digest.activities.posthoganalytics.feature_enabled",
+            return_value=True,
+        )
+        flag_patcher.start()
+        self.addCleanup(flag_patcher.stop)
+        build_digest_patcher = patch(
+            "products.web_analytics.backend.weekly_digest.build_team_digest",
+            side_effect=lambda team: _make_team_digest(team),
+        )
+        self.mock_build_digest = build_digest_patcher.start()
+        self.addCleanup(build_digest_patcher.stop)
+
+    def test_a_failing_team_is_left_out_and_disclosed(self):
+        broken_team = Team.objects.create(organization=self.organization, name="Broken team")
+
+        def build(team):
+            if team.id == broken_team.id:
+                raise TimeoutError("Query timed out")
+            return _make_team_digest(team)
+
+        self.mock_build_digest.side_effect = build
+        counts = _build_and_send_for_org(str(self.organization.id))
+
+        assert counts.sent == 1
+        assert counts.team_count == 1
+        assert counts.teams_failed == 1
+        context = self.mock_email_class.call_args.kwargs["template_context"]
+        assert [s["team"].id for s in context["project_sections"]] == [self.team.id]
+        assert context["unavailable_project_names"] == ["Broken team"]
+        self.user.refresh_from_db()
+        assert "web_analytics_weekly_digest_project_enabled" not in (self.user.partial_notification_settings or {})
+
+    def test_raises_when_no_team_section_can_be_built(self):
+        self.mock_build_digest.side_effect = TimeoutError("Query timed out")
+
+        with self.assertRaises(RuntimeError):
+            _build_and_send_for_org(str(self.organization.id))
+
+        self.mock_email_class.assert_not_called()
+
+
 class TestSendTestDigestSingleTeamMode(_DigestTestBase):
     def setUp(self):
         super().setUp()
         self.build_digest_patcher = patch(
-            "products.web_analytics.backend.temporal.weekly_digest.activities.build_team_digest",
+            "products.web_analytics.backend.weekly_digest.build_team_digest",
             side_effect=lambda team: _make_team_digest(team),
         )
         self.build_digest_patcher.start()
@@ -283,7 +329,7 @@ class TestSendTestDigestFullUserMode(_DigestTestBase):
     def setUp(self):
         super().setUp()
         self.build_digest_patcher = patch(
-            "products.web_analytics.backend.temporal.weekly_digest.activities.build_team_digest",
+            "products.web_analytics.backend.weekly_digest.build_team_digest",
             side_effect=lambda team: _make_team_digest(team),
         )
         self.build_digest_patcher.start()
@@ -557,7 +603,7 @@ class TestRunWaDigestBatch(APIBaseTest):
                 return_value=True,
             ),
             patch(
-                "products.web_analytics.backend.temporal.weekly_digest.activities.build_team_digest",
+                "products.web_analytics.backend.weekly_digest.build_team_digest",
                 side_effect=lambda team: _make_team_digest(team),
             ),
             patch("products.web_analytics.backend.temporal.weekly_digest.activities.EmailMessage") as mock_email_class,

@@ -127,7 +127,7 @@ services:
         ports:
             - 8000:8000
         build: .
-        command: ./bin/docker-server-unit
+        command: ./bin/docker-server
         volumes:
             - .:/app/posthog
         environment:

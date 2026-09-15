@@ -2,7 +2,7 @@ import uuid
 import base64
 import datetime
 import contextlib
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
 from typing import Any, cast
 
 from unittest.mock import MagicMock, patch
@@ -13,11 +13,13 @@ from bson import Binary, DatetimeMS, ObjectId
 from bson.binary import UUID_SUBTYPE
 from parameterized import parameterized
 from pymongo.errors import CursorNotFound, OperationFailure, ServerSelectionTimeoutError
+from pymongo.hello import Hello
 from pymongo.server_description import ServerDescription
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import DEFAULT_CHUNK_SIZE
 from products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.mongo import (
     MONGO_DOCUMENT_MISSING_ID_ERROR,
+    MONGO_KEYS_UNAVAILABLE_ERROR,
     MONGO_MAX_CHUNK_ROWS,
     MONGO_MIN_CHUNK_ROWS,
     _adaptive_chunk_size,
@@ -28,6 +30,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.mo
     _process_doc_with_field_logging,
     _process_nested_value,
     get_leading_index_keys,
+    get_server_metadata,
     mongo_source,
 )
 from products.warehouse_sources.backend.types import IncrementalFieldType
@@ -429,6 +432,16 @@ class TestMongoDBNonRetryableErrors(SimpleTestCase):
                 "('atlas-sql-681905984ce3f87167df11fa-wf3cgp.a.query.mongodb.net', 27017) "
                 "server_type: Unknown, rtt: None, error=AutoReconnect('...connection closed...')>]>",
             ),
+            # MongoDB OperationFailure code 211 (KeyNotFound): the cluster's HMAC keystore has no
+            # valid key for the cursor's timestamp. Retrying the same cursor always fails the same
+            # way, so it must be classified non-retryable.
+            (
+                "key_not_found_hmac",
+                "No keys found for HMAC that is valid for time: { ts: Timestamp(1000000000, 1) } "
+                "with id: 1234567890, full error: {'ok': 0.0, 'errmsg': 'No keys found for HMAC "
+                "that is valid for time: { ts: Timestamp(1000000000, 1) } with id: 1234567890', "
+                "'code': 211, 'codeName': 'KeyNotFound'}",
+            ),
         ]
     )
     def test_known_errors_are_non_retryable(self, _name, error_msg):
@@ -464,6 +477,7 @@ class TestMongoDBNonRetryableErrors(SimpleTestCase):
             ("atlas_sql_endpoint", "query.mongodb.net", "connection string"),
             ("unescaped_credentials", "must be escaped according to RFC 3986", "connection string"),
             ("document_missing_id", "one of its documents has no _id field", "view"),
+            ("key_not_found", "No keys found for HMAC", "key management"),
         ]
     )
     def test_pattern_has_friendly_message(self, _name, pattern, expected_substring):
@@ -502,6 +516,25 @@ class TestGetRetryableErrors(SimpleTestCase):
         )
         assert any(pattern in error_msg for pattern in self.retryable), (
             f"MongoDB connection pool paused should be classified retryable: {error_msg}"
+        )
+
+    def test_signing_keys_unavailable_is_classified_retryable(self):
+        # mongo.py rewrites OperationFailure code 211 (KeyNotFound) to this message, so it is the
+        # text that reaches classification. Without a match the run reports as a bug nobody can act
+        # on, because the cluster clears a key rotation on its own.
+        assert any(pattern in MONGO_KEYS_UNAVAILABLE_ERROR for pattern in self.retryable), (
+            f"MongoDB signing keys unavailable should be classified retryable: {MONGO_KEYS_UNAVAILABLE_ERROR}"
+        )
+
+    def test_interrupted_at_shutdown_is_classified_retryable(self):
+        # NotPrimaryError raised when a read is killed by a routine replica-set failover (the
+        # primary shutting down or stepping down); the next retry hits the new primary.
+        error_msg = (
+            "PlanExecutor error during aggregation :: caused by :: interrupted at shutdown, "
+            "full error: {'ok': 0.0, 'code': 11600, 'codeName': 'InterruptedAtShutdown'}"
+        )
+        assert any(pattern in error_msg for pattern in self.retryable), (
+            f"MongoDB shutdown failover should be classified retryable: {error_msg}"
         )
 
 
@@ -608,12 +641,14 @@ class _FakeCollection:
         self,
         docs: list[dict[str, Any]],
         error: Exception | None = None,
+        error_after: int = 0,
         fallback_docs: list[dict[str, Any]] | None = None,
         fallback_error: Exception | None = None,
         fallback_error_after: int = 0,
     ) -> None:
         self._docs = docs
         self._error = error
+        self._error_after = error_after
         # Docs returned by a second find() call made without no_cursor_timeout, simulating the
         # fallback path taken when the tier rejects that option.
         self._fallback_docs = fallback_docs
@@ -634,7 +669,7 @@ class _FakeCollection:
         self.find_calls.append(kwargs)
         self.find_queries.append(query)
         if kwargs.get("no_cursor_timeout"):
-            cursor = _FakeCursor(self._docs, self._error)
+            cursor = _FakeCursor(self._docs, self._error, self._error_after)
         else:
             docs = self._fallback_docs if self._fallback_docs is not None else self._docs
             resume_after = _resume_after(query)
@@ -697,9 +732,9 @@ class TestMongoSourceCursorLifecycle(SimpleTestCase):
         assert collection.last_cursor is not None
         assert collection.last_cursor.closed is True
 
-    def test_cursor_closed_when_iteration_fails(self):
-        # A no_cursor_timeout cursor never expires on its own, so a mid-read failure (like the
-        # CursorNotFound this guards against) must still close it or it leaks server-side.
+    def test_cursor_closed_when_iteration_fails_with_no_progress(self):
+        # A no_cursor_timeout cursor that dies before yielding any document has no safe resume
+        # point — re-raise so Temporal retries the whole activity.
         collection = _FakeCollection([], error=CursorNotFound("cursor id 123 not found"))
 
         with self.assertRaises(CursorNotFound):
@@ -707,6 +742,29 @@ class TestMongoSourceCursorLifecycle(SimpleTestCase):
 
         assert collection.last_cursor is not None
         assert collection.last_cursor.closed is True
+
+    def test_no_timeout_cursor_killed_mid_stream_resumes_from_last_id(self):
+        # Regression: CursorNotFound can fire even when no_cursor_timeout=True is honored
+        # (e.g. primary election, Atlas maintenance). The initial cursor is _id-ordered, so
+        # last_id is a safe resume point — resume instead of failing the whole sync.
+        collection = _FakeCollection(
+            [{"_id": "1"}, {"_id": "2"}, {"_id": "3"}],
+            error=CursorNotFound("cursor id 123 not found"),
+            error_after=2,
+            fallback_docs=[{"_id": "1"}, {"_id": "2"}, {"_id": "3"}],
+        )
+
+        rows = self._run_get_rows(collection)
+
+        assert [row["_id"] for row in rows] == ["1", "2", "3"]
+        assert len(collection.find_calls) == 2
+        assert collection.find_calls[0].get("no_cursor_timeout") is True
+        assert "no_cursor_timeout" not in collection.find_calls[1]
+        # Resume query picks up after the last document that was yielded.
+        assert collection.find_queries[1] == {"_id": {"$gt": "2"}}
+        # Initial cursor is _id-sorted; resumed cursor is also _id-sorted.
+        assert collection.cursors[0].sorted_by == ["_id", 1]
+        assert collection.cursors[1].sorted_by == ["_id", 1]
 
     @parameterized.expand(
         [
@@ -744,6 +802,25 @@ class TestMongoSourceCursorLifecycle(SimpleTestCase):
         assert "no_cursor_timeout" not in collection.find_calls[1]
         assert collection.cursors[0].closed is True
         assert collection.cursors[1].closed is True
+
+    def test_key_rotation_failure_reports_a_message_without_the_server_response(self):
+        # A cluster mid key rotation fails a getMore with code 211 part way through the read, and
+        # pymongo's str() appends the whole server response, which must not reach the customer's
+        # sync error. The rewrite must also come before the no_cursor_timeout fallback check, which
+        # re-raises everything once a document was read.
+        raw_error = OperationFailure(
+            "No keys found for HMAC that is valid for time: { ts: Timestamp(1756713600, 4) } with id: "
+            "7300000000000000001, full error: {'ok': 0.0, 'errmsg': 'No keys found for HMAC', 'code': 211, "
+            "'codeName': 'KeyNotFound'}",
+            211,
+        )
+        collection = _FakeCollection([{"_id": "1"}, {"_id": "2"}], error=raw_error, error_after=1)
+
+        with self.assertRaises(OperationFailure) as ctx:
+            self._run_get_rows(collection)
+
+        assert str(ctx.exception) == MONGO_KEYS_UNAVAILABLE_ERROR
+        assert ctx.exception.__cause__ is raw_error
 
     def test_other_operation_failures_are_not_retried(self):
         # The fallback must be scoped to the specific tier-limitation error, not OperationFailure
@@ -801,3 +878,63 @@ class TestMongoSourceCursorLifecycle(SimpleTestCase):
             self._run_get_rows(collection)
 
         assert len(collection.find_calls) == 2
+
+
+class TestGetServerMetadata(SimpleTestCase):
+    @staticmethod
+    def _server(host: str, max_wire_version: int | None) -> ServerDescription:
+        # A ServerDescription built without a hello response is the state pymongo holds for a node
+        # it has not handshaked with, which is what the probe has to leave out.
+        if max_wire_version is None:
+            return ServerDescription((host, 27017))
+        return ServerDescription(
+            (host, 27017),
+            Hello({"ok": 1, "isWritablePrimary": True, "minWireVersion": 0, "maxWireVersion": max_wire_version}),
+        )
+
+    @contextlib.contextmanager
+    def _patched_client(self, server_version: str, servers: list[ServerDescription]) -> Iterator[None]:
+        client = MagicMock()
+        client.server_info.return_value = {"version": server_version}
+        client.topology_description.server_descriptions.return_value = {server.address: server for server in servers}
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.mongo.mongo_client"
+        ) as client_factory:
+            client_factory.return_value.__enter__.return_value = client
+            yield
+
+    @parameterized.expand(
+        [
+            ("single_node", "7.0.14", [("a.example.com", 21)], 21, 1, 1),
+            # The driver refuses the whole topology over one node below its floor, so reporting
+            # anything but the weakest node would mark this source safe to upgrade when it is not.
+            ("replica_set_reports_weakest_node", "4.0.28", [("a.example.com", 21), ("b.example.com", 7)], 7, 2, 2),
+            # Server selection returns on the first usable node, so the wire version here comes
+            # from a partial view. The counts have to disagree, or the reading passes as complete
+            # and an older secondary the probe never saw goes uncounted.
+            ("unhandshaked_node_is_ignored", "6.0.1", [("a.example.com", 13), ("b.example.com", None)], 13, 1, 2),
+            ("no_handshaked_node_reports_no_wire_version", "", [("a.example.com", None)], None, 0, 1),
+        ]
+    )
+    def test_wire_version_comes_from_the_weakest_handshaked_node(
+        self,
+        _name: str,
+        server_version: str,
+        nodes: list[tuple[str, int | None]],
+        expected_wire_version: int | None,
+        expected_handshaked_nodes: int,
+        expected_topology_nodes: int,
+    ) -> None:
+        servers = [self._server(host, max_wire_version) for host, max_wire_version in nodes]
+
+        with self._patched_client(server_version, servers):
+            metadata = get_server_metadata("mongodb://user:pass@a.example.com/db?tls=true", team_id=1)
+
+        assert metadata["engine"] == "mongodb"
+        assert metadata["server_version"] == server_version
+        assert metadata["handshaked_nodes"] == expected_handshaked_nodes
+        assert metadata["topology_nodes"] == expected_topology_nodes
+        if expected_wire_version is None:
+            assert "wire_version" not in metadata
+        else:
+            assert metadata["wire_version"] == expected_wire_version

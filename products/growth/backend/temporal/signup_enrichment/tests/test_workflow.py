@@ -1,4 +1,5 @@
 import uuid
+import datetime as dt
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -20,6 +21,7 @@ pytestmark = pytest.mark.asyncio
 _MODULE = "products.growth.backend.temporal.signup_enrichment.workflow"
 _INPUTS = SignupEnrichmentInputs(organization_id="org-1", distinct_id="d1", domain="stripe.com")
 _TASK_QUEUE = "signup-enrichment-test-queue"
+_EVALUATED_AT = dt.datetime(2026, 9, 14, 12, 0, tzinfo=dt.UTC)
 
 
 def _events(pha_client: MagicMock, name: str) -> list:
@@ -57,14 +59,19 @@ async def _run(enrich_side_effect) -> tuple[dict, MagicMock, AsyncMock, MagicMoc
 async def test_miss_then_recheck_upgrades_without_a_second_completed_event():
     fields = EnrichmentFields(company_type="STARTUP", headcount=130, industry="Fintech")
     miss = EnrichmentOutcome(provider_fields=None, fit=IcpFitResult(status="not_found"))
-    match = EnrichmentOutcome(provider_fields=fields, fit=IcpFitResult(status="scored", score=61))
+    match = EnrichmentOutcome(
+        provider_fields=fields,
+        fit=IcpFitResult(status="scored", score=61),
+        fit_evaluated_at=_EVALUATED_AT,
+        enrichment_status="COMPLETE",
+    )
     result, pha_client, enrich, snapshot = await _run([miss, match])
 
     assert result == {"matched": True, "fields_filled": 3}
     assert enrich.await_count == 2
     # The is_recheck label is threaded through to the enrichment core: False first, True on recheck.
-    assert enrich.await_args_list[0].kwargs["is_recheck"] is False
-    assert enrich.await_args_list[1].kwargs["is_recheck"] is True
+    assert enrich.await_args_list[0].kwargs["ctx"].is_recheck is False
+    assert enrich.await_args_list[1].kwargs["ctx"].is_recheck is True
     # is_recheck=True skips the at-signup snapshot, so it is captured only on the first attempt.
     snapshot.assert_called_once()
 
@@ -75,6 +82,9 @@ async def test_miss_then_recheck_upgrades_without_a_second_completed_event():
         "fields_filled": 3,
         "organization_id": "org-1",
         "icp_fit_status": "scored",
+        "icp_fit_evaluated_at": _EVALUATED_AT.isoformat(),
+        "icp_fit_evaluation_kind": "recheck",
+        "harmonic_enrichment_status": "COMPLETE",
     }
     # The launch signal fires exactly once — on the first attempt, unchanged.
     completed = _events(pha_client, "signup_enrichment_completed")
@@ -92,7 +102,7 @@ async def test_match_on_first_attempt_still_runs_the_recheck():
 
     assert result == {"matched": True, "fields_filled": 2}
     assert enrich.await_count == 2
-    assert enrich.await_args_list[1].kwargs["is_recheck"] is True
+    assert enrich.await_args_list[1].kwargs["ctx"].is_recheck is True
     snapshot.assert_called_once()
 
     # Already matched at the first attempt, so matching again at recheck is not an upgrade.

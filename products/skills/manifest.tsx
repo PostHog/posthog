@@ -16,6 +16,7 @@ export const manifest: ProductManifest = {
             description: 'Manage versioned agent skills that any MCP-connected agent can discover and use.',
             layout: 'app-container',
             iconType: 'llm_prompts',
+            docsHref: 'https://posthog.com/docs/skills',
         },
         Skill: {
             import: () => import('./frontend/LLMSkillScene'),

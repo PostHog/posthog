@@ -6,7 +6,7 @@ from uuid import UUID, uuid4
 
 from django.conf import settings
 from django.db import models
-from django.db.models import OuterRef, Subquery
+from django.db.models import Exists, OuterRef, Subquery
 
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field
@@ -20,16 +20,22 @@ from posthog.hogql.database.database import Database
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
-from posthog.models import Team, User
-from posthog.ph_client import feature_enabled_or_false
+from posthog.models import User
 from posthog.rbac.query_access import assert_user_can_read_query
 from posthog.temporal.common.client import sync_connect
-from posthog.temporal.data_modeling.run_workflow import RunWorkflowInputs, Selector
 from posthog.temporal.data_modeling.workflows.execute_dag import ExecuteDAGInputs
 
 from products.access_control.backend.facade.user_access_control import AccessControlLevel
-from products.data_modeling.backend.facade.api import get_declared_target, resume_nodes, suspension_state
-from products.data_modeling.backend.facade.models import DAG, DataWarehouseSavedQuery, Edge, Node, NodeType
+from products.data_modeling.backend.facade.api import get_declared_target, suspension_state, unsuspend_nodes
+from products.data_modeling.backend.facade.models import (
+    DAG,
+    DataModelingJob,
+    DataModelingJobEngine,
+    DataWarehouseSavedQuery,
+    Edge,
+    Node,
+    NodeType,
+)
 from products.warehouse_sources.backend.facade.models import sync_frequency_interval_to_sync_frequency
 
 
@@ -49,6 +55,7 @@ class NodeSerializer(serializers.ModelSerializer):
     downstream_count = serializers.SerializerMethodField(read_only=True)
     last_run_at = serializers.SerializerMethodField(read_only=True)
     last_run_status = serializers.SerializerMethodField(read_only=True)
+    last_run_error = serializers.SerializerMethodField(read_only=True)
     user_tag = serializers.SerializerMethodField(read_only=True)
     sync_interval = serializers.SerializerMethodField(read_only=True)
     dag_name = serializers.SerializerMethodField(read_only=True)
@@ -70,6 +77,7 @@ class NodeSerializer(serializers.ModelSerializer):
             "downstream_count",
             "last_run_at",
             "last_run_status",
+            "last_run_error",
             "user_tag",
             "sync_interval",
             "suspended",
@@ -109,10 +117,21 @@ class NodeSerializer(serializers.ModelSerializer):
         return len(_get_downstream_nodes(node))
 
     def get_last_run_at(self, node: Node) -> str | None:
-        return node.properties.get("system", {}).get("last_run_at") or getattr(node, "_latest_job_run_at", None)
+        run_at = getattr(node, "_latest_job_run_at", None)
+        if run_at is not None:
+            return run_at.isoformat()
+        if getattr(node, "_has_serving_job", False):
+            return None
+        return node.properties.get("system", {}).get("last_run_at")
 
     def get_last_run_status(self, node: Node) -> str | None:
-        return node.properties.get("system", {}).get("last_run_status") or getattr(node, "_latest_job_status", None)
+        """Skipped runs are written straight to the job table and never reach the stored status,
+        so a blocked model would keep reporting the success before it."""
+        return getattr(node, "_latest_job_status", None) or node.properties.get("system", {}).get("last_run_status")
+
+    def get_last_run_error(self, node: Node) -> str | None:
+        """Error of the run that last_run_status describes, so the two never disagree."""
+        return getattr(node, "_latest_job_error", None) or None
 
     def get_user_tag(self, node: Node) -> str | None:
         return node.properties.get("user", {}).get("tag")
@@ -157,21 +176,6 @@ _READ_DENIED = "Reading data models requires data warehouse read access."
 # the temporal workflow and lineage API should migrate to Graph
 
 
-def _is_v2_backend_enabled(user: User, team: Team) -> bool:
-    return feature_enabled_or_false(
-        "data-modeling-backend-v2",
-        str(user.distinct_id),
-        groups={
-            "organization": str(team.organization_id),
-            "project": str(team.id),
-        },
-        group_properties={
-            "organization": {"id": str(team.organization_id)},
-            "project": {"id": str(team.id)},
-        },
-    )
-
-
 def _get_upstream_nodes(node: Node, include_tables: bool = False) -> set[str]:
     """Get all upstream (ancestor) node IDs recursively, optionally excluding TABLE nodes."""
     nodes: set[str] = set()
@@ -207,25 +211,27 @@ def _get_downstream_nodes(node: Node) -> set[str]:
     return nodes
 
 
-def _node_queryset_with_latest_job() -> models.QuerySet:
-    """Node queryset annotated with the latest DataModelingJob status and last_run_at.
+def _annotate_latest_job(queryset: models.QuerySet) -> models.QuerySet:
+    """Annotate the run state a reader is asking about: the newest ClickHouse job.
 
-    This lets the serializer fall back to job data when node.properties["system"] is unpopulated.
-    - _latest_job_status: status of the most recent job (any status)
-    - _latest_job_run_at: last_run_at of the most recent *successful* job
+    Managed warehouse jobs can shadow a serving run and finish after it, so a shadow failure would
+    otherwise label a model that served fine as failed.
     """
-    from products.data_modeling.backend.facade.models import DataModelingJob
-
-    latest_job = DataModelingJob.objects.filter(saved_query_id=OuterRef("saved_query_id")).order_by("-last_run_at")
-    latest_completed_job = latest_job.filter(status=DataModelingJob.Status.COMPLETED)
-    return (
-        Node.objects.select_related("saved_query", "dag")
-        .annotate(
-            _latest_job_status=Subquery(latest_job.values("status")[:1]),
-            _latest_job_run_at=Subquery(latest_completed_job.values("last_run_at")[:1]),
-        )
-        .all()
+    serving_jobs = DataModelingJob.objects.filter(
+        saved_query_id=OuterRef("saved_query_id"), engine=DataModelingJobEngine.CLICKHOUSE
+    ).order_by("-last_run_at")
+    return queryset.annotate(
+        _has_serving_job=Exists(serving_jobs),
+        _latest_job_status=Subquery(serving_jobs.values("status")[:1]),
+        _latest_job_error=Subquery(serving_jobs.values("error")[:1]),
+        _latest_job_run_at=Subquery(
+            serving_jobs.filter(status=DataModelingJob.Status.COMPLETED).values("last_run_at")[:1]
+        ),
     )
+
+
+def _node_queryset_with_latest_job() -> models.QuerySet:
+    return _annotate_latest_job(Node.objects.select_related("saved_query", "dag").all())
 
 
 class NodeViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
@@ -286,7 +292,7 @@ class NodeViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return dag_id
 
     def safely_get_queryset(self, queryset):
-        qs = queryset.filter(team_id=self.team_id)
+        qs = _annotate_latest_job(queryset.filter(team_id=self.team_id))
         dag_id = self._get_dag_id_param()
         if dag_id:
             qs = qs.filter(dag_id=dag_id)
@@ -335,45 +341,20 @@ class NodeViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         # ExecuteDAGWorkflow skips suspended nodes, so without this the request is a silent no-op
         # for exactly the nodes that need it most.
-        resume_nodes(Node.objects.filter(team_id=self.team_id, id__in=node_ids), by="manual_run")
+        unsuspend_nodes(Node.objects.filter(team_id=self.team_id, id__in=node_ids), by="manual_run")
 
-        if _is_v2_backend_enabled(cast(User, req.user), self.team):
-            inputs: ExecuteDAGInputs | RunWorkflowInputs = ExecuteDAGInputs(
-                team_id=self.team_id,
-                dag_id=str(node.dag_id),
-                node_ids=list(node_ids),
-            )
-            workflow_name = "data-modeling-execute-dag"
-            workflow_id = f"execute-dag-{uuid4()}"
-        else:
-            # v1 workflow is frozen — do not extend this branch.
-            # v2 lives at posthog/temporal/data_modeling/workflows/. Teams are
-            # being migrated off v1 via the `_is_v2_backend_enabled` flag.
-            saved_query_ids = list(
-                # nosemgrep: idor-lookup-without-team (node_ids from prior team-scoped graph traversal)
-                Node.objects.filter(
-                    id__in=node_ids,
-                    saved_query_id__isnull=False,
-                ).values_list("saved_query_id", flat=True)
-            )
-            selectors = [
-                Selector(
-                    label=str(sq_id),
-                    ancestors="ALL" if direction == "upstream" else 0,
-                    descendants="ALL" if direction == "downstream" else 0,
-                )
-                for sq_id in saved_query_ids
-            ]
-            inputs = RunWorkflowInputs(team_id=self.team_id, select=selectors)
-            workflow_name = "data-modeling-run"
-            workflow_id = f"data-modeling-run-{node.dag_id}-{uuid4()}"
+        inputs = ExecuteDAGInputs(
+            team_id=self.team_id,
+            dag_id=str(node.dag_id),
+            node_ids=list(node_ids),
+        )
 
         temporal = sync_connect()
         asyncio.run(
             temporal.start_workflow(
-                workflow_name,
+                "data-modeling-execute-dag",
                 asdict(inputs),
-                id=workflow_id,
+                id=f"execute-dag-{uuid4()}",
                 task_queue=str(settings.DATA_MODELING_TASK_QUEUE),
                 retry_policy=RetryPolicy(
                     initial_interval=timedelta(seconds=10),
@@ -470,7 +451,7 @@ class NodeViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if node.saved_query is not None:
             assert_user_can_read_query(node.saved_query.query, self.team_id, cast(User, req.user))
 
-        start_node_materialization(node, is_v2=_is_v2_backend_enabled(cast(User, req.user), self.team))
+        start_node_materialization(node, triggered_by_id=req.user.pk)
 
         return response.Response(status=status.HTTP_200_OK)
 
@@ -486,6 +467,6 @@ class NodeViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # Resuming puts a model back on the materialization schedule, so it needs write access.
         self._require_warehouse_access(level="editor", message="Resuming a node requires data warehouse write access.")
 
-        resumed = resume_nodes([self.get_object()], by="api")
+        resumed = unsuspend_nodes([self.get_object()], by="api")
 
         return response.Response({"resumed": bool(resumed)}, status=status.HTTP_200_OK)

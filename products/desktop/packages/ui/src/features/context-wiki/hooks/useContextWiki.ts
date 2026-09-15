@@ -1,20 +1,30 @@
 import { requestErrorStatus } from "@posthog/api-client/fetcher";
 import {
   type ChannelContextWikiPage,
+  type ContextWikiDreamDetail,
+  type ContextWikiDreamList,
   type ContextWikiHealthReport,
   type ContextWikiPage,
+  type ContextWikiPageProposal,
   type ContextWikiTree,
   ContextWikiUnavailableError,
 } from "@posthog/api-client/posthog-client";
 import { useAuthenticatedMutation } from "@posthog/ui/hooks/useAuthenticatedMutation";
 import { useAuthenticatedQuery } from "@posthog/ui/hooks/useAuthenticatedQuery";
-import { useQueryClient } from "@tanstack/react-query";
+import {
+  type UseMutationResult,
+  type UseQueryResult,
+  useQueryClient,
+} from "@tanstack/react-query";
 
-export const CONTEXT_WIKI_TREE_KEY = ["context-wiki", "tree"] as const;
-export const CONTEXT_WIKI_PAGE_KEY = (path: string) =>
+const CONTEXT_WIKI_TREE_KEY = ["context-wiki", "tree"] as const;
+const CONTEXT_WIKI_PAGE_KEY = (path: string) =>
   ["context-wiki", "page", path] as const;
-export const CONTEXT_WIKI_REPORT_KEY = ["context-wiki", "report"] as const;
-export const CHANNEL_CONTEXT_WIKI_PAGE_KEY = (channelId: string) =>
+const CONTEXT_WIKI_REPORT_KEY = ["context-wiki", "report"] as const;
+const CONTEXT_WIKI_DREAMS_KEY = ["context-wiki", "dreams"] as const;
+const CONTEXT_WIKI_DREAM_KEY = (sha: string) =>
+  ["context-wiki", "dream", sha] as const;
+const CHANNEL_CONTEXT_WIKI_PAGE_KEY = (channelId: string) =>
   ["context-wiki", "channel-page", channelId] as const;
 
 export function useChannelContextWikiPage(channelId: string, enabled = true) {
@@ -105,6 +115,28 @@ export function useContextWikiPage(path: string) {
   );
 }
 
+export function useContextWikiDreams() {
+  return useAuthenticatedQuery<ContextWikiDreamList | null>(
+    CONTEXT_WIKI_DREAMS_KEY,
+    (client) => client.getContextWikiDreams(),
+    {
+      staleTime: 30_000,
+      refetchOnMount: "always",
+      refetchInterval: (query) =>
+        query.state.data?.active_run ? 5_000 : false,
+    },
+  );
+}
+
+/** `null` data means there is no dream run at this sha (404). */
+export function useContextWikiDream(sha: string | null) {
+  return useAuthenticatedQuery<ContextWikiDreamDetail | null>(
+    CONTEXT_WIKI_DREAM_KEY(sha ?? ""),
+    (client) => client.getContextWikiDream(sha as string),
+    { enabled: sha !== null, staleTime: Infinity },
+  );
+}
+
 export function useContextWikiHealthReport() {
   return useAuthenticatedQuery<ContextWikiHealthReport | null>(
     CONTEXT_WIKI_REPORT_KEY,
@@ -163,6 +195,35 @@ export function useContextWikiPageMutation() {
       );
     },
   });
+}
+
+export function useContextWikiProposals(): UseQueryResult<
+  ContextWikiPageProposal[] | null,
+  Error
+> {
+  return useAuthenticatedQuery<ContextWikiPageProposal[] | null>(
+    ["context-wiki", "proposals"],
+    (client) => client.getContextWikiProposals(),
+    { staleTime: 0, refetchOnMount: "always" },
+  );
+}
+
+export function useApplyContextWikiProposal(): UseMutationResult<
+  { head_sha: string },
+  Error,
+  string
+> {
+  const queryClient = useQueryClient();
+  return useAuthenticatedMutation<{ head_sha: string }, Error, string>(
+    (client, id) => client.applyContextWikiProposal(id),
+    {
+      retry: shouldRetryWikiWrite,
+      retryDelay: wikiWriteRetryDelay,
+      onSuccess: () => {
+        void queryClient.invalidateQueries({ queryKey: ["context-wiki"] });
+      },
+    },
+  );
 }
 
 export function useEnableContextWiki() {

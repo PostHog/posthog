@@ -17,6 +17,7 @@ export type AsyncFunctionContext = {
     // Contour blocks from the public internet. Only first-party handlers may call it.
     internalApiBaseUrl: string
     conversationsTicketsJwt: ScopedServiceJwt
+    customerAnalyticsAccountsJwt: ScopedServiceJwt
     // Handlers that do real inline I/O without ever setting queueParameters (so the executor's
     // own queued-type counting never sees them, see internal-api-call.ts) must call this once
     // per invocation to share the same per-dequeue async-work budget queued calls are capped by.

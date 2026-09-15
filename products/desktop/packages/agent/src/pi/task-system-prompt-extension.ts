@@ -4,7 +4,11 @@ import type {
   SessionEntry,
   SessionManager,
 } from "@earendil-works/pi-coding-agent";
-import { buildTaskSystemPrompt, type TaskContext } from "./task-system-prompt";
+import {
+  buildTaskSystemPrompt,
+  type TaskContext,
+  type TaskPromptCapabilities,
+} from "./task-system-prompt";
 
 export const POSTHOG_PI_TASK_CONTEXT_ENTRY_TYPE = "posthog.pi.task-context";
 
@@ -39,7 +43,7 @@ function isTaskContext(value: unknown): value is TaskContext {
   );
 }
 
-export function readPersistedPiTaskContext(
+function readPersistedPiTaskContext(
   entries: SessionEntry[],
 ): TaskContext | null {
   for (let index = entries.length - 1; index >= 0; index -= 1) {
@@ -92,6 +96,7 @@ export function resolvePiTaskContext(
 
 export function createPiTaskSystemPromptExtension(
   context: TaskContext | null,
+  capabilities: TaskPromptCapabilities = {},
 ): NamedInlineExtension {
   return {
     name: "posthog-task-system-prompt",
@@ -100,7 +105,7 @@ export function createPiTaskSystemPromptExtension(
         return;
       }
       pi.on("before_agent_start", (event) => ({
-        systemPrompt: `${event.systemPrompt}\n\n${buildTaskSystemPrompt(context)}`,
+        systemPrompt: `${event.systemPrompt}\n\n${buildTaskSystemPrompt(context, capabilities)}`,
       }));
     },
   };

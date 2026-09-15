@@ -1,18 +1,24 @@
 import dataclasses
 from typing import Any, Optional
 
+from posthog.dataclasses import frozen
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.asana.settings import (
     ASANA_ENDPOINTS,
-    PRIMARY_KEY,
     AsanaEndpointConfig,
+    FanOut,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
     RESTAPIConfig,
     rest_api_resources,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    rename_parent_fields,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     JSONResponsePaginator,
+    SinglePagePaginator,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -44,65 +50,95 @@ def _paginator() -> JSONResponsePaginator:
     return JSONResponsePaginator(next_url_path=NEXT_URL_PATH)
 
 
-def _resource(name: str, path: str, params: dict[str, Any]) -> EndpointResource:
+def _resource(name: str, path: str, params: dict[str, Any], *, paginated: bool = True) -> EndpointResource:
     return {
         "name": name,
         "endpoint": {
             "path": path,
             "params": params,
             "data_selector": "data",
-            "paginator": _paginator(),
+            "paginator": _paginator() if paginated else SinglePagePaginator(),
         },
     }
 
 
-def _workspaces_parent(*, filter_organizations: bool) -> EndpointResource:
-    """Workspaces list used only to resolve child gids. `is_organization` is opted in so the
-    organization-only fan-out (teams) can drop non-organization workspaces."""
-    resource = _resource("workspaces", "/workspaces", {"limit": PAGE_SIZE, "opt_fields": "is_organization"})
-    if filter_organizations:
-        # `/organizations/{gid}/teams` is only valid for organization workspaces; returning [] drops
+@frozen
+class _ParentSpec:
+    """A resource fetched only to resolve gids for the endpoints that fan out over it."""
+
+    name: str
+    # Placeholder the child's path carries, bound from this parent's gid per request.
+    param: str
+    path: str
+    # How this parent is itself reached, so a chain can be built from the deepest level up.
+    fan_out: FanOut = "none"
+    opt_fields: list[str] = dataclasses.field(default_factory=list)
+    organizations_only: bool = False
+
+
+_PARENTS: dict[FanOut, _ParentSpec] = {
+    # `is_organization` is opted in so the organization-only fan-out can drop plain workspaces.
+    "workspace": _ParentSpec(
+        name="workspaces", param="workspace_gid", path="/workspaces", opt_fields=["is_organization"]
+    ),
+    "organization": _ParentSpec(
+        name="workspaces",
+        param="workspace_gid",
+        path="/workspaces",
+        opt_fields=["is_organization"],
+        organizations_only=True,
+    ),
+    "project": _ParentSpec(
+        name="projects", param="project_gid", path="/projects?workspace={workspace_gid}", fan_out="workspace"
+    ),
+    "task": _ParentSpec(name="tasks", param="task_gid", path="/tasks?project={project_gid}", fan_out="project"),
+    "goal": _ParentSpec(name="goals", param="goal_gid", path="/goals?workspace={workspace_gid}", fan_out="workspace"),
+    "user": _ParentSpec(name="users", param="user_gid", path="/users"),
+}
+
+
+def _resolve(spec: _ParentSpec) -> dict[str, Any]:
+    return {"type": "resolve", "resource": spec.name, "field": "gid"}
+
+
+def _parent_chain(fan_out: FanOut) -> list[str | EndpointResource]:
+    """Every resource needed to produce the gids a `fan_out` endpoint binds, outermost first."""
+    if fan_out == "none":
+        return []
+
+    spec = _PARENTS[fan_out]
+    params: dict[str, Any] = {"limit": PAGE_SIZE}
+    if spec.opt_fields:
+        params["opt_fields"] = ",".join(spec.opt_fields)
+    if spec.fan_out != "none":
+        params[_PARENTS[spec.fan_out].param] = _resolve(_PARENTS[spec.fan_out])
+
+    resource = _resource(spec.name, spec.path, params)
+    if spec.organizations_only:
+        # `/organizations/{gid}/...` is only valid for organization workspaces; returning [] drops
         # the row so the child fan-out never requests it.
         resource["data_map"] = lambda workspace: workspace if workspace.get("is_organization") else []
-    return resource
 
-
-def _projects_parent() -> EndpointResource:
-    """Projects list (one request per workspace) used only to resolve project gids for the
-    project-level fan-out (tasks, sections)."""
-    return _resource(
-        "projects",
-        "/projects?workspace={workspace_gid}",
-        {"limit": PAGE_SIZE, "workspace_gid": {"type": "resolve", "resource": "workspaces", "field": "gid"}},
-    )
+    return [*_parent_chain(spec.fan_out), resource]
 
 
 def _build_resources(config: AsanaEndpointConfig) -> list[str | EndpointResource]:
     """Build the rest_source resource chain for an endpoint, fanning out over parents as needed.
     Only the last (target) resource's rows are surfaced; parents exist solely to resolve gids."""
-    target_params: dict[str, Any] = {"limit": PAGE_SIZE}
+    target_params: dict[str, Any] = {"limit": PAGE_SIZE} if config.paginated else {}
     if config.opt_fields:
         target_params["opt_fields"] = ",".join(config.opt_fields)
 
-    if config.fan_out == "none":
-        return [_resource(config.name, config.path, target_params)]
+    if config.fan_out != "none":
+        spec = _PARENTS[config.fan_out]
+        target_params[spec.param] = _resolve(spec)
 
-    if config.fan_out in ("workspace", "organization"):
-        target_params["workspace_gid"] = {"type": "resolve", "resource": "workspaces", "field": "gid"}
-        return [
-            _workspaces_parent(filter_organizations=config.fan_out == "organization"),
-            _resource(config.name, config.path, target_params),
-        ]
+    target = _resource(config.name, config.path, target_params, paginated=config.paginated)
+    if config.parent_fields:
+        target["include_from_parent"] = list(config.parent_fields)
+        target["data_map"] = rename_parent_fields(_PARENTS[config.fan_out].name, config.parent_fields)
 
-    if config.fan_out == "project":
-        target_params["project_gid"] = {"type": "resolve", "resource": "projects", "field": "gid"}
-        return [
-            _workspaces_parent(filter_organizations=False),
-            _projects_parent(),
-            _resource(config.name, config.path, target_params),
-        ]
-
-    raise ValueError(f"Unknown fan_out mode: {config.fan_out}")
+    return [*_parent_chain(config.fan_out), target]
 
 
 def asana_source(
@@ -153,7 +189,7 @@ def asana_source(
     return SourceResponse(
         name=endpoint,
         items=lambda: target,
-        primary_keys=[PRIMARY_KEY],
+        primary_keys=config.primary_keys,
         partition_count=1,
         partition_size=1,
         partition_mode="datetime" if config.partition_key else None,

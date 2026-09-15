@@ -107,7 +107,6 @@ const pathPrefixesOnboardingNotRequiredFor = [
     '/settings',
     urls.organizationBilling(),
     urls.billingAuthorizationStatus(),
-    urls.wizard(),
     '/instance',
     urls.moveToPostHogCloud(),
     urls.unsubscribe(),
@@ -381,7 +380,7 @@ export const sceneLogic = kea<sceneLogicType>([
     path(['scenes', 'sceneLogic']),
 
     connect(() => ({
-        logic: [router, userLogic, preflightLogic],
+        logic: [router, userLogic, preflightLogic, teamLogic],
         actions: [router, ['locationChanged'], inviteLogic, ['hideInviteModal']],
         values: [billingLogic, ['billing'], organizationLogic, ['organizationBeingDeleted']],
     })),
@@ -746,9 +745,6 @@ export const sceneLogic = kea<sceneLogicType>([
                         }
                     }
                 } catch (error) {
-                    // Scene logic builders (e.g. dashboardLogic.key()) can throw on malformed
-                    // route params like `/dashboard/abc`. Capture so regressions surface, then
-                    // route to Error404 so the user sees a proper 404 instead of a blank crash.
                     posthog.captureException(error, { extra: { sceneId, sceneKey } })
                     newLogicErrored = true
                 }
@@ -798,11 +794,11 @@ export const sceneLogic = kea<sceneLogicType>([
             if (user) {
                 // If user is already logged in, redirect away from unauthenticated-only routes (e.g. /signup)
                 if (sceneConfig.onlyUnauthenticated) {
-                    if (sceneId === Scene.Login) {
-                        handleLoginRedirect()
-                    } else {
-                        router.actions.replace(urls.default())
-                    }
+                    // `next` is where the person needs to end up, whichever screen they landed on:
+                    // an OAuth partner sends them to /signup?next=/oauth/authorize?... just as
+                    // `login_required` sends them to /login?next=... . With no `next` this lands on
+                    // the app root, so it covers the plain case too.
+                    handleLoginRedirect()
                     return
                 }
 

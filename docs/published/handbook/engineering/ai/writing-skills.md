@@ -39,6 +39,25 @@ hogli unsync:skill -- --name <skill-name>
 # 7. Merge to master – CI builds and distributes automatically
 ```
 
+## Where the skill lives
+
+Choose the location by the work the skill requires:
+
+- `products/<product>/skills/` contains skills that users can run through PostHog tools, APIs, or their own code. The build publishes these skills.
+- `.agents/skills/` contains skills that require a checkout of the PostHog repository to develop, test, or debug PostHog itself. These skills stay in the repository.
+
+Staff-only access does not determine placement.
+For example, `checking-deploy-timing` works through MCP without a checkout, so it stays in the published catalog.
+A skill that changes a customer's application also stays published; it does not require PostHog source code.
+
+If a skill mixes customer diagnosis with PostHog development, keep the diagnosis published and move the development guidance into an existing internal skill or reference.
+For example, `debugging-surveys` covers configuration and responses, while the internal `survey-sdk-audit` skill covers changes across the backend and SDKs.
+Published skills must not require internal skill files to complete their main workflow.
+
+`hogli init:skill` scaffolds published product skills.
+For internal guidance, extend an existing `.agents/skills/` entry where possible.
+Both locations use `SKILL.md` with `name` and `description` frontmatter, and `hogli lint:skills` checks both.
+
 ## Skills vs tools
 
 **Tools** are atomic capabilities – CRUD operations and simple actions exposed via the MCP server.
@@ -94,7 +113,7 @@ and helps agents resolve tool names unambiguously.
 
 ## Skill structure
 
-Skills live in `products/*/skills/` and come in two forms.
+Published skills live in `products/*/skills/` and come in two forms.
 If your product hasn't moved to the `products/` folder yet,
 create a product folder and add skills there –
 skills are designed to work from within the products folder structure.
@@ -385,6 +404,43 @@ PostHog Desktop already consumes skills automatically, and PostHog AI consumes t
 Because both repositories are updated from the same `dist/skills.zip` on every merge to `master`,
 you don't need to handle distribution yourself –
 merge your skill and it shows up in both places on the next CI run.
+
+### Context-mill skills override this repo's
+
+This repo is not the only source of shipped skills.
+[`PostHog/context-mill`](https://github.com/PostHog/context-mill) assembles the "omnibus" skills
+from posthog.com docs and publishes them as `skills-mcp-resources.zip`:
+`instrument-integration`, `instrument-product-analytics`, `instrument-feature-flags`,
+`instrument-error-tracking`, `instrument-llm-analytics`, and `instrument-logs`.
+These are the skills behind PostHog Desktop's setup buttons and the wizard.
+
+Every consumer below unzips `dist/skills.zip` first and then unzips context-mill on top,
+so **context-mill wins on any skill they both define**.
+A same-named skill added here would have its `SKILL.md` overwritten
+while its extra reference files survived as orphans in the other source's directory.
+The Desktop harness bundle is the exception: it packages context-mill alone,
+so a skill from this repo is absent there rather than overwritten.
+
+| Consumer                              | Merge site                                                                                                                    |
+| ------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| PostHog Desktop build                 | `products/desktop/apps/code/vite-main-plugins.mts` (`copyPosthogPlugin`)                                                      |
+| PostHog Desktop runtime, every 30 min | `products/desktop/packages/workspace-server/src/services/posthog-plugin/update-skills-saga.ts`                                |
+| Desktop harness bundle                | `products/desktop/packages/harness/tsup.config.ts` – context-mill only, this repo's skills are absent rather than overwritten |
+| Tasks sandbox base image              | `.github/workflows/cd-sandbox-base-image.yml`                                                                                 |
+| Tasks golden snapshot                 | `.github/workflows/cd-tasks-golden-snapshot.yml`                                                                              |
+| `PostHog/skills` mirror               | that repo's `.github/workflows/sync-omnibus.yml`                                                                              |
+| `PostHog/ai-plugin` plugin            | that repo's `.github/workflows/sync-skills.yml`                                                                               |
+
+Note what is missing from that list: local builds.
+`LocalSkillsCache.ensure_built()` renders only `products/*/skills/` and wipes the dist dir first,
+so a locally built sandbox has no omnibus skills at all.
+An eval or manual run that depends on one has to overlay context-mill itself,
+or check for the skill and fail loudly – see `products/feature_flags/evals/eval_instrument_flags.py`.
+
+So before you write a skill, check the omnibus names above.
+If your job is one of them, change the context-mill source.
+Product teams take ownership of a skill tree there with a CODEOWNERS entry;
+several already have.
 
 ## Testing
 

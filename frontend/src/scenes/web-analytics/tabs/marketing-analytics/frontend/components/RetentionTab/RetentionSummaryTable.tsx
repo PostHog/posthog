@@ -1,3 +1,4 @@
+import { IconInfo } from '@posthog/icons'
 import { LemonTable, LemonTableColumn, Tooltip } from '@posthog/lemon-ui'
 
 import { gradateColor } from 'lib/utils/colors'
@@ -34,6 +35,7 @@ export function RetentionSummaryTable({
         },
         {
             title: 'Acquired',
+            tooltip: `How many people this ${dimensionLabel.toLowerCase()} acquired, added up across the cohorts shown in the tables below.`,
             dataIndex: 'acquired',
             align: 'right',
             sorter: (a, b) => a.acquired - b.acquired,
@@ -41,6 +43,8 @@ export function RetentionSummaryTable({
         },
         ...labels.slice(0, SUMMARY_PERIODS).map((label, period) => ({
             title: label,
+            tooltip:
+                'The share of people who came back this many periods after arriving, pooled across cohorts and weighted by cohort size.',
             key: label,
             align: 'center' as const,
             // -1 puts a period no cohort has reached below every real rate, rather than level with 0%.
@@ -77,8 +81,13 @@ export function RetentionSummaryTable({
 
     return (
         <div>
-            <div className="text-muted mb-1 text-xs font-semibold uppercase">
-                Compare {dimensionLabel.toLowerCase()}s
+            <div className="text-muted mb-1 flex flex-wrap items-center gap-1 text-xs font-semibold uppercase">
+                <span>Compare {dimensionLabel.toLowerCase()}s</span>
+                <Tooltip
+                    title={`Every cohort of a ${dimensionLabel.toLowerCase()} blended into one row. People and returns are summed and the rate is recalculated, so this is not an average of the percentages below. A cohort of five thousand counts for more than one of fifty. "Other" is left out here.`}
+                >
+                    <IconInfo className="text-base" />
+                </Tooltip>
             </div>
             <LemonTable columns={columns} dataSource={summary} size="small" firstColumnSticky />
             <div className="text-secondary mt-1 text-xs">

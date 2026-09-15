@@ -1,5 +1,4 @@
 import abc
-import time
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -27,6 +26,7 @@ from posthog.clickhouse.cluster import (
 )
 from posthog.clickhouse.plugin_log_entries import PLUGIN_LOG_ENTRIES_TABLE
 from posthog.dags.common import JobOwners
+from posthog.dags.common.dictionaries import Dictionary
 from posthog.dags.common.staged_dictionary import (
     StagedDictionary,
     create_on_every_cluster,
@@ -73,11 +73,17 @@ class DeleteConfig(dagster.Config):
         default=0,
         description="The maximum amount of memory to use for the dictionary, or 0 to use an unlimited amount.",
     )
+    dictionary_load_timeout: int = pydantic.Field(
+        default=1800,
+        description="The maximum number of seconds to wait for a dictionary to finish loading on a host before "
+        "failing the run. A dictionary wedged in LOADING would otherwise hold the run open forever without "
+        "raising any failure alert.",
+    )
     verification_max_execution_time: int = pydantic.Field(
-        default=300,
-        description="Seconds to spend counting rows the sweep should have removed but did not. Proving none "
-        "survive is a full scan, so the count is bounded and a count that runs out of time is reported as "
-        "unknown rather than as zero.",
+        default=1800,
+        description="Seconds each attempt may spend counting rows the sweep should have removed but did not. "
+        "Proving none survive is a full scan, so each count is bounded; a count that completes no attempt "
+        "blocks the marking instead of passing as clean.",
     )
 
     @property
@@ -118,21 +124,35 @@ class MonthlyCleanupConfig(dagster.Config):
     )
 
 
-# Reads only team_id, person_id, timestamp and uuid, which every registered target declares, so it
-# applies unchanged to all of them. Shared with the post-sweep count so what gets verified is
-# exactly what got deleted.
+# Reads only team_id, person_id, timestamp, uuid and inserted_at, which every registered target
+# declares. Shared with the post-sweep count so what gets verified is exactly what got deleted.
+#
+# The person and adhoc arms bound both timestamp and inserted_at by the request's own created_at:
+# a request can only name rows that were already ingested when it was made, and a row cannot be
+# ingested before its event happened. A row ingested after the request is outside its scope and
+# takes a new request to remove; counting such rows would let a tenant that keeps ingesting
+# backdated events for a pending deletion fail verification for every tenant, and inserted_at is
+# stamped server-side (writable_events does not even expose the column), so the bound cannot be
+# forged the way the event timestamp can. NULL inserted_at predates the column and always counts.
+# The team arm stays unbounded: ingestion for a deleted team stops with its token, so late rows
+# there are pipeline stragglers the next run converges on, not a sustained obligation.
 _DELETE_PREDICATE = """or(
-    (dictHas(%(pending_deletes_dictionary)s, (team_id, %(person_deletion_type)s, person_id)) AND timestamp <= dictGet(%(pending_deletes_dictionary)s, 'created_at', (team_id, %(person_deletion_type)s, person_id))),
+    (dictHas(%(pending_deletes_dictionary)s, (team_id, %(person_deletion_type)s, person_id))
+        AND timestamp <= dictGet(%(pending_deletes_dictionary)s, 'created_at', (team_id, %(person_deletion_type)s, person_id))
+        AND (inserted_at IS NULL OR inserted_at <= dictGet(%(pending_deletes_dictionary)s, 'created_at', (team_id, %(person_deletion_type)s, person_id)))),
     (dictHas(%(pending_deletes_dictionary)s, (team_id, %(team_deletion_type)s, team_id))),
-    (dictHas(%(adhoc_event_deletes_dictionary)s, (team_id, uuid)))
+    (dictHas(%(adhoc_event_deletes_dictionary)s, (team_id, uuid))
+        AND (inserted_at IS NULL OR inserted_at <= dictGet(%(adhoc_event_deletes_dictionary)s, 'created_at', (team_id, uuid))))
 )"""
 
 
 ShardMutations = dict[int, MutationWaiters]
 # Shard numbers are per cluster, so a sweep spanning two of them cannot key its waiters by shard
-# alone. Keyed by cluster name rather than by handle: the handle is recovered with
-# ClickhouseCluster.sibling, which is memoized, and a name survives the op boundary.
-ClusterShardMutations = dict[str, ShardMutations]
+# alone. Keyed by cluster name and the role that owns its shards rather than by handle: the handle
+# is recovered with ClickhouseCluster.sibling, which is memoized, and both survive the op boundary.
+# The role has to travel with the name, or sibling hands back a default-role handle with no shards
+# and the waits find nothing to wait on.
+ClusterShardMutations = dict[tuple[str, NodeRole], ShardMutations]
 
 
 @dataclass
@@ -254,109 +274,20 @@ class AdhocEventDeletesTable(Table):
 
 
 @frozen
-class Dictionary(abc.ABC):
-    source: Table
+class PendingDeletesDictionary(Dictionary):
+    source: PendingDeletesTable
 
     @property
     def name(self) -> str:
         return f"{self.source.table_name}_dictionary"
 
     @property
-    def qualified_name(self):
-        return f"{settings.CLICKHOUSE_DATABASE}.{self.name}"
+    def schema(self) -> str:
+        return "team_id Int64, deletion_type UInt8, key String, created_at DateTime"
 
     @property
-    @abc.abstractmethod
-    def query(self) -> str:
-        raise NotImplementedError()
-
-    @abc.abstractmethod
-    def create(
-        self,
-        client: Client,
-        shards: int,
-        max_execution_time: int,
-        max_memory_usage: int,
-        query: str | None = None,
-    ) -> None:
-        """``query`` overrides the SOURCE query, for a host that cannot see the source table."""
-        raise NotImplementedError()
-
-    @abc.abstractmethod
-    def staged(self) -> StagedDictionary:
-        """Where this dictionary's rows go so another cluster can load them; see StagedDictionary.
-
-        Keyed by the dictionary's own name, never by anything per-run. A dictionary outlives the
-        run that created it, and CREATE ... IF NOT EXISTS keys on that same name, so a per-run key
-        would leave the earlier definition pointing at an object no later run writes.
-        """
-        raise NotImplementedError()
-
-    def recreate(
-        self,
-        client: Client,
-        shards: int,
-        max_execution_time: int,
-        max_memory_usage: int,
-        query: str | None = None,
-    ) -> None:
-        """Replace the dictionary, so no definition an earlier run left behind can survive.
-
-        CREATE ... IF NOT EXISTS keeps the existing source, which is right where that source is the
-        replicated table and wrong where it is a staged object whose query can change between
-        deploys.
-        """
-        self.drop(client)
-        self.create(client, shards, max_execution_time, max_memory_usage, query)
-
-    def exists(self, client: Client) -> bool:
-        results = client.execute(
-            "SELECT count() FROM system.dictionaries WHERE database = %(database)s AND name = %(name)s",
-            {"database": settings.CLICKHOUSE_DATABASE, "name": self.name},
-        )
-        [[count]] = results
-        return count > 0
-
-    def drop(self, client: Client) -> None:
-        client.execute(f"DROP DICTIONARY IF EXISTS {self.qualified_name} SYNC")
-
-    def __is_loaded(self, client: Client) -> bool:
-        results = client.execute(
-            "SELECT status, last_exception FROM system.dictionaries WHERE database = %(database)s AND name = %(name)s",
-            {"database": settings.CLICKHOUSE_DATABASE, "name": self.name},
-        )
-        if not results:
-            raise Exception("dictionary does not exist")
-        else:
-            [[status, last_exception]] = results
-            if status == "LOADED":
-                return True
-            elif status in {"LOADING", "FAILED_AND_RELOADING", "LOADED_AND_RELOADING"}:
-                return False
-            elif status == "FAILED":
-                raise Exception(f"failed to load: {last_exception}")
-            else:
-                raise Exception(f"unexpected status: {status}")
-
-    def load(self, client: Client):
-        # TODO: this should probably not reload if the dictionary is already loaded
-        client.execute(f"SYSTEM RELOAD DICTIONARY {self.qualified_name}")
-
-        # reload is async, so we need to wait for the dictionary to actually be loaded
-        # TODO: this should probably throw on unexpected reloads
-        while not self.__is_loaded(client):
-            time.sleep(5.0)
-
-        return self.checksum(client)
-
-    @abc.abstractmethod
-    def checksum(self, client: Client) -> int:
-        raise NotImplementedError()
-
-
-@frozen
-class PendingDeletesDictionary(Dictionary):
-    source: PendingDeletesTable
+    def primary_key(self) -> str:
+        return "team_id, deletion_type, key"
 
     @property
     def query(self) -> str:
@@ -366,48 +297,8 @@ class PendingDeletesDictionary(Dictionary):
         return StagedDictionary(
             key=f"{self.name}.parquet",
             columns="team_id, deletion_type, key, created_at",
-            structure="team_id Int64, deletion_type UInt8, key String, created_at DateTime",
+            structure=self.schema,
         )
-
-    def create(
-        self,
-        client: Client,
-        shards: int,
-        max_execution_time: int,
-        max_memory_usage: int,
-        query: str | None = None,
-    ) -> None:
-        client.execute(
-            f"""
-            CREATE DICTIONARY IF NOT EXISTS {self.qualified_name} (
-                team_id Int64,
-                deletion_type UInt8,
-                key String,
-                created_at DateTime,
-            )
-            PRIMARY KEY team_id, deletion_type, key
-            SOURCE(CLICKHOUSE(DB %(database)s USER %(user)s PASSWORD %(password)s QUERY %(query)s))
-            LAYOUT(COMPLEX_KEY_HASHED(SHARDS {shards}))
-            LIFETIME(0)
-            SETTINGS(max_execution_time={max_execution_time}, max_memory_usage={max_memory_usage})
-            """,
-            {
-                "database": settings.CLICKHOUSE_DATABASE,
-                "user": settings.CLICKHOUSE_USER,
-                "password": settings.CLICKHOUSE_PASSWORD,
-                "query": query or self.query,
-            },
-        )
-
-    def checksum(self, client: Client) -> int:
-        results = client.execute(
-            f"""
-            SELECT groupBitXor(row_checksum) AS table_checksum
-            FROM (SELECT cityHash64(*) AS row_checksum FROM {self.qualified_name} ORDER BY team_id, key)
-            """
-        )
-        [[checksum]] = results
-        return checksum
 
 
 @frozen
@@ -415,57 +306,83 @@ class AdhocEventDeletesDictionary(Dictionary):
     source: AdhocEventDeletesTable
 
     @property
+    def name(self) -> str:
+        return f"{self.source.table_name}_dictionary"
+
+    @property
+    def schema(self) -> str:
+        return "team_id Int64, uuid UUID, created_at DateTime64(6, 'UTC')"
+
+    @property
+    def primary_key(self) -> str:
+        return "team_id, uuid"
+
+    @property
     def query(self) -> str:
-        return f"SELECT team_id, uuid, created_at FROM {self.source.qualified_name} WHERE (team_id, uuid) not in (SELECT team_id, uuid FROM {self.source.qualified_name} WHERE is_deleted = 1)"
+        # Grouped rather than filtered with NOT IN: the source is a ReplacingMergeTree, so a key
+        # inserted twice reads as two rows until a merge collapses them. The dictionary keeps one
+        # row per key whichever way, but which one it keeps follows the order the source rows
+        # arrive, and that order is not stable when a host parses a staged Parquet in parallel.
+        # max(is_deleted) = 0 is the same exclusion the NOT IN subquery made, on one scan.
+        return (
+            f"SELECT team_id, uuid, max(created_at) AS created_at FROM {self.source.qualified_name} "
+            f"GROUP BY team_id, uuid HAVING max(is_deleted) = 0"
+        )
 
     def staged(self) -> StagedDictionary:
         return StagedDictionary(
             key=f"{self.name}.parquet",
             columns="team_id, uuid, created_at",
-            structure="team_id Int64, uuid UUID, created_at DateTime64(6, 'UTC')",
+            structure=self.schema,
         )
 
-    def create(
-        self,
-        client: Client,
-        shards: int,
-        max_execution_time: int,
-        max_memory_usage: int,
-        query: str | None = None,
-    ) -> None:
-        client.execute(
-            f"""
-            CREATE DICTIONARY IF NOT EXISTS {self.qualified_name} (
-                team_id Int64,
-                uuid UUID,
-                created_at DateTime64(6, 'UTC')
-            )
-            PRIMARY KEY team_id, uuid
-            SOURCE(CLICKHOUSE(DB %(database)s USER %(user)s PASSWORD %(password)s QUERY %(query)s))
-            LAYOUT(COMPLEX_KEY_HASHED(SHARDS {shards}))
-            LIFETIME(0)
-            SETTINGS(max_execution_time={max_execution_time}, max_memory_usage={max_memory_usage})
-            """,
-            {
-                "database": settings.CLICKHOUSE_DATABASE,
-                "user": settings.CLICKHOUSE_USER,
-                "password": settings.CLICKHOUSE_PASSWORD,
-                "query": query or self.query,
-            },
+
+# Statuses under which a run's mutations may still land on the cluster: STARTING and STARTED are
+# executing, and a CANCELING run's last mutation keeps applying server-side. QUEUED and
+# NOT_STARTED are left out on purpose. A queued run has done nothing yet, and its own guard will
+# see this run once it starts.
+_EXECUTING_RUN_STATUSES = [
+    dagster.DagsterRunStatus.STARTING,
+    dagster.DagsterRunStatus.STARTED,
+    dagster.DagsterRunStatus.CANCELING,
+]
+
+
+@dagster.op(out=dagster.Out(dagster.Nothing))
+def ensure_no_concurrent_deletes_run(context: dagster.OpExecutionContext) -> None:
+    """Fail this run when another run of the same job, or any squash run, is executing.
+
+    Concurrent deletes runs share their dictionary names, so each run's delete mutations read
+    whichever contents the other run loaded last, and mark_deletions_verified then claims
+    deletions the sweep may not have performed. Any other executing run blocks, deliberately
+    without an election: ranking by creation time lets a run that was queued early and started
+    late outrank a run already past this guard, and two runs then proceed together. Two racing
+    starts can both fail here, which is safe and visible; the run-queue limit named on the job's
+    concurrency tag is what removes that annoyance, not a smarter guard.
+
+    A squash run blocks too. The weekly chain serializes squash before deletes because both
+    issue heavy mutations on the same tables, and manual_deletes_job's preflight can go stale
+    between its check and the sensor launching this run, so the launched run checks again here.
+    This covers direct launchpad starts as well.
+    """
+    blockers: list[str] = []
+    for job_name in (context.job_name, squash_person_overrides.name):
+        records = context.instance.get_run_records(
+            dagster.RunsFilter(job_name=job_name, statuses=_EXECUTING_RUN_STATUSES)
+        )
+        blockers.extend(
+            f"{job_name} run {record.dagster_run.run_id}"
+            for record in records
+            if record.dagster_run.run_id != context.run_id
+        )
+    if blockers:
+        raise dagster.Failure(
+            description="This run yields to: " + "; ".join(blockers) + ". "
+            "Wait for them to finish or cancel them, then start a new run through manual_deletes_job."
         )
 
-    def checksum(self, client: Client) -> int:
-        results = client.execute(
-            f"""
-            SELECT groupBitXor(row_checksum) AS table_checksum
-            FROM (SELECT cityHash64(*) AS row_checksum FROM {self.qualified_name} ORDER BY team_id, uuid)
-            """
-        )
-        [[checksum]] = results
-        return checksum
 
-
-@dagster.op
+@dagster.op(ins={"start_after": dagster.In(dagster.Nothing)})
 def get_oldest_person_override_timestamp(
     cluster: dagster.ResourceParam[ClickhouseCluster],
 ) -> datetime:
@@ -564,6 +481,7 @@ def create_deletes_dict(
 
     del_dict = PendingDeletesDictionary(
         source=load_pending_deletions,
+        load_timeout=config.dictionary_load_timeout,
     )
 
     create_on_every_cluster(
@@ -595,6 +513,7 @@ def create_adhoc_event_deletes_dict(
 
     del_dict = AdhocEventDeletesDictionary(
         source=adhoc_event_deletions,
+        load_timeout=config.dictionary_load_timeout,
     )
 
     create_on_every_cluster(
@@ -693,6 +612,7 @@ def delete_events(
 
     # Every registered target must get this delete, or rows survive on the table that got skipped.
     placements = resolve_placements(cluster)
+    reuse_floor = _mutation_reuse_floor(cluster)
     delete_mutation_runners = [
         (
             placement,
@@ -702,23 +622,25 @@ def delete_events(
                 parameters=_delete_predicate_params(
                     load_and_verify_deletes_dictionary, load_and_verify_adhoc_event_deletes_dictionary
                 ),
+                reuse_since=reuse_floor,
             ),
         )
         for placement in placements
     ]
 
-    waiters: dict[str, dict[int, list[MutationWaiter]]] = {}
+    waiters: dict[tuple[str, NodeRole], dict[int, list[MutationWaiter]]] = {}
     for placement, delete_mutation_runner in delete_mutation_runners:
         # placement.cluster, not the job's handle: the dictionary the predicate joins was created
         # on every cluster here, but the storage table only exists on this one.
         for host, mutation in placement.cluster.map_one_host_per_shard(delete_mutation_runner).result().items():
             if host.shard_num is not None:
-                by_shard = waiters.setdefault(placement.cluster.data_cluster_name, {})
+                key = (placement.cluster.data_cluster_name, placement.cluster.shard_role)
+                by_shard = waiters.setdefault(key, {})
                 by_shard.setdefault(host.shard_num, []).append(mutation)
 
     cluster_mutations: ClusterShardMutations = {
-        name: {shard_num: MutationWaiters(waiters=shard_waiters) for shard_num, shard_waiters in by_shard.items()}
-        for name, by_shard in waiters.items()
+        key: {shard_num: MutationWaiters(waiters=shard_waiters) for shard_num, shard_waiters in by_shard.items()}
+        for key, by_shard in waiters.items()
     }
 
     return (load_and_verify_deletes_dictionary, cluster_mutations)
@@ -769,6 +691,7 @@ def delete_team_data(
             "dictionary": load_and_verify_deletes_dictionary.qualified_name,
             "team_deletion_type": DeletionType.Team,
         },
+        reuse_since=_mutation_reuse_floor(cluster),
     )
 
     # This mutation run on any host because it will be replicated to all shards since
@@ -805,8 +728,8 @@ def wait_for_delete_mutations_in_shards(
 ) -> PendingDeletesDictionary:
     pending_deletes_dict, cluster_mutations = delete_mutations
 
-    for cluster_name, shard_mutations in cluster_mutations.items():
-        handle = cluster.sibling(cluster_name)
+    for (cluster_name, shard_role), shard_mutations in cluster_mutations.items():
+        handle = cluster.sibling(cluster_name, shard_role)
         handle.map_all_hosts_in_shards({shard: mutation.wait for shard, mutation in shard_mutations.items()}).result()
 
     return pending_deletes_dict
@@ -844,12 +767,27 @@ def _delete_predicate_params(
     }
 
 
+def _mutation_reuse_floor(cluster: ClickhouseCluster) -> datetime:
+    """A ClickHouse clock reading to bound mutation reuse by; see MutationRunner.reuse_since.
+
+    Read from ClickHouse rather than here so it compares against ``system.mutations.create_time``
+    on the same clock. A reading slightly ahead of a host costs a duplicate mutation, which is
+    idempotent; one behind would let a previous run's mutation be adopted, which is the failure
+    this floor exists to stop.
+    """
+    rows = cluster.any_host_by_role(Query("SELECT now()"), NodeRole.DATA).result()
+    return rows[0][0]
+
+
 def _rows_from_any_host(cluster: ClickhouseCluster, query: Query) -> list:
     return [cluster.any_host_by_role(query, NodeRole.DATA).result()]
 
 
 def _rows_per_shard(cluster: ClickhouseCluster, query: Query) -> list:
     return list(cluster.map_one_host_per_shard(query).result().values())
+
+
+_SURVIVOR_COUNT_ATTEMPTS = 3
 
 
 def _count_through(
@@ -859,21 +797,27 @@ def _count_through(
     params: dict[str, str | int],
     max_execution_time: int,
 ) -> int | None:
-    """Survivors on ``table``, or None when the count could not be taken.
+    """Survivors on ``table``, or None when no attempt could complete.
 
     None is deliberately not zero: a count that errored or ran out of time says nothing about
-    whether rows remain, and reporting it as clean is the mistake worth avoiding here.
+    whether rows remain, and mark_deletions_verified refuses to mark on it. Each attempt gets the
+    full time budget, and the runner picks a host per call, so a retry also routes around a single
+    slow or sick host.
     """
     query = Query(
         surviving_rows_sql(table, _DELETE_PREDICATE),
         params,
         settings={"max_execution_time": str(max_execution_time)},
     )
-    try:
-        return sum(int(rows[0][0]) if rows else 0 for rows in runner(query))
-    except Exception as e:
-        context.log.warning(f"Could not count what survived the sweep in {table}: {e}")
-        return None
+    for attempt in range(1, _SURVIVOR_COUNT_ATTEMPTS + 1):
+        try:
+            return sum(int(rows[0][0]) if rows else 0 for rows in runner(query))
+        except Exception as e:
+            context.log.warning(
+                f"Could not count what survived the sweep in {table} "
+                f"(attempt {attempt}/{_SURVIVOR_COUNT_ATTEMPTS}): {e}"
+            )
+    return None
 
 
 def _count_unswept_rows(
@@ -929,9 +873,6 @@ def mark_deletions_verified(
     pending_deletions_dictionary: PendingDeletesDictionary,
     adhoc_event_deletes_dictionary: AdhocEventDeletesDictionary,
 ) -> VerifiedDeletionResources:
-    # Only a report. The mutations have already run, the requests are marked verified either way,
-    # and failing here would strand the run without undoing anything. It exists so a sweep that
-    # removed nothing leaves a trace rather than passing as a clean run.
     unswept = _count_unswept_rows(
         context,
         cluster,
@@ -939,14 +880,29 @@ def mark_deletions_verified(
         adhoc_event_deletes_dictionary,
         config.verification_max_execution_time,
     )
-    remaining = {table: count for table, count in unswept.items() if count}
-    if remaining:
-        context.log.error(
-            "The sweep finished and rows it should have removed are still readable: "
-            + ", ".join(f"{table}={count}" for table, count in remaining.items())
-            + f". Marking these requests verified anyway. See {COVERAGE_DOC}."
-        )
     context.add_output_metadata({"unswept_rows": dagster.MetadataValue.json(unswept)})
+
+    # A request marked verified is a claim the rows are gone, and nothing revisits it: the adhoc
+    # tombstone this op writes also keeps those uuids out of every later run. So a count that came
+    # back non-zero has to stop the marking rather than annotate it, and a count that could not be
+    # taken has to stop it too, because unknown is not zero. Leaving the requests pending costs a
+    # repeated sweep next run, which is the recoverable direction.
+    survivors = {table: count for table, count in unswept.items() if count}
+    uncounted = sorted(table for table, count in unswept.items() if count is None)
+    if survivors or uncounted:
+        problems = []
+        if survivors:
+            problems.append(
+                "rows the sweep should have removed are still readable: "
+                + ", ".join(f"{table}={count}" for table, count in survivors.items())
+            )
+        if uncounted:
+            problems.append("no survivor count attempt completed on: " + ", ".join(uncounted))
+        raise dagster.Failure(
+            description="The sweep finished but "
+            + "; ".join(problems)
+            + f". Leaving these requests pending for the next run. See {COVERAGE_DOC}."
+        )
 
     now = timezone.now()
     deletion_ids = [
@@ -997,11 +953,19 @@ def cleanup_delete_assets(
     return True
 
 
-@dagster.job(tags={"owner": JobOwners.TEAM_CLICKHOUSE.value})
+@dagster.job(
+    tags={
+        "owner": JobOwners.TEAM_CLICKHOUSE.value,
+        # For a run-queue limit of 1 in Dagster deployment settings, so a second run queues
+        # instead of racing the guard; clickhouse_deletion_sweep_concurrency is the matched
+        # example. ensure_no_concurrent_deletes_run enforces mutual exclusion regardless.
+        "deletes_job_concurrency": "v1",
+    }
+)
 def deletes_job():
     """Job that handles deletion of events."""
     # Prepare requested deletions data
-    oldest_override_timestamp = get_oldest_person_override_timestamp()
+    oldest_override_timestamp = get_oldest_person_override_timestamp(start_after=ensure_no_concurrent_deletes_run())
     deletions_table = load_pending_deletions(create_pending_deletions_table(oldest_override_timestamp))
     pending_deletes_dictionary = load_and_verify_deletes_dictionary(create_deletes_dict(deletions_table))
     adhoc_event_deletes_dictionary = load_and_verify_adhoc_event_deletes_dictionary(create_adhoc_event_deletes_dict())
@@ -1030,18 +994,84 @@ def deletes_job():
     cleanup_delete_assets(verified_deletion_resources)
 
 
+# What every sensor-launched deletes_job run carries. retry_max_attempts is raised because
+# mutation waits can span hours, so a run sees more transient per-host failures than the default
+# allows. manual_deletes_job exists so hand-started runs go through this config too.
+DELETES_RUN_CONFIG = {"resources": {"cluster": {"config": {"retry_max_attempts": 20}}}}
+
+
 @dagster.run_status_sensor(
     run_status=dagster.DagsterRunStatus.SUCCESS,
     monitored_jobs=[squash_person_overrides],
     request_job=deletes_job,
 )
 def run_deletes_after_squash(context):
-    # mutation waits can span hours, so allow more transient failures per host before failing the
-    # weekly deletes run
     return dagster.RunRequest(
         run_key=None,
-        run_config={"resources": {"cluster": {"config": {"retry_max_attempts": 20}}}},
+        run_config=DELETES_RUN_CONFIG,
     )
+
+
+# Everything that means a deletes_job or squash run is active or imminent. Unlike the in-job
+# guard, QUEUED and NOT_STARTED count too: the question here is whether launching another run
+# would collide, not which of two started runs came first.
+_ACTIVE_RUN_STATUSES = [
+    dagster.DagsterRunStatus.QUEUED,
+    dagster.DagsterRunStatus.NOT_STARTED,
+    *_EXECUTING_RUN_STATUSES,
+]
+
+
+@dagster.op
+def ensure_deletes_job_can_start(context: dagster.OpExecutionContext) -> None:
+    """Fail when launching deletes_job now would collide with an active or imminent run.
+
+    A concurrent deletes_job run is the collision the in-job guard exists for; failing here
+    reports it before a run is even launched. A squash run means the weekly chain is already in
+    motion and will launch deletes_job itself on success, so starting one by hand now would race
+    it. Another manual trigger means someone else already asked for a run.
+    """
+    blockers: list[str] = []
+    for job_name in (deletes_job.name, squash_person_overrides.name, context.job_name):
+        records = context.instance.get_run_records(dagster.RunsFilter(job_name=job_name, statuses=_ACTIVE_RUN_STATUSES))
+        blockers.extend(
+            f"{job_name} run {record.dagster_run.run_id}"
+            for record in records
+            if record.dagster_run.run_id != context.run_id
+        )
+    if blockers:
+        raise dagster.Failure(
+            description="deletes_job cannot start while these runs are active: "
+            + "; ".join(blockers)
+            + ". Wait for them to finish, then run manual_deletes_job again."
+        )
+
+
+@dagster.job(tags={"owner": JobOwners.TEAM_CLICKHOUSE.value})
+def manual_deletes_job():
+    """Start a deletes_job run the way the weekly chain does.
+
+    Launch this instead of deletes_job itself. It checks that no deletes_job or squash run is in
+    flight, and its success makes run_deletes_after_manual_trigger request a real deletes_job run
+    with DELETES_RUN_CONFIG. Launching deletes_job directly skips both: the launchpad defaults
+    carry none of that config, and nothing checks the weekly chain before the in-job guard fails
+    the run mid-flight.
+    """
+    ensure_deletes_job_can_start()
+
+
+@dagster.run_status_sensor(
+    run_status=dagster.DagsterRunStatus.SUCCESS,
+    monitored_jobs=[manual_deletes_job],
+    request_job=deletes_job,
+    # Enabled on registration: a stopped sensor would let manual_deletes_job succeed while
+    # launching nothing, which reads as a started run that never appears.
+    default_status=dagster.DefaultSensorStatus.RUNNING,
+    minimum_interval_seconds=60,
+)
+def run_deletes_after_manual_trigger(context: dagster.RunStatusSensorContext) -> dagster.RunRequest:
+    # The run_key makes each manual_deletes_job success launch at most one deletes_job run.
+    return dagster.RunRequest(run_key=context.dagster_run.run_id, run_config=DELETES_RUN_CONFIG)
 
 
 @dagster.op

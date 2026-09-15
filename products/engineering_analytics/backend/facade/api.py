@@ -7,8 +7,8 @@ parameters and return canonical contract types.
 ``repo`` is an optional ``owner/name`` filter, applied against the curated repo
 identity (mapped from ``base.repo.full_name``). ``branch`` is an optional exact
 ``head_branch`` filter for workflow health, a workflow's runs list, and its runner
-costs; workflow health additionally takes a broader ``run_scope`` filter
-(``pull_request`` scopes to PR-attributed runs). ``date_from`` / ``date_to`` accept
+costs; the same surfaces also take a broader ``run_scope`` filter that selects one of
+four run groups (``all``, ``default_branch``, ``pull_request``, ``merge_queue``). ``date_from`` / ``date_to`` accept
 relative strings (``-30d``) or ISO8601 and are resolved against the team timezone.
 ``source_id`` selects a specific connected GitHub source when the team has more than
 one; it defaults to the oldest connected source. ``user_access_control`` enforces the
@@ -18,6 +18,7 @@ then delegates to the read layer — source selection and access control live in
 not in the query builders below it.
 """
 
+from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
 from posthog.models.team import Team
@@ -31,14 +32,17 @@ from products.engineering_analytics.backend.facade.contracts import (
     CISignalsConfig,
     CITestRunner,
     CurrentBranchHealth,
+    DeliverySummary,
     DoraOverview,
     FlakyTestList,
     GitHubSource,
     MasterFailureGroup,
     MergedPullRequest,
+    PathOwnership,
     PRCostSummary,
     PRLifecycle,
     PullRequestList,
+    PullRequestTimelines,
     QuarantineFile,
     QuarantineRequest,
     QuarantineRequestResult,
@@ -47,6 +51,7 @@ from products.engineering_analytics.backend.facade.contracts import (
     TeamCIActivity,
     TeamCIHealthList,
     TeamMergeTrend,
+    TrunkQuarantineDebt,
     WorkflowCost,
     WorkflowHealthItem,
     WorkflowJob,
@@ -193,6 +198,7 @@ def list_workflow_runs(
     date_from: str | None = None,
     date_to: str | None = None,
     branch: str | None = None,
+    run_scope: str | None = None,
     source_id: str | None = None,
     user_access_control: "UserAccessControl | None" = None,
 ) -> list[WorkflowRunDetail]:
@@ -203,6 +209,7 @@ def list_workflow_runs(
         date_from=date_from,
         date_to=date_to,
         branch=branch,
+        run_scope=run_scope,
     )
 
 
@@ -214,6 +221,7 @@ def get_workflow_run_activity(
     date_from: str | None = None,
     date_to: str | None = None,
     branch: str | None = None,
+    run_scope: str | None = None,
     source_id: str | None = None,
     user_access_control: "UserAccessControl | None" = None,
 ) -> WorkflowRunActivity:
@@ -224,6 +232,7 @@ def get_workflow_run_activity(
         date_from=date_from,
         date_to=date_to,
         branch=branch,
+        run_scope=run_scope,
     )
 
 
@@ -235,6 +244,7 @@ def get_workflow_runner_costs(
     date_from: str | None = None,
     date_to: str | None = None,
     branch: str | None = None,
+    run_scope: str | None = None,
     source_id: str | None = None,
     user_access_control: "UserAccessControl | None" = None,
 ) -> list[WorkflowRunnerCost]:
@@ -245,6 +255,7 @@ def get_workflow_runner_costs(
         date_from=date_from,
         date_to=date_to,
         branch=branch,
+        run_scope=run_scope,
     )
 
 
@@ -261,6 +272,51 @@ def list_author_workflow_costs(
     return logic.build_author_workflow_costs(
         curated=_authorized_source(team, source_id, user_access_control, repo=repo),
         author=author,
+        date_from=date_from,
+        date_to=date_to,
+    )
+
+
+def get_delivery_summary(
+    *,
+    team: Team,
+    author: str | None = None,
+    github_team: str | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    source_id: str | None = None,
+    repo: str | None = None,
+    user_access_control: "UserAccessControl | None" = None,
+) -> DeliverySummary:
+    """Delivery figures for exactly one of ``author`` or ``github_team``, each against the repository."""
+    # Validate the scope before resolving the source, so a bad request reads as a bad scope.
+    scope = logic.DeliveryScope.from_params(author=author, github_team=github_team, pr_number=None, repo=None)
+    return logic.build_delivery_summary(
+        curated=_authorized_source(team, source_id, user_access_control, repo=repo),
+        scope=scope,
+        date_from=date_from,
+        date_to=date_to,
+    )
+
+
+def get_pull_request_timelines(
+    *,
+    team: Team,
+    author: str | None = None,
+    github_team: str | None = None,
+    pr_number: int | None = None,
+    repo: str | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    source_id: str | None = None,
+    user_access_control: "UserAccessControl | None" = None,
+) -> PullRequestTimelines:
+    """Timelines for exactly one of ``author``, ``github_team``, or ``pr_number`` (which needs ``repo``)."""
+    # Validate the scope before resolving the source, so a bad request reads as a bad scope.
+    scope = logic.DeliveryScope.from_params(author=author, github_team=github_team, pr_number=pr_number, repo=repo)
+    return logic.build_pull_request_timelines(
+        curated=_authorized_source(team, source_id, user_access_control, repo=repo),
+        scope=scope,
         date_from=date_from,
         date_to=date_to,
     )
@@ -340,6 +396,7 @@ def list_workflow_health(
     date_to: str | None = None,
     branch: str | None = None,
     run_scope: str | None = None,
+    workflow_name: str | None = None,
     source_id: str | None = None,
     repo: str | None = None,
     user_access_control: "UserAccessControl | None" = None,
@@ -350,6 +407,7 @@ def list_workflow_health(
         date_to=date_to,
         branch=branch,
         run_scope=run_scope,
+        workflow_name=workflow_name,
     )
 
 
@@ -382,6 +440,7 @@ def list_team_ci_health(
     date_to: str | None = None,
     min_failed_prs: int | None = None,
     limit: int | None = None,
+    owner_team: str | None = None,
     source_id: str | None = None,
     user_access_control: "UserAccessControl | None" = None,
 ) -> TeamCIHealthList:
@@ -391,6 +450,7 @@ def list_team_ci_health(
         date_to=date_to,
         min_failed_prs=min_failed_prs,
         limit=limit,
+        owner_team=owner_team,
     )
 
 
@@ -444,6 +504,16 @@ def list_github_sources(*, team: Team, user_access_control: "UserAccessControl |
     return logic.build_github_sources(team=team, user_access_control=user_access_control)
 
 
+def get_trunk_quarantine(
+    *,
+    team: Team,
+    source_id: str | None = None,
+    repo: str | None = None,
+    user_access_control: "UserAccessControl | None" = None,
+) -> TrunkQuarantineDebt:
+    return logic.build_trunk_quarantine(curated=_authorized_source(team, source_id, user_access_control, repo=repo))
+
+
 def get_quarantine(
     *,
     team: Team,
@@ -489,8 +559,9 @@ def get_dora_overview(
     team: Team,
     date_from: str | None = None,
     date_to: str | None = None,
-    environment: str | None = None,
+    validated_environments: list[str] | None = None,
     github_team: str | None = None,
+    granularity: str | None = None,
     source_id: str | None = None,
     repo: str | None = None,
     user_access_control: "UserAccessControl | None" = None,
@@ -499,8 +570,27 @@ def get_dora_overview(
         curated=_authorized_source(team, source_id, user_access_control, repo=repo),
         date_from=date_from,
         date_to=date_to,
-        environment=environment,
+        validated_environments=validated_environments,
         github_team=github_team,
+        granularity=granularity,
+    )
+
+
+def get_dora_environment_choices(
+    environments: list[str],
+    *,
+    team: Team,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    source_id: str | None = None,
+    repo: str | None = None,
+    user_access_control: "UserAccessControl | None" = None,
+) -> list[str]:
+    return logic.get_dora_environment_choices(
+        environments=environments,
+        curated=_authorized_source(team, source_id, user_access_control, repo=repo),
+        date_from=date_from,
+        date_to=date_to,
     )
 
 
@@ -572,6 +662,7 @@ def list_job_aggregates(
     date_from: str | None = None,
     date_to: str | None = None,
     branch: str | None = None,
+    run_scope: str | None = None,
     source_id: str | None = None,
     repo: str | None = None,
     user_access_control: "UserAccessControl | None" = None,
@@ -582,4 +673,15 @@ def list_job_aggregates(
         date_from=date_from,
         date_to=date_to,
         branch=branch,
+        run_scope=run_scope,
     )
+
+
+def resolve_path_owners(repository: str, paths: Sequence[str]) -> PathOwnership:
+    """Name the team that owns each repository path, from the repository's own ownership files.
+
+    No team parameter: the answer comes from the repository as it stands on its default branch, not
+    from anything this PostHog team stores. Callers outside this product reach it here so the fetch,
+    the cache, and the failure contract stay in one place.
+    """
+    return logic.resolve_path_owners(repository, paths)

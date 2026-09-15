@@ -12,6 +12,7 @@ working), but with runtime validation on construction. See
 
 from __future__ import annotations
 
+from dataclasses import field
 from datetime import datetime
 from uuid import UUID
 
@@ -105,6 +106,8 @@ class CreateAppInput:
 @dataclass(frozen=True)
 class CreateVersionFromSourceInput:
     source: str
+    files: dict[str, str] = field(default_factory=dict)
+    assets: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)

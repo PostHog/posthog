@@ -20,9 +20,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.reg
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.trino import TrinoSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.trino.trino import (
+    TRINO_KNOWN_ERROR_MESSAGES,
+    TrinoSchemaDiscoveryError,
     connect_trino,
     discover_trino_schemas,
     trino_error_to_message,
+    trino_failures_as_discovery_error,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -212,7 +215,7 @@ class TrinoSource(SimpleSource[TrinoSourceConfig], ValidateDatabaseHostMixin):
         is_valid, error = self.is_database_host_valid(config.host, team_id)
         if not is_valid:
             raise ValueError(error or "Invalid Trino host.")
-        with connect_trino(config) as connection:
+        with trino_failures_as_discovery_error(), connect_trino(config) as connection:
             discovered = discover_trino_schemas(connection.cursor(), config, names)
         return [
             SourceSchema(
@@ -226,3 +229,19 @@ class TrinoSource(SimpleSource[TrinoSourceConfig], ValidateDatabaseHostMixin):
             )
             for table in discovered
         ]
+
+    def get_non_retryable_errors(self) -> dict[str, str | None]:
+        # Schema discovery hands back Trino's own verdict, so the API must show it. The message keys
+        # match in every consumer, because `str(TrinoSchemaDiscoveryError(...))` is the message. The
+        # last key stops PostHog filing an unrecognized Trino-side failure, which is the remote
+        # server's fault.
+        #
+        # NOTE: that last key only takes effect in the refresh-schemas classifier, which compares
+        # against `f"{type(error).__name__}: {message}"`. A message-only consumer such as
+        # `incremental_fields` compares against `str(e)`, so an unrecognized failure there is still
+        # filed. Closing that gap needs a shared classifier across the schema-discovery views, not a
+        # per-source key. Mirrors the note on the Stripe source.
+        return {
+            **{message: message for message in TRINO_KNOWN_ERROR_MESSAGES},
+            TrinoSchemaDiscoveryError.__name__: None,
+        }

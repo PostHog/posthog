@@ -15,7 +15,7 @@ from http.server import ThreadingHTTPServer
 from types import SimpleNamespace
 from typing import Any
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
@@ -741,9 +741,9 @@ class TestSQLV2Run(APIBaseTest):
     @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
     def test_run_uses_the_latest_done_run_of_a_referenced_node(self, _mock_enabled, _mock_enqueue):
         # An edited-then-rerun upstream: only its most recent run should be inlined.
-        with freeze_time("2026-07-04T00:00:00Z"):
+        with time_machine.travel("2026-07-04T00:00:00Z", tick=False):
             self._record_done_run("node-df1", "select 1 as old_col")
-        with freeze_time("2026-07-04T00:01:00Z"):
+        with time_machine.travel("2026-07-04T00:01:00Z", tick=False):
             self._record_done_run("node-df1", "select 2 as new_col")
         response = self.client.post(
             self.run_url,
@@ -771,9 +771,9 @@ class TestSQLV2Run(APIBaseTest):
         # run must not be used either. But the run did happen: a duckdb run binds its result into
         # the kernel namespace under its dataframe name, so downstream cells read it as a local
         # frame instead of being told the node never ran.
-        with freeze_time("2026-07-04T00:00:00Z"):
+        with time_machine.travel("2026-07-04T00:00:00Z", tick=False):
             self._record_done_run("node-c", "select id from events")
-        with freeze_time("2026-07-04T00:01:00Z"):
+        with time_machine.travel("2026-07-04T00:01:00Z", tick=False):
             with team_scope(self.team.id):
                 NotebookNodeRun.objects.create(
                     team=self.team,
@@ -1065,7 +1065,7 @@ class TestSQLV2RunOnAConnection(APIBaseTest):
         # This poll is the only thing that advances a direct run, and the only place its expiry
         # watchdog fires. Gating before that would strand the run RUNNING forever once access
         # went away — so the row must still finish even though the caller is refused its rows.
-        with freeze_time("2026-07-01T00:00:00Z"), team_scope(self.team.id):
+        with time_machine.travel("2026-07-01T00:00:00Z", tick=False), team_scope(self.team.id):
             run = NotebookNodeRun.objects.create(
                 team=self.team,
                 notebook=self.notebook,
@@ -1533,7 +1533,7 @@ class TestSQLV2RunResult(APIBaseTest):
     def test_running_run_expires_to_failed_after_grace(self, _name, node_type, expected_error, _mock_enabled):
         # This poll is the watchdog for both lanes. Within the grace window it keeps waiting,
         # which for hogql also covers pre-deploy kernel-executed runs whose callback is due.
-        with freeze_time("2026-07-01T00:00:00Z"):
+        with time_machine.travel("2026-07-01T00:00:00Z", tick=False):
             expired = self._create_run(NotebookNodeRun.Status.RUNNING, node_type=node_type)
         body = self.client.get(self._url(str(expired.id))).json()
         self.assertEqual(body["status"], NotebookNodeRun.Status.FAILED)
@@ -1948,7 +1948,7 @@ class TestSQLV2DataPlaneEndpoint(APIBaseTest):
     def test_a_data_plane_fetch_resets_the_run_watchdog_clock(
         self, _name, initial_status, expect_expired, expected_status
     ):
-        with freeze_time("2026-07-01T00:00:00Z"), team_scope(self.team.id):
+        with time_machine.travel("2026-07-01T00:00:00Z", tick=False), team_scope(self.team.id):
             run = NotebookNodeRun.objects.create(
                 team=self.team,
                 notebook=self.notebook,
@@ -1968,7 +1968,7 @@ class TestSQLV2DataPlaneEndpoint(APIBaseTest):
     def test_a_fetch_without_a_run_claim_touches_no_run(self):
         # Tokens minted before the run claim existed stay valid across the deploy that adds
         # it. They fetch data as before; they just cannot advance any run's clock.
-        with freeze_time("2026-07-01T00:00:00Z"), team_scope(self.team.id):
+        with time_machine.travel("2026-07-01T00:00:00Z", tick=False), team_scope(self.team.id):
             run = NotebookNodeRun.objects.create(
                 team=self.team,
                 notebook=self.notebook,
@@ -3127,6 +3127,25 @@ class TestSQLV2RunWithNotebookVariables(APIBaseTest):
         run = NotebookNodeRun.objects.for_team(self.team.id).get(id=response.json()["run_id"])
         self.assertIn("'US'", run.code)
         self.assertNotIn("{country}", run.code)
+
+    @parameterized.expand([("relative", "-7d"), ("relative_boundary", "mStart"), ("not_a_date", "yesterday")])
+    @patch("products.notebooks.backend.presentation.views.notebook.enqueue_direct_run")
+    @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
+    def test_a_date_variable_must_be_an_absolute_date(self, _name, value, _mock_enabled, mock_enqueue):
+        # The editor's picker only writes absolute dates, and a relative one would re-resolve
+        # against the clock on every state read, leaving the cell stale forever.
+        response = self.client.post(
+            self.run_url,
+            data={
+                "node_id": "n1",
+                "code": "select {since} as since",
+                "variables": [{"name": "since", "type": "date", "value": value}],
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("absolute date", str(response.json()))
+        mock_enqueue.assert_not_called()
 
     @patch("products.notebooks.backend.presentation.views.notebook.enqueue_direct_run")
     @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)

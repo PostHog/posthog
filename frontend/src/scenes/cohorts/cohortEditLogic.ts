@@ -42,7 +42,6 @@ import {
     isCohortCriteriaGroup,
     validateGroup,
 } from 'scenes/cohorts/cohortUtils'
-import { personsLogic } from 'scenes/persons/personsLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -67,6 +66,7 @@ import {
 
 import { cohortsUsedInRetrieve } from 'products/cohorts/frontend/generated/api'
 import type { CohortUsedInResponseApi } from 'products/cohorts/frontend/generated/api.schemas'
+import { personsLogic } from 'products/persons/frontend/logics/personsLogic'
 
 import type { UserBasicType } from '../../types'
 

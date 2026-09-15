@@ -719,9 +719,9 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
         for integration in candidates:
             if permissions.team(integration.team).effective_membership_level is None:
                 continue
-            # Feature-flag check per workspace so an org that hasn't rolled out
-            # the flag yet doesn't show up in another org's picker.
-            if not is_slack_app_oauth_enabled(integration, integration.integration_id):
+            # Scope check per workspace so an install that can't resolve identities
+            # doesn't show up in another org's picker.
+            if not is_slack_app_oauth_enabled(integration):
                 continue
             # `(config or {}).get("team", {})` doesn't defend against an explicit
             # ``config["team"] = None`` — dict.get returns the literal None
@@ -779,7 +779,7 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
                 "This project has no Slack workspace connected. Ask an admin to install the Slack app first."
             )
 
-        if not is_slack_app_oauth_enabled(workspace, workspace.integration_id):
+        if not is_slack_app_oauth_enabled(workspace):
             raise exceptions.PermissionDenied("Slack identity linking is not enabled for this organization.")
 
         if UserIntegration.objects.filter(

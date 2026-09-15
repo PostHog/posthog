@@ -8,7 +8,7 @@ from django.core.cache import cache
 from parameterized import parameterized
 
 from products.conversations.backend.models import TeamConversationsTeamsConfig, Ticket
-from products.conversations.backend.tasks import post_reply_to_teams, process_teams_event
+from products.conversations.backend.tasks.teams import post_reply_to_teams, process_teams_event
 from products.conversations.backend.teams import is_bot_added_event, is_command_message
 
 
@@ -141,9 +141,9 @@ class TestPostReplyToTeams(BaseTest):
             ("nonexistent_team_returns_early", "missing_team_id", 201, None, False, False, None),
         ]
     )
-    @patch("products.conversations.backend.tasks.get_bot_from_id", return_value="28:app-id")
-    @patch("products.conversations.backend.tasks.get_bot_framework_token")
-    @patch("products.conversations.backend.tasks.requests.post")
+    @patch("products.conversations.backend.tasks.teams.get_bot_from_id", return_value="28:app-id")
+    @patch("products.conversations.backend.tasks.teams.get_bot_framework_token")
+    @patch("products.conversations.backend.tasks.teams.requests.post")
     def test_post_reply_to_teams(
         self,
         _name: str,

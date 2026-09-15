@@ -10,6 +10,7 @@ from posthog.schema import (
 )
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.aws_cost_explorer.aws_cost_explorer import (
+    VALIDATION_ERROR_MESSAGES,
     AwsCostExplorerResumeConfig,
     aws_cost_explorer_source,
     validate_credentials as validate_aws_cost_explorer_credentials,
@@ -46,17 +47,13 @@ class AwsCostExplorerSource(ResumableSource[AwsCostExplorerSourceConfig, AwsCost
         return ExternalDataSourceType.AWSCOSTEXPLORER
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
-        return {
-            "AWS Cost Explorer request failed: UnrecognizedClientException": "AWS rejected the access key. Please check the access key ID and secret access key, and that the key is still active.",
-            "AWS Cost Explorer request failed: InvalidClientTokenId": "AWS rejected the access key. Please check the access key ID and secret access key, and that the key is still active.",
-            "AWS Cost Explorer request failed: SignatureDoesNotMatch": "AWS rejected the request signature. Please re-enter the secret access key.",
-            "AWS Cost Explorer request failed: InvalidSignatureException": "AWS rejected the request signature. If you are using temporary credentials, the session token has expired.",
-            "AWS Cost Explorer request failed: ExpiredTokenException": "The AWS session token has expired. Please reconnect with fresh credentials.",
-            "AWS Cost Explorer request failed: AccessDeniedException": "These AWS credentials are missing Cost Explorer permissions. Grant ce:GetCostAndUsage, ce:GetReservationUtilization and ce:GetSavingsPlansUtilization to the IAM user or role.",
-            "AWS Cost Explorer request failed: DataUnavailableException": "AWS has no Cost Explorer data for the requested dates. Cost Explorer has to be enabled on the account, and it can take up to 24 hours to prepare data.",
-            "AWS Cost Explorer request failed: BillExpirationException": "The requested dates are older than the data AWS keeps. Move the start date forward and try again.",
-            "AWS access key ID and secret access key are required": "Enter both an AWS access key ID and a secret access key.",
+        errors: dict[str, str | None] = {
+            f"AWS Cost Explorer request failed: {code}": message for code, message in VALIDATION_ERROR_MESSAGES.items()
         }
+        errors["AWS access key ID and secret access key are required"] = (
+            "Enter both an AWS access key ID and a secret access key."
+        )
+        return errors
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
         from products.warehouse_sources.backend.temporal.data_imports.sources.aws_cost_explorer.canonical_descriptions import (

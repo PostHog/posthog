@@ -22,7 +22,12 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { NodeKind } from '~/queries/schema/schema-general'
-import { AnyPropertyFilter, BatchExportConfigurationTest, BatchExportConfigurationTestStep } from '~/types'
+import {
+    AnyPropertyFilter,
+    BatchExportConfigurationTest,
+    BatchExportConfigurationTestStep,
+    IntegrationType,
+} from '~/types'
 
 import { batchExportConfigFormLogic } from './batchExportConfigFormLogic'
 import {
@@ -45,6 +50,7 @@ export function BatchExportConfiguration(): JSX.Element {
         runningStep,
         isDatabaseDestination,
         service,
+        selectedIntegration,
     } = useValues(batchExportConfigFormLogic)
     const { setSelectedModel, setConfigurationValue, runBatchExportConfigTestStep } =
         useActions(batchExportConfigFormLogic)
@@ -367,6 +373,7 @@ export function BatchExportConfiguration(): JSX.Element {
                         <BatchExportConfigurationFields
                             isNew={isNew}
                             formValues={configuration as BatchExportConfigurationForm}
+                            selectedIntegration={selectedIntegration}
                         />
                     </div>
                     {batchExportConfigTest && (
@@ -393,14 +400,20 @@ export function BatchExportConfiguration(): JSX.Element {
 function BatchExportConfigurationFields({
     isNew,
     formValues,
+    selectedIntegration,
 }: {
     isNew: boolean
     formValues: BatchExportConfigurationForm
+    selectedIntegration: IntegrationType | null
 }): JSX.Element {
     return (
         <>
             <BatchExportGeneralEditFields isNew={isNew} isPipeline batchExportConfigForm={formValues} />
-            <BatchExportsEditFields isNew={isNew} batchExportConfigForm={formValues} />
+            <BatchExportsEditFields
+                isNew={isNew}
+                batchExportConfigForm={formValues}
+                selectedIntegration={selectedIntegration}
+            />
         </>
     )
 }

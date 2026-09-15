@@ -13,6 +13,7 @@ use crate::emitted::EmittedVersions;
 use crate::fence::{drop_partition_fences, rebuild_partition_fences, FenceMap};
 use crate::fencing::{heal_fence, FenceGuard, FencedChangelogProducers, HealOutcome};
 use crate::inflight::InflightTracker;
+use crate::pg::PgFallback;
 use crate::warming::{warm_from_kafka, WarmClientPools, WarmingConfig};
 
 const DRAIN_POLL_INTERVAL: Duration = Duration::from_millis(50);
@@ -53,10 +54,9 @@ pub struct LeaderHandoffHandler {
     /// The in-process fence copies, rebuilt from the live marks at every
     /// ownership boundary (see the fence module for the durability model).
     fences: FenceMap,
-    /// Pool for the takeover scan — the cache-miss fallback pool. Without
-    /// it (dev fixtures) fences are not rebuilt on takeover and only
-    /// FencePerson calls fill the map.
-    fence_scan_pool: Option<sqlx::PgPool>,
+    /// The takeover scan's source. Without it (dev fixtures) fences are
+    /// not rebuilt on takeover and only FencePerson calls fill the map.
+    fence_scan: Option<PgFallback>,
     num_partitions: u32,
     pools: Arc<WarmClientPools>,
     /// Present when broker-enforced epoch fencing is on: acquiring a
@@ -92,7 +92,7 @@ impl LeaderHandoffHandler {
         dirty_index: Arc<DirtyIndex>,
         warming: WarmingConfig,
         fences: FenceMap,
-        fence_scan_pool: Option<sqlx::PgPool>,
+        fence_scan: Option<PgFallback>,
         num_partitions: u32,
         pools: Arc<WarmClientPools>,
         fenced: Option<Arc<FencedChangelogProducers>>,
@@ -105,7 +105,7 @@ impl LeaderHandoffHandler {
             dirty_index,
             warming,
             fences,
-            fence_scan_pool,
+            fence_scan,
             num_partitions,
             pools,
             fenced,
@@ -256,9 +256,9 @@ impl HandoffHandler for LeaderHandoffHandler {
         // (now current) owner, so the two sources cover every mark; a
         // fence installed for a partition that is not yet serving is
         // harmless.
-        if let Some(pool) = &self.fence_scan_pool {
+        if let Some(fallback) = &self.fence_scan {
             let installed =
-                rebuild_partition_fences(pool, &self.fences, partition, self.num_partitions)
+                rebuild_partition_fences(fallback, &self.fences, partition, self.num_partitions)
                     .await
                     .map_err(|e| personhog_coordination::error::Error::HandoffFailed {
                         partition,

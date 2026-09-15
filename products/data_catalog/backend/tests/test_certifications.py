@@ -53,8 +53,28 @@ def _table(
     )
 
 
+def _external_source(team: Team, source_id: str = "stripe", prefix: str | None = None) -> ExternalDataSource:
+    return ExternalDataSource.objects.create(
+        team=team,
+        source_id=source_id,
+        connection_id=source_id,
+        status=ExternalDataSource.Status.COMPLETED,
+        source_type="Stripe",
+        prefix=prefix,
+    )
+
+
 def _view(team: Team, name: str = "revenue_view") -> DataWarehouseSavedQuery:
     return DataWarehouseSavedQuery.objects.create(team=team, name=name, query={"kind": "HogQLQuery"})
+
+
+_CHECK_ACCESS = (
+    "products.access_control.backend.facade.user_access_control.UserAccessControl.check_access_level_for_object"
+)
+
+
+def _deny_warehouse_targets(obj: Any = None, *args: Any, **kwargs: Any) -> bool:
+    return type(obj).__name__ not in ("DataWarehouseTable", "DataWarehouseSavedQuery")
 
 
 class TestTableCertificationModel(BaseTest):
@@ -93,6 +113,32 @@ class TestCertificationLogic(BaseTest):
         assert certification.table_id == (target.id if target_type == "table" else None)
         assert certification.saved_query_id == (target.id if target_type == "view" else None)
 
+    @parameterized.expand(
+        [
+            ("dotted", "stripe_subscriptions", None, "stripe.subscriptions", True),
+            ("prefixed", "stripe_subscriptions", "prod_", "stripe.prod.subscriptions", True),
+            ("raw", "stripe_subscriptions", None, "stripe_subscriptions", True),
+            ("mixed_case_stored_name", "Stripe_Subscriptions", None, "stripe.subscriptions", True),
+            ("missing_dotted", "stripe_subscriptions", None, "stripe.refunds", False),
+        ]
+    )
+    def test_propose_by_external_table_name(
+        self, _name: str, table_name: str, source_prefix: str | None, selector: str, found: bool
+    ) -> None:
+        table = _table(
+            self.team, name=table_name, external_data_source=_external_source(self.team, prefix=source_prefix)
+        )
+
+        if not found:
+            with self.assertRaises(ValidationError) as error:
+                propose_certification(team=self.team, user=self.user, table_name=selector)
+            assert "table_name" in error.exception.detail
+            return
+
+        certification = propose_certification(team=self.team, user=self.user, table_name=selector)
+
+        assert certification.table_id == table.id
+
     def test_propose_deprecation_records_intent_and_settles(self) -> None:
         table = _table(self.team)
         cert = propose_certification(
@@ -109,10 +155,67 @@ class TestCertificationLogic(BaseTest):
             propose_certification(team=self.team, user=self.user, table_id=str(table.id), proposed_status="proposed")
 
     def test_ambiguous_table_name_returns_candidates(self) -> None:
-        _table(self.team, name="dupe")
-        _table(self.team, name="dupe")
-        with self.assertRaises(CatalogConflict):
-            propose_certification(team=self.team, user=self.user, table_name="dupe")
+        first_source = _external_source(self.team, source_id="stripe-first")
+        second_source = _external_source(self.team, source_id="stripe-second")
+        first_table = _table(self.team, name="stripe_subscriptions", external_data_source=first_source)
+        second_table = _table(self.team, name="stripe_subscriptions", external_data_source=second_source)
+
+        with self.assertRaises(CatalogConflict) as error:
+            propose_certification(team=self.team, user=self.user, table_name="stripe.subscriptions")
+
+        candidates = error.exception.extra["candidates"]
+        assert {candidate["id"] for candidate in candidates} == {str(first_table.id), str(second_table.id)}
+        assert {candidate["name"] for candidate in candidates} == {"stripe_subscriptions"}
+        assert {candidate["source_id"] for candidate in candidates} == {str(first_source.id), str(second_source.id)}
+        assert {candidate["source_prefix"] for candidate in candidates} == {None}
+
+    @parameterized.expand(
+        [("table_id", "table"), ("table_name", "table"), ("saved_query_id", "view"), ("view_name", "view")]
+    )
+    def test_denied_target_reads_as_missing(self, selector: str, target_type: str) -> None:
+        target = _table(self.team) if target_type == "table" else _view(self.team)
+        selector_kwargs: dict[str, Any] = {selector: str(target.id) if selector.endswith("_id") else target.name}
+
+        with patch(_CHECK_ACCESS, side_effect=_deny_warehouse_targets):
+            with self.assertRaises(ValidationError):
+                propose_certification(team=self.team, user=self.user, **selector_kwargs)
+
+        assert not TableCertification.objects.for_team(self.team.id).exists()
+
+    def test_mixed_visibility_dotted_name_resolves_to_visible_candidate(self) -> None:
+        visible = _table(
+            self.team, name="stripe_subscriptions", external_data_source=_external_source(self.team, source_id="a")
+        )
+        hidden = _table(
+            self.team, name="stripe_subscriptions", external_data_source=_external_source(self.team, source_id="b")
+        )
+
+        with patch(_CHECK_ACCESS, side_effect=lambda obj=None, *a, **k: getattr(obj, "id", None) != hidden.id):
+            certification = propose_certification(team=self.team, user=self.user, table_name="stripe.subscriptions")
+
+        assert certification.table_id == visible.id
+
+    def test_all_denied_dotted_candidates_read_as_missing(self) -> None:
+        for source_id in ("a", "b"):
+            _table(
+                self.team,
+                name="stripe_subscriptions",
+                external_data_source=_external_source(self.team, source_id=source_id),
+            )
+
+        with patch(_CHECK_ACCESS, side_effect=_deny_warehouse_targets):
+            with self.assertRaises(ValidationError) as error:
+                propose_certification(team=self.team, user=self.user, table_name="stripe.subscriptions")
+
+        assert "table_name" in error.exception.detail
+
+    def test_system_caller_bypasses_object_access(self) -> None:
+        table = _table(self.team)
+
+        with patch(_CHECK_ACCESS, side_effect=AssertionError("system callers must skip the access check")):
+            certification = propose_certification(team=self.team, user=None, table_id=str(table.id))
+
+        assert certification.table_id == table.id
 
     @parameterized.expand([("table_id", "table"), ("saved_query_id", "view")])
     def test_duplicate_target_conflicts(self, selector: str, target_type: str) -> None:
@@ -202,7 +305,8 @@ class TestCertificationLogic(BaseTest):
         assert certifications_for_team(self.team).count() == 0
 
     def test_serializes_mixed_certifications_in_one_query(self) -> None:
-        table_certification = propose_certification(team=self.team, user=self.user, table_id=str(_table(self.team).id))
+        table = _table(self.team, name="stripe_subscriptions", external_data_source=_external_source(self.team))
+        table_certification = propose_certification(team=self.team, user=self.user, table_id=str(table.id))
         certify(table_certification, self.user)
         propose_certification(team=self.team, user=self.user, saved_query_id=str(_view(self.team).id))
 
@@ -210,6 +314,10 @@ class TestCertificationLogic(BaseTest):
             serialized = CertificationSerializer(certifications_for_team(self.team), many=True).data
 
         assert {certification["target_type"] for certification in serialized} == {"table", "view"}
+        assert {certification["target_name"] for certification in serialized} == {
+            "stripe.subscriptions",
+            "revenue_view",
+        }
         assert any(certification["certified_by"] is None for certification in serialized)
 
     def test_proposal_stays_in_the_requested_environment(self) -> None:
@@ -357,6 +465,30 @@ class TestCertificationAPI(APIBaseTest):
             response = self.client.post(f"{self.url}{cert.id}/{act}/", HTTP_AUTHORIZATION=f"Bearer {raw}")
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    @parameterized.expand(
+        [
+            ("table_with_read", "table", ["data_catalog:write", "warehouse_table:read"], status.HTTP_201_CREATED),
+            ("table_without_read", "table", ["data_catalog:write"], status.HTTP_403_FORBIDDEN),
+            ("table_wrong_read", "table", ["data_catalog:write", "warehouse_view:read"], status.HTTP_403_FORBIDDEN),
+            ("view_with_read", "view", ["data_catalog:write", "warehouse_view:read"], status.HTTP_201_CREATED),
+            ("view_without_read", "view", ["data_catalog:write"], status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    def test_create_requires_selector_read_scope(
+        self, _name: str, target_type: str, scopes: list[str], expected_status: int
+    ) -> None:
+        target = _table(self.team) if target_type == "table" else _view(self.team)
+        selector = "table_id" if target_type == "table" else "saved_query_id"
+        raw = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="k", user=self.user, secure_value=hash_key_value(raw), scopes=scopes)
+        self.client.logout()
+
+        response = self.client.post(
+            self.url, {selector: str(target.id)}, format="json", HTTP_AUTHORIZATION=f"Bearer {raw}"
+        )
+
+        assert response.status_code == expected_status, response.content
 
     @parameterized.expand([("put",), ("patch",)])
     def test_update_methods_not_allowed(self, method: str) -> None:

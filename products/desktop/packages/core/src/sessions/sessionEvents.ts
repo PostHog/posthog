@@ -134,10 +134,7 @@ function promoteImportedUserPrompt(
 /**
  * Create a user message event for display.
  */
-export function createUserPromptEvent(
-  prompt: ContentBlock[],
-  ts: number,
-): AcpMessage {
+function createUserPromptEvent(prompt: ContentBlock[], ts: number): AcpMessage {
   return {
     type: "acp_message",
     ts,
@@ -152,7 +149,7 @@ export function createUserPromptEvent(
   };
 }
 
-export function createUserMessageEvent(text: string, ts: number): AcpMessage {
+function createUserMessageEvent(text: string, ts: number): AcpMessage {
   return createUserPromptEvent([{ type: "text", text }], ts);
 }
 
@@ -462,7 +459,7 @@ export function normalizePromptToBlocks(
   );
 }
 
-export { isFatalSessionError, isRateLimitError } from "@posthog/shared";
+export { isFatalSessionError } from "@posthog/shared";
 
 /**
  * Whether a list of events already contains a `session/prompt` request.

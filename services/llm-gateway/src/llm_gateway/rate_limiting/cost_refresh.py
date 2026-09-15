@@ -11,11 +11,15 @@ from litellm.litellm_core_utils.get_model_cost_map import get_model_cost_map
 from llm_gateway.baseten import (
     BASETEN_DEEPSEEK_METRIC_MODEL,
     BASETEN_DEEPSEEK_MODEL,
+    BASETEN_DEEPSEEK_PUBLIC_MODEL,
     BASETEN_GLM53_FLASH_METRIC_MODEL,
     BASETEN_GLM53_FLASH_MODEL,
+    BASETEN_GLM53_FLASH_PUBLIC_MODEL,
     BASETEN_GLM53_METRIC_MODEL,
     BASETEN_GLM53_MODEL,
+    BASETEN_GLM53_PUBLIC_MODEL,
     BASETEN_METRIC_MODEL,
+    BASETEN_PUBLIC_MODEL,
 )
 from llm_gateway.rate_limiting.model_cost_overrides import apply_model_cost_overrides
 
@@ -49,10 +53,10 @@ ALIAS_METRIC_LABELS: dict[str, tuple[str, str]] = {
     "openai/@cf/zai-org/glm-5.2": ("cloudflare", "@cf/zai-org/glm-5.2"),
     # Same public model id as the CF entry so dashboards slice one model across both backends.
     "openai/zai-org/GLM-5.2-FP8": ("modal", "@cf/zai-org/glm-5.2"),
-    "openai/zai-org/GLM-5.2": ("baseten", BASETEN_METRIC_MODEL),
-    f"openai/{BASETEN_DEEPSEEK_MODEL}": ("baseten", BASETEN_DEEPSEEK_METRIC_MODEL),
-    f"openai/{BASETEN_GLM53_MODEL}": ("baseten", BASETEN_GLM53_METRIC_MODEL),
-    f"openai/{BASETEN_GLM53_FLASH_MODEL}": ("baseten", BASETEN_GLM53_FLASH_METRIC_MODEL),
+    "openai/zai-org/GLM-5.2": ("baseten", BASETEN_PUBLIC_MODEL),
+    f"openai/{BASETEN_DEEPSEEK_MODEL}": ("baseten", BASETEN_DEEPSEEK_PUBLIC_MODEL),
+    f"openai/{BASETEN_GLM53_MODEL}": ("baseten", BASETEN_GLM53_PUBLIC_MODEL),
+    f"openai/{BASETEN_GLM53_FLASH_MODEL}": ("baseten", BASETEN_GLM53_FLASH_PUBLIC_MODEL),
     "openai/moonshotai/kimi-k3": ("modal", "moonshotai/kimi-k3"),
 }
 
@@ -61,7 +65,7 @@ def normalize_metric_labels(litellm_model: str, litellm_provider: str) -> tuple[
     """Translate the (provider, model) labels litellm sees into the user-facing
     (provider, model) we want in metrics. Returns (provider, model).
     """
-    override = ALIAS_METRIC_LABELS.get(litellm_model)
+    override = ALIAS_METRIC_LABELS.get(litellm_model) or ALIAS_METRIC_LABELS.get(f"{litellm_provider}/{litellm_model}")
     if override is None:
         return litellm_provider, litellm_model
     return override

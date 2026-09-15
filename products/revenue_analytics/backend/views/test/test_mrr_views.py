@@ -1,7 +1,7 @@
 from decimal import Decimal
 from pathlib import Path
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -119,7 +119,7 @@ class TestMRRViewsE2E(ClickhouseTestMixin, QueryMatchingTest, APIBaseTest):
     def _create_purchase_events(self, data):
         person_result = []
         for distinct_id, timestamps in data:
-            with freeze_time(timestamps[0][0]):
+            with time_machine.travel(timestamps[0][0], tick=False):
                 person = _create_person(
                     team_id=self.team.pk,
                     distinct_ids=[distinct_id],
@@ -150,7 +150,7 @@ class TestMRRViewsE2E(ClickhouseTestMixin, QueryMatchingTest, APIBaseTest):
         return person_result
 
     def _execute_query(self, query: ast.SelectQuery) -> HogQLQueryResponse:
-        with freeze_time(self.QUERY_TIMESTAMP):
+        with time_machine.travel(self.QUERY_TIMESTAMP, tick=False):
             return execute_hogql_query(
                 query=query,
                 team=self.team,

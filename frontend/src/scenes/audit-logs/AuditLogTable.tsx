@@ -203,10 +203,10 @@ function ExpandedRowContent({ logItem }: { logItem: HumanizedActivityLogItem }):
     )
 }
 
-type ActivityLogTabs = 'extended description' | 'diff' | 'raw'
+type ActivityLogTabs = 'details' | 'extended description' | 'diff' | 'raw'
 
 const ActivityDetailsSection = ({ logItem }: { logItem: HumanizedActivityLogItem }): JSX.Element => {
-    const [activeTab, setActiveTab] = useState<ActivityLogTabs>('diff')
+    const [activeTab, setActiveTab] = useState<ActivityLogTabs>(logItem.expandedView ? 'details' : 'diff')
 
     return (
         <LemonTabs
@@ -214,6 +214,13 @@ const ActivityDetailsSection = ({ logItem }: { logItem: HumanizedActivityLogItem
             onChange={(key) => setActiveTab(key as ActivityLogTabs)}
             data-attr="audit-log-details-tabs"
             tabs={[
+                logItem.expandedView
+                    ? {
+                          key: 'details',
+                          label: logItem.expandedView.label,
+                          content: logItem.expandedView.content,
+                      }
+                    : false,
                 logItem.extendedDescription
                     ? {
                           key: 'extended description',

@@ -22,6 +22,7 @@ from .acp_log import parse_log
 
 SKILL_TOOL_NAME = "Skill"
 EXEC_TOOL_NAME = "exec"
+EXECUTE_SQL_TOOL_NAME = "execute-sql"
 INFO_SYNTHETIC_PREFIX = "__info__:"
 """Synthetic name assigned when ``exec {command: "info <tool>"}`` is unwrapped.
 
@@ -45,6 +46,24 @@ def normalize_tool_name(name: str | None) -> str:
         if len(parts) == 3:
             return parts[2]
     return name
+
+
+def describe_tool_use(name: str | None, tool_input: dict[str, Any]) -> tuple[str, dict[str, Any]]:
+    """Resolve a raw ``tool_use`` name and input to the tool the agent actually invoked.
+
+    Single-exec mode routes every PostHog tool through one ``exec`` call, so the raw
+    name says ``exec`` for all of them and only the command string tells them apart.
+    Falls back to the normalized raw name for command shapes that wrap no inner tool
+    (``search``, ``tools``, ``schema``).
+    """
+    normalized = normalize_tool_name(name)
+    if normalized == EXEC_TOOL_NAME:
+        command = tool_input.get("command", "")
+        if isinstance(command, str):
+            unwrapped = _parse_exec_command(command)
+            if unwrapped is not None:
+                return unwrapped
+    return (normalized, tool_input)
 
 
 class ToolCall(BaseModel):
@@ -83,6 +102,27 @@ class ToolCall(BaseModel):
     Python/Bash post-processing); ``"optimized"`` or ``None`` is the default
     token-efficient view. ``None`` for non-``exec`` calls and for unwrapped
     discovery commands. See ``services/mcp/src/tools/exec.ts`` for the schema."""
+
+
+def is_schema_discovery_call(call: ToolCall) -> bool:
+    """True when an ``execute-sql`` call is a catalog lookup rather than an answer query.
+
+    The MCP instructions make catalog lookups mandatory and route them through
+    ``execute-sql`` against ``system.information_schema.*``: table and column
+    discovery (``sections/schema-discovery.md``), the metric catalog
+    (``sections/metric-discovery.md``), and join validation
+    (``sections/catalog-trust-discovery.md``). Those calls land in the same
+    ``execute-sql`` call list as the query that answers the user, so a scorer
+    that grades SQL usage must drop them first, otherwise it grades the
+    instructions the agent was told to follow instead of the route it chose.
+
+    Non-``execute-sql`` calls are never discovery, so callers can apply this to
+    a mixed call list.
+    """
+    if call.name != EXECUTE_SQL_TOOL_NAME:
+        return False
+    query = call.input.get("query")
+    return isinstance(query, str) and "information_schema" in query.lower()
 
 
 class SkillCall(BaseModel):
@@ -307,13 +347,16 @@ def _index_tool_use_positions(messages: list[dict[str, Any]]) -> dict[str, int]:
     return positions
 
 
+_CALL_FLAGS = frozenset({"--json", "--confirm", "--no-skills"})
+
+
 def _parse_exec_command(command: str) -> tuple[str, dict[str, Any]] | None:
     """Split a CLI-style ``exec`` command string into ``(virtual_name, input)``.
 
     Recognised shapes (produced by single-exec mode where the agent talks to
     the PostHog MCP through one ``exec`` tool):
       - ``"info <tool>"``                    → ``("__info__:<tool>", {})``
-      - ``"call [--json] <tool> <json>"``    → ``("<tool>", parsed_json)``
+      - ``"call [--json] [--confirm] [--no-skills] <tool> <json>"`` → ``("<tool>", parsed_json)``
 
     Returns ``None`` for anything else (``search``, ``tools``, ``schema``,
     malformed) so callers can fall through to the raw ``exec`` representation.
@@ -333,8 +376,10 @@ def _parse_exec_command(command: str) -> tuple[str, dict[str, Any]] | None:
 
     if head == "call":
         rest = rest.strip()
-        if rest.startswith("--json"):
-            rest = rest[len("--json") :].lstrip()
+        flag, _, remainder = rest.partition(" ")
+        while flag in _CALL_FLAGS:
+            rest = remainder.lstrip()
+            flag, _, remainder = rest.partition(" ")
         if not rest:
             return None
         tool, _, json_part = rest.partition(" ")

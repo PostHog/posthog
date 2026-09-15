@@ -24,6 +24,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.exceptions_capture import capture_exception
 from posthog.models.user import User
+from posthog.security.url_validation import UNREACHABLE_HOST_MESSAGE, ShapeError, validate_external_url
 
 from products.managed_migrations.backend import trial_storage
 from products.managed_migrations.backend.models.batch_imports import (
@@ -121,14 +122,16 @@ class BatchImportSerializer(serializers.ModelSerializer):
     def validate_endpoint_url(self, value: str | None) -> str | None:
         if not value or not value.strip():
             return None
-        # Deferred: batch_export pulls the batch-export Temporal framework, which has no
-        # business on this module's import path.
-        from products.batch_exports.backend.api.batch_export import resolve_and_validate_url  # noqa: PLC0415
-
         try:
-            resolve_and_validate_url(value)
+            validate_external_url(value)
+        except ShapeError:
+            # The value is never echoed: a URL carries its credentials in the userinfo, and
+            # this message reaches the response body, the request log and error tracking.
+            raise serializers.ValidationError(
+                "Invalid endpoint URL. Check that it starts with http:// or https:// and carries no credentials."
+            )
         except ValueError:
-            raise serializers.ValidationError(f"Invalid endpoint URL: '{value}'")
+            raise serializers.ValidationError(UNREACHABLE_HOST_MESSAGE)
         return value
 
     def create(self, validated_data: dict) -> BatchImport:

@@ -1,15 +1,16 @@
 """Where a check's subject can be opened.
 
 A check row carries the subject's id, which is enough to run it but not enough to link to it: a
-view is administered on its DAG node and a synced table on its source's schema page. Both are
-resolved in bulk for a whole page of checks, never per row -- the overview lists every check in the
-project, so a query per row is a query per table in the warehouse.
+view is administered on its DAG node, a synced table on its source's schema page, and a metric on
+its own catalog page. Each kind is resolved in bulk for a whole page of checks, never per row -- the
+overview lists every check in the project, so a query per row is a query per table in the warehouse.
 """
 
 from collections.abc import Iterable
 
 from posthog.dataclasses import frozen
 
+from products.data_catalog.backend.facade import api as data_catalog_facade
 from products.data_modeling.backend.facade import api as data_modeling_facade
 from products.warehouse_sources.backend.facade import api as warehouse_facade
 
@@ -32,12 +33,15 @@ class SubjectLocation:
     node_id: str | None = None
     source_id: str | None = None
     schema_id: str | None = None
+    metric_name: str | None = None
 
 
 def subject_locations(team_id: int, checks: Iterable[DataQualityCheck]) -> dict[SubjectKey, SubjectLocation]:
-    """Two queries for any number of checks."""
+    """A read per subject kind on the page, whatever the number of checks."""
+    checks = list(checks)
     view_ids = {str(check.saved_query_id) for check in checks if check.saved_query_id}
     table_ids = {check.table_id for check in checks if check.table_id}
+    metric_ids = {check.metric_id for check in checks if check.metric_id}
 
     locations: dict[SubjectKey, SubjectLocation] = {
         SubjectKey(subject_type=SubjectType.VIEW, subject_uuid=saved_query_id): SubjectLocation(node_id=node_id)
@@ -46,5 +50,9 @@ def subject_locations(team_id: int, checks: Iterable[DataQualityCheck]) -> dict[
     for table_id, location in warehouse_facade.source_locations_for_tables(team_id, table_ids).items():
         locations[SubjectKey(subject_type=SubjectType.TABLE, subject_uuid=str(table_id))] = SubjectLocation(
             source_id=str(location.source_id), schema_id=str(location.schema_id)
+        )
+    for metric_id, metric_name in data_catalog_facade.metric_names_for_ids(team_id, metric_ids).items():
+        locations[SubjectKey(subject_type=SubjectType.METRIC, subject_uuid=str(metric_id))] = SubjectLocation(
+            metric_name=metric_name
         )
     return locations

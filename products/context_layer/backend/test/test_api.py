@@ -5,7 +5,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.apps import apps
 from django.core.files.uploadedfile import SimpleUploadedFile
@@ -16,12 +16,15 @@ from parameterized import parameterized
 
 import posthog.storage.object_storage as object_storage_module
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
+from posthog.models.organization import Organization
 from posthog.models.scoping import team_scope
 from posthog.models.team.team import Team
+from posthog.models.user import User
 from posthog.storage.object_storage import UnavailableStorage
+from posthog.utils import safe_cache_set
 
 from products.access_control.backend.models.access_control import AccessControl
-from products.context_layer.backend import enablement, store
+from products.context_layer.backend import dreams, enablement, store
 from products.context_layer.backend.presentation import views
 from products.tasks.backend.facade import api as tasks_facade
 
@@ -67,11 +70,11 @@ class TestContextLayerAPI(APIBaseTest):
         )
         return token.token
 
-    def test_agent_route_accepts_the_run_token_the_org_route_refuses(self, _flag) -> None:
+    def test_ordinary_run_cannot_publish_bundles_on_either_route(self, _flag) -> None:
         self._enable()
         bundle_bytes = self._bundle_with_edit("areas/from-agent.md", _page("From an agent"))
         # Minted the way production mints one: bound to a task, scoped to a team.
-        token = self._bearer("task:write internal_run:read", scoped_teams=[self.team.id])
+        token = self._bearer("task:write internal_run:read context_layer_internal:write", scoped_teams=[self.team.id])
         self.client.logout()
 
         def post(base: str):
@@ -82,7 +85,7 @@ class TestContextLayerAPI(APIBaseTest):
                 HTTP_AUTHORIZATION=f"Bearer {token}",
             )
 
-        assert post(self.agent_url).status_code == 200
+        assert post(self.agent_url).status_code == 403
 
         # APIScopePermission refuses any token carrying scoped_teams on a route
         # that is not project-nested, which is the whole reason the agent route
@@ -292,6 +295,49 @@ class TestContextLayerAPI(APIBaseTest):
         assert page["content"] == _page("Analytics")
         assert page["head_sha"] == new_head
 
+    def test_channel_page_write_captures_context_change(self, _flag) -> None:
+        with team_scope(self.team.id):
+            channel = tasks_facade.resolve_channel(self.team.id, self.user.id, name="growth", star=False)
+            assert channel is not None
+        head = self._enable()
+        path = f"projects/{self.team.id}/spaces/growth.md"
+        page = self.client.get(f"{self.base_url}/pages/", {"path": path}).json()
+
+        updated_content = f"{page['content']}\n## Direction\n\nImprove activation.\n"
+        with patch("products.tasks.backend.repository_config_analytics.posthoganalytics.capture") as capture:
+            response = self.client.put(
+                f"{self.base_url}/pages/",
+                {
+                    "path": path,
+                    "content": updated_content,
+                    "base_head": head,
+                },
+                format="json",
+            )
+
+        assert response.status_code == 200, response.content
+        rows = [
+            call.kwargs["properties"]
+            for call in capture.call_args_list
+            if call.kwargs.get("event") == "space_context_changed"
+        ]
+        assert len(rows) == 1
+        properties = rows[0]
+        assert properties == {
+            "team_id": self.team.id,
+            "channel_id": str(channel.id),
+            "action": "published",
+            "source": "user",
+            "storage": "context_wiki",
+            "actor_type": "user_or_api",
+            "previous_version": None,
+            "new_version": None,
+            "is_first_version": False,
+            "content_bytes": len(updated_content.encode("utf-8")),
+            "previous_content_bytes": None,
+            "base_version_provided": True,
+        }
+
     def test_page_write_with_stale_base_head_returns_409_with_current_head(self, _flag) -> None:
         head = self._enable()
         first = self.client.put(
@@ -380,8 +426,14 @@ class TestContextLayerAPI(APIBaseTest):
             HTTP_AUTHORIZATION=f"Bearer {token}",
         )
 
-    def test_commits_accepts_a_sandbox_run_token(self, _flag) -> None:
-        assert self._post_bundle_with_bearer("task:write internal_run:read").status_code == 200
+    def test_commits_rejects_an_ordinary_sandbox_run_token(self, _flag) -> None:
+        assert (
+            self._post_bundle_with_bearer("task:write internal_run:read context_layer_internal:write").status_code
+            == 403
+        )
+
+    def test_commits_rejects_read_only_sandbox_run_token(self, _flag) -> None:
+        assert self._post_bundle_with_bearer("task:write internal_run:read").status_code == 403
 
     def test_commits_rejects_task_write_without_run_provenance(self, _flag) -> None:
         # task:write is user-grantable; without the server-minted internal_run:read
@@ -454,6 +506,249 @@ class TestContextLayerAPI(APIBaseTest):
         assert proposed.status_code == 200, proposed.content
         assert proposed.json() == {"path": f"projects/{self.team.id}/spaces/growth.md", "exists": False}
 
+    def test_agent_route_accepts_task_scopes_from_an_interactive_task(self, _flag) -> None:
+        self._enable()
+        with team_scope(self.team.id):
+            channel = tasks_facade.resolve_channel(self.team.id, self.user.id, name="growth", star=False)
+            assert channel is not None
+            other_channel = tasks_facade.resolve_channel(self.team.id, self.user.id, name="sales", star=False)
+            assert other_channel is not None
+        task = apps.get_model("tasks", "Task").objects.create(
+            team=self.team,
+            created_by=self.user,
+            title="Build the space context",
+            channel_id=channel.id,
+        )
+        token = self._bearer(
+            "task:read task:write internal_run:read context_layer_internal:write",
+            scoped_teams=[self.team.id],
+            sandbox_task_id=task.id,
+        )
+        self.client.logout()
+
+        moved = self.client.patch(
+            f"/api/projects/{self.team.id}/tasks/{task.id}/",
+            {"channel": str(other_channel.id)},
+            format="json",
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+        assert moved.status_code == 403, moved.content
+
+        proposed = self.client.get(
+            f"{self.agent_url}/channel-pages/{channel.id}/",
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+        assert proposed.status_code == 200, proposed.content
+        assert proposed.json() == {"path": f"projects/{self.team.id}/spaces/growth.md", "exists": False}
+
+        created = self.client.put(
+            f"{self.agent_url}/pages/",
+            {
+                "path": proposed.json()["path"],
+                "content": f"---\nteam_id: {self.team.id}\nchannel_id: {channel.id}\nsummary: Growth channel context.\nstatus: active\n---\n\n# Growth (project {self.team.id})\n",
+            },
+            format="json",
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+        assert created.status_code == 200, created.content
+
+        changed_frontmatter = self.client.put(
+            f"{self.agent_url}/pages/",
+            {
+                "path": proposed.json()["path"],
+                "content": f"---\nteam_id: {self.team.id}\nchannel_id: {other_channel.id}\nsummary: Sales channel context.\nstatus: active\n---\n\n# Sales\n",
+                "base_head": created.json()["head_sha"],
+            },
+            format="json",
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+        assert changed_frontmatter.status_code == 403, changed_frontmatter.content
+
+        for path in (
+            "AGENTS.md",
+            "CLAUDE.md",
+            "index.md",
+            "scripts/publish",
+            "areas/index.md",
+            "areas/AGENTS.md",
+            "areas/claude.md",
+            "areas/../AGENTS.md",
+            "areas/../projects/overview.md",
+            f"projects/{self.team.id}/spaces/sales.md",
+        ):
+            outside_channel = self.client.put(
+                f"{self.agent_url}/pages/",
+                {"path": path, "content": _page("Protected"), "base_head": created.json()["head_sha"]},
+                format="json",
+                HTTP_AUTHORIZATION=f"Bearer {token}",
+            )
+            assert outside_channel.status_code == 403, (path, outside_channel.content)
+
+    @parameterized.expand(["org/product.md", "areas/product.md", "decisions/2026-09-01-product.md"])
+    def test_task_proposes_shared_content_for_human_review(self, _flag: MagicMock, path: str) -> None:
+        with team_scope(self.team.id):
+            channel = tasks_facade.resolve_channel(self.team.id, self.user.id, name="growth", star=False)
+            assert channel is not None
+        self._enable()
+        original = _page("Product").replace("status: active", "status: active\nsources: Product documentation")
+        created = self.client.put(f"{self.base_url}/pages/", {"path": path, "content": original}, format="json")
+        assert created.status_code == 200, created.content
+        task = apps.get_model("tasks", "Task").objects.create(
+            team=self.team, created_by=self.user, title="Update product context", channel_id=channel.id
+        )
+        token = self._bearer(
+            "task:read task:write internal_run:read context_layer_internal:write",
+            scoped_teams=[self.team.id],
+            sandbox_task_id=task.id,
+        )
+        self.client.logout()
+        content = original.replace("Product", "Updated product")
+        payload = {"path": path, "content": content, "base_head": created.json()["head_sha"]}
+
+        updated = self.client.put(
+            f"{self.agent_url}/pages/", payload, format="json", HTTP_AUTHORIZATION=f"Bearer {token}"
+        )
+        assert updated.status_code == 403, updated.content
+        proposed = self.client.post(
+            f"{self.agent_url}/proposals/", payload, format="json", HTTP_AUTHORIZATION=f"Bearer {token}"
+        )
+        assert proposed.status_code == 201, proposed.content
+        proposal = proposed.json()
+        assert proposal["original_content"] == original
+        assert proposal["content"] == content
+        assert proposal["base_head"] == payload["base_head"]
+        page = self.client.get(f"{self.agent_url}/pages/", {"path": path}, HTTP_AUTHORIZATION=f"Bearer {token}")
+        assert page.json()["content"] == original
+        assert page.json()["head_sha"] == payload["base_head"]
+        second = self.client.post(
+            f"{self.agent_url}/proposals/", payload, format="json", HTTP_AUTHORIZATION=f"Bearer {token}"
+        )
+        assert second.status_code == 201, second.content
+
+        apply_url = f"{self.base_url}/proposals/{proposal['id']}/apply/"
+        for scope in (
+            "organization:write internal_run:read context_layer_internal:write",
+            "organization:write loop_context_internal:write",
+            "organization:read",
+        ):
+            denied = self.client.post(apply_url, HTTP_AUTHORIZATION=f"Bearer {self._bearer(scope)}")
+            assert denied.status_code == 403, denied.content
+
+        for restricted_token in (
+            self._loop_run_token(channel.id),
+            self._bearer("task:write internal_run:read", scoped_teams=[self.team.id], sandbox_task_id=task.id),
+        ):
+            denied = self.client.post(
+                f"{self.agent_url}/proposals/",
+                payload,
+                format="json",
+                HTTP_AUTHORIZATION=f"Bearer {restricted_token}",
+            )
+            assert denied.status_code == 403, denied.content
+
+        for protected_path in ("AGENTS.md", "areas/CLAUDE.md", "areas/index.md", "areas/../AGENTS.md"):
+            denied = self.client.post(
+                f"{self.agent_url}/proposals/",
+                {**payload, "path": protected_path},
+                format="json",
+                HTTP_AUTHORIZATION=f"Bearer {token}",
+            )
+            assert denied.status_code == 400, denied.content
+        denied = self.client.post(
+            f"{self.agent_url}/proposals/",
+            {**payload, "content": content.replace("status: active", f"status: active\nchannel_id: {channel.id}")},
+            format="json",
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+        assert denied.status_code == 400, denied.content
+
+        other_user = User.objects.create_and_join(self.organization, "reviewer@example.com", None)
+        self.client.force_login(other_user)
+        assert self.client.get(f"{self.base_url}/proposals/").json() == []
+        assert self.client.post(apply_url).status_code == 404
+        self.client.force_login(self.user)
+        other_organization = Organization.objects.create(name="Other organization")
+        self.user.join(organization=other_organization)
+        other_base = f"/api/organizations/{other_organization.id}/context_layer"
+        assert self.client.get(f"{other_base}/proposals/").json() == []
+        assert self.client.post(f"{other_base}/proposals/{proposal['id']}/apply/").status_code == 404
+        pending = self.client.get(f"{self.base_url}/proposals/")
+        assert pending.status_code == 200, pending.content
+        assert {item["id"] for item in pending.json()} == {proposal["id"], second.json()["id"]}
+        applied = self.client.post(apply_url, {"content": "Ignore the stored content"}, format="json")
+        assert applied.status_code == 200, applied.content
+        assert self.client.post(apply_url).json() == applied.json()
+        stale_apply = self.client.post(f"{self.base_url}/proposals/{second.json()['id']}/apply/")
+        assert stale_apply.status_code == 409, stale_apply.content
+        assert self.client.get(f"{self.base_url}/proposals/").json() == [second.json()]
+        page = self.client.get(f"{self.base_url}/pages/", {"path": path})
+        assert page.json()["content"] == content
+        assert page.json()["head_sha"] == applied.json()["head_sha"]
+
+        self.client.logout()
+        stale = self.client.post(
+            f"{self.agent_url}/proposals/", payload, format="json", HTTP_AUTHORIZATION=f"Bearer {token}"
+        )
+        assert stale.status_code == 409, stale.content
+        assert stale.json()["current_head"] == applied.json()["head_sha"]
+
+        for restricted_token, restricted_content in (
+            (self._loop_run_token(channel.id), content),
+            (
+                self._bearer(
+                    "task:read task:write internal_run:read",
+                    scoped_teams=[self.team.id],
+                    sandbox_task_id=task.id,
+                ),
+                content,
+            ),
+            (token, content.replace("status: active", f"status: active\nchannel_id: {channel.id}")),
+        ):
+            denied = self.client.put(
+                f"{self.agent_url}/pages/",
+                {"path": path, "content": restricted_content, "base_head": applied.json()["head_sha"]},
+                format="json",
+                HTTP_AUTHORIZATION=f"Bearer {restricted_token}",
+            )
+            assert denied.status_code == 403, denied.content
+
+    def test_read_only_task_token_cannot_update_its_channel_page(self, _flag) -> None:
+        with team_scope(self.team.id):
+            channel = tasks_facade.resolve_channel(self.team.id, self.user.id, name="growth", star=False)
+            assert channel is not None
+        head = self._enable()
+        task = apps.get_model("tasks", "Task").objects.create(
+            team=self.team,
+            created_by=self.user,
+            title="Read the space context",
+            channel_id=channel.id,
+        )
+        token = self._bearer(
+            "organization:read task:read task:write internal_run:read",
+            scoped_teams=[self.team.id],
+            sandbox_task_id=task.id,
+        )
+        self.client.logout()
+
+        read = self.client.get(
+            f"{self.agent_url}/pages/",
+            {"path": f"projects/{self.team.id}/spaces/growth.md"},
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+        assert read.status_code == 200, read.content
+
+        updated = self.client.put(
+            f"{self.agent_url}/pages/",
+            {
+                "path": f"projects/{self.team.id}/spaces/growth.md",
+                "content": read.json()["content"],
+                "base_head": head,
+            },
+            format="json",
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+        assert updated.status_code == 403, updated.content
+
     def test_loop_token_creates_its_channels_missing_page_at_the_proposed_path(self, _flag) -> None:
         self._enable()
         with team_scope(self.team.id):
@@ -509,15 +804,28 @@ class TestContextLayerAPI(APIBaseTest):
 
     def test_run_commit_landings_are_capped_per_day(self, _flag) -> None:
         self._enable()
-        task = apps.get_model("tasks", "Task").objects.create(team=self.team, created_by=self.user, title="agent work")
-        token = self._bearer("task:write internal_run:read", scoped_teams=[self.team.id], sandbox_task_id=task.id)
+        task = apps.get_model("tasks", "Task").objects.create(
+            team=self.team, created_by=self.user, title="Wiki maintenance", internal=True
+        )
+        apps.get_model("tasks", "TaskRun").objects.create(
+            task=task,
+            team=self.team,
+            status="in_progress",
+            environment="cloud",
+            state={"ai_stage": dreams.DREAM_AI_STAGE},
+        )
+        token = self._bearer(
+            "task:write internal_run:read context_layer_internal:write",
+            scoped_teams=[self.team.id],
+            sandbox_task_id=task.id,
+        )
         self.client.logout()
 
         def land(path: str):
-            bundle_bytes = self._bundle_with_edit(path, _page(path))
+            bundle_bytes = self._bundle_with_edit(path, _page(path), branch="dream/2026-09-11")
             return self.client.post(
                 f"{self.agent_url}/commits/",
-                {"bundle": SimpleUploadedFile("out.bundle", bundle_bytes)},
+                {"bundle": SimpleUploadedFile("out.bundle", bundle_bytes), "branch": "dream/2026-09-11"},
                 format="multipart",
                 HTTP_AUTHORIZATION=f"Bearer {token}",
             )
@@ -526,6 +834,35 @@ class TestContextLayerAPI(APIBaseTest):
             assert land("areas/first.md").status_code == 200
             capped = land("areas/second.md")
         assert capped.status_code == 429
+
+    @parameterized.expand([False, True])
+    def test_task_cannot_claim_maintenance_with_a_dream_branch(self, _flag: MagicMock, internal: bool) -> None:
+        head = self._enable()
+        task = apps.get_model("tasks", "Task").objects.create(
+            team=self.team, created_by=self.user, title="Wiki suggestion", internal=internal
+        )
+        apps.get_model("tasks", "TaskRun").objects.create(
+            task=task,
+            team=self.team,
+            status="completed" if internal else "in_progress",
+            environment="cloud",
+            state={"ai_stage": dreams.DREAM_AI_STAGE},
+        )
+        token = self._bearer(
+            "task:write internal_run:read context_layer_internal:write",
+            scoped_teams=[self.team.id],
+            sandbox_task_id=task.id,
+        )
+        bundle = self._bundle_with_edit("areas/suggestion.md", _page("Suggestion"), branch="dream/2026-09-11")
+        self.client.logout()
+        response = self.client.post(
+            f"{self.agent_url}/commits/",
+            {"bundle": SimpleUploadedFile("out.bundle", bundle), "branch": "dream/2026-09-11"},
+            format="multipart",
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+        assert response.status_code == 403, response.content
+        assert store.get_config(self.organization.id).head_sha == head
 
     def test_loop_token_cannot_land_commit_bundles(self, _flag) -> None:
         # Bundles bypass the loop's page binding, so the bundle route must refuse them.
@@ -545,32 +882,41 @@ class TestContextLayerAPI(APIBaseTest):
         assert response.status_code == 403, response.content
 
     def test_run_page_writes_share_the_daily_landing_cap(self, _flag) -> None:
+        with team_scope(self.team.id):
+            channel = tasks_facade.resolve_channel(self.team.id, self.user.id, name="growth", star=False)
+            assert channel is not None
         head = self._enable()
-        task = apps.get_model("tasks", "Task").objects.create(team=self.team, created_by=self.user, title="agent work")
+        task = apps.get_model("tasks", "Task").objects.create(
+            team=self.team, created_by=self.user, title="agent work", channel_id=channel.id
+        )
         token = self._bearer(
-            "task:read task:write internal_run:read organization:write",
+            "task:read task:write internal_run:read context_layer_internal:write",
             scoped_teams=[self.team.id],
             sandbox_task_id=task.id,
         )
         self.client.logout()
 
-        def write(path: str, base_head: str):
+        def write(base_head: str):
             return self.client.put(
                 f"{self.agent_url}/pages/",
-                {"path": path, "content": _page(path), "base_head": base_head},
+                {
+                    "path": f"projects/{self.team.id}/spaces/growth.md",
+                    "content": f"---\nteam_id: {self.team.id}\nchannel_id: {channel.id}\nsummary: Growth channel context.\nstatus: active\n---\n\n# Growth\n",
+                    "base_head": base_head,
+                },
                 format="json",
                 HTTP_AUTHORIZATION=f"Bearer {token}",
             )
 
         with patch.object(views, "RUN_COMMITS_PER_DAY_CAP", 1):
-            first = write("areas/first.md", head)
+            first = write(head)
             assert first.status_code == 200, first.content
-            capped = write("areas/second.md", first.json()["head_sha"])
+            capped = write(first.json()["head_sha"])
         assert capped.status_code == 429
 
     def test_pages_reject_task_scopes_without_run_provenance(self, _flag) -> None:
         self._enable()
-        token = self._bearer("task:read task:write internal_run:read", scoped_teams=[self.team.id])
+        token = self._bearer("task:read task:write", scoped_teams=[self.team.id])
         self.client.logout()
         response = self.client.get(
             f"{self.agent_url}/pages/",
@@ -715,17 +1061,150 @@ class TestContextLayerAPI(APIBaseTest):
         assert body["head_sha"] == head
         assert body["url"].startswith("http")
 
+    def _land_dream(self, path: str, content: str, branch: str) -> None:
+        bundle_bytes = self._bundle_with_edit(path, content, branch=branch)
+        response = self.client.post(
+            f"{self.base_url}/commits/",
+            {
+                "bundle": SimpleUploadedFile("out.bundle", bundle_bytes),
+                "branch": branch,
+                "summary": f"# Context dream — {branch.removeprefix('dream/')}\n\nDid things.",
+            },
+            format="multipart",
+        )
+        assert response.status_code == 200, response.content
+
+    def test_dreams_lists_landed_dream_runs_newest_first(self, _flag) -> None:
+        self._enable()
+        # An ordinary (linear) landing between two dreams must not appear: only
+        # `dream: <date>` merge commits are runs.
+        response = self.client.put(
+            f"{self.base_url}/pages/",
+            {"path": "areas/interactive.md", "content": _page("Interactive")},
+            format="json",
+        )
+        assert response.status_code == 200, response.content
+        self._land_dream("areas/dreamt-one.md", _page("Dreamt one"), "dream/2026-08-17")
+        self._land_dream("areas/dreamt-two.md", _page("Dreamt two"), "dream/2026-08-18")
+
+        started_at = timezone.now()
+        with patch.object(
+            dreams.tasks_facade,
+            "get_latest_active_internal_task_run_for_organization",
+            return_value=MagicMock(status="in_progress", created_at=started_at),
+        ):
+            response = self.client.get(f"{self.base_url}/dreams/")
+        assert response.status_code == 200, response.content
+        body = response.json()
+        assert body["active_run"] == {
+            "run_status": "in_progress",
+            "started_at": started_at.isoformat().replace("+00:00", "Z"),
+        }
+        dream_runs = body["dreams"]
+        assert [dream["date"] for dream in dream_runs] == ["2026-08-18", "2026-08-17"]
+        assert dream_runs[0]["pages_added"] == 1
+        assert dream_runs[0]["pages_modified"] == 0
+        assert dream_runs[0]["pages_deleted"] == 0
+        assert "Did things." in dream_runs[0]["summary"]
+        assert dream_runs[0]["sha"]
+
+    def test_dreams_404_before_enablement(self, _flag) -> None:
+        assert self.client.get(f"{self.base_url}/dreams/").status_code == 404
+
+    def test_dream_returns_the_runs_per_file_patches(self, _flag) -> None:
+        self._enable()
+        self._land_dream("areas/dreamt.md", _page("Dreamt"), "dream/2026-08-18")
+        dreams = self.client.get(f"{self.base_url}/dreams/").json()["dreams"]
+
+        response = self.client.get(f"{self.base_url}/dreams/{dreams[0]['sha']}/")
+        assert response.status_code == 200, response.content
+        body = response.json()
+        assert body["run"]["sha"] == dreams[0]["sha"]
+        assert body["run"]["date"] == "2026-08-18"
+        files = {file["path"]: file for file in body["files"]}
+        assert files["areas/dreamt.md"]["status"] == "added"
+        assert "+# Dreamt" in files["areas/dreamt.md"]["patch"]
+        assert files["areas/dreamt.md"]["truncated"] is False
+
+    def test_dream_lists_files_past_the_patch_cap(self, _flag) -> None:
+        self._enable()
+        bundle_bytes = self._bundle_with_edits(
+            {
+                "areas/first.md": _page("First"),
+                "areas/second.md": _page("Second"),
+            },
+            branch="dream/2026-08-18",
+        )
+        response = self.client.post(
+            f"{self.base_url}/commits/",
+            {
+                "bundle": SimpleUploadedFile("out.bundle", bundle_bytes),
+                "branch": "dream/2026-08-18",
+                "summary": "Dream summary",
+            },
+            format="multipart",
+        )
+        assert response.status_code == 200, response.content
+        dream = self.client.get(f"{self.base_url}/dreams/").json()["dreams"][0]
+
+        with patch.object(dreams, "DREAM_MAX_FILES", 1):
+            response = self.client.get(f"{self.base_url}/dreams/{dream['sha']}/")
+
+        assert response.status_code == 200, response.content
+        files = response.json()["files"]
+        assert [file["path"] for file in files] == ["areas/first.md", "areas/second.md"]
+        assert files[0]["patch"]
+        assert files[0]["truncated"] is False
+        assert files[1]["patch"] == ""
+        assert files[1]["truncated"] is True
+
+    def test_dream_rejects_a_sha_that_is_not_a_dream_merge(self, _flag) -> None:
+        # The detail read diffs the sha it is given, so it must refuse arbitrary
+        # commits rather than leak history that is not a dream run.
+        head = self._enable()
+        assert self.client.get(f"{self.base_url}/dreams/{head}/").status_code == 404
+        assert self.client.get(f"{self.base_url}/dreams/{'0' * 40}/").status_code == 404
+
+    def test_cached_dream_is_rejected_after_history_purge(self, _flag) -> None:
+        self._enable()
+        self._land_dream("areas/dreamt.md", _page("Dreamt"), "dream/2026-08-18")
+        dream = self.client.get(f"{self.base_url}/dreams/").json()["dreams"][0]
+        assert self.client.get(f"{self.base_url}/dreams/{dream['sha']}/").status_code == 200
+
+        store.purge_repo_history(self.organization.id)
+
+        assert self.client.get(f"{self.base_url}/dreams/{dream['sha']}/").status_code == 404
+
+    def test_malformed_dream_cache_is_rebuilt(self, _flag) -> None:
+        self._enable()
+        self._land_dream("areas/dreamt.md", _page("Dreamt"), "dream/2026-08-18")
+        dream = self.client.get(f"{self.base_url}/dreams/").json()["dreams"][0]
+        head_sha = self.client.get(f"{self.base_url}/status/").json()["head_sha"]
+        safe_cache_set(
+            dreams._detail_cache_key(self.organization.id, head_sha, dream["sha"]),
+            {"run": {}, "files": []},
+        )
+
+        response = self.client.get(f"{self.base_url}/dreams/{dream['sha']}/")
+
+        assert response.status_code == 200
+        assert response.json()["run"]["sha"] == dream["sha"]
+
     def _bundle_with_edit(self, path: str, content: str, branch: str = "main") -> bytes:
         """Clone the wiki the way a sandbox does, commit one edit, pack it as a thin bundle."""
+        return self._bundle_with_edits({path: content}, branch=branch)
+
+    def _bundle_with_edits(self, edits: dict[str, str], branch: str = "main") -> bytes:
         with store.checkout_repo(self.organization.id) as checkout:
             env_git = ["git", "-c", "user.name=agent", "-c", "user.email=agent@example.com"]
             if branch != "main":
                 subprocess.run([*env_git, "checkout", "--quiet", "-b", branch], cwd=checkout.path, check=True)
-            target = checkout.path / path
-            target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_text(content)
+            for path, content in edits.items():
+                target = checkout.path / path
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text(content)
             subprocess.run([*env_git, "add", "--all"], cwd=checkout.path, check=True)
-            subprocess.run([*env_git, "commit", "--quiet", "-m", f"Edit {path}"], cwd=checkout.path, check=True)
+            subprocess.run([*env_git, "commit", "--quiet", "-m", "Edit context"], cwd=checkout.path, check=True)
             with tempfile.NamedTemporaryFile(suffix=".bundle") as bundle_file:
                 subprocess.run(
                     [*env_git, "bundle", "create", bundle_file.name, f"origin/main..{branch}"],

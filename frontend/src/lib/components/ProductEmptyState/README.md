@@ -10,6 +10,17 @@ Most detection logics are one call to `createSetupDetectionLogic` (`setupDetecti
 
 Products detectable from event definitions also declare a `setupProbe` in their manifest, which `productSetupPreloadLogic` answers at app boot with one batched request — so the status is usually known before the scene is ever opened. Probes support a `staleAfterDays` window for products where old, abandoned data shouldn't count as set up.
 
+To review an empty state on a project that already has data, add `?empty_state=1` to the scene URL. It forces the `needs-setup` screen past detection and past a local skip, `?empty_state=waiting-for-data` forces the other mode, and dropping the param gives the real scene back. Use it for design review and screenshots instead of clearing a project.
+
 **To adopt this for your product, follow the `building-product-empty-states` skill** (`.agents/skills/building-product-empty-states/SKILL.md`). Reference adoption: `products/mcp_analytics/frontend/emptyState/`.
 
-`ProductIntroduction` is deprecated in favor of this component.
+## ProductEmptyState or ProductIntroduction?
+
+Two components cover empty surfaces, and they are not interchangeable.
+
+- **`ProductEmptyState`** (this component) is the first-run screen for a product landing scene: the whole scene is replaced until detection says the product has data. Use it when the surface is a product's list or overview page, reached from the navigation, and "nothing here yet" means "the product is not set up yet". It is declared on the `SceneExport`, never rendered by hand.
+- **`ProductIntroduction`** (`frontend/src/lib/components/ProductIntroduction/`) is an inline panel for a surface that cannot be gated: a tab or sub-list inside an adopted product (workflow channels, message templates), a dashboard widget tile or notebook node, a section of a settings page, an activity log, or a state that is not about setup at all (no ingestion warnings, the empty Max chat history). It renders where the list would be, so the rest of the surface stays usable around it.
+
+If a whole scene is empty because the product is not set up, adopt `ProductEmptyState`. If one part of an otherwise working surface is empty, use `ProductIntroduction`. Do not stack both on one scene: an adopted scene that still renders a `ProductIntroduction` for the same emptiness shows two setup surfaces.
+
+To find remaining `ProductIntroduction` call sites: `git grep -ln 'ProductIntroduction' -- 'frontend/src' 'products/'`.

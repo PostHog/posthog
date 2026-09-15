@@ -1,4 +1,5 @@
 import {
+    BehavioralPropertyFilter,
     BreakdownType,
     ChartDisplayType,
     FilterLogicalOperator,
@@ -33,7 +34,7 @@ import {
     TrendsFilterLegacy,
     TrendsFormulaNode,
 } from './schema-general'
-import { integer } from './type-utils'
+import { integer, positive_integer } from './type-utils'
 
 /**
  * This filter only works with absolute dates.
@@ -271,6 +272,19 @@ export type AssistantPropertyFilter =
     | AssistantHogQLPropertyFilter
     | AssistantFlagPropertyFilter
 
+export type AssistantBehavioralPropertyFilterOperator =
+    | PropertyOperator.Exact
+    | PropertyOperator.GreaterThan
+    | PropertyOperator.GreaterThanOrEqual
+    | PropertyOperator.LessThan
+    | PropertyOperator.LessThanOrEqual
+
+export interface AssistantBehavioralPropertyFilter extends Omit<BehavioralPropertyFilter, 'operator'> {
+    operator?: AssistantBehavioralPropertyFilterOperator
+}
+
+export type AssistantInsightPropertyFilter = AssistantPropertyFilter | AssistantBehavioralPropertyFilter
+
 /**
  * Extended property filter union for recordings queries that also supports
  * recording-specific metric filters (e.g. duration, click_count, activity_score).
@@ -295,7 +309,7 @@ export interface AssistantInsightsQueryBase {
      *
      * @default []
      */
-    properties?: AssistantPropertyFilter[]
+    properties?: AssistantInsightPropertyFilter[]
 
     /**
      * Sampling rate from 0 to 1 where 1 is 100% of the data.
@@ -476,8 +490,8 @@ export interface AssistantTrendsFilter {
      * `ActionsBar` - time-series bar chart.
      * `ActionsAreaGraph` - time-series area chart.
      * `ActionsLineGraphCumulative` - cumulative time-series line chart; good for cumulative metrics.
-     * `BoldNumber` - total value single large number. Use when user explicitly asks for a single output number. You CANNOT use this with breakdown or if the insight has more than one series.
-     * `Metric` - single large number with a period-over-period change pill and a sparkline. Like `BoldNumber` but trend-aware; configure it with the `metric*` fields below. Single series, no breakdown.
+     * `Metric` - single large number with a change pill and a sparkline. Use for a period summary or an explicit current-versus-previous-period comparison ("how many X in the last 30 days", "what's our conversion rate this month", "how does this month compare to last"). Do not use for a question about change over time, a cadence, or a pattern. Use `ActionsLineGraph` so the person can inspect each interval. Set `compareFilter.compare` to `true` to compare the current period with the previous period. Without it, the pill compares the first interval with the last interval. Configure the display with the `metric*` fields below. Single series, no breakdown.
+     * `BoldNumber` - single large number with no change or sparkline. Use instead of `Metric` only when a trend is meaningless, such as an all-time total or a fixed ratio. You CANNOT use this with breakdown or if the insight has more than one series.
      * `ActionsBarValue` - total value (NOT time-series) bar chart; good for categorical data.
      * `ActionsPie` - total value pie chart; good for visualizing proportions.
      * `ActionsTable` - total value table; good when using breakdown to list users or other entities.
@@ -745,10 +759,10 @@ export interface AssistantFunnelsFilter {
      */
     funnelOrderType?: FunnelsFilterLegacy['funnel_order_type']
     /**
-     * Defines the type of visualization to use. The `steps` option is recommended.
-     * `steps` - shows a step-by-step funnel. Perfect to show a conversion rate of a sequence of events (default).
-     * `time_to_convert` - shows a histogram of the time it took to complete the funnel.
-     * `trends` - shows trends of the conversion rate of the whole sequence over time.
+     * Defines the type of visualization to use.
+     * `steps` - one bar per step with the conversion between them (default). Use for "what's the conversion rate" and "where do users drop off".
+     * `trends` - the conversion rate of the whole sequence as a time series. Use whenever the question is about change over time ("is conversion improving", "conversion per week", "since we shipped X"); a `steps` chart cannot show that.
+     * `time_to_convert` - a histogram of how long users took to complete the funnel.
      * @default steps
      */
     funnelVizType?: FunnelsFilterLegacy['funnel_viz_type']
@@ -1075,7 +1089,7 @@ export interface AssistantStickinessFilter {
     computedAs?: StickinessComputationMode
 }
 
-export interface AssistantStickinessQuery extends AssistantInsightsQueryBase {
+export interface AssistantStickinessQuery extends Omit<AssistantInsightsQueryBase, 'aggregation_group_type_index'> {
     kind: NodeKind.StickinessQuery
 
     /**
@@ -1092,7 +1106,7 @@ export interface AssistantStickinessQuery extends AssistantInsightsQueryBase {
      * How many base intervals comprise one stickiness period. Defaults to 1.
      * For example, `interval: "day"` with `intervalCount: 7` groups by 7-day periods.
      */
-    intervalCount?: integer
+    intervalCount?: positive_integer
 
     /**
      * Events or actions to include. Each series measures how many intervals (e.g. days) within
@@ -1796,6 +1810,7 @@ export interface AssistantInsightVizNode {
  * - `ActionsAreaGraph` — area chart. Requires at least two columns, including one numeric column.
  * - `TwoDimensionalHeatmap` — 2D heatmap. Requires an X column, a Y column, and a numeric value column.
  * - `ScatterPlot` — scatter plot of one measure against another. Requires two numeric columns, one per axis.
+ * - `BoxPlot` — box plot from pre-aggregated SQL rows. Requires six numeric summary columns.
  */
 export type AssistantDataVisualizationDisplayType =
     | ChartDisplayType.ActionsTable
@@ -1807,6 +1822,7 @@ export type AssistantDataVisualizationDisplayType =
     | ChartDisplayType.ActionsAreaGraph
     | ChartDisplayType.TwoDimensionalHeatmap
     | ChartDisplayType.ScatterPlot
+    | ChartDisplayType.BoxPlot
 
 export interface AssistantDataVisualizationAxisDisplaySettings {
     /** Which Y axis this numeric series should use. Use `right` for a secondary Y axis. */
@@ -1876,6 +1892,27 @@ export interface AssistantDataVisualizationYAxisSettings {
     showGridLines?: boolean
 }
 
+export interface AssistantDataVisualizationBoxPlotSettings {
+    /** X-axis category column. Set to `null` for one overall distribution or one box per series. */
+    xAxisColumn?: string | null
+    /** Optional column that groups each X-axis value into separate colored series. Set to `null` for one series. */
+    seriesColumn?: string | null
+    /** Numeric column containing the minimum for each box. */
+    minColumn: string
+    /** Numeric column containing the 25th percentile for each box. */
+    p25Column: string
+    /** Numeric column containing the median for each box. */
+    medianColumn: string
+    /** Numeric column containing the mean for each box. */
+    meanColumn: string
+    /** Numeric column containing the 75th percentile for each box. */
+    p75Column: string
+    /** Numeric column containing the maximum for each box. */
+    maxColumn: string
+    /** Clip whiskers to 1.5 times the interquartile range. Defaults to true. */
+    excludeOutliers?: boolean
+}
+
 export interface AssistantDataVisualizationChartSettings {
     /**
      * Column used as the X axis. Typically a time bucket or categorical column, but `ScatterPlot`
@@ -1890,6 +1927,8 @@ export interface AssistantDataVisualizationChartSettings {
     leftYAxisSettings?: AssistantDataVisualizationYAxisSettings
     /** Settings for the right Y axis. Only applies when a Y series uses `settings.display.yAxisPosition: "right"`. */
     rightYAxisSettings?: AssistantDataVisualizationYAxisSettings
+    /** Column mappings for `BoxPlot`. The SQL must return one pre-aggregated row per X-axis and series pair. */
+    boxPlot?: AssistantDataVisualizationBoxPlotSettings
     /**
      * Column that splits a single Y series into multiple colored series — e.g. breaking down
      * a line chart by `country`. Set to `null` or omit to disable. A breakdown buckets rows by
@@ -1941,6 +1980,7 @@ export interface AssistantDataVisualizationNode {
      * - Categorical comparison → `ActionsBar` or `ActionsStackedBar`.
      * - Two-dimensional aggregation → `TwoDimensionalHeatmap`.
      * - Relationship between two numeric measures, one point per row → `ScatterPlot`.
+     * - Distribution summaries from pre-aggregated SQL rows → `BoxPlot` with `chartSettings.boxPlot`.
      * - Otherwise → `ActionsTable`.
      */
     display?: AssistantDataVisualizationDisplayType

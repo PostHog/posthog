@@ -3,6 +3,7 @@ from unittest import mock
 
 from posthog.schema import ReleaseStatus
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.whop import WhopSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.whop.settings import (
     ALL_WEBHOOK_EVENTS,
@@ -47,6 +48,21 @@ class TestWhopSource:
         # Endpoints paged newest-first re-yield watermark boundary rows, which append would
         # duplicate; only a merge on `id` dedupes them.
         assert schema.supports_append is (endpoint in INCREMENTAL_ENDPOINTS and endpoint not in MERGE_ONLY_ENDPOINTS)
+
+    @pytest.mark.parametrize(
+        "observed_error,non_retryable",
+        [
+            (
+                "400 Client Error: Bad Request for url: https://api.whop.com/api/v1/payments"
+                "?first=100&company_id=biz_example | api error: code=bad_request",
+                True,
+            ),
+            ("429 Client Error: Too Many Requests for url: https://api.whop.com/api/v1/payments", False),
+            ("503 Server Error: Service Unavailable for url: https://api.whop.com/api/v1/payments", False),
+        ],
+    )
+    def test_a_rejected_request_stops_the_sync_and_an_overload_does_not(self, observed_error, non_retryable):
+        assert error_message_matches(observed_error, self.source.get_non_retryable_errors()) is non_retryable
 
     def test_canonical_descriptions_only_describe_real_schemas(self):
         # A key that doesn't match a schema name is silently ignored, so the descriptions would

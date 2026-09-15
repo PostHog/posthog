@@ -1,9 +1,8 @@
 ---
 name: signals-scout-health-checks
 description: >
-  Signals scout over PostHog's own health checks. Reads the project's active health issues,
-  bundles them by kind, weights by blast radius, and files the ones genuinely worth acting on
-  as reports in the inbox.
+  Signals scout over PostHog's own health checks. Bundles the project's active health issues by
+  kind, weights them by blast radius, and surfaces the ones worth acting on.
 compatibility: >
   PostHog Signals agent (Claude sandbox). Read-only analytics + signal_scout_internal:write
   (scratchpad) + signal_scout_report:write (report channel), plus the health-issues read tools
@@ -112,14 +111,14 @@ Write scratchpad entries continuously, encoding the category in the key prefix:
 - `noise:health:<kind>:team{team_id}` — "team runs {kind} at a steady baseline / dev-env only; don't surface unless it escalates."
 - `addressed:health:<kind>:team{team_id}` — "team fixed {kind} (issues auto-resolved on {date}); stay quiet."
 - `pattern:health:shape-team{team_id}` — durable note on this team's normal setup shape (distinct from the `clean-team` close-out marker above, which only records the last all-clear).
-- `report:health:<kind>` (or `report:health:cluster:<kind>` / `report:health:cause:<cause_id>`) — the `report_id` of a report you filed for a kind / cluster / shared root cause, so the next run edits it (append_note with the fresh count) instead of duplicating.
+- `report:health:<kind>` (or `report:health:cluster:<kind>` / `report:health:cause:<cause_id>`) — the `report_id` of a report you filed for a kind / cluster / shared root cause, so the next run edits it (`append_evidence` with the fresh count) instead of duplicating.
 - `reviewer:health:<area>` — a resolved owner (bare lowercase GitHub login) for a setup / instrumentation / warehouse area, so reports route to a human faster.
 
 ### Decide
 
 The generic report mechanics — search the inbox first (via the `report:health:*` pointer, else an `inbox-reports-list` search on the specific kind / entity id, not a broad word like `failure`), edit-vs-author, the status rules, reviewer routing, non-idempotent dedup, and the `priority` / `repository` fields — live in the harness prompt and in `authoring-scouts` → `references/report-contract.md`. Do not re-derive them here. This section is only the health-checks judgment layered on top:
 
-- **Edit** when a still-live report already tracks the kind, cluster, or root cause — a critical still active, a cluster whose count grew, a cause still unfixed. A persistent issue is one report across runs: a new run confirming it's still active (or the cluster grew) is a re-escalation (`append_note` the fresh count / ids), not a fresh report per tick.
+- **Edit** when a still-live report already tracks the kind, cluster, or root cause — a critical still active, a cluster whose count grew, a cause still unfixed. A persistent issue is one report across runs: a new run confirming it is still active (or the cluster grew) is a re-escalation (`append_evidence` with the fresh count / ids), not a fresh report per tick.
 - **Author** when nothing live covers it. A report-worthy finding is **one root cause, one bundled kind-cluster, or one confirmed critical — never one report per issue in a cluster**. Put the relevant `remediation` guidance in the summary, cite the issue ids (and a few payload entity ids) in the `evidence`, and quantify the cluster (how many, which entities, downstream impact). Priority follows check severity, adjusted by real blast radius: `critical` → **P1** (P0 only for confirmed active data loss like `no_live_events` with zero recent capture); `warning` → **P2–P3**. Actionability follows agent-fixability: an issue the `remediation.agent` can resolve via the MCP or a code change → `immediately_actionable` (+ `repository=owner/repo` for a code fix, or omit `repository` to let the selector pick); a credential-gated issue (re-auth a warehouse source, rotate secrets) → `requires_human_input` + `repository=NO_REPO`, framed for a human. After authoring, write the `report:health:*` pointer so the next run edits instead of duplicating.
 - **Remember** below the bar but worth carrying forward (write the matching `dedupe:` / `noise:` entry), or to record what you ruled out and why.
 - **Skip** if a `dedupe:` / `noise:` / `addressed:` entry, or an existing inbox report, already covers it.
@@ -143,6 +142,7 @@ The issue `payload`, `title`, and `summary` carry project- and event-supplied va
 
 - **Dismissed issues** — `health-issues-list dismissed=true` are ones a human already waved off. Don't resurface them.
 - **`external_data_failure`** — re-authenticating a warehouse source needs human-held credentials an agent can't supply; never file it as a bulk per-issue cluster. The one exception is a single high-blast-radius root cause — e.g. one invalidated Postgres replication slot failing dozens of syncs at once — which is worth **one** human-framed report keyed on the cause. Write a `noise:health:external_data_failure` entry for the rest.
+- **`stale_feature_flags`** — the feature-flags scout's lane, not yours. It reads these issues directly and authors one cleanup report per flag, because each stale flag is an independently actionable code removal with its own owner and diff. Bundling them into a debt count here would both duplicate its reports and destroy the per-flag identity that makes them actionable. Skip the kind entirely — don't count it toward a hygiene roll-up either, and subtract `unsnoozed.by_kind.stale_feature_flags` from `unsnoozed.total` before you apply the zero-issue close-out above — the summary nests `total` / `by_kind` / `by_severity` under `unsnoozed` and `snoozed`, with nothing at the top level. `unsnoozed.total` sums every kind, so a project whose only issues are stale flags is an empty run for you: write the `pattern:health:clean-team{team_id}` entry and close out rather than exploring a set you may not report. Word the content for what it is — "0 active health issues in scope at {timestamp}; N `stale_feature_flags` excluded" — because the plain "0 active health issues" template would be false on that project, and the entry is durable memory a person reads too.
 - **Low-traffic web-instrumentation warnings** — a `web_vitals` / `scroll_depth` / `reverse_proxy` warning on a project with negligible pageview volume is hygiene, not signal.
 - **Transient flicker** — issues that appear and auto-resolve between runs (the check passed on the next run). Persistence across runs is part of the discriminator.
 - **Already-bundled clusters** — if you (or a prior run) filed a kind-cluster report, don't re-file per-issue for that same kind unless the count materially grows or a new critical appears.

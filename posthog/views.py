@@ -15,15 +15,17 @@ from django.contrib.auth.decorators import login_required as base_login_required
 from django.db import DEFAULT_DB_ALIAS, connections
 from django.db.migrations.executor import MigrationExecutor
 from django.db.models import Q
-from django.http import HttpRequest, HttpResponse, HttpResponseNotAllowed, JsonResponse
+from django.http import HttpRequest, HttpResponse, HttpResponseNotAllowed, HttpResponseServerError, JsonResponse
 from django.shortcuts import redirect, render
+from django.template import loader
 from django.views.decorators.cache import never_cache
 from django.views.decorators.clickjacking import xframe_options_exempt
-from django.views.decorators.csrf import csrf_exempt, csrf_protect
+from django.views.decorators.csrf import csrf_exempt, csrf_protect, requires_csrf_token
 from django.views.decorators.http import require_http_methods
 
 import structlog
 from opentelemetry import trace
+from prometheus_client import REGISTRY, CollectorRegistry, generate_latest, multiprocess
 
 from posthog.api.capture import capture_internal
 from posthog.api.secret_revocation import NON_PERSONAL_SECRET_PREFIXES
@@ -88,7 +90,7 @@ def noop(*args, **kwargs) -> None:
 try:
     from ee.models.license import get_licensed_users_available
 except ImportError:
-    get_licensed_users_available = noop  # ty: ignore[invalid-assignment]
+    get_licensed_users_available = noop
 
 
 def login_required(view):
@@ -788,3 +790,42 @@ def update_preferences(request: HttpRequest) -> JsonResponse:
     except Exception as e:
         capture_exception(e)
         return JsonResponse({"error": "Failed to update preferences"}, status=400)
+
+
+@xframe_options_exempt
+@never_cache
+def replay_player_frame(request: HttpRequest) -> HttpResponse:
+    """Empty shell the replay player mounts rrweb into.
+
+    rrweb builds its own `about:blank` iframe, and a frame on a local scheme inherits its parent's
+    whole policy, report-uri included. Mounting rrweb here rather than in the app document puts a
+    real document in that inheritance chain, so a recorded page is judged against this frame's
+    policy instead of the app's. CSPMiddleware supplies that policy.
+    """
+    return render(request, "replay_player_frame/index.html")
+
+
+@requires_csrf_token
+def handler500(request: HttpRequest) -> HttpResponse:
+    """
+    500 error handler.
+
+    Templates: :template:`500.html`
+    Context: request
+    """
+    template = loader.get_template("500.html")
+    return HttpResponseServerError(template.render({"request": request}, request))
+
+
+def metrics_view(request: HttpRequest) -> HttpResponse:
+    """Metrics endpoint that aggregates from all processes using multiprocess mode."""
+    registry = CollectorRegistry()
+    # If prometheus_multiproc_dir is set, collect from all processes
+    if "prometheus_multiproc_dir" in os.environ or "PROMETHEUS_MULTIPROC_DIR" in os.environ:
+        multiprocess.MultiProcessCollector(registry)
+    else:
+        # Fallback to default registry if multiprocess not configured
+        registry = REGISTRY
+
+    metrics_output = generate_latest(registry)
+    return HttpResponse(metrics_output, content_type="text/plain; charset=utf-8; version=0.0.4")

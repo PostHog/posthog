@@ -1,10 +1,13 @@
+from datetime import date
 from typing import Any
 
 import pytest
 from unittest.mock import MagicMock, patch
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import VersionDeprecation
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.shopify import (
+    ShopifyAuthMethodConfig,
     ShopifySourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.constants import (
@@ -32,6 +35,25 @@ class TestApiVersionResolution:
         # guards that the legacy version stays declared alongside the new one.
         assert set(ShopifySource.supported_versions) == {SHOPIFY_API_VERSION_2025_10, SHOPIFY_API_VERSION_2026_07}
 
+    def test_2025_10_is_deprecated_with_its_sunset_date(self) -> None:
+        # The in-product deprecation warning and the repin migration both key off this metadata,
+        # and the registry invariant test only checks generic invariants.
+        assert ShopifySource.deprecated_versions == (
+            VersionDeprecation(version=SHOPIFY_API_VERSION_2025_10, sunset_at=date(2026, 10, 16)),
+        )
+
+    @pytest.mark.parametrize(
+        "pin, deprecated",
+        [
+            (SHOPIFY_API_VERSION_2025_10, True),
+            (SHOPIFY_API_VERSION_2026_07, False),
+            # An unpinned source resolves to the default, which is never deprecated.
+            (None, False),
+        ],
+    )
+    def test_deprecation_lookup_per_pin(self, pin: str | None, deprecated: bool) -> None:
+        assert (ShopifySource().get_version_deprecation(pin) is not None) == deprecated
+
     @pytest.mark.parametrize(
         "pin, expected",
         [
@@ -47,7 +69,10 @@ class TestApiVersionResolution:
     ) -> None:
         source = ShopifySource()
         config = ShopifySourceConfig(
-            shopify_store_id="my-store", shopify_client_id="client-id", shopify_client_secret="secret"
+            shopify_store_id="my-store",
+            auth_method=ShopifyAuthMethodConfig(
+                selection="client_credentials", shopify_client_id="client-id", shopify_client_secret="secret"
+            ),
         )
 
         source.source_for_pipeline(config, MagicMock(spec=ResumableSourceManager), _make_inputs(pin))
@@ -111,7 +136,10 @@ class TestNonSyncSurfacesUseResolvedPin:
     def test_validate_credentials_passes_resolved_pin(self, mock_validate: Any, pin: str | None, expected: str) -> None:
         mock_validate.return_value = True
         config = ShopifySourceConfig(
-            shopify_store_id="my-store", shopify_client_id="id", shopify_client_secret="secret"
+            shopify_store_id="my-store",
+            auth_method=ShopifyAuthMethodConfig(
+                selection="client_credentials", shopify_client_id="id", shopify_client_secret="secret"
+            ),
         )
 
         ShopifySource().validate_credentials(config, team_id=1, api_version=pin)
@@ -131,7 +159,10 @@ class TestNonSyncSurfacesUseResolvedPin:
     def test_endpoint_permissions_pass_resolved_pin(self, mock_check: Any, pin: str | None, expected: str) -> None:
         mock_check.return_value = {}
         config = ShopifySourceConfig(
-            shopify_store_id="my-store", shopify_client_id="id", shopify_client_secret="secret"
+            shopify_store_id="my-store",
+            auth_method=ShopifyAuthMethodConfig(
+                selection="client_credentials", shopify_client_id="id", shopify_client_secret="secret"
+            ),
         )
 
         ShopifySource().get_endpoint_permissions(config, team_id=1, endpoints=[ORDERS], api_version=pin)

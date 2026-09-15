@@ -29,7 +29,6 @@ import {
   EmptyTitle,
   InputGroupAddon,
   InputGroupButton,
-  Spinner,
   ThreadItem,
   ThreadItemAction,
   ThreadItemActions,
@@ -58,6 +57,7 @@ import { userDisplayName } from "@posthog/ui/features/canvas/utils/userDisplay";
 import { openPrInReview } from "@posthog/ui/features/code-review/openPrInReview";
 import { usePrArtifact } from "@posthog/ui/features/git-interaction/usePrArtifact";
 import { taskDetailQuery } from "@posthog/ui/features/tasks/queries";
+import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { openExternalUrl } from "@posthog/ui/shell/openExternal";
 import { useQuery } from "@tanstack/react-query";
 
@@ -155,7 +155,7 @@ export function AgentStatusLine({ status }: { status: ThreadAgentStatus }) {
       className="flex items-center gap-1.5 px-3 py-1.5 text-muted-foreground text-xs"
     >
       {status.phase === "active" ? (
-        <Spinner className="size-3" />
+        <Spinner size="sm" />
       ) : (
         <RobotIcon size={12} />
       )}
@@ -393,9 +393,9 @@ function ThreadPanelHeader({
   );
 }
 
-export function ThreadTimeline({
+function ThreadTimeline({
   timeline,
-  isReady,
+  hasLoadedThread,
   currentUserUuid,
   currentUserEmail,
   isTaskAuthor,
@@ -404,7 +404,7 @@ export function ThreadTimeline({
   onDelete,
 }: {
   timeline: ThreadTimelineRow<TaskThreadMessage>[];
-  isReady: boolean;
+  hasLoadedThread: boolean;
   currentUserUuid?: string;
   currentUserEmail?: string;
   isTaskAuthor: boolean;
@@ -412,7 +412,7 @@ export function ThreadTimeline({
   onSendToAgent: (messageId: string) => void;
   onDelete: (messageId: string) => void;
 }) {
-  if (!isReady) return <ThreadLoadingState />;
+  if (!hasLoadedThread) return <ThreadLoadingState />;
   if (timeline.length === 0) {
     return (
       <Empty className="h-full border-0">
@@ -459,7 +459,7 @@ export function ThreadTimeline({
   );
 }
 
-export function ThreadReplyComposer({
+function ThreadReplyComposer({
   draft,
   onDraftChange,
   onSubmit,
@@ -528,7 +528,7 @@ function ThreadConversation({
   const {
     timeline,
     agentStatus,
-    isReady,
+    hasLoadedThread,
     members,
     currentUser,
     isTaskAuthor,
@@ -566,7 +566,7 @@ function ThreadConversation({
         <div ref={contentRef}>
           <ThreadTimeline
             timeline={timeline}
-            isReady={isReady}
+            hasLoadedThread={hasLoadedThread}
             currentUserUuid={currentUser?.uuid}
             currentUserEmail={currentUser?.email}
             isTaskAuthor={isTaskAuthor}

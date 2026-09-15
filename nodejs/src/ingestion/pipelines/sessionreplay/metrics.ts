@@ -4,6 +4,9 @@ import { recordMessagesDroppedByRestrictions } from './otel-metrics'
 
 const BUCKETS_KB_WRITTEN = [0, 128, 512, 1024, 5120, 10240, 20480, 51200, 102400, 204800, Infinity]
 
+/** Whether the sender device clock reads ahead of or behind the server-stamped message time. */
+export type ClockSkewDirection = 'device_ahead' | 'device_behind'
+
 export class SessionRecordingIngesterMetrics {
     private static readonly sessionsHandled = new Gauge({
         name: 'recording_blob_ingestion_v2_session_manager_count',
@@ -55,8 +58,36 @@ export class SessionRecordingIngesterMetrics {
         labelNames: ['content_encoding'],
     })
 
+    private static readonly messageClockSkew = new Histogram({
+        name: 'recording_blob_ingestion_v2_message_clock_skew_seconds',
+        help: 'Absolute offset between the sender device clock at upload (sent_at) and the server clock at receipt (now), by direction. Replay skips the skew correction every other event gets, so a large offset means the recording start_time — the default playlist sort — disagrees with the corrected event time.',
+        labelNames: ['direction'],
+        buckets: [1, 5, 30, 60, 300, 900, 1800, 3600, 7200, 21600, 43200, 86400],
+    })
+
+    private static readonly messageClockSkewUnmeasured = new Counter({
+        name: 'recording_blob_ingestion_v2_message_clock_skew_unmeasured',
+        help: 'Replay messages whose clock offset could not be measured because capture recorded no usable sent_at/now pair. Counted separately so an absent measurement is not read as zero skew',
+    })
+
+    private static readonly clockSkewCorrection = new Histogram({
+        name: 'recording_blob_ingestion_v2_clock_skew_correction_seconds',
+        help: 'Absolute clock skew correction actually applied to rrweb timestamps, per message. Quantized, so it differs from the raw offset in message_clock_skew_seconds',
+        buckets: [300, 900, 3600, 21600, 43200, 604800, Infinity],
+    })
+
+    private static readonly unbilledNewSession = new Counter({
+        name: 'recording_blob_ingestion_v2_unbilled_new_session',
+        help: 'New sessions whose first message failed before the usage step, so a later message for the same session bills nothing while the report still counts the recording',
+        labelNames: ['reason'],
+    })
+
     public static incrementMessageReceived(partition: number): void {
         this.messageReceived.labels(partition.toString()).inc()
+    }
+
+    public static incrementUnbilledNewSession(reason: string): void {
+        this.unbilledNewSession.labels(reason).inc()
     }
 
     public static observeDroppedByRestrictions(count: number): void {
@@ -70,6 +101,18 @@ export class SessionRecordingIngesterMetrics {
 
     public static incrementMessagesByEncoding(encoding: string): void {
         this.messagesByEncoding.labels(encoding).inc()
+    }
+
+    public static incrementMessageClockSkewUnmeasured(): void {
+        this.messageClockSkewUnmeasured.inc()
+    }
+
+    public static observeMessageClockSkew(direction: ClockSkewDirection, seconds: number): void {
+        this.messageClockSkew.labels(direction).observe(seconds)
+    }
+
+    public static observeClockSkewCorrection(skewMs: number): void {
+        this.clockSkewCorrection.observe(Math.abs(skewMs) / 1000)
     }
 
     public static resetSessionsRevoked(): void {

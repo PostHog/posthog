@@ -6,6 +6,7 @@ from uuid import uuid5
 
 from temporalio import workflow
 from temporalio.common import RetryPolicy
+from temporalio.exceptions import ActivityError, RetryState
 
 from products.conversations.backend.temporal.ai_reply.activities.build_context import support_build_context_activity
 from products.conversations.backend.temporal.ai_reply.activities.classify import support_classify_activity
@@ -22,6 +23,7 @@ from products.conversations.backend.temporal.ai_reply.activities.safety_filter i
 from products.conversations.backend.temporal.ai_reply.activities.validate import support_validate_activity
 from products.conversations.backend.temporal.ai_reply.constants import (
     AI_REPLY_TRACE_NAMESPACE,
+    DEFER_KNOWLEDGE_GAPS_UNTIL_RESOLUTION_PATCH,
     MAX_ATTEMPTS,
     MAX_SAFETY_REVIEWED_CHARS,
     SCORE_THRESHOLD,
@@ -46,6 +48,14 @@ from products.conversations.backend.temporal.ai_reply.schemas import (
 # them through the sandbox unmodified.
 with workflow.unsafe.imports_passed_through():
     pass
+
+
+def _bill_llm_activity(*, output: Any | None, error: BaseException | None, maximum_attempts: int) -> int:
+    if error is None:
+        return max(1, int(getattr(output, "llm_attempts", 1) or 1))
+    if isinstance(error, ActivityError) and error.retry_state == RetryState.NON_RETRYABLE_FAILURE:
+        return 1
+    return maximum_attempts
 
 
 # ---------------------------------------------------------------------------
@@ -106,11 +116,11 @@ class SupportReplyWorkflow:
                     retry_policy=RetryPolicy(maximum_attempts=3),
                 )
             except Exception:
-                workflow.logger.warning("support_reply: failed to record triage", status=patch.get("status"))
+                workflow.logger.warning("support_reply: failed to record triage", extra={"status": patch.get("status")})
 
         async def _persist_gaps(gap_missing: list[str], gap_ticket_type: str, gap_outcome: str) -> None:
             """Best-effort: record knowledge gaps without breaking the pipeline."""
-            if not gap_missing:
+            if not gap_missing or workflow.patched(DEFER_KNOWLEDGE_GAPS_UNTIL_RESOLUTION_PATCH):
                 return
             try:
                 await workflow.execute_activity(
@@ -150,34 +160,49 @@ class SupportReplyWorkflow:
         # --- Outcome tracking: set before each return, recorded in finally ---
         outcome: dict[str, Any] = {}
         draft_task_run_ids: list[str] = []
+        llm_calls = 0
+        sandbox_seconds = 0.0
+
+        async def _llm(activity_fn: Any, input_value: Any, *, timeout: timedelta, maximum_attempts: int = 3) -> Any:
+            nonlocal llm_calls
+            try:
+                output = await workflow.execute_activity(
+                    activity_fn,
+                    input_value,
+                    start_to_close_timeout=timeout,
+                    retry_policy=RetryPolicy(maximum_attempts=maximum_attempts),
+                )
+                llm_calls += _bill_llm_activity(output=output, error=None, maximum_attempts=maximum_attempts)
+                return output
+            except Exception as error:
+                llm_calls += _bill_llm_activity(output=None, error=error, maximum_attempts=maximum_attempts)
+                raise
+
         try:
             # Input safety gate: block prompt-injection / exfiltration attempts before any LLM
             # draft work. Mirrored from the signals product's safety_filter_activity pattern.
-            safety_output = await workflow.execute_activity(
+            safety_output = await _llm(
                 support_safety_filter_activity,
                 SafetyFilterInput(
                     team_id=input.team_id, ticket_context=reviewed_context, trace_id=trace_id, ticket_id=ticket_id
                 ),
-                start_to_close_timeout=timedelta(minutes=2),
-                retry_policy=RetryPolicy(maximum_attempts=3),
+                timeout=timedelta(minutes=2),
             )
             if not safety_output.safe:
                 workflow.logger.info(
-                    "support_reply: ticket blocked by safety filter",
-                    threat_type=safety_output.threat_type,
+                    "support_reply: ticket blocked by safety filter", extra={"threat_type": safety_output.threat_type}
                 )
                 outcome = {"result": "blocked_unsafe"}
                 return "blocked_unsafe"
 
             # Triage once, up front (not per attempt): the type + seed queries bias the whole
             # loop, and `unactionable` tickets (spam/bare feedback) skip the expensive draft loop.
-            classify_output = await workflow.execute_activity(
+            classify_output = await _llm(
                 support_classify_activity,
                 ClassifyInput(
                     team_id=input.team_id, ticket_context=reviewed_context, trace_id=trace_id, ticket_id=ticket_id
                 ),
-                start_to_close_timeout=timedelta(minutes=2),
-                retry_policy=RetryPolicy(maximum_attempts=3),
+                timeout=timedelta(minutes=2),
             )
             if classify_output.ticket_type == "unactionable":
                 # Distinct outcome from `escalated_no_reply` (which means "tried and exhausted
@@ -206,7 +231,7 @@ class SupportReplyWorkflow:
                 widen = attempt > 0
 
                 # Refine queries
-                refine_output = await workflow.execute_activity(
+                refine_output = await _llm(
                     support_refine_queries_activity,
                     RefineQueriesInput(
                         team_id=input.team_id,
@@ -217,8 +242,7 @@ class SupportReplyWorkflow:
                         trace_id=trace_id,
                         ticket_id=ticket_id,
                     ),
-                    start_to_close_timeout=timedelta(minutes=2),
-                    retry_policy=RetryPolicy(maximum_attempts=3),
+                    timeout=timedelta(minutes=2),
                 )
 
                 # Retrieve + rerank
@@ -258,12 +282,14 @@ class SupportReplyWorkflow:
                     start_to_close_timeout=timedelta(minutes=20),
                     retry_policy=RetryPolicy(maximum_attempts=2),
                 )
+                # Default 0.0 on histories recorded before DraftOutput.sandbox_seconds existed.
+                sandbox_seconds += getattr(draft_output, "sandbox_seconds", 0.0) or 0.0
 
                 if draft_output.task_run_id:
                     draft_task_run_ids.append(draft_output.task_run_id)
 
                 # Validate
-                validate_output = await workflow.execute_activity(
+                validate_output = await _llm(
                     support_validate_activity,
                     ValidateInput(
                         team_id=input.team_id,
@@ -276,8 +302,7 @@ class SupportReplyWorkflow:
                         trace_id=trace_id,
                         ticket_id=ticket_id,
                     ),
-                    start_to_close_timeout=timedelta(minutes=2),
-                    retry_policy=RetryPolicy(maximum_attempts=3),
+                    timeout=timedelta(minutes=2),
                 )
 
                 # Track best-so-far by the validator's confidence (the trusted score, same
@@ -293,7 +318,7 @@ class SupportReplyWorkflow:
                 if validate_output.confidence >= SCORE_THRESHOLD:
                     # Output safety gate: check for PII leaks / exfil before the reply reaches
                     # the (untrusted) ticket author.
-                    review_output = await workflow.execute_activity(
+                    review_output = await _llm(
                         support_review_reply_activity,
                         ReviewReplyInput(
                             team_id=input.team_id,
@@ -304,13 +329,11 @@ class SupportReplyWorkflow:
                             trace_id=trace_id,
                             ticket_id=ticket_id,
                         ),
-                        start_to_close_timeout=timedelta(minutes=2),
-                        retry_policy=RetryPolicy(maximum_attempts=3),
+                        timeout=timedelta(minutes=2),
                     )
                     if not review_output.safe:
                         workflow.logger.info(
-                            "support_reply: reply blocked by output review",
-                            reason=review_output.reason,
+                            "support_reply: reply blocked by output review", extra={"reason": review_output.reason}
                         )
                         outcome = {
                             "result": "blocked_unsafe_reply",
@@ -357,7 +380,7 @@ class SupportReplyWorkflow:
 
             # Exhausted attempts — persist best if we have one with non-zero confidence
             if best_reply and best_confidence > 0:
-                review_output = await workflow.execute_activity(
+                review_output = await _llm(
                     support_review_reply_activity,
                     ReviewReplyInput(
                         team_id=input.team_id,
@@ -368,13 +391,11 @@ class SupportReplyWorkflow:
                         trace_id=trace_id,
                         ticket_id=ticket_id,
                     ),
-                    start_to_close_timeout=timedelta(minutes=2),
-                    retry_policy=RetryPolicy(maximum_attempts=3),
+                    timeout=timedelta(minutes=2),
                 )
                 if not review_output.safe:
                     workflow.logger.info(
-                        "support_reply: reply blocked by output review",
-                        reason=review_output.reason,
+                        "support_reply: reply blocked by output review", extra={"reason": review_output.reason}
                     )
                     outcome = {
                         "result": "blocked_unsafe_reply",
@@ -435,5 +456,9 @@ class SupportReplyWorkflow:
                         "finished_at": workflow.now().isoformat(),
                         "ai_trace_id": trace_id,
                         "draft_task_run_ids": draft_task_run_ids,
+                        "cost": {
+                            "sandbox_seconds": round(sandbox_seconds, 3),
+                            "llm_calls": llm_calls,
+                        },
                     }
                 )

@@ -167,6 +167,16 @@ if [[ -z "${HOGLI_SKIP_ZOMBIE_CHECK:-}" ]] && command -v hogli &>/dev/null; then
     hogli doctor:zombies --yes || true
 fi
 
+# Repair git housekeeping. On a partial clone git never consolidates its own pack
+# files. A maintenance run killed by sleep or reboot also leaves a lock, which
+# disables every scheduled task without a message. Reading the state is cheap and
+# the repack runs detached, so start does not wait (see doctor_git in
+# hogli_commands/doctor.py).
+# Set HOGLI_SKIP_GIT_CHECK=1 to skip.
+if [[ -z "${HOGLI_SKIP_GIT_CHECK:-}" ]] && command -v hogli &>/dev/null; then
+    hogli doctor:git || true
+fi
+
 # Pre-flight: detect who already holds the host ports the dev stack needs. A stale
 # stack under a *different* compose project binds the same ports, so one of our
 # containers fails to bind — and that aborts the entire `docker compose up`,
