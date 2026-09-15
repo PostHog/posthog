@@ -16,6 +16,7 @@ import { UUIDT } from '~/common/utils/utils'
 import { COOKIELESS_SENTINEL_VALUE, CookielessManager } from '~/ingestion/common/cookieless/cookieless-manager'
 import { OverflowRedirectService } from '~/ingestion/common/overflow-redirect/overflow-redirect-service'
 import { TopHogRegistry } from '~/ingestion/framework/extensions/tophog'
+import { createOkContext } from '~/ingestion/framework/helpers'
 import { ok } from '~/ingestion/framework/results'
 import { TopHog } from '~/ingestion/framework/tophog'
 import { createTestTeam } from '~/tests/helpers/team'
@@ -23,12 +24,24 @@ import { InternalPerson } from '~/types'
 
 import { CymbalClient } from './cymbal/client'
 import { CymbalResponse } from './cymbal/types'
-import { ErrorTrackingHogTransformer } from './error-tracking-consumer'
 import {
+    ErrorTrackingHogTransformer,
+    ErrorTrackingPipeline,
     ErrorTrackingPipelineConfig,
     createErrorTrackingPipeline,
-    runErrorTrackingPipeline,
 } from './error-tracking-pipeline'
+
+/** Drives a batch through the pipeline the way the common consumer's batch handler does. */
+async function runErrorTrackingPipeline(pipeline: ErrorTrackingPipeline, messages: Message[]): Promise<void> {
+    const batch = messages.map((message) => createOkContext({ message }, { message }))
+    const feedResult = await pipeline.feed(batch, {})
+    if (!feedResult.ok) {
+        throw new Error(`Pipeline rejected batch: ${feedResult.reason}`)
+    }
+    while ((await pipeline.next()) !== null) {
+        // Drain all results
+    }
+}
 
 // Skip retry sleeps so tests run instantly
 jest.mock('~/common/utils/utils', () => ({
@@ -249,8 +262,6 @@ describe('ErrorTrackingPipeline', () => {
 
         // HogTransformer mock that passes through events unchanged by default
         mockHogTransformer = {
-            start: jest.fn().mockResolvedValue(undefined),
-            stop: jest.fn().mockResolvedValue(undefined),
             transformEventAndProduceMessages: jest
                 .fn()
                 .mockImplementation((event) => Promise.resolve({ event, invocationResults: [] })),
@@ -368,8 +379,9 @@ describe('ErrorTrackingPipeline', () => {
             const pipeline = createErrorTrackingPipeline(pipelineConfig)
             await runErrorTrackingPipeline(pipeline, [message])
 
-            // Verify Hog transformations were run
+            // Verify Hog transformations were run and their invocation results drained once per batch
             expect(mockHogTransformer.transformEventAndProduceMessages).toHaveBeenCalledTimes(1)
+            expect(mockHogTransformer.processInvocationResults).toHaveBeenCalledTimes(1)
 
             // Verify event was emitted to Kafka
             const producedEvents = getProducedEvents()
