@@ -179,8 +179,6 @@ class TestHogQLAggregationUtils(BaseTest):
         self.assertIsNone(result_no_params.params)
 
     def test_source_value_expr_with_hogql_aggregation(self):
-        """Test that get_source_value_expr correctly extracts inner expressions from HogQL aggregations."""
-
         # Test with aggregation function
         metric_with_agg = ExperimentMeanMetric(
             source=EventsNode(
