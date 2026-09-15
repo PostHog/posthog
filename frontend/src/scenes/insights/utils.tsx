@@ -287,6 +287,14 @@ export function isNullBreakdown(breakdown_value: string | number | bigint | null
     )
 }
 
+/**
+ * Whether a value reads as the "None (i.e. no value)" bucket on screen. The funnels query encodes a
+ * missing property as an empty string, where the other queries use the sentinel.
+ */
+function isNullBreakdownDisplay(breakdown_value: string | number | bigint | null | undefined): boolean {
+    return isNullBreakdown(breakdown_value) || breakdown_value === ''
+}
+
 /** How to name the property each breakdown type groups by, when explaining the null bucket. */
 const BREAKDOWN_TYPE_PROPERTY_NOUN: Partial<Record<BreakdownType | MultipleBreakdownType, string>> = {
     event: 'event property',
@@ -323,8 +331,8 @@ export function getNullBreakdownNotes(
 ): { explanation: string; personPropertyHint: string | null } | null {
     // A multiple breakdown carries one value per property, so work out which property has no value.
     const values = Array.isArray(breakdownValue) ? breakdownValue : [breakdownValue]
-    const index = multipleBreakdownIndex ?? values.findIndex((value) => isNullBreakdown(value))
-    if (index < 0 || !isNullBreakdown(values[index])) {
+    const index = multipleBreakdownIndex ?? values.findIndex((value) => isNullBreakdownDisplay(value))
+    if (index < 0 || !isNullBreakdownDisplay(values[index])) {
         return null
     }
 
@@ -547,7 +555,7 @@ export function formatBreakdownLabel(
         const label =
             isOtherBreakdown(breakdown_value) || breakdown_value === 'nan'
                 ? BREAKDOWN_OTHER_DISPLAY
-                : isNullBreakdown(breakdown_value) || breakdown_value === ''
+                : isNullBreakdownDisplay(breakdown_value)
                   ? BREAKDOWN_NULL_DISPLAY
                   : breakdown_value
 

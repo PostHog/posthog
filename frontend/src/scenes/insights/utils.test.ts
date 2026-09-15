@@ -674,6 +674,21 @@ describe('getNullBreakdownNotes()', () => {
             1,
             'No value for the event property load_time. Results where it is missing, empty, or not a number are grouped here.',
         ],
+        // Funnels encode a missing property as an empty string, which reads as the same bucket on screen
+        [
+            'explains an empty string, the way a funnel encodes a missing property',
+            '',
+            { breakdown: '$pathname', breakdown_type: 'event' } as BreakdownFilter,
+            undefined,
+            'No value for the event property Path name. Results where it is missing or empty are grouped here.',
+        ],
+        [
+            'explains an empty string that arrives wrapped in an array',
+            [''],
+            { breakdown: '$pathname', breakdown_type: 'event' } as BreakdownFilter,
+            undefined,
+            'No value for the event property Path name. Results where it is missing or empty are grouped here.',
+        ],
         ['says nothing for a value', '/pricing', { breakdown: '$pathname', breakdown_type: 'event' }, undefined, null],
         ['says nothing for a cohort breakdown', NULL, { breakdown: 2, breakdown_type: 'cohort' }, undefined, null],
         [

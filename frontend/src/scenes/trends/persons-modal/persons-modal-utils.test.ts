@@ -77,11 +77,16 @@ describe('persons modal breakdown helpers', () => {
             ).toBeNull()
         })
 
-        it('reads the breakdown of a funnel actors query, which uses its own field', () => {
+        // A funnel carries its breakdown in its own field, and encodes a missing property as an
+        // empty string wrapped in an array, where the other queries send the null sentinel.
+        it.each([
+            ['the null sentinel', BREAKDOWN_NULL_STRING_LABEL],
+            ['an empty string', ['']],
+        ])('reads the breakdown of a funnel actors query, which uses its own field: %s', (_name, breakdown) => {
             expect(
                 nullBreakdownNotesForQuery({
                     kind: NodeKind.FunnelsActorsQuery,
-                    funnelStepBreakdown: BREAKDOWN_NULL_STRING_LABEL,
+                    funnelStepBreakdown: breakdown,
                     source: {
                         kind: NodeKind.FunnelsQuery,
                         series: [],
