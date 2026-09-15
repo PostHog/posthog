@@ -14,7 +14,7 @@ from products.access_control.backend.presentation.access_control import (
 )
 from products.experiments.backend.experiment_saved_metric_service import ExperimentSavedMetricService
 from products.experiments.backend.metric_utils import filter_metric_group_ids_by_event, refresh_action_names_in_metric
-from products.experiments.backend.models.experiment import ExperimentSavedMetric, ExperimentToSavedMetric
+from products.experiments.backend.models.experiment import Experiment, ExperimentSavedMetric, ExperimentToSavedMetric
 
 
 class ExperimentToSavedMetricSerializer(serializers.ModelSerializer):
@@ -114,20 +114,18 @@ class ExperimentSavedMetricSerializer(
         view = self.context.get("view")
         if view is None or getattr(view, "action", None) != "retrieve":
             return []
-        links = (
-            ExperimentToSavedMetric.objects.filter(saved_metric=instance, experiment__deleted=False)
-            .select_related("experiment")
-            .order_by("-experiment__created_at")
+        experiments = (
+            Experiment.objects.filter(experimenttosavedmetric__saved_metric=instance, deleted=False)
+            .distinct()
+            .order_by("-created_at")
         )
-        experiments: dict[int, dict] = {}
-        for link in links:
-            experiment = link.experiment
-            experiments[experiment.id] = {
-                "id": experiment.id,
-                "name": experiment.name,
-                "is_running": experiment.is_running,
-            }
-        return list(experiments.values())
+        # Experiments carry object-level access controls; drop the ones this user cannot view
+        if self.user_access_control:
+            experiments = self.user_access_control.filter_queryset_by_access_level(experiments, resource="experiment")
+        return [
+            {"id": experiment.id, "name": experiment.name, "is_running": experiment.is_running}
+            for experiment in experiments
+        ]
 
     def validate_name(self, value: str) -> str:
         team = self.context["get_team"]()
