@@ -1,5 +1,7 @@
 import { Counter, Gauge, Histogram } from 'prom-client'
 
+import type { MlWireVersion } from '~/ingestion/pipelines/sessionreplay/ml-mirror/privacy/schema'
+
 import { type ImageTransportRejectionReason } from './image-transport'
 import { ScrubWaitReason } from './scrub-client'
 
@@ -7,6 +9,11 @@ export type ImageScrubSkipReason = ImageTransportRejectionReason | 'sidecar_reje
 export type ImageScrubSource = 'inline' | 'url'
 
 export class ImageScrubConsumerMetrics {
+    private static readonly wireVersion = new Counter({
+        name: 'ml_mirror_image_scrub_consumer_version_total',
+        help: 'Images accepted by wire format version, counted before scrubbing. Version 2 arrived as an encrypted envelope this consumer decrypted, version 1 as cleartext. The mirror stamps the version, so this is the consumer-side view of its switchover and the two rates should track each other across a deploy',
+        labelNames: ['version'],
+    })
     private static readonly scrubbed = new Counter({
         name: 'ml_mirror_image_scrub_consumer_scrubbed_total',
         help: 'Images scrubbed by the sidecar and buffered for a shard write',
@@ -209,6 +216,12 @@ export class ImageScrubConsumerMetrics {
     public static incInvalidKey(): void {
         this.invalidKey.inc()
     }
+    public static incrementVersion(version: MlWireVersion, count: number): void {
+        if (count > 0) {
+            this.wireVersion.labels(version).inc(count)
+        }
+    }
+
     public static observeBatchMessages(count: number): void {
         this.batchMessages.observe(count)
     }

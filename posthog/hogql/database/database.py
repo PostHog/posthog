@@ -664,6 +664,17 @@ def _compute_system_table_access_decision(
     return user_access_control, denied
 
 
+def system_table_denials(
+    team: Team, user: User, user_access_control: Optional[UserAccessControl] = None
+) -> frozenset[str]:
+    """The bare names of the ``system.*`` tables this user may not read.
+
+    Runs the access-control and entitlement checks that ``create_for`` would run, and nothing else,
+    so a caller that only needs the answer does not pay for a whole database build.
+    """
+    return frozenset(_compute_system_table_access_decision(team, user, user_access_control)[1])
+
+
 class Database(BaseModel):
     model_config = ConfigDict(extra="allow")
 
