@@ -52,13 +52,13 @@ export function computeJobDuration(job: JobTiming): string {
 /** When the data the view currently serves was synced. A run that failed, was cancelled, was
  * skipped, or was blocked by failing data quality checks leaves the previous version in place.
  * Only a completed run answers this. The newest run does not. */
-export function latestSuccessfulSyncAt(jobs: DataModelingJob[] | undefined): string | null {
+export function latestSuccessfulSyncAt(jobs: JobTiming[] | undefined): string | null {
     return latestOf(...(jobs ?? []).filter((job) => job.status === 'Completed').map((job) => job.last_run_at))
 }
 
 /** Time window for the run's log search. An open `dateTo` (still running, or no usable end
  * timestamp) lets the LogsViewer default to "now" instead of silently cutting off logs. */
-export function jobLogsWindow(job: DataModelingJob, timezone: string): { dateFrom?: string; dateTo?: string } {
+export function jobLogsWindow(job: JobTiming, timezone: string): { dateFrom?: string; dateTo?: string } {
     const end = jobEndTimestamp(job)
     return {
         dateFrom: isParseableDate(job.created_at)
