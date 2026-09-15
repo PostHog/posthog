@@ -6,6 +6,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+import { isHttpOrHttpsUrl } from 'lib/utils/url'
 
 import { CyclotronJobFiltersType, HogFunctionSubTemplateIdType, HogFunctionType } from '~/types'
 
@@ -162,10 +163,7 @@ export const newNotificationDialogLogic = kea<newNotificationDialogLogicType>([
                     destination === 'slack' && !slackIntegrationId ? 'Please select a Slack workspace' : undefined,
                 slackChannel: destination === 'slack' && !slackChannel ? 'Please select a channel' : undefined,
                 webhookUrl:
-                    destination !== 'slack' &&
-                    !(webhookUrl.trim() && URL.canParse(webhookUrl.trim()) && /^https?:\/\//.test(webhookUrl.trim()))
-                        ? 'Please enter a webhook URL'
-                        : undefined,
+                    destination !== 'slack' && !isHttpOrHttpsUrl(webhookUrl) ? 'Please enter a webhook URL' : undefined,
             }),
             submit: async ({ destination, slackIntegrationId, slackChannel, webhookUrl }) => {
                 const destinationOption = DESTINATION_OPTIONS.find((d) => d.value === destination)
