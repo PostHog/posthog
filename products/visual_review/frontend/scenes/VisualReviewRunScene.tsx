@@ -16,6 +16,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
+import { RunNotFound } from '../components/RunNotFound'
 import { SnapshotChangeBadge, hasSnapshotChangeBadge } from '../components/SnapshotChangeBadge'
 import { SnapshotDiffViewer } from '../components/SnapshotDiffViewer'
 import { SnapshotStatusIndicator } from '../components/SnapshotStatusIndicator'
@@ -215,6 +216,7 @@ function RunInProgressEmptyState({
 export function VisualReviewRunScene(): JSX.Element {
     const {
         run,
+        runNotFound,
         snapshots,
         snapshotsLoading,
         selectedSnapshot,
@@ -289,6 +291,16 @@ export function VisualReviewRunScene(): JSX.Element {
         },
         [currentIndex, visibleNavSnapshots.length]
     )
+
+    // A 404 here is usually a project mismatch: the run link carries a project id, but the
+    // router strips it and asks whichever project is active. Say so instead of waiting forever.
+    if (runNotFound) {
+        return (
+            <SceneContent>
+                <RunNotFound />
+            </SceneContent>
+        )
+    }
 
     // Show skeleton only on initial load — once `run` is populated, keep showing it
     // even while a background refetch is in flight (e.g. after approve/tolerate),
