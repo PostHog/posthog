@@ -142,6 +142,19 @@ const EXPERIMENT = {
     },
 } as unknown as Experiment
 
+// A flag that aggregates by group exposes groups rather than persons, which is what the comparison
+// would have to match against recordings.
+const GROUP_AGGREGATED_EXPERIMENT = {
+    ...EXPERIMENT,
+    id: 53,
+    feature_flag: {
+        ...EXPERIMENT.feature_flag,
+        filters: { ...EXPERIMENT.feature_flag?.filters, aggregation_group_type_index: 0 },
+    },
+} as unknown as Experiment
+
+const REFUSAL_DETAIL = "This experiment aggregates by group, so its exposures can't be matched to persons' recordings."
+
 const ALL_LINKABLE = {
     $feature_flag_called: true,
     purchase: true,
@@ -714,6 +727,9 @@ describe('experimentReplayTabLogic', () => {
             in_session_available: true,
             in_session_unavailable_reason: null,
             in_session_uses_stamped_fallback: true,
+            // The default test flags leave the shelf off, so this view never saw the toggle.
+            behavior_comparison_available: false,
+            behavior_comparison_unavailable_reason: null,
         })
 
         // The check is shared with the metrics tab and reloads when the experiment's metrics change,
@@ -1383,6 +1399,70 @@ describe('experimentReplayTabLogic', () => {
         expect(logic.values.sessionEventDeltas).toEqual(DELTA_RESPONSE)
     })
 
+    it('asks for no comparison when the experiment aggregates by group, and reports why', async () => {
+        // The backend answers a group-aggregated experiment with the same 400 every time, so each
+        // open would spend a heavy request on a refusal the tab can name in advance. The tab view
+        // carries that reason, which is how a disabled toggle is told apart from one nobody opened.
+        const captureSpy = jest.spyOn(posthog, 'capture').mockReturnValue(undefined as any)
+        const tabViews = (): any[] =>
+            captureSpy.mock.calls.filter(
+                ([event, properties]) =>
+                    event === 'experiment recordings tab viewed' && (properties as any)?.experiment_id === 53
+            )
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.EXPERIMENT_BEHAVIOR_COMPARISON]: true })
+        const grouped = experimentReplayTabLogic({ experiment: GROUP_AGGREGATED_EXPERIMENT })
+        grouped.mount()
+
+        await expectLogic(grouped, () => {
+            grouped.actions.toggleBehaviorComparison()
+        }).toFinishAllListeners()
+
+        expect(grouped.values.behaviorComparisonUnavailableReason).toBe('group_aggregated')
+        expect(experimentsSessionEventDeltasCreate).not.toHaveBeenCalled()
+        expect(tabViews()).toHaveLength(1)
+        expect(tabViews()[0][1]).toMatchObject({
+            behavior_comparison_available: true,
+            behavior_comparison_unavailable_reason: 'group_aggregated',
+        })
+        grouped.unmount()
+    })
+
+    it.each([
+        {
+            failure: 'a refusal the backend states on purpose',
+            rejection: Object.assign(new Error('Request failed'), { status: 400, detail: REFUSAL_DETAIL }),
+            status: 400,
+            message: REFUSAL_DETAIL,
+            callsAfterReopen: 1,
+        },
+        {
+            failure: 'a request that may pass on a second attempt',
+            rejection: new Error('Failed to fetch'),
+            status: null,
+            message: 'Failed to fetch',
+            callsAfterReopen: 2,
+        },
+    ])('keeps the status beside the message for $failure', async ({ rejection, status, message, callsAfterReopen }) => {
+        // The status is what splits the two states the shelf renders, and what decides whether
+        // reopening asks again. A refusal leaves no deltas behind, so without the status the
+        // reopen path sends the same request and gets the same refusal back.
+        ;(experimentsSessionEventDeltasCreate as jest.Mock).mockRejectedValue(rejection)
+
+        await expectLogic(logic, () => {
+            logic.actions.toggleBehaviorComparison()
+        }).toFinishAllListeners()
+
+        expect(logic.values.sessionEventDeltasError).toBe(message)
+        expect(logic.values.sessionEventDeltasErrorStatus).toBe(status)
+
+        await expectLogic(logic, () => {
+            logic.actions.toggleBehaviorComparison()
+            logic.actions.toggleBehaviorComparison()
+        }).toFinishAllListeners()
+
+        expect(experimentsSessionEventDeltasCreate).toHaveBeenCalledTimes(callsAfterReopen)
+    })
+
     it('reports the population the comparison covered, not just what it found', async () => {
         // An empty reason on its own cannot be read: 'no_separation' over sixty people and over
         // twelve thousand ask for different answers. So the report carries the denominator, the
@@ -1409,6 +1489,10 @@ describe('experimentReplayTabLogic', () => {
             compared_enrollment_hours: 744,
             sessions_truncated: false,
             events_truncated: false,
+            experiment_ended: true,
+            // Read off the fixture rather than hardcoded, so the assertion still states the same
+            // distance as real time moves past the run window.
+            days_since_start: dayjs().diff(dayjs(EXPERIMENT.start_date), 'day'),
         })
     })
 
