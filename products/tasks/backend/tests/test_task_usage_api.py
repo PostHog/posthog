@@ -95,14 +95,20 @@ class TestInternalTaskUsageAuthentication(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("wrong_secret", "a-different-secret", 0),
-            ("stale_timestamp", CROSS_REGION_SECRET, -3600),
+            ("wrong_secret", "a-different-secret", 0, None),
+            ("stale_timestamp", CROSS_REGION_SECRET, -3600, None),
+            # WSGI decodes header bytes as latin-1, so a junk byte reaches the adapter as a
+            # str holding a non-ASCII code point. That shape used to raise out of
+            # compare_digest and turn an unauthenticated request into a 500.
+            ("non_ascii_signature", CROSS_REGION_SECRET, 0, "sha256=\xe9"),
         ]
     )
     def test_rejects_a_request_the_signature_does_not_vouch_for(
-        self, _name: str, secret: str, timestamp_offset: int
+        self, _name: str, secret: str, timestamp_offset: int, signature_override: str | None
     ) -> None:
         headers = self._signed_headers(secret=secret, timestamp=int(time.time()) + timestamp_offset)
+        if signature_override is not None:
+            headers[TASK_USAGE_SIGNATURE_HEADER] = signature_override
 
         response = self._post(headers)
 
