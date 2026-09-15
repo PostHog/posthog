@@ -4,6 +4,7 @@ import {
   INBOX_ACTIONABLE_REPORT_STATUS_FILTER,
   sortInboxReports,
 } from "@posthog/core/inbox/reportFiltering";
+import { needsImplementationDecision } from "@posthog/core/inbox/reportImplementation";
 import type { InboxScope } from "@posthog/core/inbox/reportMembership";
 import type {
   SignalReport,
@@ -12,6 +13,7 @@ import type {
   SourceProduct,
 } from "@posthog/shared/types";
 import { useInboxAllReports } from "@posthog/ui/features/inbox/hooks/useInboxAllReports";
+import { useReportImplementationStates } from "@posthog/ui/features/inbox/hooks/useReportImplementationStates";
 import {
   type InboxReportStateFilter,
   useInboxSignalsFilterStore,
@@ -37,6 +39,7 @@ export interface InboxSectionedReports {
   /** The subset triage steps through: reports that still need a decision. */
   triageReports: SignalReport[];
   triageReportCount: number;
+  triageLoading: boolean;
   reportCount: number;
   isLoading: boolean;
   isSuccess: boolean;
@@ -132,8 +135,15 @@ export function useInboxSectionedReports(options?: {
 
   const { searchQuery, scope, sourceProductFilter, priorityFilter } =
     reviewAndMergeQuery;
+  const implementations = useReportImplementationStates(
+    showNeedsDecision ? needsDecisionQuery.scopedReports : EMPTY_REPORTS,
+  );
   const triageReports = showNeedsDecision
-    ? needsDecisionQuery.scopedReports
+    ? needsDecisionQuery.scopedReports.filter((report) =>
+        needsImplementationDecision(
+          implementations.states.get(report.id) ?? null,
+        ),
+      )
     : EMPTY_REPORTS;
 
   const visibleReports = useMemo(() => {
@@ -174,8 +184,15 @@ export function useInboxSectionedReports(options?: {
   return {
     reports: visibleReports,
     triageReports,
-    triageReportCount: showNeedsDecision ? needsDecisionQuery.totalCount : 0,
+    triageReportCount: showNeedsDecision
+      ? Math.max(
+          0,
+          needsDecisionQuery.totalCount -
+            (needsDecisionQuery.scopedReports.length - triageReports.length),
+        )
+      : 0,
     reportCount,
+    triageLoading: implementations.isLoading,
     isLoading: selected.some((query) => query.isPending),
     isSuccess,
     isError:

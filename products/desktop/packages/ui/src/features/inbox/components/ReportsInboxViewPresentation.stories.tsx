@@ -1,3 +1,4 @@
+import type { ReportImplementationState } from "@posthog/core/inbox/reportImplementation";
 import type { SignalReport } from "@posthog/shared/types";
 import { InboxReportContextMenu } from "@posthog/ui/features/inbox/components/InboxReportContextMenu";
 import { InboxReportFilters } from "@posthog/ui/features/inbox/components/InboxReportFilters";
@@ -84,7 +85,7 @@ const meta: Meta<typeof ReportsInboxViewPresentation> = {
   parameters: { layout: "fullscreen" },
   decorators: [
     (Story) => (
-      <div className="h-[760px] min-w-[720px]">
+      <div className="h-[760px] min-w-0">
         <Story />
       </div>
     ),
@@ -156,5 +157,31 @@ export const LoadError: Story = {
     reports: [],
     triageReportCount: 0,
     isError: true,
+  },
+};
+
+const implementationStates: ReportImplementationState[] = [
+  "working",
+  "failed",
+  "needs_input",
+  "no_pr",
+];
+
+export const ImplementationProgress: Story = {
+  args: {
+    reports: needsPr.slice(0, 4),
+    triageReportCount: 3,
+    renderReport: (report) => (
+      <InboxReportRowView
+        report={report}
+        implementationState={
+          implementationStates[
+            needsPr.findIndex((item) => item.id === report.id)
+          ]
+        }
+        onOpen={() => {}}
+        onOpenPr={() => {}}
+      />
+    ),
   },
 };

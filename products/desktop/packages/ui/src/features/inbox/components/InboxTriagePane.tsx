@@ -1,4 +1,3 @@
-import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
 import { ReportTriageFocus } from "@posthog/ui/features/inbox/components/ReportTriageFocus";
 import { useInboxTriageOrigin } from "@posthog/ui/features/inbox/hooks/useInboxBackTarget";
 import { useInboxSectionedReports } from "@posthog/ui/features/inbox/hooks/useInboxSectionedReports";
@@ -11,17 +10,14 @@ import { useNavigate } from "@tanstack/react-router";
 import type { ReactElement } from "react";
 
 export function InboxTriagePane(): ReactElement {
-  // Beside the rail the sidebar list owns paging; without it, nothing else is
-  // reading this list, so triage walks the pages itself.
-  const spacesLayout = useChannelsLayout();
-  const inbox = useInboxSectionedReports({ autoPage: !spacesLayout });
+  const inbox = useInboxSectionedReports({ autoPage: true });
   const triageOrigin = useInboxTriageOrigin();
   const hasActiveFilters = useInboxSignalsFilterStore(
     hasActiveReportsListFilters,
   );
   const navigate = useNavigate();
 
-  if (inbox.isLoading) {
+  if (inbox.isLoading || inbox.triageLoading) {
     return <LoadingState className="h-full" />;
   }
 

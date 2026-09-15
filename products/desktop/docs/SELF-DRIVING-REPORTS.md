@@ -22,6 +22,13 @@ Unread reports show a small blue dot in the list. Open a report to mark it as re
 Select the dot or use the right-click menu to mark a report as read or unread. Read reports stay in the list.
 Read state is saved on this device for the current user and project. It does not sync across devices or recover earlier report visits.
 Select Triage mode to review reports in sequence.
+Create PR starts the task in the background. Triage advances only after the task starts successfully.
+The confirmation offers View task. It does not open a chat panel or navigate away.
+Reports with an active implementation task stay in the list with a Creating PR label, but leave the triage queue.
+This uses the saved task assignment and survives reopening the app. It does not dismiss, resolve, or change the report read state.
+A failed or stopped task, a task that finishes without a PR, or a report waiting for input returns to triage with a status message.
+If task status cannot be loaded, the report stays in triage. An attached PR remains available for review.
+Task status refreshes while the list is open. Older servers without task assignments keep their existing queue behavior.
 Triage hides the sidebar. Exiting triage or opening a report restores it without changing its saved width or open setting.
 Press T from the report list or an open report to start triage when triage is enabled. The shortcut does not run while you type in a field.
 

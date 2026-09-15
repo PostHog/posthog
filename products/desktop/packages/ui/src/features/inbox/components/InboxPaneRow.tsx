@@ -1,3 +1,4 @@
+import { REPORT_IMPLEMENTATION_LABELS } from "@posthog/core/inbox/reportImplementation";
 import {
   deriveHeadline,
   humanizeReportTitle,
@@ -10,6 +11,7 @@ import { InboxReportContextMenu } from "@posthog/ui/features/inbox/components/In
 import { PriorityMonogram } from "@posthog/ui/features/inbox/components/PriorityMonogram";
 import { useInboxReportDetailPrefetch } from "@posthog/ui/features/inbox/hooks/useInboxReportDetailPrefetch";
 import { useInboxReportReadState } from "@posthog/ui/features/inbox/hooks/useInboxReportReadState";
+import { useReportImplementationStates } from "@posthog/ui/features/inbox/hooks/useReportImplementationStates";
 import { navigateToInboxReportDetail } from "@posthog/ui/router/navigationBridge";
 import type { ReactElement } from "react";
 
@@ -28,6 +30,8 @@ export function InboxPaneRow({
     to: "/reports/$reportId",
     params: { reportId: report.id },
   });
+  const { states } = useReportImplementationStates([report]);
+  const implementationState = states.get(report.id);
   const title = humanizeReportTitle(report.title, "Untitled report");
   // The same lead sentence the page rows show, clamped to two lines here. The
   // row is a button, whose wrapper truncates on one line, so the preview has to
@@ -70,6 +74,17 @@ export function InboxPaneRow({
             {headline && (
               <span className="line-clamp-2 whitespace-normal text-[12px] text-muted-foreground leading-snug">
                 {headline}
+              </span>
+            )}
+            {implementationState && (
+              <span
+                className={`mt-1 flex items-center gap-1.5 text-[12px] ${implementationState === "working" ? "text-blue-11" : "text-amber-11"}`}
+              >
+                <span
+                  aria-hidden="true"
+                  className="size-1.5 rounded-full bg-current"
+                />
+                {REPORT_IMPLEMENTATION_LABELS[implementationState]}
               </span>
             )}
             <span className="mt-1 block truncate text-muted-foreground/70 text-xxs">

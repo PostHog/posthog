@@ -1,3 +1,4 @@
+import type { ReportImplementationState } from "@posthog/core/inbox/reportImplementation";
 import type { SignalReport } from "@posthog/shared/types";
 import { useInboxSignalsFilterStore } from "@posthog/ui/features/inbox/stores/inboxSignalsFilterStore";
 import { render, screen } from "@testing-library/react";
@@ -7,6 +8,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   activeReports: [] as SignalReport[],
+  implementationStates: new Map<string, ReportImplementationState>(),
   setupStatusLoading: false,
   setupConfigured: true,
   navigateToSettings: vi.fn(),
@@ -37,6 +39,16 @@ const mocks = vi.hoisted(() => ({
     withPullRequestCount?: boolean;
   }[],
 }));
+
+vi.mock(
+  "@posthog/ui/features/inbox/hooks/useReportImplementationStates",
+  () => ({
+    useReportImplementationStates: () => ({
+      states: mocks.implementationStates,
+      isLoading: false,
+    }),
+  }),
+);
 
 vi.mock("@posthog/ui/features/feature-flags/useTriageFocusEnabled", () => ({
   useTriageFocusEnabled: () => mocks.triageFocusEnabled,
@@ -224,6 +236,7 @@ describe("ReportsInboxView", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.activeReports = [];
+    mocks.implementationStates = new Map();
     mocks.setupStatusLoading = false;
     mocks.setupConfigured = true;
     mocks.searchQuery = "checkout";
@@ -395,6 +408,24 @@ describe("ReportsInboxView", () => {
     expect(mocks.triageProps?.initialReportId).toBe("second-report");
     expect(mocks.triageProps?.reports.map((report) => report.id)).toEqual([
       "second-report",
+    ]);
+  });
+  it("keeps working reports in the list but only decisions in triage", () => {
+    mocks.activeReports = [
+      activeReport("working", "Working report"),
+      activeReport("failed", "Failed report"),
+    ];
+    mocks.implementationStates = new Map([
+      ["working", "working"],
+      ["failed", "failed"],
+    ]);
+    const list = render(<ReportsInboxView />);
+    expect(screen.getByText("Working report")).toBeInTheDocument();
+    expect(screen.getByText("Failed report")).toBeInTheDocument();
+    list.unmount();
+    render(<InboxTriagePane />);
+    expect(mocks.triageProps?.reports.map((report) => report.id)).toEqual([
+      "failed",
     ]);
   });
 });

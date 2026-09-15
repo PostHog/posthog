@@ -4,13 +4,14 @@ import type {
   SuggestedReviewersArtefact,
 } from "@posthog/shared/domain-types";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { renderHook } from "@testing-library/react";
+import { renderHook, waitFor } from "@testing-library/react";
 import { act, type ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockSetReviewers = vi.hoisted(() => vi.fn());
 const mockClient = vi.hoisted(() => ({
   setSignalReportReviewers: mockSetReviewers,
+  getTask: vi.fn(),
 }));
 
 vi.mock("@posthog/ui/features/auth/authClient", () => ({
@@ -21,7 +22,10 @@ vi.mock("@posthog/ui/primitives/toast", () => ({
   toast: { error: vi.fn() },
 }));
 
+import { taskKeys } from "../../tasks/taskKeys";
+import { inboxStoryReport } from "../components/inboxStoryFixtures";
 import { reportKeys, useUpdateSuggestedReviewers } from "./useInboxReports";
+import { useReportImplementationStates } from "./useReportImplementationStates";
 
 const REPORT_ID = "report-1";
 const ARTEFACT_ID = "art-1";
@@ -65,7 +69,7 @@ function renderUpdateHook() {
   return { ...result, queryClient };
 }
 
-describe("useUpdateSuggestedReviewers", () => {
+describe("Inbox report queries", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
@@ -160,5 +164,51 @@ describe("useUpdateSuggestedReviewers", () => {
       "octocat",
       "hubot",
     ]);
+  });
+  it("restores implementation state from the server and returns failed work to triage", async () => {
+    const report = inboxStoryReport({
+      assignee: { kind: "task", task_id: "implementation-1" },
+      work_state: "working",
+    });
+    mockClient.getTask.mockResolvedValue({
+      id: "implementation-1",
+      latest_run: { status: "in_progress" },
+    });
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={client}>{children}</QueryClientProvider>
+    );
+    const { result, unmount } = renderHook(
+      () => useReportImplementationStates([report]),
+      { wrapper },
+    );
+    await waitFor(() =>
+      expect(result.current.states.get(report.id)).toBe("working"),
+    );
+    unmount();
+    client.clear();
+    const reloaded = renderHook(() => useReportImplementationStates([report]), {
+      wrapper,
+    });
+    await waitFor(() =>
+      expect(reloaded.result.current.states.get(report.id)).toBe("working"),
+    );
+    expect(mockClient.getTask).toHaveBeenCalledTimes(2);
+    mockClient.getTask.mockResolvedValue({
+      id: "implementation-1",
+      latest_run: { status: "failed" },
+    });
+    await act(async () => {
+      await client.invalidateQueries({
+        queryKey: taskKeys.detail("implementation-1"),
+      });
+    });
+    await waitFor(() =>
+      expect(reloaded.result.current.states.get(report.id)).toBe("failed"),
+    );
+    reloaded.unmount();
+    client.clear();
   });
 });
