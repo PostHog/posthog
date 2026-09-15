@@ -58625,6 +58625,18 @@ export namespace Schemas {
     }
 
     /**
+     * * `event` - Event
+     * * `person` - Person
+     */
+    export type QuickFilterPropertyTypeEnum = typeof QuickFilterPropertyTypeEnum[keyof typeof QuickFilterPropertyTypeEnum];
+
+
+    export const QuickFilterPropertyTypeEnum = {
+      Event: 'event',
+      Person: 'person',
+    } as const;
+
+    /**
      * * `manual-options` - manual-options
      * * `auto-discovery` - auto-discovery
      */
@@ -58642,6 +58654,11 @@ export namespace Schemas {
       name: string;
       /** @maxLength 500 */
       property_name: string;
+      /** Scope of the property the filter reads: an event property or a person property.
+       *
+       * * `event` - Event
+       * * `person` - Person */
+      property_type?: QuickFilterPropertyTypeEnum;
       type?: QuickFilterTypeEnum;
       options?: unknown;
       readonly contexts: readonly string[];
@@ -69657,6 +69674,11 @@ export namespace Schemas {
       name?: string;
       /** @maxLength 500 */
       property_name?: string;
+      /** Scope of the property the filter reads: an event property or a person property.
+       *
+       * * `event` - Event
+       * * `person` - Person */
+      property_type?: QuickFilterPropertyTypeEnum;
       type?: QuickFilterTypeEnum;
       options?: unknown;
       readonly contexts?: readonly string[];
