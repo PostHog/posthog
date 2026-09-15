@@ -304,15 +304,15 @@ def _lead_time(
     )
     empty = duration_distribution([])
     if deployed is None:
-        pair = ScopeRepoDistribution(scope=empty, repo=empty)
+        empty_pair = ScopeRepoDistribution(scope=empty, repo=empty)
         return DeliveryLeadTime(
             deploy_data_available=False,
             environment_scope="",
             merged_pr_count=scope_merged_count,
             deployed_merged_pr_count=0,
-            open_to_deploy=pair,
-            open_to_merge=pair,
-            merge_to_deploy=pair,
+            open_to_deploy=empty_pair,
+            open_to_merge=empty_pair,
+            merge_to_deploy=empty_pair,
         )
 
     def in_window(at: datetime) -> bool:

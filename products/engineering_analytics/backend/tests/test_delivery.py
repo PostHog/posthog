@@ -96,7 +96,7 @@ class TestPRTimelineBuilder(SimpleTestCase):
                 _pr(
                     6,
                     [_attempt("a", 0, 1, failed=True), _attempt("a", 3, 4, attempt=2)],
-                    reviews=[ReviewVerdict(state="APPROVED", submitted_at=_at(5))],
+                    reviews=[ReviewVerdict(reviewer="ada", state="APPROVED", submitted_at=_at(5))],
                 ),
                 [],
                 [
@@ -136,9 +136,9 @@ class TestPRTimelineBuilder(SimpleTestCase):
                     9,
                     [_attempt("a", 0, 1), _attempt("b", 4, 5)],
                     reviews=[
-                        ReviewVerdict(state="CHANGES_REQUESTED", submitted_at=_at(2)),
-                        ReviewVerdict(state="COMMENTED", submitted_at=_at(3)),
-                        ReviewVerdict(state="APPROVED", submitted_at=_at(6)),
+                        ReviewVerdict(reviewer="ada", state="CHANGES_REQUESTED", submitted_at=_at(2)),
+                        ReviewVerdict(reviewer="ada", state="COMMENTED", submitted_at=_at(3)),
+                        ReviewVerdict(reviewer="ada", state="APPROVED", submitted_at=_at(6)),
                     ],
                     gates=[GateAttempt(started_at=_at(7), completed_at=_at(8))],
                 ),
@@ -154,11 +154,24 @@ class TestPRTimelineBuilder(SimpleTestCase):
                 ],
             ),
             (
+                "approval_from_another_reviewer_keeps_change_request_open",
+                _pr(
+                    4,
+                    [_attempt("a", 0, 1)],
+                    reviews=[
+                        ReviewVerdict(reviewer="ada", state="CHANGES_REQUESTED", submitted_at=_at(2)),
+                        ReviewVerdict(reviewer="bo", state="APPROVED", submitted_at=_at(3)),
+                    ],
+                ),
+                [],
+                [(Kind.CI_RUNNING, 0, 1), (Kind.WAITING_FOR_REVIEW, 1, 2), (Kind.CHANGES_REQUESTED, 2, 4)],
+            ),
+            (
                 "open_pr_out_of_the_queue",
                 _pr(
                     10,
                     [_attempt("a", 0, 1)],
-                    reviews=[ReviewVerdict(state="APPROVED", submitted_at=_at(1))],
+                    reviews=[ReviewVerdict(reviewer="ada", state="APPROVED", submitted_at=_at(1))],
                     gates=[GateAttempt(started_at=_at(2), completed_at=_at(3))],
                     is_open=True,
                     trunk_out=True,

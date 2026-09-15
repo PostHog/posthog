@@ -15,6 +15,8 @@ from datetime import UTC, datetime, timedelta
 
 from posthog.hogql import ast
 
+from posthog.dataclasses import frozen
+
 from products.engineering_analytics.backend.facade.contracts import (
     Author,
     DeliveryScopeKind,
@@ -73,7 +75,7 @@ _TRANSITIONS_SELECT = """
 """
 
 _REVIEWS_SELECT = """
-    SELECT pr_number, state, submitted_at
+    SELECT pr_number, reviewer_login, state, submitted_at
     FROM __REVIEWS_SOURCE__ AS rv
     WHERE pr_number IN {pr_numbers}
     LIMIT 100000
@@ -137,6 +139,17 @@ _TRUNK_STATE_SELECT = """
     WHERE pr_number IN {pr_numbers}
     GROUP BY pr_number
 """
+
+
+@frozen
+class _JobAttempt:
+    """One attempt of a run, rolled up from its jobs."""
+
+    attempt: int
+    started_at: datetime
+    # None while any job of the attempt is still running.
+    completed_at: datetime | None
+    failed_jobs: tuple[str, ...]
 
 
 class PullRequestTimelinesQuery:
@@ -306,8 +319,8 @@ class PullRequestTimelinesQuery:
             placeholders={"pr_numbers": ast.Constant(value=pr_numbers)},
         )
         reviews: dict[int, list[ReviewVerdict]] = defaultdict(list)
-        for number, state, submitted_at in response.results or []:
-            reviews[int(number)].append(ReviewVerdict(state=state, submitted_at=submitted_at))
+        for number, reviewer, state, submitted_at in response.results or []:
+            reviews[int(number)].append(ReviewVerdict(reviewer=reviewer or "", state=state, submitted_at=submitted_at))
         return reviews
 
     def _query_attempts(
@@ -341,13 +354,13 @@ class PullRequestTimelinesQuery:
                         run_id=int(run_id),
                         workflow_name=workflow_name or "",
                         head_sha=head_sha or "",
-                        attempt=job_attempt,
-                        started_at=job_started,
-                        completed_at=job_completed,
-                        failed=bool(failed_jobs),
-                        failed_jobs=tuple(failed_jobs),
+                        attempt=job_attempt.attempt,
+                        started_at=job_attempt.started_at,
+                        completed_at=job_attempt.completed_at,
+                        failed=bool(job_attempt.failed_jobs),
+                        failed_jobs=job_attempt.failed_jobs,
                     )
-                    for job_attempt, job_started, job_completed, failed_jobs in run_attempts
+                    for job_attempt in run_attempts
                 )
                 continue
             completed = status == "completed"
@@ -379,9 +392,7 @@ class PullRequestTimelinesQuery:
                 )
         return attempts, gates
 
-    def _query_job_attempts(
-        self, run_ids: list[int], run_from: datetime
-    ) -> dict[int, list[tuple[int, datetime, datetime | None, list[str]]]]:
+    def _query_job_attempts(self, run_ids: list[int], run_from: datetime) -> dict[int, list[_JobAttempt]]:
         source = self._curated.jobs_source(created_floor=True)
         if source is None or not run_ids:
             return {}
@@ -393,12 +404,17 @@ class PullRequestTimelinesQuery:
                 "job_created_floor": run_windowed_job_created_floor_constant(run_from),
             },
         )
-        by_run: dict[int, list[tuple[int, datetime, datetime | None, list[str]]]] = defaultdict(list)
+        by_run: dict[int, list[_JobAttempt]] = defaultdict(list)
         for run_id, run_attempt, started_at, completed_at, unfinished, failed_jobs in response.results or []:
             if started_at is None:
                 continue
             by_run[int(run_id)].append(
-                (int(run_attempt or 1), started_at, None if unfinished else completed_at, list(failed_jobs or []))
+                _JobAttempt(
+                    attempt=int(run_attempt or 1),
+                    started_at=started_at,
+                    completed_at=None if unfinished else completed_at,
+                    failed_jobs=tuple(failed_jobs or ()),
+                )
             )
         return by_run
 

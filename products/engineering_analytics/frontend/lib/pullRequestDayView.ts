@@ -38,8 +38,8 @@ export const SEGMENT_KIND_STYLES: Record<Kind, SegmentKindStyle> = {
         color: 'var(--data-color-1)',
     },
     [Kind.ApprovedNotEnqueued]: {
-        label: 'Approved and green, not in the merge queue',
-        short: 'green, not enqueued',
+        label: 'Approved, nothing failing or running, not in the merge queue',
+        short: 'approved, not enqueued',
         color: 'var(--data-color-1)',
         pattern: 'stripes',
     },

@@ -175,7 +175,7 @@ class PRTimelineSegmentSerializer(DataclassSerializer):
         extra_kwargs = {
             "kind": {
                 "help_text": "What the PR waited on: draft; waiting_for_review (no approval yet, or re-review "
-                "after a push); changes_requested (no push since); approved_not_enqueued (approved and green); "
+                "after a push); changes_requested (no push since); approved_not_enqueued (approved, with no failing or running check); "
                 "review_state_unknown (reviews not synced); ci_running; red_passed_on_rerun (the failed "
                 "workflows passed a re-run of the same commit); red_master_broken (the failed jobs also failed "
                 "on the default branch within 12 hours); red_fixed_by_push (a later commit arrived); "

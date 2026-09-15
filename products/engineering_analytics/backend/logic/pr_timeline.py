@@ -12,7 +12,8 @@ merge into one segment. The evaluation is a fixed precedence, most blocking firs
    is failed or cancelled. Current state only, so this never appears on a merged PR.
 3. Red CI on the head commit, labelled by what turned it green (see ``_red_kind``).
 4. CI running on the head commit.
-5. Review state: waiting for a first approval, changes requested with no push since, or approved.
+5. Review state from each reviewer's latest verdict: changes requested with no push since while any
+   reviewer's latest verdict requests changes, approved when none does, else waiting for review.
 
 A commit's check state per workflow is its latest attempt: a re-run in flight reads as running,
 not red, the same way GitHub shows it.
@@ -63,6 +64,7 @@ class GateAttempt:
 
 @frozen
 class ReviewVerdict:
+    reviewer: str
     state: str
     submitted_at: datetime
 
@@ -106,6 +108,12 @@ class PRTimelineInput:
 
 
 @frozen
+class _QueueSpan:
+    started_at: datetime | None
+    ended_at: datetime | None
+
+
+@frozen
 class _Push:
     head_sha: str
     pushed_at: datetime
@@ -123,7 +131,8 @@ class PRTimelineBuilder:
             (review for review in pr.reviews or [] if review.state in (APPROVED_STATE, CHANGES_REQUESTED_STATE)),
             key=lambda review: review.submitted_at,
         )
-        self._queue_from, self._queue_until = self._queue_span()
+        queue_span = self._queue_span()
+        self._queue_from, self._queue_until = queue_span.started_at, queue_span.ended_at
 
     @staticmethod
     def _group_pushes(attempts: list[RunAttempt]) -> list[_Push]:
@@ -139,7 +148,7 @@ class PRTimelineBuilder:
             pushes.append(_Push(head_sha=head_sha, pushed_at=pushed_at, attempts_by_workflow=dict(by_workflow)))
         return sorted(pushes, key=lambda push: push.pushed_at)
 
-    def _queue_span(self) -> tuple[datetime | None, datetime | None]:
+    def _queue_span(self) -> _QueueSpan:
         """The continuous queue stretch: from the first gate attempt after the last push to the merge
         (merged PR) or to the end of the last gate attempt (open PR, None while one still runs)."""
         last_push_at = self._push_times[-1] if self._push_times else None
@@ -147,13 +156,14 @@ class PRTimelineBuilder:
             gate for gate in self._pr.gate_attempts if last_push_at is None or gate.started_at >= last_push_at
         ]
         if not after_last_push:
-            return None, None
+            return _QueueSpan(started_at=None, ended_at=None)
         queue_from = min(gate.started_at for gate in after_last_push)
-        if not self._pr.is_open:
-            return queue_from, self._pr.ended_at
-        if any(gate.completed_at is None for gate in after_last_push):
-            return queue_from, self._pr.ended_at
-        return queue_from, max(gate.completed_at for gate in after_last_push if gate.completed_at is not None)
+        if not self._pr.is_open or any(gate.completed_at is None for gate in after_last_push):
+            return _QueueSpan(started_at=queue_from, ended_at=self._pr.ended_at)
+        return _QueueSpan(
+            started_at=queue_from,
+            ended_at=max(gate.completed_at for gate in after_last_push if gate.completed_at is not None),
+        )
 
     def build(self) -> list[PRTimelineSegment]:
         start, end = self._pr.started_at, self._pr.ended_at
@@ -261,12 +271,18 @@ class PRTimelineBuilder:
     def _review_kind(self, push: _Push | None, at: datetime) -> PRTimelineSegmentKind:
         if self._pr.reviews is None:
             return PRTimelineSegmentKind.REVIEW_STATE_UNKNOWN
-        index = bisect.bisect_right([review.submitted_at for review in self._verdicts], at)
-        if index == 0:
+        # GitHub keeps a change request open until the same reviewer approves, so another reviewer's
+        # approval does not clear it. Only each reviewer's latest verdict counts.
+        latest_by_reviewer: dict[str, ReviewVerdict] = {}
+        for review in self._verdicts:
+            if review.submitted_at > at:
+                break
+            latest_by_reviewer[review.reviewer] = review
+        if not latest_by_reviewer:
             return PRTimelineSegmentKind.WAITING_FOR_REVIEW
-        latest = self._verdicts[index - 1]
-        if latest.state == APPROVED_STATE:
+        change_requests = [review for review in latest_by_reviewer.values() if review.state == CHANGES_REQUESTED_STATE]
+        if not change_requests:
             return PRTimelineSegmentKind.APPROVED_NOT_ENQUEUED
-        if push is not None and push.pushed_at > latest.submitted_at:
+        if push is not None and push.pushed_at > max(review.submitted_at for review in change_requests):
             return PRTimelineSegmentKind.WAITING_FOR_REVIEW
         return PRTimelineSegmentKind.CHANGES_REQUESTED
