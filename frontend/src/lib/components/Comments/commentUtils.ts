@@ -1,6 +1,6 @@
 import { generateText } from '@tiptap/core'
 
-import { JSONContent } from 'lib/components/RichContentEditor/types'
+import { JSONContent, RichContentNodeType } from 'lib/components/RichContentEditor/types'
 import { dayjs } from 'lib/dayjs'
 import { DEFAULT_EXTENSIONS, serializationOptions } from 'lib/lemon-ui/LemonRichContent/LemonRichContentEditor'
 import { urls } from 'scenes/urls'
@@ -55,7 +55,41 @@ export function getCommentText(comment: { content?: string | null; rich_content?
               ],
           }
 
-    return generateText(content, DEFAULT_EXTENSIONS, serializationOptions)
+    try {
+        return generateText(content, DEFAULT_EXTENSIONS, serializationOptions)
+    } catch {
+        // generateText builds a schema from DEFAULT_EXTENSIONS, which keeps no marks (italic, bold,
+        // link, ...) and only paragraph/mention nodes. Conversations authors comments with a richer
+        // schema, so any such mark or node makes ProseMirror throw "There is no mark type ... in this
+        // schema". Fall back to a schema-free walk so one formatted comment can't crash the caller.
+        return extractPlainText(content)
+    }
+}
+
+/** Inline node types that concatenate with no separator, as opposed to block nodes separated by a blank line. */
+const INLINE_NODE_TYPES = new Set<string>(['text', 'hardBreak', RichContentNodeType.Mention])
+
+/**
+ * Concatenate the text of a rich-content doc without a ProseMirror schema, so no node or mark can throw.
+ * Block children are separated by a blank line to match generateText's default block separator, while
+ * inline runs within a block concatenate directly.
+ */
+function extractPlainText(node: JSONContent): string {
+    if (node.type === RichContentNodeType.Mention) {
+        return `@member:${node.attrs?.id}`
+    }
+    if (node.type === 'hardBreak') {
+        return '\n'
+    }
+    const children = node.content ?? []
+    const joined = children
+        .map(extractPlainText)
+        .map((part, index) => {
+            const isBlock = index > 0 && !INLINE_NODE_TYPES.has(children[index].type ?? '')
+            return isBlock ? `\n\n${part}` : part
+        })
+        .join('')
+    return (node.text ?? '') + joined
 }
 
 export function isViewingRecording(recordingId: string): boolean {
