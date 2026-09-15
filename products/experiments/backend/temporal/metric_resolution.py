@@ -17,8 +17,8 @@ from products.experiments.backend.models.experiment import Experiment
 
 ExperimentMetric = ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric
 
-# Modern ExperimentMetric types (kind="ExperimentMetric"). Legacy Trends/Funnels metrics never enter these
-# workflows, so there is no fallback — an unexpected metric_type surfaces as an error at the call site.
+# Modern ExperimentMetric types (kind="ExperimentMetric"). Legacy Trends/Funnels metrics carry no
+# metric_type and are filtered out by is_scheduled_metric, so they never reach build_metric.
 METRIC_BUILDERS: dict[str, type[ExperimentMetric]] = {
     "mean": ExperimentMeanMetric,
     "funnel": ExperimentFunnelMetric,
@@ -43,9 +43,10 @@ def _merge_saved_metric_breakdowns(saved_query: dict[str, Any], metadata: dict[s
 
 def is_scheduled_metric(metric: dict[str, Any] | None) -> bool:
     """Recalculation and the canary address metrics by uuid, so a metric dict without one is
-    never scheduled. Shared with the enrollment census so its build-load count filters the
-    same way."""
-    return bool(metric and metric.get("uuid"))
+    never scheduled. Legacy Trends/Funnels definitions carry no metric_type and cannot be
+    built, so they are excluded too. Shared with the enrollment census so its build-load
+    count filters the same way."""
+    return bool(metric and metric.get("uuid") and metric.get("metric_type") in METRIC_BUILDERS)
 
 
 def iter_metric_dicts(experiment: Experiment) -> list[dict[str, Any]]:
@@ -60,7 +61,12 @@ def iter_metric_dicts(experiment: Experiment) -> list[dict[str, Any]]:
         for metric in (experiment.metrics or []) + (experiment.metrics_secondary or [])
         if is_scheduled_metric(metric)
     ]
-    for link in experiment.experimenttosavedmetric_set.select_related("saved_metric").all():
+    # Calling select_related on the manager would clone the queryset and discard a caller's
+    # prefetch cache, re-querying per experiment. Join saved_metric only when nothing is prefetched.
+    links = experiment.experimenttosavedmetric_set.all()
+    if "experimenttosavedmetric_set" not in getattr(experiment, "_prefetched_objects_cache", {}):
+        links = links.select_related("saved_metric")
+    for link in links:
         saved_query = link.saved_metric.query
         if is_scheduled_metric(saved_query):
             dicts.append(_merge_saved_metric_breakdowns(saved_query, link.metadata))

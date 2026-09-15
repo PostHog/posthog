@@ -63,7 +63,7 @@ Examples:
 
 **Required:** Read `.github/pull_request_template.md` and use its exact section structure. Do not invent a different format.
 Invoke `/writing-pr-descriptions` before writing the body — it carries the shape rules.
-Always fill the `## 🤖 Agent context` section.
+Always fill the `## 🤖 Agent context` section, including the exact model that wrote the code.
 NEVER put sensitive information in a PR description or comment. A user may share sensitive data in an agent session; none of it belongs on the PR.
 
 **Screenshots:** Upload frontend/visual changes with `hogli pr:upload-image <file>` and embed the printed markdown. The first run only warns and uploads nothing; re-run with `--yes` to confirm. Only PostHog employees can upload, but the public can permanently view these assets, so only upload the image if you're certain it doesn't contain customer data (including customer names), secrets, or sensitive internal info.
@@ -185,7 +185,7 @@ Each rule is tagged with what catches a violation.
 - **Temporal activity payloads cap at ~2 MiB — pass large data by reference.** `[review]` Activity inputs and outputs cross a gRPC boundary the server rejects above that (`blobSizeLimitError`). As a field-level rule: if a field could exceed ~256 KB serialized (query results, exported file contents, LLM context, rendered HTML, image bytes, unbounded `list[dict[str, Any]]`), write it to Postgres or object storage from inside the activity and return only the row ID or S3 key. The workflow already has any ID created earlier in the run. Shuttling large data through the workflow produces `PayloadSizeError` (`TMPRL1103`) as soon as the data crosses the limit.
 - **A Python `requests` call to GitHub or Slack under `common/`, `ee/`, `posthog/` or `products/` goes through `posthog/egress/`.** `[lint: github-api-calls-go-through-egress, slack-api-calls-go-through-egress]` Route it through the gated, recorded transport.
 - **Every other call to those hosts is on review.** `[review]` The rules match an inline URL in a Python `requests` call inside those four directories. A URL bound to a variable first, another transport such as `httpx`, another language, or a caller under `tools/` all pass CI.
-- **Any other third-party API that needs rate-limiting or egress telemetry belongs there too.** `[review]` Add a `<domain>/` incarnation (GitHub is the reference). No semgrep rule covers a new domain, so a raw client for one reaches master unless a reader catches it. See [posthog/egress/README.md](posthog/egress/README.md).
+- **Any other third-party API that needs rate-limiting or egress telemetry belongs there too.** `[review]` Add a `<domain>/` incarnation (GitHub is the reference). No semgrep rule covers a new domain, so a raw client for one reaches master unless a reader catches it. `/routing-outbound-api-calls` decides the route and names the reference domain to copy.
 - **Object storage is SeaweedFS — do not add new MinIO dependencies.** `[review]` Both S3-compatible stores are SeaweedFS: `objectstorage` (`:19000`, `OBJECT_STORAGE_*`) for general storage, `seaweedfs` (`:8333`, `SESSION_RECORDING_V2_S3_*`) for session replay v2. MinIO survives only as migration tooling in `docker-compose.hobby.yml` and `bin/upgrade-objectstorage`. Do not add compose services, scripts, tests or docs that stand up a `minio/minio` container. Talk to storage through the existing config and a standard S3 client, never a hardcoded endpoint. Note `objectstorage` registers credentials at runtime and returns `InvalidAccessKeyId` until that finishes, so wait for its readiness sentinel rather than the container start.
 
 ### Django admin
@@ -291,7 +291,9 @@ ALWAYS invoke the matching skill **first** — do not skip it, and do not attemp
 - [`products/conversations/skills/organizing-conversations-code/SKILL.md`](products/conversations/skills/organizing-conversations-code/SKILL.md) — adding, moving, renaming, or reviewing files under `products/conversations/`
 - `/integrating-with-posthog-ai` — making a product surface work with PostHog AI: injecting scene context or custom instructions, reacting to the agent's tool calls, or rendering your product's tool cards in a thread
 - `/sending-notifications` — adding notification support
+- `/routing-outbound-api-calls` — adding or changing Python code that calls a third-party HTTP API, or changing any domain under `posthog/egress/` (budget, lanes, identity, metrics, headers)
 - `/adding-activity-logging` — adding activity logging (the audit trail) to a model, writing or changing a `model_activity_signal` receiver or an activity describer, auditing which write paths of a model are logged, or debugging a change that is missing from the activity log
+- `/adding-inbound-webhooks` — adding a webhook endpoint for a third party that sends to PostHog, adding a consumer for a provider that already has an endpoint, or migrating a verifier the `inbound-webhooks-go-through-ingress` rule flags
 - `/writing-skills` — creating or updating skills in `.agents/skills/`
 - `/editing-agents-md` — adding, editing or removing a rule in any `AGENTS.md` or `CLAUDE.md`, root or nested
 - `/writing-evals` — adding or changing eval suites, cases, scorers, or seeders under `products/posthog_ai/evals/` or `products/*/evals/`, touching the harness in `products/posthog_ai/eval_harness/`, or running those evals

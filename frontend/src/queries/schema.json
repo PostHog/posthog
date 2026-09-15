@@ -963,6 +963,9 @@
             "properties": {
                 "actionId": {
                     "$ref": "#/definitions/integer"
+                },
+                "properties": {
+                    "$ref": "#/definitions/WebAnalyticsPropertyFilters"
                 }
             },
             "required": ["actionId"],
@@ -17384,6 +17387,9 @@
             "properties": {
                 "customEventName": {
                     "type": "string"
+                },
+                "properties": {
+                    "$ref": "#/definitions/WebAnalyticsPropertyFilters"
                 }
             },
             "required": ["customEventName"],
@@ -27326,7 +27332,8 @@
                 "Sequenzy",
                 "Skio",
                 "Smartlead",
-                "Substack"
+                "Substack",
+                "ElectricityMaps"
             ],
             "type": "string"
         },
@@ -39942,6 +39949,7 @@
                 "error_tracking_issue_sorting",
                 "error_tracking_docs_viewed",
                 "error_tracking_issue_explained",
+                "error_tracking_scan_with_vision",
                 "llm_analytics_viewed",
                 "llm_analytics_trace_viewed",
                 "llm_analytics_docs_viewed",
@@ -52689,6 +52697,11 @@
             "required": ["id", "tool_call_id", "content"],
             "type": "object"
         },
+        "SubscriptionAIContextLimit": {
+            "const": 3,
+            "description": "Maximum number of dashboards and insights an AI subscription may use as context.",
+            "type": "number"
+        },
         "SubscriptionAIPromptMaxLength": {
             "const": 4000,
             "description": "Maximum length, in characters, of an AI subscription prompt.",
@@ -57598,6 +57611,9 @@
                     "type": "boolean"
                 },
                 "includeScrollDepth": {
+                    "type": "boolean"
+                },
+                "includeTrafficMetrics": {
                     "type": "boolean"
                 },
                 "interval": {

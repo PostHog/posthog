@@ -2140,7 +2140,7 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
         # The inbox PR is superseded by a fix that landed elsewhere, so the receiver must close it
         # with the resolve-specific comment rather than leave it open.
         report = self._create_report()
-        with patch("products.signals.backend.receivers.close_dismissed_report_pr") as mock_task:
+        with patch("products.signals.backend.tasks.close_dismissed_report_pr") as mock_task:
             with self.captureOnCommitCallbacks(execute=True):
                 response = self.client.post(
                     self._state_url(str(report.id)),
@@ -2148,7 +2148,10 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
                     content_type="application/json",
                 )
         assert response.status_code == status.HTTP_200_OK, response.json()
-        mock_task.delay.assert_called_once_with(report_id=str(report.id), team_id=self.team.id, reason="resolved")
+        # The caller rides along so the comment on the PR can name who resolved the report.
+        mock_task.delay.assert_called_once_with(
+            report_id=str(report.id), team_id=self.team.id, reason="resolved", actor_user_id=self.user.id
+        )
 
     def test_state_transition_response_includes_source_products(self):
         report = self._create_report()
@@ -2446,7 +2449,7 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
             report.save(update_fields=["status_before_suppression"])
 
         with (
-            patch("products.signals.backend.receivers.close_dismissed_report_pr") as mock_close_pr,
+            patch("products.signals.backend.tasks.close_dismissed_report_pr") as mock_close_pr,
             self.captureOnCommitCallbacks(execute=True),
         ):
             response = self.client.post(

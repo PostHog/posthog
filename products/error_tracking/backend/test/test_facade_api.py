@@ -48,6 +48,14 @@ class TestErrorTrackingFacadeAPI(BaseTest):
         assert issues[0].assignee.id == self.user.id
         assert issues[0].assignee.type == "user"
 
+    def test_list_issues_caps_results_and_returns_newest_first(self):
+        self._create_issue(team=self.team, name="Older issue")
+        newer = self._create_issue(team=self.team, name="Newer issue")
+
+        issues = api.list_issues(team_id=self.team.id, limit=1)
+
+        assert [issue.id for issue in issues] == [newer.id]
+
     def test_get_issue_returns_contract(self):
         issue = self._create_issue(team=self.team, name="Unhandled TypeError")
 

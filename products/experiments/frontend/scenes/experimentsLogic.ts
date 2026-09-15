@@ -404,9 +404,6 @@ export interface experimentsLogicActions {
         }
         payload?: void
     }
-    openFeatureFlagModal: () => {
-        value: true
-    }
     resetFeatureFlagModalFilters: () => {
         value: true
     }
@@ -549,7 +546,6 @@ export const experimentsLogic = kea<experimentsLogicType>([
             replace,
         }),
         resetFeatureFlagModalFilters: true,
-        openFeatureFlagModal: true,
     }),
     reducers({
         filters: [
@@ -603,9 +599,6 @@ export const experimentsLogic = kea<experimentsLogicType>([
             actions.loadFeatureFlagModalFeatureFlags()
         },
         resetFeatureFlagModalFilters: () => {
-            actions.loadFeatureFlagModalFeatureFlags()
-        },
-        openFeatureFlagModal: () => {
             actions.loadFeatureFlagModalFeatureFlags()
         },
         loadCurrentTeamSuccess: () => {
@@ -881,7 +874,7 @@ export const experimentsLogic = kea<experimentsLogicType>([
     afterMount(({ actions, values }) => {
         actions.loadExperimentsStats()
         // Sync modal page with URL on mount. Eligible flags themselves are loaded lazily when the
-        // "link existing flag" modal opens (openFeatureFlagModal listener), not on every list mount.
+        // "link existing flag" modal sets or resets its filters, not on every list mount.
         const urlPage = values.featureFlagModalPageFromURL
         if (urlPage !== 1) {
             actions.setFeatureFlagModalFilters({ page: urlPage })

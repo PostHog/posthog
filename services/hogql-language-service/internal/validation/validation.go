@@ -110,6 +110,10 @@ func Validate(schema *catalog.Catalog, query string) Result {
 				ignoredIdents[typed.Table] = true
 			case *clickhouse.FunctionExpr:
 				ignoredIdents[typed.Name] = true
+			case *clickhouse.IntervalExpr:
+				ignoredIdents[typed.Unit] = true
+			case *clickhouse.IntervalFrom:
+				ignoredIdents[typed.Interval] = true
 			case *clickhouse.SelectItem:
 				ignoredIdents[typed.Alias] = true
 			case *clickhouse.AliasExpr:

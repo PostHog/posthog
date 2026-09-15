@@ -2,6 +2,7 @@ import { IconWarning } from '@posthog/icons'
 
 import { WarningHog } from 'lib/components/hedgehogs'
 import type { SceneProductEmptyState } from 'lib/components/ProductEmptyState/types'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
@@ -52,5 +53,19 @@ export const errorTrackingEmptyState: SceneProductEmptyState = {
         manualSetupUrl: 'https://posthog.com/docs/error-tracking/installation',
         previewLabel: 'Issues, once exceptions arrive',
         Preview: ErrorTrackingPreview,
+        // The `error-tracking` wizard subcommand is still rolling out. While its flag is on the terminal
+        // card is the only call to action, so the one-click opt-in and its lead-in leave the setup screen.
+        // The wizard is keyed to setup: once autocapture is on the screen only waits for an exception.
+        featureFlagOverrides: {
+            [FEATURE_FLAGS.ERROR_TRACKING_NEW_WIZARD]: {
+                text: {
+                    'needs-setup': {
+                        hint: 'Run Wizard in your project. The setup agent installs the SDK if needed, then adds exception capture and source map upload:',
+                    },
+                },
+                wizard: { 'needs-setup': { slug: 'error-tracking', pinProjectId: true } },
+                primaryAction: undefined,
+            },
+        },
     },
 }

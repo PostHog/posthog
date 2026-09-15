@@ -32,6 +32,8 @@ CRITERIA_FIELDS = {
     "start_time",
     "end_time",
     "hogql_predicate",
+    "hogql_query",
+    "hogql_variables",
     "person_uuids",
     "person_distinct_ids",
     "person_drop_profiles",
@@ -48,7 +50,11 @@ PERSON_REMOVAL_FIELDS = (
     "person_drop_recordings",
 )
 
-UNSUPPORTED_REQUEST_TYPES = (RequestType.PERSON_REMOVAL, RequestType.PROPERTY_REMOVAL)
+UNSUPPORTED_REQUEST_TYPES = (
+    RequestType.HOGQL_EVENT_REMOVAL,
+    RequestType.PERSON_REMOVAL,
+    RequestType.PROPERTY_REMOVAL,
+)
 
 # Requests can only be edited while draft or pending. Once approved (or later), the
 # criteria are locked — operators must explicitly "revert to draft" to change them.
@@ -258,6 +264,8 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
         "min_timestamp",
         "max_timestamp",
         "stats_calculated_at",
+        "hogql_query",
+        "hogql_variables",
         "created_at",
         "created_by",
         "updated_at",
@@ -292,6 +300,8 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
                     "properties",
                     "person_properties",
                     "hogql_predicate",
+                    "hogql_query",
+                    "hogql_variables",
                     "notes",
                 ),
             },
@@ -351,6 +361,8 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
             criteria = {field: getattr(original, field) for field in CRITERIA_FIELDS}
             # Shallow-copy mutable list fields so the duplicate never aliases the original's lists.
             criteria = {k: list(v) if isinstance(v, list) else v for k, v in criteria.items()}
+            if original.request_type == RequestType.HOGQL_EVENT_REMOVAL:
+                criteria["execution_mode"] = ExecutionMode.DEFERRED
             DataDeletionRequest.objects.create(
                 **criteria,
                 team_id=original.team_id,
@@ -728,6 +740,10 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
             messages.error(request, "Only ClickHouse Team members can approve deletion requests.")
             return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]))
 
+        if obj.request_type == RequestType.HOGQL_EVENT_REMOVAL:
+            messages.error(request, "Query-backed deletion requests cannot be approved yet.")
+            return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]))
+
         supports_deferred = obj.request_type == RequestType.EVENT_REMOVAL
         default_execution_mode = ExecutionMode.DEFERRED if supports_deferred else ExecutionMode.IMMEDIATE
 
@@ -821,6 +837,10 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
             messages.error(request, "Only ClickHouse Team members can retry deletion requests.")
             return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]))
 
+        if obj.request_type == RequestType.HOGQL_EVENT_REMOVAL:
+            messages.error(request, "Query-backed deletion requests cannot be retried yet.")
+            return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]))
+
         # Re-promote FAILED → APPROVED so the pickup sensor relaunches the job.
         # approved_by / approved_at are preserved — the retry re-executes the same approval.
         # attempt_count and last_executed_at are bumped by the load_* op when execution actually starts.
@@ -854,10 +874,10 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
             messages.error(request, "Only ClickHouse Team members can verify deletion requests.")
             return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]))
 
-        if obj.request_type == RequestType.PERSON_REMOVAL:
+        if obj.request_type in (RequestType.PERSON_REMOVAL, RequestType.HOGQL_EVENT_REMOVAL):
+            request_type = obj.get_request_type_display().lower()
             messages.warning(
-                request,
-                "Automated verification isn't available for person removal requests — verify manually.",
+                request, f"Automated verification is not available for {request_type} requests. Verify manually."
             )
             return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]))
 

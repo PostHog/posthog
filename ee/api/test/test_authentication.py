@@ -307,6 +307,26 @@ class TestEEAuthenticationAPI(APILicensedTest):
             second_key = self.client.session.session_key
             self.assertNotEqual(first_key, second_key)
 
+    @patch("social_core.backends.base.BaseAuth.request")
+    def test_google_login_returns_to_saved_insight(self, mock_request):
+        UserSocialAuth.objects.create(user=self.user, provider="google-oauth2", uid="google-sub-123")
+        insight_url = "/project/1/insights/test-insight"
+
+        with self.settings(**GOOGLE_MOCK_SETTINGS):
+            response = self.client.get(f"/login/google-oauth2/?{urlencode({'next': insight_url})}")
+            self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+            state = self.client.session["google-oauth2_state"]
+
+            mock_request.return_value.json.return_value = {
+                "access_token": "123",
+                "email": self.user.email,
+                "sub": "google-sub-123",
+            }
+            response = self.client.get(f"/complete/google-oauth2/?code=2&state={state}")
+
+        self.assertRedirects(response, insight_url, fetch_redirect_response=False)
+        self.assertEqual(self.client.session.get("_auth_user_id"), str(self.user.pk))
+
     @parameterized.expand(
         [
             ("auth_failed", AuthFailed(cast(Any, "google-oauth2"), "bad")),

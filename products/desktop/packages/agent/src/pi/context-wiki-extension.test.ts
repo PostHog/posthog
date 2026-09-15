@@ -36,6 +36,11 @@ describe("createPiContextWikiExtension", () => {
     expect(result.systemPrompt).toContain("Base prompt.");
     expect(result.systemPrompt).toContain("# Context Wiki");
     expect(result.systemPrompt).toContain(mount);
+    expect(result.systemPrompt).toContain("task-context-wiki-page-propose");
+    expect(result.systemPrompt).toContain("Context > Suggested edits");
+    expect(result.systemPrompt).toContain(
+      "Ordinary tasks cannot approve suggestions or publish commit bundles.",
+    );
   });
 
   it("leaves the prompt alone when the mount path is absent on disk", async () => {

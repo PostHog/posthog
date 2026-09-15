@@ -4,13 +4,68 @@ import { PropertyFilterType, PropertyOperator } from '~/types'
 import { ACCOUNTS_DEFAULT_COLUMNS } from './accountsColumnConfigLogic'
 import {
     AccountsViewState,
+    accountsViewDraftStorageKey,
     deserializeAccountsView,
     normalizeRoleFilter,
     orderByToSortOrder,
+    readAccountsViewDraft,
     serializeAccountsView,
     sortOrderToOrderBy,
+    writeAccountsViewDraft,
 } from './accountsViewState'
 import { DEFAULT_TILES } from './constants'
+
+const draft: AccountsViewState = {
+    columns: ['name'],
+    sortOrder: null,
+    filters: {
+        search: 'acme',
+        assignmentStatus: 'all',
+        assignedTo: [],
+        tags: [],
+        tileFilter: null,
+        customProperties: [],
+    },
+    tiles: [...DEFAULT_TILES],
+    columnDisplay: {},
+}
+
+describe('accounts view drafts', () => {
+    beforeEach(() => {
+        sessionStorage.clear()
+    })
+
+    afterEach(() => {
+        sessionStorage.clear()
+        jest.restoreAllMocks()
+    })
+
+    it('scopes drafts to the current project and user', () => {
+        writeAccountsViewDraft(1, 'user-a', draft)
+        writeAccountsViewDraft(1, 'user-b', { ...draft, filters: { ...draft.filters, search: 'other user' } })
+        writeAccountsViewDraft(2, 'user-a', { ...draft, filters: { ...draft.filters, search: 'other project' } })
+
+        expect(readAccountsViewDraft(1, 'user-a')).toEqual(draft)
+        expect(readAccountsViewDraft(1, 'user-b')?.filters.search).toBe('other user')
+        expect(readAccountsViewDraft(2, 'user-a')?.filters.search).toBe('other project')
+    })
+
+    it('fails closed for malformed or unavailable session storage', () => {
+        sessionStorage.setItem(accountsViewDraftStorageKey(1, 'user-a'), '{invalid')
+        expect(readAccountsViewDraft(1, 'user-a')).toBeNull()
+
+        jest.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+            throw new Error('storage denied')
+        })
+        expect(readAccountsViewDraft(1, 'user-a')).toBeNull()
+        jest.restoreAllMocks()
+
+        jest.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+            throw new Error('storage denied')
+        })
+        expect(() => writeAccountsViewDraft(1, 'user-a', draft)).not.toThrow()
+    })
+})
 
 describe('sortOrderToOrderBy / orderByToSortOrder', () => {
     it('round-trips a plain ascending column', () => {

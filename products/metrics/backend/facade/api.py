@@ -223,6 +223,7 @@ def list_metric_names(
     search: str = "",
     limit: int = 100,
     services: Sequence[str] = (),
+    names: Sequence[str] = (),
 ) -> list[dict[str, Any]]:
     """List distinct metric names for the team's picker.
 
@@ -234,6 +235,8 @@ def list_metric_names(
     The unsearched list is cached per team and service scope for a minute;
     searches are not.
     """
+    if names:
+        return MetricNamesQueryRunner(team=team, services=services, names=names, limit=len(names)).run()
     return cached_metric_names(team=team, search=search, limit=limit, services=services)
 
 

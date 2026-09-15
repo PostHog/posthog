@@ -665,14 +665,6 @@ class ExperimentService:
         return rendered
 
     @classmethod
-    def strip_unknown_exposure_criteria_keys(cls, exposure_criteria: dict | None) -> dict | None:
-        """Drop unknown top-level keys from stored criteria (writes accepted them before
-        the unknown-key rejection below existed)."""
-        if not isinstance(exposure_criteria, dict):
-            return exposure_criteria
-        return {k: v for k, v in exposure_criteria.items() if k in ExperimentExposureCriteria.model_fields}
-
-    @classmethod
     def validate_experiment_exposure_criteria(cls, exposure_criteria: object) -> None:
         """Validate experiment exposure criteria payloads.
 
@@ -689,8 +681,7 @@ class ExperimentService:
             )
 
         # Reject unknown top-level keys: they used to be silently saved, and the strict
-        # read-side parse then broke every results/exposure query for the experiment
-        # (reads now tolerate them, but new writes should fail fast with a pointer).
+        # read-side parse then broke every results/exposure query for the experiment.
         unknown_keys = set(exposure_criteria) - set(ExperimentExposureCriteria.model_fields)
         if unknown_keys:
             hint = (
@@ -4209,9 +4200,7 @@ class ExperimentService:
             "ensure_experience_continuity": bool(source_experiment.feature_flag.ensure_experience_continuity),
         }
 
-        # Stored criteria can carry unknown top-level keys accepted before writes rejected
-        # them — strip those instead of failing the clone on data the user didn't write.
-        cloned_exposure_criteria = self.strip_unknown_exposure_criteria_keys(source_experiment.exposure_criteria)
+        cloned_exposure_criteria = source_experiment.exposure_criteria
         self.validate_experiment_exposure_criteria(cloned_exposure_criteria)
         self.validate_experiment_metrics(source_experiment.metrics)
         self.validate_experiment_metrics(source_experiment.metrics_secondary)

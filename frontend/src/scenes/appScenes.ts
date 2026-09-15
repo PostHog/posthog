@@ -119,6 +119,7 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.CodeCanvasLink]: () => import('./code-canvas/CodeCanvasLink'),
     [Scene.CodeChannelLink]: () => import('./code-canvas/CodeChannelLink'),
     [Scene.CodeTaskLink]: () => import('./code-canvas/CodeTaskLink'),
+    [Scene.CodeLoopLink]: () => import('./code-canvas/CodeLoopLink'),
     [Scene.VercelConnect]: () => import('./authentication/vercel/VercelConnect'),
     [Scene.VercelLinkError]: () => import('./authentication/vercel/VercelLinkError'),
     [Scene.AgenticAccountMismatch]: () => import('./authentication/account/AgenticAccountMismatch'),

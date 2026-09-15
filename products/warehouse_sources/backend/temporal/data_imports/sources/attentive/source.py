@@ -161,14 +161,8 @@ class AttentiveSource(
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
-            "401 Client Error: Unauthorized": (
-                "Attentive rejected the API key. Create a private app under Marketplace > Create app "
-                "in Attentive and reconnect with its API key."
-            ),
-            "403 Client Error: Forbidden": (
-                "The API key doesn't have permission for this endpoint. Make sure the private app has "
-                "the Webhooks permission."
-            ),
+            "401 Client Error: Unauthorized": api_client.API_KEY_REJECTED_ERROR,
+            "403 Client Error: Forbidden": api_client.WEBHOOKS_PERMISSION_ERROR,
         }
 
     def get_schemas(
