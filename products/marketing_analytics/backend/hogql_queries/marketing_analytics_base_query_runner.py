@@ -50,6 +50,7 @@ from products.marketing_analytics.backend.hogql_queries.constants import (
 )
 from products.marketing_analytics.backend.hogql_queries.marketing_lazy_precompute import (
     BACKGROUND_WARMING_TRIGGERS,
+    handle_not_ready,
     handle_stale_served,
     marketing_ensure_precomputed,
 )
@@ -188,7 +189,9 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
                 response = self._calculate()
             except MarketingPrecomputeNotReady as not_ready:
                 # A precomputable goal has no warm window: serve an explicit not-ready response rather than
-                # scan events live. The warmer materializes it; the UI shows a "computing" state meanwhile.
+                # scan events live. Enqueue a one-off background warm so a cold team outside the rolling warm
+                # set is served on its next visit; the UI shows a "computing" state meanwhile.
+                handle_not_ready(team=self.team, query=self.query)
                 self._capture_query_event("marketing analytics query not ready", start, error=not_ready)
                 return self._build_not_ready_response()
             if self.limit_context == LimitContext.EXPORT:

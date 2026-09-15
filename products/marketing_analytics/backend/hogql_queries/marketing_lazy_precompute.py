@@ -80,6 +80,11 @@ MARKETING_PRECOMPUTE_REVALIDATION_ENQUEUE_FAILED = Counter(
     "Revalidation enqueues that failed (e.g. broker unavailable); the stale read is still served.",
 )
 
+MARKETING_PRECOMPUTE_NOT_READY_WARMED = Counter(
+    "marketing_analytics_precompute_not_ready_warmed_total",
+    "Background warms enqueued because a read found no precompute for its window (cold team on-demand).",
+)
+
 
 # Precompute-only reads serve stale rows up to just under the framework's 48h ClickHouse-row lifetime
 # ceiling (EXPIRY_BUFFER_SECONDS). Past that the rows may be GC'd, so a read reports not-ready instead of
@@ -178,4 +183,14 @@ def handle_stale_served(*, team: Team, query: Any) -> None:
     """
     MARKETING_PRECOMPUTE_STALE_SERVED.inc()
     tag_queries(precompute_stale=True)
+    enqueue_stale_revalidation(team=team, query=query)
+
+
+def handle_not_ready(*, team: Team, query: Any) -> None:
+    """A read found no warm precompute for its window — a cold team outside the rolling warm set.
+
+    Enqueue a one-off background warm (debounced, same as revalidation) so the team's next visit is
+    served. The user sees the "computing" state until the warm lands.
+    """
+    MARKETING_PRECOMPUTE_NOT_READY_WARMED.inc()
     enqueue_stale_revalidation(team=team, query=query)
