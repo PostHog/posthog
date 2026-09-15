@@ -9,6 +9,8 @@ import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
+from posthog.dataclasses import frozen
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.azure_devops.settings import (
     AZURE_DEVOPS_BASE_URL,
     AZURE_DEVOPS_ENDPOINTS,
@@ -111,11 +113,19 @@ def _parse_datetime(value: Any) -> Optional[datetime]:
     return None
 
 
-def _last_updated_windows(since: datetime, until: datetime) -> Iterator[tuple[str, str]]:
+@frozen
+class LastUpdatedWindow:
+    """One minLastUpdatedDate/maxLastUpdatedDate pair for the test run query."""
+
+    min_last_updated: str
+    max_last_updated: str
+
+
+def _last_updated_windows(since: datetime, until: datetime) -> Iterator[LastUpdatedWindow]:
     start = since
     while start < until:
         end = min(start + TEST_RUN_WINDOW, until)
-        yield _format_datetime(start), _format_datetime(end)
+        yield LastUpdatedWindow(min_last_updated=_format_datetime(start), max_last_updated=_format_datetime(end))
         start = end
 
 
@@ -171,13 +181,14 @@ def _with_project_ref(item: dict[str, Any], project: dict[str, Any]) -> dict[str
 def _flatten_timeline_record(
     record: dict[str, Any], project: str, build: dict[str, Any], timeline_id: Any
 ) -> dict[str, Any]:
-    # A record only makes sense against the run it describes, and the build's queue time
-    # is what the pipeline partitions and tracks the watermark on.
+    # A record only makes sense against the run it describes. The build supplies both the
+    # stable partition field and the watermark field, which the record itself does not carry.
     return {
         **record,
         "project_name": project,
         "build_id": build.get("id"),
         "build_queue_time": build.get("queueTime"),
+        "build_finish_time": build.get("finishTime"),
         "timeline_id": timeline_id,
     }
 
@@ -353,9 +364,13 @@ def get_rows(
 
     def builds_for(project: str) -> Iterator[list[dict[str, Any]]]:
         # The timeline endpoint takes no filter, so the endpoint's minTime watermark
-        # lands here and bounds which builds an incremental sync visits at all.
+        # lands here and bounds which builds an incremental sync visits at all. minTime
+        # filters on whichever time queryOrder names, so ordering by finish time makes
+        # the cursor a finish time: a build still running has none and is skipped until
+        # it ends, and a retried build's finish time moves forward so its timeline is
+        # read again.
         path = AZURE_DEVOPS_ENDPOINTS["builds"].path.replace("{project}", quote(project))
-        yield from iterate_header_token(path, {"queryOrder": "queueTimeAscending"})
+        yield from iterate_header_token(path, {"queryOrder": "finishTimeAscending"})
 
     def pull_request_refs() -> Iterator[PullRequestRef]:
         pr_path = AZURE_DEVOPS_ENDPOINTS["pull_requests"].path
@@ -452,10 +467,13 @@ def get_rows(
                 for page in iterate_skip(path, {}, use_base_params=False):
                     yield [_with_project_ref(item, project_row) for item in page]
                 continue
-            for window_start, window_end in _last_updated_windows(since, datetime.now(UTC)):
+            for window in _last_updated_windows(since, datetime.now(UTC)):
                 for page in iterate_header_token(
                     path,
-                    {"minLastUpdatedDate": window_start, "maxLastUpdatedDate": window_end},
+                    {
+                        "minLastUpdatedDate": window.min_last_updated,
+                        "maxLastUpdatedDate": window.max_last_updated,
+                    },
                     use_base_params=False,
                 ):
                     yield [_with_project_ref(item, project_row) for item in page]

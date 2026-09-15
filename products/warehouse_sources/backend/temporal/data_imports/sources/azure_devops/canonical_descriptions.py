@@ -217,6 +217,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "build_id": "Identifier of the build the record belongs to.",
             "timeline_id": "Identifier of the timeline the record was read from.",
             "build_queue_time": "Time at which the build was queued.",
+            "build_finish_time": "Time at which the build finished.",
             "project_name": "Name of the project the build belongs to.",
             "parentId": "Identifier of the record's parent record.",
             "type": "Type of the record (Stage, Phase, Job, Task, Checkpoint).",

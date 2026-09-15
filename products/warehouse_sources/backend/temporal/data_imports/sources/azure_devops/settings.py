@@ -72,9 +72,12 @@ AZURE_DEVOPS_ENDPOINTS: dict[str, AzureDevOpsEndpointConfig] = {
         # Record IDs are GUIDs; the build is carried so a row identifies the run it
         # describes without joining.
         primary_keys=["build_id", "id"],
+        # Queue time never moves, unlike the finish time the cursor tracks.
         partition_key="build_queue_time",
-        # A timeline takes no filter of its own, so the watermark bounds the parent
-        # build listing instead — an incremental sync only fetches new builds.
+        # A timeline takes no filter of its own, so the watermark bounds the parent build
+        # listing instead. It tracks the build's finish time rather than its queue time,
+        # because a record changes until its build ends and again on every retry — see
+        # `builds_for` in azure_devops.py.
         incremental_param="minTime",
         # The fan-out visits projects one after another, so the stream as a whole is
         # not ascending. `desc` makes the pipeline finalize the watermark only after a
@@ -82,9 +85,9 @@ AZURE_DEVOPS_ENDPOINTS: dict[str, AzureDevOpsEndpointConfig] = {
         sort_mode="desc",
         incremental_fields=[
             {
-                "label": "build_queue_time",
+                "label": "build_finish_time",
                 "type": IncrementalFieldType.DateTime,
-                "field": "build_queue_time",
+                "field": "build_finish_time",
                 "field_type": IncrementalFieldType.DateTime,
             },
         ],
@@ -186,17 +189,11 @@ AZURE_DEVOPS_ENDPOINTS: dict[str, AzureDevOpsEndpointConfig] = {
         # Release IDs restart per project.
         primary_keys=["project_id", "id"],
         partition_key="createdOn",
-        incremental_param="minCreatedTime",
-        # Ascending within a project, but the fan-out interleaves projects.
-        sort_mode="desc",
-        incremental_fields=[
-            {
-                "label": "createdOn",
-                "type": IncrementalFieldType.DateTime,
-                "field": "createdOn",
-                "field_type": IncrementalFieldType.DateTime,
-            },
-        ],
+        # A release keeps changing after it is created — its status, its modified time,
+        # its environments — and the listing only filters on creation time, so a cursor
+        # would stop re-reading rows that are still moving. Full refresh instead; the
+        # per-environment history lives in release_deployments, which does have a
+        # modified-time filter.
     ),
     "release_deployments": AzureDevOpsEndpointConfig(
         name="release_deployments",

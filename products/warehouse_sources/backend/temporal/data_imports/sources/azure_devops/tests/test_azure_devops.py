@@ -623,14 +623,16 @@ class TestLastUpdatedWindows:
         windows = list(_last_updated_windows(since, until))
 
         assert len(windows) == 3
-        assert windows[0][0] == "2024-01-01T00:00:00Z"
-        assert windows[-1][1] == "2024-01-21T00:00:00Z"
+        assert windows[0].min_last_updated == "2024-01-01T00:00:00Z"
+        assert windows[-1].max_last_updated == "2024-01-21T00:00:00Z"
         # A gap between windows would drop every run updated inside it.
-        assert [end for _, end in windows[:-1]] == [start for start, _ in windows[1:]]
-        for start, end in windows:
+        assert [window.max_last_updated for window in windows[:-1]] == [
+            window.min_last_updated for window in windows[1:]
+        ]
+        for window in windows:
             assert (
-                datetime.fromisoformat(end.replace("Z", "+00:00"))
-                - datetime.fromisoformat(start.replace("Z", "+00:00"))
+                datetime.fromisoformat(window.max_last_updated.replace("Z", "+00:00"))
+                - datetime.fromisoformat(window.min_last_updated.replace("Z", "+00:00"))
                 <= TEST_RUN_WINDOW
             )
 
@@ -669,7 +671,9 @@ class TestBuildEndpoints:
     def test_build_timeline_records_carry_the_build_they_describe(self, mock_session):
         mock_session.return_value.get.side_effect = [
             _response(self.PROJECTS),
-            _response({"value": [{"id": 41, "queueTime": "2024-01-02T03:04:05Z"}]}),
+            _response(
+                {"value": [{"id": 41, "queueTime": "2024-01-02T03:04:05Z", "finishTime": "2024-01-02T03:20:00Z"}]}
+            ),
             _response({"id": "timeline-1", "records": [{"id": "rec-1", "type": "Job", "result": "failed"}]}),
         ]
 
@@ -680,10 +684,11 @@ class TestBuildEndpoints:
         )
 
         row = batches[0][0]
-        # build_id is half the composite primary key; the queue time is the partition
-        # and watermark field, and only the parent build carries it.
+        # build_id is half the composite primary key; the queue time partitions and the
+        # finish time is the watermark, and only the parent build carries either.
         assert (row["id"], row["build_id"], row["timeline_id"]) == ("rec-1", 41, "timeline-1")
         assert row["build_queue_time"] == "2024-01-02T03:04:05Z"
+        assert row["build_finish_time"] == "2024-01-02T03:20:00Z"
         assert row["project_name"] == "Alpha"
         assert urlparse(mock_session.return_value.get.call_args_list[2].args[0]).path == (
             "/myorg/Alpha/_apis/build/builds/41/timeline"
@@ -720,6 +725,8 @@ class TestBuildEndpoints:
     def test_build_timeline_incremental_bounds_the_parent_build_listing(self, mock_session):
         # The timeline endpoint takes no filter of its own, so the watermark has to reach
         # the builds listing — otherwise every sync re-fetches every build's timeline.
+        # minTime filters on whichever time queryOrder names, so ordering by finish time
+        # is what keeps a still-running build out until it ends.
         mock_session.return_value.get.side_effect = [
             _response(self.PROJECTS),
             _response({"value": []}),
@@ -740,22 +747,23 @@ class TestBuildEndpoints:
 
         builds_query = parse_qs(urlparse(mock_session.return_value.get.call_args_list[1].args[0]).query)
         assert builds_query["minTime"] == ["2024-01-02T00:00:00Z"]
+        assert builds_query["queryOrder"] == ["finishTimeAscending"]
 
 
 class TestReleaseEndpoints:
     PROJECTS = {"value": [{"id": "proj-guid", "name": "Alpha"}]}
 
     @pytest.mark.parametrize(
-        "endpoint, path, incremental_param",
+        "endpoint, path",
         [
-            ("releases", "/myorg/Alpha/_apis/release/releases", "minCreatedTime"),
-            ("release_deployments", "/myorg/Alpha/_apis/release/deployments", "minModifiedTime"),
+            ("releases", "/myorg/Alpha/_apis/release/releases"),
+            ("release_deployments", "/myorg/Alpha/_apis/release/deployments"),
         ],
     )
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.azure_devops.azure_devops.make_tracked_session"
     )
-    def test_release_endpoints_are_read_from_the_release_host(self, mock_session, endpoint, path, incremental_param):
+    def test_release_endpoints_are_read_from_the_release_host(self, mock_session, endpoint, path):
         mock_session.return_value.get.side_effect = [
             _response(self.PROJECTS),
             _response({"value": [{"id": 5, "name": "Release-5"}]}),
@@ -782,8 +790,39 @@ class TestReleaseEndpoints:
         assert release_url.startswith(f"{AZURE_DEVOPS_RELEASE_BASE_URL}/")
         parsed = urlparse(release_url)
         assert parsed.path == path
-        assert parse_qs(parsed.query)[incremental_param] == ["2024-01-02T00:00:00Z"]
         assert parse_qs(parsed.query)["queryOrder"] == ["ascending"]
+
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.azure_devops.azure_devops.make_tracked_session"
+    )
+    def test_deployments_track_the_modified_time_and_releases_track_nothing(self, mock_session):
+        # A deployment's status moves as it promotes, and the listing filters on the
+        # modified time. The releases listing has no such filter, so a cursor there would
+        # freeze rows that are still changing — it stays full refresh.
+        mock_session.return_value.get.side_effect = [
+            _response(self.PROJECTS),
+            _response({"value": []}),
+            _response(self.PROJECTS),
+            _response({"value": []}),
+        ]
+
+        def sync(endpoint: str) -> dict[str, list[str]]:
+            list(
+                get_rows(
+                    "myorg",
+                    "pat",
+                    endpoint,
+                    mock.MagicMock(),
+                    _make_manager(),
+                    AZURE_DEVOPS_VERSION_7_2,
+                    should_use_incremental_field=True,
+                    db_incremental_field_last_value=datetime(2024, 1, 2, tzinfo=UTC),
+                )
+            )
+            return parse_qs(urlparse(mock_session.return_value.get.call_args_list[-1].args[0]).query)
+
+        assert sync("release_deployments")["minModifiedTime"] == ["2024-01-02T00:00:00Z"]
+        assert "minCreatedTime" not in sync("releases")
 
 
 class TestTestRunEndpoint:
