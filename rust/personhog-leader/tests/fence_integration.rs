@@ -18,7 +18,7 @@ use personhog_leader::cache::{CachedPerson, DirtyIndex, PartitionedCache, Person
 use personhog_leader::emitted::EmittedVersions;
 use personhog_leader::fence::{FENCED_METADATA_KEY, FENCED_OP_ID_METADATA_KEY};
 use personhog_leader::inflight::InflightTracker;
-use personhog_leader::pg::PgFallback;
+use personhog_leader::pg::{LifecycleTables, PgFallback};
 use personhog_leader::service::{PersonHogLeaderService, PropertySizeLimits};
 use personhog_leader::settle::drop_settled_death_documents;
 use personhog_leader::warnings::WarningsProducer;
@@ -328,6 +328,7 @@ async fn a_committed_release_produces_the_death_document_above_every_version() {
         Some(PgFallback {
             pool: pool.clone(),
             table: "posthog_person".to_string(),
+            lifecycle: LifecycleTables::new("lifecycle_op", "lifecycle_op_person"),
         }),
     )
     .await;
@@ -485,6 +486,7 @@ async fn a_revival_is_served_once_the_death_documents_mark_settles() {
         Some(PgFallback {
             pool: pool.clone(),
             table: "posthog_person".to_string(),
+            lifecycle: LifecycleTables::new("lifecycle_op", "lifecycle_op_person"),
         }),
     )
     .await;
@@ -667,6 +669,7 @@ async fn a_committed_release_derives_the_death_version_above_the_emitted_floor()
         Some(PgFallback {
             pool: pool.clone(),
             table: "posthog_person".to_string(),
+            lifecycle: LifecycleTables::new("lifecycle_op", "lifecycle_op_person"),
         }),
     )
     .await;
@@ -763,6 +766,7 @@ async fn a_stub_sealed_at_version_zero_can_be_released() {
         Some(PgFallback {
             pool: pool.clone(),
             table: "posthog_person".to_string(),
+            lifecycle: LifecycleTables::new("lifecycle_op", "lifecycle_op_person"),
         }),
     )
     .await;
@@ -845,6 +849,7 @@ async fn a_ghost_fence_heals_after_a_rejected_write() {
         Some(PgFallback {
             pool: pool.clone(),
             table: "posthog_person".to_string(),
+            lifecycle: LifecycleTables::new("lifecycle_op", "lifecycle_op_person"),
         }),
     )
     .await;
@@ -937,6 +942,7 @@ async fn a_ghost_fence_heals_after_a_rejected_fence_attempt() {
         Some(PgFallback {
             pool: pool.clone(),
             table: "posthog_person".to_string(),
+            lifecycle: LifecycleTables::new("lifecycle_op", "lifecycle_op_person"),
         }),
     )
     .await;
@@ -1027,6 +1033,7 @@ async fn a_live_marked_fence_survives_heal_attempts() {
         Some(PgFallback {
             pool: pool.clone(),
             table: "posthog_person".to_string(),
+            lifecycle: LifecycleTables::new("lifecycle_op", "lifecycle_op_person"),
         }),
     )
     .await;
@@ -1093,6 +1100,7 @@ async fn a_committed_release_without_a_live_mark_is_refused() {
         Some(PgFallback {
             pool,
             table: "posthog_person".to_string(),
+            lifecycle: LifecycleTables::new("lifecycle_op", "lifecycle_op_person"),
         }),
     )
     .await;
@@ -1344,7 +1352,12 @@ async fn the_takeover_scan_rebuilds_exactly_the_partitions_live_fences() {
 
     let partition_a = partition_for_person(team_id, fenced_a, NUM_PARTITIONS);
     let fences: FenceMap = Arc::new(DashMap::new());
-    let installed = rebuild_partition_fences(&pool, &fences, partition_a, NUM_PARTITIONS)
+    let fallback = PgFallback {
+        pool: pool.clone(),
+        table: "posthog_person".to_string(),
+        lifecycle: LifecycleTables::new("lifecycle_op", "lifecycle_op_person"),
+    };
+    let installed = rebuild_partition_fences(&fallback, &fences, partition_a, NUM_PARTITIONS)
         .await
         .expect("scan runs");
 
@@ -1381,7 +1394,7 @@ async fn the_takeover_scan_rebuilds_exactly_the_partitions_live_fences() {
             op_type: personhog_proto::personhog::types::v1::LifecycleOpType::Delete,
         },
     );
-    let reinstalled = rebuild_partition_fences(&pool, &fences, ghost_partition, NUM_PARTITIONS)
+    let reinstalled = rebuild_partition_fences(&fallback, &fences, ghost_partition, NUM_PARTITIONS)
         .await
         .expect("re-warm runs");
     assert!(
@@ -1604,6 +1617,7 @@ async fn start_marked_fold_harness(seed: CachedPerson, op: &Uuid) -> FenceHarnes
         Some(PgFallback {
             pool: pool.clone(),
             table: "posthog_person".to_string(),
+            lifecycle: LifecycleTables::new("lifecycle_op", "lifecycle_op_person"),
         }),
     )
     .await;
@@ -2078,6 +2092,7 @@ async fn a_fold_whose_op_holds_no_live_target_mark_is_refused() {
         Some(PgFallback {
             pool: pool.clone(),
             table: "posthog_person".to_string(),
+            lifecycle: LifecycleTables::new("lifecycle_op", "lifecycle_op_person"),
         }),
     )
     .await;
@@ -2530,6 +2545,7 @@ async fn a_release_after_a_cache_eviction_still_produces_the_death_document() {
         Some(PgFallback {
             pool: pool.clone(),
             table: "posthog_person".to_string(),
+            lifecycle: LifecycleTables::new("lifecycle_op", "lifecycle_op_person"),
         }),
     )
     .await;

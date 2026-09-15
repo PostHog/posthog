@@ -117,6 +117,7 @@ from products.customer_analytics.backend.presentation.views.serializers import (
     UserCustomerAnalyticsConfigUpdateSerializer,
 )
 from products.notebooks.backend.facade.content import build_markdown_notebook_content
+from products.notebooks.backend.facade.contracts import NotebookCellLimitExceeded, NotebookContentNotConvertible
 
 # Object-level access levels for the resource ViewSets, matching what
 # ``AccessControlPermission._get_required_access_level`` derives for these scope objects:
@@ -2130,19 +2131,22 @@ class AccountNotebookViewSet(
         serializer = AccountNotebookSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
-        notebook = api.create_account_notebook(
-            team_id=self.team_id,
-            team=self.team,
-            account_id=self.parents_query_dict["account_id"],
-            input=contracts.CreateAccountNotebookInput(
-                title=data.title,
-                content=data.content,
-                text_content=data.text_content,
-                synthesized_content=_synthesize_notebook_content(data.text_content, data.content),
-            ),
-            user=cast(User, request.user),
-            user_access_control=self.user_access_control,
-        )
+        try:
+            notebook = api.create_account_notebook(
+                team_id=self.team_id,
+                team=self.team,
+                account_id=self.parents_query_dict["account_id"],
+                input=contracts.CreateAccountNotebookInput(
+                    title=data.title,
+                    content=data.content,
+                    text_content=data.text_content,
+                    synthesized_content=_synthesize_notebook_content(data.text_content, data.content),
+                ),
+                user=cast(User, request.user),
+                user_access_control=self.user_access_control,
+            )
+        except (NotebookContentNotConvertible, NotebookCellLimitExceeded) as err:
+            raise ValidationError({"content": str(err)})
         if notebook is None:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         return Response(AccountNotebookSerializer(instance=notebook).data, status=status.HTTP_201_CREATED)

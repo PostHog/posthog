@@ -19,6 +19,7 @@ RejectionCode = Literal[
     "already_known",
     "low_confidence",
     "already_completed",
+    "learned_cap_reached",
 ]
 LearningResult = Literal["knowledge_created", "no_knowledge", "ineligible"]
 ExtractionRejectionCode = Literal["none", "case_specific", "not_useful", "unsupported", "low_confidence"]

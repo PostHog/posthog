@@ -70,7 +70,7 @@ class Command(BaseCommand):
             message = (
                 "Learned documents are no longer searchable."
                 if changed
-                else "This project has no generated Business knowledge source."
+                else "This project has no learned Business knowledge sources."
             )
             self.stdout.write(self.style.SUCCESS(message))
             return

@@ -63,7 +63,14 @@ class TestGeneratedKnowledgeDocuments(BaseTest):
 
         assert result.created is True
         assert source.team_id == self.team.id
-        assert source.name == logic.GENERATED_SOURCE_NAME
+        assert source.name == "Refund policy"
+        assert source.id == logic.learned_source_id_for(
+            team_id=self.team.id,
+            provider=input.provider,
+            ticket_id=input.ticket_id,
+            resolution_comment_id=input.resolution_comment_id,
+            analysis_version=input.analysis_version,
+        )
         assert source.source_type == SourceType.TEXT
         assert source.is_generated is True
         assert source.status == SourceStatus.READY
@@ -72,6 +79,7 @@ class TestGeneratedKnowledgeDocuments(BaseTest):
         assert document.metadata == {"source_type": SourceType.TEXT, **provenance}
         assert chunks
         assert logic.search_knowledge(self.team.id, "refunds") == []
+        assert logic.get_source_text_for_team(result.source_id, self.team.id) == input.content
 
         searchable_text = "\n".join(
             [source.name, document.stable_id, document.title, document.content, *(chunk.content for chunk in chunks)]
@@ -104,16 +112,17 @@ class TestGeneratedKnowledgeDocuments(BaseTest):
             ("provider", "other_provider", "post_resolution_v1"),
         ]
     )
-    def test_new_identity_reuses_team_source(self, _name: str, provider: str, analysis_version: str) -> None:
+    def test_new_identity_creates_a_new_source(self, _name: str, provider: str, analysis_version: str) -> None:
         first = logic.create_generated_knowledge_document(self._input())
         second = logic.create_generated_knowledge_document(
             self._input(provider=provider, analysis_version=analysis_version)
         )
 
-        assert first.source_id == second.source_id
+        assert first.source_id != second.source_id
         assert first.id != second.id
-        assert KnowledgeSource.objects.unscoped().filter(team=self.team, is_generated=True).count() == 1
-        assert KnowledgeDocument.objects.unscoped().filter(source_id=first.source_id).count() == 2
+        assert KnowledgeSource.objects.unscoped().filter(team=self.team, is_generated=True).count() == 2
+        assert KnowledgeDocument.objects.unscoped().filter(source_id=first.source_id).count() == 1
+        assert KnowledgeDocument.objects.unscoped().filter(source_id=second.source_id).count() == 1
 
     def test_same_provenance_is_isolated_between_teams(self) -> None:
         other_team = Team.objects.create_with_data(
@@ -162,30 +171,157 @@ class TestGeneratedKnowledgeDocuments(BaseTest):
         assert KnowledgeDocument.objects.unscoped().filter(id=result.id).exists()
         assert KnowledgeChunk.objects.unscoped().filter(document_id=result.id).exists()
 
+        logic.update_text_source(
+            source_id=result.source_id,
+            team_id=self.team.id,
+            name="Refund policy",
+            text="Changed refund window.",
+        )
+        document.refresh_from_db()
+        logic.set_document_safety(
+            team_id=self.team.id,
+            document_id=document.id,
+            verdict=SafetyVerdict.SAFE,
+            content_hash=document.content_hash,
+        )
+        source = KnowledgeSource.objects.unscoped().get(id=result.source_id)
+        assert source.status == SourceStatus.ERROR
+        assert source.error_message == logic.GENERATED_SOURCE_DISABLED_MESSAGE
+        assert logic.search_knowledge(self.team.id, "refunds") == []
+
     def test_disabling_generated_source_remains_effective_after_later_publish(self) -> None:
         first = logic.create_generated_knowledge_document(self._input())
         assert logic.set_generated_knowledge_source_ready(self.team.id, ready=False) is True
 
         second = logic.create_generated_knowledge_document(self._input(analysis_version="post_resolution_v2"))
 
-        source = KnowledgeSource.objects.unscoped().get(id=first.source_id)
-        assert second.source_id == first.source_id
-        assert source.status == SourceStatus.ERROR
+        first_source = KnowledgeSource.objects.unscoped().get(id=first.source_id)
+        second_source = KnowledgeSource.objects.unscoped().get(id=second.source_id)
+        assert second.source_id != first.source_id
+        assert first_source.status == SourceStatus.ERROR
+        assert second_source.status == SourceStatus.ERROR
+        assert second_source.error_message == logic.GENERATED_SOURCE_DISABLED_MESSAGE
 
-    def test_logic_mutations_reject_generated_source(self) -> None:
+    def test_generated_text_source_allows_edit_and_delete_but_not_refresh(self) -> None:
         result = logic.create_generated_knowledge_document(self._input())
 
+        renamed_first = logic.update_text_source(
+            source_id=result.source_id,
+            team_id=self.team.id,
+            name="Renamed policy",
+            text=None,
+        )
+        document = KnowledgeDocument.objects.unscoped().get(id=result.id)
+        assert renamed_first is not None
+        assert renamed_first.name == "Renamed policy"
+        assert document.title == "Renamed policy"
+        assert document.content == "Refunds are available within 30 days."
+        assert document.metadata["edited_by_user"] is True
+        assert document.metadata["ticket_number"] == 42
+
+        updated = logic.update_text_source(
+            source_id=result.source_id,
+            team_id=self.team.id,
+            name="Refund policy",
+            text="Changed content",
+        )
+        document = KnowledgeDocument.objects.unscoped().get(id=result.id)
+        chunks = list(KnowledgeChunk.objects.unscoped().filter(document=document))
+
+        assert updated is not None
+        assert document.id == result.id
+        assert document.content == "Changed content"
+        assert document.safety_verdict == SafetyVerdict.UNKNOWN
+        assert document.metadata["edited_by_user"] is True
+        assert document.metadata["ticket_number"] == 42
+        assert chunks
+        assert chunks[0].content == "Changed content"
+
+        renamed = logic.update_text_source(
+            source_id=result.source_id,
+            team_id=self.team.id,
+            name="Renamed policy",
+            text=None,
+        )
+        document.refresh_from_db()
+        assert renamed is not None
+        assert renamed.name == "Renamed policy"
+        assert document.title == "Renamed policy"
+        assert document.content == "Changed content"
+
         with self.assertRaises(logic.GeneratedSourceReadOnlyError):
+            logic.claim_refresh_source(source_id=result.source_id, team_id=self.team.id)
+
+        assert logic.delete_source(result.source_id, self.team.id) is True
+        assert not KnowledgeSource.objects.unscoped().filter(id=result.source_id).exists()
+
+    def test_generated_source_with_multiple_documents_cannot_be_edited(self) -> None:
+        result = logic.create_generated_knowledge_document(self._input())
+        source = KnowledgeSource.objects.unscoped().get(id=result.source_id)
+        extra_id = uuid.uuid4()
+        KnowledgeDocument.objects.unscoped().create(
+            id=extra_id,
+            team_id=self.team.id,
+            source=source,
+            stable_id=str(extra_id),
+            title="Second topic",
+            content="Second topic body.",
+            content_hash="abc",
+        )
+        first = KnowledgeDocument.objects.unscoped().get(id=result.id)
+        original_chunks = list(
+            KnowledgeChunk.objects.unscoped().filter(document_id=result.id).values_list("id", "content")
+        )
+
+        with self.assertRaises(logic.GeneratedSourceHasMultipleDocuments):
+            logic.get_source_text_for_team(result.source_id, self.team.id)
+        with self.assertRaises(logic.GeneratedSourceHasMultipleDocuments):
             logic.update_text_source(
                 source_id=result.source_id,
                 team_id=self.team.id,
-                name="Changed",
-                text="Changed content",
+                name="Refund policy",
+                text="Joined text that must not replace both documents.",
             )
-        with self.assertRaises(logic.GeneratedSourceReadOnlyError):
-            logic.delete_source(result.source_id, self.team.id)
-        with self.assertRaises(logic.GeneratedSourceReadOnlyError):
-            logic.claim_refresh_source(source_id=result.source_id, team_id=self.team.id)
+        with self.assertRaises(logic.GeneratedSourceHasMultipleDocuments):
+            logic.update_text_source(
+                source_id=result.source_id,
+                team_id=self.team.id,
+                name="Renamed",
+                text=None,
+            )
+
+        first.refresh_from_db()
+        extra = KnowledgeDocument.objects.unscoped().get(id=extra_id)
+        assert KnowledgeDocument.objects.unscoped().filter(source_id=result.source_id).count() == 2
+        assert first.content == "Refunds are available within 30 days."
+        assert extra.content == "Second topic body."
+        assert extra.metadata.get("edited_by_user") is not True
+        assert (
+            list(KnowledgeChunk.objects.unscoped().filter(document_id=result.id).values_list("id", "content"))
+            == original_chunks
+        )
+
+    def test_user_edit_survives_a_retry_of_the_same_identity(self) -> None:
+        first = logic.create_generated_knowledge_document(self._input())
+        logic.update_text_source(
+            source_id=first.source_id,
+            team_id=self.team.id,
+            name="Refund policy",
+            text="Edited by a person.",
+        )
+
+        retry = logic.create_generated_knowledge_document(
+            self._input(content="Analyzer rewrite that must not replace the edit.")
+        )
+        document = KnowledgeDocument.objects.unscoped().get(id=first.id)
+
+        assert retry == logic.GeneratedKnowledgeDocument(
+            id=first.id,
+            source_id=first.source_id,
+            created=False,
+        )
+        assert document.content == "Edited by a person."
+        assert document.metadata["edited_by_user"] is True
 
     def test_generated_source_does_not_consume_user_source_quota(self) -> None:
         logic.create_generated_knowledge_document(self._input())
@@ -290,3 +426,23 @@ class TestGeneratedKnowledgeDocuments(BaseTest):
     ) -> None:
         with self.assertRaises(logic.InvalidGeneratedKnowledgeDocument):
             logic.create_generated_knowledge_document(self._input(title=title, content=content))
+
+    def test_long_title_truncates_source_name(self) -> None:
+        title = "T" * 300
+        result = logic.create_generated_knowledge_document(self._input(title=title))
+
+        source = KnowledgeSource.objects.unscoped().get(id=result.source_id)
+        document = KnowledgeDocument.objects.unscoped().get(id=result.id)
+        assert source.name == title[: logic.MAX_GENERATED_SOURCE_NAME_LENGTH]
+        assert document.title == title[: logic.MAX_GENERATED_SOURCE_NAME_LENGTH]
+
+    def test_learned_source_cap_blocks_new_identities_not_retries(self) -> None:
+        first = logic.create_generated_knowledge_document(self._input())
+
+        with patch.object(logic, "MAX_LEARNED_SOURCES_PER_TEAM", 1):
+            retry = logic.create_generated_knowledge_document(self._input(content="Retry must skip the cap."))
+            with self.assertRaises(logic.LearnedSourceCapReached):
+                logic.create_generated_knowledge_document(self._input(analysis_version="post_resolution_v2"))
+
+        assert retry.source_id == first.source_id
+        assert KnowledgeSource.objects.unscoped().filter(team=self.team, is_generated=True).count() == 1

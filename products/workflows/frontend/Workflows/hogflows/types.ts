@@ -6,6 +6,7 @@ import { EmailFieldErrors } from 'scenes/hog-functions/email-templater/types'
 
 import { AccessControlLevel, UserBasicType } from '~/types'
 
+import { HogFlowOriginProductEnumApi } from '../../generated/api.schemas'
 import { CyclotronJobInputSchemaTypeSchema, HogFlowActionSchema, HogFlowTriggerSchema } from './steps/types'
 
 const HogFlowEdgeSchema = z.object({
@@ -89,6 +90,8 @@ export const HogFlowBatchJobSchema = z.object({
 // NOTE: these are purposefully exported as interfaces to support kea typegen
 export interface HogFlow extends z.infer<typeof HogFlowSchema> {
     created_by?: UserBasicType | null
+    // Product surface that owns this workflow (e.g. `loops` for Desktop loops). Null when built directly in the workflows UI.
+    origin_product?: HogFlowOriginProductEnumApi | null
     // Effective access level of the current user for this workflow (resource access control).
     user_access_level?: AccessControlLevel
     // Staged content changes awaiting publish (active workflows only). A full snapshot of the

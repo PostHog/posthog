@@ -70,6 +70,7 @@ from products.tasks.backend.constants import (
     PR_LOOP_ENABLED_STATE_KEY,
     PR_STATES as PR_STATES,  # re-exported for presentation
     RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS,
+    SANDBOX_REPOSITORIES_ROOT,
     SERVER_OWNED_RESUME_STATE_KEYS,
     TASK_ANALYSIS_ACTIVITIES_STATE_KEY,
     TASK_ANALYSIS_FEATURE_FLAG,
@@ -92,7 +93,7 @@ from products.tasks.backend.logic.services.network_policy import (
     MAX_SANDBOX_ALLOWED_DOMAINS,
     normalize_requested_domains,
 )
-from products.tasks.backend.logic.services.sandbox import get_sandbox_class_for_sandbox_id
+from products.tasks.backend.logic.services.sandbox import get_sandbox_class_for_sandbox_id, is_public_sandbox_repo
 from products.tasks.backend.logic.services.workflow_step_resume import resume_workflow_step_for_run
 from products.tasks.backend.mentions import resolve_mentioned_user_ids
 from products.tasks.backend.models import (
@@ -187,7 +188,10 @@ __all__ = [
     "ensure_task_run_session",
     "beacon_task_presence",
     "bootstrap_task_run",
+    "SANDBOX_REPOSITORIES_ROOT",
     "can_mint_readonly_github_token",
+    "is_public_sandbox_repo",
+    "readonly_github_integration_id",
     "check_task_run_startable",
     "collect_task_run_state_metrics",
     "compute_repository_readiness",
@@ -2246,6 +2250,7 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "sandbox_memory_gb",
         "sandbox_ttl_seconds",
         "inactivity_timeout_seconds",
+        "systemPrompt",
         "wizard_config",
         "wizard_head_branch",
         "use_modal_directory_resume_snapshots",
@@ -6597,6 +6602,22 @@ def can_mint_readonly_github_token(team_id: int) -> bool:
     return _can_mint(team_id)
 
 
+def readonly_github_integration_id(team_id: int) -> int | None:
+    """Id of the GitHub integration a read-only sandbox token would be minted from, or ``None``.
+
+    Pairs with :func:`can_mint_readonly_github_token` for callers that must validate repository
+    names against the credential a downscoped run will actually hold, because a repository the
+    mintable installation cannot reach is a clone that fails mid-run. Team-level installations only, same
+    rule as the mint. Never raises.
+    """
+    from products.tasks.backend.temporal.process_task.utils import (  # noqa: PLC0415 — keeps the temporal stack off the facade import path
+        resolve_readonly_github_integration,
+    )
+
+    integration = resolve_readonly_github_integration(team_id)
+    return integration.integration.id if integration is not None else None
+
+
 def _with_ai_run_defaults(data: dict, *, team_id: int, acting_user_id: int | None, internal: bool = False) -> dict:
     """A copy of ``data`` with the team/user default AI run triple filled in when it pins
     no runtime selection (see ``resolve_ai_run_selection``).
@@ -6680,6 +6701,8 @@ def _find_idling_warm_run(
     )
     for run in candidates:
         state = run.state or {}
+        if state.get("cancel_requested_at"):
+            continue
         have_repositories = [
             repo.lower() for repo in (run.task.repositories or ([run.task.repository] if run.task.repository else []))
         ]
@@ -6805,9 +6828,17 @@ def _deliver_warm_run_message(
     ).exclude(status__in=_TERMINAL_TASK_RUN_STATUSES)
 
     try:
-        current_run = eligible_runs.first()
-        if current_run is None or current_run.workflow_id != workflow_id:
-            raise WarmRunActivationUnavailable("target_unavailable")
+        with transaction.atomic():
+            current_run = eligible_runs.select_for_update(of=("self",)).first()
+            if (
+                current_run is None
+                or current_run.workflow_id != workflow_id
+                or (current_run.state or {}).get("cancel_requested_at")
+            ):
+                raise WarmRunActivationUnavailable("target_unavailable")
+            # Claim before signaling so a different composer's release cannot cancel delivery in flight.
+            current_run.state["warm_activation_started"] = True
+            current_run.save(update_fields=["state", "updated_at"])
         try:
             delivered = signal_task_run_user_message(
                 run.id,
@@ -7046,12 +7077,13 @@ def warm_task_sandbox(
         description="",
         origin_product=Task.OriginProduct(origin_product),
         user_id=user_id,
-        repository=repository,
+        repositories=normalized_repositories,
         client_provenance=client_provenance,
     )
-    task.repositories = normalized_repositories
+    # `_build_task` resolves the team's first GitHub integration; a warm must instead hold the
+    # one the caller asked for, because warm reuse matches on the integration id.
     task.github_integration = github_integration
-    task.save(update_fields=["repositories", "github_integration", "updated_at"])
+    task.save(update_fields=["github_integration", "updated_at"])
     assert task.created_by is not None  # create_without_run always sets created_by from user_id
 
     provider = get_provider_for_runtime_adapter(runtime_adapter)

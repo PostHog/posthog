@@ -234,6 +234,7 @@ export const FEATURE_FLAGS = {
     SETTINGS_SESSIONS_V2_JOIN: 'settings-sessions-v2-join', // owner: @robbie-c #team-web-analytics
     SETTINGS_WEB_ANALYTICS_PRE_AGGREGATED_TABLES: 'web-analytics-pre-aggregated-tables', // owner: @lricoy #team-web-analytics
     SIGNALS_PR_REFUNDS: 'signals-pr-refunds', // owner: #team-self-driving, gates the inbox PR refund flow (also checked server-side)
+    SIGNALS_REPORT_METRICS: 'signals-report-metrics', // owner: #team-self-driving, gates the live impact metrics on inbox report rows and the report detail, and the snapshot refresh calls they make
     STARTUP_PROGRAM_INTENT: 'startup-program-intent', // owner: @pawel-cebula #team-billing
     SURVEYS_ACTIONS: 'surveys-actions', // owner: #team-surveys
     SURVEYS_ADAPTIVE_LIMITS: 'surveys-adaptive-limits', // owner: #team-surveys
@@ -285,15 +286,12 @@ export const FEATURE_FLAGS = {
     CUSTOMER_ANALYTICS_JOURNEYS: 'customer-analytics-journeys', // owner: @arthurdedeus #team-customer-analytics
     CUSTOMER_ANALYTICS_TRACK_RULES: 'customer-analytics-track-rules', // owner: @arthurdedeus #team-customer-analytics
     DASHBOARD_AUTO_PREVIEW_LIMIT: 'dashboard-auto-preview-limit', // owner: @pauldambra #team-product-analytics
-    DASHBOARD_CUSTOMIZATION: 'dashboard-customization', // owner: @MattPua #team-analytics-platform
     DASHBOARD_EXPORT_NUDGE: 'dashboard-export-nudge', // owner: #team-analytics-platform multivariate=control,test, nudges people who just exported a dashboard toward a recurring subscription
     DASHBOARD_LAYOUT_DISCARD_PROMPT: 'dashboard-layout-discard-prompt', // owner: @cory.s #team-analytics-platform
-    DASHBOARD_SAVED_VIEWS: 'dashboard-saved-views', // owner: #team-analytics-platform, target organizations for saved dashboard-list views
     DASHBOARD_TEMPLATE_CHOOSER_EXPERIMENT: 'dashboard-template-chooser-experiment', // owner: @mattp #team-analytics-platform multivariate=control,simple,new
     DASHBOARD_TEMPLATE_METRIC_CARD: 'dashboard-template-metric-card', // owner: #team-product-analytics multivariate=control,test
     DASHBOARD_WIDGETS: 'dashboard-widgets', // owner: @mattp #team-analytics-platform
     DATA_MODELING_INCREMENTAL_VIEWS: 'data-modeling-incremental-views', // owner: #team-data-modeling
-    DATA_MODELING_SUSPEND_FAILING_NODES: 'data-modeling-suspend-failing-nodes', // owner: #team-data-modeling
     DATA_QUALITY_CHECKS: 'data-quality-checks', // owner: #team-data-modeling
     DATA_WAREHOUSE_COLUMN_STATISTICS: 'data-warehouse-column-statistics', // owner: #team-warehouse-sources
     DATA_WAREHOUSE_CUSTOM_SOURCE_AI_BUILDER: 'dwh-custom-source-ai-builder', // owner: #team-warehouse-sources
@@ -313,6 +311,7 @@ export const FEATURE_FLAGS = {
     ERROR_TRACKING_ISSUE_CORRELATION: 'error-tracking-issue-correlation', // owner: @david #team-error-tracking
     ERROR_TRACKING_ISSUE_RELEASES: 'error-tracking-issue-releases', // owner: #team-error-tracking
     ERROR_TRACKING_ISSUE_SPLITTING: 'error-tracking-issue-splitting', // owner: @david #team-error-tracking
+    ERROR_TRACKING_NEW_WIZARD: 'error-tracking-new-wizard', // owner: @ablaszkiewicz #team-error-tracking
     ERROR_TRACKING_RATE_LIMITING: 'error-tracking-rate-limiting', // owner: @ablaszkiewicz #team-error-tracking
     ERROR_TRACKING_RATE_LIMITING_BYPASS: 'error-tracking-rate-limiting-bypass', // owner: @ablaszkiewicz #team-error-tracking
     ERROR_TRACKING_RATE_LIMITING_PER_ISSUE: 'error-tracking-rate-limiting-per-issue', // owner: @ablaszkiewicz #team-error-tracking
@@ -483,6 +482,7 @@ export const FEATURE_FLAGS = {
     REPLAY_VISION_CALIBRATION_ENTRY_POINT: 'replay-vision-calibration-entry-point', // owner: #team-replay multivariate=control,test, links from a rated observation into the scanner's Calibration tab
     REPLAY_VISION_CALIBRATION_FEEDBACK_PROMPT: 'replay-vision-calibration-feedback-prompt', // owner: #team-replay multivariate=control,test, asks what the scanner should have concluded on a thumbs down
     REPLAY_VISION_CALIBRATION_TEST_NUDGE: 'replay-vision-calibration-test-nudge', // owner: #team-replay multivariate=control,test, prompts the user to test a recommendation before applying it
+    REPLAY_VISION_HOME_REDESIGN_EXPERIMENT: 'replay-vision-home-redesign-experiment', // owner: #team-replay multivariate=control,test — gate on === 'test'; a truthy check turns on for control too
     REPLAY_VISION_MODEL_TIER_NAMING_EXPERIMENT: 'replay-vision-model-tier-naming-experiment', // owner: #team-replay multivariate=control,test,lite-standard-pro
     REVAMPED_PY_NOTEBOOKS: 'revamped-py-notebooks', // owner: #team-data-tools
     REVENUE_FIELDS_IN_POWER_USERS_TABLE: 'revenue-fields-in-power-users-table', // owner: @arthurdedeus #team-customer-analytics
@@ -534,6 +534,7 @@ export const FEATURE_FLAGS = {
     USER_INTERVIEWS: 'user-interviews', // owner: @Twixes @jurajmajerik
     UX_HIDE_PROJECT_NOTICE: 'ux-hide-project-notice', // owner: #team-platform-ux, hides the project notice banner across all scenes
     UX_REMOVE_SIDEPANEL: 'ux-remove-sidepanel', // owner: #team-surveys
+    VISION_ENTRYPOINT_ERROR_TRACKING: 'vision-entrypoint-error-tracking', // owner: #team-replay, cross-sell entry point from the error tracking issue recording tab
     VISION_ENTRYPOINT_EXPERIMENTS: 'vision-entrypoint-experiments', // owner: #team-replay, cross-sell entry points from experiments
     VISION_ENTRYPOINT_REPLAY_FILTERS: 'vision-entrypoint-replay-filters', // owner: #team-replay, cross-sell entry point from the replay filters panel
     VISION_GOAL_BASED_CREATION_FLOW: 'vision-goal-based-creation-flow', // owner: #team-replay multivariate=control,test — gate on === 'test'; a truthy check turns on for control too
@@ -576,6 +577,7 @@ export const FEATURE_FLAGS = {
     WORKFLOWS_EMAIL_SENDER_ROTATION: 'workflows-email-sender-rotation', // owner: @arthurdedeus #team-workflows
     WORKFLOWS_INTERNAL_EVENT_FILTERS: 'workflows-internal-event-filters', // owner: @haven #team-workflows
     WORKFLOWS_ISP_SENDING_HEALTH: 'workflows-isp-sending-health', // owner: #team-workflows
+    WORKFLOWS_LINEAR_VIEW: 'workflows-linear-view', // owner: #team-workflows
     WORKFLOWS_PUSH_NOTIFICATIONS: 'workflows-push-notifications', // owner: #team-workflows
     WORKFLOWS_TRIGGER_VOLUME_ESTIMATE: 'workflows-trigger-volume-estimate', // owner: @mayteio #team-workflows
     XAA_AUTHENTICATION: 'xaa-authentication', // owner: @reecejones #team-platform-features

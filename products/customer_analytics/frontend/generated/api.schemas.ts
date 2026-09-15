@@ -638,7 +638,7 @@ export interface AccountNotebookApi {
      * @nullable
      */
     title?: string | null
-    /** Notebook content as a ProseMirror JSON document structure. */
+    /** Notebook content as a ProseMirror JSON document. On create, the server stores it as a markdown notebook. */
     content?: unknown
     /**
      * Plain text representation of the notebook content for search.

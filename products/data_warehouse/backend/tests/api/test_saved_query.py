@@ -32,7 +32,7 @@ from products.data_modeling.backend.facade.models import (
     NodeType,
 )
 from products.data_tools.backend.models.datawarehouse_saved_query_folder import DataWarehouseSavedQueryFolder
-from products.data_warehouse.backend.presentation.views.saved_query import (
+from products.data_warehouse.backend.presentation.views.saved_query.viewset import (
     SavedQueryMaterializeSerializer,
     SavedQueryResumeSchedulesRequestSerializer,
 )
@@ -985,7 +985,9 @@ class TestSavedQuery(APIBaseTest):
     def test_sync_frequency_is_a_writable_field(self):
         # Regression: sync_frequency used to be a read-only SerializerMethodField, so it was
         # marked readOnly in the generated OpenAPI/MCP schemas and silently dropped from writes.
-        from products.data_warehouse.backend.presentation.views.saved_query import DataWarehouseSavedQuerySerializer
+        from products.data_warehouse.backend.presentation.views.saved_query.editing import (
+            DataWarehouseSavedQuerySerializer,
+        )
 
         field = DataWarehouseSavedQuerySerializer().fields["sync_frequency"]
         self.assertFalse(field.read_only)
@@ -1071,7 +1073,7 @@ class TestSavedQuery(APIBaseTest):
     def test_bounds_stay_off_the_list_page(self):
         # Bounds cost a graph walk per view, so serving them on a page of views is an N+1. The
         # picker only ever renders on one view's panel, so retrieve is the only place they belong.
-        from products.data_warehouse.backend.presentation.views.saved_query import (
+        from products.data_warehouse.backend.presentation.views.saved_query.view_state import (
             DataWarehouseSavedQueryMinimalSerializer,
         )
 
@@ -2300,7 +2302,6 @@ class TestSavedQuery(APIBaseTest):
             self.assertEqual(suspension_state(node), {})
 
     def test_resume_schedules_clears_suspension_for_every_listed_query(self):
-
         saved_queries = [
             DataWarehouseSavedQuery.objects.create(
                 team=self.team,
@@ -2525,7 +2526,7 @@ class TestSavedQueryRun(APIBaseTest):
             ("v2", "materialize-view-019e4ccb-8369-71dd-9270-9bf570948062-2026-08-13T04:30:00Z"),
         ]
     )
-    @patch("products.data_warehouse.backend.presentation.views.saved_query.sync_connect")
+    @patch("products.data_warehouse.backend.presentation.views.saved_query.viewset.sync_connect")
     def test_cancel_cancels_the_workflow_recorded_on_the_running_job(
         self, _name: str, workflow_id: str, mock_sync_connect
     ):
@@ -2552,7 +2553,7 @@ class TestSavedQueryRun(APIBaseTest):
         saved_query.refresh_from_db()
         self.assertEqual(saved_query.status, DataWarehouseSavedQuery.Status.CANCELLED)
 
-    @patch("products.data_warehouse.backend.presentation.views.saved_query.sync_connect")
+    @patch("products.data_warehouse.backend.presentation.views.saved_query.viewset.sync_connect")
     def test_cancel_is_rejected_when_no_job_is_running(self, mock_sync_connect):
         saved_query, _dag, _node = self._make_saved_query_with_node("idle_view")
         DataModelingJob.objects.create(
@@ -2569,7 +2570,7 @@ class TestSavedQueryRun(APIBaseTest):
         self.assertEqual(response.status_code, 400, response.content)
         mock_sync_connect.assert_not_called()
 
-    @patch("products.data_warehouse.backend.presentation.views.saved_query.sync_connect")
+    @patch("products.data_warehouse.backend.presentation.views.saved_query.viewset.sync_connect")
     def test_cancel_attempts_every_running_workflow_when_one_fails(self, mock_sync_connect):
         saved_query, _dag, _node = self._make_saved_query_with_node("partial_cancel_view")
         for workflow_id in ("materialize-view-1-unreachable", "materialize-view-2-healthy"):
@@ -2767,10 +2768,36 @@ class TestSavedQueryStateComesFromTheServingRun(APIBaseTest):
 
         self.assertEqual(self._detail(view)["status"], "Completed")
 
-    def test_modified_survives_when_the_view_has_never_run(self):
+    def test_modified_survives_when_the_view_has_never_run(self) -> None:
         view = self._view("never_ran", status=DataWarehouseSavedQuery.Status.MODIFIED)
 
         self.assertEqual(self._detail(view)["status"], "Modified")
+
+    def test_cancelled_survives_when_the_view_has_never_run(self) -> None:
+        view = self._view("cancelled_never_ran", status=DataWarehouseSavedQuery.Status.CANCELLED)
+
+        self.assertEqual(self._detail(view)["status"], "Cancelled")
+
+    @parameterized.expand(
+        [
+            (DataWarehouseSavedQuery.Status.FAILED,),
+            (DataWarehouseSavedQuery.Status.RUNNING,),
+            (DataWarehouseSavedQuery.Status.COMPLETED,),
+        ]
+    )
+    def test_a_run_state_no_code_path_writes_any_more_is_not_reported(self, frozen_status: str) -> None:
+        view = self._view(
+            f"frozen_{frozen_status}",
+            status=frozen_status,
+            latest_error="Table reference no longer exists for model.",
+            last_run_at=timezone.now() - timedelta(days=90),
+        )
+
+        body = self._detail(view)
+
+        self.assertIsNone(body["status"])
+        self.assertIsNone(body["latest_error"])
+        self.assertIsNone(body["last_run_at"])
 
     def test_the_list_route_agrees_with_the_detail_route(self):
         # the two read through different halves of _serving_run: prefetch on list, lookup on detail

@@ -2562,6 +2562,13 @@ class TestTicketMessagesAPI(APIBaseTest):
                 "Chris",
             ),
             (
+                "github_comment_author",
+                {"name": "Mark"},
+                "customer",
+                {"from_github": True, "github_login": "chris"},
+                "chris",
+            ),
+            (
                 "zendesk_import_author",
                 {"name": "Mark"},
                 "customer",

@@ -238,6 +238,22 @@ The Notes tab is server-paginated, searchable, and sortable (all via `accountNot
 
 `accountsLogic` mirrors the full view (search, tags, assignment status, assigned-to, native-field and custom-property filters, sort, columns, tile filter) into the URL hash `#view=...` via `actionToUrl`/`urlToAction`, so a copied URL reproduces the exact list. Column widths stay in browser-local preferences instead of the URL because they are display preferences. Only non-default values are serialized. The "assigned to" filter persists as concrete `assignedTo` ids (not a `mine` flag), so a link shared with a colleague resolves to the **same** accounts for them as for the sharer; the legacy `mine: true` hash is still read and resolved to the current user's id for backward compatibility. A shared link's `columns` win over the per-user saved column config (`accountsColumnConfigLogic` enforces this when its async saved-config load resolves by checking the live URL).
 
+A list URL without a `#view=` hash must not erase the shared "mine only" toggle.
+The tab link, account breadcrumb, and older history entries can return to the list without a view hash.
+`restoreViewStateFromRoute` restores the session draft first. Without a draft, it uses the shared `mineOnly` preference.
+Resolve assignment intent before calling `applyViewState`, because assignment setters also update the shared preference.
+For the same reason, anything that rewrites the Customer analytics URL (the scene's date and test-account writers in `customerAnalyticsSceneLogic`) must carry the current hash through.
+
+### Unsaved drafts
+
+`accountsLogic.viewState` owns the full snapshot used by session drafts and saved views.
+`applyViewState` restores the snapshot without intermediate URL writes.
+Drafts use project-and-user-scoped `sessionStorage`, including cleared filters and unsaved changes to a selected view.
+The draft key comes from loaded `teamLogic` and `userLogic` state. Draft hydration and automatic saved-view restoration wait for both IDs.
+An explicit shared URL wins over the draft. The draft wins over automatic saved-view restoration.
+Selecting a saved view explicitly replaces the draft.
+See [Accounts table](../../../../../docs/internal/customer-analytics-accounts-table.md) when changing persistence or navigation.
+
 ### Deep-link to one account (path route)
 
 `/customer_analytics/accounts/:accountId/:tab` opens the account detail scene when `CUSTOMER_ANALYTICS_ACCOUNT_SCENE` is enabled.
@@ -282,7 +298,7 @@ Views are persisted as `ColumnConfiguration` rows under `context_key = 'customer
 **Visibility** is `private` or `shared`. The owner can see and change a private view. Any team member who can see a shared view can edit or delete it. When a team member makes a shared view private, the view becomes that member's private view.
 
 **Auto-restore:** the last-used view `id` is persisted in a team-scoped localStorage key (`currentViewId`).
-A shared link's `#view=` URL hash always wins over the saved `currentViewId`.
+A shared link's `#view=` URL hash or a session draft takes priority over the saved `currentViewId`.
 When saved views exist but the viewer has no last-used view, the selector remains available without applying a view automatically.
 `isDirty` is true when the live state diverges from the selected view's saved state.
 

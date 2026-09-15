@@ -79,6 +79,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing::info!(
         property_write_concurrency = config.property_write_concurrency,
         leader_call_concurrency = config.lifecycle_leader_call_concurrency,
+        router_channels = config.router_channels,
         "Leader fan-out concurrency"
     );
     tracing::info!("Tables: {:?}", config.tables());
@@ -218,9 +219,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     let property_writer = Arc::new(
-        RouterClient::new(&config.router_url, config.leader_request_timeout())
-            .expect("Invalid router URL")
-            .with_client_name("personhog-identity"),
+        RouterClient::with_channels(
+            &config.router_url,
+            config.leader_request_timeout(),
+            config.router_channels,
+        )
+        .expect("Invalid router URL")
+        .with_client_name("personhog-identity"),
     );
     // Both sagas' leader surface, reached through the router like the
     // property writes.
@@ -228,6 +233,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let engine = Arc::new(Engine::new(
         storage.primary_pool.clone(),
         config.lifecycle_engine_config(),
+        config.tables(),
     ));
     if let Some(sweeper_handle) = sweeper_handle {
         let sweeper_merge_driver = MergeDriver::new(

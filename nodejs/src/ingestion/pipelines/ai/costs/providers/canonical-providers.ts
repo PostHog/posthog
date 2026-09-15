@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-09-11 20:02:03 UTC
+// Generated at: 2026-09-15 10:05:49 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -57,6 +57,7 @@ export type CanonicalProvider =
     | 'darkbloom'
     | 'darkbloom-fp4'
     | 'darkbloom-fp8'
+    | 'darkbloom-int4'
     | 'decart-fast'
     | 'decart-fp4'
     | 'deepinfra'
@@ -78,7 +79,6 @@ export type CanonicalProvider =
     | 'fireworks-us'
     | 'friendli'
     | 'gmicloud-bf16'
-    | 'gmicloud-fp4'
     | 'gmicloud-fp8'
     | 'google-ai-studio'
     | 'google-ai-studio-flex'
@@ -100,6 +100,7 @@ export type CanonicalProvider =
     | 'inception'
     | 'inceptron-fp4'
     | 'inceptron-int4'
+    | 'inference-net'
     | 'io-net-fp16'
     | 'io-net-fp8'
     | 'ionstream'
@@ -162,6 +163,7 @@ export type CanonicalProvider =
     | 'reka-bf16'
     | 'reka-fp4'
     | 'reka-fp8'
+    | 'relace'
     | 'relace-bf16'
     | 'relace-fp4'
     | 'relace-fp8'

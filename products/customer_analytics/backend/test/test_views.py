@@ -1307,41 +1307,72 @@ class TestAccountNotebookViewSet(APIBaseTest):
         self.assertEqual(notebook.text_content, "# Heading\n\nSome **bold** text.")
         self.assertEqual(notebook.content, build_markdown_notebook_content("# Heading\n\nSome **bold** text."))
 
-    def test_create_preserves_caller_supplied_content(self):
-        explicit_content = {
-            "type": "doc",
-            "content": [{"type": "paragraph", "content": [{"type": "text", "text": "from caller"}]}],
-        }
-        response = self.client.post(
-            self.endpoint_base,
-            {"title": "Provided", "content": explicit_content, "text_content": "# ignored"},
-            format="json",
-        )
+    @parameterized.expand(
+        [
+            (
+                "rich_text_content",
+                {
+                    "title": "Provided",
+                    "content": {
+                        "type": "doc",
+                        "content": [{"type": "paragraph", "content": [{"type": "text", "text": "from caller"}]}],
+                    },
+                    "text_content": "# ignored",
+                },
+                "from caller",
+            ),
+            ("empty_rich_text_doc", {"title": "Empty doc", "content": {"type": "doc", "content": []}}, ""),
+            ("neither_field", {"title": "Empty"}, ""),
+            ("empty_text_content", {"title": "Empty body", "text_content": ""}, ""),
+            (
+                "markdown_content_with_stale_text",
+                {
+                    "title": "Markdown",
+                    "content": build_markdown_notebook_content("# Current"),
+                    "text_content": "stale search text",
+                },
+                "# Current",
+            ),
+        ]
+    )
+    def test_create_stores_a_markdown_notebook(self, _name: str, payload: dict, expected_markdown: str) -> None:
+        response = self.client.post(self.endpoint_base, payload, format="json")
 
         self.assertEqual(status.HTTP_201_CREATED, response.status_code, response.json())
         # nosemgrep: idor-lookup-without-team (test assertion)
         notebook = Notebook.objects.get(short_id=response.json()["short_id"])
-        self.assertEqual(notebook.content, explicit_content)
+        self.assertEqual(notebook.content, build_markdown_notebook_content(expected_markdown))
+        self.assertEqual(notebook.text_content, expected_markdown)
 
-    def test_create_with_neither_field_leaves_content_null(self):
-        response = self.client.post(self.endpoint_base, {"title": "Empty"}, format="json")
+    @parameterized.expand(
+        [
+            (
+                "rich_text_that_cannot_convert",
+                {
+                    "type": "doc",
+                    "content": [{"type": "paragraph", "content": [{"type": "text", "text": "x", "marks": 1}]}],
+                },
+            ),
+            (
+                "rich_text_over_the_cell_limit",
+                {
+                    "type": "doc",
+                    "content": [
+                        {
+                            "type": "ph-query",
+                            "attrs": {"nodeId": f"q{i}", "query": {"kind": "SavedInsightNode", "shortId": "abc"}},
+                        }
+                        for i in range(51)
+                    ],
+                },
+            ),
+        ]
+    )
+    def test_create_rejects_invalid_content(self, _name: str, content: dict) -> None:
+        response = self.client.post(self.endpoint_base, {"title": "Invalid", "content": content}, format="json")
 
-        self.assertEqual(status.HTTP_201_CREATED, response.status_code, response.json())
-        # nosemgrep: idor-lookup-without-team (test assertion)
-        notebook = Notebook.objects.get(short_id=response.json()["short_id"])
-        self.assertIsNone(notebook.content)
-
-    def test_create_with_empty_text_content_does_not_synthesize_content(self):
-        response = self.client.post(
-            self.endpoint_base,
-            {"title": "Empty body", "text_content": ""},
-            format="json",
-        )
-
-        self.assertEqual(status.HTTP_201_CREATED, response.status_code, response.json())
-        # nosemgrep: idor-lookup-without-team (test assertion)
-        notebook = Notebook.objects.get(short_id=response.json()["short_id"])
-        self.assertIsNone(notebook.content)
+        self.assertEqual(status.HTTP_400_BAD_REQUEST, response.status_code, response.json())
+        self.assertEqual(response.json()["attr"], "content")
 
     def test_create_with_empty_dict_content_falls_back_to_markdown(self):
         response = self.client.post(
@@ -1354,19 +1385,6 @@ class TestAccountNotebookViewSet(APIBaseTest):
         # nosemgrep: idor-lookup-without-team (test assertion)
         notebook = Notebook.objects.get(short_id=response.json()["short_id"])
         self.assertEqual(notebook.content, build_markdown_notebook_content("Just a sentence."))
-
-    def test_create_with_empty_valid_prosemirror_doc_respects_caller(self):
-        empty_doc = {"type": "doc", "content": []}
-        response = self.client.post(
-            self.endpoint_base,
-            {"title": "Empty doc", "content": empty_doc, "text_content": "ignored"},
-            format="json",
-        )
-
-        self.assertEqual(status.HTTP_201_CREATED, response.status_code, response.json())
-        # nosemgrep: idor-lookup-without-team (test assertion)
-        notebook = Notebook.objects.get(short_id=response.json()["short_id"])
-        self.assertEqual(notebook.content, empty_doc)
 
     def test_notebook_detail_includes_parent_resource_for_linked_account(self):
         notebook = Notebook.objects.create(

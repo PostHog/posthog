@@ -44,6 +44,13 @@ function WorkflowTypeTag({ workflow }: { workflow: HogFlow }): JSX.Element {
         })
     }, [workflow.actions])
 
+    if (workflow.origin_product === 'loops') {
+        return (
+            <Link to={urls.codeLoopLink(workflow.id)}>
+                <LemonTag type="highlight">Loop</LemonTag>
+            </Link>
+        )
+    }
     if (hasMessagingAction) {
         return <LemonTag type="completion">Messaging</LemonTag>
     }
@@ -381,6 +388,7 @@ export function WorkflowsTable(): JSX.Element {
                                 { label: 'All', value: 'all' },
                                 { label: 'Messaging', value: 'messaging' },
                                 { label: 'Automation', value: 'automation' },
+                                { label: 'Loop', value: 'loop' },
                             ]}
                             value={filters.type}
                         />
