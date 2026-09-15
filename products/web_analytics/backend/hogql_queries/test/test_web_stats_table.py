@@ -42,7 +42,7 @@ from posthog.schema import (
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.printer import prepare_and_print_ast
 
-from posthog.models import Element
+from posthog.models import Element, PropertyDefinition
 from posthog.models.utils import uuid7
 
 from products.actions.backend.models.action import Action
@@ -1777,6 +1777,68 @@ class TestWebStatsTableQueryRunner(
             "context.columns.ui_fill_fraction",
             "context.columns.cross_sell",
         ] == response.columns
+
+    def _define_viewport_properties(self):
+        # The comparison against 0 needs numeric-typed properties
+        for name in ("$viewport_width", "$viewport_height"):
+            PropertyDefinition.objects.create(team=self.team, name=name, property_type="Numeric")
+
+    @skip_clickhouse_query_snapshots
+    def test_conversion_goal_viewport_breakdown_keeps_conversions_without_a_viewport(self):
+        # A server-side conversion event has no viewport and used to vanish from the tile
+        self._define_viewport_properties()
+        s1 = str(uuid7("2023-12-01"))
+        self._create_events(
+            [
+                (
+                    "p1",
+                    [
+                        (
+                            "2023-12-01",
+                            s1,
+                            "https://www.example.com/foo",
+                            {"$viewport_width": 1920, "$viewport_height": 1080},
+                        )
+                    ],
+                ),
+            ]
+        )
+        _create_event(
+            team=self.team,
+            event="custom_event",
+            distinct_id="p1",
+            timestamp="2023-12-01",
+            properties={"$session_id": s1},
+        )
+
+        response = self._run_web_stats_table_query(
+            "2023-12-01", "2023-12-03", breakdown_by=WebStatsBreakdown.VIEWPORT, custom_event="custom_event"
+        )
+
+        rows = {row[0]: row for row in response.results}
+        assert set(rows) == {(1920, 1080), (None, None)}
+        assert rows[(1920, 1080)][2] == (0, None)
+        assert rows[(None, None)][2] == (1, None)
+
+    @skip_clickhouse_query_snapshots
+    def test_viewport_breakdown_folds_zero_and_half_set_viewports_into_not_set(self):
+        self._define_viewport_properties()
+        s1, s2, s3 = (str(uuid7("2023-12-01")) for _ in range(3))
+        self._create_events(
+            [
+                ("p1", [("2023-12-01", s1, "/", {"$viewport_width": 0, "$viewport_height": 0})]),
+                ("p2", [("2023-12-01", s2, "/", {"$viewport_width": 1280})]),
+                ("p3", [("2023-12-01", s3, "/", {"$viewport_width": 1280, "$viewport_height": 720})]),
+            ]
+        )
+
+        response = self._run_web_stats_table_query(
+            "2023-12-01", "2023-12-03", breakdown_by=WebStatsBreakdown.VIEWPORT
+        )
+
+        rows = {row[0]: row for row in response.results}
+        assert set(rows) == {(1280, 720), (None, None)}
+        assert rows[(None, None)][1] == (2, None)
 
     def test_conversion_goal_one_custom_action_conversion(self):
         s1 = str(uuid7("2023-12-01"))

@@ -1005,11 +1005,14 @@ WHERE and(
             case WebStatsBreakdown.OS:
                 return ast.Field(chain=["properties", "$os"])
             case WebStatsBreakdown.VIEWPORT:
-                return ast.Tuple(
-                    exprs=[
-                        ast.Field(chain=["properties", "$viewport_width"]),
-                        ast.Field(chain=["properties", "$viewport_height"]),
-                    ]
+                # A zero or half-set viewport folds into (NULL, NULL) like a missing one, and is kept as "(not set)"
+                unusable = (
+                    "properties.$viewport_width IS NULL OR properties.$viewport_height IS NULL "
+                    "OR properties.$viewport_width = 0 OR properties.$viewport_height = 0"
+                )
+                return parse_expr(
+                    f"tuple(if({unusable}, NULL, properties.$viewport_width), "
+                    f"if({unusable}, NULL, properties.$viewport_height))"
                 )
             case WebStatsBreakdown.DEVICE_TYPE:
                 return ast.Field(chain=["properties", "$device_type"])
@@ -1059,11 +1062,6 @@ WHERE and(
                 # GeoIP can't resolve the subdivision/city — those rows surface in the UI as
                 # "(not set)" so totals stay consistent with the parent Country view.
                 return parse_expr("tupleElement(`context.columns.breakdown_value`, 1) IS NOT NULL")
-            case WebStatsBreakdown.VIEWPORT:
-                return parse_expr(
-                    "tupleElement(`context.columns.breakdown_value`, 1) IS NOT NULL AND tupleElement(`context.columns.breakdown_value`, 2) IS NOT NULL AND "
-                    "tupleElement(`context.columns.breakdown_value`, 1) != 0 AND tupleElement(`context.columns.breakdown_value`, 2) != 0"
-                )
             case (
                 # Breakdowns where missing data is real and worth surfacing as "(not set)"
                 # rather than silently dropped — keeps totals consistent with the overview tile
@@ -1073,6 +1071,7 @@ WHERE and(
                 | WebStatsBreakdown.BROWSER
                 | WebStatsBreakdown.OS
                 | WebStatsBreakdown.DEVICE_TYPE
+                | WebStatsBreakdown.VIEWPORT
                 | WebStatsBreakdown.LANGUAGE
                 | WebStatsBreakdown.TIMEZONE
                 | WebStatsBreakdown.INITIAL_REFERRING_DOMAIN

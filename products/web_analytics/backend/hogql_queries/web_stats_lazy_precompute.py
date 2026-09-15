@@ -433,6 +433,7 @@ _KEEP_NULL_BREAKDOWNS = {
     WebStatsBreakdown.BROWSER,
     WebStatsBreakdown.OS,
     WebStatsBreakdown.DEVICE_TYPE,
+    WebStatsBreakdown.VIEWPORT,
     WebStatsBreakdown.LANGUAGE,
     WebStatsBreakdown.TIMEZONE,
     WebStatsBreakdown.INITIAL_REFERRING_DOMAIN,
@@ -454,20 +455,15 @@ def _breakdown_having_expr(breakdown_by: WebStatsBreakdown) -> ast.Expr:
     """HAVING-clause equivalent of the raw query's `outer_where_breakdown()` —
     operates on the JSON-encoded `breakdown_value` column produced by the INSERT.
 
-    Index 2 / index 1 here are 1-based JSON array positions (`JSONExtractRaw`
-    follows ClickHouse's 1-based indexing). For VIEWPORT specifically, the raw
-    query rejects rows whose width/height are null or zero.
+    VIEWPORT keeps its null rows too: the raw query folds a missing, zero or half-set
+    viewport into a (null, null) pair before the INSERT, so a conversion event without a
+    viewport surfaces as a "(not set)" row instead of vanishing.
 
     REGION/CITY *look* like they should drop `(country, null)` rows, but the
     raw query's `tupleElement(..., 2) IS NOT NULL` runs on a non-nullable
     `Tuple(String, String, String)` and never matches in practice — so the
     lazy path keeps null subdivisions too, matching what ships from raw.
     """
-    if breakdown_by == WebStatsBreakdown.VIEWPORT:
-        return parse_expr(
-            "JSONExtractRaw(breakdown_value, 1) NOT IN ('null', '0') "
-            "AND JSONExtractRaw(breakdown_value, 2) NOT IN ('null', '0')"
-        )
     if breakdown_by in _KEEP_NULL_BREAKDOWNS:
         # Mirror the raw query's `outer_where_breakdown() is None` set: missing data is
         # real for these dimensions and surfaces as a "(none)" row, so it must not be
