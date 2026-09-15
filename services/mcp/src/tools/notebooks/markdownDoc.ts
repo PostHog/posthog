@@ -102,6 +102,11 @@ export async function applyMarkdownEdit(
     for (let attempt = 0; attempt < 2; attempt++) {
         const state = await fetchMarkdownNotebook(context, shortId)
         const nextMarkdown = transform(state.markdown)
+        if (nextMarkdown === state.markdown) {
+            // Saving identical content only bumps the version and tells every collaborator the
+            // document changed. A repeated write-back is the case this spares them.
+            return { notebook: state.notebook, markdown: state.markdown }
+        }
         try {
             const notebook = await saveMarkdown(context, state, nextMarkdown)
             return { notebook, markdown: nextMarkdown }
