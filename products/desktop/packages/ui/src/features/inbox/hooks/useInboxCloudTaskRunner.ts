@@ -3,6 +3,7 @@ import {
   REPORT_MODEL_RESOLVER,
   type ReportModelResolver,
 } from "@posthog/core/inbox/identifiers";
+import { inboxReportKeys } from "@posthog/core/inbox/inboxQuery";
 import {
   isUsageLimitResult,
   TASK_SERVICE,
@@ -278,7 +279,19 @@ export function useInboxCloudTaskRunner({
       });
 
       if (result.success) {
-        onTaskStarted?.(result.data.task);
+        try {
+          onTaskStarted?.(result.data.task);
+        } catch (error) {
+          log.error("Task started, but the handoff callback failed", error);
+          void queryClient
+            .invalidateQueries({ queryKey: inboxReportKeys.all })
+            .catch((refreshError) => {
+              log.error(
+                "Could not refresh reports after task startup",
+                refreshError,
+              );
+            });
+        }
         trackActionResult("succeeded");
         toast.dismiss(toastId);
         if (!redirectOnSuccess) {

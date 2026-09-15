@@ -1,7 +1,7 @@
 import type { ReportImplementationState } from "@posthog/core/inbox/reportImplementation";
 import type { SignalReport } from "@posthog/shared/types";
 import { useInboxSignalsFilterStore } from "@posthog/ui/features/inbox/stores/inboxSignalsFilterStore";
-import { render, screen } from "@testing-library/react";
+import { render, renderHook, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -28,6 +28,7 @@ const mocks = vi.hoisted(() => ({
   navigate: vi.fn(),
   fetchNextPage: vi.fn(),
   pagedStatus: null as string | null,
+  totalCount: null as number | null,
   allReportsOptions: [] as {
     applySourceFilter?: boolean;
     applySearchFilter?: boolean;
@@ -103,7 +104,7 @@ vi.mock("@posthog/ui/features/inbox/hooks/useInboxAllReports", () => ({
       fetchNextPage: mocks.fetchNextPage,
       refetch: vi.fn(),
       searchQuery: options.applySearchFilter === false ? "" : mocks.searchQuery,
-      totalCount: reports.length,
+      totalCount: mocks.totalCount ?? reports.length,
       scope: "entire_project",
       isSuccess: true,
       sourceProductFilter: [],
@@ -206,6 +207,7 @@ vi.mock("@posthog/ui/features/canvas/hooks/useChannelsLayout", () => ({
   useChannelsLayout: () => false,
 }));
 
+import { useInboxSectionedReports } from "../hooks/useInboxSectionedReports";
 import { InboxTriagePane } from "./InboxTriagePane";
 import { ReportsInboxView } from "./ReportsInboxView";
 
@@ -245,6 +247,7 @@ describe("ReportsInboxView", () => {
     mocks.locationState = {};
     mocks.allReportsOptions = [];
     mocks.pagedStatus = null;
+    mocks.totalCount = null;
     useInboxSignalsFilterStore.setState({
       searchQuery: "checkout",
       sourceProductFilter: [],
@@ -410,6 +413,18 @@ describe("ReportsInboxView", () => {
       "second-report",
     ]);
   });
+  it("does not count unloaded reports as triage decisions", () => {
+    mocks.activeReports = [activeReport("working", "Working report")];
+    mocks.implementationStates = new Map([["working", "working"]]);
+    mocks.totalCount = 600;
+    const { result } = renderHook(() =>
+      useInboxSectionedReports({ autoPage: false }),
+    );
+    expect(result.current.triageReportCount).toBe(0);
+    expect(result.current.triageReports).toEqual([]);
+    expect(result.current.reportCount).toBeGreaterThan(0);
+  });
+
   it("keeps working reports in the list but only decisions in triage", () => {
     mocks.activeReports = [
       activeReport("working", "Working report"),

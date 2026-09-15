@@ -1,10 +1,11 @@
+import type { PostHogAPIClient } from "@posthog/api-client/posthog-client";
 import type { SignalReport, Task, TaskRunStatus } from "@posthog/shared/types";
-import { describe, expect, it } from "vitest";
-
+import { describe, expect, it, vi } from "vitest";
 import {
   deriveReportImplementationState,
   needsImplementationDecision,
 } from "./reportImplementation";
+import { ReportImplementationService } from "./reportImplementationService";
 import { partitionInboxReports } from "./reportInboxSections";
 
 function report(overrides: Partial<SignalReport>): SignalReport {
@@ -54,6 +55,199 @@ function implementationTask(
 }
 
 describe("reportInboxSections", () => {
+  it("batches and deduplicates task lookups for a full report page", async () => {
+    const reports = Array.from({ length: 400 }, (_, index) =>
+      report({
+        id: `report-${index}`,
+        assignee: { kind: "task", task_id: `task-${index % 200}` },
+      }),
+    );
+    const summaries = Array.from({ length: 200 }, (_, index) => ({
+      id: `task-${index}`,
+      latest_run: { status: "in_progress" },
+    }));
+    const client = {
+      getTaskSummaries: vi.fn().mockResolvedValue(summaries),
+      getTask: vi.fn(),
+    };
+    const service = new ReportImplementationService();
+    const states = await service.loadStates(
+      client as unknown as PostHogAPIClient,
+      reports,
+    );
+    expect(client.getTaskSummaries).toHaveBeenCalledExactlyOnceWith(
+      summaries.map((summary) => summary.id),
+    );
+    expect(client.getTask).not.toHaveBeenCalled();
+    expect(states.size).toBe(400);
+    expect([...states.values()].every((state) => state === "working")).toBe(
+      true,
+    );
+  });
+
+  it("keeps missing tasks visible and pending input actionable", async () => {
+    const client = { getTaskSummaries: vi.fn().mockResolvedValue([]) };
+    const states = await new ReportImplementationService().loadStates(
+      client as unknown as PostHogAPIClient,
+      [
+        report({
+          id: "missing",
+          assignee: { kind: "task", task_id: "missing" },
+        }),
+        report({
+          id: "input",
+          status: "pending_input",
+          assignee: { kind: "task", task_id: "input" },
+        }),
+      ],
+    );
+    expect(states.get("missing")).toBe("unknown");
+    expect(states.get("input")).toBe("needs_input");
+  });
+
+  it("checks completed PR output once per task version and client", async () => {
+    const task = implementationTask("completed", {
+      pr_url: "https://github.com/example/project/pull/1",
+    });
+    const summary = {
+      ...task,
+      latest_run: { id: "run-1", status: "completed" },
+    };
+    const client = {
+      getTaskSummaries: vi.fn().mockResolvedValue([summary]),
+      getTask: vi.fn().mockResolvedValue(task),
+    };
+    const reports = [report({ assignee: { kind: "task", task_id: task.id } })];
+    const service = new ReportImplementationService();
+    const load = () =>
+      service.loadStates(client as unknown as PostHogAPIClient, reports);
+    expect((await load()).get("r")).toBe("in_review");
+    await load();
+    expect(client.getTask).toHaveBeenCalledOnce();
+    client.getTaskSummaries.mockResolvedValue([
+      { ...summary, updated_at: "2026-09-02T00:00:00Z" },
+    ]);
+    client.getTask.mockResolvedValue(
+      implementationTask("completed", { pr_state: "closed" }),
+    );
+    expect((await load()).get("r")).toBe("no_pr");
+    expect(client.getTask).toHaveBeenCalledTimes(2);
+    const otherClient = {
+      ...client,
+      getTask: vi.fn().mockResolvedValue(implementationTask("completed")),
+    };
+    await service.loadStates(
+      otherClient as unknown as PostHogAPIClient,
+      reports,
+    );
+    expect(otherClient.getTask).toHaveBeenCalledOnce();
+  });
+
+  it("refreshes completed PR output even if the task timestamp does not change", async () => {
+    const now = vi.spyOn(Date, "now").mockReturnValue(0);
+    try {
+      const task = implementationTask("completed", {
+        pr_url: "https://github.com/example/project/pull/1",
+      });
+      const client = {
+        getTaskSummaries: vi
+          .fn()
+          .mockResolvedValue([
+            { ...task, latest_run: { id: "run-1", status: "completed" } },
+          ]),
+        getTask: vi
+          .fn()
+          .mockResolvedValueOnce(task)
+          .mockResolvedValue(
+            implementationTask("completed", { pr_state: "closed" }),
+          ),
+      };
+      const service = new ReportImplementationService();
+      const reports = [
+        report({ assignee: { kind: "task", task_id: task.id } }),
+      ];
+      expect(
+        (
+          await service.loadStates(
+            client as unknown as PostHogAPIClient,
+            reports,
+          )
+        ).get("r"),
+      ).toBe("in_review");
+      now.mockReturnValue(5 * 60_000);
+      expect(
+        (
+          await service.loadStates(
+            client as unknown as PostHogAPIClient,
+            reports,
+          )
+        ).get("r"),
+      ).toBe("no_pr");
+    } finally {
+      now.mockRestore();
+    }
+  });
+
+  it("limits completed-task detail requests to ten at a time", async () => {
+    const task = implementationTask("completed");
+    const summaries = Array.from({ length: 25 }, (_, index) => ({
+      ...task,
+      id: `task-${index}`,
+    }));
+    const reports = summaries.map((summary) =>
+      report({
+        id: summary.id,
+        assignee: { kind: "task", task_id: summary.id },
+      }),
+    );
+    let active = 0;
+    let maximum = 0;
+    const client = {
+      getTaskSummaries: vi.fn().mockResolvedValue(summaries),
+      getTask: vi.fn().mockImplementation(async () => {
+        active++;
+        maximum = Math.max(maximum, active);
+        await Promise.resolve();
+        active--;
+        return task;
+      }),
+    };
+    const states = await new ReportImplementationService().loadStates(
+      client as unknown as PostHogAPIClient,
+      reports,
+    );
+    expect(client.getTask).toHaveBeenCalledTimes(25);
+    expect(maximum).toBe(10);
+    expect([...states.values()].every((state) => state === "no_pr")).toBe(true);
+  });
+
+  it("recovers a failed completed-task lookup on the next refresh", async () => {
+    const task = implementationTask("completed");
+    const client = {
+      getTaskSummaries: vi
+        .fn()
+        .mockResolvedValue([
+          { ...task, latest_run: { id: "run-1", status: "completed" } },
+        ]),
+      getTask: vi
+        .fn()
+        .mockRejectedValueOnce(new Error("Unavailable"))
+        .mockResolvedValue(task),
+    };
+    const service = new ReportImplementationService();
+    const reports = [report({ assignee: { kind: "task", task_id: task.id } })];
+    expect(
+      (
+        await service.loadStates(client as unknown as PostHogAPIClient, reports)
+      ).get("r"),
+    ).toBe("unknown");
+    expect(
+      (
+        await service.loadStates(client as unknown as PostHogAPIClient, reports)
+      ).get("r"),
+    ).toBe("no_pr");
+  });
+
   it.each([
     [{ status: "ready" }, "needsPr"],
     [

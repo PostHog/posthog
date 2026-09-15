@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   resolveModel: vi.fn(),
   openTask: vi.fn(),
   success: vi.fn(),
+  error: vi.fn(),
 }));
 vi.mock("@posthog/di/react", () => ({
   useService: () => ({ createTask: mocks.createTask }),
@@ -52,7 +53,7 @@ vi.mock("@posthog/ui/primitives/toast", () => ({
 vi.mock("@posthog/ui/router/useOpenTask", () => ({ openTask: mocks.openTask }));
 vi.mock("@posthog/ui/shell/analytics", () => ({ track: vi.fn() }));
 vi.mock("@posthog/ui/shell/logger", () => ({
-  logger: { scope: () => ({ error: vi.fn() }) },
+  logger: { scope: () => ({ error: mocks.error }) },
 }));
 
 import { useInboxCloudTaskRunner } from "./useInboxCloudTaskRunner";
@@ -94,7 +95,7 @@ function renderRunner() {
       ),
     },
   );
-  return { ...hook, onTaskStarted };
+  return { ...hook, onTaskStarted, queryClient };
 }
 
 describe("useInboxCloudTaskRunner", () => {
@@ -142,6 +143,29 @@ describe("useInboxCloudTaskRunner", () => {
       }
     },
   );
+
+  it("keeps successful startup when the handoff callback throws", async () => {
+    mocks.createTask.mockResolvedValue({ success: true, data: output });
+    const { result, onTaskStarted, queryClient } = renderRunner();
+    const refresh = vi.spyOn(queryClient, "invalidateQueries");
+    const error = new Error("Handoff failed");
+    onTaskStarted.mockImplementation(() => {
+      throw error;
+    });
+    await act(async () => {
+      expect(await result.current.run()).toBe(true);
+    });
+    expect(mocks.error).toHaveBeenCalledWith(
+      "Task started, but the handoff callback failed",
+      error,
+    );
+    expect(refresh).toHaveBeenCalledWith({
+      queryKey: ["inbox", "signal-reports"],
+    });
+    expect(mocks.success).toHaveBeenCalledOnce();
+    expect(result.current.isRunning).toBe(false);
+    expect(mocks.createTask).toHaveBeenCalledOnce();
+  });
 
   it("blocks repeated clicks and permits retry after model lookup fails", async () => {
     mocks.resolveModel.mockRejectedValueOnce(new Error("Model lookup failed"));

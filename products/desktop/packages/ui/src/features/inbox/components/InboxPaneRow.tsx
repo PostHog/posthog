@@ -1,3 +1,4 @@
+import type { ReportImplementationState } from "@posthog/core/inbox/reportImplementation";
 import { REPORT_IMPLEMENTATION_LABELS } from "@posthog/core/inbox/reportImplementation";
 import {
   deriveHeadline,
@@ -11,17 +12,18 @@ import { InboxReportContextMenu } from "@posthog/ui/features/inbox/components/In
 import { PriorityMonogram } from "@posthog/ui/features/inbox/components/PriorityMonogram";
 import { useInboxReportDetailPrefetch } from "@posthog/ui/features/inbox/hooks/useInboxReportDetailPrefetch";
 import { useInboxReportReadState } from "@posthog/ui/features/inbox/hooks/useInboxReportReadState";
-import { useReportImplementationStates } from "@posthog/ui/features/inbox/hooks/useReportImplementationStates";
 import { navigateToInboxReportDetail } from "@posthog/ui/router/navigationBridge";
 import type { ReactElement } from "react";
 
 /** One report in the rail's Self-driving list. */
 export function InboxPaneRow({
   report,
+  implementationState,
   isSelected,
   optionValue,
 }: {
   report: SignalReport;
+  implementationState?: ReportImplementationState | null;
   isSelected: boolean;
   optionValue: string;
 }): ReactElement {
@@ -30,8 +32,6 @@ export function InboxPaneRow({
     to: "/reports/$reportId",
     params: { reportId: report.id },
   });
-  const { states } = useReportImplementationStates([report]);
-  const implementationState = states.get(report.id);
   const title = humanizeReportTitle(report.title, "Untitled report");
   // The same lead sentence the page rows show, clamped to two lines here. The
   // row is a button, whose wrapper truncates on one line, so the preview has to

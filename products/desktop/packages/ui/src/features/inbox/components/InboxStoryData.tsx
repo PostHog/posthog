@@ -14,13 +14,23 @@ export function InboxStoryData({
   children: ReactNode;
 }): ReactNode {
   const queryClient = useQueryClient();
-  const [ready, setReady] = useState(false);
+  const [seeded, setSeeded] = useState<{
+    report?: SignalReport;
+    queryClient: typeof queryClient;
+  } | null>(null);
   useEffect(() => {
     const storyReports = [
       ...inboxStoryImplementations.map((entry) => entry.report),
       ...(report ? [report] : []),
     ];
-    const keys = storyReports.flatMap((item) => {
+    const previous = new Map<readonly unknown[], unknown>();
+    const seed = (queryKey: readonly unknown[], data: unknown): void => {
+      previous.set(queryKey, queryClient.getQueryData(queryKey));
+      queryClient.setQueryData(queryKey, data);
+    };
+    for (const item of Array.from(
+      new Map(storyReports.map((item) => [item.id, item])).values(),
+    )) {
       const task = inboxStoryImplementations.find(
         (entry) => entry.report.id === item.id,
       )?.task;
@@ -36,21 +46,20 @@ export function InboxStoryData({
         : [];
       const tasksKey = ["inbox", "report-tasks", item.id];
       const artefactsKey = inboxReportKeys.artefacts(item.id);
-      queryClient.setQueryData(tasksKey, tasks);
-      queryClient.setQueryData(artefactsKey, { results: [], count: 0 });
-      if (task)
-        queryClient.setQueryData(taskDetailQuery(task.id).queryKey, task);
-      return [
-        tasksKey,
-        artefactsKey,
-        ...(task ? [taskDetailQuery(task.id).queryKey] : []),
-      ];
-    });
-    setReady(true);
+      seed(tasksKey, tasks);
+      seed(artefactsKey, { results: [], count: 0 });
+      if (task) seed(taskDetailQuery(task.id).queryKey, task);
+    }
+    setSeeded({ report, queryClient });
     return () => {
-      for (const queryKey of keys)
-        queryClient.removeQueries({ queryKey, exact: true });
+      for (const [queryKey, data] of previous) {
+        if (data === undefined)
+          queryClient.removeQueries({ queryKey, exact: true });
+        else queryClient.setQueryData(queryKey, data);
+      }
     };
   }, [queryClient, report]);
-  return ready ? children : null;
+  return seeded?.queryClient === queryClient && seeded.report === report
+    ? children
+    : null;
 }

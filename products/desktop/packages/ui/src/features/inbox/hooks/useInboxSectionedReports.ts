@@ -4,7 +4,10 @@ import {
   INBOX_ACTIONABLE_REPORT_STATUS_FILTER,
   sortInboxReports,
 } from "@posthog/core/inbox/reportFiltering";
-import { needsImplementationDecision } from "@posthog/core/inbox/reportImplementation";
+import {
+  needsImplementationDecision,
+  type ReportImplementationState,
+} from "@posthog/core/inbox/reportImplementation";
 import type { InboxScope } from "@posthog/core/inbox/reportMembership";
 import type {
   SignalReport,
@@ -40,6 +43,7 @@ export interface InboxSectionedReports {
   triageReports: SignalReport[];
   triageReportCount: number;
   triageLoading: boolean;
+  implementationStates: Map<string, ReportImplementationState | null>;
   reportCount: number;
   isLoading: boolean;
   isSuccess: boolean;
@@ -184,13 +188,8 @@ export function useInboxSectionedReports(options?: {
   return {
     reports: visibleReports,
     triageReports,
-    triageReportCount: showNeedsDecision
-      ? Math.max(
-          0,
-          needsDecisionQuery.totalCount -
-            (needsDecisionQuery.scopedReports.length - triageReports.length),
-        )
-      : 0,
+    triageReportCount: triageReports.length,
+    implementationStates: implementations.states,
     reportCount,
     triageLoading: implementations.isLoading,
     isLoading: selected.some((query) => query.isPending),

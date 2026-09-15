@@ -40,7 +40,14 @@ export function reportImplementationTaskId(
 
 export function deriveReportImplementationState(
   report: SignalReport,
-  task: Task | undefined,
+  task:
+    | {
+        latest_run?: {
+          status: string | null;
+          output?: NonNullable<Task["latest_run"]>["output"];
+        } | null;
+      }
+    | undefined,
   lookupFailed = false,
 ): ReportImplementationState | null {
   if (!reportImplementationTaskId(report)) return null;

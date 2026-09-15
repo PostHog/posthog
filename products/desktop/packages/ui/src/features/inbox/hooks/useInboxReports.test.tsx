@@ -12,11 +12,20 @@ const mockSetReviewers = vi.hoisted(() => vi.fn());
 const mockClient = vi.hoisted(() => ({
   setSignalReportReviewers: mockSetReviewers,
   getTask: vi.fn(),
+  getTaskSummaries: vi.fn(),
 }));
 
 vi.mock("@posthog/ui/features/auth/authClient", () => ({
   useOptionalAuthenticatedClient: () => mockClient,
 }));
+
+vi.mock("@posthog/di/react", async () => {
+  const { ReportImplementationService } = await import(
+    "@posthog/core/inbox/reportImplementationService"
+  );
+  const service = new ReportImplementationService();
+  return { useService: () => service };
+});
 
 vi.mock("@posthog/ui/primitives/toast", () => ({
   toast: { error: vi.fn() },
@@ -170,10 +179,12 @@ describe("Inbox report queries", () => {
       assignee: { kind: "task", task_id: "implementation-1" },
       work_state: "working",
     });
-    mockClient.getTask.mockResolvedValue({
-      id: "implementation-1",
-      latest_run: { status: "in_progress" },
-    });
+    mockClient.getTaskSummaries.mockResolvedValue([
+      {
+        id: "implementation-1",
+        latest_run: { status: "in_progress" },
+      },
+    ]);
     const client = new QueryClient({
       defaultOptions: { queries: { retry: false } },
     });
@@ -195,18 +206,30 @@ describe("Inbox report queries", () => {
     await waitFor(() =>
       expect(reloaded.result.current.states.get(report.id)).toBe("working"),
     );
-    expect(mockClient.getTask).toHaveBeenCalledTimes(2);
-    mockClient.getTask.mockResolvedValue({
-      id: "implementation-1",
-      latest_run: { status: "failed" },
-    });
+    expect(mockClient.getTaskSummaries).toHaveBeenCalledTimes(2);
+    expect(mockClient.getTask).not.toHaveBeenCalled();
+    mockClient.getTaskSummaries.mockResolvedValue([
+      {
+        id: "implementation-1",
+        latest_run: { status: "failed" },
+      },
+    ]);
     await act(async () => {
       await client.invalidateQueries({
-        queryKey: taskKeys.detail("implementation-1"),
+        queryKey: taskKeys.allSummaries(),
       });
     });
     await waitFor(() =>
       expect(reloaded.result.current.states.get(report.id)).toBe("failed"),
+    );
+    mockClient.getTaskSummaries.mockRejectedValue(
+      new Error("Status unavailable"),
+    );
+    await act(async () => {
+      await client.invalidateQueries({ queryKey: taskKeys.allSummaries() });
+    });
+    await waitFor(() =>
+      expect(reloaded.result.current.states.get(report.id)).toBe("unknown"),
     );
     reloaded.unmount();
     client.clear();

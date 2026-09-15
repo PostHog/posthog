@@ -1,4 +1,5 @@
 import { inboxReportKeys } from "@posthog/core/inbox/inboxQuery";
+import { deriveReportImplementationState } from "@posthog/core/inbox/reportImplementation";
 import { Button } from "@posthog/quill";
 import type { SignalReport } from "@posthog/shared/types";
 import {
@@ -126,6 +127,11 @@ function paneRow(report: SignalReport): React.JSX.Element {
     <InboxPaneRow
       key={report.id}
       report={report}
+      implementationState={deriveReportImplementationState(
+        report,
+        inboxStoryImplementations.find((entry) => entry.report.id === report.id)
+          ?.task,
+      )}
       optionValue={report.id}
       isSelected={report.id === "needs-1"}
     />

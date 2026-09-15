@@ -28,7 +28,9 @@ Reports with an active implementation task stay in the list with a Creating PR l
 This uses the saved task assignment and survives reopening the app. It does not dismiss, resolve, or change the report read state.
 A failed or stopped task, a task that finishes without a PR, or a report waiting for input returns to triage with a status message.
 If task status cannot be loaded, the report stays in triage. An attached PR remains available for review.
-Task status refreshes while the list is open. Older servers without task assignments keep their existing queue behavior.
+Task status refreshes in batches while the list is open. Rows use the same status results as triage.
+The triage count includes only loaded reports that need a decision. Load more reports to check the next page.
+A callback error after task startup does not change a successful start into a failed start. Older servers without task assignments keep their existing queue behavior.
 Triage hides the sidebar. Exiting triage or opening a report restores it without changing its saved width or open setting.
 Press T from the report list or an open report to start triage when triage is enabled. The shortcut does not run while you type in a field.
 
