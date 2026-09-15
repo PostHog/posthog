@@ -166,8 +166,8 @@ export function PersonsModal({
                 <div className="px-4 py-2">
                     {breakdownNotes && (
                         <LemonBanner type="info" className="mb-2">
-                            {breakdownNotes.explanation}
-                            {breakdownNotes.personPropertyHint ? ` ${breakdownNotes.personPropertyHint}` : ''}
+                            {/* One text node, so a page translation extension cannot leave the banner stale. */}
+                            {[breakdownNotes.explanation, breakdownNotes.personPropertyHint].filter(Boolean).join(' ')}
                         </LemonBanner>
                     )}
 
