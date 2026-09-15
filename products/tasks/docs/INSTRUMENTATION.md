@@ -19,6 +19,7 @@ All events captured via `Task.capture_event()` automatically include:
 | `title`          | `str`  | Task title                                 |
 | `description`    | `str`  | Task description (truncated to 500 chars)  |
 | `origin_product` | `str`  | Origin product enum value                  |
+| `unattended`     | `bool` | `True` when an automation started the run  |
 | `repository`     | `str?` | Repository in `org/repo` format (nullable) |
 
 ### TaskRun events
@@ -31,6 +32,7 @@ All events captured via `TaskRun.capture_event()` automatically include:
 | `run_id`          | `str`  | UUID of the run                                                         |
 | `team_id`         | `int`  | Team ID                                                                 |
 | `repository`      | `str?` | Repository in `org/repo` format (nullable)                              |
+| `unattended`      | `bool` | `True` when an automation started the run                               |
 | `loop_id`         | `str?` | UUID of the loop that spawned this run, from run state (nullable)       |
 | `loop_trigger_id` | `str?` | UUID of the loop trigger that fired this run, from run state (nullable) |
 | `environment`     | `str`  | `cloud` or `local` (defaults to `cloud`)                                |
@@ -218,6 +220,7 @@ Tracked after sandbox and agent server are provisioned.
 | ------------------------------- | ------ | --------------------------------------------------------- |
 | `run_id`                        | `str`  | UUID of the run                                           |
 | `task_id`                       | `str`  | UUID of the task                                          |
+| `unattended`                    | `bool` | `True` when an automation started the run                 |
 | `sandbox_id`                    | `str`  | Sandbox identifier                                        |
 | `sandbox_url`                   | `str`  | URL of the sandbox                                        |
 | `used_snapshot`                 | `bool` | Whether a snapshot was used                               |
