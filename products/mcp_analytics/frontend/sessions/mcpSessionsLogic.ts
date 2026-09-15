@@ -116,6 +116,7 @@ export interface mcpSessionsLogicValues {
     selectedSessionIntent: string
     selectedSessionToolCalls: {
         calls: MCPToolCallApi[]
+        error: boolean
         hasNext: boolean
         loading: boolean
         loadingMore: boolean
@@ -124,6 +125,7 @@ export interface mcpSessionsLogicValues {
     sessionsLoading: boolean
     sorting: MCPSessionSorting | null
     toolCalls: SessionToolCalls
+    toolCallsLoadFailed: boolean
     toolCallsLoading: boolean
 }
 
@@ -269,9 +271,11 @@ export interface mcpSessionsLogicMeta {
             toolCallsLoading: boolean,
             sharedQueryFilters: Required<
                 Pick<import('~/queries/schema').HogQLFilters, 'filterTestAccounts' | 'properties'>
-            >
+            >,
+            toolCallsLoadFailed: boolean
         ) => {
             calls: MCPToolCallApi[]
+            error: boolean
             hasNext: boolean
             loading: boolean
             loadingMore: boolean
@@ -437,6 +441,13 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
         ],
     })),
     reducers({
+        toolCallsLoadFailed: [
+            false,
+            {
+                loadToolCalls: () => false,
+                loadToolCallsFailure: () => true,
+            },
+        ],
         filters: [
             DEFAULT_FILTERS,
             {
@@ -526,19 +537,27 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
         // the new session's header. A plain comparison — no shared loader flag a concurrent load
         // more could flip.
         selectedSessionToolCalls: [
-            (s) => [s.toolCalls, s.selectedSessionId, s.toolCallsLoading, s.sharedQueryFilters],
+            (s) => [s.toolCalls, s.selectedSessionId, s.toolCallsLoading, s.sharedQueryFilters, s.toolCallsLoadFailed],
             (
                 toolCalls: SessionToolCalls,
                 selectedSessionId: string | null,
                 toolCallsLoading: boolean,
-                sharedQueryFilters: MCPSharedQueryFilters
-            ): { calls: MCPToolCallApi[]; hasNext: boolean; loading: boolean; loadingMore: boolean } => {
+                sharedQueryFilters: MCPSharedQueryFilters,
+                toolCallsLoadFailed: boolean
+            ): {
+                calls: MCPToolCallApi[]
+                hasNext: boolean
+                loading: boolean
+                loadingMore: boolean
+                error: boolean
+            } => {
                 const isCurrent = toolCalls.sessionId === selectedSessionId && toolCalls.filters === sharedQueryFilters
                 return {
                     calls: isCurrent ? toolCalls.calls : [],
                     hasNext: isCurrent && toolCalls.hasNext,
                     // First page still loading: the loaded value isn't for the selected session yet.
-                    loading: selectedSessionId !== null && !isCurrent,
+                    loading: selectedSessionId !== null && !isCurrent && !toolCallsLoadFailed,
+                    error: selectedSessionId !== null && toolCallsLoadFailed,
                     // A "Load more" append is in flight for the session already on screen.
                     loadingMore: isCurrent && toolCallsLoading,
                 }

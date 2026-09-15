@@ -441,7 +441,8 @@ class TestListMCPSessions(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin,
         assert old in results
         assert new not in results
 
-    def test_overlapping_session_reports_full_stats_not_clipped(self) -> None:
+    @parameterized.expand([2, 72])
+    def test_overlapping_session_reports_full_stats_not_clipped(self, hours_before: int) -> None:
         # A session straddling the window start is included with its FULL stats: the event
         # before the window counts too, so start/duration/tool count span the whole session
         # rather than just the in-window slice.
@@ -450,7 +451,7 @@ class TestListMCPSessions(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin,
         self._seed_session(
             session_id,
             ["query_run", "insight_get"],
-            session_start=now - timedelta(hours=2),  # before the window
+            session_start=now - timedelta(hours=hours_before),  # before the window
             session_end=now - timedelta(minutes=10),  # inside the window
         )
 
