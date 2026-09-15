@@ -29,6 +29,7 @@ The secret is the Django setting `PANDADOC_WEBHOOK_SECRET`.
 
 PandaDoc batches several events into one body, so one request becomes one delivery per event, and all of them draw from the one request budget.
 A bad signature answers 404 instead of 403, so a prober cannot tell a wrong secret from an unknown route.
+A missing secret answers 404 too, and neither rejection carries a body, because the reason would hand back what the status code withholds.
 
 ## Consumers
 

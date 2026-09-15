@@ -34,6 +34,8 @@ class PandaDocProvider(WebhookProvider):
     # A missing secret answers like an unknown route too, so an operator mistake does not hand a
     # prober the "this endpoint exists" the 404 above exists to withhold.
     unconfigured_status = 404
+    # A body naming the reason would hand back what the two 404s above withhold.
+    explains_rejections = False
 
     def __init__(self, *, enabled: Callable[[], bool] | None = None) -> None:
         self._enabled = enabled

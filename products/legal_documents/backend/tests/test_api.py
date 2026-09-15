@@ -619,6 +619,7 @@ class TestLegalDocumentPandaDocWebhook(APIBaseTest):
         with self._override():
             response = self._post_raw(body, "not-the-right-signature")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(response.content, b"")
         self.document.refresh_from_db()
         self.assertEqual(self.document.status, "submitted_for_signature")
 
@@ -705,8 +706,7 @@ class TestLegalDocumentPandaDocWebhook(APIBaseTest):
 
     @contextmanager
     def _read_the_row_before_the_other_delivery_committed(self):
-        # The row as a concurrent delivery saw it: still pending, because the delivery that won
-        # had not committed yet. Every later read in the request sees the real row.
+        # Only the first read is stale, so the handler's re-read after a lost claim sees the row.
         stale = LegalDocument.objects.get(id=self.document.id)
         stale.status = LegalDocument.Status.SUBMITTED_FOR_SIGNATURE
         original = logic.get_by_pandadoc_document_id
@@ -720,10 +720,8 @@ class TestLegalDocumentPandaDocWebhook(APIBaseTest):
 
     @parameterized.expand(
         [
-            # The second delivery reads the row after the first one committed.
             ("a_later_replay", False),
-            # Both deliveries read the row as pending before either wrote. PandaDoc sends no
-            # delivery id, so ingress cannot collapse them and only the conditional update can.
+            # PandaDoc sends no delivery id, so nothing upstream collapses the two.
             ("a_concurrent_delivery_that_read_the_row_as_pending", True),
         ]
     )
