@@ -31,12 +31,12 @@ It is the same version the git marketplace stamps on its plugin, so the two surf
 
 The `ETag` covers more, because the list body shows more than the skill rows:
 
-| Input                  | Why it is in the ETag                                                                           |
-| ---------------------- | ----------------------------------------------------------------------------------------------- |
-| The skills version     | Publishes, file edits and archives.                                                             |
-| The team's owner rows  | Owners are keyed on the skill name, so an owner-only `PATCH` changes no skill row.              |
-| The requesting user    | Access filtering is per user, so one caller's validator must never match another caller's list. |
-| The whole query string | `search`, `created_by_id`, `owner_id`, `category`, ordering and the page all change the body.   |
+| Input                  | Why it is in the ETag                                                                                                                                                  |
+| ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| The skills version     | Publishes, file edits and archives.                                                                                                                                    |
+| The team's owner rows  | Owners are keyed on the skill name, so an owner-only `PATCH` changes no skill row.                                                                                     |
+| The requesting user    | Access filtering is per user, so one caller's validator must never match another caller's list.                                                                        |
+| The whole query string | `search`, `created_by_id`, `owner_id`, `category`, ordering and the page all change the body.                                                                          |
 | The deploy revision    | Every other input is a store row, so a release that serializes the list differently would otherwise keep its old validator. Costs one full body per client per deploy. |
 
 The version is read uncached.
