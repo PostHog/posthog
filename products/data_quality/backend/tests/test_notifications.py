@@ -411,7 +411,7 @@ class TestDataQualityNotifications(BaseTest):
             config={"query": "SELECT 1 FROM orders"},
         )
 
-    def test_the_reference_gate_builds_one_warehouse_database_per_access_posture(self) -> None:
+    def test_members_with_equal_access_share_one_warehouse_database_build(self) -> None:
         denied_first = User.objects.create_and_join(self.organization, "denied-first@test.com", "password")
         denied_second = User.objects.create_and_join(self.organization, "denied-second@test.com", "password")
         allowed_first = User.objects.create_and_join(self.organization, "allowed-first@test.com", "password")
@@ -428,7 +428,7 @@ class TestDataQualityNotifications(BaseTest):
         assert denied_first.id not in resolved
         assert denied_second.id not in resolved
 
-    def test_org_admins_share_one_access_posture(self) -> None:
+    def test_org_admins_share_one_warehouse_database_build(self) -> None:
         first_admin = User.objects.create_and_join(
             self.organization, "first-admin@test.com", "password", level=OrganizationMembership.Level.ADMIN
         )

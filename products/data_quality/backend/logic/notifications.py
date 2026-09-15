@@ -29,12 +29,12 @@ from ..models import DataQualityCheck, DataQualityCheckRun, DataQualitySuiteRun
 from .checks import checks_for_subject
 from .flags import is_data_quality_checks_enabled_for_team_id
 from .subject_access import (
-    AccessPosture,
+    DenialContextKey,
     ReferenceGate,
     SubjectMetadata,
-    access_posture,
     caller_denial_context,
     can_be_object_denied,
+    denial_context_key,
     referenced_subject_names,
     referencing_check_types,
     subject_metadata,
@@ -82,7 +82,7 @@ class _WarehouseSubjectResolver(RecipientsResolver):
         # database build the referenced-subject gate runs) so a single failing check doesn't rebuild
         # it -- and its membership, role, and access-control lookups -- once per pass.
         self._access: dict[int, UserAccessControl] = {}
-        self._gates: dict[AccessPosture, ReferenceGate] = {}
+        self._gates: dict[DenialContextKey, ReferenceGate] = {}
         self._subject_metadata: SubjectMetadata | None = None
 
     def _access_of(self, user: User) -> UserAccessControl:
@@ -146,14 +146,14 @@ class _WarehouseSubjectResolver(RecipientsResolver):
 
     def _gate_of(self, user: User) -> ReferenceGate:
         access = self._access_of(user)
-        posture = access_posture(self._team, user, access)
-        gate = self._gates.get(posture)
+        key = denial_context_key(self._team, user, access)
+        gate = self._gates.get(key)
         if gate is None:
             if self._subject_metadata is None:
                 self._subject_metadata = subject_metadata(self._team.id)
             context = caller_denial_context(self._team, user, access, metadata=self._subject_metadata)
             gate = ReferenceGate(readable=context.readable, matcher=context.matcher)
-            self._gates[posture] = gate
+            self._gates[key] = gate
         return gate
 
 

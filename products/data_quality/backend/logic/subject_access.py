@@ -127,8 +127,8 @@ class ReferenceGate:
     Holds the two things that answer this: the tables, views and metrics the person may read, and
     a matcher for the table names they are denied.
 
-    Both come from the person's :class:`AccessPosture` and from nothing else, so one gate can serve
-    every person with the same posture. The :class:`DenialContext` it is built from cannot be
+    Both come from the person's :class:`DenialContextKey` and from nothing else, so one gate can
+    serve every person whose key is equal. The :class:`DenialContext` it is built from cannot be
     shared that way, because that also holds the HogQL database built for one specific person.
     """
 
@@ -145,15 +145,15 @@ class ReferenceGate:
 
 
 @frozen
-class AccessPosture:
-    """What one person is allowed to read, as four values that can be used as a cache key.
+class DenialContextKey:
+    """What one person is allowed to read, reduced to something a cache can key on.
 
-    Working out which table names a person is denied is expensive: it builds a HogQL database for
-    them. These four values are the only things about the person that the answer depends on, so two
-    people on the same team with equal postures are denied exactly the same names.
+    Working out which table names a person is denied is expensive, because it builds a HogQL
+    database for them. These four values are the only things about the person that the answer
+    depends on, so two people on the same team with equal keys are denied exactly the same names.
 
-    A surface that has to check hundreds of people can therefore do the expensive work once per
-    distinct posture instead of once per person.
+    A surface that has to check hundreds of people can therefore resolve one :class:`DenialContext`
+    per distinct key instead of one per person.
     """
 
     allowed_table_ids: frozenset[UUID]
@@ -162,9 +162,9 @@ class AccessPosture:
     denied_system_tables: frozenset[str]
 
 
-def access_posture(team: "Team", user: "User", user_access_control: "UserAccessControl") -> AccessPosture:
-    """Reads one person's posture. Runs a few Postgres queries and builds no HogQL database."""
-    return AccessPosture(
+def denial_context_key(team: "Team", user: "User", user_access_control: "UserAccessControl") -> DenialContextKey:
+    """Reads the key for one person. Runs a few Postgres queries and builds no HogQL database."""
+    return DenialContextKey(
         allowed_table_ids=warehouse_facade.allowed_table_ids(team.id, user_access_control),
         allowed_view_ids=data_modeling_facade.allowed_saved_query_ids(team.id, user_access_control),
         can_read_catalog=user_access_control.check_access_level_for_resource("data_catalog", "viewer"),
