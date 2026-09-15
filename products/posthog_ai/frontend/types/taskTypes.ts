@@ -1,6 +1,10 @@
 import { Optional } from 'lib/utils/types'
 
-import { type TaskRunDetailDTOApi, TaskRuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
+import {
+    type TaskRunDetailDTOApi,
+    TaskRuntimeEnumApi,
+    type TasksListOrdering,
+} from 'products/tasks/frontend/generated/api.schemas'
 
 export function isPiTaskRuntime(runtime: TaskRuntimeEnumApi | undefined): boolean {
     return runtime === TaskRuntimeEnumApi.Pi
@@ -72,6 +76,12 @@ export interface Task {
     latest_run: TaskRun | null
     created_at: string
     updated_at: string
+    /**
+     * When something last happened in the task (a thread message, or a run starting, streaming, or
+     * finishing). Deliberately decoupled from `updated_at`, which only moves when the row is edited —
+     * a run can stream for hours without touching it. Null for rows written outside the ORM.
+     */
+    last_activity_at?: string | null
     created_by: {
         id: number
         uuid: string
@@ -97,8 +107,15 @@ export interface TaskListParams {
     internal?: 'true' | 'false' | 'all'
     search?: string
     status?: TaskRunStatus
-    /** Staff-only. List every task on the team, bypassing the per-user visibility filter. Ignored server-side for non-staff. */
+    /**
+     * Drops the `created_by` pin, so the list widens to every task the caller can read.
+     * The server's full bypass of the per-user visibility filter is local development only: it needs
+     * `ph_debug=true` on the internal debug team, and staff alone does not unlock it. Production
+     * therefore returns the caller's readable tasks, not every task on the team.
+     */
     all_team_tasks?: boolean
+    /** Sort order; the server defaults to `-created_at` when unset. */
+    ordering?: TasksListOrdering
     /** Page size (LimitOffset pagination); the viewset caps it at 100. */
     limit?: number
     offset?: number

@@ -126,7 +126,7 @@ SANDBOX_IMAGE = SANDBOX_BASE_IMAGE
 # Dockerfile.sandbox-slim's NODE_MAJOR / uv COPY --from pins (and with Dockerfile.sandbox-base,
 # which both mirror).
 SANDBOX_SLIM_NODE_MAJOR = 24
-SANDBOX_SLIM_UV_IMAGE = "ghcr.io/astral-sh/uv:0.12.5"
+SANDBOX_SLIM_UV_IMAGE = "ghcr.io/astral-sh/uv:0.12.13"
 POST_RESTORE_PROBE_TIMEOUT_SECONDS = 45
 
 # Recoverable infra errors Modal surfaces when filesystem snapshotting times out or loses its
@@ -326,6 +326,7 @@ LOCAL_MODAL_DOCKERFILES = {
 LOCAL_MODAL_INSTALL_SKILLS_SCRIPT = Path("products/tasks/backend/sandbox/images/install-skills.sh")
 LOCAL_MODAL_GIT_GUARD_SCRIPT = Path("products/tasks/backend/sandbox/images/git-guard.sh")
 LOCAL_MODAL_GH_GUARD_SCRIPT = Path("products/tasks/backend/sandbox/images/gh-guard.sh")
+LOCAL_MODAL_HOGLI_SHIM_SCRIPT = Path("products/tasks/backend/sandbox/images/hogli-shim.sh")
 # The notebook image bakes the notebooks SQLV2 kernel and stamps its content hash,
 # so a local build context needs the package and the module that computes the hash.
 LOCAL_MODAL_NOTEBOOK_KERNEL_MODULE = Path("products/notebooks/backend/kernel_package.py")
@@ -684,6 +685,10 @@ def _prepare_local_modal_build_context(template: SandboxTemplate) -> tuple[str, 
         shutil.copy2(base_dir / LOCAL_MODAL_CPU_BILLING_SAMPLER, destination_sampler_path)
 
     if template == SandboxTemplate.DEFAULT_BASE:
+        destination_hogli_shim_path = context_dir / LOCAL_MODAL_HOGLI_SHIM_SCRIPT
+        destination_hogli_shim_path.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(base_dir / LOCAL_MODAL_HOGLI_SHIM_SCRIPT, destination_hogli_shim_path)
+
         source_install_script_path = base_dir / LOCAL_MODAL_INSTALL_SKILLS_SCRIPT
         destination_install_script_path = context_dir / LOCAL_MODAL_INSTALL_SKILLS_SCRIPT
         destination_install_script_path.parent.mkdir(parents=True, exist_ok=True)

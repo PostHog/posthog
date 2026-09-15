@@ -4511,11 +4511,12 @@ class AgentProxyCallbackRequestSerializer(serializers.Serializer):
     """
 
     kind = serializers.ChoiceField(
-        choices=["heartbeat", "awaiting_input", "command_dispatched", "agent_activity"],
+        choices=["heartbeat", "awaiting_input", "turn_failed", "command_dispatched", "agent_activity"],
         help_text=(
             "Side effect to dispatch. 'heartbeat' signals the Temporal workflow to reset its "
             "inactivity timer. 'awaiting_input' fires a mobile push notification when an "
-            "interactive run finishes a turn and is waiting for user input. 'command_dispatched' "
+            "interactive run finishes a turn and is waiting for user input. 'turn_failed' fails "
+            "the run outright when a pi turn ends in a runtime error. 'command_dispatched' "
             "and 'agent_activity' record boot milestones."
         ),
     )

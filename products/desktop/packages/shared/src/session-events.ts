@@ -69,6 +69,8 @@ export interface AcpMessage {
 /** Marks a replayed `user_message_chunk` from an imported transcript so the load path promotes it into a user bubble. */
 export const IMPORTED_USER_PROMPT_META_KEY = "importedUserPrompt";
 
+export const IDLE_RESUME_STOP_REASON = "idle_resume";
+
 /**
  * S3 log entry format for stored session logs.
  * Used when fetching historical logs and appending new entries.
@@ -88,6 +90,14 @@ export interface StoredLogEntry {
     result?: unknown;
     error?: unknown;
   };
+}
+
+export function isIdleResumeTurnComplete(entry: StoredLogEntry): boolean {
+  if (entry.notification?.method !== "_posthog/turn_complete") return false;
+  const params = entry.notification.params as
+    | { stopReason?: string }
+    | undefined;
+  return params?.stopReason === IDLE_RESUME_STOP_REASON;
 }
 
 export interface UserShellExecuteResult {

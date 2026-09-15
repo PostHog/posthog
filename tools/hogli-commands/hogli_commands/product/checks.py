@@ -34,6 +34,7 @@ from .isolation import (
     names_from_pattern as _names_from_pattern,
     pattern_targets_public_surface as _pattern_targets_public_surface,
     routes_in_turbo_inputs,
+    webhook_consumers_unwatched,
 )
 from .paths import TACH_TOML, get_tach_block
 
@@ -439,12 +440,13 @@ def _contract_check_withheld_note(status: IsolationStatus) -> str | None:
 
 
 class ImportSurfaceCheck(ProductCheck):
-    """Hold the two import-linter contracts by AST, so a namespace package cannot dodge them.
+    """Hold the three import-linter contracts by AST, so a namespace package cannot dodge them.
 
-    The contracts say routes.py imports only presentation/, and presentation/ imports only
-    facade/ and itself. import-linter enforces both through grimp, and grimp does not descend
-    into a directory without an __init__.py — so `from ...backend.services.views import X`
-    with no `services/__init__.py` is invisible to it and the contract passes vacuously.
+    The contracts say routes.py imports only presentation/, presentation/ imports only facade/
+    and itself, and webhook_consumers.py imports only facade/. import-linter enforces them all
+    through grimp, and grimp does not descend into a directory without an __init__.py — so
+    `from ...backend.services.views import X` with no `services/__init__.py` is invisible to it
+    and the contract passes vacuously.
     That is a live view outside presentation/ that the narrowed contract-check inputs do not
     watch. This check reads the same imports straight from the AST, honors the same
     ignore_imports deferrals, and fails on what grimp cannot see.
@@ -457,6 +459,7 @@ class ImportSurfaceCheck(ProductCheck):
     SURFACES = (
         ("routes", ("presentation",)),
         ("presentation", ("presentation", "facade")),
+        ("webhook_consumers", ("facade",)),
     )
 
     def should_run(self, ctx: CheckContext) -> bool:
@@ -480,7 +483,9 @@ class ImportSurfaceCheck(ProductCheck):
             for f in files:
                 importer = self._module_name(ctx, f)
                 for line, target in module_import_targets(f, ctx.backend_dir, prefix):
-                    if target.startswith(allowed_prefixes) or f"{importer} -> {target}" in ignored:
+                    # Segment boundary on purpose: `facade_legacy` must not pass as `facade`.
+                    under_surface = any(target == p or target.startswith(f"{p}.") for p in allowed_prefixes)
+                    if under_surface or f"{importer} -> {target}" in ignored:
                         continue
                     issues.append(
                         f"{f.relative_to(ctx.product_dir)}:{line} imports {target} — {source} may only import "
@@ -852,8 +857,9 @@ class IsolationChainCheck(ProductCheck):
                 "facade/presentation — the skip is inert (every change still re-runs the full Django "
                 'suite). Add a turbo.json narrowing inputs to ["backend/facade/**", '
                 '"backend/presentation/**"] plus the model surface (backend/models.py or '
-                "backend/models/**, and backend/migrations/**) and any wiring locations the "
-                "product has (backend/tasks/**, backend/temporal/**, …) to turn the skip on"
+                "backend/models/**, and backend/migrations/**), backend/webhook_consumers.py if the "
+                "product declares webhook consumers, and any wiring locations the product has "
+                "(backend/tasks/**, backend/temporal/**, …) to turn the skip on"
             )
         # When needs_turn_on is suppressed purely because of a facade violation (the other four
         # conjuncts hold), the facade_violations warning above already explains what blocks narrowing,
@@ -873,6 +879,21 @@ class IsolationChainCheck(ProductCheck):
                 f"turbo.json narrows contract-check inputs but omits {routes_glob} — the routes module is the "
                 "product's route-registration entry point (public API surface, imported by core), so a "
                 f'routes-only change would skip the Django suite. Add "{routes_glob}" to the contract-check inputs'
+            )
+
+        # Watching the consumer declarations: posthog/ingress/ imports webhook_consumers.py by name
+        # on the first delivery, so a consumer change a narrowing does not watch would skip the
+        # Django suite. Reported on its own condition, not folded into needs_turn_on: an unwatched
+        # consumer module is itself what makes has_narrowed False, so every other turbo-omission
+        # issue goes quiet with it, and needs_turn_on is ANDed with eligibility, sealing and the
+        # facade-violation gate — any one of those would hide the omission that caused the silence.
+        consumers_unwatched = webhook_consumers_unwatched(ctx.product_dir)
+        if consumers_unwatched:
+            result.issues.append(
+                "turbo.json narrows contract-check inputs but omits backend/webhook_consumers.py — "
+                "posthog/ingress imports the module by name on the first delivery, so a consumer "
+                "change (a new handler, a new event type) would skip the Django suite. Add "
+                '"backend/webhook_consumers.py" to the contract-check inputs'
             )
 
         # Watching the permanent-interface exposures: a marked [[interfaces]] block lets core
@@ -938,11 +959,11 @@ class IsolationChainCheck(ProductCheck):
         # PackageJsonScriptsCheck — the skip can't be enabled until the wave empties them.
 
         if result.issues or result.warnings:
-            # needs_turn_on and routes_unwatched both point at turbo.json. needs_turn_on can't
-            # co-occur with the facade/turbo mismatch issues above (it requires a real facade, a
-            # script, and no narrowing). routes_unwatched can co-occur with them (it only needs
-            # has_narrowed + a routes module), but turbo.json is still where the routes omission is
-            # fixed, so it wins; the co-firing mismatch issues still print in the lint output.
+            # needs_turn_on, routes_unwatched and consumers_unwatched all point at turbo.json.
+            # needs_turn_on can't co-occur with the facade/turbo mismatch issues above (it requires
+            # a real facade, a script, and no narrowing). routes_unwatched and consumers_unwatched
+            # can co-occur with them, but turbo.json is still where those omissions are fixed, so
+            # they win; the co-firing mismatch issues still print in the lint output.
             # An unqualified permanent exposure is a defect in the tach.toml marker itself, so point
             # there; it takes precedence because it's the most fundamental of these issues.
             turbo_omission = has_narrowed and (
@@ -950,7 +971,7 @@ class IsolationChainCheck(ProductCheck):
             )
             if status.unqualified_permanent_exposures:
                 result.file = "tach.toml"
-            elif needs_turn_on or routes_unwatched or turbo_omission:
+            elif needs_turn_on or routes_unwatched or consumers_unwatched or turbo_omission:
                 result.file = f"products/{ctx.name}/turbo.json"
             else:
                 result.file = f"products/{ctx.name}/backend/facade/api.py"

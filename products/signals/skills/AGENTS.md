@@ -88,6 +88,11 @@ It is how a canonical scout claims a product surface: AI observability's self-dr
 Tags are seeded at creation only — a person who removes one keeps it removed — so adding the key to a scout teams already run leaves their existing configs untagged until someone tags them through the config API.
 They sit outside the canonical content hash, since they belong to the config rather than the skill row.
 
+Frontmatter also carries the optional **`scout-role`** value, which is `specialist` unless a scout says otherwise.
+A scout that watches the self-driving system rather than a product surface declares `scout-role: operational`, and the harness stops treating its quiet as waste: the config seeds enabled and exempt from the inactivity sweep, skips the launch allowlist and the per-team enabled-scout cap, and cannot be deleted through the config API.
+Unlike tags, the role is reconciled onto rows seeded earlier on every coordinator tick, because a silenced operational scout is the failure the role exists to prevent — though a pause a person made is still left standing, and `withheld_skills` still gates the scout.
+Use it only for a scout whose subject is the fleet itself: `signals-scout-inbox-validation`, which re-measures whether merged fixes held, is the one that ships with it.
+
 The generalist (`signals-scout-general`) is **report-only** — it authors `SignalReport`s directly and does not `emit_signal`. The **report-channel contract** (when to author a fresh report vs. edit an existing one, the field schema, the safety × actionability status mapping, reviewer routing via `scout-members-list`, and the non-idempotency + pipeline-rewrite caveats) lives in the **harness prompt** (`scout_harness/prompt.py`), which forks on the scout's channel and injects it into every report-channel scout — so it is **not** duplicated as a per-scout reference. The generalist keeps one bundled reference:
 
 - **`references/conventions.md`** — the four-states author/edit classifier, scratchpad key-prefix vocabulary, and cross-project noise patterns.

@@ -2,7 +2,6 @@ import { useActions, useValues } from 'kea'
 
 import { LemonTag } from '@posthog/lemon-ui'
 
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 
@@ -68,9 +67,7 @@ export function DashboardCustomizeMenu(): JSX.Element | null {
     const { dashboard, canEditDashboard } = useValues(dashboardLogic)
     const { changeDashboardGridCompaction, setDashboardTileSpacing, saveDashboardTileSpacing } =
         useActions(dashboardLogic)
-    const dashboardCustomizationEnabled = useFeatureFlag('DASHBOARD_CUSTOMIZATION')
-
-    if (!dashboard || !canEditDashboard || !dashboardCustomizationEnabled) {
+    if (!dashboard || !canEditDashboard) {
         return null
     }
 

@@ -17,6 +17,7 @@ const config: SignalScoutConfigApi = {
     skill_name: 'signals-scout-general',
     description: 'General scout',
     scout_origin: 'canonical',
+    scout_role: 'specialist',
     owners: [],
     enabled: true,
     status: 'active',

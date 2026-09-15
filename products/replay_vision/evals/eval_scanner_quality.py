@@ -191,6 +191,7 @@ async def _scan_task(
         "error": None,
         "scanner_type": golden.scanner_type,
         "signals_count": len(result.signals),
+        "signals": [signal.model_dump(mode="json") for signal in result.signals],
         "verification": result.verification.model_dump(mode="json") if result.verification else None,
         "primary": primary,
         "last_message": primary or "",

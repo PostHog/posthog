@@ -13,7 +13,6 @@ from products.tasks.backend.logic.services.living_artifacts import (
     has_pending_slack_file_artifacts,
     has_pending_slack_image_artifacts,
 )
-from products.tasks.backend.temporal.slack_relay.object_tags import rewrite_object_tags_for_slack
 
 logger = get_logger(__name__)
 
@@ -177,7 +176,7 @@ def relay_slack_message(input: RelaySlackMessageInput) -> None:
     from products.slack_app.backend.services.slack_messages import (
         load_run_footer,
         normalize_labeled_mentions_to_bare,
-        project_web_url,
+        strip_object_tags,
     )
     from products.slack_app.backend.slack_thread import SlackThreadContext, SlackThreadHandler
     from products.tasks.backend.models import TaskRun
@@ -208,12 +207,7 @@ def relay_slack_message(input: RelaySlackMessageInput) -> None:
     # Rewrite echoed ``<@U…|name>`` tokens to the bare ``<@U…>`` so the mentions the agent
     # composed actually notify their targets. Done before splitting: the bare form is shorter,
     # so it never enlarges a chunk.
-    text = normalize_labeled_mentions_to_bare(text)
-
-    # Object tags (``<insight id="…">``, ``<hogql display="block">``) are what the desktop renders
-    # as chips and chart cards; Slack would show them as escaped XML. Rewritten to links and
-    # fenced SQL before splitting so chunk sizes account for the markdown they become.
-    text = rewrite_object_tags_for_slack(text, project_url=project_web_url(task_run.team_id))
+    text = normalize_labeled_mentions_to_bare(strip_object_tags(text)).strip()
 
     # Living-artifacts gating lives in the service: has_pending_slack_file_artifacts
     # (and deliver_pending_slack_file_artifacts below) return falsy when the
@@ -259,7 +253,7 @@ def relay_slack_message(input: RelaySlackMessageInput) -> None:
 
     # The mention rides on the first chunk, so it comes out of the same budget: without that
     # allowance the chunk it lands on overflows the block and posts as Markdown source.
-    chunks = _split_markdown_for_slack(text, limit=SLACK_MARKDOWN_TEXT_MAX_LEN - len(mention_prefix))
+    chunks = _split_markdown_for_slack(text, limit=SLACK_MARKDOWN_TEXT_MAX_LEN - len(mention_prefix)) if text else []
 
     def _record_sent_relay(state: dict[str, Any]) -> None:
         sent_relay_ids = state.get("slack_sent_relay_ids") or []

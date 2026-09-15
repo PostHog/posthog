@@ -445,6 +445,7 @@ def get_flakiness_overview(repo_id: UUID) -> _FlakinessRaw:
 
     return _FlakinessRaw(
         rows=listed,
+        newest_run_by_type=newest_run_by_type,
         snapshots_by_key=snapshots_by_key,
         tracked_total=tracked_total,
         totals_broken=sum(1 for row in rows if row.state == FlakinessState.BROKEN),
@@ -500,6 +501,7 @@ def _quarantine_only_raw(
     listed = rows[:max_entries]
     return _FlakinessRaw(
         rows=listed,
+        newest_run_by_type={},
         snapshots_by_key={},
         tracked_total=0,
         totals_broken=0,
@@ -769,6 +771,8 @@ class _FlakinessRaw:
     totals_quarantined: int
     totals_needs_decision: int
     by_run_type: dict[str, int]
+    # The runs the scores were read from, so a caller needing them does not query again.
+    newest_run_by_type: dict[str, Run]
     truncated: bool
     generated_at: datetime
 
@@ -786,6 +790,7 @@ class _FlakinessRaw:
             totals_quarantined=0,
             totals_needs_decision=0,
             by_run_type={},
+            newest_run_by_type={},
             truncated=False,
             generated_at=generated_at,
         )

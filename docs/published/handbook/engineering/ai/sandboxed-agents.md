@@ -58,6 +58,13 @@ The agent inside the sandbox gets:
 - Access to the **PostHog MCP server** for querying data
 - **Code execution** capabilities within the sandbox
 
+### Run system prompts
+
+The run's `state.systemPrompt` is server-owned. Set it through trusted server-side run creation
+or state updates. The run PATCH endpoint silently ignores attempts to replace, remove, or append
+to this key, including requests from the sandbox itself. The run detail endpoint serves the prompt
+only to the task-bound sandbox, so it can initialize the agent session.
+
 ## Creating a sandboxed agent
 
 Use `Task.create_and_run()` to launch a sandboxed agent from your product code:
@@ -112,6 +119,14 @@ In the new PostHog AI view, `/ai?ask=...` hands the prompt to the task composer 
 The handoff removes `ask` from the current browser history entry while preserving other query parameters and the hash.
 Changing the panel state or remounting the view therefore does not submit the prompt again.
 Without organization-level AI data-processing consent, the prompt only prefills the composer.
+
+## Task navigation
+
+Task links in shared AI history open `/ai?task=<task-id>` and render the task runner, regardless of the saved chat view preference.
+The task stays selected on reload and when navigating back or forward.
+Existing `/tasks/<task-id>` links still open the standalone runner.
+Task headers keep horizontal padding around the title and run metadata.
+In the AI chat view, the staff options menu sits beside the task actions, including **Open in PostHog Desktop**.
 
 ## Fine-grained access tokens
 
