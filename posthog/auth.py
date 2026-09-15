@@ -951,9 +951,15 @@ class OAuthAccessTokenAuthentication(authentication.BaseAuthentication):
 
         self.access_token = access_token
 
+        # The user FK is `SET_NULL`, so a token row outlives the user it was minted for.
+        # `_validate_token` rejects that already, but the delegated path reaches here without it.
+        user = access_token.user
+        if user is None:
+            raise AuthenticationFailed(detail="User associated with access token not found.")
+
         tag_authentication(
-            user_id=access_token.user.pk,
-            team_id=access_token.user.current_team_id,
+            user_id=user.pk,
+            team_id=user.current_team_id,
             access_method=AccessMethod.OAUTH,
         )
 
@@ -963,14 +969,14 @@ class OAuthAccessTokenAuthentication(authentication.BaseAuthentication):
         # cleanup: outside a request cycle (e.g. authenticate() called directly) the
         # thread-local would leak.
         if activity_storage.is_request_scoped():
-            activity_storage.set_user(access_token.user)
+            activity_storage.set_user(user)
             # Tokens minted during staff impersonation must keep the impersonation
             # marker in the audit trail.
             if access_token.impersonated_by_id is not None:
                 activity_storage.set_was_impersonated(True)
             _record_agent_attribution(request, access_token)
 
-        return access_token.user, None
+        return user, None
 
     def _extract_token(self, request: Union[HttpRequest, Request]) -> Optional[str]:
         if "authorization" in request.headers:
