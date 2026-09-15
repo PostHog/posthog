@@ -35,13 +35,10 @@ describe('supportSettingsLogic', () => {
 
     describe('aiAllChannelsForFeatureFlags', () => {
         it.each([
-            ['no flags enabled', {}, ['widget', 'email', 'slack']],
+            ['no flags enabled', {}, ['widget', 'email', 'slack', 'github']],
             [
-                'teams and github enabled',
-                {
-                    [FEATURE_FLAGS.PRODUCT_SUPPORT_TEAMS_ENABLED]: true,
-                    [FEATURE_FLAGS.PRODUCT_SUPPORT_GITHUB_CHANNEL]: true,
-                },
+                'teams enabled',
+                { [FEATURE_FLAGS.PRODUCT_SUPPORT_TEAMS_ENABLED]: true },
                 ['widget', 'email', 'slack', 'teams', 'github'],
             ],
         ])('%s', (_label, flags, expected) => {
@@ -133,7 +130,7 @@ describe('supportSettingsLogic', () => {
             logic.mount()
 
             await expectLogic(logic).toMatchValues({
-                aiAllChannels: ['widget', 'email', 'slack'],
+                aiAllChannels: ['widget', 'email', 'slack', 'github'],
                 aiResolutionChannels: ['widget', 'slack'],
             })
         })

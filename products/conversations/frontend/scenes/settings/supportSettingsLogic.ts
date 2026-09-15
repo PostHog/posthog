@@ -25,9 +25,7 @@ export function aiAllChannelsForFeatureFlags(featureFlags: Record<string, boolea
     if (featureFlags[FEATURE_FLAGS.PRODUCT_SUPPORT_TEAMS_ENABLED]) {
         channels.push('teams')
     }
-    if (featureFlags[FEATURE_FLAGS.PRODUCT_SUPPORT_GITHUB_CHANNEL]) {
-        channels.push('github')
-    }
+    channels.push('github')
     return channels
 }
 
