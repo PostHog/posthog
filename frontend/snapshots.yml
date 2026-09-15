@@ -1864,6 +1864,10 @@ snapshots:
         hash: v1.k794b7964.c0cd3727394a11388389774d7880c2a28aeb059a308d75feeb1341b13673a104.SetdbHN--yP6YcrM12BpBzA0_aqJVqwxQM3Uc2Wchmg
     components-product-empty-state--error-tracking-needs-setup--light:
         hash: v1.k794b7964.7f40a4a9bc119d95d61ef68b1ed144de44a460d8015a7196100e9048c6b57ce5.cKeg20m9AJX9GmwJ0XKpX1qaZB5sopbADXCeE9ZsHL0
+    components-product-empty-state--error-tracking-needs-setup-new-wizard--dark:
+        hash: v1.k794b7964.97078a8193b2f01f0cdfdcfa57bdbd57634fa1a823b6b7edd6094761ffd1ca51.wy1tp5DHhvEP4pAy3q0YnUBLk6gXKtnPAAobLnuOqoI
+    components-product-empty-state--error-tracking-needs-setup-new-wizard--light:
+        hash: v1.k794b7964.26df8e4c1300ed356335f5a0e341c4f871153a643362f6d91b92e39af677e421.ZLuBcDzu_KP3gTng_eMJM1rl3L6vY_MFfIypyY9rUHk
     components-product-empty-state--error-tracking-waiting-for-data--dark:
         hash: v1.k794b7964.80bdd04e414ed36e173f1dcac8e4ccf407375157fdd5b9497e7209bdb623564b.RbOoZt9BkTBAV3sXCR0IHWu0wvAh9JNPIdFcZJ7axOU
     components-product-empty-state--error-tracking-waiting-for-data--light:
