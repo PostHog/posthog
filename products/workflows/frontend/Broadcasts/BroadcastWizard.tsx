@@ -15,8 +15,16 @@ import { BroadcastReviewStep } from './steps/BroadcastReviewStep'
 import { BroadcastScheduleStep } from './steps/BroadcastScheduleStep'
 
 export function BroadcastWizard(): JSX.Element {
-    const { currentStep, name, stepValidationErrors, currentStepHasErrors, saving, launching, scheduleMode } =
-        useValues(broadcastWizardLogic)
+    const {
+        currentStep,
+        name,
+        stepValidationErrors,
+        currentStepHasErrors,
+        saving,
+        launching,
+        scheduleMode,
+        isScheduled,
+    } = useValues(broadcastWizardLogic)
     const { setStep, prevStep, continueStep, launchBroadcast, setName } = useActions(broadcastWizardLogic)
 
     return (
@@ -84,7 +92,11 @@ export function BroadcastWizard(): JSX.Element {
                                 onClick={launchBroadcast}
                                 data-attr="broadcast-wizard-launch"
                             >
-                                {scheduleMode === 'now' ? 'Send now' : 'Schedule broadcast'}
+                                {scheduleMode === 'now'
+                                    ? 'Send now'
+                                    : isScheduled
+                                      ? 'Reschedule'
+                                      : 'Schedule broadcast'}
                             </LemonButton>
                         ) : (
                             <LemonButton

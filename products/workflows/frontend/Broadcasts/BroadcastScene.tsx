@@ -104,7 +104,7 @@ function BroadcastSceneContent({ id }: BroadcastWizardLogicProps): JSX.Element {
         if (broadcast.kind !== 'broadcast') {
             return <NotFound object="broadcast" />
         }
-        if (broadcast.status !== 'draft') {
+        if (isReadOnly) {
             return <BroadcastSummary />
         }
     }

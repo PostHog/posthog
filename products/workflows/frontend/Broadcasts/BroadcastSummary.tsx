@@ -353,8 +353,9 @@ function RecipientsTab({ batchJobs }: { batchJobs: HogFlowBatchJobApi[] }): JSX.
 }
 
 export function BroadcastSummary(): JSX.Element {
-    const { broadcast, broadcastId, name, batchJobs, batchJobsLoading, summaryTab } = useValues(broadcastWizardLogic)
-    const { setSummaryTab } = useActions(broadcastWizardLogic)
+    const { broadcast, broadcastId, name, batchJobs, batchJobsLoading, summaryTab, isScheduled } =
+        useValues(broadcastWizardLogic)
+    const { setSummaryTab, cancelSchedule } = useActions(broadcastWizardLogic)
     const { archiveBroadcast, restoreBroadcast, duplicateBroadcast, deleteBroadcast } = useActions(broadcastsLogic)
 
     // Email metrics from a batch send are attributed to the batch job, not the flow (see
@@ -425,6 +426,15 @@ export function BroadcastSummary(): JSX.Element {
                                         >
                                             Duplicate
                                         </LemonButton>
+                                        {isScheduled && batchJobs.length === 0 ? (
+                                            <LemonButton
+                                                fullWidth
+                                                data-attr="broadcast-detail-cancel-schedule"
+                                                onClick={cancelSchedule}
+                                            >
+                                                Cancel schedule
+                                            </LemonButton>
+                                        ) : null}
                                         <LemonDivider />
                                         <LemonButton
                                             fullWidth

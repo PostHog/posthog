@@ -20,6 +20,8 @@ import {
     hogFlowsPartialUpdate,
     hogFlowsRetrieve,
     hogFlowsSchedulesCreate,
+    hogFlowsSchedulesDestroy,
+    hogFlowsSchedulesPartialUpdate,
     hogFlowsUserBlastRadiusCreate,
 } from 'products/workflows/frontend/generated/api'
 import type {
@@ -77,6 +79,26 @@ export const DEFAULT_BROADCAST_EMAIL: BroadcastEmailValue = {
     design: null,
 }
 
+/**
+ * A one-time send that has not fired yet is still editable: there is a real window between scheduling
+ * and sending, and the only alternative is to delete the broadcast and rebuild it. Anything that has
+ * already sent stays read-only, and so does a recurring send, which is both sent and scheduled at once.
+ */
+export function isBroadcastReadOnly(broadcast: HogFlowApi | null, batchJobs: HogFlowBatchJobApi[]): boolean {
+    if (!broadcast || broadcast.status === 'draft') {
+        return false
+    }
+    if (batchJobs.length > 0) {
+        return true
+    }
+    const schedules = broadcast.schedules ?? []
+    return !(
+        schedules.length === 1 &&
+        schedules[0].rrule === ONE_TIME_RRULE &&
+        dayjs(schedules[0].starts_at).isAfter(dayjs())
+    )
+}
+
 export const DEFAULT_BROADCAST_CONVERSION: HogFlowConversionApi = {
     events: [],
     filters: [],
@@ -122,6 +144,7 @@ export interface broadcastWizardLogicValues {
     hasOpenedFullEditor: boolean
     summaryTab: BroadcastSummaryTab
     isReadOnly: boolean
+    isScheduled: boolean
     launching: boolean
     name: string
     rateLimitedSendDuration: string
@@ -149,6 +172,9 @@ export interface broadcastWizardLogicActions {
     }
     hydrateFromBroadcast: (broadcast: HogFlowApi) => {
         broadcast: HogFlowApi
+    }
+    cancelSchedule: () => {
+        value: true
     }
     launchBroadcast: () => {
         value: true
@@ -273,7 +299,8 @@ export interface broadcastWizardLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
         broadcastId: (broadcast: HogFlowApi | null, id: string) => string | null
-        isReadOnly: (broadcast: HogFlowApi | null) => boolean
+        isReadOnly: (broadcast: HogFlowApi | null, batchJobs: HogFlowBatchJobApi[]) => boolean
+        isScheduled: (broadcast: HogFlowApi | null) => boolean
         effectiveTimezone: (scheduleTimezone: string | null, currentTeam: TeamPublicType | TeamType | null) => string
         stepValidationErrors: (
             goalEnabled: boolean,
@@ -346,6 +373,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
         setRecurringRepeating: (repeating: boolean) => ({ repeating }),
         hydrateFromBroadcast: (broadcast: HogFlowApi) => ({ broadcast }),
         saveBroadcastFinished: (broadcast: HogFlowApi | null) => ({ broadcast }),
+        cancelSchedule: true,
         launchBroadcast: true,
         launchBroadcastFinished: true,
         refreshFromAgentEdit: true,
@@ -564,9 +592,14 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             (s, p) => [s.broadcast, p.id],
             (broadcast: HogFlowApi | null, id: string): string | null => broadcast?.id ?? (id !== 'new' ? id : null),
         ],
-        isReadOnly: [
+        isScheduled: [
             (s) => [s.broadcast],
-            (broadcast: HogFlowApi | null): boolean => !!broadcast && broadcast.status !== 'draft',
+            (broadcast: HogFlowApi | null): boolean => (broadcast?.schedules ?? []).length > 0,
+        ],
+        isReadOnly: [
+            (s) => [s.broadcast, s.batchJobs],
+            (broadcast: HogFlowApi | null, batchJobs: HogFlowBatchJobApi[]): boolean =>
+                isBroadcastReadOnly(broadcast, batchJobs),
         ],
         effectiveTimezone: [
             (s) => [s.scheduleTimezone, s.currentTeam],
@@ -756,12 +789,15 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             try {
                 let saved: HogFlowApi
                 if (!values.broadcastId) {
-                    saved = await hogFlowsCreate(projectId, buildBroadcastPayload(values) as any)
+                    saved = await hogFlowsCreate(
+                        projectId,
+                        buildBroadcastPayload({ ...values, isScheduled: values.broadcast?.status === 'active' }) as any
+                    )
                 } else {
                     saved = await hogFlowsPartialUpdate(
                         projectId,
                         values.broadcastId,
-                        buildBroadcastPayload(values) as any
+                        buildBroadcastPayload({ ...values, isScheduled: values.broadcast?.status === 'active' }) as any
                     )
                 }
                 actions.saveBroadcastFinished(saved)
@@ -769,6 +805,24 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             } catch (error: any) {
                 actions.saveBroadcastFinished(null)
                 lemonToast.error(`Couldn't save the broadcast: ${error?.detail || error?.message || 'unknown error'}`)
+            }
+        },
+        cancelSchedule: async () => {
+            const broadcastId = values.broadcastId
+            const schedule = (values.broadcast?.schedules ?? [])[0]
+            if (!values.currentProjectId || !broadcastId || !schedule) {
+                return
+            }
+            const projectId = String(values.currentProjectId)
+            try {
+                await hogFlowsSchedulesDestroy(projectId, broadcastId, schedule.id)
+                // Back to draft so the wizard opens again: a broadcast with no schedule and no run
+                // would otherwise sit active forever with nothing to send it.
+                const reverted = await hogFlowsPartialUpdate(projectId, broadcastId, { status: 'draft' })
+                actions.saveBroadcastFinished(reverted)
+                lemonToast.success('Schedule cancelled, the broadcast is a draft again')
+            } catch (error: any) {
+                lemonToast.error(`Couldn't cancel the schedule: ${error?.detail || error?.message || 'unknown error'}`)
             }
         },
         launchBroadcast: async () => {
@@ -786,14 +840,17 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                 // Save the latest edits (creating the draft if the user skipped ahead).
                 let broadcastId = values.broadcastId
                 if (!broadcastId) {
-                    const created = await hogFlowsCreate(projectId, buildBroadcastPayload(values) as any)
+                    const created = await hogFlowsCreate(
+                        projectId,
+                        buildBroadcastPayload({ ...values, isScheduled: values.broadcast?.status === 'active' }) as any
+                    )
                     broadcastId = created.id
                     actions.saveBroadcastFinished(created)
                 } else {
                     const saved = await hogFlowsPartialUpdate(
                         projectId,
                         broadcastId,
-                        buildBroadcastPayload(values) as any
+                        buildBroadcastPayload({ ...values, isScheduled: values.broadcast?.status === 'active' }) as any
                     )
                     actions.saveBroadcastFinished(saved)
                 }
@@ -822,8 +879,16 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                         starts_at: (values.scheduleMode === 'recurring' ? values.recurringStartsAt : values.sendAt)!,
                         timezone: values.effectiveTimezone,
                     }
-                    await hogFlowsSchedulesCreate(projectId, broadcastId, schedule as any)
-                    lemonToast.success('Broadcast scheduled')
+                    // Editing an already-scheduled broadcast updates its schedule; creating another
+                    // would leave two, and the broadcast would go out twice.
+                    const existing = (values.broadcast?.schedules ?? [])[0]
+                    if (existing) {
+                        await hogFlowsSchedulesPartialUpdate(projectId, broadcastId, existing.id, schedule as any)
+                        lemonToast.success('Broadcast rescheduled')
+                    } else {
+                        await hogFlowsSchedulesCreate(projectId, broadcastId, schedule as any)
+                        lemonToast.success('Broadcast scheduled')
+                    }
                 }
                 // Resuming a draft launches from the broadcast's own URL, so the router push below is a
                 // no-op there. Store the activated broadcast so the scene swaps to the read-only summary
@@ -901,10 +966,13 @@ function buildBroadcastPayload(values: {
     conversion: HogFlowConversionApi
     email: BroadcastEmailValue
     emailRateLimit: HogFlowEmailSendingRateLimitApi | null
+    isScheduled: boolean
 }): Record<string, any> {
     return {
         kind: 'broadcast',
-        status: 'draft',
+        // Omitted for an already-scheduled broadcast: sending 'draft' on an edit would deactivate it
+        // and leave the schedule pointing at a flow that can no longer run.
+        ...(values.isScheduled ? {} : { status: 'draft' as const }),
         name: values.name,
         exit_condition: 'exit_only_at_end',
         conversion: values.goalEnabled ? values.conversion : null,
