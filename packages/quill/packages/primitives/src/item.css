@@ -252,7 +252,7 @@
         align-items: center;
         width: fit-content;
         overflow: hidden;
-        font-size: var(--text-sm, 0.875rem);
+        font-size: var(--text-ui, 0.8125rem);
         font-weight: 500;
         line-height: 1.375;
         text-underline-offset: 4px;
