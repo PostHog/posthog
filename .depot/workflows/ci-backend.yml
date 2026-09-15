@@ -258,8 +258,15 @@ jobs:
             side_effects: ${{ steps.route.outputs.route == 'depot' }}
             route: ${{ steps.route.outputs.route }}
         steps:
+            # Take the router from the base revision, never from the pull request head.
+            # This job's answer starts every other job in this workflow, and those jobs
+            # reach Depot's secret store, so a fork that shipped its own router could
+            # route itself in. A PR that edits the router still exercises the edit on
+            # GitHub Actions, and a disagreement between the engines only costs a second
+            # run, never a skipped one.
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
+                  ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.sha }}
                   sparse-checkout: .github/scripts/ci_backend_route.py
                   sparse-checkout-cone-mode: false
             - name: Route this event to one engine
@@ -271,7 +278,7 @@ jobs:
                   LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
                   IS_FORK: ${{ github.event.pull_request.head.repo.fork }}
                   IS_DRAFT: ${{ github.event.pull_request.draft }}
-                  # A fork could ship its own copy of the script; forks route to GitHub without a token.
+                  # Forks route to GitHub Actions and never need the variable read.
                   GITHUB_TOKEN: ${{ github.event.pull_request.head.repo.fork != true && github.token || '' }}
               run: python3 .github/scripts/ci_backend_route.py
     # Job to decide if we should run backend ci
