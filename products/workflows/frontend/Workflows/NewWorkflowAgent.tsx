@@ -1,4 +1,5 @@
-import { useActions, useMountedLogic, useValues } from 'kea'
+import { useActions, useValues } from 'kea'
+import { useEffect } from 'react'
 
 import { LemonBanner } from '@posthog/lemon-ui'
 
@@ -18,8 +19,9 @@ import { NEW_WORKFLOW_SUGGESTIONS } from './workflowAgentContext'
 
 /** The AI-first "New workflow" screen: the side panel's runner rendered full page, with a way back to the editor. */
 export function NewWorkflowAgent(): JSX.Element {
-    useMountedLogic(newWorkflowAgentLogic)
+    const { composerShown } = useActions(newWorkflowAgentLogic)
     const { openEditorFromAiComposer } = useActions(newWorkflowLogic)
+    useEffect(() => composerShown(), [composerShown])
     const { activeCreation } = useValues(runnerPanelLogic({ panelId: MAX_SIDE_PANEL_ID }))
     // A card only fills the composer (no auto-submit) so the prompt can be tweaked before the agent starts.
     const { setSeed } = useActions(composerSeedLogic({ panelId: MAX_SIDE_PANEL_ID }))

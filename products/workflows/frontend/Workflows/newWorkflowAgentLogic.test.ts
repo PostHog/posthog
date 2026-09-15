@@ -72,6 +72,17 @@ describe('newWorkflowAgentLogic', () => {
         logic?.unmount()
     })
 
+    // Otherwise the composer and the side panel show the same empty chat side by side.
+    it('closes an open PostHog AI panel when the composer is shown', async () => {
+        sidePanelStateLogic.actions.openSidePanel(SidePanelTab.Max)
+
+        await expectLogic(logic, () => {
+            logic.actions.composerShown()
+        }).toFinishAllListeners()
+
+        expect(sidePanelStateLogic.values.sidePanelOpen).toBe(false)
+    })
+
     it('opens the side panel and routes to the draft once this run creates a workflow', async () => {
         await expectLogic(logic, () => {
             toolStreamEventsLogic.actions.emitToolEvent(createEvent({}))
