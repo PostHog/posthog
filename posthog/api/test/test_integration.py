@@ -5810,7 +5810,7 @@ class TestAnthropicIntegration:
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "is not an Anthropic integration" in str(response.json())
+        assert "only works with Anthropic integrations" in str(response.json())
         mock_anthropic_class.assert_not_called()
 
     @patch("anthropic.Anthropic")
@@ -6800,3 +6800,45 @@ class TestIntegrationSerializerFilesWriteRequestable(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["files_write_requestable"] is expected
+
+
+class TestKindSpecificActionsRejectWrongKind(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        # The write actions below are admin-only, so the guard is what must reject the request.
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        self.integration = Integration.objects.create(
+            team=self.team,
+            kind="slack",
+            integration_id="T123",
+            config={"team": {"id": "T123"}},
+            created_by=self.user,
+        )
+
+    @parameterized.expand(
+        [
+            ("get", "google_accessible_accounts", None, "Google Ads"),
+            ("get", "google_conversion_actions", None, "Google Ads"),
+            ("get", "linkedin_ads_accounts", None, "LinkedIn Ads"),
+            ("get", "linkedin_ads_conversion_rules", None, "LinkedIn Ads"),
+            ("get", "clickup_workspaces", None, "ClickUp"),
+            ("get", "clickup_spaces", None, "ClickUp"),
+            ("get", "clickup_lists", None, "ClickUp"),
+            ("get", "twilio_phone_numbers", None, "Twilio"),
+            ("get", "github_teams", None, "GitHub"),
+            ("get", "github_repos", None, "GitHub"),
+            ("get", "jira_projects", None, "Jira"),
+            ("get", "linear_teams", None, "Linear"),
+            ("get", "anthropic_managed_agents", None, "Anthropic"),
+            ("post", "email/verify", None, "Email"),
+            ("patch", "email", {"config": {"domain": "example.com"}}, "Email"),
+        ]
+    )
+    def test_action_rejects_wrong_kind(self, method: str, url_path: str, body: dict | None, expected_name: str):
+        url = f"/api/environments/{self.team.id}/integrations/{self.integration.id}/{url_path}/"
+
+        response = getattr(self.client, method)(url, body, format="json")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert f"only works with {expected_name} integrations" in str(response.json())

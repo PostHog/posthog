@@ -242,6 +242,35 @@ def _ensure_oauth_token_valid(instance: Integration) -> None:
             )
 
 
+# Only the kinds a kind-specific action guards below, so the message reads as the product name
+# rather than the stored kind.
+_INTEGRATION_KIND_NAMES = {
+    "anthropic": "Anthropic",
+    "clickup": "ClickUp",
+    "email": "Email",
+    "github": "GitHub",
+    "google-ads": "Google Ads",
+    "jira": "Jira",
+    "linear": "Linear",
+    "linkedin-ads": "LinkedIn Ads",
+    "slack": "Slack",
+    "twilio": "Twilio",
+}
+
+
+def _ensure_integration_kind(instance: Integration, *kinds: str) -> None:
+    """Check that an integration is of a kind the endpoint supports.
+
+    The kind-specific integration classes raise a bare Exception on a mismatch, which the API
+    returns as a 500 for what is really a bad request.
+    """
+    if instance.kind in kinds:
+        return
+
+    names = " or ".join(_INTEGRATION_KIND_NAMES.get(kind, kind) for kind in kinds)
+    raise ValidationError(f"This endpoint only works with {names} integrations. Select one and try again.")
+
+
 class _HasNameOrId(Protocol):
     id: Any
 
@@ -1482,8 +1511,7 @@ class IntegrationViewSet(
     @action(methods=["GET"], detail=True, url_path="channels")
     def channels(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance = self.get_object()
-        if instance.kind not in SLACK_INTEGRATION_KINDS:
-            raise ValidationError("channels endpoint is only supported for Slack integrations")
+        _ensure_integration_kind(instance, *SLACK_INTEGRATION_KINDS)
         slack = SlackIntegration(instance)
         should_include_private_channels: bool = instance.created_by_id == request.user.id
         # force_refresh is only honored for cookie-session callers — MCP / API-key / OAuth
@@ -1575,8 +1603,7 @@ class IntegrationViewSet(
     @action(methods=["GET"], detail=True, url_path="users")
     def users(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance = self.get_object()
-        if instance.kind not in SLACK_INTEGRATION_KINDS:
-            raise ValidationError("users endpoint is only supported for Slack integrations")
+        _ensure_integration_kind(instance, *SLACK_INTEGRATION_KINDS)
         slack = SlackIntegration(instance)
         query_serializer = SlackUsersQuerySerializer(data=request.query_params)
         query_serializer.is_valid(raise_exception=True)
@@ -1686,6 +1713,7 @@ class IntegrationViewSet(
     @action(methods=["GET"], detail=True, url_path="twilio_phone_numbers")
     def twilio_phone_numbers(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance = self.get_object()
+        _ensure_integration_kind(instance, "twilio")
         twilio = TwilioIntegration(instance)
         force_refresh: bool = request.query_params.get("force_refresh", "false").lower() == "true"
 
@@ -1713,6 +1741,7 @@ class IntegrationViewSet(
     @action(methods=["GET"], detail=True, url_path="google_conversion_actions")
     def conversion_actions(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance = self.get_object()
+        _ensure_integration_kind(instance, "google-ads")
         _ensure_oauth_token_valid(instance)
         google_ads = GoogleAdsIntegration(instance)
         customer_id = request.query_params.get("customerId")
@@ -1737,6 +1766,7 @@ class IntegrationViewSet(
     @action(methods=["GET"], detail=True, url_path="google_accessible_accounts")
     def accessible_accounts(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance = self.get_object()
+        _ensure_integration_kind(instance, "google-ads")
         _ensure_oauth_token_valid(instance)
         google_ads = GoogleAdsIntegration(instance)
 
@@ -1753,6 +1783,7 @@ class IntegrationViewSet(
     @action(methods=["GET"], detail=True, url_path="linkedin_ads_conversion_rules")
     def linkedin_ad_conversion_rules(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance = self.get_object()
+        _ensure_integration_kind(instance, "linkedin-ads")
         _ensure_oauth_token_valid(instance)
         linkedin_ads = LinkedInAdsIntegration(instance)
         account_id = request.query_params.get("accountId")
@@ -1771,6 +1802,7 @@ class IntegrationViewSet(
     @action(methods=["GET"], detail=True, url_path="linkedin_ads_accounts")
     def linkedin_ad_accounts(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance = self.get_object()
+        _ensure_integration_kind(instance, "linkedin-ads")
         _ensure_oauth_token_valid(instance)
         linkedin_ads = LinkedInAdsIntegration(instance)
 
@@ -1788,6 +1820,7 @@ class IntegrationViewSet(
     @action(methods=["GET"], detail=True, url_path="clickup_spaces")
     def clickup_spaces(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance = self.get_object()
+        _ensure_integration_kind(instance, "clickup")
         _ensure_oauth_token_valid(instance)
         clickup = ClickUpIntegration(instance)
         workspace_id = request.query_params.get("workspaceId")
@@ -1805,6 +1838,7 @@ class IntegrationViewSet(
     @action(methods=["GET"], detail=True, url_path="clickup_lists")
     def clickup_lists(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance = self.get_object()
+        _ensure_integration_kind(instance, "clickup")
         _ensure_oauth_token_valid(instance)
         clickup = ClickUpIntegration(instance)
         space_id = request.query_params.get("spaceId")
@@ -1837,6 +1871,7 @@ class IntegrationViewSet(
     @action(methods=["GET"], detail=True, url_path="clickup_workspaces")
     def clickup_workspaces(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance = self.get_object()
+        _ensure_integration_kind(instance, "clickup")
         _ensure_oauth_token_valid(instance)
         clickup = ClickUpIntegration(instance)
 
@@ -1854,8 +1889,7 @@ class IntegrationViewSet(
     @action(methods=["GET"], detail=True, url_path="linear_teams")
     def linear_teams(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance = self.get_object()
-        if instance.kind != "linear":
-            raise ValidationError("linear_teams endpoint is only supported for Linear integrations")
+        _ensure_integration_kind(instance, "linear")
         _ensure_oauth_token_valid(instance)
         linear = LinearIntegration(instance)
         return Response({"teams": linear.list_teams()})
@@ -1949,8 +1983,7 @@ class IntegrationViewSet(
 
     def _get_anthropic_integration_or_400(self) -> Integration:
         instance = self.get_object()
-        if instance.kind != Integration.IntegrationKind.ANTHROPIC.value:
-            raise ValidationError(f"Integration {instance.id} is not an Anthropic integration (kind={instance.kind!r})")
+        _ensure_integration_kind(instance, Integration.IntegrationKind.ANTHROPIC.value)
         return instance
 
     @staticmethod
@@ -1985,8 +2018,7 @@ class IntegrationViewSet(
         offset = query_serializer.validated_data["offset"]
 
         instance = self.get_object()
-        if instance.kind != "github":
-            raise ValidationError("github_repos endpoint is only supported for GitHub integrations")
+        _ensure_integration_kind(instance, "github")
         github = GitHubIntegration(instance)
         repositories, has_more = github.list_cached_repositories(search=search, limit=limit, offset=offset)
         total = github.count_cached_repositories(search=search)
@@ -2119,8 +2151,7 @@ class IntegrationViewSet(
     @action(methods=["POST"], detail=True, url_path="github_repos/refresh")
     def refresh_github_repos(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance = self.get_object()
-        if instance.kind != "github":
-            raise ValidationError("refresh_github_repos endpoint is only supported for GitHub integrations")
+        _ensure_integration_kind(instance, "github")
         github = GitHubIntegration(instance)
         try:
             repositories = github.sync_repository_cache(
@@ -2155,7 +2186,9 @@ class IntegrationViewSet(
         limit = query_serializer.validated_data["limit"]
         offset = query_serializer.validated_data["offset"]
 
-        github = GitHubIntegration(self.get_object())
+        instance = self.get_object()
+        _ensure_integration_kind(instance, "github")
+        github = GitHubIntegration(instance)
         try:
             teams, has_more = github.list_teams(search=search, limit=limit, offset=offset)
         except GitHubIntegrationError as err:
@@ -2183,8 +2216,7 @@ class IntegrationViewSet(
         validate_github_repository_name(repo)
 
         instance = self.get_object()
-        if instance.kind != "github":
-            raise ValidationError("github_branches endpoint is only supported for GitHub integrations")
+        _ensure_integration_kind(instance, "github")
         github = GitHubIntegration(instance)
         branches, default_branch, has_more = github.list_cached_branches(
             repo,
@@ -2199,15 +2231,16 @@ class IntegrationViewSet(
     @action(methods=["GET"], detail=True, url_path="jira_projects")
     def jira_projects(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance = self.get_object()
-        if instance.kind != "jira":
-            raise ValidationError("jira_projects endpoint is only supported for Jira integrations")
+        _ensure_integration_kind(instance, "jira")
         _ensure_oauth_token_valid(instance)
         jira = JiraIntegration(instance)
         return Response({"projects": jira.list_projects()})
 
     @action(methods=["POST"], detail=True, url_path="email/verify")
     def email_verify(self, request, **kwargs):
-        email = EmailIntegration(self.get_object())
+        instance = self.get_object()
+        _ensure_integration_kind(instance, "email")
+        email = EmailIntegration(instance)
         verification_result = email.verify()
         return Response(verification_result)
 
@@ -2215,6 +2248,7 @@ class IntegrationViewSet(
     @action(methods=["PATCH"], detail=True, url_path="email")
     def email_update(self, request, **kwargs) -> Response:
         instance = self.get_object()
+        _ensure_integration_kind(instance, "email")
         config = request.data.get("config", {})
 
         serializer = NativeEmailIntegrationSerializer(data=config)
