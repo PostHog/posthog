@@ -247,6 +247,51 @@ def _build_plan(request: NodeRunRequest, refs: dict[str, SQLV2Ref]) -> SQLV2RunP
         raise NodeRunInvalid(str(e)) from e
 
 
+def _resolve_notebook(team_id: int, notebook_short_id: str) -> Notebook:
+    """The team's notebook, or `NodeRunInvalid` when it has none by that id.
+
+    Resolving here rather than taking the object is what keeps the team and the notebook from
+    drifting apart: one from another team is simply not found, so no caller can pair them wrong.
+    """
+    notebook = (
+        Notebook.objects.select_related("team")
+        .filter(team_id=team_id, short_id=notebook_short_id, deleted=False)
+        .first()
+    )
+    if notebook is None:
+        raise NodeRunInvalid(f"Notebook {notebook_short_id} was not found.")
+    return notebook
+
+
+def _resolve_user(user_id: int | None) -> User | None:
+    return User.objects.filter(id=user_id).first() if user_id is not None else None
+
+
+def dispatch_cell_run(
+    *, team_id: int, notebook_short_id: str, user_id: int | None, request: NodeRunRequest
+) -> NodeRunDispatch:
+    """Start one cell run, addressed by id.
+
+    The entry point for callers outside this module: it takes ids and a contract, so nobody
+    holds a Django object across the boundary, and resolves the models here instead.
+    """
+    notebook = _resolve_notebook(team_id, notebook_short_id)
+    return dispatch_node_run(notebook, _resolve_user(user_id), notebook.team, request)
+
+
+def kernel_sandbox_is_live(*, team_id: int, notebook_short_id: str, user_id: int | None, runtime_id: UUID) -> bool:
+    """Whether the runtime row still has a live sandbox behind it, addressed by id.
+
+    A RUNNING row can outlive its sandbox, so a caller deciding whether to restart needs this
+    rather than the row's own status.
+    """
+    notebook = _resolve_notebook(team_id, notebook_short_id)
+    runtime = KernelRuntime.objects.filter(id=runtime_id, team_id=team_id).first()
+    if runtime is None:
+        return False
+    return sandbox_is_running(notebook, _resolve_user(user_id), runtime)
+
+
 def dispatch_node_run(notebook: Notebook, user: User | None, team: Team, request: NodeRunRequest) -> NodeRunDispatch:
     """Start one cell run and return what the caller must disclose about it.
 
@@ -361,7 +406,9 @@ __all__ = [
     "RefSpec",
     "TeamRunCapacityFull",
     "build_ref_specs",
+    "dispatch_cell_run",
     "dispatch_node_run",
+    "kernel_sandbox_is_live",
     "live_kernel_runtime",
     "sandbox_disclosure",
     "sandbox_is_running",

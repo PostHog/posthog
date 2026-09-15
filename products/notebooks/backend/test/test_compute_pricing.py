@@ -124,7 +124,7 @@ class TestComputeOptionsEndpoint(APIBaseTest):
         )
 
     @patch(
-        "products.notebooks.backend.presentation.views.notebook.sandbox_is_running",
+        "products.notebooks.backend.presentation.views.notebook.kernel_sandbox_is_live",
         return_value=True,
     )
     @patch("products.notebooks.backend.presentation.views.notebook.get_kernel_runtime")
@@ -145,7 +145,7 @@ class TestComputeOptionsEndpoint(APIBaseTest):
         assert payload["restart_required"] is False
 
     @patch(
-        "products.notebooks.backend.presentation.views.notebook.sandbox_is_running",
+        "products.notebooks.backend.presentation.views.notebook.kernel_sandbox_is_live",
         return_value=True,
     )
     @patch("products.notebooks.backend.presentation.views.notebook.get_kernel_runtime")
@@ -180,7 +180,7 @@ class TestComputeOptionsEndpoint(APIBaseTest):
         assert response.json()["restarted"] is False
 
     @patch(
-        "products.notebooks.backend.presentation.views.notebook.sandbox_is_running",
+        "products.notebooks.backend.presentation.views.notebook.kernel_sandbox_is_live",
         return_value=True,
     )
     @patch("products.notebooks.backend.presentation.views.notebook.get_kernel_runtime")
@@ -203,7 +203,7 @@ class TestComputeOptionsEndpoint(APIBaseTest):
         assert response.json()["restarted"] is False
 
     @patch(
-        "products.notebooks.backend.presentation.views.notebook.sandbox_is_running",
+        "products.notebooks.backend.presentation.views.notebook.kernel_sandbox_is_live",
         return_value=False,
     )
     @patch("products.notebooks.backend.presentation.views.notebook.get_kernel_runtime")
@@ -223,7 +223,7 @@ class TestComputeOptionsEndpoint(APIBaseTest):
         assert response.json()["restarted"] is False
 
     @patch(
-        "products.notebooks.backend.presentation.views.notebook.sandbox_is_running",
+        "products.notebooks.backend.presentation.views.notebook.kernel_sandbox_is_live",
         return_value=True,
     )
     @patch("products.notebooks.backend.presentation.views.notebook.get_kernel_runtime")
@@ -261,7 +261,7 @@ class TestComputeOptionsEndpoint(APIBaseTest):
         assert status_payload["hourly_price"] == get_compute_rates().hourly_price(cpu_cores=1, memory_gb=2)
 
     @patch(
-        "products.notebooks.backend.presentation.views.notebook.sandbox_is_running",
+        "products.notebooks.backend.presentation.views.notebook.kernel_sandbox_is_live",
         return_value=True,
     )
     @patch("products.notebooks.backend.presentation.views.notebook.get_kernel_runtime")
