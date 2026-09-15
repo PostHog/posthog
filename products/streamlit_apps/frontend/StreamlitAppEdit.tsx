@@ -2,8 +2,6 @@ import { useActions, useValues } from 'kea'
 
 import { LemonButton, LemonInput, LemonSelect, LemonTextArea } from '@posthog/lemon-ui'
 
-import { NotFound } from 'lib/components/NotFound'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
@@ -11,8 +9,10 @@ import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { FeaturePreviewSceneGate } from '~/layout/scenes/components/FeaturePreviewSceneGate'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
+import { streamlitAppsFeaturePreviewGate } from './featurePreviewGate'
 import { StreamlitAppEditLogicProps, streamlitAppEditLogic } from './streamlitAppEditLogic'
 import { StreamlitAppZipUpload } from './StreamlitAppZipUpload'
 
@@ -43,8 +43,14 @@ const MEMORY_OPTIONS = [
 ]
 
 export function StreamlitAppEdit(props: Record<string, any>): JSX.Element {
-    const streamlitAppsFeatureFlagEnabled = useFeatureFlag('STREAMLIT_APPS')
-    const shortId = (props.id as string) || 'new'
+    return (
+        <FeaturePreviewSceneGate config={streamlitAppsFeaturePreviewGate}>
+            <StreamlitAppEditForm shortId={(props.id as string) || 'new'} />
+        </FeaturePreviewSceneGate>
+    )
+}
+
+function StreamlitAppEditForm({ shortId }: { shortId: string }): JSX.Element {
     const {
         streamlitApp,
         streamlitAppLoading,
@@ -66,10 +72,6 @@ export function StreamlitAppEdit(props: Record<string, any>): JSX.Element {
         saveApp,
         deleteApp,
     } = useActions(streamlitAppEditLogic({ shortId }))
-
-    if (!streamlitAppsFeatureFlagEnabled) {
-        return <NotFound object="page" />
-    }
 
     const isNew = shortId === 'new'
 
