@@ -12,12 +12,16 @@ jest.mock('~/toolbar/toolbarLogger', () => ({
 jest.mock('~/toolbar/utils/screenshot', () => ({
     captureElementScreenshot: jest.fn(() => Promise.resolve(new Blob(['fake-image'], { type: 'image/jpeg' }))),
 }))
+jest.mock('lib/lemon-ui/LemonToast', () => ({
+    lemonToast: { success: jest.fn(), warning: jest.fn(), error: jest.fn() },
+}))
 jest.mock('~/toolbar/utils/responsiveScreenshot', () => ({
     RESPONSIVE_CAPTURE_WIDTHS: [320, 768, 1440],
     captureResponsiveScreenshots: jest.fn(),
 }))
 
 const { captureResponsiveScreenshots } = jest.requireMock('~/toolbar/utils/responsiveScreenshot')
+const { lemonToast } = jest.requireMock('lib/lemon-ui/LemonToast')
 
 const jpeg = (): Blob => new Blob(['fake-image'], { type: 'image/jpeg' })
 
@@ -41,6 +45,8 @@ describe('heatmapCaptureLogic', () => {
         initKeaTests()
         window.innerWidth = 1440
         ;(captureResponsiveScreenshots as jest.Mock).mockReset()
+        ;(lemonToast.success as jest.Mock).mockClear()
+        ;(lemonToast.warning as jest.Mock).mockClear()
         toolbarConfigLogic
             .build({
                 apiURL: 'http://localhost',
@@ -93,5 +99,46 @@ describe('heatmapCaptureLogic', () => {
         expect(images.every((image) => image instanceof File)).toBe(true)
         expect(body.get('width')).toBe(expectedSingleWidth)
         expect(body.get('image') instanceof File).toBe(expectedSingleWidth !== null)
+    })
+
+    it.each([
+        {
+            name: 'confirms a full capture with a plain success toast',
+            captures: [
+                { width: 320, blob: jpeg() },
+                { width: 768, blob: jpeg() },
+                { width: 1440, blob: jpeg() },
+            ],
+            expectedToast: 'success' as const,
+            expectedMessage: 'Heatmap saved',
+        },
+        {
+            name: 'warns that a partial capture only saved some widths',
+            captures: [{ width: 320, blob: jpeg() }],
+            expectedToast: 'warning' as const,
+            expectedMessage: 'Heatmap saved with 1 of 3 page widths. Try saving again for the rest.',
+        },
+        {
+            name: 'warns that the fallback only saved the current window width',
+            captures: [] as { width: number; blob: Blob }[],
+            expectedToast: 'warning' as const,
+            expectedMessage: 'Heatmap saved at your current window width only. Try saving again for the rest.',
+        },
+    ])('$name', async ({ captures, expectedToast, expectedMessage }) => {
+        ;(captureResponsiveScreenshots as jest.Mock).mockResolvedValue(captures)
+        mockCaptureResponse()
+
+        await expectLogic(logic, () => {
+            logic.actions.saveToPostHog()
+        })
+            .delay(0)
+            .toDispatchActions(['saveToPostHog', 'saveToPostHogSuccess'])
+
+        const quiet = expectedToast === 'success' ? lemonToast.warning : lemonToast.success
+        expect(quiet).not.toHaveBeenCalled()
+        expect(lemonToast[expectedToast]).toHaveBeenCalledWith(
+            expectedMessage,
+            expect.objectContaining({ toastId: 'heatmap-saved-hm123' })
+        )
     })
 })

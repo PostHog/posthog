@@ -243,11 +243,15 @@ export const lemonToast = {
         return id
     },
     warning(message: string | JSX.Element, { button, ...toastOptions }: ToastOptionsWithButton = {}) {
-        posthog.capture('toast warning', {
-            message: String(message),
-            button: button?.label,
-            toastId: toastOptions.toastId,
-        })
+        // The toolbar bundle initializes a named instance, so the default instance imported here stays
+        // uninitialized there and posthog-js discards the event. `capture` is defined either way.
+        if (posthog.__loaded) {
+            posthog.capture('toast warning', {
+                message: String(message),
+                button: button?.label,
+                toastId: toastOptions.toastId,
+            })
+        }
         const options = ensureToastId(toastOptions, 'warning', message)
         const id = options.toastId!
         queueMicrotask(() => {
@@ -262,9 +266,9 @@ export const lemonToast = {
         return id
     },
     error(message: string | JSX.Element, { button, hideButton, ...toastOptions }: ToastOptionsWithButton = {}) {
-        // when used inside the posthog toolbar, `posthog.capture` isn't loaded
-        // check if the function is available before calling it.
-        if (posthog.capture) {
+        // The toolbar bundle initializes a named instance, so the default instance imported here stays
+        // uninitialized there and posthog-js discards the event. `capture` is defined either way.
+        if (posthog.__loaded) {
             posthog.capture('toast error', {
                 message: String(message),
                 button: button?.label,
