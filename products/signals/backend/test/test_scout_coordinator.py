@@ -559,12 +559,14 @@ def test_register_missing_configs_stamps_scout_category():
         scout = _create_skill(team, "signals-scout-custom")
         helper = _create_skill(team, "custom-helper")
         assert scout.category == ""
+        stamped_before = scout.updated_at
 
         register_missing_configs(team.id)
 
         scout.refresh_from_db()
         helper.refresh_from_db()
         assert scout.category == "scout"
+        assert scout.updated_at > stamped_before
         # Non-scout skills are left untouched.
         assert helper.category == ""
 

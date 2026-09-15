@@ -17,6 +17,7 @@ import { APP_DATA_META_KEY } from '@/ui-apps/types'
 
 import { type ExecLearnCatalog, QUALIFIED_IDENTIFIER, tokenizeLearnInput } from './exec-learn'
 import { TOKEN_CHAR_LIMIT, listAvailablePaths, resolveSchemaPath, summarizeSchema } from './schema-utils'
+import { type BuiltInSkillHint, formatSkillLookupMiss, type SkillLookupMissKind } from './skills/notFound'
 import { isRegexPattern, searchToolsRanked, searchToolsRegex } from './tool-search'
 import { getToolDefinitions, type FlagGatedTool, type ScopeGatedTool } from './toolDefinitions'
 import {
@@ -55,6 +56,25 @@ const MAX_RANKED_SEARCH_RESULTS = 25
 
 const DATA_DOMAIN_TOOL_PREFIXES = ['billing-', 'web-analytics-', 'usage-metrics-', 'query-', 'marketing-']
 
+const METRIC_RUN_TOOL_NAME = 'data-catalog-metric-run'
+const APPROVED_METRIC_STATUS = 'approved'
+
+export function markNoncanonicalMetricRun(toolName: string, result: unknown): unknown {
+    if (toolName !== METRIC_RUN_TOOL_NAME || result === null || typeof result !== 'object') {
+        return result
+    }
+    const envelope = result as Record<string, unknown>
+    const status = envelope.status
+    const isDrifted = envelope.is_drifted === true
+    if (status === APPROVED_METRIC_STATUS && !isDrifted) {
+        return result
+    }
+    return {
+        NONCANONICAL: `status=${String(status)} is_drifted=${String(isDrifted)}. Do not present this as the answer; derive from an approved metric and label the result noncanonical.`,
+        ...envelope,
+    }
+}
+
 function catalogDiscoveryHint(allTools: Tool<ZodObjectAny>[], matches: string[]): string | undefined {
     const availableToolNames = new Set(allTools.map((tool) => tool.name))
     const hasMetricCatalog =
@@ -85,6 +105,14 @@ export interface ExecInnerCallProperties {
     /** Input rejected by the tool's schema before dispatch — no handler ran. */
     validation_error?: boolean
     /**
+     * The thrown value itself. The dispatcher can turn a failure into a normal
+     * return — a skill lookup miss is rewritten so the agent does not read it as
+     * an outage — and then the wrapper never sees the exception. Carrying it lets
+     * the wrapper classify and sanitize the failure exactly as it does for one
+     * that reaches its catch block, instead of recording the call as a success.
+     */
+    error?: unknown
+    /**
      * Estimated input/output tokens for the inner tool call. Carried so single-exec
      * mode attributes token usage to the real tool rather than the `exec` wrapper.
      */
@@ -97,6 +125,8 @@ export interface ExecInnerCallProperties {
      * result (e.g. which metrics a catalog lookup returned), not just its size.
      */
     output?: unknown
+    /** Which kind of skill lookup missed, when the dispatcher rewrote a 404. */
+    skill_lookup_miss_kind?: SkillLookupMissKind
 }
 
 export type ExecInnerCallTracker = (toolName: string, properties: ExecInnerCallProperties) => void
@@ -163,6 +193,13 @@ export interface ExecToolOptions {
      * a retired name name its successor instead of reading as an unknown tool.
      */
     flagGatedTools?: FlagGatedTool[]
+    /**
+     * Lets a 404 from the project skills store say that the name belongs to the
+     * built-in PostHog catalog instead. Built from the server's own catalog, not
+     * from `learnCatalog`: that one is absent exactly when `learn` is off, which
+     * is the case where an agent has no way to reach a built-in skill at all.
+     */
+    builtInSkillHint?: BuiltInSkillHint
 }
 
 const CALL_USAGE = 'Usage: call [--json] [--confirm] [--no-skills] <tool_name> <json_input>'
@@ -1674,10 +1711,14 @@ export function createExecTool(
                     const startedAt = Date.now()
                     let result: unknown
                     try {
-                        result = await tool.handler(context, input)
+                        result = markNoncanonicalMetricRun(tool.name, await tool.handler(context, input))
                     } catch (err) {
                         // PostHogValidationError is the API's 400 validation_error body.
                         const apiError = findRecoverableApiError(err)
+                        // A skill lookup that misses is not a failure the agent should
+                        // read as one. Resolved before the report below, so telemetry
+                        // records which kind of miss it was alongside the 404.
+                        const lookupMiss = formatSkillLookupMiss(tool.name, err, input, options.builtInSkillHint)
                         trackInnerCall?.(tool.name, {
                             duration_ms: Date.now() - startedAt,
                             success: false,
@@ -1686,8 +1727,17 @@ export function createExecTool(
                             ...(apiError
                                 ? { error_status: apiError instanceof PostHogApiError ? apiError.status : 400 }
                                 : {}),
+                            ...(lookupMiss ? { skill_lookup_miss_kind: lookupMiss.kind } : {}),
                             input,
+                            error: err,
                         })
+                        if (lookupMiss) {
+                            // The success path below serializes a string result under
+                            // `--json`, so encode this the same way. A `--json` caller
+                            // reaches for `JSON.parse`, and raw prose is the one reply
+                            // that would break in its hands.
+                            return useJson ? JSON.stringify(lookupMiss.message) : lookupMiss.message
+                        }
                         throw err
                     }
                     const durationMs = Date.now() - startedAt
@@ -1752,6 +1802,7 @@ export function createExecTool(
                                 includeAppData,
                                 distinctId,
                                 includeUiResponseMeta: isInlineUiAppHost,
+                                includeRenderNote: isInlineUiAppHost,
                             })
                         )
                         trackInnerCall?.(tool.name, {

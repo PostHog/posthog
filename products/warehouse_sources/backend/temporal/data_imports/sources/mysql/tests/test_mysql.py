@@ -10,6 +10,7 @@ from unittest.mock import MagicMock, patch
 from django.test import override_settings
 
 import pymysql
+from pymysql.constants import CLIENT
 from sshtunnel import BaseSSHTunnelForwarderError
 
 from posthog.dataclasses import frozen
@@ -53,6 +54,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysq
     _safe_convert_date,
     _safe_convert_datetime,
     _sanitize_identifier,
+    _TLSRequiredConnection,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.source import (
     _INVALID_CREDENTIALS_ERROR,
@@ -2798,3 +2800,69 @@ class TestMySQLConnectDialsOnlyValidatedAddresses:
 
         cloud.create_connection.assert_not_called()
         connection.connect.assert_not_called()
+
+
+@contextmanager
+def _loopback_tunnel() -> Iterator[tuple[str, int]]:
+    yield "127.0.0.1", 13306
+
+
+class TestConnectCertificateVerification:
+    @staticmethod
+    def _connect(mocker, *, using_ssl: str, verify: str, tunneled: bool) -> tuple[dict, bool]:
+        connection = MagicMock()
+        plain = mocker.patch(f"{_MYSQL_MODULE}.pymysql.connect", return_value=connection)
+        refusing = mocker.patch(f"{_MYSQL_MODULE}._TLSRequiredConnection", return_value=connection)
+        overrides: dict = {"using_ssl": using_ssl, "verify_server_certificate": verify}
+        if tunneled:
+            overrides["ssh_tunnel"] = {"enabled": "true", "host": "bastion.example.com", "port": "22"}
+            mocker.patch(f"{_MYSQL_MODULE}.open_ssh_tunnel", return_value=_loopback_tunnel())
+
+        with MySQLImplementation().connect(_make_config(**overrides)):
+            pass
+
+        used = refusing if refusing.called else plain
+        return used.call_args.kwargs, refusing.called
+
+    @pytest.mark.parametrize(
+        "using_ssl,verify,tunneled,expected_ca,expected_cert,expected_identity",
+        [
+            ("true", "false", False, True, None, None),
+            ("false", "false", False, False, None, None),
+            ("true", "true", False, True, True, True),
+            ("true", "true", True, True, True, None),
+            ("false", "true", False, True, True, True),
+        ],
+    )
+    def test_verification_kwargs(
+        self, mocker, using_ssl, verify, tunneled, expected_ca, expected_cert, expected_identity
+    ):
+        # pymysql resolves `ssl_ca` on its own to `verify_mode=CERT_NONE`, so a default that stopped
+        # being None would start verifying every existing source. `ssl_verify_identity` through the
+        # tunnel would check the certificate against the loopback address the forwarder binds.
+        kwargs, refuses_plaintext = self._connect(mocker, using_ssl=using_ssl, verify=verify, tunneled=tunneled)
+
+        assert (kwargs["ssl_ca"] is not None) is expected_ca
+        assert kwargs["ssl_verify_cert"] is expected_cert
+        assert kwargs["ssl_verify_identity"] is expected_identity
+        assert refuses_plaintext is (expected_cert is True)
+
+    @pytest.mark.parametrize("capabilities,refused", [(0, True), (CLIENT.SSL, False)])
+    def test_authentication_against_a_server_that_advertises_tls_or_not(self, mocker, capabilities, refused):
+        # The credentials go out during `_request_authentication`, and every reconnect runs it
+        # again, so refusing here is what keeps both off a plaintext connection.
+        # `ssl_verify_cert` is what the connect path passes, and it sets `ssl` without reading a CA
+        # file off disk, which no fixed path can promise across a developer machine and CI.
+        connection = _TLSRequiredConnection(
+            host="db.example.com", user="u", password="p", ssl_verify_cert=True, defer_connect=True
+        )
+        connection.server_capabilities = capabilities  # type: ignore[attr-defined]
+        delegate = mocker.patch.object(pymysql.connections.Connection, "_request_authentication")
+
+        if refused:
+            with pytest.raises(pymysql.err.OperationalError, match="did not offer a TLS connection"):
+                connection._request_authentication()
+            delegate.assert_not_called()
+        else:
+            connection._request_authentication()
+            delegate.assert_called_once()

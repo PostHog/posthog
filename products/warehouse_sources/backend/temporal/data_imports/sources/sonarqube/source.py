@@ -27,6 +27,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.sonarqube.
     SONARQUBE_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.sonarqube.sonarqube import (
+    SONARQUBE_CLOUD_ERROR,
     SonarqubeResumeConfig,
     hostname_of,
     sonarqube_source,
@@ -51,6 +52,8 @@ class SonarqubeSource(ResumableSource[SonarqubeSourceConfig, SonarqubeResumeConf
             label="Sonar (SonarSource) - SonarQube Server",
             releaseStatus=ReleaseStatus.ALPHA,
             caption="""Connect your self-hosted SonarQube Server to pull code-quality data into the PostHog Data warehouse.
+
+Using SonarQube Cloud (sonarcloud.io or sonarqube.us)? Connect it with the Sonar Cloud source instead.
 
 Enter your server URL (e.g. `https://sonarqube.yourcompany.com`) and a user token. Create a token under **My Account → Security → Generate Tokens** in your SonarQube instance. The token inherits your permissions, so it can read the projects, issues, and rules you can see. Syncing the **users** table additionally requires the *Administer System* permission.""",
             iconPath="/static/services/sonarqube.png",
@@ -87,19 +90,18 @@ Enter your server URL (e.g. `https://sonarqube.yourcompany.com`) and a user toke
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
-            # This source only talks to a self-hosted SonarQube Server. If the configured host is
-            # actually SonarQube Cloud, every request fails identically: SonarQube Cloud's API
-            # requires an `organization` parameter this source never sends. Match the stable,
-            # vendor-owned hostnames (not anything the customer typed) rather than the endpoint path.
-            # The trailing slash anchors the match to the exact host, so a self-hosted domain that
-            # merely contains these strings (e.g. `sonarcloud.io.example.com`) doesn't match.
-            "for url: https://sonarcloud.io/": "This server URL points to SonarQube Cloud, which this source doesn't support. Remove this source and add it again using the SonarQube Cloud source instead.",
-            "for url: https://sonarqube.us/": "This server URL points to SonarQube Cloud, which this source doesn't support. Remove this source and add it again using the SonarQube Cloud source instead.",
-            # 401/403 surface as a requests HTTPError when `_fetch_page` calls `raise_for_status()`.
-            # Retrying can never fix a credential/permission problem, so fail the sync. Match the
-            # stable status text, not the per-request URL.
-            "401 Client Error: Unauthorized": "Your SonarQube token is invalid or has expired. Generate a new token in your SonarQube account settings, then reconnect.",
-            "403 Client Error: Forbidden": "Your SonarQube token is missing the permissions needed to sync this data (the users table needs the Administer System permission). Check the token's permissions, then reconnect.",
+            # `_fetch_page` raises a requests HTTPError carrying the status and SonarQube's own
+            # message. Retrying can never fix a credential, permission, or request problem, so fail
+            # the sync. Match the stable status text, not the per-request message or URL.
+            "401 Client Error": "Your SonarQube token is invalid or has expired. Generate a new token in your SonarQube account settings, then reconnect.",
+            "403 Client Error": "Your SonarQube token is missing the permissions needed to sync this data (the users table needs the Administer System permission). Check the token's permissions, then reconnect.",
+            # A 400 means the server rejected the request itself. Keep the raised message, which
+            # carries SonarQube's explanation; no fixed string can name the cause as well.
+            "400 Client Error": None,
+            # Raised by `normalize_base_url` before the first request when the URL points at
+            # SonarQube Cloud, so a cloud host never reaches the API and no URL match is needed.
+            # The message is already the guidance the user needs.
+            SONARQUBE_CLOUD_ERROR: None,
         }
 
     def get_schemas(

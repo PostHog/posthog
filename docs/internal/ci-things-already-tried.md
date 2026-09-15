@@ -362,6 +362,9 @@ _Also asked as:_ Docker Hub rate limit in CI, unauthenticated pull limit, DOCKER
 
 ## CI orchestration
 
+The required Docker image workflow runs only when a pull request opens or changes.
+A separate non-required workflow handles `hobby-preview` and `no-depot-docker-cache` label additions, while Hobby label events still handle preview cleanup.
+
 ### Move CI from the Depot runners to Blacksmith
 
 **Verdict: rejected** · Apr 2026 to May 2026 · [#54559](https://github.com/PostHog/posthog/pull/54559), removed by [#57991](https://github.com/PostHog/posthog/pull/57991)
@@ -376,6 +379,40 @@ If you propose this again, equalize the caches of the two providers first. A run
 Run the trial for several days. A short window cannot separate the jobs whose times are close.
 
 _Also asked as:_ change CI provider, Blacksmith, cheaper runners, are the Depot runners slow
+
+### Put the setup actions in a `parallel:` block
+
+**Verdict: reverted** · Sep 2026 · added by [#76651](https://github.com/PostHog/posthog/pull/76651)
+
+`pnpm-install`, `setup-python-cached`, and `dtolnay/rust-toolchain` each write `$GITHUB_PATH`.
+The `parallel:` block here is [GitHub's native step parallelism](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#jobsjob_idstepsparallel), shipped in June 2026.
+It runs every step in the group as a background step and merges their environment changes at the implicit wait.
+The implementation in the GitHub Actions runner is not thread-safe. Two branches that write at the same time crash the runner.
+
+The failing jobs ran on Depot GHA runners, but the bug is not Depot's.
+Depot confirmed that its own `parallel:` construct exists only in Depot CI, which parses `.depot/workflows/`, and that jobs under `.github/workflows/` use GitHub's implementation.
+The two share a keyword and nothing else.
+
+The crash gives one of three messages. None of them names a step:
+
+```text
+##[error]Collection was modified; enumeration operation may not execute.
+##[error]The given key '<guid>' was not present in the dictionary.
+SyntaxError: Unexpected end of JSON input   # setup-node parsing GITHUB_EVENT_PATH
+```
+
+The runner then fails the step that it was running, and the whole job.
+The tool itself succeeds. One failing job logs `1.91.1-x86_64-unknown-linux-gnu installed` inside the step that the runner reports as failed.
+The crash lands in whichever branch loses the race, so the same bug shows up as `Install Rust`, `Install pnpm dependencies`, or `Set up Python`.
+
+Four product test jobs died this way between 09:05 and 11:52 on 4 Sep 2026.
+The same crash is in the runs of 3 Sep 2026, so it is not a single bad day.
+The three setup steps take 151s, 4s, and 12s in the product test job, so the block saves about 16s of a 12-minute job.
+
+The steps are sequential today. Keep an action that writes `$GITHUB_PATH` or `$GITHUB_ENV` out of a `parallel:` block.
+A block of `run:` steps is safe, and `ci-backend.yml`, `ci-python.yml`, `ci-frontend.yml`, and `ci-nodejs.yml` still use one.
+
+_Also asked as:_ parallel steps, run the setup steps at the same time, Collection was modified, key was not present in the dictionary, Install Rust fails in setup
 
 ### Use sparse-checkout on the large CI workflows
 

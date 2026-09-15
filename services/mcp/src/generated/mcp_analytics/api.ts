@@ -3,103 +3,10 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 7 enabled ops
+ * PostHog API - MCP 6 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
-
-/**
- * Create a new MCP feedback submission for the current project.
- */
-export const McpAnalyticsFeedbackCreateParams = () => zod.object({
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
-        ),
-})
-
-export const mcpAnalyticsFeedbackCreateBodyAttemptedToolDefault = ``
-export const mcpAnalyticsFeedbackCreateBodyAttemptedToolMax = 200
-
-export const mcpAnalyticsFeedbackCreateBodyMcpClientNameDefault = ``
-export const mcpAnalyticsFeedbackCreateBodyMcpClientNameMax = 200
-
-export const mcpAnalyticsFeedbackCreateBodyMcpClientVersionDefault = ``
-export const mcpAnalyticsFeedbackCreateBodyMcpClientVersionMax = 100
-
-export const mcpAnalyticsFeedbackCreateBodyMcpProtocolVersionDefault = ``
-export const mcpAnalyticsFeedbackCreateBodyMcpProtocolVersionMax = 50
-
-export const mcpAnalyticsFeedbackCreateBodyMcpTransportDefault = ``
-export const mcpAnalyticsFeedbackCreateBodyMcpTransportMax = 50
-
-export const mcpAnalyticsFeedbackCreateBodyMcpSessionIdDefault = ``
-export const mcpAnalyticsFeedbackCreateBodyMcpSessionIdMax = 200
-
-export const mcpAnalyticsFeedbackCreateBodyMcpTraceIdDefault = ``
-export const mcpAnalyticsFeedbackCreateBodyMcpTraceIdMax = 200
-
-export const mcpAnalyticsFeedbackCreateBodyGoalMax = 500
-
-export const mcpAnalyticsFeedbackCreateBodyFeedbackMax = 5000
-
-export const mcpAnalyticsFeedbackCreateBodyCategoryDefault = `other`
-
-export const McpAnalyticsFeedbackCreateBody = () => zod.object({
-    attempted_tool: zod
-        .string()
-        .max(mcpAnalyticsFeedbackCreateBodyAttemptedToolMax)
-        .default(mcpAnalyticsFeedbackCreateBodyAttemptedToolDefault)
-        .describe('The tool the user tried before leaving feedback, if known.'),
-    mcp_client_name: zod
-        .string()
-        .max(mcpAnalyticsFeedbackCreateBodyMcpClientNameMax)
-        .default(mcpAnalyticsFeedbackCreateBodyMcpClientNameDefault)
-        .describe('MCP client name, for example Claude Desktop or Cursor.'),
-    mcp_client_version: zod
-        .string()
-        .max(mcpAnalyticsFeedbackCreateBodyMcpClientVersionMax)
-        .default(mcpAnalyticsFeedbackCreateBodyMcpClientVersionDefault)
-        .describe('Version string for the MCP client when available.'),
-    mcp_protocol_version: zod
-        .string()
-        .max(mcpAnalyticsFeedbackCreateBodyMcpProtocolVersionMax)
-        .default(mcpAnalyticsFeedbackCreateBodyMcpProtocolVersionDefault)
-        .describe('MCP protocol version negotiated for the session when available.'),
-    mcp_transport: zod
-        .string()
-        .max(mcpAnalyticsFeedbackCreateBodyMcpTransportMax)
-        .default(mcpAnalyticsFeedbackCreateBodyMcpTransportDefault)
-        .describe('Transport used for the MCP session, for example streamable_http or sse.'),
-    mcp_session_id: zod
-        .string()
-        .max(mcpAnalyticsFeedbackCreateBodyMcpSessionIdMax)
-        .default(mcpAnalyticsFeedbackCreateBodyMcpSessionIdDefault)
-        .describe('Stable MCP session identifier when available.'),
-    mcp_trace_id: zod
-        .string()
-        .max(mcpAnalyticsFeedbackCreateBodyMcpTraceIdMax)
-        .default(mcpAnalyticsFeedbackCreateBodyMcpTraceIdDefault)
-        .describe('Trace identifier for the surrounding MCP workflow when available.'),
-    goal: zod
-        .string()
-        .max(mcpAnalyticsFeedbackCreateBodyGoalMax)
-        .describe("The user's intended outcome when using MCP."),
-    feedback: zod
-        .string()
-        .max(mcpAnalyticsFeedbackCreateBodyFeedbackMax)
-        .describe('Concrete feedback about the MCP experience, tool result, or workflow friction.'),
-    category: zod
-        .enum(['results', 'usability', 'bug', 'docs', 'other'])
-        .describe(
-            '\* `results` - Results\n\* `usability` - Usability\n\* `bug` - Bug\n\* `docs` - Docs\n\* `other` - Other'
-        )
-        .default(mcpAnalyticsFeedbackCreateBodyCategoryDefault)
-        .describe(
-            'High-level category for the feedback.\n\n\* `results` - Results\n\* `usability` - Usability\n\* `bug` - Bug\n\* `docs` - Docs\n\* `other` - Other'
-        ),
-})
 
 /**
  * Return the most recent intent cluster snapshot for the current project. Returns an empty IDLE snapshot when no clustering run has happened yet.

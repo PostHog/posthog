@@ -27,6 +27,7 @@
         "@types/react-dom": "*",
         "clsx": "*",
         "kea": "catalog:",
+        "kea-disposables": "catalog:",
         "kea-forms": "catalog:",
         "kea-loaders": "catalog:",
         "kea-router": "catalog:",

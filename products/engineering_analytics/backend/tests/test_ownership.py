@@ -19,11 +19,20 @@ from products.engineering_analytics.backend.logic.ownership import (
     OwnershipUnavailable,
     PlacedTest,
     QuarantinedTestFile,
+    resolve_path_owners,
     resolve_test_ownership,
 )
 
+_ROOT_OWNERS = """version: 1
+owners: [team-root]
+teams:
+  team-ingestion:
+    notifications: '#alerts-ingestion'
+"""
+
 _OWNERS = {
-    "owners.yaml": "version: 1\nowners: [team-root]\n",
+    "owners.yaml": _ROOT_OWNERS,
+    "services/mcp/tests/owners.yaml": "version: 1\nowners: [mcp-analytics]\n",
     "nodejs/src/owners.yaml": "version: 1\nowners: [team-ingestion]\n",
     "frontend/src/scenes/owners.yaml": "version: 1\nowners: [team-product-analytics]\n",
     "rust/owners.yaml": "version: 1\nowners: [team-rust]\n",
@@ -31,6 +40,7 @@ _OWNERS = {
 }
 
 _TRACKED = {
+    "services/mcp/tests/tools/projects.integration.test.ts",
     "nodejs/src/cdp/cdp-e2e.serial.test.ts",
     "frontend/src/scenes/insights/SQLBoxPlot.stories.tsx",
     "products/product_analytics/backend/tests/test_insight.py",
@@ -68,6 +78,12 @@ def _placements(files: _FakeRepoFiles) -> list[PlacedTest]:
 class TestRepoOwnership(SimpleTestCase):
     @parameterized.expand(
         [
+            (
+                "tests/tools/projects.integration.test.ts",
+                "",
+                "services/mcp/tests/tools/projects.integration.test.ts",
+                "mcp-analytics",
+            ),
             # nodejs and frontend suites both report 'src/...', so placing by the reported path
             # alone hands one team's test to the other.
             ("src/cdp/cdp-e2e.serial.test.ts", "", "nodejs/src/cdp/cdp-e2e.serial.test.ts", "team-ingestion"),
@@ -113,6 +129,27 @@ class TestRepoOwnership(SimpleTestCase):
 
     def test_a_resolved_batch_says_so(self) -> None:
         assert resolve_test_ownership("PostHog/posthog", [], files=_FakeRepoFiles()).resolved
+
+
+class TestPathOwnership(SimpleTestCase):
+    def test_places_each_path_exactly_and_returns_the_registry(self) -> None:
+        # Exact resolution, not the suite-root search: 'src/...' is a real repo-relative path here
+        # and must not be repositioned under nodejs/ the way a reported test path is.
+        owned = resolve_path_owners(
+            "PostHog/posthog",
+            ["nodejs/src/cdp/worker.ts", "src/cdp/worker.ts"],
+            files=_FakeRepoFiles(),
+        )
+        assert owned.resolved
+        assert owned.team_by_path == {"nodejs/src/cdp/worker.ts": "team-ingestion", "src/cdp/worker.ts": "team-root"}
+        assert owned.registry["team-ingestion"].notifications == "#alerts-ingestion"
+
+    def test_an_unreadable_repository_owns_nothing_and_says_so(self) -> None:
+        no_root = _FakeRepoFiles(owners={k: v for k, v in _OWNERS.items() if k != "owners.yaml"})
+        owned = resolve_path_owners("PostHog/posthog", ["nodejs/src/cdp/worker.ts"], files=no_root)
+        assert not owned.resolved
+        assert owned.team_by_path == {"nodejs/src/cdp/worker.ts": UNOWNED_TEAM}
+        assert owned.registry == {}
 
 
 class TestGitHubRepoFiles(SimpleTestCase):

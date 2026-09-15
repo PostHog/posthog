@@ -565,6 +565,7 @@ export interface sessionRecordingsPlaylistLogicValues {
     deleteConfirmationText: string
     eventsHaveSessionId: Record<string, boolean>
     eventsHaveSessionIdLoading: boolean
+    exposureSkipExperimentId: number | undefined
     filters: RecordingUniversalFilters
     hasNext: boolean
     hiddenRecordings: SessionRecordingType[]
@@ -869,6 +870,7 @@ export interface sessionRecordingsPlaylistLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         logicProps: (arg: any) => SessionRecordingPlaylistLogicProps
         allowEventPropertyExpansion: (featureFlags: FeatureFlagsSet) => boolean
+        exposureSkipExperimentId: (filters: RecordingUniversalFilters) => number | undefined
         matchingEventsMatchType: (filters: RecordingUniversalFilters) => MatchingEventsMatchType
         activeSessionRecordingId: (
             selectedRecordingId: string | null,
@@ -1966,6 +1968,14 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             (featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet): boolean => {
                 return !!featureFlags[FEATURE_FLAGS.RECORDINGS_PLAYER_EVENT_PROPERTY_EXPANSION]
             },
+        ],
+
+        // The experiment this list is scoped to, if any. `experiment_exposure` is set by callers
+        // (the experiment recordings tab) and is not editable in the filter UI, so its presence
+        // means every recording in the list belongs to that experiment.
+        exposureSkipExperimentId: [
+            (s) => [s.filters],
+            (filters: RecordingUniversalFilters): number | undefined => filters?.experiment_exposure?.experiment_id,
         ],
 
         matchingEventsMatchType: [

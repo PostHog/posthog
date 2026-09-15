@@ -1,4 +1,5 @@
 import io
+from collections.abc import Iterator
 from datetime import UTC, date, datetime, timedelta
 from urllib.parse import parse_qs, urlparse
 
@@ -41,15 +42,43 @@ _CSV = (
 
 
 class _Raw(io.BytesIO):
-    """Stands in for urllib3's raw stream, which the transport sets `decode_content` on."""
+    """Stands in for urllib3's raw stream, which the transport sets `decode_content` on.
+
+    urllib3 closes the stream on the read that satisfies Content-Length, so anything still
+    holding it open sees a closed file rather than EOF.
+    """
 
     decode_content = False
+
+    def __init__(self, body: bytes) -> None:
+        super().__init__(body)
+        self._length = len(body)
+
+    def read(self, size: int | None = -1) -> bytes:
+        data = super().read(size)
+        if self.tell() >= self._length:
+            self.close()
+        return data
+
+    def read1(self, size: int | None = -1) -> bytes:
+        return self.read(size)
+
+
+def _iter_content(raw: _Raw, chunk_size: int) -> Iterator[bytes]:
+    """Mirrors `Response.iter_content`, which stops once the body is consumed."""
+    while not raw.closed:
+        chunk = raw.read(chunk_size)
+        if not chunk:
+            return
+        yield chunk
 
 
 def _response(text: str, status: int = 200) -> mock.MagicMock:
     resp = mock.MagicMock()
     resp.text = text
-    resp.raw = _Raw(text.encode())
+    raw = _Raw(text.encode())
+    resp.raw = raw
+    resp.iter_content = lambda chunk_size=8192, **kwargs: _iter_content(raw, chunk_size)
     resp.status_code = status
     resp.ok = status < 400
     return resp
@@ -189,7 +218,17 @@ class TestGetRows:
             ("geo_report", "/api/agg-data/export/app/id123/geo_by_date_report/v5"),
             ("partners_report", "/api/agg-data/export/app/id123/partners_by_date_report/v5"),
             ("installs", "/api/raw-data/export/app/id123/installs_report/v5"),
+            ("installs_organic", "/api/raw-data/export/app/id123/organic_installs_report/v5"),
+            # AppsFlyer spells the retargeting slugs with hyphens while every other raw report
+            # uses underscores, so a "consistent" rename here 404s.
+            ("installs_retargeting", "/api/raw-data/export/app/id123/installs-retarget/v5"),
             ("in_app_events", "/api/raw-data/export/app/id123/in_app_events_report/v5"),
+            ("in_app_events_organic", "/api/raw-data/export/app/id123/organic_in_app_events_report/v5"),
+            ("in_app_events_retargeting", "/api/raw-data/export/app/id123/in-app-events-retarget/v5"),
+            ("uninstall_events", "/api/raw-data/export/app/id123/uninstall_events_report/v5"),
+            ("blocked_installs", "/api/raw-data/export/app/id123/blocked_installs_report/v5"),
+            ("blocked_in_app_events", "/api/raw-data/export/app/id123/blocked_in_app_events_report/v5"),
+            ("post_attribution_installs", "/api/raw-data/export/app/id123/detection/v5"),
             ("ad_revenue", "/api/raw-data/export/app/id123/ad_revenue_raw/v5"),
             ("ad_revenue_organic", "/api/raw-data/export/app/id123/ad_revenue_organic_raw/v5"),
             ("ad_revenue_retargeting", "/api/raw-data/export/app/id123/ad-revenue-raw-retarget/v5"),
@@ -244,6 +283,20 @@ class TestGetRows:
 
         headers = mock_session.call_args.kwargs["headers"]
         assert headers["Accept"] == "text/csv"
+
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_report_spanning_several_reads_is_returned_whole(self, mock_session):
+        # urllib3 closes the raw stream as it reads the last byte of the body, so reading the
+        # report straight off it lost the report to `I/O operation on closed file` at EOF.
+        header = "Date,Media Source (pid)\n"
+        rows_sent = 4000
+        mock_session.return_value.get.side_effect = _serve(
+            header + "".join(f"2024-01-01,source-{index}\n" for index in range(rows_sent))
+        )
+
+        rows = [row for batch in get_rows("token", "id123", "daily_report", mock.MagicMock()) for row in batch]
+
+        assert [row["media_source_pid"] for row in rows] == [f"source-{index}" for index in range(rows_sent)]
 
     @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_empty_report_yields_nothing(self, mock_session):
@@ -330,6 +383,26 @@ class TestRawAndMasterWindows:
         requested = set(query["additional_fields"][0].split(","))
         assert {"monetization_network", "ad_unit", "placement"} <= requested
         assert set(APPSFLYER_ENDPOINTS["ad_revenue"].primary_keys) - {"appsflyer_id", "event_time"} <= requested
+
+    @pytest.mark.parametrize(
+        "endpoint, expected_field",
+        [
+            ("blocked_installs", "blocked_reason"),
+            ("blocked_in_app_events", "blocked_reason"),
+            ("post_attribution_installs", "fraud_reason"),
+            ("post_attribution_installs", "detection_date"),
+        ],
+    )
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_protect360_pull_requests_its_fraud_columns(self, mock_session, endpoint, expected_field):
+        # The fraud classification is an additional field, so a report pulled without asking for it
+        # comes back saying nothing about why the row was blocked.
+        mock_session.return_value.get.side_effect = _serve()
+
+        list(get_rows("token", "id123", endpoint, mock.MagicMock()))
+
+        query = parse_qs(urlparse(mock_session.return_value.get.call_args.args[0]).query)
+        assert expected_field in query["additional_fields"][0].split(",")
 
     @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_master_pull_sends_groupings_and_kpis(self, mock_session):

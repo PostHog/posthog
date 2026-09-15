@@ -242,9 +242,7 @@ export const addSavedInsightsModalLogic = kea<addSavedInsightsModalLogicType>([
 
                 return {
                     ...response,
-                    results: response.results.map((rawInsight: any) =>
-                        getQueryBasedInsightModel(rawInsight, 'add_saved_insights_modal')
-                    ),
+                    results: response.results.map((rawInsight: any) => getQueryBasedInsightModel(rawInsight)),
                 }
             },
         },

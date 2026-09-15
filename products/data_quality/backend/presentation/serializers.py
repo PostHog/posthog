@@ -14,13 +14,28 @@ from rest_framework.settings import api_settings
 from posthog.api.shared import UserBasicSerializer
 
 from ..facade import api
-from ..facade.enums import CheckSeverity, CheckType, CreatedSource, SubjectType
+from ..facade.enums import CheckSeverity, CheckType, CreatedSource, ScheduleInterval, SubjectType
 from ..facade.models import DataQualityCheck, DataQualityCheckRun, DataQualitySuiteRun
 
 
 @extend_schema_field(OpenApiTypes.OBJECT)
 class CheckConfigField(serializers.JSONField):
     """Type-specific configuration. Call /check_types/ for the JSON schema of each type."""
+
+
+class DataQualityMetricSubjectSerializer(serializers.Serializer):
+    id = serializers.UUIDField(help_text="Metric identifier used by the nested check endpoints.")
+    name = serializers.CharField(help_text="Queryable metric name.")
+    display_name = serializers.CharField(allow_blank=True, help_text="Metric label shown in the data catalog.")
+
+
+class DataQualityOutputColumnSerializer(serializers.Serializer):
+    name = serializers.CharField(help_text="Output column name available through the {metric} relation.")
+    type = serializers.CharField(allow_null=True, help_text="ClickHouse type, or null when it could not be inferred.")
+
+
+class DataQualityOutputSchemaSerializer(serializers.Serializer):
+    columns = DataQualityOutputColumnSerializer(many=True, help_text="Columns returned by the saved metric query.")
 
 
 @extend_schema_serializer(component_name="DataQualityCheck")
@@ -248,6 +263,30 @@ class DataQualityOverviewCheckSerializer(DataQualityCheckSerializer):
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_subject_metric_name(self, obj: DataQualityCheck) -> str | None:
         return self._location(obj).metric_name
+
+
+class DataQualityCheckScheduleUpdateSerializer(serializers.Serializer):
+    interval = serializers.ChoiceField(
+        choices=list(ScheduleInterval), required=False, help_text="How often all enabled checks on the metric run."
+    )
+    enabled = serializers.BooleanField(required=False, help_text="Whether checks run automatically on this schedule.")
+
+
+class DataQualityCheckScheduleSerializer(serializers.Serializer):
+    id = serializers.UUIDField(read_only=True, help_text="Schedule identifier.")
+    interval = serializers.ChoiceField(
+        choices=list(ScheduleInterval), read_only=True, help_text="How often the checks run."
+    )
+    enabled = serializers.BooleanField(read_only=True, help_text="Whether the schedule runs automatically.")
+    next_run_at = serializers.DateTimeField(
+        read_only=True, allow_null=True, help_text="Next scheduled execution time, if enabled."
+    )
+    last_run_at = serializers.DateTimeField(
+        read_only=True, allow_null=True, help_text="Most recent visible scheduled suite execution time."
+    )
+    last_suite_run = serializers.UUIDField(
+        read_only=True, allow_null=True, help_text="Most recent visible scheduled suite."
+    )
 
 
 @extend_schema_serializer(component_name="DataQualityCheckRun")

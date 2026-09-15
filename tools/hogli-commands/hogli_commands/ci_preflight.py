@@ -47,6 +47,7 @@ from hogli_commands.build import (
 )
 from hogli_commands.change_detection import changed_files, matches_globs
 from hogli_commands.complexity_lint import PYTHON_SCOPE, TEST_WARN_AT, TYPESCRIPT_SCOPE, WARN_AT
+from hogli_commands.depot_mirrors import mirror_violations
 from hogli_commands.devenv.generator import TRACKED_MPROCS_FILES
 from hogli_commands.size_lint import SCOPE as SIZE_SCOPE
 
@@ -282,37 +283,9 @@ DIFF_CHECKS: list[DiffCheck] = [
 ]
 
 
-@dataclass(frozen=True, kw_only=True, slots=True)
-class CompanionCheck:
-    """Paths a CI gate requires to move together."""
-
-    key: str
-    label: str
-    source: str
-    companion: str
-    escape_hatch: str  # what to do when the change is deliberately one-sided
-    exact_mirror: bool = False
-
-
-# Duplicated from .github/workflows/ci-backend-shadow-drift.yml so the failure lands
-# pre-push instead of a CI round-trip. A test binds the two so they cannot drift.
-COMPANION_CHECKS: list[CompanionCheck] = [
-    CompanionCheck(
-        key="shadow-drift",
-        label="depot shadow drift (.depot mirror of ci-backend.yml)",
-        source=".github/workflows/ci-backend.yml",
-        companion=".depot/workflows/ci-backend.yml",
-        escape_hatch="document it as an intentional delta in that file's header",
-    ),
-    CompanionCheck(
-        key="paths-filter-shadow-drift",
-        label="depot paths-filter drift (.depot mirror of the canonical action)",
-        source=".github/actions/paths-filter/**",
-        companion=".depot/actions/paths-filter/**",
-        escape_hatch="mirror the canonical action change",
-        exact_mirror=True,
-    ),
-]
+# A change under these paths can fail .github/workflows/ci-backend-shadow-drift.yml, which runs
+# the same depot_mirrors check. Running it here lands the failure pre-push instead of in CI.
+SHADOW_DRIFT_TRIGGERS = [".github/workflows/ci-backend.yml", ".github/actions/**", ".depot/**"]
 
 
 def _has_node_modules() -> bool:
@@ -482,26 +455,6 @@ def _run_diff_check(chk: DiffCheck, do_fix: bool, against: str | None, strict: b
         return "pass", "fixed" if do_fix else "ok"
     lines = (result.stdout or result.stderr).strip().splitlines()
     return "fail", " · ".join(lines[:3]) if lines else f"exit {result.returncode}"
-
-
-def _run_companion_check(chk: CompanionCheck, files: list[str]) -> tuple[Status, str]:
-    if any(matches_globs(path, [chk.companion]) for path in files):
-        if chk.exact_mirror:
-            source_root = REPO_ROOT / chk.source.removesuffix("/**")
-            companion_root = REPO_ROOT / chk.companion.removesuffix("/**")
-            source_files = {path.relative_to(source_root): path for path in source_root.rglob("*") if path.is_file()}
-            companion_files = {
-                path.relative_to(companion_root): path for path in companion_root.rglob("*") if path.is_file()
-            }
-            if source_files.keys() != companion_files.keys():
-                return "fail", "mirror file sets differ"
-            differing = [
-                path for path in source_files if source_files[path].read_bytes() != companion_files[path].read_bytes()
-            ]
-            if differing:
-                return "fail", f"mirrors differ: {', '.join(str(path) for path in differing[:3])}"
-        return "pass", "both files updated"
-    return "fail", f"mirror the change into {chk.companion}, or {chk.escape_hatch}"
 
 
 # Branch-freshness backstop thresholds. The risk signals in ``_staleness_risks``
@@ -735,15 +688,7 @@ def ci_preflight(do_fix: bool, strict: bool, against: str | None, as_json: bool)
         chk.matched = [f for f in files if matches_globs(f, chk.triggers)]
         if chk.matched:
             triggered.append(chk)
-    triggered_companions = [
-        companion
-        for companion in COMPANION_CHECKS
-        if any(
-            matches_globs(path, [companion.source])
-            or (companion.exact_mirror and matches_globs(path, [companion.companion]))
-            for path in files
-        )
-    ]
+    shadow_drift_triggered = any(matches_globs(path, SHADOW_DRIFT_TRIGGERS) for path in files)
 
     results: list[dict[str, Any]] = []
     failures = 0
@@ -760,13 +705,18 @@ def ci_preflight(do_fix: bool, strict: bool, against: str | None, as_json: bool)
         click.secho(f"   {_ICON[stale_status]} [staleness] branch freshness vs master", fg=_COLOR[stale_status])
         click.echo(f"       {stale_detail}")
 
-    for companion in triggered_companions:
-        status, detail = _run_companion_check(companion, files)
-        failures += status == "fail"
-        results.append({"check": companion.key, "status": status, "files": 1, "detail": detail})
+    if shadow_drift_triggered:
+        violations = mirror_violations(REPO_ROOT, set(files))
+        drift_status: Status = "fail" if violations else "pass"
+        drift_detail = " · ".join(violations[:3]) if violations else "depot mirrors in sync"
+        failures += drift_status == "fail"
+        results.append({"check": "shadow-drift", "status": drift_status, "files": 1, "detail": drift_detail})
         if not as_json:
-            click.secho(f"   {_ICON[status]} [{companion.key}] {companion.label}", fg=_COLOR[status])
-            click.echo(f"       {detail}")
+            click.secho(
+                f"   {_ICON[drift_status]} [shadow-drift] depot shadow drift (.depot mirrors of backend CI)",
+                fg=_COLOR[drift_status],
+            )
+            click.echo(f"       {drift_detail}")
 
     for chk in triggered:
         status, detail = _run_diff_check(chk, do_fix, against, strict)
@@ -781,7 +731,7 @@ def ci_preflight(do_fix: bool, strict: bool, against: str | None, as_json: bool)
 
     summary = {
         "changed_files": len(files),
-        "triggered": [c.key for c in triggered_companions] + [c.key for c in triggered],
+        "triggered": (["shadow-drift"] if shadow_drift_triggered else []) + [c.key for c in triggered],
         "failures": failures,
         "advisories": advisories,
         "mode": "fix" if do_fix else ("strict" if strict else "advisory"),
@@ -791,7 +741,7 @@ def ci_preflight(do_fix: bool, strict: bool, against: str | None, as_json: bool)
     if as_json:
         click.echo(json.dumps(summary))
     else:
-        if not triggered and not triggered_companions:
+        if not triggered and not shadow_drift_triggered:
             click.secho("   ✓ Nothing in this diff maps to a known CI failure class.", fg="green")
         click.echo()
         click.echo(
