@@ -17543,6 +17543,7 @@ export namespace Schemas {
      * * `waiting_for_data` - waiting_for_data
      * * `ready` - ready
      * * `not_applicable` - not_applicable
+     * * `unknown` - unknown
      */
     export type CapabilityStateStateEnum = typeof CapabilityStateStateEnum[keyof typeof CapabilityStateStateEnum];
 
@@ -17553,6 +17554,7 @@ export namespace Schemas {
       WaitingForData: 'waiting_for_data',
       Ready: 'ready',
       NotApplicable: 'not_applicable',
+      Unknown: 'unknown',
     } as const;
 
     export interface CapabilityState {
@@ -22103,7 +22105,6 @@ export namespace Schemas {
     }
 
     /**
-     * * `unknown` - unknown
      * * `templates` - templates
      * * `experiments` - experiments
      * * `metrics` - metrics
@@ -22114,7 +22115,6 @@ export namespace Schemas {
 
 
     export const SourceContextEnum = {
-      Unknown: 'unknown',
       Templates: 'templates',
       Experiments: 'experiments',
       Metrics: 'metrics',
@@ -22220,7 +22220,7 @@ export namespace Schemas {
       use_dashboard?: number | null;
       /** When deleting, also delete insights that are only on this dashboard. */
       delete_insights?: boolean;
-      /** First-party surface that created a dashboard from the web source.
+      /** Surface that created the dashboard. Reported on the `dashboard created` event.
        *
        * * `templates` - templates
        * * `experiments` - experiments
