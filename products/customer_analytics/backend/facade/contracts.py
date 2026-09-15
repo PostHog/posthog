@@ -50,6 +50,7 @@ class AccountRelationshipDefinition:
     name: str = ""
     description: str | None = None
     is_single_holder: bool = True
+    is_controlled: bool = False
 
 
 @dataclass(frozen=True)
@@ -554,7 +555,7 @@ class ExternalAccount:
 
 @dataclass(frozen=True)
 class ExternalAccountOwnershipHolder:
-    """The user holding a commercial role, with the checks a consumer needs before projecting them."""
+    """The user holding a controlled relationship, with the checks a consumer needs before projecting them."""
 
     user_id: int
     email: str | None
@@ -565,7 +566,6 @@ class ExternalAccountOwnershipHolder:
 
 OwnershipRoleStateValue = Literal["unmanaged", "assigned", "cleared", "blocked"]
 OwnershipRoleDiagnosticValue = Literal[
-    "role_unbound",
     "holder_missing",
     "holder_inactive",
     "holder_not_in_organization",
@@ -575,7 +575,7 @@ OwnershipRoleDiagnosticValue = Literal[
 
 @dataclass(frozen=True)
 class ExternalAccountRoleOwnership:
-    """One commercial role on one account.
+    """One controlled relationship on one account.
 
     ``state`` is what the consumer may act on: ``unmanaged`` keeps legacy authority whatever the
     rows say, ``assigned`` and ``cleared`` are authoritative, and ``blocked`` means the holder
@@ -583,8 +583,9 @@ class ExternalAccountRoleOwnership:
     block and are informational on an unmanaged role.
     """
 
+    definition_id: UUID
+    definition_name: str
     state: OwnershipRoleStateValue
-    definition_id: UUID | None
     controlled_at: datetime | None
     relationship_id: UUID | None
     holder: ExternalAccountOwnershipHolder | None
@@ -593,19 +594,19 @@ class ExternalAccountRoleOwnership:
 
 @dataclass(frozen=True)
 class ExternalAccountOwnership:
-    """Canonical identity plus both commercial roles, on the external wire shape."""
+    """Canonical identity plus every controlled relationship of the team, on the external wire
+    shape. Consumers map ``definition_id`` to the roles they project."""
 
     account_id: str
     external_id: str | None
     region: str | None
-    ae: ExternalAccountRoleOwnership
-    csm: ExternalAccountRoleOwnership
+    roles: list[ExternalAccountRoleOwnership]
 
 
 OwnershipClaimOutcome = Literal["accepted", "already_applied", "cleared", "not_held", "rejected", "blocked"]
 OwnershipClaimReason = Literal[
     "account_not_found",
-    "role_unbound",
+    "claim_target_unset",
     "role_not_managed",
     "identity_mismatch",
     "assignee_not_member",
@@ -617,7 +618,7 @@ OwnershipClaimReason = Literal[
 
 @dataclass(frozen=True)
 class OwnershipClaimDecision:
-    """An eligible initial AE allocation as frozen on a Salesforce Task, read from the warehouse.
+    """An eligible initial allocation as frozen on a Salesforce Task, read from the warehouse.
 
     The Task id (``source_ref``) is the idempotency key. A Task that has since been disqualified
     carries ``released_at`` and who released it; that row withdraws the same Task's claim.

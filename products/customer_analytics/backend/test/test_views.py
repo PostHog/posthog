@@ -54,7 +54,11 @@ from products.customer_analytics.backend.models import (
     MeetingParticipant,
     TargetType,
 )
-from products.customer_analytics.backend.test.factories import create_account, create_custom_property_definition
+from products.customer_analytics.backend.test.factories import (
+    create_account,
+    create_custom_property_definition,
+    enroll_account,
+)
 from products.notebooks.backend.facade.content import build_markdown_notebook_content
 from products.notebooks.backend.models import Notebook, ResourceNotebook
 from products.product_analytics.backend.facade.models import Insight
@@ -2963,10 +2967,8 @@ class TestAccountRelationshipViewSet(APIBaseTest):
     @parameterized.expand([("agent", True, status.HTTP_409_CONFLICT), ("person", False, status.HTTP_201_CREATED)])
     def test_only_a_person_can_change_a_managed_role_with_a_personal_key(self, _name, via_agent, expected):
         definition = self._create_relationship_definition("Account executive")
-        ownership.bind_role(self.team, "ae", definition.id)
-        Account.objects.for_team(self.team.id).filter(id=self.account.id).update(
-            ae_ownership_controlled_at=timezone.now()
-        )
+        ownership.set_controlled(self.team.id, definition.id, True)
+        enroll_account(self.account, definition)
         value = generate_random_token_personal()
         PersonalAPIKey.objects.create(
             label="agent",

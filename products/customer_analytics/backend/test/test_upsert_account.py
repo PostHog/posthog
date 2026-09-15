@@ -1,5 +1,6 @@
 import uuid
 from datetime import UTC, datetime
+from typing import Any
 
 import pytest
 from posthog.test.base import BaseTest
@@ -8,7 +9,6 @@ from asgiref.sync import sync_to_async
 from langchain_core.runnables import RunnableConfig
 
 from posthog.models import TaggedItem, Team, User
-from posthog.models.team.extensions import get_or_create_team_extension
 
 from products.customer_analytics.backend.max_tools import (
     AccountPropertiesInput,
@@ -16,12 +16,8 @@ from products.customer_analytics.backend.max_tools import (
     UpdateAccountAction,
     UpsertAccountTool,
 )
-from products.customer_analytics.backend.models import (
-    Account,
-    AccountRelationship,
-    AccountRelationshipDefinition,
-    TeamCustomerAnalyticsConfig,
-)
+from products.customer_analytics.backend.models import Account, AccountRelationship, AccountRelationshipDefinition
+from products.customer_analytics.backend.test.factories import enroll_account
 
 
 class TestUpsertAccountTool(BaseTest):
@@ -38,8 +34,10 @@ class TestUpsertAccountTool(BaseTest):
         )()
 
     @sync_to_async
-    def _create_definition(self, name: str = "CSM") -> AccountRelationshipDefinition:
-        return AccountRelationshipDefinition.objects.for_team(self.team.id).create(team_id=self.team.id, name=name)
+    def _create_definition(self, name: str = "CSM", **kwargs: Any) -> AccountRelationshipDefinition:
+        return AccountRelationshipDefinition.objects.for_team(self.team.id).create(
+            team_id=self.team.id, name=name, **kwargs
+        )
 
     async def _active_holder_ids(self, account: Account) -> set[int]:
         return await sync_to_async(
@@ -117,26 +115,17 @@ class TestUpsertAccountTool(BaseTest):
 
     @pytest.mark.django_db
     @pytest.mark.asyncio
-    async def test_update_cannot_change_a_managed_commercial_role(self):
-        definition = await self._create_definition("CSM")
-        account = await sync_to_async(Account.objects.unscoped().create)(
-            team=self.team, name="Acme", csm_ownership_controlled_at=datetime(2026, 1, 1, tzinfo=UTC)
-        )
-
-        @sync_to_async
-        def bind_csm() -> None:
-            config = get_or_create_team_extension(self.team, TeamCustomerAnalyticsConfig)
-            config.csm_relationship_definition = definition
-            config.save(update_fields=["csm_relationship_definition"])
-
-        await bind_csm()
+    async def test_update_cannot_change_a_managed_controlled_relationship(self):
+        definition = await self._create_definition("CSM", is_controlled=True)
+        account = await sync_to_async(Account.objects.unscoped().create)(team=self.team, name="Acme")
+        await sync_to_async(enroll_account)(account, definition, controlled_at=datetime(2026, 1, 1, tzinfo=UTC))
 
         content, artifact = await self._tool()._arun_impl(
             action=UpdateAccountAction(account_id=str(account.id), relationships={"CSM": self.user.id})
         )
 
         assert artifact["error"] == "invalid_relationship_assignment"
-        assert "managed in Customer analytics" in content
+        assert "controlled in Customer analytics" in content
         assert await self._active_holder_ids(account) == set()
 
     @pytest.mark.django_db

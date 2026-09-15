@@ -221,7 +221,7 @@ class ExternalAccountSerializer(serializers.Serializer):
         help_text="Typed account properties: external-system ids. Role assignments live under `relationships`.",
     )
     ownership = ExternalAccountOwnershipSerializer(
-        help_text="Authority state of the account executive and customer success manager roles."
+        help_text="Authority state of each relationship the project controls."
     )
     tags = serializers.ListField(
         child=serializers.CharField(), help_text="Tag names on the account, sorted alphabetically."
@@ -292,7 +292,7 @@ class ExternalAccountView(APIView):
         },
         summary="Get an external customer analytics account",
         description=(
-            "Fetch one account by external ID with its properties, commercial role ownership, tags, active "
+            "Fetch one account by external ID with its properties, controlled relationship ownership, tags, active "
             "relationship assignments and custom property values. Accepts the team secret API token or a "
             "project secret API key with the `account:read` scope."
         ),
@@ -372,8 +372,9 @@ class ExternalAccountListQuerySerializer(serializers.Serializer):
         default=False,
         help_text=(
             "When true, return only accounts where customer analytics holds authority over at least one "
-            "commercial role, including accounts whose managed roles are cleared and accounts that are ignored. "
-            "Authority does not end when an account is ignored, so `include_ignored` is implied."
+            "controlled relationship, including accounts whose managed relationships are cleared and "
+            "accounts that are ignored. Authority does not end when an account is ignored, so "
+            "`include_ignored` is implied."
         ),
     )
 
@@ -411,7 +412,7 @@ class ExternalAccountListItemSerializer(serializers.Serializer):
         help_text="When Track Rules ignored the account, or null if it is tracked.",
     )
     ownership = ExternalAccountOwnershipSerializer(
-        help_text="Authority state of the account executive and customer success manager roles."
+        help_text="Authority state of each relationship the project controls."
     )
     relationships = serializers.DictField(
         child=ExternalAccountListAssignmentSerializer(many=True),
@@ -481,10 +482,11 @@ class ExternalAccountListView(APIView):
         },
         summary="List external customer analytics accounts",
         description=(
-            "List tracked accounts with external IDs, lifecycle timestamps, commercial role ownership, and active "
-            "relationship assignments. Set `include_ignored=true` to include ignored accounts and "
-            "`managed_only=true` to read only the accounts customer analytics holds ownership authority for. "
-            "Requires a project secret API key with the `account:read` scope."
+            "List tracked accounts with external IDs, lifecycle timestamps, controlled relationship "
+            "ownership, and active relationship assignments. Set `include_ignored=true` to include "
+            "ignored accounts and `managed_only=true` to read only the accounts customer analytics "
+            "holds ownership authority for. Requires a project secret API key with the `account:read` "
+            "scope."
         ),
     )
     def get(self, request: Request) -> Response:

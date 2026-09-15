@@ -20,9 +20,9 @@ class AccountRelationshipSource(models.TextChoices):
 
 
 class OwnershipRoleState(models.TextChoices):
-    """What a consumer may conclude about a commercial role on one account."""
+    """What a consumer may conclude about a controlled relationship on one account."""
 
-    # No control timestamp: legacy authority holds, whatever the relationship rows say.
+    # No control row: legacy authority holds, whatever the relationship rows say.
     UNMANAGED = "unmanaged", "Unmanaged"
     ASSIGNED = "assigned", "Assigned"
     # Managed with no active holder: an explicit decision that the role is empty.
@@ -32,7 +32,6 @@ class OwnershipRoleState(models.TextChoices):
 
 
 class OwnershipRoleDiagnostic(models.TextChoices):
-    ROLE_UNBOUND = "role_unbound", "No relationship definition is bound to this role"
     HOLDER_MISSING = "holder_missing", "The active relationship has no user"
     HOLDER_INACTIVE = "holder_inactive", "The holder's user account is deactivated"
     HOLDER_NOT_IN_ORGANIZATION = "holder_not_in_organization", "The holder is not a member of the organization"

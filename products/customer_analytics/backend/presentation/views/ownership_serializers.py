@@ -24,21 +24,22 @@ class ExternalAccountOwnershipHolderSerializer(serializers.Serializer):
 
 
 class ExternalAccountRoleOwnershipSerializer(serializers.Serializer):
+    definition_id = serializers.UUIDField(
+        help_text="The controlled relationship definition. Map it to the role you project; it does not change."
+    )
+    definition_name = serializers.CharField(help_text="Current name of the relationship definition.")
     state = serializers.ChoiceField(
         choices=OwnershipRoleState.choices,
         help_text=(
-            "`unmanaged`: customer analytics does not hold authority over this role on this account; "
+            "`unmanaged`: customer analytics does not hold authority over this relationship on this account; "
             "the holder, if any, is a legacy assignment. `assigned`: the holder is authoritative. "
-            "`cleared`: the role is authoritatively empty. `blocked`: the role is managed but its holder "
-            "cannot be projected; see `diagnostics` and keep the last applied value."
+            "`cleared`: the relationship is authoritatively empty. `blocked`: the relationship is managed but its "
+            "holder cannot be projected; see `diagnostics` and keep the last applied value."
         ),
-    )
-    definition_id = serializers.UUIDField(
-        allow_null=True, help_text="Relationship definition bound to this role for the project, or null."
     )
     controlled_at = serializers.DateTimeField(
         allow_null=True,
-        help_text="When customer analytics last decided this role on this account; null while unmanaged.",
+        help_text="When customer analytics last decided this relationship on this account; null while unmanaged.",
     )
     relationship_id = serializers.UUIDField(
         allow_null=True, help_text="The active relationship holding the role, or null when empty."
@@ -46,7 +47,7 @@ class ExternalAccountRoleOwnershipSerializer(serializers.Serializer):
     holder = ExternalAccountOwnershipHolderSerializer(allow_null=True, help_text="The current holder, or null.")
     diagnostics = serializers.ListField(
         child=serializers.ChoiceField(choices=OwnershipRoleDiagnostic.choices),
-        help_text="Why a managed role is blocked. Informational on an unmanaged role.",
+        help_text="Why a managed relationship is blocked. Informational on an unmanaged one.",
     )
 
 
@@ -58,5 +59,10 @@ class ExternalAccountOwnershipSerializer(serializers.Serializer):
     region = serializers.CharField(
         allow_null=True, help_text="Region of this PostHog instance (`us`, `eu`), or null when self-hosted."
     )
-    ae = ExternalAccountRoleOwnershipSerializer(help_text="The account executive role.")
-    csm = ExternalAccountRoleOwnershipSerializer(help_text="The customer success manager role.")
+    roles = ExternalAccountRoleOwnershipSerializer(
+        many=True,
+        help_text=(
+            "One entry per controlled relationship definition of the project, in name order, whether or not this "
+            "account is managed under it. Empty when the project controls no relationship."
+        ),
+    )

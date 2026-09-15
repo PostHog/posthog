@@ -1211,8 +1211,8 @@ class AccountRelationshipDefinitionViewSet(
             )
         except api.AccountRelationshipDefinitionConflictError as e:
             raise Conflict(str(e))
-        except api.AccountRelationshipDefinitionBoundError:
-            raise Conflict("This relationship carries a commercial role and must stay single-holder.")
+        except api.AccountRelationshipDefinitionControlledError:
+            raise Conflict("This relationship is controlled and must stay single-holder.")
         if definition is None:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         return Response(AccountRelationshipDefinitionSerializer(instance=definition).data)
@@ -1224,8 +1224,8 @@ class AccountRelationshipDefinitionViewSet(
     def destroy(self, request: Request, *args, **kwargs) -> Response:
         try:
             deleted = api.delete_account_relationship_definition(team_id=self.team_id, definition_id=self.kwargs["pk"])
-        except api.AccountRelationshipDefinitionBoundError:
-            raise Conflict("This relationship carries a commercial role and can't be deleted while it does.")
+        except api.AccountRelationshipDefinitionControlledError:
+            raise Conflict("This relationship is controlled and can't be deleted while it is.")
         if not deleted:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         return Response(status=status.HTTP_204_NO_CONTENT)
@@ -2040,7 +2040,7 @@ class AccountViewSet(
             raise PermissionDenied()
         except api.AccountOwnershipManagedError:
             raise Conflict(
-                "This account has a managed commercial role or commercial role history, so it can't be deleted. "
+                "This account has a controlled relationship, or history under one, so it can't be deleted. "
                 "Ignore the account to hide it instead."
             )
         return Response(status=status.HTTP_204_NO_CONTENT)
@@ -2348,8 +2348,7 @@ class AccountRelationshipDeletePermission(BasePermission):
 
 
 _AGENT_ROLE_MANAGED = (
-    "This account's commercial roles are managed here and can't be changed by an agent. "
-    "Change them from the account page."
+    "This relationship is controlled here and can't be changed by an agent. Change it from the account page."
 )
 
 
@@ -2460,7 +2459,7 @@ class AccountRelationshipViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMix
                 via_agent=is_mcp_request(request),
             )
         except api.AccountRelationshipProtectedError:
-            raise Conflict("Commercial role history cannot be deleted. End the assignment instead.")
+            raise Conflict("The history of a controlled relationship can't be deleted. End the assignment instead.")
         if not deleted:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         return Response(status=status.HTTP_204_NO_CONTENT)

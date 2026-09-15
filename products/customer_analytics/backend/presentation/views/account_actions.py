@@ -73,7 +73,7 @@ _UPDATE_ERROR_RESPONSES = {
         status.HTTP_400_BAD_REQUEST,
     ),
     contracts.ExternalAccountUpdateError.ROLE_MANAGED: (
-        "This account's commercial roles are managed in Customer analytics and cannot be changed by a workflow",
+        "This relationship is controlled in Customer analytics and can't be changed by a workflow",
         status.HTTP_409_CONFLICT,
     ),
     # A server fault (the facade's blanket except), not a client error: 500 keeps the CDP

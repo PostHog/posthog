@@ -91,9 +91,15 @@ const TILE_FILTER = {
 }
 
 const DEFINITIONS: AccountRelationshipDefinitionApi[] = [
-    { id: CSM_DEFINITION_ID, name: 'CSM', description: null, is_single_holder: true },
-    { id: AE_DEFINITION_ID, name: 'Account executive', description: null, is_single_holder: true },
-    { id: OWNER_DEFINITION_ID, name: 'Account owner', description: null, is_single_holder: true },
+    { id: CSM_DEFINITION_ID, name: 'CSM', description: null, is_single_holder: true, is_controlled: false },
+    {
+        id: AE_DEFINITION_ID,
+        name: 'Account executive',
+        description: null,
+        is_single_holder: true,
+        is_controlled: false,
+    },
+    { id: OWNER_DEFINITION_ID, name: 'Account owner', description: null, is_single_holder: true, is_controlled: false },
 ]
 
 const buildRelationship = (overrides: Partial<AccountRelationshipApi> = {}): AccountRelationshipApi => ({
@@ -601,7 +607,13 @@ describe('accountsLogic', () => {
             const config = accountsColumnConfigLogic.findMounted()!
             config.actions.loadRelationshipDefinitionsSuccess([
                 ...DEFINITIONS,
-                { id: 'def-os', name: 'Onboarding specialist', description: null, is_single_holder: true },
+                {
+                    id: 'def-os',
+                    name: 'Onboarding specialist',
+                    description: null,
+                    is_single_holder: true,
+                    is_controlled: false,
+                },
             ])
             expect(config.values.selectColumns).toEqual([
                 ...ACCOUNTS_DEFAULT_COLUMNS,
@@ -617,7 +629,13 @@ describe('accountsLogic', () => {
             config.actions.setSelectColumns([ACCOUNTS_NAME_COLUMN, 'csm'])
             config.actions.loadRelationshipDefinitionsSuccess([
                 ...DEFINITIONS,
-                { id: 'def-os', name: 'Onboarding specialist', description: null, is_single_holder: true },
+                {
+                    id: 'def-os',
+                    name: 'Onboarding specialist',
+                    description: null,
+                    is_single_holder: true,
+                    is_controlled: false,
+                },
             ])
             expect(config.values.selectColumns).toEqual([ACCOUNTS_NAME_COLUMN, 'csm'])
         })

@@ -7,7 +7,6 @@ from pathlib import Path
 from posthog.test.base import BaseTest
 
 from django.core.management import CommandError, call_command
-from django.utils import timezone
 
 from parameterized import parameterized
 
@@ -22,10 +21,11 @@ from products.customer_analytics.backend.logic.ownership_claims import DECISION_
 from products.customer_analytics.backend.models import (
     Account,
     AccountRelationship,
+    AccountRelationshipControl,
     AccountRelationshipDefinition,
     TeamCustomerAnalyticsConfig,
 )
-from products.customer_analytics.backend.test.factories import create_account, create_saved_query
+from products.customer_analytics.backend.test.factories import create_account, create_saved_query, enroll_account
 
 
 class TestConfigureAccountOwnershipCommand(BaseTest):
@@ -40,13 +40,19 @@ class TestConfigureAccountOwnershipCommand(BaseTest):
         call_command("configure_account_ownership", "--team-id", str(self.team.id), *args, stdout=out)
         return out.getvalue()
 
-    def test_binds_roles_and_claim_controls(self):
+    def _is_controlled(self, definition: AccountRelationshipDefinition) -> bool:
+        definition.refresh_from_db()
+        return definition.is_controlled
+
+    def test_controls_definitions_and_claim_controls(self):
         view = create_saved_query(
             team_id=self.team.id, name="ownership_decisions", columns=dict.fromkeys(DECISION_COLUMNS, {})
         )
 
         self._configure(
-            "--bind-ae",
+            "--control",
+            str(self.ae_definition.id),
+            "--claim-definition",
             str(self.ae_definition.id),
             "--claims",
             "enabled",
@@ -55,18 +61,21 @@ class TestConfigureAccountOwnershipCommand(BaseTest):
         )
 
         config = get_or_create_team_extension(self.team, TeamCustomerAnalyticsConfig)
-        assert config.ae_relationship_definition_id == self.ae_definition.id
+        assert self._is_controlled(self.ae_definition) is True
+        assert config.ownership_claim_relationship_definition_id == self.ae_definition.id
         assert config.ownership_claims_enabled is True
         assert config.ownership_claim_saved_query_id == view.id
 
-        self._configure("--unbind-ae")
+        self._configure("--clear-claim-definition", "--uncontrol", str(self.ae_definition.id))
 
-        assert ownership.role_bindings(self.team.id).ae_definition_id is None
+        config.refresh_from_db()
+        assert self._is_controlled(self.ae_definition) is False
+        assert config.ownership_claim_relationship_definition_id is None
 
     def test_a_config_row_this_command_creates_carries_the_product_default(self):
         TeamCustomerAnalyticsConfig.objects.filter(team=self.team).delete()
 
-        self._configure("--bind-ae", str(self.ae_definition.id))
+        self._configure("--control", str(self.ae_definition.id))
 
         config = TeamCustomerAnalyticsConfig.objects.get(team=self.team)
         assert config.activity_event == DEFAULT_ACTIVITY_EVENT
@@ -75,45 +84,53 @@ class TestConfigureAccountOwnershipCommand(BaseTest):
         view = create_saved_query(team_id=self.team.id, name="partial", columns={"task_id": {}})
 
         with self.assertRaises(CommandError):
-            self._configure("--bind-ae", str(self.ae_definition.id), "--claim-saved-query", str(view.id))
+            self._configure("--control", str(self.ae_definition.id), "--claim-saved-query", str(view.id))
 
         config = get_or_create_team_extension(self.team, TeamCustomerAnalyticsConfig)
-        assert (config.ownership_claim_saved_query_id, config.ae_relationship_definition_id) == (None, None)
+        assert config.ownership_claim_saved_query_id is None
+        assert self._is_controlled(self.ae_definition) is False
 
-    def test_binding_is_frozen_while_accounts_manage_the_role(self):
-        self._configure("--bind-ae", str(self.ae_definition.id))
-        create_account(
-            team_id=self.team.id, name="Managed", external_id="org-1", ae_ownership_controlled_at=timezone.now()
-        )
-        replacement = AccountRelationshipDefinition.objects.for_team(self.team.id).create(
-            team_id=self.team.id, name="AE 2"
-        )
+    def test_control_cannot_end_while_accounts_are_enrolled(self):
+        self._configure("--control", str(self.ae_definition.id))
+        enroll_account(create_account(team_id=self.team.id, name="Managed", external_id="org-1"), self.ae_definition)
 
-        for args in (["--unbind-ae"], ["--bind-ae", str(replacement.id)]):
-            with self.assertRaises(CommandError):
-                self._configure(*args)
+        with self.assertRaises(CommandError):
+            self._configure("--uncontrol", str(self.ae_definition.id))
 
-        assert ownership.role_bindings(self.team.id).ae_definition_id == self.ae_definition.id
+        assert self._is_controlled(self.ae_definition) is True
 
-    @parameterized.expand(["other_team", "multi_holder", "bound_to_other_role"])
+    @parameterized.expand(["targeting_an_uncontrolled_definition", "uncontrolling_the_target"])
+    def test_the_claim_target_must_stay_controlled(self, case):
+        if case == "uncontrolling_the_target":
+            self._configure("--control", str(self.ae_definition.id), "--claim-definition", str(self.ae_definition.id))
+            args = ["--uncontrol", str(self.ae_definition.id)]
+        else:
+            args = ["--claim-definition", str(self.ae_definition.id)]
+
+        with self.assertRaises(CommandError):
+            self._configure(*args)
+
+        config = get_or_create_team_extension(self.team, TeamCustomerAnalyticsConfig)
+        expected_target = self.ae_definition.id if case == "uncontrolling_the_target" else None
+        assert config.ownership_claim_relationship_definition_id == expected_target
+        assert self._is_controlled(self.ae_definition) is (case == "uncontrolling_the_target")
+
+    @parameterized.expand(["other_team", "multi_holder"])
     def test_rejects_an_unusable_definition(self, case):
         if case == "other_team":
             other_team = Team.objects.create(organization=self.organization, name="other")
             definition = AccountRelationshipDefinition.objects.for_team(other_team.id).create(
                 team_id=other_team.id, name="AE"
             )
-        elif case == "multi_holder":
+        else:
             definition = AccountRelationshipDefinition.objects.for_team(self.team.id).create(
                 team_id=self.team.id, name="FDE", is_single_holder=False
             )
-        else:
-            definition = self.ae_definition
-            self._configure("--bind-csm", str(definition.id))
 
         with self.assertRaises(CommandError):
-            self._configure("--bind-ae", str(definition.id))
+            self._configure("--control", str(definition.id))
 
-        assert ownership.role_bindings(self.team.id).ae_definition_id is None
+        assert self._is_controlled(definition) is False
 
 
 class TestAdoptAccountOwnershipCommand(BaseTest):
@@ -121,9 +138,8 @@ class TestAdoptAccountOwnershipCommand(BaseTest):
         super().setUp()
         self.other_user = self._create_user("other@posthog.com")
         self.ae_definition = AccountRelationshipDefinition.objects.for_team(self.team.id).create(
-            team_id=self.team.id, name="Account executive"
+            team_id=self.team.id, name="Account executive", is_controlled=True
         )
-        ownership.bind_role(self.team, "ae", self.ae_definition.id)
         self.empty = create_account(team_id=self.team.id, name="Empty", external_id="org-empty")
         self.held = create_account(team_id=self.team.id, name="Held", external_id="org-held")
         self._assign(self.held, self.other_user)
@@ -140,10 +156,12 @@ class TestAdoptAccountOwnershipCommand(BaseTest):
             actor=relationships.Actor.human(self.user),
         )
 
-    def _fingerprints(self) -> dict[tuple[str, str], str]:
+    def _fingerprints(self) -> dict[str, str]:
         out = StringIO()
         call_command("adopt_account_ownership", "--team-id", str(self.team.id), "--export-fingerprints", stdout=out)
-        return {(row["account_id"], row["role"]): row["fingerprint"] for row in json.loads(out.getvalue())["roles"]}
+        rows = json.loads(out.getvalue())["relationships"]
+        assert {row["definition_id"] for row in rows} == {str(self.ae_definition.id)}
+        return {row["account_id"]: row["fingerprint"] for row in rows}
 
     def _write_manifest(self, proposals: list[dict]) -> None:
         self.manifest_path.write_text(json.dumps({"proposals": proposals}))
@@ -166,25 +184,26 @@ class TestAdoptAccountOwnershipCommand(BaseTest):
         return [
             {
                 "account_id": str(self.empty.id),
-                "role": "ae",
+                "definition_id": str(self.ae_definition.id),
                 "state": "assigned",
                 "user_id": self.user.id,
-                "expected_fingerprint": fingerprints[(str(self.empty.id), "ae")],
+                "expected_fingerprint": fingerprints[str(self.empty.id)],
             },
             {
                 "account_id": str(self.held.id),
-                "role": "ae",
+                "definition_id": str(self.ae_definition.id),
                 "state": "assigned",
                 "user_id": self.other_user.id,
-                "expected_fingerprint": fingerprints[(str(self.held.id), "ae")],
+                "expected_fingerprint": fingerprints[str(self.held.id)],
             },
         ]
 
     def _fence(self, account: Account):
         return (
-            Account.objects.for_team(self.team.id)
-            .values_list("ae_ownership_controlled_at", flat=True)
-            .get(pk=account.pk)
+            AccountRelationshipControl.objects.for_team(self.team.id)
+            .filter(account=account, definition=self.ae_definition)
+            .values_list("controlled_at", flat=True)
+            .first()
         )
 
     def test_preview_changes_nothing_and_apply_adopts_once(self):
@@ -210,15 +229,15 @@ class TestAdoptAccountOwnershipCommand(BaseTest):
         assert "applied: already_applied=2" in rerun
         assert ActivityLog.objects.filter(team_id=self.team.id, activity="role_enrolled").count() == 2
 
-    def test_empty_proposal_confirms_an_empty_role(self):
+    def test_empty_proposal_confirms_an_empty_relationship(self):
         fingerprints = self._fingerprints()
         self._write_manifest(
             [
                 {
                     "account_id": str(self.empty.id),
-                    "role": "ae",
+                    "definition_id": str(self.ae_definition.id),
                     "state": "empty",
-                    "expected_fingerprint": fingerprints[(str(self.empty.id), "ae")],
+                    "expected_fingerprint": fingerprints[str(self.empty.id)],
                 }
             ]
         )
@@ -234,18 +253,17 @@ class TestAdoptAccountOwnershipCommand(BaseTest):
             "held_by_someone_else",
             "held_by_deleted_user",
             "empty_over_deleted_user_row",
-            "role_unbound",
+            "definition_not_controlled",
             "already_managed",
         ]
     )
     def test_proposal_that_no_longer_holds_is_skipped(self, case):
         for_empty, for_held = self._proposals()
-        if case == "role_unbound":
-            ownership.bind_role(self.team, "ae", None)
-            proposal, expected = for_empty, "invalid (role_unbound)"
+        if case == "definition_not_controlled":
+            ownership.set_controlled(self.team.id, self.ae_definition.id, False)
+            proposal, expected = for_empty, "invalid (definition_not_controlled)"
         elif case == "already_managed":
-            self.held.ae_ownership_controlled_at = timezone.now()
-            self.held.save(update_fields=["ae_ownership_controlled_at"])
+            enroll_account(self.held, self.ae_definition)
             for_held["user_id"] = self.user.id
             proposal, expected = for_held, "conflict (role_managed)"
         elif case == "changed_after_review":
@@ -258,11 +276,11 @@ class TestAdoptAccountOwnershipCommand(BaseTest):
             else:
                 for_held["state"] = "empty"
                 del for_held["user_id"]
-            for_held["expected_fingerprint"] = self._fingerprints()[(str(self.held.id), "ae")]
+            for_held["expected_fingerprint"] = self._fingerprints()[str(self.held.id)]
             proposal, expected = for_held, "conflict (held_by_deleted_user)"
         else:
             for_held["user_id"] = self.user.id
-            for_held["expected_fingerprint"] = self._fingerprints()[(str(self.held.id), "ae")]
+            for_held["expected_fingerprint"] = self._fingerprints()[str(self.held.id)]
             proposal, expected = for_held, f"conflict (held_by_user_{self.other_user.id})"
         self._write_manifest([proposal])
         fence_before = self._fence(self.held)

@@ -8,7 +8,7 @@ import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from django.db import IntegrityError, OperationalError
+from django.db import IntegrityError, OperationalError, transaction
 from django.test import override_settings
 from django.utils import timezone
 
@@ -28,6 +28,7 @@ from products.customer_analytics.backend.logic import ownership_claims, relation
 from products.customer_analytics.backend.logic.ownership_claims import DECISION_COLUMNS
 from products.customer_analytics.backend.models import (
     AccountRelationship,
+    AccountRelationshipControl,
     AccountRelationshipDefinition,
     TeamCustomerAnalyticsConfig,
 )
@@ -43,7 +44,7 @@ from products.customer_analytics.backend.temporal.ownership_claims import (
     create_ownership_claims_coordinator_schedule,
     ownership_claims_workflow_id,
 )
-from products.customer_analytics.backend.test.factories import create_account, create_saved_query
+from products.customer_analytics.backend.test.factories import create_account, create_saved_query, enroll_account
 
 FENCE = datetime(2026, 1, 1, tzinfo=UTC)
 TASK = "example-salesforce-task-17"
@@ -53,21 +54,24 @@ class TestOwnershipClaims(BaseTest):
     def setUp(self):
         super().setUp()
         self.ae_definition = AccountRelationshipDefinition.objects.for_team(self.team.id).create(
-            team_id=self.team.id, name="Account executive"
+            team_id=self.team.id, name="Account executive", is_controlled=True
         )
         self.view = create_saved_query(
             team_id=self.team.id, name="ownership_decisions", columns=dict.fromkeys(DECISION_COLUMNS, {})
         )
         self.config = get_or_create_team_extension(self.team, TeamCustomerAnalyticsConfig)
-        self.config.ae_relationship_definition = self.ae_definition
+        self.config.ownership_claim_relationship_definition = self.ae_definition
         self.config.ownership_claims_enabled = True
         self.config.ownership_claim_saved_query = self.view
         self.config.save(
-            update_fields=["ae_relationship_definition", "ownership_claims_enabled", "ownership_claim_saved_query"]
+            update_fields=[
+                "ownership_claim_relationship_definition",
+                "ownership_claims_enabled",
+                "ownership_claim_saved_query",
+            ]
         )
-        self.account = create_account(
-            team_id=self.team.id, name="Acme Corp", external_id="org-1", ae_ownership_controlled_at=FENCE
-        )
+        self.account = create_account(team_id=self.team.id, name="Acme Corp", external_id="org-1")
+        self.control = enroll_account(self.account, self.ae_definition, controlled_at=FENCE)
         self.human = relationships.Actor.human(self.user)
 
     def _decision(self, **overrides) -> contracts.OwnershipClaimDecision:
@@ -87,10 +91,10 @@ class TestOwnershipClaims(BaseTest):
         )
 
     def _claim(self, **overrides) -> contracts.OwnershipClaimResult:
-        return relationships.claim_initial_ae(team=self.team, decision=self._decision(**overrides))
+        return ownership_claims.claim(team=self.team, decision=self._decision(**overrides))
 
     def _release_claim(self, **overrides) -> contracts.OwnershipClaimResult:
-        return relationships.release_initial_ae(team=self.team, decision=self._release(**overrides))
+        return ownership_claims.release(team=self.team, decision=self._release(**overrides))
 
     def _active_ae(self) -> AccountRelationship | None:
         return (
@@ -100,8 +104,12 @@ class TestOwnershipClaims(BaseTest):
         )
 
     def _fence(self) -> datetime | None:
-        self.account.refresh_from_db()
-        return self.account.ae_ownership_controlled_at
+        return (
+            AccountRelationshipControl.objects.for_team(self.team.id)
+            .filter(account=self.account, definition=self.ae_definition)
+            .values_list("controlled_at", flat=True)
+            .first()
+        )
 
     def _assign_by_human(self, user: User) -> AccountRelationship:
         return relationships.assign(
@@ -147,7 +155,7 @@ class TestOwnershipClaims(BaseTest):
             ("allocated_before_a_human_clear", "rejected", "stale_allocation"),
             ("allocated_in_the_future", "rejected", "future_allocation"),
             ("role_not_managed", "blocked", "role_not_managed"),
-            ("role_unbound", "blocked", "role_unbound"),
+            ("claim_target_unset", "blocked", "claim_target_unset"),
             ("unknown_organization", "blocked", "account_not_found"),
             ("region_mismatch", "blocked", "identity_mismatch"),
             ("two_accounts_differ_only_by_case", "blocked", "identity_mismatch"),
@@ -168,15 +176,15 @@ class TestOwnershipClaims(BaseTest):
         elif case == "allocated_in_the_future":
             overrides["allocated_at"] = timezone.now() + timedelta(days=1)
         elif case == "role_not_managed":
-            self.account.ae_ownership_controlled_at = None
-            self.account.save(update_fields=["ae_ownership_controlled_at"])
-        elif case == "role_unbound":
-            self.config.ae_relationship_definition = None
-            self.config.save(update_fields=["ae_relationship_definition"])
+            self.control.delete()
+        elif case == "claim_target_unset":
+            self.config.ownership_claim_relationship_definition = None
+            self.config.save(update_fields=["ownership_claim_relationship_definition"])
         elif case == "unknown_organization":
             overrides["organization_id"] = "org-2"
         elif case == "two_accounts_differ_only_by_case":
-            create_account(team_id=self.team.id, name="Shadow", external_id="ORG-1", ae_ownership_controlled_at=FENCE)
+            shadow = create_account(team_id=self.team.id, name="Shadow", external_id="ORG-1")
+            enroll_account(shadow, self.ae_definition, controlled_at=FENCE)
         elif case == "region_mismatch":
             overrides["region"] = "eu"
         elif case == "assignee_not_a_member":
@@ -242,6 +250,46 @@ class TestOwnershipClaims(BaseTest):
         assert released.outcome == "not_held"
         assert self._active_ae() == holder_before
         assert self._fence() == fence_before
+
+    def test_release_ends_its_own_row_after_the_claim_target_moved(self):
+        first = self._claim()
+        csm_definition = AccountRelationshipDefinition.objects.for_team(self.team.id).create(
+            team_id=self.team.id, name="CSM", is_controlled=True
+        )
+        enroll_account(self.account, csm_definition, controlled_at=FENCE)
+        self.config.ownership_claim_relationship_definition = csm_definition
+        self.config.save(update_fields=["ownership_claim_relationship_definition"])
+        second = self._claim(source_ref="task-2")
+
+        released = self._release_claim()
+
+        assert (released.outcome, released.relationship_id) == ("cleared", first.relationship_id)
+        assert self._active_ae() is None
+        csm_holder = AccountRelationship.objects.for_team(self.team.id).get(
+            definition=csm_definition, ended_at__isnull=True
+        )
+        assert csm_holder.id == second.relationship_id
+        fences = AccountRelationshipControl.objects.for_team(self.team.id).filter(account=self.account)
+        assert set(fences.values_list("controlled_at", flat=True)) == {FENCE}
+
+    def test_a_source_reference_is_unique_per_team_and_source_in_the_database(self):
+        self._claim()
+
+        AccountRelationship.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            account=self.account,
+            definition=self.ae_definition,
+            source="workflow",
+            source_ref=TASK,
+        )
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            AccountRelationship.objects.for_team(self.team.id).create(
+                team_id=self.team.id,
+                account=self.account,
+                definition=self.ae_definition,
+                source="salesforce_claim",
+                source_ref=TASK,
+            )
 
     def test_release_of_an_undelivered_claim_is_not_held(self):
         released = self._release_claim()
@@ -360,7 +408,7 @@ class TestOwnershipClaims(BaseTest):
         assert claimed.count() == 1
 
     def _claim_raising_on_first_task(self, error):
-        real_claim = relationships.claim_initial_ae
+        real_claim = ownership_claims.claim
 
         def claim(*, team, decision):
             if decision.source_ref == "boom":
@@ -371,11 +419,11 @@ class TestOwnershipClaims(BaseTest):
 
     def test_reconciliation_counts_a_collision_with_an_overlapping_sweep_and_continues(self):
         rows = self._view_rows(self._decision(source_ref="boom"), self._decision())
-        claim = self._claim_raising_on_first_task(IntegrityError("unique_accepted_claim_per_task"))
+        claim = self._claim_raising_on_first_task(IntegrityError("unique_relationship_per_source_ref"))
 
         with (
             patch.object(ownership_claims, "execute_hogql_query", return_value=SimpleNamespace(results=rows)),
-            patch.object(ownership_claims.relationships, "claim_initial_ae", side_effect=claim),
+            patch.object(ownership_claims, "claim", side_effect=claim),
             patch.object(ownership_claims, "capture_exception") as captured,
         ):
             result = ownership_claims.reconcile_ownership_claims(self.team)
@@ -390,7 +438,7 @@ class TestOwnershipClaims(BaseTest):
 
         with (
             patch.object(ownership_claims, "execute_hogql_query", return_value=SimpleNamespace(results=rows)),
-            patch.object(ownership_claims.relationships, "claim_initial_ae", side_effect=claim) as claimed,
+            patch.object(ownership_claims, "claim", side_effect=claim) as claimed,
             self.assertRaises(OperationalError),
         ):
             ownership_claims.reconcile_ownership_claims(self.team)
@@ -400,7 +448,8 @@ class TestOwnershipClaims(BaseTest):
 
     def test_rereading_an_accepted_task_under_another_organization_is_blocked(self):
         self._claim()
-        create_account(team_id=self.team.id, name="Other", external_id="org-2", ae_ownership_controlled_at=FENCE)
+        other = create_account(team_id=self.team.id, name="Other", external_id="org-2")
+        enroll_account(other, self.ae_definition, controlled_at=FENCE)
 
         moved = self._claim(organization_id="org-2")
 

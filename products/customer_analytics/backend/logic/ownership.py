@@ -1,17 +1,18 @@
 """
-Commercial role authority on accounts: which relationship definitions carry the account executive
-(AE) and customer success manager (CSM) roles for a team, whether an account manages each role,
-the per-role control timestamp that fences automated initial claims, and the ownership block the
-external API exposes. Mutations reach this module from ``logic/relationships.py`` while holding the
-Account row lock.
+Controlled relationships on accounts: which relationship definitions customer analytics may take
+control of for a team, which accounts each is controlled on, the per-(account, definition) control
+timestamp that fences automated claims, and the ownership block the external API exposes.
+Per-account mutations reach this module from ``logic/relationships.py`` under the Account row lock.
+Whether a definition is controlled at all changes only through ``set_controlled``, under the
+definition lock.
 """
 
 import json
 import hashlib
 from collections import defaultdict
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from datetime import datetime, timedelta
-from typing import Literal, cast
+from typing import cast
 from uuid import UUID
 
 from django.db import transaction
@@ -19,141 +20,127 @@ from django.db.models import F, QuerySet
 from django.db.models.functions import Greatest, Now
 from django.utils import timezone
 
-from posthog.dataclasses import frozen
 from posthog.models.organization import OrganizationMembership
-from posthog.models.team import Team
-from posthog.models.team.extensions import get_or_create_team_extension
+from posthog.models.user import User
 from posthog.utils import get_instance_region
 
-from products.customer_analytics.backend.constants import DEFAULT_ACTIVITY_EVENT
 from products.customer_analytics.backend.facade import contracts
 from products.customer_analytics.backend.facade.enums import OwnershipRoleDiagnostic
 from products.customer_analytics.backend.models import (
     Account,
     AccountRelationship,
+    AccountRelationshipControl,
     AccountRelationshipDefinition,
     TeamCustomerAnalyticsConfig,
 )
 
-OwnershipRole = Literal["ae", "csm"]
-OWNERSHIP_ROLES: tuple[OwnershipRole, ...] = ("ae", "csm")
-# An automated claim must be later than the role fence by more than this, so a clock difference
-# between the allocation source and this database cannot make a stale decision look fresh.
+# An automated claim must be later than the fence by more than this, so a clock difference between
+# the allocation source and this database cannot make a stale decision look fresh.
 CLAIM_CLOCK_SKEW_TOLERANCE = timedelta(minutes=5)
 
-_CONTROLLED_AT_FIELD: dict[OwnershipRole, str] = {
-    "ae": "ae_ownership_controlled_at",
-    "csm": "csm_ownership_controlled_at",
-}
-_DEFINITION_FIELD: dict[OwnershipRole, str] = {
-    "ae": "ae_relationship_definition_id",
-    "csm": "csm_relationship_definition_id",
-}
+
+class InvalidControlChangeError(Exception):
+    """The definition cannot take or give up control: wrong team, multi-holder, accounts still
+    enrolled under it, or it is the claim target."""
 
 
-@frozen
-class RoleBindings:
-    """The relationship definition each commercial role is bound to for a team; None while unbound."""
-
-    ae_definition_id: UUID | None = None
-    csm_definition_id: UUID | None = None
-
-    def role_of(self, definition_id: UUID) -> OwnershipRole | None:
-        for role in OWNERSHIP_ROLES:
-            if self.definition_id_of(role) == definition_id:
-                return role
-        return None
-
-    def definition_id_of(self, role: OwnershipRole) -> UUID | None:
-        return {"ae": self.ae_definition_id, "csm": self.csm_definition_id}[role]
+def controlled_definitions(team_id: int) -> QuerySet[AccountRelationshipDefinition]:
+    return AccountRelationshipDefinition.objects.for_team(team_id).filter(is_controlled=True).order_by("name")
 
 
-def _read_bindings(configs: QuerySet[TeamCustomerAnalyticsConfig]) -> RoleBindings:
-    row = configs.values_list(_DEFINITION_FIELD["ae"], _DEFINITION_FIELD["csm"]).first()
-    if row is None:
-        return RoleBindings()
-    return RoleBindings(ae_definition_id=row[0], csm_definition_id=row[1])
+def lock_definitions(team_id: int, definition_ids: Collection[str | UUID]) -> list[AccountRelationshipDefinition]:
+    """The definitions, read under their row locks and taken in id order so two callers with
+    overlapping sets never wait on each other; call inside ``transaction.atomic()``.
+
+    Enrollment and control changes take this lock so ``is_controlled`` cannot flip between a check
+    and the write that relied on it. ``no_key`` keeps it compatible with the ``FOR KEY SHARE`` lock a
+    relationship insert takes on its definition, so a writer holding the account lock never waits on
+    this one and the two cannot deadlock."""
+    return list(
+        AccountRelationshipDefinition.objects.for_team(team_id)
+        .select_for_update(no_key=True)
+        .filter(id__in=definition_ids)
+        .order_by("id")
+    )
 
 
-def role_bindings(team_id: int) -> RoleBindings:
-    return _read_bindings(TeamCustomerAnalyticsConfig.objects.filter(team_id=team_id))
+def lock_definition(team_id: int, definition_id: str | UUID) -> AccountRelationshipDefinition | None:
+    """One definition under its row lock, or None where the team has no such definition."""
+    locked = lock_definitions(team_id, [definition_id])
+    return locked[0] if locked else None
 
 
-class InvalidRoleBindingError(Exception):
-    """The definition cannot carry a commercial role: wrong team, multi-holder, or already bound to
-    the other role."""
+def set_controlled(team_id: int, definition_id: UUID, controlled: bool) -> AccountRelationshipDefinition:
+    """Let customer analytics take control of the definition per account, or stop it.
 
-
-def lock_role_bindings(team_id: int) -> RoleBindings:
-    """The bindings, read under the config row lock; call inside ``transaction.atomic()``.
-
-    Enrollment takes this lock so a binding change cannot slip in between its managed-account
-    check and the moment an account becomes managed under the old definition."""
-    return _read_bindings(TeamCustomerAnalyticsConfig.objects.select_for_update().filter(team_id=team_id))
-
-
-def bind_role(team: Team, role: OwnershipRole, definition_id: UUID | None) -> RoleBindings:
-    """Bind the role to a definition of this team, or unbind it with None, and return the bindings.
-
-    While any account manages the role, the binding is frozen: changing it would leave the managed
-    accounts' fences pointing at history under the old definition and would let that definition,
-    and every accepted claim under it, be deleted. The config row lock serializes this against
-    enrollment and against a concurrent binding of the other role.
+    Taking control enrolls no account. Giving it up is refused while any account is enrolled, because
+    those accounts would fall back to legacy authority at once, and while the definition is the
+    Salesforce claim target, because a claim can only fill a controlled relationship.
     """
-    get_or_create_team_extension(team, TeamCustomerAnalyticsConfig, defaults={"activity_event": DEFAULT_ACTIVITY_EVENT})
     with transaction.atomic():
-        config = TeamCustomerAnalyticsConfig.objects.select_for_update().get(team_id=team.id)
-        return _bind_role_locked(config, role, definition_id)
-
-
-def _bind_role_locked(
-    config: TeamCustomerAnalyticsConfig, role: OwnershipRole, definition_id: UUID | None
-) -> RoleBindings:
-    team_id = config.team_id
-    current_definition_id = getattr(config, _DEFINITION_FIELD[role])
-    if current_definition_id != definition_id and current_definition_id is not None:
-        # nosemgrep: orm-field-injection -- role literal, fixed field map
-        managed = Account.objects.for_team(team_id).filter(**{f"{_CONTROLLED_AT_FIELD[role]}__isnull": False})
-        managed_count = managed.count()
-        if managed_count:
-            raise InvalidRoleBindingError(
-                f"{managed_count} account(s) manage the {role.upper()} role; the binding cannot change while they do"
-            )
-    if definition_id is not None:
-        definition = AccountRelationshipDefinition.objects.for_team(team_id).filter(id=definition_id).first()
+        definition = lock_definition(team_id, definition_id)
         if definition is None:
-            raise InvalidRoleBindingError(f"No relationship definition {definition_id} in this project")
-        if not definition.is_single_holder:
-            raise InvalidRoleBindingError(f"{definition.name} allows several holders; a commercial role needs one")
-        other_role = next(other for other in OWNERSHIP_ROLES if other != role)
-        if getattr(config, _DEFINITION_FIELD[other_role]) == definition_id:
-            raise InvalidRoleBindingError(f"{definition.name} is already bound to the {other_role.upper()} role")
-    setattr(config, _DEFINITION_FIELD[role], definition_id)
-    config.save(update_fields=[_DEFINITION_FIELD[role].removesuffix("_id")])
-    return role_bindings(team_id)
+            raise InvalidControlChangeError(f"No relationship definition {definition_id} in this project")
+        if definition.is_controlled == controlled:
+            return definition
+        if controlled and not definition.is_single_holder:
+            raise InvalidControlChangeError(
+                f"{definition.name} allows several holders; a controlled relationship needs one"
+            )
+        if not controlled:
+            enrolled = AccountRelationshipControl.objects.for_team(team_id).filter(definition=definition).count()
+            if enrolled:
+                raise InvalidControlChangeError(
+                    f"{enrolled} account(s) are enrolled under {definition.name}; control cannot end while they are"
+                )
+            if TeamCustomerAnalyticsConfig.objects.filter(
+                team_id=team_id, ownership_claim_relationship_definition=definition
+            ).exists():
+                raise InvalidControlChangeError(f"{definition.name} is the claim target; clear the claim target first")
+        definition.is_controlled = controlled
+        definition.save(update_fields=["is_controlled", "updated_at"])
+        return definition
 
 
-def controlled_at(account: Account, role: OwnershipRole) -> datetime | None:
-    return getattr(account, _CONTROLLED_AT_FIELD[role])
+def control_for(account: Account, definition: AccountRelationshipDefinition) -> AccountRelationshipControl | None:
+    """The account's control row for the definition, or None while the relationship is unmanaged
+    there. The row's presence is authoritative, not the caller's copy of ``is_controlled``, which was
+    read before the account lock and may predate an enrollment that has since committed. Read it under
+    the Account lock when the caller will act on it."""
+    return (
+        AccountRelationshipControl.objects.for_team(account.team_id)
+        .filter(account=account, definition=definition)
+        .first()
+    )
 
 
-def is_managed(account: Account, role: OwnershipRole) -> bool:
-    return controlled_at(account, role) is not None
+def enroll(
+    account: Account, definition: AccountRelationshipDefinition, created_by: User | None
+) -> AccountRelationshipControl:
+    """Create the control row, timed by the database clock like every later advance. Call under the
+    definition and Account locks."""
+    control = AccountRelationshipControl.objects.for_team(account.team_id).create(
+        team_id=account.team_id,
+        account=account,
+        definition=definition,
+        created_by=created_by,
+        controlled_at=Now(),
+    )
+    control.refresh_from_db(fields=["controlled_at"])
+    return control
 
 
-def advance_control_timestamp(account: Account, role: OwnershipRole) -> datetime:
-    """Record a new authoritative decision for the role and return its instant.
+def advance(control: AccountRelationshipControl) -> datetime:
+    """Record a new decision on the controlled relationship and return its instant.
 
     Call while holding the Account row lock. The value comes from the database clock and is
     strictly later than the previous one, so two decisions in quick succession never share a fence
     and a claim can never be exactly equal to it.
     """
-    field = _CONTROLLED_AT_FIELD[role]
-    queryset = Account.objects.for_team(account.team_id).filter(pk=account.pk)
-    queryset.update(**{field: Greatest(Now(), F(field) + timedelta(microseconds=1))})
-    advanced_to = queryset.values_list(field, flat=True).get()
-    setattr(account, field, advanced_to)
-    return advanced_to
+    queryset = AccountRelationshipControl.objects.for_team(control.team_id).filter(pk=control.pk)
+    queryset.update(controlled_at=Greatest(Now(), F("controlled_at") + timedelta(microseconds=1)))
+    control.controlled_at = queryset.values_list("controlled_at", flat=True).get()
+    return control.controlled_at
 
 
 def ownership_for_accounts(
@@ -161,15 +148,17 @@ def ownership_for_accounts(
 ) -> dict[UUID, contracts.ExternalAccountOwnership]:
     """The ownership block for each account, read in one pass so a page of the external list costs
     a fixed number of queries."""
-    bindings = role_bindings(team_id)
-    bound_definition_ids = [
-        definition_id for definition_id in (bindings.ae_definition_id, bindings.csm_definition_id) if definition_id
-    ]
+    definitions = list(controlled_definitions(team_id))
+    controls: dict[tuple[UUID, UUID], AccountRelationshipControl] = {}
     active_by_account_and_definition: dict[tuple[UUID, UUID], list[AccountRelationship]] = defaultdict(list)
-    if bound_definition_ids and accounts:
+    if definitions and accounts:
+        for control in AccountRelationshipControl.objects.for_team(team_id).filter(
+            account__in=accounts, definition__in=definitions
+        ):
+            controls[(control.account_id, control.definition_id)] = control
         for relationship in (
             AccountRelationship.objects.for_team(team_id)
-            .filter(account__in=accounts, definition_id__in=bound_definition_ids, ended_at__isnull=True)
+            .filter(account__in=accounts, definition__in=definitions, ended_at__isnull=True)
             .select_related("user")
             .order_by("started_at")
         ):
@@ -191,8 +180,15 @@ def ownership_for_accounts(
             account_id=str(account.id),
             external_id=account.external_id,
             region=region.lower() if region else None,
-            ae=_role_ownership(account, "ae", bindings, active_by_account_and_definition, member_user_ids),
-            csm=_role_ownership(account, "csm", bindings, active_by_account_and_definition, member_user_ids),
+            roles=[
+                _role_ownership(
+                    definition,
+                    controls.get((account.id, definition.id)),
+                    active_by_account_and_definition.get((account.id, definition.id), []),
+                    member_user_ids,
+                )
+                for definition in definitions
+            ],
         )
         for account in accounts
     }
@@ -203,18 +199,12 @@ def ownership_for_account(account: Account) -> contracts.ExternalAccountOwnershi
 
 
 def _role_ownership(
-    account: Account,
-    role: OwnershipRole,
-    bindings: RoleBindings,
-    active_by_account_and_definition: dict[tuple[UUID, UUID], list[AccountRelationship]],
+    definition: AccountRelationshipDefinition,
+    control: AccountRelationshipControl | None,
+    active: list[AccountRelationship],
     member_user_ids: set[int],
 ) -> contracts.ExternalAccountRoleOwnership:
-    definition_id = bindings.definition_id_of(role)
-    fence = controlled_at(account, role)
-    active = active_by_account_and_definition.get((account.id, definition_id), []) if definition_id else []
     diagnostics: list[OwnershipRoleDiagnostic] = []
-    if definition_id is None:
-        diagnostics.append(OwnershipRoleDiagnostic.ROLE_UNBOUND)
     if len(active) > 1:
         diagnostics.append(OwnershipRoleDiagnostic.MULTIPLE_ACTIVE_HOLDERS)
 
@@ -241,7 +231,7 @@ def _role_ownership(
             )
 
     state: contracts.OwnershipRoleStateValue
-    if fence is None:
+    if control is None:
         state = "unmanaged"
     elif diagnostics:
         state = "blocked"
@@ -251,9 +241,10 @@ def _role_ownership(
         state = "assigned"
 
     return contracts.ExternalAccountRoleOwnership(
+        definition_id=definition.id,
+        definition_name=definition.name,
         state=state,
-        definition_id=definition_id,
-        controlled_at=fence,
+        controlled_at=control.controlled_at if control is not None else None,
         relationship_id=relationship.id if relationship is not None else None,
         holder=holder,
         diagnostics=[cast(contracts.OwnershipRoleDiagnosticValue, str(diagnostic)) for diagnostic in diagnostics],

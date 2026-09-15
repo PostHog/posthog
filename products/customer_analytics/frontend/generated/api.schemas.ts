@@ -64,7 +64,6 @@ export interface ExternalAccountOwnershipHolderApi {
 }
 
 /**
- * * `role_unbound` - No relationship definition is bound to this role
  * * `holder_missing` - The active relationship has no user
  * * `holder_inactive` - The holder's user account is deactivated
  * * `holder_not_in_organization` - The holder is not a member of the organization
@@ -74,7 +73,6 @@ export type OwnershipRoleDiagnosticEnumApi =
     (typeof OwnershipRoleDiagnosticEnumApi)[keyof typeof OwnershipRoleDiagnosticEnumApi]
 
 export const OwnershipRoleDiagnosticEnumApi = {
-    RoleUnbound: 'role_unbound',
     HolderMissing: 'holder_missing',
     HolderInactive: 'holder_inactive',
     HolderNotInOrganization: 'holder_not_in_organization',
@@ -82,7 +80,11 @@ export const OwnershipRoleDiagnosticEnumApi = {
 } as const
 
 export interface ExternalAccountRoleOwnershipApi {
-    /** `unmanaged`: customer analytics does not hold authority over this role on this account; the holder, if any, is a legacy assignment. `assigned`: the holder is authoritative. `cleared`: the role is authoritatively empty. `blocked`: the role is managed but its holder cannot be projected; see `diagnostics` and keep the last applied value.
+    /** The controlled relationship definition. Map it to the role you project; it does not change. */
+    definition_id: string
+    /** Current name of the relationship definition. */
+    definition_name: string
+    /** `unmanaged`: customer analytics does not hold authority over this relationship on this account; the holder, if any, is a legacy assignment. `assigned`: the holder is authoritative. `cleared`: the relationship is authoritatively empty. `blocked`: the relationship is managed but its holder cannot be projected; see `diagnostics` and keep the last applied value.
      *
      * * `unmanaged` - Unmanaged
      * * `assigned` - Assigned
@@ -90,12 +92,7 @@ export interface ExternalAccountRoleOwnershipApi {
      * * `blocked` - Blocked */
     state: OwnershipRoleStateEnumApi
     /**
-     * Relationship definition bound to this role for the project, or null.
-     * @nullable
-     */
-    definition_id: string | null
-    /**
-     * When customer analytics last decided this role on this account; null while unmanaged.
+     * When customer analytics last decided this relationship on this account; null while unmanaged.
      * @nullable
      */
     controlled_at: string | null
@@ -106,7 +103,7 @@ export interface ExternalAccountRoleOwnershipApi {
     relationship_id: string | null
     /** The current holder, or null. */
     holder: ExternalAccountOwnershipHolderApi | null
-    /** Why a managed role is blocked. Informational on an unmanaged role. */
+    /** Why a managed relationship is blocked. Informational on an unmanaged one. */
     diagnostics: OwnershipRoleDiagnosticEnumApi[]
 }
 
@@ -123,10 +120,8 @@ export interface ExternalAccountOwnershipApi {
      * @nullable
      */
     region: string | null
-    /** The account executive role. */
-    ae: ExternalAccountRoleOwnershipApi
-    /** The customer success manager role. */
-    csm: ExternalAccountRoleOwnershipApi
+    /** One entry per controlled relationship definition of the project, in name order, whether or not this account is managed under it. Empty when the project controls no relationship. */
+    roles: ExternalAccountRoleOwnershipApi[]
 }
 
 export interface ExternalAccountApi {
@@ -151,7 +146,7 @@ export interface ExternalAccountApi {
     ignored_at: string | null
     /** Typed account properties: external-system ids. Role assignments live under `relationships`. */
     properties: ExternalAccountApiProperties
-    /** Authority state of the account executive and customer success manager roles. */
+    /** Authority state of each relationship the project controls. */
     ownership: ExternalAccountOwnershipApi
     /** Tag names on the account, sorted alphabetically. */
     tags: string[]
@@ -198,7 +193,7 @@ export interface ExternalAccountListItemApi {
      * @nullable
      */
     ignored_at: string | null
-    /** Authority state of the account executive and customer success manager roles. */
+    /** Authority state of each relationship the project controls. */
     ownership: ExternalAccountOwnershipApi
     /** Active relationship assignments to current organization members, keyed by relationship definition name (e.g. 'CSM', 'Account executive'). Definitions with no active assignment are omitted. */
     relationships: ExternalAccountListItemApiRelationships
@@ -336,6 +331,8 @@ export interface AccountRelationshipDefinitionApi {
     description?: string | null
     /** Whether only one user can hold this relationship per account at a time, e.g. a single CSM per account. */
     is_single_holder?: boolean
+    /** Whether customer analytics can take control of this relationship per account. Rows under a controlled relationship can't be deleted. On an account where control has started, only a person can change the relationship and an empty relationship is a deliberate decision. Set by project operators, not through this API. */
+    readonly is_controlled: boolean
 }
 
 export interface PaginatedAccountRelationshipDefinitionListApi {
@@ -365,6 +362,8 @@ export interface PatchedAccountRelationshipDefinitionApi {
     description?: string | null
     /** Whether only one user can hold this relationship per account at a time, e.g. a single CSM per account. */
     is_single_holder?: boolean
+    /** Whether customer analytics can take control of this relationship per account. Rows under a controlled relationship can't be deleted. On an account where control has started, only a person can change the relationship and an empty relationship is a deliberate decision. Set by project operators, not through this API. */
+    readonly is_controlled?: boolean
 }
 
 /**
@@ -4198,7 +4197,7 @@ export type CustomerAnalyticsExternalAccountsRetrieveParams = {
      */
     limit?: number
     /**
-     * When true, return only accounts where customer analytics holds authority over at least one commercial role, including accounts whose managed roles are cleared and accounts that are ignored. Authority does not end when an account is ignored, so `include_ignored` is implied.
+     * When true, return only accounts where customer analytics holds authority over at least one controlled relationship, including accounts whose managed relationships are cleared and accounts that are ignored. Authority does not end when an account is ignored, so `include_ignored` is implied.
      */
     managed_only?: boolean
 }

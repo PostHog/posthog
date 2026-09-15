@@ -1,9 +1,11 @@
 """
 Assign/end transactions for account relationships: the one write path for every relationship
 writer (UI API, external API, AI tool, workflows, management commands). Each mutation locks the
-Account row, applies the commercial-role policy, advances the role's control timestamp when the
-account manages that role, and writes its activity row inside the same transaction, so a mutation
-without an audit record cannot commit.
+Account row, applies the controlled-relationship policy, advances the control timestamp when
+customer analytics controls that relationship on the account, and writes its activity row inside
+the same transaction, so a mutation without an audit record cannot commit. The Salesforce claim
+procedure in ``logic/ownership_claims.py`` writes through the public helpers here under the same
+lock and audit rules.
 """
 
 import dataclasses
@@ -19,15 +21,17 @@ from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.models.activity_logging.activity_log import ActivityContextBase, ActivityLog, Change, Detail, log_activity
 from posthog.models.activity_logging.utils import activity_storage
-from posthog.models.organization import OrganizationMembership
-from posthog.models.team import Team
 from posthog.models.user import User
 
 from products.customer_analytics.backend.events import emit_account_relationship_changed
-from products.customer_analytics.backend.facade import contracts
 from products.customer_analytics.backend.facade.enums import AccountRelationshipSource
 from products.customer_analytics.backend.logic import ownership
-from products.customer_analytics.backend.models import Account, AccountRelationship, AccountRelationshipDefinition
+from products.customer_analytics.backend.models import (
+    Account,
+    AccountRelationship,
+    AccountRelationshipControl,
+    AccountRelationshipDefinition,
+)
 
 ACTIVITY_SCOPE = "Account"
 
@@ -37,11 +41,12 @@ class AccountRelationshipNotFound(Exception):
 
 
 class ManagedRolePolicyError(Exception):
-    """An autonomous writer tried to change a commercial role that customer analytics manages."""
+    """An autonomous writer tried to change a controlled relationship that customer analytics manages
+    on the account."""
 
 
 class ProtectedRelationshipHistoryError(Exception):
-    """A commercial relationship row cannot be hard-deleted; end it instead."""
+    """A row under a controlled definition cannot be hard-deleted; end it instead."""
 
 
 class RelationshipOccupiedError(Exception):
@@ -65,12 +70,12 @@ class Actor:
 @dataclasses.dataclass(frozen=True)
 class AccountRelationshipActivityContext(ActivityContextBase):
     """Provenance stored beside the change so a reader can tell which writer acted, through which
-    reference, and where the role fence stood afterwards."""
+    reference, and where the control timestamp stood afterwards (null where the relationship is not
+    managed on the account)."""
 
     relationship_id: str | None
     definition_id: str
     definition_name: str
-    role: ownership.OwnershipRole | None
     source: str
     source_ref: str | None
     workflow_id: str | None
@@ -97,18 +102,21 @@ def assign(
     the current holder again is a no-op that records nothing."""
     with transaction.atomic():
         locked_account = _lock_or_raise(team_id, account.id)
-        role = ownership.role_bindings(team_id).role_of(definition.id)
-        _enforce_managed_role_policy(locked_account, role, actor)
-        active = list(_active_relationships(team_id, locked_account, definition))
+        control = ownership.control_for(locked_account, definition)
+        _enforce_managed_role_policy(control, actor)
+        # A controlled definition is single-holder by invariant, and the caller's copy of the
+        # definition may predate control starting, so a managed relationship always hands off.
+        single_holder = definition.is_single_holder or control is not None
+        active = list(active_relationships(team_id, locked_account, definition))
         existing = next((rel for rel in active if rel.user_id == user.id), None)
         if existing is not None:
             return existing
-        if active and definition.is_single_holder and not replace_active:
+        if active and single_holder and not replace_active:
             raise RelationshipOccupiedError(str(definition.id))
 
-        previous_user = active[0].user if definition.is_single_holder and active else None
-        if definition.is_single_holder:
-            _end_rows(team_id, active)
+        previous_user = active[0].user if single_holder and active else None
+        if single_holder:
+            end_rows(team_id, active)
         relationship = AccountRelationship.objects.for_team(team_id).create(
             team_id=team_id,
             account=locked_account,
@@ -117,13 +125,12 @@ def assign(
             created_by=actor.user,
             source=actor.source,
         )
-        controlled_at = _advance_if_managed(locked_account, role)
-        _record_transition(
+        controlled_at = _advance_if_managed(control)
+        record_transition(
             account=locked_account,
             actor=actor,
             activity="relationship_assigned",
             definition=definition,
-            role=role,
             relationship=relationship,
             previous_user=previous_user,
             current_user=user,
@@ -143,26 +150,25 @@ def end_active(
 ) -> int:
     """End every active assignment of the definition on the account and return how many ended.
 
-    On a managed role, clearing an already-empty role is still a decision: the fence advances and
-    the confirmation is recorded, so a later automated claim cannot treat the role as never reviewed.
+    On a managed relationship, clearing an already-empty one is still a decision: the fence advances
+    and the confirmation is recorded, so a later automated claim cannot treat it as never reviewed.
     """
     with transaction.atomic():
         locked_account = _lock_or_raise(team_id, account.id)
-        role = ownership.role_bindings(team_id).role_of(definition.id)
-        _enforce_managed_role_policy(locked_account, role, actor)
-        active = list(_active_relationships(team_id, locked_account, definition))
-        if not active and _managed_role(locked_account, role) is None:
+        control = ownership.control_for(locked_account, definition)
+        _enforce_managed_role_policy(control, actor)
+        active = list(active_relationships(team_id, locked_account, definition))
+        if not active and control is None:
             return 0
 
-        _end_rows(team_id, active)
-        controlled_at = _advance_if_managed(locked_account, role)
+        end_rows(team_id, active)
+        controlled_at = _advance_if_managed(control)
         if not active:
-            _record_transition(
+            record_transition(
                 account=locked_account,
                 actor=actor,
                 activity="role_confirmed_empty",
                 definition=definition,
-                role=role,
                 relationship=None,
                 previous_user=None,
                 current_user=None,
@@ -171,12 +177,11 @@ def end_active(
             )
             return 0
         for relationship in active:
-            _record_transition(
+            record_transition(
                 account=locked_account,
                 actor=actor,
                 activity="relationship_ended",
                 definition=definition,
-                role=role,
                 relationship=relationship,
                 previous_user=relationship.user,
                 current_user=None,
@@ -205,17 +210,16 @@ def end_relationship(
         if relationship is None:
             raise AccountRelationshipNotFound(relationship_id)
         relationship.account = locked_account
-        role = ownership.role_bindings(team_id).role_of(relationship.definition_id)
-        _enforce_managed_role_policy(locked_account, role, actor)
+        control = ownership.control_for(locked_account, relationship.definition)
+        _enforce_managed_role_policy(control, actor)
 
-        _end_rows(team_id, [relationship])
-        controlled_at = _advance_if_managed(locked_account, role)
-        _record_transition(
+        end_rows(team_id, [relationship])
+        controlled_at = _advance_if_managed(control)
+        record_transition(
             account=locked_account,
             actor=actor,
             activity="relationship_ended",
             definition=relationship.definition,
-            role=role,
             relationship=relationship,
             previous_user=relationship.user,
             current_user=None,
@@ -232,31 +236,40 @@ def delete_relationship(
     relationship_id: str,
     actor: Actor,
 ) -> None:
-    """Hard-delete one relationship row, active or ended. Rows under a definition bound to a
-    commercial role are history other systems replay against and are refused."""
+    """Hard-delete one relationship row, active or ended. Rows under a controlled definition are
+    history other systems replay against and are refused."""
     with transaction.atomic():
+        definition_id = (
+            AccountRelationship.objects.for_team(team_id)
+            .filter(id=relationship_id, account_id=account_id)
+            .values_list("definition_id", flat=True)
+            .first()
+        )
+        if definition_id is None:
+            raise AccountRelationshipNotFound(relationship_id)
+        # Definition before account, the order every writer takes, so control cannot start between
+        # the check below and the delete.
+        definition = ownership.lock_definition(team_id, definition_id)
         locked_account = _lock_or_raise(team_id, account_id, missing_id=relationship_id)
         relationship = (
             AccountRelationship.objects.for_team(team_id)
-            .select_related("definition", "user")
+            .select_related("user")
             .filter(id=relationship_id, account=locked_account)
             .first()
         )
-        if relationship is None:
+        if relationship is None or definition is None:
             raise AccountRelationshipNotFound(relationship_id)
-        role = ownership.role_bindings(team_id).role_of(relationship.definition_id)
-        if role is not None:
+        if definition.is_controlled:
             raise ProtectedRelationshipHistoryError(relationship_id)
 
         was_active = relationship.ended_at is None
         deleted_id = str(relationship.id)
         relationship.delete()
-        _record_transition(
+        record_transition(
             account=locked_account,
             actor=actor,
             activity="relationship_deleted",
-            definition=relationship.definition,
-            role=None,
+            definition=definition,
             relationship=None,
             relationship_id=deleted_id,
             previous_user=relationship.user,
@@ -266,216 +279,48 @@ def delete_relationship(
         )
 
 
-class RoleUnboundError(Exception):
-    """The team has not bound a relationship definition to this commercial role."""
+class DefinitionNotControlledError(Exception):
+    """The definition is not one customer analytics may take control of, so no account can be
+    enrolled under it."""
 
 
-def enroll_role(*, team_id: int, account: Account, role: ownership.OwnershipRole, actor: Actor) -> datetime:
-    """Take authority over the role on this account and return its control timestamp.
+def enroll(
+    *, team_id: int, account: Account, definition: AccountRelationshipDefinition, actor: Actor
+) -> AccountRelationshipControl:
+    """Take authority over the relationship on this account and return the control row.
 
-    The current holder, if any, is kept: enrollment records that the role's state has been
-    reviewed, so enrolling an empty role confirms it empty. Enrolling a managed role again is a
-    no-op that keeps the existing fence.
+    The current holder, if any, is kept: enrollment records that the relationship's state has been
+    reviewed, so enrolling an empty relationship confirms it empty. Enrolling twice is a no-op that
+    keeps the existing fence.
     """
     with transaction.atomic():
-        # Config before account, the order adoption and track rules take, so the two cannot deadlock.
-        bindings = ownership.lock_role_bindings(team_id)
+        # Definition before account, the order every writer takes, so `is_controlled` cannot flip
+        # between the check below and the insert of the control row.
+        locked_definition = ownership.lock_definition(team_id, definition.id)
+        if locked_definition is None or not locked_definition.is_controlled:
+            raise DefinitionNotControlledError(str(definition.id))
         locked_account = _lock_or_raise(team_id, account.id)
-        definition = _bound_definition(team_id, bindings, role)
-        if definition is None:
-            raise RoleUnboundError(role)
-        current_fence = ownership.controlled_at(locked_account, role)
-        if current_fence is not None:
-            return current_fence
-        holder = _active_relationships(team_id, locked_account, definition).first()
+        control = ownership.control_for(locked_account, locked_definition)
+        if control is not None:
+            return control
+        holder = active_relationships(team_id, locked_account, locked_definition).first()
         holder_user = holder.user if holder is not None else None
-        controlled_at = ownership.advance_control_timestamp(locked_account, role)
-        _record_transition(
+        control = ownership.enroll(locked_account, locked_definition, actor.user)
+        record_transition(
             account=locked_account,
             actor=actor,
             activity="role_enrolled",
-            definition=definition,
-            role=role,
+            definition=locked_definition,
             relationship=holder,
             previous_user=holder_user,
             current_user=holder_user,
-            controlled_at=controlled_at,
+            controlled_at=control.controlled_at,
             emit_event=False,
         )
-        return controlled_at
+        return control
 
 
-def claim_initial_ae(*, team: Team, decision: contracts.OwnershipClaimDecision) -> contracts.OwnershipClaimResult:
-    """Apply an initial AE allocation frozen on a Salesforce Task.
-
-    Under the Account lock, an accepted claim for the same Task is recognized first, so a Task read
-    again on a later run is answered with the original decision even after the role has changed
-    hands. A new Task may fill the AE role only when the account manages it, the role is empty, the
-    assignee is a member, and the allocation is later than the role's control timestamp, the last
-    human decision, by more than the clock-skew allowance. Every refusal is returned as an outcome
-    for the reconciler to record.
-
-    Neither a claim nor a release moves the control timestamp. Both carry Salesforce's decision time
-    and are processed later, so moving it to the processing instant would fence out a Task allocated
-    between the source event and this sweep.
-    """
-    actor = Actor(source=AccountRelationshipSource.SALESFORCE_CLAIM)
-    with transaction.atomic():
-        try:
-            locked_account = _lock_account_by_external_id(team.id, decision.organization_id)
-        except AmbiguousAccountIdentity:
-            return _claim_result("blocked", "identity_mismatch")
-        if locked_account is None:
-            return _claim_result("blocked", "account_not_found")
-        accepted = _accepted_claim(team.id, decision.source_ref)
-        if accepted is not None:
-            if accepted.account_id != locked_account.id:
-                return _claim_result("blocked", "identity_mismatch", accepted)
-            return _claim_result("already_applied", None, accepted)
-
-        definition = _bound_definition(team.id, ownership.role_bindings(team.id), "ae")
-        if definition is None:
-            return _claim_result("blocked", "role_unbound")
-        if not ownership.is_managed(locked_account, "ae"):
-            return _claim_result("blocked", "role_not_managed")
-        if not ownership.region_matches(decision.region):
-            return _claim_result("blocked", "identity_mismatch")
-        membership = (
-            OrganizationMembership.objects.select_related("user")
-            .filter(organization_id=team.organization_id, user_id=decision.assignee_user_id, user__is_active=True)
-            .first()
-        )
-        if membership is None:
-            return _claim_result("blocked", "assignee_not_member")
-
-        holder = _active_relationships(team.id, locked_account, definition).first()
-        if holder is not None:
-            return _claim_result("rejected", "role_occupied", holder)
-        fence = ownership.controlled_at(locked_account, "ae")
-        rejection = ownership.allocation_rejection(decision.allocated_at, fence)
-        if rejection is not None:
-            return _claim_result("rejected", rejection)
-
-        relationship = AccountRelationship.objects.for_team(team.id).create(
-            team_id=team.id,
-            account=locked_account,
-            definition=definition,
-            user=membership.user,
-            source=actor.source,
-            source_ref=decision.source_ref,
-        )
-        controlled_at = fence
-        _record_transition(
-            account=locked_account,
-            actor=actor,
-            activity="role_claimed",
-            definition=definition,
-            role="ae",
-            relationship=relationship,
-            previous_user=None,
-            current_user=membership.user,
-            controlled_at=controlled_at,
-            source_actor_id=decision.source_assignee_id,
-            source_decided_at=decision.allocated_at,
-            emit_event=True,
-        )
-        return _claim_result("accepted", None, relationship, controlled_at)
-
-
-def release_initial_ae(*, team: Team, decision: contracts.OwnershipClaimDecision) -> contracts.OwnershipClaimResult:
-    """End the AE relationship that this Task's accepted claim created, and nothing else.
-
-    A release needs no time fence: identity to the Task's own claim is the guard, so it cannot clear
-    an AE assigned by a person or by another Task. Once a person has transferred or cleared the role,
-    the Task no longer holds it and the release is a no-op.
-    """
-    actor = Actor(source=AccountRelationshipSource.SALESFORCE_CLAIM)
-    claim = _accepted_claim(team.id, decision.source_ref)
-    if claim is None:
-        return _claim_result("not_held", None)
-    with transaction.atomic():
-        # The claim names the account to lock, and is then read again under that lock: a person may
-        # have ended it in between, which is exactly what makes the release a no-op.
-        locked_account = _lock_or_raise(team.id, claim.account_id)
-        accepted = _accepted_claim(team.id, decision.source_ref)
-        if accepted is None or accepted.ended_at is not None:
-            return _claim_result("not_held", None, accepted)
-
-        _end_rows(team.id, [accepted])
-        controlled_at = ownership.controlled_at(locked_account, "ae")
-        _record_transition(
-            account=locked_account,
-            actor=actor,
-            activity="role_released",
-            definition=accepted.definition,
-            role="ae",
-            relationship=accepted,
-            previous_user=accepted.user,
-            current_user=None,
-            controlled_at=controlled_at,
-            source_actor_id=decision.source_releaser_id,
-            source_decided_at=decision.released_at,
-            emit_event=True,
-        )
-        return _claim_result("cleared", None, accepted, controlled_at)
-
-
-def _accepted_claim(team_id: int, source_ref: str) -> AccountRelationship | None:
-    return (
-        AccountRelationship.objects.for_team(team_id)
-        .select_related("definition", "user")
-        .filter(source=AccountRelationshipSource.SALESFORCE_CLAIM, source_ref=source_ref)
-        .first()
-    )
-
-
-class AmbiguousAccountIdentity(Exception):
-    """More than one account of the team carries the external id, differing only by case."""
-
-
-def _lock_account_by_external_id(team_id: int, external_id: str) -> Account | None:
-    """Lock the account linked to the organization. The link is read again under the lock, because
-    an account update between the lookup and the lock could have moved it to another organization.
-
-    The unique constraint on external ids is case-sensitive while this lookup is not, so two
-    accounts that differ only by case are refused rather than resolved to whichever sorts first.
-    """
-    account_ids = list(
-        Account.objects.for_team(team_id).filter(external_id__iexact=external_id).values_list("id", flat=True)[:2]
-    )
-    if len(account_ids) > 1:
-        raise AmbiguousAccountIdentity(external_id)
-    locked = lock_account(team_id, account_ids[0]) if account_ids else None
-    if locked is None or (locked.external_id or "").lower() != external_id.lower():
-        return None
-    return locked
-
-
-def _bound_definition(
-    team_id: int, bindings: ownership.RoleBindings, role: ownership.OwnershipRole
-) -> AccountRelationshipDefinition | None:
-    """The definition carrying the role for this team, or None while the role is unbound."""
-    definition_id = bindings.definition_id_of(role)
-    if definition_id is None:
-        return None
-    return AccountRelationshipDefinition.objects.for_team(team_id).filter(id=definition_id).first()
-
-
-def _claim_result(
-    outcome: contracts.OwnershipClaimOutcome,
-    reason: contracts.OwnershipClaimReason | None,
-    relationship: AccountRelationship | None = None,
-    controlled_at: datetime | None = None,
-) -> contracts.OwnershipClaimResult:
-    return contracts.OwnershipClaimResult(
-        outcome=outcome,
-        reason=reason,
-        relationship_id=relationship.id if relationship is not None else None,
-        controlled_at=controlled_at,
-    )
-
-
-def _end_rows(team_id: int, rows: list[AccountRelationship]) -> None:
+def end_rows(team_id: int, rows: list[AccountRelationship]) -> None:
     if not rows:
         return
     ended_at = timezone.now()
@@ -497,6 +342,36 @@ def lock_account(team_id: int, account_id: str | UUID) -> Account | None:
     )
 
 
+class _DefinitionSetChanged(Exception):
+    pass
+
+
+def lock_account_and_its_definitions(
+    team_id: int, account_id: str | UUID
+) -> tuple[Account | None, list[AccountRelationshipDefinition]]:
+    """Lock the account and every definition it holds relationship rows under, definitions first
+    and by id, the order every other writer takes, so no definition can become controlled while the
+    account's rows are judged. Call inside ``transaction.atomic()``.
+
+    A row assigned between the snapshot of definition ids and the account lock would sit under an
+    unlocked definition. Rolling the savepoint back releases the locks taken so far, and the snapshot
+    is taken again; once the account lock is held no more rows can appear.
+    """
+    rows = AccountRelationship.objects.for_team(team_id).filter(account_id=account_id)
+    for _ in range(3):
+        definition_ids = set(rows.values_list("definition_id", flat=True))
+        try:
+            with transaction.atomic():
+                definitions = ownership.lock_definitions(team_id, definition_ids)
+                account = lock_account(team_id, account_id)
+                if account is not None and not set(rows.values_list("definition_id", flat=True)) <= definition_ids:
+                    raise _DefinitionSetChanged()
+                return account, definitions
+        except _DefinitionSetChanged:
+            continue
+    raise RuntimeError(f"Relationships kept being added to account {account_id} while it was being locked")
+
+
 def _lock_or_raise(team_id: int, account_id: str | UUID, *, missing_id: str | None = None) -> Account:
     """Lock the account for the caller's transaction, or report what the caller was asked about as
     not found: the account itself, or ``missing_id`` where the caller named a relationship."""
@@ -506,7 +381,7 @@ def _lock_or_raise(team_id: int, account_id: str | UUID, *, missing_id: str | No
     return account
 
 
-def _active_relationships(
+def active_relationships(
     team_id: int, account: Account, definition: AccountRelationshipDefinition
 ) -> QuerySet[AccountRelationship]:
     return (
@@ -517,41 +392,31 @@ def _active_relationships(
     )
 
 
-def _managed_role(account: Account, role: ownership.OwnershipRole | None) -> ownership.OwnershipRole | None:
-    """The role the write touches, when it is a commercial role this account manages."""
-    return role if role is not None and ownership.is_managed(account, role) else None
+def _enforce_managed_role_policy(control: AccountRelationshipControl | None, actor: Actor) -> None:
+    """Only a person may change a relationship the account manages.
 
-
-def _enforce_managed_role_policy(account: Account, role: ownership.OwnershipRole | None, actor: Actor) -> None:
-    """Only a person may change a role the account manages.
-
-    Transfers and clears of managed roles are human acts. An autonomous writer may still fill or
-    change a role the account does not manage. Reviewed adoption reaches a managed role only
-    through ``enroll_role``, which is the act of taking the role over. A new kind of writer must be
-    authorized here explicitly before it can alter a reviewed role decision. That is why the check
-    names the one allowed source rather than the refused ones.
+    Transfers and clears of managed relationships are human acts. An autonomous writer may still
+    fill or change a relationship the account does not manage. Reviewed adoption reaches a managed
+    relationship only through ``enroll``, which is the act of taking it over. A new kind of writer
+    must be authorized here explicitly before it can alter a reviewed decision. That is why the
+    check names the one allowed source rather than the refused ones.
     """
-    managed = _managed_role(account, role)
-    if managed is not None and actor.source != AccountRelationshipSource.HUMAN:
+    if control is not None and actor.source != AccountRelationshipSource.HUMAN:
         raise ManagedRolePolicyError(
-            f"A {actor.source} writer cannot change the {managed.upper()} role on an account where it is managed"
+            f"A {actor.source} writer cannot change a controlled relationship on an account where it is managed"
         )
 
 
-def _advance_if_managed(account: Account, role: ownership.OwnershipRole | None) -> datetime | None:
-    managed = _managed_role(account, role)
-    if managed is None:
-        return None
-    return ownership.advance_control_timestamp(account, managed)
+def _advance_if_managed(control: AccountRelationshipControl | None) -> datetime | None:
+    return ownership.advance(control) if control is not None else None
 
 
-def _record_transition(
+def record_transition(
     *,
     account: Account,
     actor: Actor,
     activity: str,
     definition: AccountRelationshipDefinition,
-    role: ownership.OwnershipRole | None,
     relationship: AccountRelationship | None,
     previous_user: User | None,
     current_user: User | None,
@@ -571,7 +436,6 @@ def _record_transition(
         relationship_id=str(relationship.id) if relationship is not None else relationship_id,
         definition_id=str(definition.id),
         definition_name=definition.name,
-        role=role,
         source=str(actor.source),
         source_ref=relationship.source_ref if relationship is not None else None,
         workflow_id=actor.workflow_id,

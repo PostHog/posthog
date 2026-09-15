@@ -33,22 +33,10 @@ class TeamCustomerAnalyticsConfig(models.Model):
         models.JSONField(default=default_account_track_rules), "project", "admin"
     )
     account_track_rules_enabled_at = models.DateTimeField(null=True, blank=True)
-    # The relationship definitions that carry the account executive and customer success manager
-    # roles. Binding names the role; each account's per-role control timestamp says whether the
-    # role is managed there. RESTRICT keeps a bound definition, and the history under it, deletable
-    # only after it is unbound, while still letting a team deletion cascade through both rows.
-    ae_relationship_definition = field_access_control(
-        models.ForeignKey(
-            "customer_analytics.AccountRelationshipDefinition",
-            on_delete=models.RESTRICT,
-            null=True,
-            blank=True,
-            related_name="+",
-        ),
-        "project",
-        "admin",
-    )
-    csm_relationship_definition = field_access_control(
+    # The controlled relationship definition an eligible Salesforce Task allocation fills. RESTRICT keeps
+    # the definition, and the claim history under it, deletable only after the claim target is cleared,
+    # while a team deletion still cascades through both rows.
+    ownership_claim_relationship_definition = field_access_control(
         models.ForeignKey(
             "customer_analytics.AccountRelationshipDefinition",
             on_delete=models.RESTRICT,

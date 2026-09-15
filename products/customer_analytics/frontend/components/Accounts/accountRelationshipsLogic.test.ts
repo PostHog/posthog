@@ -19,12 +19,19 @@ import { accountRelationshipsLogic } from './accountRelationshipsLogic'
 const RELATIONSHIPS_URL = '/api/projects/:team_id/accounts/:account_id/relationships/'
 const RELATIONSHIP_URL = '/api/projects/:team_id/accounts/:account_id/relationships/:id/'
 
-const CSM: AccountRelationshipDefinitionApi = { id: 'def-1', name: 'CSM', description: null, is_single_holder: true }
+const CSM: AccountRelationshipDefinitionApi = {
+    id: 'def-1',
+    name: 'CSM',
+    description: null,
+    is_single_holder: true,
+    is_controlled: false,
+}
 const AE: AccountRelationshipDefinitionApi = {
     id: 'def-2',
     name: 'Account executive',
     description: null,
     is_single_holder: true,
+    is_controlled: false,
 }
 
 const buildRelationship = (overrides: Partial<AccountRelationshipApi> = {}): AccountRelationshipApi => ({

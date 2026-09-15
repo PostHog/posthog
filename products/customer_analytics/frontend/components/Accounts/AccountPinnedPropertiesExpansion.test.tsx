@@ -51,6 +51,7 @@ const relationshipDefinition: AccountRelationshipDefinitionApi = {
     id: 'relationship-1',
     name: 'CSM',
     is_single_holder: true,
+    is_controlled: false,
 }
 const members = [
     { id: 1, email: 'alex@example.com', first_name: '' },

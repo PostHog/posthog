@@ -1,8 +1,10 @@
-"""Bind the AE and CSM roles to relationship definitions and set the claim controls for one
-project. Binding names the role; it enrolls no account (see ``adopt_account_ownership``).
+"""Choose which relationship definitions customer analytics may control and set the Salesforce claim
+controls for one project. Taking control of a definition enrolls no account (see
+``adopt_account_ownership``).
 
-    python manage.py configure_account_ownership --team-id 2 --bind-ae <definition uuid>
-    python manage.py configure_account_ownership --team-id 2 --claim-saved-query <view uuid> --claims enabled
+    python manage.py configure_account_ownership --team-id 2 --control <definition uuid>
+    python manage.py configure_account_ownership --team-id 2 --claim-definition <definition uuid> \\
+        --claim-saved-query <view uuid> --claims enabled
 """
 
 from typing import Any
@@ -22,14 +24,34 @@ from products.customer_analytics.backend.models import TeamCustomerAnalyticsConf
 
 
 class Command(BaseCommand):
-    help = "Bind commercial roles to relationship definitions and control automated ownership claims."
+    help = "Choose the controlled relationship definitions and the automated ownership claim controls of a project."
 
     def add_arguments(self, parser: CommandParser) -> None:
         parser.add_argument("--team-id", type=int, required=True)
-        for role in ownership.OWNERSHIP_ROLES:
-            group = parser.add_mutually_exclusive_group()
-            group.add_argument(f"--bind-{role}", type=UUID, metavar="DEFINITION_ID")
-            group.add_argument(f"--unbind-{role}", action="store_true")
+        parser.add_argument(
+            "--control",
+            type=UUID,
+            action="append",
+            default=[],
+            metavar="DEFINITION_ID",
+            help="Let customer analytics take control of this single-holder definition per account. Repeatable.",
+        )
+        parser.add_argument(
+            "--uncontrol",
+            type=UUID,
+            action="append",
+            default=[],
+            metavar="DEFINITION_ID",
+            help="Stop controlling this definition; refused while any account is enrolled under it. Repeatable.",
+        )
+        target = parser.add_mutually_exclusive_group()
+        target.add_argument(
+            "--claim-definition",
+            type=UUID,
+            metavar="DEFINITION_ID",
+            help="The controlled definition a Salesforce Task allocation fills.",
+        )
+        target.add_argument("--clear-claim-definition", action="store_true")
         parser.add_argument("--claims", choices=["enabled", "disabled"])
         source = parser.add_mutually_exclusive_group()
         source.add_argument(
@@ -45,16 +67,37 @@ class Command(BaseCommand):
         if team is None:
             raise CommandError(f"No team {options['team_id']}")
 
-        # One transaction, so a refused binding or an unusable view leaves the configuration as it was.
+        # One transaction, so a refused control change or an unusable view leaves the configuration
+        # as it was. Control starts before the claim target is set and ends after it is cleared, so
+        # one call can move the target from one definition to another.
         try:
             with transaction.atomic():
-                for role in ownership.OWNERSHIP_ROLES:
-                    if options[f"bind_{role}"] is not None or options[f"unbind_{role}"]:
-                        ownership.bind_role(team, role, options[f"bind_{role}"])
+                # Every definition this call touches is locked first, by id, so two concurrent calls
+                # take their locks in one order and neither waits on the other's config row.
+                touched = {*options["control"], *options["uncontrol"]}
+                if options["claim_definition"] is not None:
+                    touched.add(options["claim_definition"])
+                for definition_id in sorted(touched):
+                    ownership.lock_definition(team.id, definition_id)
+                for definition_id in options["control"]:
+                    ownership.set_controlled(team.id, definition_id, True)
                 config = get_or_create_team_extension(
                     team, TeamCustomerAnalyticsConfig, defaults={"activity_event": DEFAULT_ACTIVITY_EVENT}
                 )
                 update_fields = []
+                if options["claim_definition"] is not None:
+                    definition = ownership.lock_definition(team.id, options["claim_definition"])
+                    if definition is None:
+                        raise CommandError(f"No relationship definition {options['claim_definition']} in this project")
+                    if not definition.is_controlled:
+                        raise CommandError(
+                            f"{definition.name} is not controlled; a claim can only fill a controlled relationship"
+                        )
+                    config.ownership_claim_relationship_definition = definition
+                    update_fields.append("ownership_claim_relationship_definition")
+                if options["clear_claim_definition"]:
+                    config.ownership_claim_relationship_definition = None
+                    update_fields.append("ownership_claim_relationship_definition")
                 if options["claims"] is not None:
                     config.ownership_claims_enabled = options["claims"] == "enabled"
                     update_fields.append("ownership_claims_enabled")
@@ -73,13 +116,18 @@ class Command(BaseCommand):
                     update_fields.append("ownership_claim_saved_query")
                 if update_fields:
                     config.save(update_fields=update_fields)
-        except (ownership.InvalidRoleBindingError, ClaimSourceMisconfigured) as error:
+                for definition_id in options["uncontrol"]:
+                    ownership.set_controlled(team.id, definition_id, False)
+        except (ownership.InvalidControlChangeError, ClaimSourceMisconfigured) as error:
             raise CommandError(str(error))
 
-        bindings = ownership.role_bindings(team.id)
         config.refresh_from_db()
+        controlled = ", ".join(
+            f"{definition.name} ({definition.id})" for definition in ownership.controlled_definitions(team.id)
+        )
         self.stdout.write(
-            f"team {team.id}: ae={bindings.ae_definition_id} csm={bindings.csm_definition_id} "
+            f"team {team.id}: controlled=[{controlled}] "
+            f"claim_definition={config.ownership_claim_relationship_definition_id or '<unset>'} "
             f"claims={'enabled' if config.ownership_claims_enabled else 'disabled'} "
             f"claim_saved_query={config.ownership_claim_saved_query_id or '<unset>'}"
         )

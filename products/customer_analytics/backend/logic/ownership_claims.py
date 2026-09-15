@@ -1,27 +1,29 @@
 """
-Pull-based delivery of Salesforce Task decisions into commercial role ownership.
+Pull-based delivery of Salesforce Task decisions into a controlled relationship.
 
-A project binds a warehouse view that maps the frozen decision fields on Salesforce Tasks onto
-one row per Task with these columns:
+A project names the controlled relationship definition a Task allocation fills
+(``TeamCustomerAnalyticsConfig.ownership_claim_relationship_definition``) and binds a warehouse view
+that maps the frozen decision fields on Salesforce Tasks onto one row per Task with these columns:
 
 - ``task_id``: the Task id; the idempotency key of the decision.
 - ``organization_id``: the PostHog organization the Task's account is linked to.
 - ``region``: the PostHog region the organization lives in (``us``, ``eu``).
-- ``assignee_user_id``: PostHog user id of the allocated account executive.
+- ``assignee_user_id``: PostHog user id of the allocated holder.
 - ``source_assignee_id``: Salesforce user id of the same person.
 - ``allocated_at``: when the eligible allocation was made at the source; never a delivery time.
 - ``released_at``: when the Task was disqualified, or null while the allocation stands.
 - ``source_releaser_id``: Salesforce user id of whoever disqualified the Task, or null.
 
 Each run reads every row with a usable ``task_id``, in pages ordered by that id, and applies it: a
-row without ``released_at`` claims the AE role, one with it withdraws that same Task's claim. Both
-are idempotent, so rereading a Task costs one lookup and changes nothing; the view is expected to
-keep only recent Tasks. A Task listed more than once is not applied at all, so a view must express
-a release by setting ``released_at`` on the Task's one row, never by adding a second row. Paging
-compares the id as text, so a row whose ``task_id`` is null or empty is not read and reaches no
-outcome count; it carries no idempotency key, so no run could apply it safely. Timestamps without a timezone are read as UTC, which is how Salesforce records
-them. Nothing is written back to Salesforce: accepted and released claims are visible on the
-account's relationships and audit trail, and every outcome is counted and logged here.
+row without ``released_at`` claims the relationship, one with it withdraws that same Task's claim.
+Both are idempotent, so rereading a Task costs one lookup and changes nothing; the view is expected
+to keep only recent Tasks. A Task listed more than once is not applied at all, so a view must
+express a release by setting ``released_at`` on the Task's one row, never by adding a second row.
+Paging compares the id as text, so a row whose ``task_id`` is null or empty is not read and reaches
+no outcome count; it carries no idempotency key, so no run could apply it safely. Timestamps without
+a timezone are read as UTC, which is how Salesforce records them. Nothing is written back to
+Salesforce: accepted and released claims are visible on the account's relationships and audit trail,
+and every outcome is counted and logged here.
 """
 
 from collections import Counter
@@ -30,7 +32,7 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
 
-from django.db import IntegrityError
+from django.db import IntegrityError, transaction
 
 import structlog
 
@@ -42,13 +44,20 @@ from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
+from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
 from posthog.models.team.extensions import get_or_create_team_extension
 
 from products.customer_analytics.backend.constants import DEFAULT_ACTIVITY_EVENT
 from products.customer_analytics.backend.facade import contracts
-from products.customer_analytics.backend.logic import relationships
-from products.customer_analytics.backend.models import TeamCustomerAnalyticsConfig
+from products.customer_analytics.backend.facade.enums import AccountRelationshipSource
+from products.customer_analytics.backend.logic import ownership, relationships
+from products.customer_analytics.backend.models import (
+    Account,
+    AccountRelationship,
+    AccountRelationshipDefinition,
+    TeamCustomerAnalyticsConfig,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -135,15 +144,13 @@ def _apply_rows(team: Team, rows: list[dict[str, Any]], should_stop: Callable[[]
     for decision in _decisions_by_task(rows, outcomes):
         if should_stop():
             raise SweepStopped()
-        # A unique-index collision is one decision an overlapping sweep accepted first, so it is
-        # counted and the run goes on. Every refusal is an outcome, so anything else that raises is
+        # A collision on the per-source reference index is one decision an overlapping sweep accepted
+        # first, so it is counted and the run goes on. Every refusal is an outcome, so anything else that raises is
         # the infrastructure or a bug, never one bad decision: it ends the sweep, and the next tick
         # reads the view again.
         try:
             result = (
-                relationships.release_initial_ae(team=team, decision=decision)
-                if decision.is_release
-                else relationships.claim_initial_ae(team=team, decision=decision)
+                release(team=team, decision=decision) if decision.is_release else claim(team=team, decision=decision)
             )
         except IntegrityError as error:
             capture_exception(error, {"team_id": team.id, "source_ref": decision.source_ref})
@@ -281,3 +288,175 @@ def _user_id(value: object) -> int:
 def _as_datetime(value: object) -> datetime:
     parsed = value if isinstance(value, datetime) else datetime.fromisoformat(str(value))
     return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=UTC)
+
+
+def claim(*, team: Team, decision: contracts.OwnershipClaimDecision) -> contracts.OwnershipClaimResult:
+    """Apply an initial allocation frozen on a Salesforce Task to the team's claim target
+    relationship.
+
+    Under the Account lock, an accepted claim for the same Task is recognized first, so a Task read
+    again on a later run is answered with the original decision even after the relationship has
+    changed hands. A new Task may fill the relationship only when the account manages it, it is
+    empty, the assignee is a member, and the allocation is later than the control timestamp, the
+    last human decision, by more than the clock-skew allowance. Every refusal is returned as an
+    outcome for the reconciler to record.
+
+    Neither a claim nor a release moves the control timestamp. Both carry Salesforce's decision time
+    and are processed later, so moving it to the processing instant would fence out a Task allocated
+    between the source event and this sweep.
+    """
+    actor = relationships.Actor(source=AccountRelationshipSource.SALESFORCE_CLAIM)
+    with transaction.atomic():
+        try:
+            locked_account = _lock_account_by_external_id(team.id, decision.organization_id)
+        except AmbiguousAccountIdentity:
+            return _claim_result("blocked", "identity_mismatch")
+        if locked_account is None:
+            return _claim_result("blocked", "account_not_found")
+        accepted = _accepted_claim(team.id, decision.source_ref)
+        if accepted is not None:
+            if accepted.account_id != locked_account.id:
+                return _claim_result("blocked", "identity_mismatch", accepted)
+            return _claim_result("already_applied", None, accepted)
+
+        definition = claim_target(team.id)
+        if definition is None:
+            return _claim_result("blocked", "claim_target_unset")
+        control = ownership.control_for(locked_account, definition)
+        if control is None:
+            return _claim_result("blocked", "role_not_managed")
+        if not ownership.region_matches(decision.region):
+            return _claim_result("blocked", "identity_mismatch")
+        membership = (
+            OrganizationMembership.objects.select_related("user")
+            .filter(organization_id=team.organization_id, user_id=decision.assignee_user_id, user__is_active=True)
+            .first()
+        )
+        if membership is None:
+            return _claim_result("blocked", "assignee_not_member")
+
+        holder = relationships.active_relationships(team.id, locked_account, definition).first()
+        if holder is not None:
+            return _claim_result("rejected", "role_occupied", holder)
+        fence = control.controlled_at
+        rejection = ownership.allocation_rejection(decision.allocated_at, fence)
+        if rejection is not None:
+            return _claim_result("rejected", rejection)
+
+        relationship = AccountRelationship.objects.for_team(team.id).create(
+            team_id=team.id,
+            account=locked_account,
+            definition=definition,
+            user=membership.user,
+            source=actor.source,
+            source_ref=decision.source_ref,
+        )
+        relationships.record_transition(
+            account=locked_account,
+            actor=actor,
+            activity="role_claimed",
+            definition=definition,
+            relationship=relationship,
+            previous_user=None,
+            current_user=membership.user,
+            controlled_at=fence,
+            source_actor_id=decision.source_assignee_id,
+            source_decided_at=decision.allocated_at,
+            emit_event=True,
+        )
+        return _claim_result("accepted", None, relationship, fence)
+
+
+def release(*, team: Team, decision: contracts.OwnershipClaimDecision) -> contracts.OwnershipClaimResult:
+    """End the relationship that this Task's accepted claim created, and nothing else.
+
+    A release needs no time fence: identity to the Task's own claim is the guard, so it cannot clear
+    a holder assigned by a person or by another Task. Once a person has transferred or cleared the
+    relationship, the Task no longer holds it and the release is a no-op.
+    """
+    actor = relationships.Actor(source=AccountRelationshipSource.SALESFORCE_CLAIM)
+    held = _accepted_claim(team.id, decision.source_ref)
+    if held is None:
+        return _claim_result("not_held", None)
+    with transaction.atomic():
+        # The claim names the account to lock, and is then read again under that lock: a person may
+        # have ended it in between, which is exactly what makes the release a no-op. An account
+        # deleted in between takes its claim row with it, so the account check only completes the type.
+        locked_account = relationships.lock_account(team.id, held.account_id)
+        accepted = _accepted_claim(team.id, decision.source_ref)
+        if locked_account is None or accepted is None or accepted.ended_at is not None:
+            return _claim_result("not_held", None, accepted)
+
+        relationships.end_rows(team.id, [accepted])
+        control = ownership.control_for(locked_account, accepted.definition)
+        controlled_at = control.controlled_at if control is not None else None
+        relationships.record_transition(
+            account=locked_account,
+            actor=actor,
+            activity="role_released",
+            definition=accepted.definition,
+            relationship=accepted,
+            previous_user=accepted.user,
+            current_user=None,
+            controlled_at=controlled_at,
+            source_actor_id=decision.source_releaser_id,
+            source_decided_at=decision.released_at,
+            emit_event=True,
+        )
+        return _claim_result("cleared", None, accepted, controlled_at)
+
+
+def _accepted_claim(team_id: int, source_ref: str) -> AccountRelationship | None:
+    return (
+        AccountRelationship.objects.for_team(team_id)
+        .select_related("definition", "user")
+        .filter(source=AccountRelationshipSource.SALESFORCE_CLAIM, source_ref=source_ref)
+        .first()
+    )
+
+
+class AmbiguousAccountIdentity(Exception):
+    """More than one account of the team carries the external id, differing only by case."""
+
+
+def _lock_account_by_external_id(team_id: int, external_id: str) -> Account | None:
+    """Lock the account linked to the organization. The link is read again under the lock, because
+    an account update between the lookup and the lock could have moved it to another organization.
+
+    The unique constraint on external ids is case-sensitive while this lookup is not, so two
+    accounts that differ only by case are refused rather than resolved to whichever sorts first.
+    """
+    account_ids = list(
+        Account.objects.for_team(team_id).filter(external_id__iexact=external_id).values_list("id", flat=True)[:2]
+    )
+    if len(account_ids) > 1:
+        raise AmbiguousAccountIdentity(external_id)
+    locked = relationships.lock_account(team_id, account_ids[0]) if account_ids else None
+    if locked is None or (locked.external_id or "").lower() != external_id.lower():
+        return None
+    return locked
+
+
+def claim_target(team_id: int) -> AccountRelationshipDefinition | None:
+    """The controlled definition a Salesforce Task allocation fills for this team, or None while
+    none is bound."""
+    config = (
+        TeamCustomerAnalyticsConfig.objects.filter(team_id=team_id)
+        .select_related("ownership_claim_relationship_definition")
+        .first()
+    )
+    return config.ownership_claim_relationship_definition if config is not None else None
+
+
+def _claim_result(
+    outcome: contracts.OwnershipClaimOutcome,
+    reason: contracts.OwnershipClaimReason | None,
+    relationship: AccountRelationship | None = None,
+    controlled_at: datetime | None = None,
+) -> contracts.OwnershipClaimResult:
+    return contracts.OwnershipClaimResult(
+        outcome=outcome,
+        reason=reason,
+        relationship_id=relationship.id if relationship is not None else None,
+        controlled_at=controlled_at,
+    )

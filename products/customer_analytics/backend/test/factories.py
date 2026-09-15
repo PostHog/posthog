@@ -2,6 +2,7 @@ from datetime import datetime
 from typing import Any
 
 from django.apps import apps
+from django.utils import timezone
 
 from posthog.models import User
 
@@ -9,6 +10,7 @@ from products.customer_analytics.backend.models import (
     Account,
     AccountChannelSummary,
     AccountRelationship,
+    AccountRelationshipControl,
     AccountRelationshipDefinition,
     CustomerTask,
     CustomPropertyDefinition,
@@ -53,6 +55,16 @@ def create_account_relationship(
 ) -> AccountRelationship:
     return AccountRelationship.objects.for_team(team_id).create(
         team_id=team_id, account=account, definition=definition, user=user, **kwargs
+    )
+
+
+def enroll_account(
+    account: Account, definition: AccountRelationshipDefinition, *, controlled_at: datetime | None = None
+) -> AccountRelationshipControl:
+    """A control row written directly, for tests that need a known fence rather than the audited
+    enrollment path."""
+    return AccountRelationshipControl.objects.for_team(account.team_id).create(
+        team_id=account.team_id, account=account, definition=definition, controlled_at=controlled_at or timezone.now()
     )
 
 

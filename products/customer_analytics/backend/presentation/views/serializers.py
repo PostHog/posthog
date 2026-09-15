@@ -2038,11 +2038,20 @@ class AccountRelationshipDefinitionSerializer(DataclassSerializer):
         default=True,
         help_text="Whether only one user can hold this relationship per account at a time, e.g. a single CSM per account.",
     )
+    is_controlled = serializers.BooleanField(
+        read_only=True,
+        help_text=(
+            "Whether customer analytics can take control of this relationship per account. Rows under a controlled "
+            "relationship can't be deleted. On an account where control has started, only a person can change the "
+            "relationship and an empty relationship is a deliberate decision. Set by project operators, not through "
+            "this API."
+        ),
+    )
 
     class Meta:
         dataclass = AccountRelationshipDefinition
         ref_name = "AccountRelationshipDefinition"
-        fields = ["id", "name", "description", "is_single_holder"]
+        fields = ["id", "name", "description", "is_single_holder", "is_controlled"]
 
 
 class AccountAssignmentSerializer(DataclassSerializer):

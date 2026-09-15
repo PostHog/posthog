@@ -41,6 +41,7 @@ const relationshipDefinition: AccountRelationshipDefinitionApi = {
     id: 'relationship-1',
     name: 'Account team',
     is_single_holder: false,
+    is_controlled: false,
 }
 const VALUES_URL = '/api/projects/:project_id/accounts/:account_id/custom_property_values/'
 const RELATIONSHIPS_URL = '/api/projects/:project_id/accounts/:account_id/relationships/'
