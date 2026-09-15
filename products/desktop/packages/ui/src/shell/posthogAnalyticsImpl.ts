@@ -611,6 +611,3 @@ export const posthogAnalyticsService: IAnalytics = {
   flush: () => Promise.resolve(),
   shutdown: () => Promise.resolve(),
 };
-
-// Re-export registerApiBaseHost for backward compatibility with existing callers
-export { registerApiBaseHost } from "./apiBaseHostRegistry";

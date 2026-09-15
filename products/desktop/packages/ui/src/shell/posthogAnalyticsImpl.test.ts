@@ -274,7 +274,9 @@ describe("networkMetricPath", () => {
 
 describe("metrics.network.attributes callback", () => {
   it("reflects a backend host registered after init, without re-initializing", async () => {
-    const { initializePostHog, registerApiBaseHost } = await loadAnalytics();
+    const { initializePostHog } = await loadAnalytics();
+    const { registerApiBaseHost } =
+      await import("@posthog/ui/shell/apiBaseHostRegistry");
 
     initializePostHog();
     const attributesCallback =
@@ -292,7 +294,9 @@ describe("metrics.network.attributes callback", () => {
   });
 
   it("returns { path: 'external' } for requests to other hosts", async () => {
-    const { initializePostHog, registerApiBaseHost } = await loadAnalytics();
+    const { initializePostHog } = await loadAnalytics();
+    const { registerApiBaseHost } =
+      await import("@posthog/ui/shell/apiBaseHostRegistry");
 
     initializePostHog();
     registerApiBaseHost("https://us.posthog.com");

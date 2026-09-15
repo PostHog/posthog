@@ -13,7 +13,7 @@ import { resetCurrentChannel } from "@posthog/ui/features/canvas/stores/currentC
 import { resetInboxReportActionDrafts } from "@posthog/ui/features/inbox/stores/inboxReportActionDraftStore";
 import { useOnboardingStore } from "@posthog/ui/features/onboarding/onboardingStore";
 import { openTaskInput } from "@posthog/ui/router/useOpenTask";
-import { registerApiBaseHost } from "@posthog/ui/shell/posthogAnalyticsImpl";
+import { registerApiBaseHost } from "@posthog/ui/shell/apiBaseHostRegistry";
 import { inject, injectable } from "inversify";
 
 // Web counterpart of the desktop RendererAuthSideEffects. Identical store/query
