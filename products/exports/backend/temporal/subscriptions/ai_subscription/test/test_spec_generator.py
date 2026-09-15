@@ -995,3 +995,33 @@ class TestBuildFrozenPrompt(APIBaseTest):
     ) -> None:
         with pytest.raises(StoredPlanInvalidError, match=match):
             build_frozen_prompt(team=self.team, user=self.user, prompt="p", window=_window(7), ai_query_plan=stored)
+
+
+class TestPlannerGenerationTelemetry(APIBaseTest):
+    """The LLM evaluations that watch report quality sample generations on `ai_product` and `stage`,
+    and langchain-openai records no generation at all unless a PostHog callback handler is attached."""
+
+    @patch("products.exports.backend.temporal.subscriptions.ai_observability.posthoganalytics.default_client")
+    @patch(f"{_SG}.MaxChatOpenAI")
+    def test_planner_generation_is_tagged_and_recorded(self, mock_chat: MagicMock, _client: MagicMock) -> None:
+        structured = mock_chat.return_value.with_structured_output.return_value
+        structured.invoke.return_value = QueryPlan(
+            overall_intent="intent",
+            steps=[QueryPlanStep(description="d", hogql="SELECT 1")],
+        )
+
+        generate_query_plan(
+            cleaned_prompt="p",
+            context_blob="c",
+            team=self.team,
+            user=self.user,
+            trace_correlation_id=99,
+        )
+
+        properties = mock_chat.call_args.kwargs["posthog_properties"]
+        assert properties["ai_product"] == "subscriptions"
+        assert properties["stage"] == "plan"
+        assert properties["subscription_id"] == 99
+
+        callbacks = structured.invoke.call_args.kwargs["config"]["callbacks"]
+        assert [type(handler).__name__ for handler in callbacks] == ["CallbackHandler"]

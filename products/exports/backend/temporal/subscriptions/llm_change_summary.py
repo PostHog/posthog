@@ -28,6 +28,7 @@ from posthog.security.llm_prompt_sanitization import (
 )
 from posthog.utils import get_instance_region
 
+from products.exports.backend.temporal.subscriptions.ai_observability import AI_PRODUCT
 from products.product_analytics.backend.facade.api import get_query_specific_instructions
 
 logger = structlog.get_logger(__name__)
@@ -418,7 +419,7 @@ def generate_change_summary(
     if delivery_id:
         user_tag = f"{user_tag}-delivery-{delivery_id}"
 
-    posthog_properties: dict[str, object] = {"ai_product": "subscriptions"}
+    posthog_properties: dict[str, object] = {"ai_product": AI_PRODUCT}
     if delivery_id:
         posthog_properties["delivery_id"] = delivery_id
 
