@@ -42,6 +42,8 @@ class ScannerResult(BaseModel, frozen=True):
     model_output: AnyScannerOutput
     signals_count: int = Field(default=0, ge=0)
     verification: VerificationRecord | None = None
+    # Core-step `get_events_around` calls. Verify draws are not counted.
+    event_lookups: int = Field(default=0, ge=0)
 
 
 class ApplyScannerInputs(BaseModel, frozen=True):
@@ -263,6 +265,7 @@ class ScannerCallOutput(BaseModel, frozen=True):
     # Extracted from the LLM response before `finalize` so per-type output mapping can't drop them.
     signals: list[SignalFinding] = Field(default_factory=list)
     verification: VerificationRecord | None = None
+    event_lookups: int = Field(default=0, ge=0)
 
 
 class CleanupGeminiFileInputs(BaseModel, frozen=True):
@@ -308,3 +311,4 @@ class EmitObservationEventInputs(BaseModel, frozen=True):
 
     observation_id: UUID
     model_output: AnyScannerOutput
+    event_lookups: int = Field(default=0, ge=0)

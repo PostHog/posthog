@@ -112,6 +112,7 @@ class MissionStep:
     `required` steps abort the scan when they can't be satisfied; non-required steps (signals) are
     best-effort and simply contribute nothing on failure. `validate` runs an extra semantic check on the parsed
     response and, when it returns an error string, triggers the same re-prompt path as a schema failure.
+    An answer `requires_lookup` flags is re-prompted the same way when the step made no `get_events_around` call.
     """
 
     name: str
@@ -119,6 +120,7 @@ class MissionStep:
     response_model: type[BaseModel]
     required: bool = True
     validate: Callable[[BaseModel], str | None] | None = field(default=None)
+    requires_lookup: Callable[[BaseModel], bool] | None = field(default=None)
 
 
 _CONFIDENCE_DESCRIPTION = (
@@ -226,6 +228,7 @@ class BaseScanner(BaseModel, frozen=True):
                 instruction=instruction,
                 response_model=self.llm_response_schema,
                 validate=self._validate_core,
+                requires_lookup=self.answer_requires_lookup,
             )
         ]
 
@@ -244,6 +247,10 @@ class BaseScanner(BaseModel, frozen=True):
     def _validate_core(self, parsed: BaseModel) -> str | None:
         """Run the scanner's semantic checks against a finalized version of the core response."""
         return self.validate_semantics(self.finalize(parsed))
+
+    def answer_requires_lookup(self, parsed: BaseModel) -> bool:
+        """Whether this core answer is only acceptable when the step checked the events at least once."""
+        return False
 
     def assemble(self, step_outputs: dict[str, BaseModel]) -> tuple["BaseScannerOutput", list[SignalFinding]]:
         """Merge the per-turn outputs into the final persisted output and the side-mission findings."""

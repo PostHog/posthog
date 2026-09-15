@@ -68,6 +68,8 @@ def _emit_event(inputs: EmitObservationEventInputs) -> None:
         # Priced at emit time, so it can drift from quota.py's repriced-at-current-rates totals.
         "credits": observation_credits_for_model(snapshot.model),
         "emits_signals": snapshot.emits_signals,
+        # 0 on a `yes` verdict is the false-positive signature.
+        "event_lookups": inputs.event_lookups,
         # Flatten scanner output so HogQL can query individual fields without a JSON extract.
         **inputs.model_output.to_event_properties(),
         **_group_properties(team, observation),

@@ -18,6 +18,7 @@ from products.replay_vision.backend.temporal.scanners import (
     scanner_from_db,
 )
 from products.replay_vision.backend.temporal.scanners.base import BaseScanner, SignalFinding, SignalsResponse
+from products.replay_vision.backend.temporal.scanners.monitor import MonitorVerdict
 from products.replay_vision.backend.temporal.scanners.summarizer import summary_embedding_text
 from products.replay_vision.backend.temporal.types import EventTable, ScannerCallOutput
 
@@ -261,6 +262,12 @@ class TestMonitorScanner:
         assert step.name == "core"
         assert step.response_model is MonitorLlmResponse
         assert step.validate is not None
+
+    @pytest.mark.parametrize("verdict,expected", [("yes", True), ("no", False)])
+    def test_only_a_yes_requires_an_event_lookup(self, verdict: MonitorVerdict, expected: bool) -> None:
+        step = scanner_from_db(_build_replay_scanner()).core_steps()[0]
+        assert step.requires_lookup is not None
+        assert step.requires_lookup(MonitorLlmResponse(reasoning="r", verdict=verdict, confidence=0.5)) is expected
 
     def test_finalize_stamps_scanner_type_onto_llm_response(self) -> None:
         scanner = scanner_from_db(_build_replay_scanner())
