@@ -48,6 +48,61 @@ def connect_task_run_assignment_sync() -> None:
         sync_task_run_pr_to_assignments,
         dispatch_uid="signals_sync_task_run_pr_to_assignments",
     )
+    connect_task_run_post_save(
+        schedule_implementation_handover,
+        dispatch_uid="signals_schedule_implementation_handover",
+    )
+
+
+def schedule_implementation_handover(sender: type, instance: Any, created: bool, **kwargs: Any) -> None:
+    # Fires on every TaskRun save (a hot model), so the in-memory checks run before the first query.
+    if created:
+        # A run is created before the agent does anything, and a handover only acts on a finished
+        # run, so the save that matters is a later one.
+        return
+    update_fields = kwargs.get("update_fields")
+    if update_fields is not None and not {"status", "output"}.intersection(update_fields):
+        return
+    # Only the self-driving implementation run can carry a replacement. Report research and repo
+    # selection share the report and the internal flag with it, so `ai_stage` is what separates
+    # them, and the pipeline stamps it once at run creation (see `pipeline_identity`).
+    if (instance.state or {}).get("ai_stage") != "implementation":
+        return
+    from products.signals.backend.tasks import reconcile_implementation_replacement
+
+    team_id = instance.team_id
+    for replacement_id in SignalReportArtefact.objects.filter(
+        team_id=team_id, task_id=instance.task_id, type="implementation_replacement"
+    ).values_list("id", flat=True):
+        # The id is bound as a default argument because the hooks run after the loop ends, so a
+        # closure over the loop variable would send every one of them the last id. `robust=True`
+        # keeps a broker failure here from cancelling the other hooks this save queued, and Django
+        # cannot log a `partial` in that path because it reads the callback's qualified name.
+        transaction.on_commit(
+            lambda queued=str(replacement_id): reconcile_implementation_replacement.delay(team_id, queued),
+            robust=True,
+        )
+
+
+@receiver(post_save, sender=SignalReportArtefact)
+def schedule_handover_for_work_change(sender: type, instance: SignalReportArtefact, **kwargs: Any) -> None:
+    if instance.type not in {"implementation_replacement", "work_claim", "work_release", "pull_request"}:
+        return
+    from products.signals.backend.supersession import schedule_report_replacements
+
+    team_id, report_id = instance.team_id, str(instance.report_id)
+    transaction.on_commit(lambda: schedule_report_replacements(team_id, report_id), robust=True)
+
+
+@receiver(post_save, sender=SignalReport)
+def schedule_handover_for_report_change(sender: type, instance: SignalReport, **kwargs: Any) -> None:
+    update_fields = kwargs.get("update_fields")
+    if update_fields is not None and not {"status", "run_count"}.intersection(update_fields):
+        return
+    from products.signals.backend.supersession import schedule_report_replacements
+
+    team_id, report_id = instance.team_id, str(instance.id)
+    transaction.on_commit(lambda: schedule_report_replacements(team_id, report_id), robust=True)
 
 
 def sync_task_run_pr_to_assignments(sender: type, instance: Any, created: bool, **kwargs: Any) -> None:

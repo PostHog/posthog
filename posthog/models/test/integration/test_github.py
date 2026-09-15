@@ -91,6 +91,24 @@ class TestParseRepoItemUrl(SimpleTestCase):
         assert GitHubIntegrationBase.parse_issue_url(issue_url) is None
 
 
+class TestPullRequestCommentMarker(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("absent", [], True, False),
+            ("present", [{"body": "note <!-- replacement -->"}], True, True),
+            ("incomplete", [], False, None),
+            ("present_in_partial_read", [{"body": "<!-- replacement -->"}], False, True),
+            ("malformed", {"error": "unavailable"}, True, None),
+        ]
+    )
+    def test_marker_absence_requires_a_complete_read(self, name, body, complete, expected) -> None:
+        github = GitHubIntegration(Integration(kind="github", config={}, sensitive_config={}))
+        response = MagicMock(status_code=200)
+        response.json.return_value = body
+        with patch.object(github, "_installation_authenticated_get_pages", return_value=([response], complete)):
+            assert github.has_pull_request_comment("example/repo", 1, "<!-- replacement -->") is expected
+
+
 class TestGitHubIntegrationModel(BaseTest):
     def setUp(self):
         super().setUp()

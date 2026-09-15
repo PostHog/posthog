@@ -48,6 +48,7 @@ from products.signals.backend.report_generation.reviewer_telemetry import (
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
 from products.signals.backend.report_metrics import ReportMetric, metric_batch_error
 from products.signals.backend.report_steering import ReportSteering, load_research_steering
+from products.signals.backend.supersession import research_implementation_context
 from products.signals.backend.temporal.agentic import (
     SIGNALS_REPORT_RESEARCH_ENV_NAME,
     get_or_create_signals_sandbox_env,
@@ -243,6 +244,7 @@ _AGENTIC_ARTEFACT_TYPES = [
     SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT,
     SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT,
     SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
+    SignalReportArtefact.ArtefactType.IMPLEMENTATION_DECISION,
 ]
 
 
@@ -734,11 +736,18 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
                 team_id=input.team_id, report_id=input.report_id, steering=steering
             )
             # 3. Run the agentic research in the sandbox
+            # The report's current PR, when it has one. It keeps the in-flight check from reading
+            # the report's own draft as somebody else's work, and it is what the supersede turn asks
+            # about. Best-effort: research must not fail over a PR lookup.
+            implementation_context = await database_sync_to_async(
+                research_implementation_context, thread_sensitive=False
+            )(input.team_id, input.report_id)
             result = await run_multi_turn_research(
                 input.signals,
                 context,
                 previous_report_id=input.report_id if previous_research else None,
                 previous_report_research=previous_research,
+                implementation_context=implementation_context,
                 signal_report_id=input.report_id,
                 has_business_knowledge=has_bk,
                 resolved_report_title=resolved_report_title,

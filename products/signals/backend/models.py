@@ -301,6 +301,12 @@ class SignalReport(UUIDModel):
     # nothing. Null means no completed pass has recorded it, which covers reports researched before
     # the column existed; read `researched_signal_count`, which reconstructs it from `signals_at_run`.
     signals_researched = models.IntegerField(null=True, blank=True)
+    # The research pass whose summary the report's current implementation PR was built from. A later
+    # pass may supersede that PR, but only once: auto-start creates a replacement only when
+    # `run_count` has moved past this, which is what stops one decision opening two pull requests.
+    # Null for reports implemented before superseding existed — safe, because those reports also have
+    # no `implementation_decision` artefact and the supersede path requires one.
+    implemented_at_run_count = models.IntegerField(null=True, blank=True)
 
     # LLM-generated during signal matching
     title = models.TextField(null=True, blank=True)
@@ -1081,6 +1087,9 @@ class SignalReportArtefact(UUIDModel):
         WORK_RELEASE = "work_release"
         PULL_REQUEST = "pull_request"
         CHECK_RESULT = "check_result"
+        IMPLEMENTATION_DECISION = "implementation_decision"
+        IMPLEMENTATION_REPLACEMENT = "implementation_replacement"
+        IMPLEMENTATION_HANDOVER = "implementation_handover"
 
     # Every artefact is an append-only, point-in-time log entry — nothing is mutated in place by
     # the producers. The two sets below classify *what an entry means*, not how it is written:
@@ -1101,6 +1110,7 @@ class SignalReportArtefact(UUIDModel):
             ArtefactType.REPO_SELECTION,
             ArtefactType.SUGGESTED_REVIEWERS,
             ArtefactType.CHANNEL_ASSIGNMENT,
+            ArtefactType.IMPLEMENTATION_DECISION,
         }
     )
     LOG_ARTEFACT_TYPES: frozenset[str] = frozenset(
@@ -1113,6 +1123,8 @@ class SignalReportArtefact(UUIDModel):
             ArtefactType.SUMMARY_CHANGE,
             ArtefactType.CODE_REVIEW,
             ArtefactType.RELATED_TO,
+            ArtefactType.IMPLEMENTATION_REPLACEMENT,
+            ArtefactType.IMPLEMENTATION_HANDOVER,
             ArtefactType.WORK_CLAIM,
             ArtefactType.WORK_RELEASE,
             ArtefactType.PULL_REQUEST,
@@ -1443,10 +1455,12 @@ class SignalReportTask(UUIDModel):
     Auto-start and the manual start-task API write *both* a `relationship="implementation"` row
     here and a `task_run` artefact (`record_implementation_task`). The gate reads this table — see
     `auto_start.py` — because the artefact log is freeform and API-mutable and so can't be trusted
-    for a spend-controlling decision. Once `backfill_task_run_artefacts` has converted every legacy
-    row to a `task_run` artefact, the gate can switch to the artefact log and this table can be
-    dropped. General task↔report association already lives only in artefacts; this table is kept
-    solely for the implementation gate during that transition.
+    for a spend-controlling decision. Replacement discovery reads the same rows (`automated_targets`
+    in `supersession.py`) to list a report's implementation tasks before it decides which automated
+    PRs a new research pass may replace. General task↔report association already lives only in
+    artefacts; this table is kept for those two readers during that transition. Once
+    `backfill_task_run_artefacts` has converted every legacy row to a `task_run` artefact, both
+    readers can switch to the artefact log and this table can be dropped.
     """
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")

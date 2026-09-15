@@ -23,6 +23,7 @@ class PullRequestStateSource(StrEnum):
 
 def reconcile_reports_for_pull_request(*, team_id: int, pr_id: str) -> None:
     from products.signals.backend.implementation_pr import report_ids_for_implementation_pr
+    from products.signals.backend.supersession import schedule_report_replacements
 
     pr = SignalReportPullRequest.objects.for_team(team_id).get(id=pr_id)
     report_ids = report_ids_for_implementation_pr(team_id=team_id, repository=pr.repository, pr_number=pr.number)
@@ -30,6 +31,7 @@ def reconcile_reports_for_pull_request(*, team_id: int, pr_id: str) -> None:
         reports = SignalReport.objects.select_for_update().filter(team_id=team_id, id__in=report_ids).order_by("id")
         for report in reports:
             apply_report_completion(report)
+            schedule_report_replacements(team_id, str(report.id))
 
 
 def completion_state(states: Sequence[str]) -> str | None:
@@ -119,6 +121,10 @@ def link_pull_request(
 def apply_report_completion(report: SignalReport) -> None:
     from products.signals.backend.implementation_pr import fetch_implementation_prs_for_reports
     from products.signals.backend.report_assignments import _apply_pr_report_state
+    from products.signals.backend.supersession import pending_replacement
+
+    if pending_replacement(report.team_id, str(report.id)) is not None:
+        return
 
     states = [
         pr.state
