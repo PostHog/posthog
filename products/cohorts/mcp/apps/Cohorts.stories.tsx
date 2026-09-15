@@ -52,6 +52,19 @@ const calculatingCohort: CohortData = {
     created_at: '2025-12-01T09:00:00Z',
 }
 
+// Mirrors the minimized cohorts-retrieve payload, which keeps only created_by.id.
+const idOnlyCreatorCohort: CohortData = {
+    id: 4,
+    name: 'Recently active',
+    description: 'Users seen in the last 7 days.',
+    is_static: false,
+    is_calculating: false,
+    count: 980,
+    created_at: '2026-01-10T09:00:00Z',
+    created_by: { id: 42 },
+    _posthogUrl: 'https://us.posthog.com/project/1/cohorts/4',
+}
+
 export const Dynamic: Story = {
     render: () => <CohortView cohort={dynamicCohort} />,
     name: 'Dynamic cohort',
@@ -65,6 +78,11 @@ export const Static: Story = {
 export const Calculating: Story = {
     render: () => <CohortView cohort={calculatingCohort} />,
     name: 'Calculating cohort',
+}
+
+export const IdOnlyCreator: Story = {
+    render: () => <CohortView cohort={idOnlyCreatorCohort} />,
+    name: 'Creator without a displayable name',
 }
 
 const sampleListData: CohortListData = {
