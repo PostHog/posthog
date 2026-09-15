@@ -7,6 +7,7 @@ Built by `hogli build:skills` and shipped in `dist/skills.zip` — see [products
 | --------------------------------- | ------------------------------------------------------------------------- |
 | `cleaning-up-stale-feature-flags` | Find flags that no longer serve a purpose and remove them safely.         |
 | `copying-flags-across-projects`   | Duplicate a flag into other projects in the same organization.            |
+| `debugging-feature-flags`         | Diagnose a customer's flag ticket read-only and draft the reply.          |
 | `finding-deleted-feature-flags`   | List flags soft-deleted in a time window, with who deleted each and when. |
 
 ## `instrument-feature-flags` is not ours, and must not be added here
