@@ -199,13 +199,16 @@ def validate_replay_scope_expr(
     try:
         resolve_types_from_table(expr, ["raw_session_replay_events"], context, "clickhouse")
     except QueryError as e:
+        # Keep the HogQL code on the response, like the two handlers that already render a HogQL
+        # failure on this path, so a client can still tell one query error from another.
         raise ValidationError(
             {
                 "properties": [
                     "Filters here run on the recording, not on events. "
                     f"To filter on an event property, write it as properties.<name>. ({e})"
                 ]
-            }
+            },
+            code=e.code_name,
         )
 
 

@@ -125,6 +125,7 @@ class TestUnexpectedPropertyValidation(BaseTest):
         detail = str(e.value.detail)
         assert "properties" in detail
         assert unknown_field in detail
+        assert e.value.get_codes() == {"properties": ["hogql_query_error"]}
 
     def test_filter_that_resolves_on_replay_still_builds(self) -> None:
         query = RecordingsQuery(properties=[HogQLPropertyFilter(key="console_error_count > 0")])
