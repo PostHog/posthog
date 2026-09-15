@@ -1,8 +1,17 @@
+/* oxlint-disable react-hooks/rules-of-hooks -- useMocks is a test helper, not a React hook */
+import { expectLogic } from 'kea-test-utils'
+
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SELF_DRIVING_WORKFLOW_ID } from 'scenes/onboarding/shared/wizard-sync/workflows'
+
+import { useMocks } from '~/mocks/jest'
+import { initKeaTests } from '~/test/init'
 
 import {
     computeOnboardingDecision,
     InboxOnboardingDecision,
+    inboxOnboardingLogic,
     InboxOnboardingMode,
     InboxSettledUiState,
     OnboardingModeInputs,
@@ -10,6 +19,8 @@ import {
     resolveWizardState,
     WizardStateInputs,
 } from './inboxOnboardingLogic'
+
+jest.mock('posthog-js')
 
 describe('inboxOnboardingLogic', () => {
     describe('computeOnboardingDecision', () => {
@@ -191,6 +202,86 @@ describe('inboxOnboardingLogic', () => {
             ['deadline elapsed with no flags either', { receivedFeatureFlags: false, verdictWaitExpired: true }, true],
         ])('%s', (_label, overrides, expected) => {
             expect(resolveWizardState({ ...base, ...overrides })).toBe(expected)
+        })
+    })
+
+    describe('refreshSetupState', () => {
+        let logic: ReturnType<typeof inboxOnboardingLogic.build>
+        let scanners: Record<string, unknown>[] = []
+        let scannersHeld: Promise<void> | null = null
+
+        beforeEach(() => {
+            scanners = []
+            scannersHeld = null
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/signals/source_configs/': () => [
+                        200,
+                        { results: [], count: 0, next: null, previous: null },
+                    ],
+                    '/api/projects/:team_id/signals/scout/configs/': () => [200, []],
+                    '/api/projects/:team_id/signals/reports/': () => [
+                        200,
+                        { count: 0, next: null, previous: null, results: [] },
+                    ],
+                    '/api/projects/:team_id/signals/reports/available_reviewers': {},
+                    '/api/projects/:team_id/vision/scanners/': async () => {
+                        if (scannersHeld) {
+                            await scannersHeld
+                        }
+                        return [200, { results: scanners, count: scanners.length, next: null, previous: null }]
+                    },
+                },
+            })
+            initKeaTests()
+            // The scanner and source loads are gated on this flag.
+            featureFlagLogic.mount()
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.PRODUCT_AUTONOMY], {
+                [FEATURE_FLAGS.PRODUCT_AUTONOMY]: true,
+            })
+            logic = inboxOnboardingLogic()
+            logic.mount()
+        })
+
+        afterEach(() => {
+            logic.unmount()
+        })
+
+        // Replay Vision writes no config row, so a scanner is the one watcher a refresh used to
+        // miss: the inbox kept telling a watched project that its setup was unfinished.
+        it('picks up a scanner that starts emitting', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.isSelfDrivingSetUp).toBe(false)
+
+            scanners = [{ id: 'scanner-1', name: 'Checkout watcher', emits_signals: true }]
+            logic.actions.refreshSetupState()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.isSelfDrivingSetUp).toBe(true)
+        })
+
+        // The tail of a refresh: the configs and counts have answered and the scanner roster has
+        // not. The roster keeps its previous value across a reload, so a verdict that settles here
+        // reads scanner data that is about to change.
+        it('holds the verdict while the scanner roster is still in flight', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.isRefetching).toBe(false)
+
+            let releaseScanners: () => void = () => {}
+            scannersHeld = new Promise<void>((resolve) => {
+                releaseScanners = resolve
+            })
+            scanners = [{ id: 'scanner-1', name: 'Checkout watcher', emits_signals: true }]
+            logic.actions.loadVisionScanners()
+
+            expect(logic.values.isRefetching).toBe(true)
+            expect(logic.values.isSelfDrivingSetUp).toBe(false)
+
+            releaseScanners()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.isRefetching).toBe(false)
+            expect(logic.values.isSelfDrivingSetUp).toBe(true)
         })
     })
 })

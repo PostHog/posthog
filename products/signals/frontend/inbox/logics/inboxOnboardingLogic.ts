@@ -274,6 +274,7 @@ export interface inboxOnboardingLogicValues {
     hasEmittingScanner: boolean | null // signalSourcesLogic
     sourceConfigs: SignalSourceConfig[] | null // signalSourcesLogic
     sourceConfigsLoading: boolean // signalSourcesLogic
+    visionScannersLoading: boolean // signalSourcesLogic
     currentTeamId: number | null // teamLogic
     activeWorkflowId: string | null // wizardActiveSessionDetectorLogic
     hasResolvedSessionState: boolean // wizardActiveSessionDetectorLogic
@@ -302,6 +303,7 @@ export interface inboxOnboardingLogicActions {
     loadReportsCount: () => any // reportListLogic
     loadScoutConfigs: (_?: void | undefined) => void // scoutFleetLogic
     loadSourceConfigs: () => any // signalSourcesLogic
+    loadVisionScanners: () => any // signalSourcesLogic
     checkWizardSession: () => {
         value: true
     } // wizardActiveSessionDetectorLogic
@@ -355,6 +357,7 @@ export interface inboxOnboardingLogicMeta {
         isRefetching: (
             sourceConfigsLoading: boolean,
             scoutConfigsLoading: boolean,
+            visionScannersLoading: boolean,
             pullsCountLoading: boolean,
             reportsCountLoading: boolean
         ) => boolean
@@ -416,7 +419,13 @@ export const inboxOnboardingLogic = kea<inboxOnboardingLogicType>([
     connect(() => ({
         values: [
             signalSourcesLogic,
-            ['sourceConfigs', 'sourceConfigsLoading', 'enabledSourcesCount', 'hasEmittingScanner'],
+            [
+                'sourceConfigs',
+                'sourceConfigsLoading',
+                'enabledSourcesCount',
+                'hasEmittingScanner',
+                'visionScannersLoading',
+            ],
             scoutFleetLogic,
             ['scoutConfigs', 'scoutConfigsLoading', 'enabledCount as enabledScoutsCount'],
             // Mount the monitoring + needs-decision count loaders directly (cheap limit=1 each) so we
@@ -443,7 +452,7 @@ export const inboxOnboardingLogic = kea<inboxOnboardingLogicType>([
             wizardActiveSessionDetectorLogic,
             ['check as checkWizardSession'],
             signalSourcesLogic,
-            ['loadSourceConfigs'],
+            ['loadSourceConfigs', 'loadVisionScanners'],
             scoutFleetLogic,
             ['loadScoutConfigs'],
             reportListLogic({ sectionKey: 'monitoring', listParams: INBOX_REPORT_SECTION_LIST_PARAMS.monitoring }),
@@ -472,6 +481,9 @@ export const inboxOnboardingLogic = kea<inboxOnboardingLogicType>([
         refreshSetupState: () => {
             actions.loadSourceConfigs()
             actions.loadScoutConfigs()
+            // Replay Vision writes no config row, so its scanners are a fourth input to the same
+            // verdict. Leaving them out froze them at their mount value for the whole visit.
+            actions.loadVisionScanners()
             actions.loadPullsCount()
             actions.loadReportsCount()
         },
@@ -576,16 +588,30 @@ export const inboxOnboardingLogic = kea<inboxOnboardingLogicType>([
                     verdictWaitExpired,
                 }),
         ],
-        // A config or count request is in flight. While true, the verdict must not commit to the
-        // takeover: the wizard may just have finished, and the loaded values are about to change.
+        // A config, scanner or count request is in flight. While true, the verdict must not commit
+        // to the takeover: the wizard may just have finished, and the loaded values are about to
+        // change. The scanner roster keeps its previous value across a reload, so a verdict that
+        // settles without this flag reads scanner data that has not landed yet.
         isRefetching: [
-            (s) => [s.sourceConfigsLoading, s.scoutConfigsLoading, s.pullsCountLoading, s.reportsCountLoading],
+            (s) => [
+                s.sourceConfigsLoading,
+                s.scoutConfigsLoading,
+                s.visionScannersLoading,
+                s.pullsCountLoading,
+                s.reportsCountLoading,
+            ],
             (
                 sourceConfigsLoading: boolean,
                 scoutConfigsLoading: boolean,
+                visionScannersLoading: boolean,
                 pullsCountLoading: boolean,
                 reportsCountLoading: boolean
-            ): boolean => sourceConfigsLoading || scoutConfigsLoading || pullsCountLoading || reportsCountLoading,
+            ): boolean =>
+                sourceConfigsLoading ||
+                scoutConfigsLoading ||
+                visionScannersLoading ||
+                pullsCountLoading ||
+                reportsCountLoading,
         ],
         manualSetupRequested: [
             (s) => [s.manualSetupRequestedByTeam, s.currentTeamId],
