@@ -258,12 +258,20 @@ All config, read once at start:
 | `CDP_DLQ_REPLAY_MAX_REPLAYS`                              | Default `2`                                                                         |
 | `CDP_DLQ_REPLAY_MAX_AGE`                                  | Skip records older than this. Default `30d` for destinations and `7d` for workflows |
 | `CDP_DLQ_REPLAY_MAX_MESSAGES_PER_SECOND`                  | Throttle, so a replay does not flood the hog queue                                  |
-| `CDP_DLQ_REPLAY_DRY_RUN`                                  | Count only                                                                          |
 
-**Dry run.**
-With `CDP_DLQ_REPLAY_DRY_RUN=true` the worker scans the window and logs counts by team, function, step, and reason.
-This answers "how many deliveries did we lose, and for whom" before anything is queued.
-The incident had no answer to that question.
+**Sizing a replay.**
+The worker has no count-only mode.
+A count taken before the rebuild is not the number of deliveries, because the pipeline still rejects a function that was deleted or disabled, a team that is quota limited, and an event that is masked.
+A count taken after the rebuild is exact but is no longer free: building invocations claims masks in Redis and reports billable invocations, so measuring would change what the next real run delivers.
+The generic `replay_kafka_dlq` can count without producing, because it re-produces raw bytes with no pipeline in between, so its record count is its delivery count.
+That does not carry over here.
+
+To size a replay, read the `dlq_team_id`, `dlq_hog_function_ids`, `dlq_reason` and `dlq_step` headers on the topic and group them.
+That answers "how many deliveries did we lose, and for whom" without running the worker at all.
+
+**Refusing an unconfigured run.**
+The worker will not start unless `CDP_DLQ_REPLAY_RUN_ID` names the run.
+A replica scaled up before its policy is written therefore stops, rather than replaying everything the default open policy matches.
 
 **Job DLQ.**
 Records from `cdp_cyclotron_jobs_dlq` are re-produced to their source queue topic, unchanged, with the `dlq_*` headers removed.
@@ -286,7 +294,7 @@ A replayed invocation appears in the Invocations UI as a normal run, with `succe
 Replayed invocations carry `queueMetadata.replayed_from_dlq = true`, so a `replayed` app metric can be added later without a format change.
 
 **Runbook.**
-`docs/internal/cdp-dead-letter-replay.md` (written with phase 1) covers: confirm the forward fix is deployed, run a dry run with a window and a reason filter, review the counts, run the replay with a throttle, then check the metrics below.
+`docs/internal/cdp-dead-letter-replay.md` (written with phase 1) covers: confirm the forward fix is deployed, group the records by their `dlq_*` headers to size the replay, name the run, run the replay with a window, a reason filter and a throttle, then check the metrics below.
 
 ### Part 3: detection and alerting
 
@@ -335,9 +343,9 @@ Phase 1, two to three weeks, gated by `CDP_DLQ_ENABLED`:
 - Enable on one region and watch `cdp_dead_letter_messages_total` and topic size.
   Producing records before the replay worker exists is safe, and it measures the real volume.
 - Per-event isolation, `parse` and `process` records, and the circuit breaker.
-- The replay worker mode, with dry run first.
+- The replay worker mode.
 - Runbook and the deletion-coverage doc line.
-- Game day: deploy a deliberate builtin regression to a dev stack, confirm the alert fires, run a dry run, run a replay, and confirm every event delivers once.
+- Game day: deploy a deliberate builtin regression to a dev stack, confirm the alert fires, size the replay from the record headers, run it, and confirm every event delivers once.
 
 Phase 2, follow-ups:
 
@@ -376,7 +384,8 @@ Rejected for the reasons in `services/cyclotron-v2/README.md`.
 **Reuse `posthog/kafka_client/dlq_replay.py`, `replay_kafka_dlq`, or the Temporal `dlq-replay` workflow.**
 Both re-produce to a target topic and cannot restrict to functions.
 The CDP source topic is shared with ClickHouse, so a re-produce duplicates events.
-Their `--max-replays`, `--skip-team-ids`, `--max-messages-per-second`, and `--dry-run` flags are the model for the replay policy above.
+Their `--max-replays`, `--skip-team-ids` and `--max-messages-per-second` flags are the model for the replay policy above.
+Their count-only flag is not, because it counts records it would re-produce verbatim, while this worker rebuilds each record through the pipeline and the pipeline can still reject it.
 
 **Fail the batch on every unknown error.**
 Preserves data, and it is what the consumer does today.
@@ -403,4 +412,4 @@ This plan answers them for the CDP:
 - DLQ topic: one per consumer, on the consumer's cluster, raw bytes plus `dlq_*` headers.
 - Retry budget: retriable errors never reach the DLQ; dead-lettered records get `CDP_DLQ_REPLAY_MAX_REPLAYS` (2) replays, then stay parked until retention.
 - Per-key ordering: accepted for destinations (already unordered); for workflows the trigger filter runs again and a max age skips stale records.
-- Replay ownership: the CDP team, through the bounded replay worker, with a dry run before every replay.
+- Replay ownership: the CDP team, through the bounded replay worker, which refuses to start until the run is named.
