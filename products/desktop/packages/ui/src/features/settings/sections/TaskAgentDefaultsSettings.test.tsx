@@ -22,11 +22,32 @@ const previewState = vi.hoisted(() => ({
 // a reset (which clears it to all-null) and re-renders.
 const defaultsState = vi.hoisted(() => ({
   myPreferences: {
+    runtime: null as string | null,
     runtime_adapter: null as string | null,
     model: null as string | null,
     reasoning_effort: null as string | null,
   },
 }));
+// What the two levels resolve to, which the card's summary line names.
+const resolvedState = vi.hoisted(() => ({
+  resolved: {
+    runtime: "acp" as string | null,
+    runtime_adapter: "claude" as string | null,
+    model: "claude-fable-5" as string | null,
+    reasoning_effort: "high" as string | null,
+    source: "team",
+  },
+}));
+const PI_MODELS = vi.hoisted(() => [
+  {
+    provider: "posthog" as const,
+    id: "gpt-5.6-terra",
+    name: "GPT-5.6 Terra",
+    isDefault: true,
+    contextWindow: 0,
+    thinkingLevels: ["off", "low", "high"] as const,
+  },
+]);
 
 vi.mock("@posthog/ui/features/auth/store", () => ({
   useAuthStateValue: (
@@ -48,22 +69,21 @@ vi.mock("@posthog/ui/features/feature-flags/useFeatureFlag", () => ({
 vi.mock("@posthog/ui/features/settings/hooks/useTaskAgentDefaults", () => ({
   useTaskAgentDefaults: () => ({
     teamPreferences: {
+      runtime: "acp",
       runtime_adapter: "claude",
       model: "claude-fable-5",
       reasoning_effort: "high",
     },
     myPreferences: defaultsState.myPreferences,
-    resolved: {
-      runtime_adapter: "claude",
-      model: "claude-fable-5",
-      reasoning_effort: "high",
-      source: "team",
-    },
+    resolved: resolvedState.resolved,
     isLoading: false,
     isSaving: false,
     save: saveMock,
     reset: vi.fn(),
   }),
+}));
+vi.mock("@posthog/ui/features/pi-sessions/usePiModelCatalog", () => ({
+  usePiModelCatalog: () => ({ data: PI_MODELS, isPending: false }),
 }));
 vi.mock("@posthog/ui/features/task-detail/hooks/usePreviewConfig", () => ({
   usePreviewConfig: (adapter: string) => {
@@ -124,9 +144,17 @@ describe("TaskAgentDefaultsSettings", () => {
     previewState.setConfigOption.mockClear();
     previewState.lastAdapter = null;
     defaultsState.myPreferences = {
+      runtime: null,
       runtime_adapter: null,
       model: null,
       reasoning_effort: null,
+    };
+    resolvedState.resolved = {
+      runtime: "acp",
+      runtime_adapter: "claude",
+      model: "claude-fable-5",
+      reasoning_effort: "high",
+      source: "team",
     };
   });
 
@@ -166,6 +194,7 @@ describe("TaskAgentDefaultsSettings", () => {
 
     expect(saveMock).toHaveBeenCalledTimes(1);
     expect(saveMock).toHaveBeenCalledWith({
+      runtime: "acp",
       runtime_adapter: "codex",
       model: "gpt-5.6-terra",
       reasoning_effort: null,
@@ -199,9 +228,76 @@ describe("TaskAgentDefaultsSettings", () => {
 
     expect(saveMock).toHaveBeenCalledTimes(1);
     expect(saveMock).toHaveBeenCalledWith({
+      runtime: "acp",
       runtime_adapter: "codex",
       model: "gpt-5.6-sol",
       reasoning_effort: "max",
+    });
+  });
+
+  // A Pi default was unreachable from this card: the harness list left Pi out, and a
+  // stored Pi selection rendered as the ACP pill, so the person could neither see the
+  // harness their runs use nor change the model it runs.
+  it("shows a stored Pi default on the Pi control", async () => {
+    defaultsState.myPreferences = {
+      runtime: "pi",
+      runtime_adapter: null,
+      model: "gpt-5.6-terra",
+      reasoning_effort: "low",
+    };
+    resolvedState.resolved = {
+      runtime: "pi",
+      runtime_adapter: null,
+      model: "gpt-5.6-terra",
+      reasoning_effort: "low",
+      source: "user",
+    };
+    render(
+      <Theme>
+        <TaskAgentDefaultsSettings />
+      </Theme>,
+    );
+
+    const trigger = await screen.findByRole("button", {
+      name: /Model(?: and reasoning)?: GPT-5.6 Terra/,
+    });
+    expect(trigger).toHaveTextContent("GPT-5.6 Terra");
+    // The summary line names the harness, which a model id alone cannot: Pi and the
+    // adapters share models.
+    expect(screen.getByText(/use Pi · /)).toBeInTheDocument();
+  });
+
+  // The whole point of the card: a model picked on Pi has to store as a Pi selection.
+  // Deriving an adapter for it instead would save a default that runs the other harness.
+  it("saves a model picked on Pi as a Pi selection, with no adapter", async () => {
+    defaultsState.myPreferences = {
+      runtime: "pi",
+      runtime_adapter: null,
+      model: "gpt-5.6-terra",
+      reasoning_effort: "low",
+    };
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    render(
+      <Theme>
+        <TaskAgentDefaultsSettings />
+      </Theme>,
+    );
+
+    const trigger = await screen.findByRole("button", {
+      name: /Model(?: and reasoning)?: GPT-5.6 Terra/,
+    });
+    await user.click(trigger);
+    await openSub(user, /^Model/);
+    fireEvent.click(
+      await screen.findByRole("menuitemradio", { name: /Claude Fable 5/ }),
+    );
+
+    expect(saveMock).toHaveBeenCalledTimes(1);
+    expect(saveMock).toHaveBeenCalledWith({
+      runtime: "pi",
+      runtime_adapter: null,
+      model: "claude-fable-5",
+      reasoning_effort: null,
     });
   });
 
@@ -211,6 +307,7 @@ describe("TaskAgentDefaultsSettings", () => {
   // snap back to the inherited project harness instead.
   it("drops a pending harness browse when the default is reset", async () => {
     defaultsState.myPreferences = {
+      runtime: "acp",
       runtime_adapter: "claude",
       model: "claude-fable-5",
       reasoning_effort: "high",
@@ -232,6 +329,7 @@ describe("TaskAgentDefaultsSettings", () => {
 
     // Reset clears the personal default: myPreferences flips to all-null.
     defaultsState.myPreferences = {
+      runtime: null,
       runtime_adapter: null,
       model: null,
       reasoning_effort: null,

@@ -8,6 +8,7 @@ import {
   matchesPreferredRunSelection,
   type PreviewSettingsSnapshot,
   pickPreferredRunSelection,
+  preferredRunsOnPi,
 } from "./previewConfig";
 
 function toggleOption(
@@ -299,6 +300,21 @@ describe("pickPreferredRunSelection", () => {
       expected: null,
     },
     {
+      // Pi and the adapters share models, so a Pi default can name a model this
+      // adapter also offers. Adopting it would launch an ACP run on a default the
+      // person stored for Pi.
+      label: "ignores a preference stored for the Pi harness",
+      defaults: {
+        runtime: "pi",
+        runtime_adapter: null,
+        model: "claude-opus-5",
+        reasoning_effort: "high",
+      },
+      lastUsedModel: null,
+      lastUsedReasoningEffort: null,
+      expected: null,
+    },
+    {
       label: "drops an effort-less preference to the model's own default",
       defaults: {
         runtime_adapter: "claude",
@@ -388,5 +404,54 @@ describe("matchesPreferredRunSelection", () => {
     expect(matchesPreferredRunSelection(pref, current, effortPicked)).toBe(
       expected,
     );
+  });
+});
+
+// The composer resolves its harness before it resolves an adapter, and a Pi default
+// carries no adapter at all — so `preferredRunAdapter` answers null for one and cannot
+// tell it apart from "nothing stored".
+describe("preferredRunsOnPi", () => {
+  it.each([
+    {
+      label: "reports a stored Pi default",
+      defaults: {
+        runtime: "pi",
+        runtime_adapter: null,
+        model: "gpt-5.6-terra",
+        reasoning_effort: "off",
+      },
+      expected: true,
+    },
+    {
+      label: "reports an ACP default as not Pi",
+      defaults: {
+        runtime: "acp",
+        runtime_adapter: "codex",
+        model: "gpt-5.6-terra",
+        reasoning_effort: "high",
+      },
+      expected: false,
+    },
+    {
+      label: "reads a default stored before the harness field as ACP",
+      defaults: {
+        runtime_adapter: "claude",
+        model: "claude-opus-5",
+        reasoning_effort: "high",
+      },
+      expected: false,
+    },
+    {
+      label: "reports no stored default as not Pi",
+      defaults: {
+        runtime: "pi",
+        runtime_adapter: null,
+        model: null,
+        reasoning_effort: null,
+      },
+      expected: false,
+    },
+  ])("$label", ({ defaults, expected }) => {
+    expect(preferredRunsOnPi(defaults)).toBe(expected);
   });
 });

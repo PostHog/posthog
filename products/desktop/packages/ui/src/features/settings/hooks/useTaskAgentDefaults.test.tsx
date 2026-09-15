@@ -13,7 +13,9 @@ const mockClient = vi.hoisted(() => ({
 const settingsStore = vi.hoisted(() => ({
   setLastUsedModel: vi.fn(),
   setLastUsedReasoningEffort: vi.fn(),
+  setLastUsedPiModel: vi.fn(),
   setLastUsedAdapter: vi.fn(),
+  setLastUsedAgentRuntime: vi.fn(),
 }));
 const toastMock = vi.hoisted(() => ({ error: vi.fn(), success: vi.fn() }));
 
@@ -33,11 +35,13 @@ import { taskRunDefaultsQueryKey } from "@posthog/ui/features/task-detail/hooks/
 import { useTaskAgentDefaults } from "./useTaskAgentDefaults";
 
 const TEAM_DEFAULT = {
+  runtime: "acp",
   runtime_adapter: "claude",
   model: "claude-fable-5",
   reasoning_effort: "high",
 };
 const MY_PICK = {
+  runtime: "acp",
   runtime_adapter: "codex",
   model: "gpt-5.6-terra",
   reasoning_effort: null,
@@ -128,6 +132,7 @@ describe("useTaskAgentDefaults", () => {
   // outright — the model shown never changed.
   it("moves the harness to the one the new default runs on", async () => {
     const claudeDefault = {
+      runtime: "acp",
       runtime_adapter: "claude",
       model: "claude-opus-4-8",
       reasoning_effort: "medium",
@@ -146,6 +151,36 @@ describe("useTaskAgentDefaults", () => {
     await waitFor(() =>
       expect(settingsStore.setLastUsedAdapter).toHaveBeenCalledWith("claude"),
     );
+    expect(settingsStore.setLastUsedAgentRuntime).toHaveBeenCalledWith("acp");
+  });
+
+  // The composer resolves acp or pi before it looks at an adapter, and the stored Pi
+  // model shadows the default the same way the ACP model does. Without both moves, a Pi
+  // default saved here leaves the composer opening on Claude or Codex.
+  it("moves the composer onto Pi when the new default runs there", async () => {
+    const piDefault = {
+      runtime: "pi",
+      runtime_adapter: null,
+      model: "gpt-5.6-terra",
+      reasoning_effort: "off",
+    };
+    mockClient.updateMyTaskRunPreferences.mockResolvedValue({
+      preferences: piDefault,
+      resolved: { ...piDefault, source: "user" },
+    });
+    const { result } = await mounted();
+
+    act(() => result.current.save(piDefault));
+    await act(async () => {
+      vi.advanceTimersByTime(1000);
+    });
+
+    await waitFor(() =>
+      expect(settingsStore.setLastUsedAgentRuntime).toHaveBeenCalledWith("pi"),
+    );
+    expect(settingsStore.setLastUsedPiModel).toHaveBeenCalledWith(null);
+    // A Pi default names no adapter, so the last-used adapter stays where it was.
+    expect(settingsStore.setLastUsedAdapter).not.toHaveBeenCalled();
   });
 
   // Picking a model and then its effort is two interactions moments apart; writing on each
