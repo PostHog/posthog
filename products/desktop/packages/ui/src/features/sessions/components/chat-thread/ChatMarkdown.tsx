@@ -10,6 +10,7 @@ import {
   TableRow,
   Text,
 } from "@posthog/quill";
+import { useFileAsBase64 } from "@posthog/ui/features/code-editor/hooks/useFileContent";
 import { ArtifactRefChip } from "@posthog/ui/features/editor/components/ArtifactRefChip";
 import { EvidenceRefChip } from "@posthog/ui/features/editor/components/EvidenceRefChip";
 import { githubRefChipFor } from "@posthog/ui/features/editor/components/githubRefChipFor";
@@ -25,14 +26,13 @@ import {
   InlineFileLink,
   looksLikeBareFilename,
 } from "@posthog/ui/features/sessions/components/session-update/fileLinkChips";
+import { useSessionTaskId } from "@posthog/ui/features/sessions/useSessionTaskId";
+import { useCwd } from "@posthog/ui/features/sidebar/useCwd";
 import { useThrottledValue } from "@posthog/ui/hooks/useThrottledValue";
 import { HighlightedCode } from "@posthog/ui/primitives/HighlightedCode";
 import { MermaidDiagram } from "@posthog/ui/primitives/MermaidDiagram";
 import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { useCopy } from "@posthog/ui/primitives/useCopy";
-import { useFileAsBase64 } from "@posthog/ui/features/code-editor/hooks/useFileContent";
-import { useCwd } from "@posthog/ui/features/sidebar/useCwd";
-import { useSessionTaskId } from "@posthog/ui/features/sessions/useSessionTaskId";
 import { parseArtifactLink } from "@posthog/ui/utils/artifactLinks";
 import {
   CHART_BLOCK_MARKER,
