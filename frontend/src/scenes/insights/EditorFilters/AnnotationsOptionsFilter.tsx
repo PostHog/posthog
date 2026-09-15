@@ -33,7 +33,7 @@ export function AnnotationsOptionsFilter(): JSX.Element {
             }
         }
         const loaded = [...counts.entries()].sort((a, b) => b[1] - a[1]).map(([emoji]) => emoji)
-        // A hidden emoji can outlive the last annotation that used it — keep its switch visible so it stays clearable.
+        // Keep switches for hidden emojis that no loaded annotation uses, so the user can still clear them.
         const stale = hiddenEmojis.filter((emoji) => !counts.has(emoji))
         return [...loaded, ...stale]
     }, [annotations, hiddenEmojis])

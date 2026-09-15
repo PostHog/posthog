@@ -698,6 +698,18 @@ describe('insightVizDataLogic', () => {
             })
         })
 
+        it('keeps every patch dispatched inside the debounce', async () => {
+            await expectLogic(builtInsightDataLogic, () => {
+                builtInsightVizDataLogic.actions.updateInsightFilter({ showAnnotations: false })
+                builtInsightVizDataLogic.actions.updateInsightFilter({ annotationsFilter: { search: 'release' } })
+            }).toFinishAllListeners()
+
+            expect(builtInsightVizDataLogic.values.insightFilter).toEqual({
+                showAnnotations: false,
+                annotationsFilter: { search: 'release' },
+            })
+        })
+
         it('clears the breakdown when switching to the Metric display', async () => {
             await expectLogic(builtInsightDataLogic, () => {
                 builtInsightVizDataLogic.actions.updateBreakdownFilter({
