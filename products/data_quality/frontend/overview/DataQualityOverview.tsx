@@ -9,6 +9,7 @@ import {
     LemonInput,
     LemonMenu,
     LemonSegmentedButton,
+    LemonSkeleton,
     LemonTable,
     LemonTag,
     Link,
@@ -16,11 +17,18 @@ import {
 } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
+import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { TZLabel } from 'lib/components/TZLabel'
 
 import { CheckEditorModal } from '../CheckEditorModal'
 import { CheckRunsTable } from '../CheckRunsTable'
-import { HEALTH_TAG_TYPES, SUBJECT_TYPE_TAGS, checkDisplayName, checkTypeLabel } from '../checksConstants'
+import {
+    HEALTH_LABELS,
+    HEALTH_TAG_TYPES,
+    SUBJECT_TYPE_TAGS,
+    checkDisplayName,
+    checkTypeLabel,
+} from '../checksConstants'
 import { CheckStatusCell } from '../CheckStatusCell'
 import { DataQualityCheckEditorLogicProps, dataQualityCheckEditorLogic } from '../dataQualityCheckEditorLogic'
 import type { DataQualityOverviewCheckApi } from '../generated/api.schemas'
@@ -100,9 +108,28 @@ export function DataQualityOverview(): JSX.Element {
 
     const runningAll = (startingRun || isRunning) && runTarget?.kind === 'all'
     const anyRunActive = startingRun || isRunning
+    const newCheckButton = (
+        <LemonButton
+            id={NEW_CHECK_ACTION_ID}
+            type="primary"
+            size="small"
+            onClick={addCheck}
+            data-attr="data-quality-overview-new-check"
+        >
+            New check
+        </LemonButton>
+    )
 
     if (!snapshotLoaded && overviewLoading) {
-        return <LemonTable dataSource={[]} loading columns={[{ title: 'Check', key: 'name' }]} />
+        return (
+            <div className="flex flex-col gap-3">
+                <div className="flex flex-wrap items-center gap-2">
+                    <LemonSkeleton className="h-8 w-64 max-w-full" />
+                    <LemonSkeleton className="h-8 w-48" />
+                </div>
+                <LemonSkeleton.Row repeat={3} fade />
+            </div>
+        )
     }
 
     if (!snapshotLoaded && overviewError) {
@@ -116,51 +143,41 @@ export function DataQualityOverview(): JSX.Element {
     return (
         <BindLogic logic={dataQualityCheckEditorLogic} props={editorProps}>
             <div className="flex flex-col gap-3">
-                <div className="flex flex-wrap items-center gap-2">
-                    <div className="flex flex-wrap items-center gap-2 grow basis-full @2xl/main-content:basis-0">
-                        <LemonInput
-                            type="search"
-                            size="small"
-                            placeholder="Search checks"
-                            value={filters.search}
-                            onChange={(search) => setFilters({ search })}
-                            className="flex-1 min-w-40 max-w-64"
-                        />
-                        <LemonSegmentedButton
-                            size="small"
-                            value={filters.status}
-                            onChange={(status) => setFilters({ status })}
-                            options={STATUS_FILTERS}
-                        />
+                {checks.length === 0 ? (
+                    <div className="flex justify-end">{newCheckButton}</div>
+                ) : (
+                    <div className="flex flex-wrap items-center gap-2">
+                        <div className="flex flex-wrap items-center gap-2 grow basis-full @2xl/main-content:basis-0">
+                            <LemonInput
+                                type="search"
+                                size="small"
+                                placeholder="Search checks"
+                                value={filters.search}
+                                onChange={(search) => setFilters({ search })}
+                                className="flex-1 min-w-40 max-w-64"
+                            />
+                            <LemonSegmentedButton
+                                size="small"
+                                value={filters.status}
+                                onChange={(status) => setFilters({ status })}
+                                options={STATUS_FILTERS}
+                            />
+                        </div>
+                        <div className="flex flex-wrap items-center gap-2 ml-auto">
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                onClick={() => runChecks({ kind: 'all' })}
+                                loading={runningAll}
+                                disabledReason={anyRunActive && !runningAll ? 'Checks are already running' : undefined}
+                                data-attr="data-quality-overview-run-all"
+                            >
+                                Run all checks
+                            </LemonButton>
+                            {newCheckButton}
+                        </div>
                     </div>
-                    <div className="flex flex-wrap items-center gap-2 ml-auto">
-                        <LemonButton
-                            type="secondary"
-                            size="small"
-                            onClick={() => runChecks({ kind: 'all' })}
-                            loading={runningAll}
-                            disabledReason={
-                                checks.length === 0
-                                    ? 'There are no checks to run'
-                                    : anyRunActive && !runningAll
-                                      ? 'Checks are already running'
-                                      : undefined
-                            }
-                            data-attr="data-quality-overview-run-all"
-                        >
-                            Run all checks
-                        </LemonButton>
-                        <LemonButton
-                            id={NEW_CHECK_ACTION_ID}
-                            type="primary"
-                            size="small"
-                            onClick={addCheck}
-                            data-attr="data-quality-overview-new-check"
-                        >
-                            New check
-                        </LemonButton>
-                    </div>
-                </div>
+                )}
 
                 <div className="flex flex-wrap items-center gap-x-4 gap-y-2 empty:hidden">
                     {overviewSummary && <p className="mb-0 text-secondary flex-1 min-w-0">{overviewSummary}</p>}
@@ -214,18 +231,25 @@ export function DataQualityOverview(): JSX.Element {
 
 function NoChecksYet({ onAddCheck }: { onAddCheck: () => void }): JSX.Element {
     return (
-        <div
-            data-attr="data-quality-overview-empty-state"
-            className="border rounded px-4 py-8 flex flex-col items-center text-center mx-auto"
-        >
-            <HedgehogScientist width="128" height="128" className="mb-4" />
-            <h2 className="text-xl leading-tight">No checks yet</h2>
-            <p className="mb-4 text-sm text-balance text-tertiary">
-                Create a check to spot issues in your data before they affect your analysis.
-            </p>
-            <LemonButton type="primary" size="small" onClick={onAddCheck} data-attr="data-quality-overview-first-check">
-                Add your first check
-            </LemonButton>
+        <div data-attr="data-quality-overview-empty-state">
+            <ProductIntroduction
+                titleOverride="No checks yet"
+                thingName="check"
+                description="Create a check to spot issues in your data before they affect your analysis."
+                customHog={HedgehogScientist}
+                hogLayout="responsive"
+                useMainContentContainerQueries
+                actionElementOverride={
+                    <LemonButton
+                        type="primary"
+                        size="small"
+                        onClick={onAddCheck}
+                        data-attr="data-quality-overview-first-check"
+                    >
+                        Add your first check
+                    </LemonButton>
+                }
+            />
         </div>
     )
 }
@@ -264,15 +288,17 @@ function SubjectSection({ group }: { group: SubjectGroup }): JSX.Element {
                         <Link
                             to={group.detailUrl}
                             target="_blank"
-                            className="font-semibold"
+                            className="font-semibold truncate max-w-full"
                             tooltip={`Open ${group.subjectName} in a new tab`}
                         >
                             {group.subjectName}
                         </Link>
                     ) : (
-                        <span className="font-semibold">{group.subjectName}</span>
+                        <span className="font-semibold truncate max-w-full">{group.subjectName}</span>
                     )}
-                    <LemonTag type={HEALTH_TAG_TYPES[group.health] ?? 'default'}>{group.health}</LemonTag>
+                    <LemonTag type={HEALTH_TAG_TYPES[group.health] ?? 'default'}>
+                        {HEALTH_LABELS[group.health] ?? group.health}
+                    </LemonTag>
                     {subjectType && <LemonTag type={subjectType.type}>{subjectType.label}</LemonTag>}
                     <span className="text-secondary text-sm">
                         {group.checksFailing > 0
@@ -297,9 +323,6 @@ function SubjectSection({ group }: { group: SubjectGroup }): JSX.Element {
                 </LemonButton>
             </div>
 
-            {scopedToThisSubject && running && (
-                <p className="px-2 pb-2 mb-0 text-secondary text-sm">Running checks...</p>
-            )}
             {scopedToThisSubject && pollTimedOut && (
                 <div className="px-2 pb-2">
                     <LemonBanner type="warning" action={{ children: 'Refresh', onClick: loadOverview }}>
