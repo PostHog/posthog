@@ -1,8 +1,11 @@
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
 import type { Decorator, Meta, StoryObj } from '@storybook/react'
 import { router } from 'kea-router'
 import { useEffect } from 'react'
 
 import { FEATURE_FLAGS } from 'lib/constants'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
@@ -85,8 +88,14 @@ const patterns: TicketPatternApi[] = [
 ]
 
 // The tabs read the active tab from the URL, so land on the patterns route like a real visit would.
+// The Patterns tab itself only shows once detection is on, and the bootstrap team has it off.
 const onPatternsRoute: Decorator = (Story) => {
     useEffect(() => {
+        teamLogic.actions.loadCurrentTeamSuccess({
+            ...MOCK_DEFAULT_TEAM,
+            conversations_enabled: true,
+            conversations_settings: { pattern_detection_enabled: true },
+        })
         router.actions.push(urls.supportPatterns())
     }, [])
     return <Story />
