@@ -10,8 +10,6 @@ import { colonDelimitedDuration } from 'lib/utils/durations'
 import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
 import { urls } from 'scenes/urls'
 
-import { PersonIcon } from 'products/persons/frontend/components/PersonDisplay'
-
 import { CitedText, ObservationResultSummary, readResult } from '../../components/ObservationCard'
 import { ScannerTypeBadge } from '../../components/ScannerTypeBadge'
 import type { ReplayObservationApi, WatchFeedItemApi, WatchFeedReasonApi } from '../../generated/api.schemas'
@@ -83,11 +81,6 @@ export function WatchFeedCard({ item, position }: WatchFeedCardProps): JSX.Eleme
     const scannerType = observation.scanner_snapshot?.scanner_type as ScannerType | undefined
     const scannerName = (observation.scanner_snapshot?.name as string | undefined) || '(untitled scanner)'
     const person = observation.recording_subject_email || observation.distinct_id
-    // Same person shape the recordings player uses, so the avatar renders through PersonIcon.
-    const personProp = {
-        distinct_id: observation.distinct_id ?? undefined,
-        properties: { email: observation.recording_subject_email ?? undefined },
-    }
     // Summarizers already tell the story through title + summary; the other types show only an
     // outcome chip, so bring their reasoning along for context, clamped to keep the card scannable.
     const result = readResult(observation)
@@ -196,17 +189,13 @@ export function WatchFeedCard({ item, position }: WatchFeedCardProps): JSX.Eleme
                         observation.distinct_id ? (
                             <Link
                                 to={urls.personByDistinctId(observation.distinct_id)}
-                                className="relative z-10 flex items-center gap-1.5 min-w-0"
+                                className="relative z-10 truncate min-w-0"
                                 data-attr="vision-watch-feed-person"
                             >
-                                <PersonIcon person={personProp} size="sm" />
-                                <span className="truncate">{person}</span>
+                                {person}
                             </Link>
                         ) : (
-                            <span className="flex items-center gap-1.5 min-w-0">
-                                <PersonIcon person={personProp} size="sm" />
-                                <span className="truncate">{person}</span>
-                            </span>
+                            <span className="truncate min-w-0">{person}</span>
                         )
                     ) : (
                         <span />
