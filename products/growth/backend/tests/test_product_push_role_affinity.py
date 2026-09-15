@@ -18,7 +18,8 @@ from products.growth.backend.product_push.role_affinity import (
     weights_for_roles,
 )
 
-CANDIDATES = [ProductKey.DATA_WAREHOUSE, ProductKey.SURVEYS, ProductKey.LOGS]
+# One product only the data role favors, one only marketing does, one neither does.
+CANDIDATES = [ProductKey.ENDPOINTS, ProductKey.MARKETING_ANALYTICS, ProductKey.LOGS]
 
 
 class TestWeightsForRoles(SimpleTestCase):

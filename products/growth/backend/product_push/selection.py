@@ -42,8 +42,6 @@ BLESSED_PRODUCT_ORDER: list[ProductKey] = [
     ProductKey.SESSION_REPLAY,
     ProductKey.POSTHOG_SLACK,
     ProductKey.ERROR_TRACKING,
-    ProductKey.FEATURE_FLAGS,
-    ProductKey.EXPERIMENTS,
 ]
 
 # Unordered pool for orgs that exhausted the blessed order; picked at random,
@@ -60,6 +58,8 @@ FALLBACK_PRODUCT_ORDER: list[ProductKey] = [
     ProductKey.CONVERSATIONS,
     ProductKey.DATA_WAREHOUSE,
     ProductKey.ENDPOINTS,
+    ProductKey.EXPERIMENTS,
+    ProductKey.FEATURE_FLAGS,
     ProductKey.LLM_ANALYTICS,
     ProductKey.LLM_CLUSTERS,
     ProductKey.LLM_EVALUATIONS,
