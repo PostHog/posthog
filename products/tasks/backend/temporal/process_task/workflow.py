@@ -419,12 +419,19 @@ AGENT_LOST_ERROR_MESSAGE = "The agent stopped before finishing its turn"
 
 # Replays of pre-rollout histories must keep recording an idle exit as completed.
 _PATCH_ID_TURN_OPENS_ON_DISPATCH = "tasks-turn-opens-on-dispatch"
+_PATCH_ID_PRESERVE_AGENT_STATE_DURING_DISPATCH = "tasks-preserve-agent-state-during-dispatch"
 
 
 def _turn_opens_on_dispatch() -> bool:
     if not workflow.in_workflow():
         return True
     return workflow.patched(_PATCH_ID_TURN_OPENS_ON_DISPATCH)
+
+
+def _preserve_agent_state_during_dispatch() -> bool:
+    if not workflow.in_workflow():
+        return True
+    return workflow.patched(_PATCH_ID_PRESERVE_AGENT_STATE_DURING_DISPATCH)
 
 
 # Keeps an interactive run alive when follow-up delivery exhausts retries, releasing
@@ -492,6 +499,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         self._heartbeat_received: bool = False
         self._client_activity_received: bool = False
         self._agent_active: Optional[bool] = None
+        self._agent_state_revision: int = 0
         self._end_of_turn_received: Optional[bool] = None
         self._turn_ended_received = False
         self._last_agent_heartbeat_at: Optional[datetime] = None
@@ -3294,6 +3302,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
 
     @temporalio.workflow.signal
     async def agent_state_changed(self, agent_active: bool) -> None:
+        self._agent_state_revision += 1
         self._agent_active = agent_active
         self._end_of_turn_received = not agent_active
         if not agent_active and _turn_opens_on_dispatch():
@@ -3463,6 +3472,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         steer: bool = False,
         user_originated: bool = True,
     ) -> str | None:
+        agent_state_revision = self._agent_state_revision
         if not steer and self.context.task_runtime == "pi":
             self._record_first_command_dispatched()
         workflow.logger.info(
@@ -3495,8 +3505,12 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                     maximum_attempts=max_attempts,
                 ),
             )
-            # A delivered message opens a turn: the first heartbeat may lag or be throttled away.
-            if outcome != STEER_DECLINED_OUTCOME and _turn_opens_on_dispatch():
+            # The synchronous delivery can return after the agent has already reported its state.
+            if (
+                outcome != STEER_DECLINED_OUTCOME
+                and _turn_opens_on_dispatch()
+                and (not _preserve_agent_state_during_dispatch() or self._agent_state_revision == agent_state_revision)
+            ):
                 self._end_of_turn_received = False
                 # The ingest plane never reports a turn active, only inactive at its close, so a
                 # stale `False` from the turn that just ended must not carry into this one — it

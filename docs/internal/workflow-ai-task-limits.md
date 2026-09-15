@@ -20,6 +20,9 @@ Keep both limits enabled when raising capacity. Set the per-workflow limit for t
 A workflow run pauses at an AI task step or a scout step until the run it started reaches a terminal status.
 After success, the next step sees the dispatch IDs, `status: completed`, and a capped `final_message` (tasks) or `summary` (scouts). The result also includes `pr_urls` when present.
 A failed or cancelled run fails the step. The step's `on_error` setting decides whether the workflow continues.
+An idle timeout after an agent has completed its turn records the task run as completed.
+Message delivery can wait for the whole turn, so its response must preserve agent-state signals received while delivery was pending.
+The task workflow applies this ordering rule through the `tasks-preserve-agent-state-during-dispatch` Temporal patch to preserve replay behavior.
 With `on_error: continue`, the next step sees the dispatch IDs, the terminal `status`, and `error_message`, so a condition step can route a failed run to a notification.
 
 ### Fields the agent returns
