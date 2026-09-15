@@ -10,7 +10,8 @@ from django.db.models import Count
 from django.utils.timezone import now
 
 from dateutil.relativedelta import relativedelta
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter, extend_schema
 from loginas.utils import is_impersonated_session
 from rest_framework import exceptions, viewsets
 from rest_framework.decorators import action
@@ -1211,6 +1212,27 @@ class DebugCHQueries(viewsets.ViewSet):
         "ratio (lazy-served vs eligible live reads), warmer activity, per-family miss breakdown, "
         "and per-team warmed/missing rankings. `product` selects the vocabulary "
         "(default web_analytics). Staff only.",
+        parameters=[
+            OpenApiParameter(
+                name="product",
+                type=OpenApiTypes.STR,
+                enum=sorted(_PRECOMPUTE_PRODUCTS),
+                required=False,
+                description="Precompute vocabulary to report on. Defaults to web_analytics.",
+            ),
+            OpenApiParameter(
+                name="hours",
+                type=OpenApiTypes.INT,
+                required=False,
+                description="Look-back window in hours. Clamped to 1-168 (7 days). Defaults to 24.",
+            ),
+            OpenApiParameter(
+                name="team_id",
+                type=OpenApiTypes.INT,
+                required=False,
+                description="Narrow every section to one team's reads. Fleet-wide when omitted.",
+            ),
+        ],
         responses={200: dict},
     )
     @action(detail=False, methods=["GET"], url_path="precompute_health", required_scopes=["query_performance:read"])
