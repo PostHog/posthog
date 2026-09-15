@@ -68,6 +68,9 @@ class BambooHREndpointConfig:
     custom_iterator: Literal["goal_comments"] | None = None
     # Static query params every request for this endpoint carries.
     params: dict[str, Any] = field(default_factory=dict)
+    # Set when one request set cannot reach the whole collection: the endpoint is walked once per
+    # variant and the results concatenated. Each variant must select a disjoint set of rows.
+    param_variants: list[dict[str, Any]] = field(default_factory=list)
     pagination: PaginationStyle = "links"
     # Only the employee-table history endpoints expose a verified server-side "changed since"
     # filter; every other stream is full-refresh. See bamboohr.py.
@@ -209,6 +212,9 @@ BAMBOOHR_ENDPOINTS: dict[str, BambooHREndpointConfig] = {
         primary_keys=["id"],
         pagination="page_number",
         params={"pageSize": LOCATIONS_PAGE_SIZE},
+        # The endpoint answers with active locations only, so archived ones are asked for
+        # separately. Employees and job openings still point at locations after they are archived.
+        param_variants=[{"filter": "archived eq false"}, {"filter": "archived eq true"}],
     ),
     "job_openings": BambooHREndpointConfig(
         name="job_openings",

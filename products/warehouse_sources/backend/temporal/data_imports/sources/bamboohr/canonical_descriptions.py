@@ -269,7 +269,11 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         },
     },
     "employee_goal_comments": {
-        "description": "A comment left on an employee's performance goal.",
+        "description": (
+            "A comment left on an employee's performance goal. BambooHR answers with at most 50 "
+            "comments per goal and offers no way to page past them, so a goal discussed more than "
+            "that holds only the 50 the API returns."
+        ),
         "docs_url": "https://documentation.bamboohr.com/reference/list-goal-comments",
         "columns": {
             "employeeId": "ID of the employee the goal belongs to.",

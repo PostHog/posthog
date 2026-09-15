@@ -647,14 +647,30 @@ class TestApplicationsPagination:
 
 class TestLocationsPagination:
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_walks_pages_until_one_comes_back_empty(self, MockSession) -> None:
-        pages = [_response({"data": [{"id": "1"}]}), _response({"data": [{"id": "2"}]}), _response({"data": []})]
+    def test_walks_every_page_of_active_and_archived_locations(self, MockSession) -> None:
+        pages = [
+            _response({"data": [{"id": "1"}]}),
+            _response({"data": [{"id": "2"}]}),
+            _response({"data": []}),
+            _response({"data": [{"id": "3"}]}),
+            _response({"data": []}),
+        ]
 
         rows, requests_made, _manager = _run("locations", pages, MockSession)
 
-        assert [r["id"] for r in rows] == ["1", "2"]
+        # The endpoint answers with active locations only, so an archived location a synced
+        # employee still points at reaches the table through the second walk.
+        assert [r["id"] for r in rows] == ["1", "2", "3"]
         assert requests_made[0]["url"] == "https://api.bamboohr.com/api/gateway.php/acme/v1/hris/org/locations"
-        assert [r["params"]["page"] for r in requests_made] == [0, 1, 2]
+        assert [r["params"]["filter"] for r in requests_made] == [
+            "archived eq false",
+            "archived eq false",
+            "archived eq false",
+            "archived eq true",
+            "archived eq true",
+        ]
+        # Each walk pages from zero and stops on its first empty page.
+        assert [r["params"]["page"] for r in requests_made] == [0, 1, 2, 0, 1]
         assert {r["params"]["pageSize"] for r in requests_made} == {LOCATIONS_PAGE_SIZE}
 
     @mock.patch(CLIENT_SESSION_PATCH)

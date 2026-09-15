@@ -345,6 +345,20 @@ def _rows_for(
         yield from page
 
 
+def _param_variant_pages(client: RESTClient, config: BambooHREndpointConfig) -> Iterator[list[dict[str, Any]]]:
+    """Walk an endpoint once per param variant, because no single request reaches every row."""
+    for variant in config.param_variants:
+        for page in client.paginate(
+            path=config.path,
+            params={**config.params, **variant},
+            paginator=_paginator_for(config),
+            data_selector=_selector_for(config)[0],
+            data_selector_required=_selector_for(config)[1],
+        ):
+            if page:
+                yield page
+
+
 def _goal_comment_pages(client: RESTClient, config: BambooHREndpointConfig) -> Iterator[list[dict[str, Any]]]:
     """Walk the directory, then each employee's goals, then each goal's comments.
 
@@ -393,6 +407,14 @@ def bamboohr_source(
 ) -> SourceResponse:
     config = BAMBOOHR_ENDPOINTS[endpoint]
     base_url = _base_url(subdomain)
+
+    if config.param_variants:
+        client = _rest_client(base_url, api_key)
+        return SourceResponse(
+            name=endpoint,
+            items=lambda: _param_variant_pages(client, config),
+            primary_keys=config.primary_keys,
+        )
 
     if config.custom_iterator == "goal_comments":
         client = _rest_client(base_url, api_key)
