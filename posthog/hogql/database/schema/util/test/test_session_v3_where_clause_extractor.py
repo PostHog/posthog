@@ -6,6 +6,8 @@ from posthog.test.base import APIBaseTest, ClickhouseTestMixin, NewEventsSchemaS
 
 from django.conf import settings
 
+from parameterized import parameterized
+
 from posthog.schema import SessionTableVersion
 
 from posthog.hogql import ast
@@ -229,6 +231,26 @@ class TestSessionWhereClauseExtractorV3(ClickhouseTestMixin, APIBaseTest):
             self.inliner.get_inner_where(parse("SELECT * FROM sessions WHERE like(toString(min_timestamp), 'b')"))
         )
         assert actual is None
+
+    @parameterized.expand(
+        [
+            (
+                "between_with_bound",
+                "min_timestamp > '2021-01-01' AND unrelated_field BETWEEN 1 AND 2",
+                "raw_sessions_v3.session_timestamp >= ('2021-01-01' - toIntervalDay(3))",
+            ),
+            (
+                "is_distinct_from_with_bound",
+                "min_timestamp > '2021-01-01' AND unrelated_field IS DISTINCT FROM 1",
+                "raw_sessions_v3.session_timestamp >= ('2021-01-01' - toIntervalDay(3))",
+            ),
+            ("between_alone", "unrelated_field BETWEEN 1 AND 2", None),
+            ("is_distinct_from_alone", "unrelated_field IS DISTINCT FROM 1", None),
+        ]
+    )
+    def test_unliftable_predicate_does_not_leak_tombstone(self, _name: str, where: str, expected: Optional[str]):
+        actual = f(self.inliner.get_inner_where(parse(f"SELECT * FROM sessions WHERE {where}")))
+        assert actual == f(expected)
 
     def test_ambiguous_or(self):
         actual = f(
