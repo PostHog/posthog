@@ -4346,9 +4346,13 @@ export const workflowLogic = kea<workflowLogicType>([
             if (!workflow) {
                 return
             }
-            const createdWorkflow = await api.hogFlows.createHogFlow(prepareWorkflowDuplicate(workflow))
-            lemonToast.success('Workflow duplicated')
-            router.actions.push(urls.workflow(createdWorkflow.id, 'workflow'))
+            try {
+                const createdWorkflow = await api.hogFlows.createHogFlow(prepareWorkflowDuplicate(workflow))
+                lemonToast.success('Workflow duplicated')
+                router.actions.push(urls.workflow(createdWorkflow.id, 'workflow'))
+            } catch {
+                lemonToast.error('Could not duplicate the workflow. Please try again.')
+            }
         },
         triggerManualWorkflow: async ({ variables }) => {
             if (!values.workflow.id || values.workflow.id === 'new') {
