@@ -303,7 +303,7 @@ export const nodeDetailSceneLogic = kea<nodeDetailSceneLogicType>([
                 {
                     key: 'Models',
                     name: 'Models',
-                    path: urls.models(),
+                    path: urls.models('models'),
                 },
                 {
                     key: ['NodeDetail', node?.id || 'loading'],

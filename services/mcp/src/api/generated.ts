@@ -15635,6 +15635,8 @@ export namespace Schemas {
       failing: number;
       /** Latest runs not yet completed (queued or in progress). */
       pending: number;
+      /** Latest runs that completed without a pass-or-fail verdict: cancelled, skipped, neutral, or action required. Together with the three counts above this covers every run, so a PR whose CI was entirely cancelled is not readable as passing. */
+      inconclusive: number;
       /** The workflow names behind `failing`, sorted - names what is failing instead of leaving a bare count. */
       failing_workflows?: string[];
     }
@@ -49277,20 +49279,6 @@ export namespace Schemas {
     }
 
     /**
-     * One bucket of a provider's sending history.
-     */
-    export interface IspDailyPoint {
-      /** Bucket date, as an ISO 8601 calendar date. */
-      readonly date: string;
-      /** Emails sent to this provider on this date. */
-      readonly emails_sent: number;
-      /** Emails this provider accepted on this date, divided by emails sent to it (0-1). */
-      readonly delivery_rate: number;
-      /** Hard bounces at this provider on this date, divided by emails sent to it (0-1). */
-      readonly bounce_rate: number;
-    }
-
-    /**
      * How one mailbox provider treated this project's email, from AWS SES's own delivery data.
      */
     export interface IspSendingHealth {
@@ -49309,14 +49297,19 @@ export namespace Schemas {
          */
       readonly bounce_rate: number | null;
       /**
+         * Soft (transient) bounces at this provider, divided by emails sent to it (0-1). These are deferrals the provider may accept on a retry, such as a full mailbox, greylisting or rate limiting, so they are counted apart from permanent bounces. Null when the underlying metric could not be loaded from AWS.
+         * @nullable
+         */
+      readonly transient_bounce_rate: number | null;
+      /**
          * Spam complaints from this provider, divided by the deliveries it reports complaints for (0-1). Null when there is no rate to state — the provider runs no feedback loop, or nothing was delivered — and also when the metric could not be loaded from AWS.
          * @nullable
          */
       readonly complaint_rate: number | null;
-      /** Rates AWS did not return for this provider, from `delivery`, `bounce` and `complaint`. A rate named here is missing, not zero, and the UI says so rather than showing a number. */
+      /** Deliveries the provider reports complaints for, which is what `complaint_rate` divides by. Far smaller than `emails_sent`, so a caller deciding whether the rate rests on enough volume has to weigh it against this. Zero when there is no base. */
+      readonly complaint_base: number;
+      /** Rates AWS did not return for this provider, from `delivery`, `bounce`, `transient_bounce` and `complaint`. A rate named here is missing, not zero, and the UI says so rather than showing a number. */
       readonly unavailable: readonly string[];
-      /** Sending history for this provider, oldest first, so a drop can be dated rather than averaged into the window. Dates this provider received nothing are omitted. */
-      readonly daily: readonly IspDailyPoint[];
     }
 
     export interface JiraIssueSignalExtra {
@@ -91032,6 +91025,10 @@ export namespace Schemas {
          * @nullable
          */
       trunk_url: string | null;
+      /** True when more tests are quarantined than limit. The per-team counts then cover only the returned tests, so treat them as lower bounds. */
+      truncated: boolean;
+      /** Maximum tests returned, oldest quarantine first. */
+      limit: number;
     }
 
     export interface UnquarantineQuery {
@@ -92784,7 +92781,7 @@ export namespace Schemas {
          */
       p95_seconds: number | null;
       /**
-         * Decisive failures ('failure', 'timed_out') over completed instances (0-1). Null if none completed.
+         * Decisive failures over job instances with a pass-or-fail verdict (0-1). Skipped, cancelled, neutral, and action-required instances are excluded. Null if none reached a verdict.
          * @nullable
          */
       failure_rate: number | null;
@@ -92876,6 +92873,8 @@ export namespace Schemas {
          * @nullable
          */
       commit_pr_number: number | null;
+      /** True when a merge queue pushed this run to gate pr_number, rather than the author pushing it. Count it when measuring CI; drop it when counting what the author did. */
+      is_merge_queue: boolean;
     }
 
     export interface WorkflowRunnerCost {
@@ -99249,6 +99248,10 @@ export namespace Schemas {
      * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
      */
     source_id?: string;
+    /**
+     * Optional exact workflow name to scope results to, e.g. 'Backend CI'. Omit to rank every workflow. Pass it when you want one workflow's figures over the whole window rather than the top slice.
+     */
+    workflow_name?: string;
     };
 
     export type EngineeringAnalyticsWorkflowHealthRunScope = typeof EngineeringAnalyticsWorkflowHealthRunScope[keyof typeof EngineeringAnalyticsWorkflowHealthRunScope];

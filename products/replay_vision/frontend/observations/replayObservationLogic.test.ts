@@ -82,6 +82,41 @@ describe('replayObservationLogic', () => {
     })
 
     test.each([
+        { params: {}, expected: {} },
+        { params: { tab: 'observations', order_by: '-created_at' }, expected: {} },
+        { params: { order_by: '-created_at', status: 'succeeded' }, expected: { status: 'succeeded' } },
+        { params: { order_by: 'created_at' }, expected: { order_by: 'created_at' } },
+        {
+            params: { order_by: '-result_score', min_score: '0', max_score: '8.5', verdict: 'yes', tags: 'checkout' },
+            expected: { order_by: '-result_score', min_score: '0', max_score: '8.5', verdict: 'yes', tags: 'checkout' },
+        },
+        {
+            params: {
+                triggered_by: 'schedule',
+                session_id: 'session-example',
+                recording_subject: 'example',
+                labeled: 'true',
+            },
+            expected: {
+                triggered_by: 'schedule',
+                session_id: 'session-example',
+                recording_subject: 'example',
+                labeled: 'true',
+            },
+        },
+    ])('preserves detail request semantics for $params', async ({ params, expected }) => {
+        router.actions.push('/replay-vision/observations/obs-1', params)
+        const logic = replayObservationLogic({ id: 'obs-1' })
+        logic.mount()
+        try {
+            await expectLogic(logic).toDispatchActions(['loadObservationSuccess'])
+            expect(retrieveUrls.map((url) => Object.fromEntries(new URL(url).searchParams))).toEqual([expected])
+        } finally {
+            logic.unmount()
+        }
+    })
+
+    test.each([
         { status: 'failed' as const, marks: true },
         { status: 'running' as const, marks: false },
     ])('$status observation marks viewed: $marks', async ({ status, marks }) => {
