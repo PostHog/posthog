@@ -15,7 +15,7 @@ class ExperimentsScout:
         return scope in (SCOPE_EXPERIMENTS, SCOPE_ALL) or scope not in NAMED_SCOPES
 
     def run(self, context: ScoutContext) -> list[Hit]:
-        experiments = [e for e in list_concluded_experiments(context.team_id) if not _cleanup_in_flight(e)]
+        experiments = _awaiting_cleanup(list_concluded_experiments(context.team_id))
         constant_by_key = {key: constant for constant, key in context.repo.frontend_flag_keys().items()}
         keys = sorted({experiment.feature_flag_key for experiment in experiments})
         references = context.repo.references_many({key: flag_patterns(key, constant_by_key.get(key)) for key in keys})
@@ -29,19 +29,29 @@ class ExperimentsScout:
         return hits
 
 
-def _cleanup_in_flight(experiment: ConcludedExperiment) -> bool:
-    """True while the experiments product's own cleanup task still owns this flag.
+def _awaiting_cleanup(experiments: list[ConcludedExperiment]) -> list[ConcludedExperiment]:
+    """The experiments whose own cleanup task no longer owns the flag.
 
     That task leaves the flag's references on the default branch until its pull request merges, so
-    harvesting the same flag now would open a second pull request for the same deletion.
+    harvesting the same flag now would open a second pull request for the same deletion. Both facade
+    helpers take every task id at once, so the whole list costs two lookups instead of two per row.
     """
-    task_id = experiment.flag_cleanup_task_id
-    if task_id is None:
-        return False
-    if tasks_facade.get_latest_pr_url_by_task([task_id]):
-        return True
-    run = tasks_facade.get_latest_run_by_task([task_id]).get(str(task_id))
-    return run is not None and not run.is_terminal
+    task_ids = [e.flag_cleanup_task_id for e in experiments if e.flag_cleanup_task_id is not None]
+    if not task_ids:
+        return experiments
+    pr_urls = tasks_facade.get_latest_pr_url_by_task(task_ids)
+    runs = tasks_facade.get_latest_run_by_task(task_ids)
+    kept = []
+    for experiment in experiments:
+        if experiment.flag_cleanup_task_id is None:
+            kept.append(experiment)
+            continue
+        key = str(experiment.flag_cleanup_task_id)
+        run = runs.get(key)
+        if pr_urls.get(key) or (run is not None and not run.is_terminal):
+            continue
+        kept.append(experiment)
+    return kept
 
 
 def classify_experiment(

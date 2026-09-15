@@ -27,8 +27,8 @@ A root is dead when every path that reaches it is unreachable at runtime and rem
 For a feature flag root:
 
 - Deleted, archived or missing flag row: every check evaluates false, so the enabled branch is dead and the check can go.
-- Flag disabled or not evaluated for a long time: the enabled branch is dead. The check can go once you confirm no SDK or backend reads it by another name.
-- Flag at 0% rollout, or checked by many users and enabled for none of them: the enabled branch is dead. Treat it like a disabled flag.
+- Flag disabled, or at 0% rollout with no enrollment override: nothing can take the enabled branch, so it is dead. The check can go once you confirm no SDK or backend reads the flag by another name.
+- Flag not evaluated for a long time, or checked by many users and enabled for none of them: this is supporting evidence, not proof. A stale evaluation count does not stop the next call returning true, and a sample that saw nobody enabled does not rule out a targeting rule that enables someone else. Show that every call site is unreachable, or answer `is_dead: false`.
 - Flag at 100% rollout: the disabled branch is dead. Keep the enabled path and remove the check.
 - Concluded experiment: keep the variant the scout named, remove the other variants and the flag check.
 

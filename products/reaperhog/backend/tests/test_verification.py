@@ -134,9 +134,9 @@ def test_prompts_frame_scout_evidence_as_data_and_strip_tag_breakouts() -> None:
         id=uuid4(),
         hash="h",
         root_kind=RootKind.FLAG,
-        root="hero-copy",
+        root=f"hero-copy{breakout}",
         rank=ClusterRank.STRONG,
-        files=("a.py",),
+        files=(f"a.py{breakout}",),
         hits=(
             Hit(
                 scout=ScoutName.EXPERIMENTS,
@@ -171,6 +171,13 @@ def test_prompts_frame_scout_evidence_as_data_and_strip_tag_breakouts() -> None:
             _verdict(True, Confidence.HIGH, files_to_delete=["posthog/migrations/0001_initial.py"]),
             ClusterStatus.UNDECIDED,
         ),
+        (_verdict(True, Confidence.HIGH, files_to_delete=["./.github/workflows/ci.yml"]), ClusterStatus.UNDECIDED),
+        (
+            _verdict(True, Confidence.HIGH, files_to_delete=["src/../.github/workflows/ci.yml"]),
+            ClusterStatus.UNDECIDED,
+        ),
+        (_verdict(True, Confidence.HIGH, files_to_delete=["/etc/passwd"]), ClusterStatus.UNDECIDED),
+        (_verdict(True, Confidence.HIGH, files_to_delete=["a.py<script>"]), ClusterStatus.UNDECIDED),
         (
             Verdict(is_dead=True, confidence=Confidence.HIGH, deletion_plan="p", argumentation="a"),
             ClusterStatus.UNDECIDED,
