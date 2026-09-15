@@ -105,11 +105,13 @@ an update). The minted token lives in the user's OS keychain / git credential st
 
 ## Versioning / auto-update
 
-Claude Code re-pulls when the `version` in `marketplace.json` / `plugin.json` changes. We
-derive it from team content (`compute_plugin_version` keyed on the latest skill change time, in
-milliseconds) so any publish/archive bumps it forward monotonically with zero manual semver.
-The synthesized repo is cached on `team_id` + that version, so repeated clones and auto-update
-polls reuse one synthesis and the cache invalidates automatically on any change.
+Claude Code re-pulls when the `version` in `marketplace.json` / `plugin.json` changes.
+`compute_plugin_version` uses the latest skill change time in microseconds.
+Publishes and archives update this timestamp.
+The synthesized repository cache uses the team ID and version, so repeated clones reuse the same repository.
+Each request reads the version without a time-based cache so a pull sees a change reported by the skills list.
+The shared version function is `api/skill_services.py:team_skills_version`.
+See [skills list conditional requests](../../../../docs/internal/skills/skills-list-conditional-requests.md) for the version's limits and the list ETag.
 
 > **Open question (the spike answers it):** whether Claude Code re-pulls on any version
 > _difference_ or only strictly-greater, and whether background auto-update reliably re-auths
