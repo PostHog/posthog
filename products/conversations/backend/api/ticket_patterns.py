@@ -26,7 +26,11 @@ from products.conversations.backend.models import (
     TicketTopicBaseline,
 )
 from products.conversations.backend.models.constants import Priority
-from products.conversations.backend.pattern_delivery import annotate_confirmation, deliver_resolved
+from products.conversations.backend.pattern_delivery import (
+    annotate_confirmation,
+    annotation_on_confirm_enabled,
+    deliver_resolved,
+)
 
 if TYPE_CHECKING:
     from posthog.models import User
@@ -306,8 +310,9 @@ class TicketPatternViewSet(
                 pattern.owner = cast("User", request.user)
             pattern.save(update_fields=["status", "resolved_at", "resolved_by", "severity", "owner", "updated_at"])
             self._record_feedback(pattern, "confirm_count")
-        deliver_resolved(pattern, "confirmed")
-        annotate_confirmation(pattern, cast("User", request.user))
+        deliver_resolved(pattern, "confirmed", cast("User", request.user))
+        if annotation_on_confirm_enabled(self.team):
+            annotate_confirmation(pattern, cast("User", request.user))
         self._track("support pattern confirmed", pattern)
         return Response(self.get_serializer(pattern).data, status=status.HTTP_200_OK)
 
@@ -326,6 +331,6 @@ class TicketPatternViewSet(
                 pattern.evidence = {**pattern.evidence, "dismiss_reason": reason}
             pattern.save(update_fields=["status", "resolved_at", "resolved_by", "evidence", "updated_at"])
             self._record_feedback(pattern, "dismiss_count")
-        deliver_resolved(pattern, "dismissed")
+        deliver_resolved(pattern, "dismissed", cast("User", request.user))
         self._track("support pattern dismissed", pattern)
         return Response(self.get_serializer(pattern).data, status=status.HTTP_200_OK)

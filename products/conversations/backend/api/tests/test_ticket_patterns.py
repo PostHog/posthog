@@ -10,6 +10,7 @@ from rest_framework import status
 from posthog.models.organization import OrganizationMembership
 
 from products.access_control.backend.models.access_control import AccessControl
+from products.annotations.backend.models.annotation import Annotation
 from products.conversations.backend.models import (
     Ticket,
     TicketPattern,
@@ -102,6 +103,15 @@ class TestTicketPatternAPI(APIBaseTest):
 
         assert response.json()["severity"] == "critical"
         assert response.json()["owner"]["id"] == self.user.id
+
+    @parameterized.expand([("default_on", {}, 1), ("turned_off", {"pattern_annotate_on_confirm": False}, 0)])
+    def test_confirm_annotates_only_when_the_setting_allows(self, _name, settings, expected):
+        self.team.conversations_settings = {**(self.team.conversations_settings or {}), **settings}
+        self.team.save()
+
+        self.client.post(self._url("confirm/"), {}, format="json")
+
+        assert Annotation.objects.filter(team=self.team).count() == expected
 
     def test_dismiss_reason_lands_in_evidence(self):
         response = self.client.post(self._url("dismiss/"), {"reason": "planned outage"}, format="json")

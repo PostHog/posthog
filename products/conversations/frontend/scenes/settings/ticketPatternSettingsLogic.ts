@@ -16,6 +16,7 @@ export interface TicketPatternSettings {
     minTickets: number
     windowMinutes: number
     notifyRoleId: string | null
+    annotateOnConfirm: boolean
 }
 
 const DEFAULTS: TicketPatternSettings = {
@@ -24,6 +25,7 @@ const DEFAULTS: TicketPatternSettings = {
     minTickets: 5,
     windowMinutes: 60,
     notifyRoleId: null,
+    annotateOnConfirm: true,
 }
 
 function readSettings(team: TeamPublicType | TeamType | null): TicketPatternSettings {
@@ -34,6 +36,7 @@ function readSettings(team: TeamPublicType | TeamType | null): TicketPatternSett
         minTickets: Number(raw.pattern_min_tickets) || DEFAULTS.minTickets,
         windowMinutes: Number(raw.pattern_window_minutes) || DEFAULTS.windowMinutes,
         notifyRoleId: typeof raw.pattern_notify_role_id === 'string' ? raw.pattern_notify_role_id : null,
+        annotateOnConfirm: raw.pattern_annotate_on_confirm !== false,
     }
 }
 
@@ -205,6 +208,7 @@ export const ticketPatternSettingsLogic = kea<ticketPatternSettingsLogicType>([
                     pattern_min_tickets: next.minTickets,
                     pattern_window_minutes: next.windowMinutes,
                     pattern_notify_role_id: next.notifyRoleId,
+                    pattern_annotate_on_confirm: next.annotateOnConfirm,
                 },
             })
         },

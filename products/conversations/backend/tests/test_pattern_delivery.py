@@ -100,6 +100,39 @@ class TestPatternDelivery(BaseTest):
 
         capture.assert_called_once_with(self.pattern, resolution)
 
+    def test_the_decision_lands_in_the_alert_thread(self):
+        self.team.conversations_settings = {"slack_alert_channel_id": "C123"}
+        self.team.save()
+
+        with (
+            patch(f"{DELIVERY}.get_support_slack_bot_token", return_value="xoxb-test"),
+            patch(f"{DELIVERY}.get_slack_client") as slack,
+            patch(f"{DELIVERY}.capture_pattern_detected"),
+            patch(f"{DELIVERY}.capture_pattern_resolved"),
+        ):
+            slack.return_value.chat_postMessage.return_value = {"ts": "1700000000.000100"}
+            deliver_opened(self.pattern)
+            self.pattern.refresh_from_db()
+            deliver_resolved(self.pattern, "confirmed", self.user)
+
+        assert slack.return_value.chat_postMessage.call_count == 2
+        decision = slack.return_value.chat_postMessage.call_args.kwargs
+        assert decision["thread_ts"] == "1700000000.000100"
+        assert decision["text"].startswith("Confirmed as an incident by ")
+
+    def test_no_decision_post_when_the_alert_was_never_posted(self):
+        self.team.conversations_settings = {"slack_alert_channel_id": "C123"}
+        self.team.save()
+
+        with (
+            patch(f"{DELIVERY}.get_support_slack_bot_token", return_value="xoxb-test"),
+            patch(f"{DELIVERY}.get_slack_client") as slack,
+            patch(f"{DELIVERY}.capture_pattern_resolved"),
+        ):
+            deliver_resolved(self.pattern, "dismissed", self.user)
+
+        slack.return_value.chat_postMessage.assert_not_called()
+
     def test_confirmation_annotates_the_project_at_the_first_ticket(self):
         annotate_confirmation(self.pattern, self.user)
 

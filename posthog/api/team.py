@@ -1130,8 +1130,9 @@ def validate_ticket_pattern_settings(value: dict) -> None:
     Shared by the team and project serializers. Both accept conversations_settings, and
     /api/projects is the route clients reach, so a check on TeamSerializer alone never runs.
     """
-    if "pattern_detection_enabled" in value:
-        value["pattern_detection_enabled"] = bool(value["pattern_detection_enabled"])
+    for flag_key in ("pattern_detection_enabled", "pattern_annotate_on_confirm"):
+        if flag_key in value:
+            value[flag_key] = bool(value[flag_key])
     for count_key, floor, ceiling in (
         ("pattern_min_requesters", 3, None),
         ("pattern_min_tickets", 3, None),

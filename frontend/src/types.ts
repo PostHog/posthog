@@ -777,6 +777,7 @@ export interface ConversationsSettings {
     pattern_min_tickets?: number
     pattern_window_minutes?: number
     pattern_notify_role_id?: string | null
+    pattern_annotate_on_confirm?: boolean
     /** Bot scopes Slack granted at install. Absent for installs authorized before we recorded them. */
     slack_scopes?: string[] | null
     email_enabled?: boolean

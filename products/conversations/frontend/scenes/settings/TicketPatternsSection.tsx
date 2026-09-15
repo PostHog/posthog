@@ -196,7 +196,7 @@ export function TicketPatternsSection(): JSX.Element {
                         title="Who to tell"
                         titleSize="sm"
                         className="my-8"
-                        description="Every open pattern shows in the support inbox. Choose a role to also send an in-app notification. Slack uses the alert channel in Slack settings."
+                        description="Every open pattern shows in the support inbox. Choose a role to also send an in-app notification. Slack uses the alert channel in Slack settings: a possible issue is posted when a pattern opens, and the decision follows in the same thread."
                     >
                         <LemonCard hoverEffect={false} className="flex flex-col gap-y-3 max-w-[800px] px-4 py-3">
                             <div className="flex flex-col gap-1 max-w-80">
@@ -211,6 +211,36 @@ export function TicketPatternsSection(): JSX.Element {
                                     onChange={(notifyRoleId) => updateSettings({ notifyRoleId })}
                                     disabledReason={restrictedReason ?? (saving ? 'Saving' : undefined)}
                                     data-attr="ticket-pattern-notify-role"
+                                />
+                                <p className="text-xs text-muted-alt mb-0">
+                                    Roles are set up under Organization settings, Roles.
+                                </p>
+                            </div>
+                        </LemonCard>
+                    </SceneSection>
+
+                    <SceneSection
+                        title="When a pattern is confirmed"
+                        titleSize="sm"
+                        className="my-8"
+                        description="What happens when someone on the team confirms a pattern as a real issue."
+                    >
+                        <LemonCard hoverEffect={false} className="flex flex-col gap-y-3 max-w-[800px] px-4 py-3">
+                            <div className="flex items-center gap-4 justify-between">
+                                <div>
+                                    <label className="font-medium">Annotate insights</label>
+                                    <p className="text-xs text-muted-alt mb-0">
+                                        Adds a project annotation at the time the first ticket arrived, so the incident
+                                        shows on every insight chart in this project.
+                                    </p>
+                                </div>
+                                <LemonSwitch
+                                    checked={settings.annotateOnConfirm}
+                                    onChange={(annotateOnConfirm) => updateSettings({ annotateOnConfirm })}
+                                    loading={saving}
+                                    disabledReason={restrictedReason}
+                                    aria-label="Annotate insights"
+                                    data-attr="ticket-pattern-annotate-toggle"
                                 />
                             </div>
                         </LemonCard>
