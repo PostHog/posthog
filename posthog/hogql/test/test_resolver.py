@@ -939,6 +939,26 @@ class TestResolver(BaseTest):
             "SELECT d.period_end FROM date_info d CROSS JOIN events e"
         )
 
+    def test_ctes_with_union_subquery_column(self):
+        # A set query as a SELECT column takes the type of its first branch, so every other column
+        # of the CTE stays referenceable.
+        self._print_hogql(
+            "WITH totals AS (SELECT 1 AS a, (SELECT 1 AS n UNION ALL SELECT 2 AS n) AS b) SELECT totals.a FROM totals"
+        )
+
+    def test_ctes_unresolvable_column_names_the_cte_and_the_column(self):
+        # A CTE that fails to resolve answers no lookup. The error must name the CTE and its bad
+        # column, not `entity_id`, which is present on both CTEs.
+        with self.assertRaises(QueryError) as e:
+            self._print_hogql(
+                "WITH exposures AS (SELECT 1 AS entity_id), "
+                "metric_events AS (SELECT 1 AS entity_id, person AS value FROM events) "
+                "SELECT exposures.entity_id FROM exposures "
+                "LEFT JOIN metric_events ON exposures.entity_id = metric_events.entity_id"
+            )
+        self.assertIn('Cannot resolve CTE "metric_events"', str(e.exception))
+        self.assertIn('Column "value"', str(e.exception))
+
     def test_ctes_table_subquery_as_scalar_error(self):
         with self.assertRaises(QueryError) as e:
             self._print_hogql("WITH x AS (SELECT 1) SELECT x FROM events")

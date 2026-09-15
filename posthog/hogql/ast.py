@@ -24,7 +24,7 @@ from posthog.hogql.database.models import (
     UnknownDatabaseField,
     VirtualTable,
 )
-from posthog.hogql.errors import NotImplementedError, QueryError, ResolutionError
+from posthog.hogql.errors import BaseHogQLError, NotImplementedError, QueryError, ResolutionError
 
 # :NOTE: when you add new AST fields or nodes, add them to CloningVisitor and TraversingVisitor in visitor.py as well.
 # :NOTE2: also search for ":TRICKY:" in "resolver.py" when modifying SelectQuery or JoinExpr
@@ -454,15 +454,13 @@ class CTETableType(BaseTableType):
     name: str
     select_query_type: SelectQueryType | SelectSetQueryType
 
-    def has_child(self, name: str, context: HogQLContext) -> bool:
-        try:
-            self.resolve_database_table(context).get_field(name)
-            return True
-        except Exception:
-            return False
-
     def resolve_database_table(self, context: HogQLContext) -> Table:
-        return resolver_utils.resolve_cte_database_table(self.select_query_type, context)
+        # Name the CTE on the way out. Every consumer asks about one of its columns, so an
+        # unnamed cause reads as a problem with the column the query happens to reference.
+        try:
+            return resolver_utils.resolve_cte_database_table(self.select_query_type, context)
+        except BaseHogQLError as err:
+            raise QueryError(f'Cannot resolve CTE "{self.name}": {err}') from err
 
     def resolve_column_constant_type(self, name: str, context: HogQLContext) -> ConstantType:
         field = self.resolve_database_table(context).get_field(name)
