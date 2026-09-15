@@ -108,8 +108,8 @@ class MaterializedColumnSlotViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
         auto_materialized_property_names = get_auto_materialized_property_names()
 
         available_properties = (
-            PropertyDefinition.objects.filter(
-                team_id=self.team_id,
+            PropertyDefinition.objects.for_project(self.team.project_id)
+            .filter(
                 property_type__isnull=False,
                 type=PropertyDefinition.Type.EVENT,
             )
@@ -217,7 +217,10 @@ class MaterializedColumnSlotViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
                 # Serialize concurrent assign_slot calls per team so the MAX_SLOTS_PER_TEAM
                 # check below can't be raced past by two requests both reading 4 existing slots.
                 Team.objects.select_for_update().get(id=self.team_id)
-                property_definition = PropertyDefinition.objects.get(id=property_definition_id, team_id=self.team_id)
+                # Same scope as the listing above: a definition of a sibling environment is assignable here.
+                property_definition = PropertyDefinition.objects.for_project(self.team.project_id).get(
+                    id=property_definition_id
+                )
                 existing_slots = list(MaterializedColumnSlot.objects.filter(team_id=self.team_id))
 
                 validation_error = self._validate_property_for_materialization(

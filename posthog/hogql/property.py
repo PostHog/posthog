@@ -3,9 +3,7 @@ import math
 from collections.abc import Callable
 from typing import Literal, Optional, TypeGuard, cast
 
-from django.db import models
 from django.db.models import Q
-from django.db.models.functions.comparison import Coalesce
 
 import re2
 import posthoganalytics
@@ -335,18 +333,12 @@ def _handle_bool_values(value: ValueT, expr: ast.Expr, property: Property, team:
         return value
 
     if property.type == "person":
-        property_types = PropertyDefinition.objects.alias(
-            effective_project_id=Coalesce("project_id", "team_id", output_field=models.BigIntegerField())
-        ).filter(
-            effective_project_id=team.project_id,
+        property_types = PropertyDefinition.objects.for_project(team.project_id).filter(
             name=property.key,
             type=PropertyDefinition.Type.PERSON,
         )
     elif property.type == "group":
-        property_types = PropertyDefinition.objects.alias(
-            effective_project_id=Coalesce("project_id", "team_id", output_field=models.BigIntegerField())
-        ).filter(
-            effective_project_id=team.project_id,
+        property_types = PropertyDefinition.objects.for_project(team.project_id).filter(
             name=property.key,
             type=PropertyDefinition.Type.GROUP,
             group_type_index=property.group_type_index,
@@ -396,10 +388,7 @@ def _handle_bool_values(value: ValueT, expr: ast.Expr, property: Property, team:
         return value
 
     else:
-        property_types = PropertyDefinition.objects.alias(
-            effective_project_id=Coalesce("project_id", "team_id", output_field=models.BigIntegerField())
-        ).filter(
-            effective_project_id=team.project_id,
+        property_types = PropertyDefinition.objects.for_project(team.project_id).filter(
             name=property.key,
             type=PropertyDefinition.Type.EVENT,
         )
@@ -455,10 +444,8 @@ def _coerce_numeric_value_for_string_property(value: ValueT, property: Property,
         return value
 
     property_type = (
-        PropertyDefinition.objects.alias(
-            effective_project_id=Coalesce("project_id", "team_id", output_field=models.BigIntegerField())
-        )
-        .filter(effective_project_id=team.project_id, name=property.key, **type_filters)
+        PropertyDefinition.objects.for_project(team.project_id)
+        .filter(name=property.key, **type_filters)
         # load_property_metadata skips definitions without a property_type — match it so a
         # typeless row can't shadow a typed one when both NULL-type and event-type rows exist
         .exclude(property_type__isnull=True)

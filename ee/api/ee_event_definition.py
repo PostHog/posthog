@@ -111,7 +111,8 @@ class EnterpriseEventDefinitionSerializer(TaggedItemSerializerMixin, serializers
         if not view:
             return value
 
-        if EventDefinition.objects.filter(team_id=view.team_id, name=value).exists():
+        # Uniqueness is per project (`event_definition_proj_uniq`), so check the project, not the team.
+        if EventDefinition.objects.for_project(view.project_id).filter(name=value).exists():
             raise serializers.ValidationError(f"Event definition with name '{value}' already exists")
 
         return value

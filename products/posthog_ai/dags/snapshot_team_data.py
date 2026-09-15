@@ -259,8 +259,8 @@ def snapshot_actors_property_taxonomy(
 
         # Retrieve saved property definitions for the group type or person
         property_defs: Iterator[str] = (
-            PropertyDefinition.objects.filter(
-                team=team,
+            PropertyDefinition.objects.for_project(team.project_id)
+            .filter(
                 type=PropertyDefinition.Type.GROUP if is_group else PropertyDefinition.Type.PERSON,
                 group_type_index=index,
             )

@@ -1,0 +1,62 @@
+rules:
+    - id: taxonomy-scope-uses-project-key
+      message: |
+          Scope taxonomy reads with `Model.objects.for_project(project_id)`, not `team=` / `team_id=`.
+
+          Every index on `posthog_eventdefinition`, `posthog_propertydefinition` and `posthog_eventproperty`
+          that carries `name` / `event` / `property` leads with `COALESCE(project_id, team_id)`
+          (`event_definition_proj_uniq`, `posthog_propdef_proj_uniq`,
+          `posthog_event_property_unique_proj_event_property`). A plain `team_id` predicate matches none of
+          them, so Postgres range-walks every row of the team, or falls back to the global trigram index for
+          an equality. Measured in production: the same lookup is 0.02 ms through the project key and 300+ ms
+          through `team_id`. Definitions are also unique per project, so a team-scoped read can miss rows
+          written under a sibling environment.
+
+          Replace:
+              PropertyDefinition.objects.filter(team=team, name__in=names)
+          with:
+              PropertyDefinition.objects.for_project(team.project_id).filter(name__in=names)
+
+          Primary-key lookups (`get(id=..., team_id=...)`) are not flagged. A read that must stay
+          team-scoped can carry `# nosemgrep: taxonomy-scope-uses-project-key -- <reason>`.
+      languages: [python]
+      severity: WARNING
+      patterns:
+          - pattern-either:
+                - pattern: $QS.$METHOD(..., team=$T, ...)
+                - pattern: $QS.$METHOD(..., team_id=$T, ...)
+          - pattern-not: $QS.$METHOD(..., id=$ID, ...)
+          - pattern-not: $QS.$METHOD(..., pk=$ID, ...)
+          - pattern-not: $QS.$METHOD(..., id__in=$IDS, ...)
+          - metavariable-regex:
+                metavariable: $METHOD
+                regex: ^(filter|get|exclude)$
+          # Match the model off the receiver so chained querysets still fire. `$MODEL` is bound inside
+          # the metavariable-pattern, so its regex has to nest here as well.
+          - metavariable-pattern:
+                metavariable: $QS
+                patterns:
+                    - pattern: <... $MODEL.objects ...>
+                    - metavariable-regex:
+                          metavariable: $MODEL
+                          regex: ^(Enterprise)?(EventDefinition|PropertyDefinition|EventProperty)$
+      paths:
+          include:
+              - common/**/*.py
+              - ee/**/*.py
+              - posthog/**/*.py
+              - products/**/*.py
+              # Test fixture lives here — must be in include so `semgrep --test` exercises the rule.
+              - .semgrep/rules/devex/
+          exclude:
+              - '**/test/**'
+              - '**/tests/**'
+              - '**/test_*.py'
+              - '**/*_test.py'
+              - '**/conftest*.py'
+              - '**/migrations/**'
+              - '**/management/commands/**'
+      metadata:
+          category: performance
+          subcategory: audit
+          confidence: HIGH
