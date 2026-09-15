@@ -1140,24 +1140,6 @@ export const organizationsProjectsDefaultReleaseConditionsUpdate = async (
     )
 }
 
-export const getOrganizationsProjectsDeleteNowCreateUrl = (organizationId: string, id: number) => {
-    return `/api/organizations/${organizationId}/projects/${id}/delete-now/`
-}
-
-/**
- * Delete a project that is pending deletion immediately instead of at the scheduled time.
- */
-export const organizationsProjectsDeleteNowCreate = async (
-    organizationId: string,
-    id: number,
-    options?: RequestInit
-): Promise<ProjectApi> => {
-    return apiMutator<ProjectApi>(getOrganizationsProjectsDeleteNowCreateUrl(organizationId, id), {
-        ...options,
-        method: 'POST',
-    })
-}
-
 export const getOrganizationsProjectsDeleteSecretTokenBackupPartialUpdateUrl = (organizationId: string, id: number) => {
     return `/api/organizations/${organizationId}/projects/${id}/delete_secret_token_backup/`
 }
