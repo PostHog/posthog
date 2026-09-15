@@ -86,7 +86,7 @@ describe('metricsStarterDashboardLogic', () => {
         }).toDispatchActions(['createDashboardSuccess'])
 
         expect(apiCreateSpy).toHaveBeenCalledTimes(1)
-        expect(apiCreateSpy.mock.calls[0][1]).toEqual({ name: 'Billing service', creation_context: 'metrics' })
+        expect(apiCreateSpy.mock.calls[0][1]).toEqual({ name: 'Billing service', source_context: 'metrics' })
 
         expect(mockInsightCreate).toHaveBeenCalledTimes(2)
         const [countInsight, histogramInsight] = mockInsightCreate.mock.calls.map(([insight]) => insight)

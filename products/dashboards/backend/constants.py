@@ -54,19 +54,15 @@ WIDGET_DATE_FROM_LABELS: dict[str, str] = {
     "-90d": "Last 90 days",
 }
 
-# Surface a dashboard was created from, stamped on every `dashboard created` event. Without it the
-# only attribution is `template_key`, which cannot separate the surfaces that create a dashboard
-# from scratch.
-DASHBOARD_CREATION_CONTEXT_POSTHOG_AI = "posthog_ai"
+# A detail for `source` when a first-party web surface creates the dashboard.
+DASHBOARD_SOURCE_CONTEXT_POSTHOG_AI = "posthog_ai"
+DEFAULT_DASHBOARD_SOURCE_CONTEXT = "unknown"
 
-# Callers that name no surface are the dashboards product itself: the new-dashboard modal, the
-# template chooser, and direct API writes.
-DEFAULT_DASHBOARD_CREATION_CONTEXT = "dashboards"
-
-DASHBOARD_CREATION_CONTEXT_CHOICES: tuple[str, ...] = (
-    DEFAULT_DASHBOARD_CREATION_CONTEXT,
+DASHBOARD_SOURCE_CONTEXT_CHOICES: tuple[str, ...] = (
+    DEFAULT_DASHBOARD_SOURCE_CONTEXT,
+    "dashboards",
     "experiments",
     "metrics",
     "onboarding",
-    DASHBOARD_CREATION_CONTEXT_POSTHOG_AI,
+    DASHBOARD_SOURCE_CONTEXT_POSTHOG_AI,
 )

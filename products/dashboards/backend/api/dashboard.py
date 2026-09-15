@@ -120,9 +120,9 @@ from products.dashboards.backend.api.widget_openapi_serializers import (
     WidgetCatalogResponseSerializer,
 )
 from products.dashboards.backend.constants import (
-    DASHBOARD_CREATION_CONTEXT_CHOICES,
     DASHBOARD_GRID_COLUMN_COUNT,
-    DEFAULT_DASHBOARD_CREATION_CONTEXT,
+    DASHBOARD_SOURCE_CONTEXT_CHOICES,
+    DEFAULT_DASHBOARD_SOURCE_CONTEXT,
     MAX_WIDGETS_BATCH_SIZE,
 )
 from products.dashboards.backend.facade.api import DashboardTileBasicSerializer
@@ -1524,12 +1524,12 @@ class DashboardSerializer(DashboardMetadataSerializer):
         default=False,
         help_text="When deleting, also delete insights that are only on this dashboard.",
     )
-    creation_context = serializers.ChoiceField(
-        choices=DASHBOARD_CREATION_CONTEXT_CHOICES,
+    source_context = serializers.ChoiceField(
+        choices=DASHBOARD_SOURCE_CONTEXT_CHOICES,
         write_only=True,
         required=False,
         allow_null=True,
-        help_text="Surface the dashboard was created from. Reported on the `dashboard created` event.",
+        help_text="First-party surface that created a dashboard from the web source.",
     )
     _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
 
@@ -1541,7 +1541,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
             "use_template",
             "use_dashboard",
             "delete_insights",
-            "creation_context",
+            "source_context",
             "_create_in_folder",
         ]
         read_only_fields = ["creation_mode", "effective_restriction_level", "is_shared", "user_access_level"]
@@ -1592,7 +1592,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
         )
         use_template: str = validated_data.pop("use_template", None)
         use_dashboard: int = validated_data.pop("use_dashboard", None)
-        creation_context: str | None = validated_data.pop("creation_context", None)
+        source_context: str | None = validated_data.pop("source_context", None)
         validated_data.pop("delete_insights", None)  # not used during creation
         validated_data = self._update_creation_mode(validated_data, use_template, use_dashboard)
         tags = validated_data.pop("tags", None)  # tags are created separately below as global tag relationships
@@ -1693,7 +1693,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
                 "template_key": use_template,
                 "duplicated": bool(use_dashboard),
                 "duplicated_from_dashboard_id": use_dashboard,
-                "creation_context": creation_context or DEFAULT_DASHBOARD_CREATION_CONTEXT,
+                "source_context": source_context or DEFAULT_DASHBOARD_SOURCE_CONTEXT,
             },
             team=dashboard.team,
             request=request,
@@ -1854,7 +1854,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
             )
 
         validated_data.pop("use_template", None)  # Remove attribute if present
-        validated_data.pop("creation_context", None)
+        validated_data.pop("source_context", None)
         grid_spacing = validated_data.pop("grid_spacing", None)
         layout_compaction = validated_data.pop("layout_compaction", None)
         if grid_spacing is not None or layout_compaction is not None:
@@ -3606,13 +3606,13 @@ class DashboardsViewSet(
             return None
 
     @staticmethod
-    def _validated_creation_context(raw_creation_context: Any) -> str:
+    def _validated_source_context(raw_source_context: Any) -> str:
         """This endpoint takes a raw JSON body rather than the serializer, so the choices are enforced here."""
-        if raw_creation_context is None or raw_creation_context == "":
-            return DEFAULT_DASHBOARD_CREATION_CONTEXT
-        if raw_creation_context not in DASHBOARD_CREATION_CONTEXT_CHOICES:
-            raise serializers.ValidationError({"creation_context": "Invalid value provided"})
-        return raw_creation_context
+        if raw_source_context is None or raw_source_context == "":
+            return DEFAULT_DASHBOARD_SOURCE_CONTEXT
+        if raw_source_context not in DASHBOARD_SOURCE_CONTEXT_CHOICES:
+            raise serializers.ValidationError({"source_context": "Invalid value provided"})
+        return raw_source_context
 
     @action(
         methods=["POST"],
@@ -3628,7 +3628,7 @@ class DashboardsViewSet(
 
         try:
             dashboard_template = dashboard_template_from_creation_payload(request.data["template"])
-            creation_context = self._validated_creation_context(request.data.get("creation_context"))
+            source_context = self._validated_source_context(request.data.get("source_context"))
             create_from_template(
                 dashboard,
                 dashboard_template,
@@ -3652,7 +3652,7 @@ class DashboardsViewSet(
                     "template_key": dashboard_template.template_name,
                     **template_scope_props,
                     "duplicated": False,
-                    "creation_context": creation_context,
+                    "source_context": source_context,
                 },
                 team=dashboard.team,
                 request=request,

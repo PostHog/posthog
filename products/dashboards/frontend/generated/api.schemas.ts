@@ -508,16 +508,17 @@ export interface DashboardCustomizationApi {
 }
 
 /**
+ * * `unknown` - unknown
  * * `dashboards` - dashboards
  * * `experiments` - experiments
  * * `metrics` - metrics
  * * `onboarding` - onboarding
  * * `posthog_ai` - posthog_ai
  */
-export type DashboardCreationContextEnumApi =
-    (typeof DashboardCreationContextEnumApi)[keyof typeof DashboardCreationContextEnumApi]
+export type SourceContextEnumApi = (typeof SourceContextEnumApi)[keyof typeof SourceContextEnumApi]
 
-export const DashboardCreationContextEnumApi = {
+export const SourceContextEnumApi = {
+    Unknown: 'unknown',
     Dashboards: 'dashboards',
     Experiments: 'experiments',
     Metrics: 'metrics',
@@ -623,14 +624,15 @@ export interface DashboardApi {
     use_dashboard?: number | null
     /** When deleting, also delete insights that are only on this dashboard. */
     delete_insights?: boolean
-    /** Surface the dashboard was created from. Reported on the `dashboard created` event.
+    /** First-party surface that created a dashboard from the web source.
      *
+     * * `unknown` - unknown
      * * `dashboards` - dashboards
      * * `experiments` - experiments
      * * `metrics` - metrics
      * * `onboarding` - onboarding
      * * `posthog_ai` - posthog_ai */
-    creation_context?: DashboardCreationContextEnumApi | null
+    source_context?: SourceContextEnumApi | null
     _create_in_folder?: string
 }
 

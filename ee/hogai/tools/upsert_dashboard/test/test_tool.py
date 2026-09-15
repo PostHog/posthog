@@ -1679,7 +1679,7 @@ class TestUpsertDashboardTool(BaseTest):
         self.assertEqual(created_props["template_key"], None)
         self.assertEqual(created_props["duplicated"], False)
         self.assertEqual(created_props["duplicated_from_dashboard_id"], None)
-        self.assertEqual(created_props["creation_context"], "posthog_ai")
+        self.assertEqual(created_props["source_context"], "posthog_ai")
 
     @patch("ee.hogai.tools.upsert_dashboard.tool.report_user_action")
     async def test_update_dashboard_reports_dashboard_updated(self, mock_report):

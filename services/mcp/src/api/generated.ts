@@ -21852,16 +21852,18 @@ export namespace Schemas {
     }
 
     /**
+     * * `unknown` - unknown
      * * `dashboards` - dashboards
      * * `experiments` - experiments
      * * `metrics` - metrics
      * * `onboarding` - onboarding
      * * `posthog_ai` - posthog_ai
      */
-    export type DashboardCreationContextEnum = typeof DashboardCreationContextEnum[keyof typeof DashboardCreationContextEnum];
+    export type SourceContextEnum = typeof SourceContextEnum[keyof typeof SourceContextEnum];
 
 
-    export const DashboardCreationContextEnum = {
+    export const SourceContextEnum = {
+      Unknown: 'unknown',
       Dashboards: 'dashboards',
       Experiments: 'experiments',
       Metrics: 'metrics',
@@ -21967,14 +21969,15 @@ export namespace Schemas {
       use_dashboard?: number | null;
       /** When deleting, also delete insights that are only on this dashboard. */
       delete_insights?: boolean;
-      /** Surface the dashboard was created from. Reported on the `dashboard created` event.
+      /** First-party surface that created a dashboard from the web source.
        *
+       * * `unknown` - unknown
        * * `dashboards` - dashboards
        * * `experiments` - experiments
        * * `metrics` - metrics
        * * `onboarding` - onboarding
        * * `posthog_ai` - posthog_ai */
-      creation_context?: DashboardCreationContextEnum | null;
+      source_context?: SourceContextEnum | null;
       _create_in_folder?: string;
     }
 

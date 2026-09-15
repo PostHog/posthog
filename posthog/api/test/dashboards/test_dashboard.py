@@ -1766,7 +1766,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             "dashboard created",
             {
                 "created_at": mock.ANY,
-                "creation_context": "dashboards",
+                "source_context": "unknown",
                 "creation_mode": "template",
                 "dashboard_id": response["id"],
                 "duplicated": False,
@@ -1784,15 +1784,15 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         )
 
     @patch("products.dashboards.backend.api.dashboard.report_user_action")
-    def test_dashboard_creation_reports_creation_context(self, mock_report_user_action):
-        self.dashboard_api.create_dashboard({"name": "Experiment: checkout", "creation_context": "experiments"})
+    def test_dashboard_creation_reports_source_context(self, mock_report_user_action):
+        self.dashboard_api.create_dashboard({"name": "Experiment: checkout", "source_context": "experiments"})
 
         reported_properties = mock_report_user_action.call_args[0][2]
-        assert reported_properties["creation_context"] == "experiments"
+        assert reported_properties["source_context"] == "experiments"
 
-    def test_dashboard_creation_rejects_unknown_creation_context(self):
+    def test_dashboard_creation_rejects_invalid_source_context(self):
         self.dashboard_api.create_dashboard(
-            {"name": "another", "creation_context": "not-a-surface"},
+            {"name": "another", "source_context": "not-a-surface"},
             expected_status=status.HTTP_400_BAD_REQUEST,
         )
 
@@ -2813,7 +2813,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         assert expected_dashboards_on_insight == [dashboard_two_id]
 
     @patch("products.dashboards.backend.api.dashboard.report_user_action")
-    def test_create_from_template_json_defaults_creation_context(self, mock_report_user_action) -> None:
+    def test_create_from_template_json_defaults_source_context(self, mock_report_user_action) -> None:
         response = self.client.post(
             f"/api/projects/{self.team.id}/dashboards/create_from_template_json",
             {"template": valid_template},
@@ -2821,13 +2821,13 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         assert response.status_code == 200, response.content
 
         reported_properties = mock_report_user_action.call_args[0][2]
-        assert reported_properties["creation_context"] == "dashboards"
+        assert reported_properties["source_context"] == "unknown"
 
     @patch("products.dashboards.backend.api.dashboard.report_user_action")
     def test_create_from_template_json(self, mock_report_user_action) -> None:
         response = self.client.post(
             f"/api/projects/{self.team.id}/dashboards/create_from_template_json",
-            {"template": valid_template, "creation_context": "onboarding"},
+            {"template": valid_template, "source_context": "onboarding"},
             headers={"Referer": "https://posthog.com/my-referer", "X-Posthog-Session-Id": "my-session-id"},
         )
         self.assertEqual(response.status_code, 200, response.content)
@@ -2849,7 +2849,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             "dashboard created",
             {
                 "created_at": mock.ANY,
-                "creation_context": "onboarding",
+                "source_context": "onboarding",
                 "creation_mode": "default",
                 "dashboard_id": dashboard["id"],
                 "duplicated": False,

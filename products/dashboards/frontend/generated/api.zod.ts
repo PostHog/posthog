@@ -359,18 +359,18 @@ export const DashboardsCreateBody = /* @__PURE__ */ zod
             .boolean()
             .default(dashboardsCreateBodyDeleteInsightsDefault)
             .describe('When deleting, also delete insights that are only on this dashboard.'),
-        creation_context: zod
+        source_context: zod
             .union([
                 zod
-                    .enum(['dashboards', 'experiments', 'metrics', 'onboarding', 'posthog_ai'])
+                    .enum(['unknown', 'dashboards', 'experiments', 'metrics', 'onboarding', 'posthog_ai'])
                     .describe(
-                        '\* `dashboards` - dashboards\n\* `experiments` - experiments\n\* `metrics` - metrics\n\* `onboarding` - onboarding\n\* `posthog_ai` - posthog_ai'
+                        '\* `unknown` - unknown\n\* `dashboards` - dashboards\n\* `experiments` - experiments\n\* `metrics` - metrics\n\* `onboarding` - onboarding\n\* `posthog_ai` - posthog_ai'
                     ),
                 zod.null(),
             ])
             .optional()
             .describe(
-                'Surface the dashboard was created from. Reported on the `dashboard created` event.\n\n\* `dashboards` - dashboards\n\* `experiments` - experiments\n\* `metrics` - metrics\n\* `onboarding` - onboarding\n\* `posthog_ai` - posthog_ai'
+                'First-party surface that created a dashboard from the web source.\n\n\* `unknown` - unknown\n\* `dashboards` - dashboards\n\* `experiments` - experiments\n\* `metrics` - metrics\n\* `onboarding` - onboarding\n\* `posthog_ai` - posthog_ai'
             ),
         _create_in_folder: zod.string().optional(),
     })
@@ -475,18 +475,18 @@ export const DashboardsUpdateBody = /* @__PURE__ */ zod
             .boolean()
             .default(dashboardsUpdateBodyDeleteInsightsDefault)
             .describe('When deleting, also delete insights that are only on this dashboard.'),
-        creation_context: zod
+        source_context: zod
             .union([
                 zod
-                    .enum(['dashboards', 'experiments', 'metrics', 'onboarding', 'posthog_ai'])
+                    .enum(['unknown', 'dashboards', 'experiments', 'metrics', 'onboarding', 'posthog_ai'])
                     .describe(
-                        '\* `dashboards` - dashboards\n\* `experiments` - experiments\n\* `metrics` - metrics\n\* `onboarding` - onboarding\n\* `posthog_ai` - posthog_ai'
+                        '\* `unknown` - unknown\n\* `dashboards` - dashboards\n\* `experiments` - experiments\n\* `metrics` - metrics\n\* `onboarding` - onboarding\n\* `posthog_ai` - posthog_ai'
                     ),
                 zod.null(),
             ])
             .optional()
             .describe(
-                'Surface the dashboard was created from. Reported on the `dashboard created` event.\n\n\* `dashboards` - dashboards\n\* `experiments` - experiments\n\* `metrics` - metrics\n\* `onboarding` - onboarding\n\* `posthog_ai` - posthog_ai'
+                'First-party surface that created a dashboard from the web source.\n\n\* `unknown` - unknown\n\* `dashboards` - dashboards\n\* `experiments` - experiments\n\* `metrics` - metrics\n\* `onboarding` - onboarding\n\* `posthog_ai` - posthog_ai'
             ),
         _create_in_folder: zod.string().optional(),
     })
@@ -3713,18 +3713,18 @@ export const DashboardsCreateFromTemplateJsonCreateBody = /* @__PURE__ */ zod
             .boolean()
             .default(dashboardsCreateFromTemplateJsonCreateBodyDeleteInsightsDefault)
             .describe('When deleting, also delete insights that are only on this dashboard.'),
-        creation_context: zod
+        source_context: zod
             .union([
                 zod
-                    .enum(['dashboards', 'experiments', 'metrics', 'onboarding', 'posthog_ai'])
+                    .enum(['unknown', 'dashboards', 'experiments', 'metrics', 'onboarding', 'posthog_ai'])
                     .describe(
-                        '\* `dashboards` - dashboards\n\* `experiments` - experiments\n\* `metrics` - metrics\n\* `onboarding` - onboarding\n\* `posthog_ai` - posthog_ai'
+                        '\* `unknown` - unknown\n\* `dashboards` - dashboards\n\* `experiments` - experiments\n\* `metrics` - metrics\n\* `onboarding` - onboarding\n\* `posthog_ai` - posthog_ai'
                     ),
                 zod.null(),
             ])
             .optional()
             .describe(
-                'Surface the dashboard was created from. Reported on the `dashboard created` event.\n\n\* `dashboards` - dashboards\n\* `experiments` - experiments\n\* `metrics` - metrics\n\* `onboarding` - onboarding\n\* `posthog_ai` - posthog_ai'
+                'First-party surface that created a dashboard from the web source.\n\n\* `unknown` - unknown\n\* `dashboards` - dashboards\n\* `experiments` - experiments\n\* `metrics` - metrics\n\* `onboarding` - onboarding\n\* `posthog_ai` - posthog_ai'
             ),
         _create_in_folder: zod.string().optional(),
     })
@@ -3827,18 +3827,18 @@ export const DashboardsCreateUnlistedDashboardCreateBody = /* @__PURE__ */ zod
             .boolean()
             .default(dashboardsCreateUnlistedDashboardCreateBodyDeleteInsightsDefault)
             .describe('When deleting, also delete insights that are only on this dashboard.'),
-        creation_context: zod
+        source_context: zod
             .union([
                 zod
-                    .enum(['dashboards', 'experiments', 'metrics', 'onboarding', 'posthog_ai'])
+                    .enum(['unknown', 'dashboards', 'experiments', 'metrics', 'onboarding', 'posthog_ai'])
                     .describe(
-                        '\* `dashboards` - dashboards\n\* `experiments` - experiments\n\* `metrics` - metrics\n\* `onboarding` - onboarding\n\* `posthog_ai` - posthog_ai'
+                        '\* `unknown` - unknown\n\* `dashboards` - dashboards\n\* `experiments` - experiments\n\* `metrics` - metrics\n\* `onboarding` - onboarding\n\* `posthog_ai` - posthog_ai'
                     ),
                 zod.null(),
             ])
             .optional()
             .describe(
-                'Surface the dashboard was created from. Reported on the `dashboard created` event.\n\n\* `dashboards` - dashboards\n\* `experiments` - experiments\n\* `metrics` - metrics\n\* `onboarding` - onboarding\n\* `posthog_ai` - posthog_ai'
+                'First-party surface that created a dashboard from the web source.\n\n\* `unknown` - unknown\n\* `dashboards` - dashboards\n\* `experiments` - experiments\n\* `metrics` - metrics\n\* `onboarding` - onboarding\n\* `posthog_ai` - posthog_ai'
             ),
         _create_in_folder: zod.string().optional(),
     })

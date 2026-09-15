@@ -356,6 +356,7 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
                             name: name,
                             description: description,
                             use_template: useTemplate,
+                            source_context: 'dashboards',
                             ...(props.initialTags && { tags: props.initialTags }),
                             ...(typeof _create_in_folder === 'string' ? { _create_in_folder } : {}),
                         } as Partial<DashboardType>
@@ -402,7 +403,7 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
             template,
             variables,
             redirectAfterCreation = true,
-            creationContext = null,
+            creationContext = 'dashboards',
         }) => {
             actions.setIsLoading(true)
             const isMetricTemplateTestVariant =
@@ -423,7 +424,7 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
                     `api/environments/${teamLogic.values.currentTeamId}/dashboards/create_from_template_json`,
                     {
                         template: dashboardJSON,
-                        creation_context: creationContext,
+                        source_context: creationContext,
                         _create_in_folder: UNFILED_DASHBOARDS_FOLDER,
                     }
                 )
