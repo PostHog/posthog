@@ -111,13 +111,15 @@ function canvasDashboardId(url: string | null): string | null {
   // Local development emits http:// canvas links, which are deliberately not
   // valid external share links. Recover only the exact route's final id here;
   // this value is used for an access-checked API query, never for navigation.
+  // Both route prefixes are accepted: the canonical one is /desktop/canvas/,
+  // and links produced before the move still carry /code/canvas/.
   try {
     const localUrl = new URL(url);
     if (localUrl.protocol !== "http:") return null;
     const segments = localUrl.pathname.split("/").filter(Boolean);
     if (
       segments.length === 4 &&
-      segments[0] === "code" &&
+      (segments[0] === "desktop" || segments[0] === "code") &&
       segments[1] === "canvas"
     ) {
       return decodeURIComponent(segments[3]);

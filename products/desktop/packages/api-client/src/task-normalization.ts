@@ -142,6 +142,7 @@ export interface TaskArtifactSharingDTO {
   password_required?: boolean;
   shared_artifact_id?: string | null;
   latest_artifact_id?: string | null;
+  user_can_change_sharing?: boolean;
 }
 
 /** A file's public-sharing state. The token is the public link's path segment. */
@@ -153,6 +154,9 @@ export interface TaskArtifactSharing {
   sharedArtifactId: string | null;
   /** The file's newest upload; differs from sharedArtifactId when there are changes to publish. */
   latestArtifactId: string | null;
+  /** Whether this reader may turn the link on or off. Reading the state only needs task
+   *  visibility, so a teammate can see a link they cannot change. */
+  canChangeSharing: boolean;
 }
 
 export function normalizeTaskArtifactSharing(
@@ -164,6 +168,9 @@ export function normalizeTaskArtifactSharing(
     passwordRequired: sharing.password_required ?? false,
     sharedArtifactId: sharing.shared_artifact_id ?? null,
     latestArtifactId: sharing.latest_artifact_id ?? null,
+    // A server that does not answer leaves the control alone; the backend refuses the write
+    // either way, so guessing "denied" here would hide a control the reader really has.
+    canChangeSharing: sharing.user_can_change_sharing ?? true,
   };
 }
 

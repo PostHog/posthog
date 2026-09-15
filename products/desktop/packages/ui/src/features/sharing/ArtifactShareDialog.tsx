@@ -13,7 +13,7 @@ import { PublishChangesButton } from "./PublishChangesButton";
 import { fileLinkHasUnpublishedChanges } from "./publicLink";
 import { ShareDialog } from "./ShareDialog";
 import { ShareSection } from "./ShareSection";
-import type { ShareVisibility } from "./shareTarget";
+import { type ShareVisibility, shareVisibilityForChannel } from "./shareTarget";
 import { teamLinkDescription } from "./teamLinkCopy";
 import {
   useArtifactSharingQuery,
@@ -48,6 +48,10 @@ export function ArtifactShareBodyView({
   const publicDescription = sharing?.enabled
     ? "Anyone with the link sees the file as it was when you shared it."
     : "Anyone with the link can view a snapshot of the file.";
+  const disabledReason =
+    sharing && !sharing.canChangeSharing
+      ? "Only whoever created the task can change its public links."
+      : undefined;
 
   return (
     <div className="flex flex-col gap-5">
@@ -71,6 +75,7 @@ export function ArtifactShareBodyView({
         isPending={isPending}
         publicUrl={publicUrl}
         description={publicDescription}
+        disabledReason={disabledReason}
         dataAttrPrefix="share-artifact"
         onToggle={onToggle}
       >
@@ -104,13 +109,10 @@ export function ArtifactShareDialog({
   const channel = channels.find(
     (candidate) => candidate.id === task.data?.channel,
   );
-  const visibility: ShareVisibility = channel
-    ? channel.channelType === "personal"
-      ? "personal"
-      : "project"
-    : task.isLoading || channelsLoading
-      ? "unknown"
-      : "project";
+  const visibility = shareVisibilityForChannel(
+    channel?.channelType,
+    task.isLoading || channelsLoading,
+  );
   const sharing = useArtifactSharingQuery(taskId, artifactId);
   const { setEnabled, updateLink, isPending } = useSetArtifactSharing(
     taskId,
