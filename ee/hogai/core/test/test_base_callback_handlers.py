@@ -4,13 +4,16 @@ from posthog.test.base import BaseTest
 from unittest.mock import Mock, patch
 
 import posthoganalytics
+from langchain_core.messages import AIMessage, HumanMessage
+from langchain_core.outputs import ChatGeneration, LLMResult
 from posthoganalytics.ai.langchain.callbacks import CallbackHandler
 
 from products.posthog_ai.backend.models.assistant import Conversation
 
 from ee.hogai.chat_agent.runner import ChatAgentRunner
 from ee.hogai.core.ai_event_truncation import ai_event_truncator
-from ee.hogai.core.runner import SubagentCallbackHandler
+from ee.hogai.core.runner import MaxCallbackHandler, SubagentCallbackHandler
+from ee.hogai.llm import AI_GATEWAY_SERVED_KEY
 
 
 class TestBaseAgentRunnerCallbackHandlers(BaseTest):
@@ -138,7 +141,7 @@ class TestBaseAgentRunnerCallbackHandlers(BaseTest):
         trace_id = uuid4()
         session_id = "test-session"
 
-        with patch("ee.hogai.core.runner.CallbackHandler") as mock_callback_handler_class:
+        with patch("ee.hogai.core.runner.MaxCallbackHandler") as mock_callback_handler_class:
             mock_handler_instance = Mock()
             mock_callback_handler_class.return_value = mock_handler_instance
 
@@ -229,6 +232,7 @@ class TestBaseAgentRunnerCallbackHandlers(BaseTest):
         self.assertEqual(len(runner._callback_handlers), 1)
         self.assertIsInstance(runner._callback_handlers[0], CallbackHandler)
         self.assertNotIsInstance(runner._callback_handlers[0], SubagentCallbackHandler)
+        self.assertIsInstance(runner._callback_handlers[0], MaxCallbackHandler)
 
 
 class TestSubagentCallbackHandler(BaseTest):
@@ -311,3 +315,74 @@ class TestSubagentCallbackHandler(BaseTest):
         root_props = capture_calls[1][1]["properties"]
         self.assertEqual(root_event, "$ai_span")
         self.assertEqual(root_props["$ai_parent_id"], self.parent_span_id)
+
+
+class TestMaxCallbackHandler(BaseTest):
+    def _captured_events(
+        self, client: Mock, handler: MaxCallbackHandler, output: LLMResult | BaseException
+    ) -> list[str]:
+        root_run_id, llm_run_id = uuid4(), uuid4()
+        handler.on_chain_start({"name": "Root"}, {"input": "hello"}, run_id=root_run_id, parent_run_id=None)
+        handler.on_chat_model_start(
+            {"name": "MaxChatAnthropic"},
+            [[HumanMessage(content="hello")]],
+            run_id=llm_run_id,
+            parent_run_id=root_run_id,
+        )
+        if isinstance(output, BaseException):
+            handler.on_llm_error(output, run_id=llm_run_id, parent_run_id=root_run_id)
+        else:
+            handler.on_llm_end(output, run_id=llm_run_id, parent_run_id=root_run_id)
+        handler.on_chain_end({"output": "done"}, run_id=root_run_id, parent_run_id=None)
+        return [call.kwargs["event"] for call in client.capture.call_args_list]
+
+    def _result(self, served: bool) -> LLMResult:
+        generation_info = {AI_GATEWAY_SERVED_KEY: True} if served else None
+        return LLMResult(
+            generations=[[ChatGeneration(message=AIMessage(content="hi"), generation_info=generation_info)]]
+        )
+
+    def test_skips_generations_the_gateway_served_and_keeps_the_trace(self):
+        client = Mock()
+        handler = MaxCallbackHandler(client, distinct_id="user", trace_id="trace-1")
+
+        self.assertEqual(self._captured_events(client, handler, self._result(served=True)), ["$ai_trace"])
+
+    def test_captures_generations_served_directly(self):
+        client = Mock()
+        handler = MaxCallbackHandler(client, distinct_id="user", trace_id="trace-1")
+
+        self.assertEqual(
+            self._captured_events(client, handler, self._result(served=False)), ["$ai_generation", "$ai_trace"]
+        )
+
+    def test_captures_failed_generations(self):
+        client = Mock()
+        handler = MaxCallbackHandler(client, distinct_id="user", trace_id="trace-1")
+
+        self.assertIn("$ai_generation", self._captured_events(client, handler, ValueError("failed")))
+
+    def test_subagent_handler_skips_generations_the_gateway_served(self):
+        client = Mock()
+        handler = SubagentCallbackHandler(client, distinct_id="user", trace_id="trace-1", parent_span_id=uuid4())
+
+        self.assertEqual(self._captured_events(client, handler, self._result(served=True)), ["$ai_span"])
+
+
+class TestRunnerAIGatewayProduct(BaseTest):
+    @patch("ee.hogai.core.runner.is_cloud", return_value=True)
+    @patch("ee.hogai.core.runner.get_instance_region", return_value="US")
+    @patch("ee.hogai.core.runner.get_client", return_value=Mock())
+    def test_config_names_the_product_the_root_model_routes_for(self, _mock_get_client, _mock_region, _mock_is_cloud):
+        for conversation_type, expected_product in [
+            (Conversation.Type.ASSISTANT, "posthog_ai"),
+            (Conversation.Type.TOOL_CALL, "mcp"),
+        ]:
+            with self.subTest(conversation_type=conversation_type):
+                conversation = Conversation.objects.create(team=self.team, user=self.user, type=conversation_type)
+                runner = ChatAgentRunner(team=self.team, conversation=conversation, user=self.user)
+
+                self.assertEqual(runner._get_config()["configurable"]["ai_product"], expected_product)
+                handler = runner._callback_handlers[0]
+                assert isinstance(handler, MaxCallbackHandler)
+                self.assertEqual((handler._properties or {}).get("ai_product"), expected_product)

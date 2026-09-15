@@ -329,7 +329,7 @@ def team_trace_id(team_id: int | None) -> str | None:
     return str(uuid5(_TEAM_TRACE_ID_NAMESPACE, f"team-{team_id}"))
 
 
-def _anthropic_gateway_base_url(openai_base_url: str) -> str:
+def anthropic_gateway_base_url(openai_base_url: str) -> str:
     """Drop the OpenAI ``/v1`` suffix so the Anthropic SDK, which appends ``/v1/messages``
     itself, hits the same gateway root the OpenAI route uses. ``resolve_ai_gateway_config``
     guarantees the ``/v1`` suffix, so this is the inverse of that validation.
@@ -442,7 +442,7 @@ def build_async_anthropic_client(
         }
         return AsyncAnthropic(
             api_key=gateway.api_key,
-            base_url=_anthropic_gateway_base_url(gateway.url),
+            base_url=anthropic_gateway_base_url(gateway.url),
             default_headers=ai_gateway_headers(
                 ai_product=ai_product,
                 trace_id=team_trace_id(team_id),
@@ -466,7 +466,7 @@ def _ai_gateway_anthropic_client(
         labels["team_id"] = str(team_id)
     return Anthropic(
         api_key=gateway.api_key,
-        base_url=_anthropic_gateway_base_url(gateway.url),
+        base_url=anthropic_gateway_base_url(gateway.url),
         default_headers=ai_gateway_headers(
             ai_product=ai_product,
             trace_id=trace_id or team_trace_id(team_id),
