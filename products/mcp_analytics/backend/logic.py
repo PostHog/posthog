@@ -1,10 +1,13 @@
 import json
 import hashlib
+import contextvars
 import dataclasses
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 from typing import Any
 
 from django.core.cache import cache
+from django.db import connections
 from django.db.models import QuerySet
 from django.utils import timezone
 
@@ -21,6 +24,7 @@ from posthog.models.person.util import get_persons_mapped_by_distinct_id
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.personhog_client.caller_tag import personhog_caller_tag
+from posthog.settings import TEST
 from posthog.utils import generate_cache_key
 
 from products.mcp_analytics.backend import intent_generation, mcp_harness
@@ -554,25 +558,88 @@ def _run_activity_query(team: Team, sql: str, name: str, placeholders: dict[str,
     return response.results or []
 
 
+def _run_activity_queries(team: Team, specs: list[tuple[str, str, dict[str, ast.Constant]]]) -> list[list[Any]]:
+    """Run the overview's independent queries at once, returning results in spec order.
+
+    `ThreadPoolExecutor` workers don't inherit the submitting thread's contextvars, so the query
+    tags set on the read path (team_id, feature, trigger) would be lost inside the pool, silently
+    un-tagging every ClickHouse query the overview emits. A Context can't be entered concurrently,
+    so each worker copies its own. Workers also release their Postgres connection on the way out:
+    HogQL resolution reads team and property-definition rows, and pool threads end with the request.
+    """
+    # Skip the pool in TEST: Django's per-thread DB connections don't see the test
+    # transaction's uncommitted rows, so a worker would resolve against an empty team.
+    if TEST:
+        return [_run_activity_query(team, sql, name, placeholders) for name, sql, placeholders in specs]
+
+    def run(spec: tuple[str, str, dict[str, ast.Constant]]) -> list[Any]:
+        name, sql, placeholders = spec
+        try:
+            return _run_activity_query(team, sql, name, placeholders)
+        finally:
+            connections.close_all()
+
+    contexts = [contextvars.copy_context() for _ in specs]
+    with ThreadPoolExecutor(max_workers=len(specs), thread_name_prefix="mcp_activity") as pool:
+        return list(pool.map(lambda ctx, spec: ctx.run(run, spec), contexts, specs))
+
+
 def get_activity_overview(team: Team) -> contracts.ActivityOverview:
     """Compute everything the activity view renders, bounded to ``ACTIVITY_WINDOW``.
 
     Always computed fresh: the view's whole point is watching data arrive, so callers
     poll this endpoint rather than a stale cache.
+
+    The four queries are independent, so they run concurrently. Served serially their
+    latency summed, which left the summary sentence landing long after the live feed
+    below it had rendered — the feed's own total is an index-only ``count()``, while
+    every query here reads properties across the whole window.
     """
     date_from = ast.Constant(value=timezone.now() - ACTIVITY_WINDOW)
     tool_call_event = ast.Constant(value=MCP_TOOL_CALL_EVENT)
 
-    stats_rows = _run_activity_query(
+    stats_rows, top_tools_rows, clients_rows, recent_calls_rows = _run_activity_queries(
         team,
-        _ACTIVITY_STATS_SQL,
-        "mcp_analytics_activity_stats",
-        {
-            "tool_call_event": tool_call_event,
-            "missing_capability_event": ast.Constant(value=MCP_MISSING_CAPABILITY_EVENT),
-            "date_from": date_from,
-        },
+        [
+            (
+                "mcp_analytics_activity_stats",
+                _ACTIVITY_STATS_SQL,
+                {
+                    "tool_call_event": tool_call_event,
+                    "missing_capability_event": ast.Constant(value=MCP_MISSING_CAPABILITY_EVENT),
+                    "date_from": date_from,
+                },
+            ),
+            (
+                "mcp_analytics_activity_top_tools",
+                _ACTIVITY_TOP_TOOLS_SQL,
+                {
+                    "tool_call_event": tool_call_event,
+                    "date_from": date_from,
+                    "limit": ast.Constant(value=ACTIVITY_TOP_TOOLS_LIMIT),
+                },
+            ),
+            (
+                "mcp_analytics_activity_clients",
+                _ACTIVITY_CLIENTS_SQL,
+                {
+                    "tool_call_event": tool_call_event,
+                    "date_from": date_from,
+                    "limit": ast.Constant(value=ACTIVITY_CLIENTS_LIMIT),
+                },
+            ),
+            (
+                "mcp_analytics_activity_recent_calls",
+                _ACTIVITY_RECENT_CALLS_SQL,
+                {
+                    "tool_call_event": tool_call_event,
+                    "date_from": date_from,
+                    "limit": ast.Constant(value=ACTIVITY_RECENT_CALLS_LIMIT),
+                },
+            ),
+        ],
     )
+
     stats_row = stats_rows[0] if stats_rows else [0] * 7
     stats = contracts.ActivityStats(
         total_calls=_parse_int(stats_row[0]) or 0,
@@ -586,30 +653,12 @@ def get_activity_overview(team: Team) -> contracts.ActivityOverview:
 
     top_tools = [
         contracts.ActivityToolRow(tool=str(row[0] or ""), calls=_parse_int(row[1]) or 0, errors=_parse_int(row[2]) or 0)
-        for row in _run_activity_query(
-            team,
-            _ACTIVITY_TOP_TOOLS_SQL,
-            "mcp_analytics_activity_top_tools",
-            {
-                "tool_call_event": tool_call_event,
-                "date_from": date_from,
-                "limit": ast.Constant(value=ACTIVITY_TOP_TOOLS_LIMIT),
-            },
-        )
+        for row in top_tools_rows
     ]
 
     clients = [
         contracts.ActivityClientRow(client=str(row[0]) if row[0] else "", calls=_parse_int(row[1]) or 0)
-        for row in _run_activity_query(
-            team,
-            _ACTIVITY_CLIENTS_SQL,
-            "mcp_analytics_activity_clients",
-            {
-                "tool_call_event": tool_call_event,
-                "date_from": date_from,
-                "limit": ast.Constant(value=ACTIVITY_CLIENTS_LIMIT),
-            },
-        )
+        for row in clients_rows
     ]
 
     recent_calls = [
@@ -622,16 +671,7 @@ def get_activity_overview(team: Team) -> contracts.ActivityOverview:
             duration_ms=float(row[5]) if row[5] is not None else None,
             client_name=str(row[6]) if row[6] else None,
         )
-        for row in _run_activity_query(
-            team,
-            _ACTIVITY_RECENT_CALLS_SQL,
-            "mcp_analytics_activity_recent_calls",
-            {
-                "tool_call_event": tool_call_event,
-                "date_from": date_from,
-                "limit": ast.Constant(value=ACTIVITY_RECENT_CALLS_LIMIT),
-            },
-        )
+        for row in recent_calls_rows
     ]
 
     return contracts.ActivityOverview(stats=stats, top_tools=top_tools, clients=clients, recent_calls=recent_calls)
