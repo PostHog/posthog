@@ -38,7 +38,7 @@ from products.signals.backend.models import SignalReport, SignalReportArtefact
 from products.signals.backend.quota import capture_signal_report_quota_paused, self_driving_quota_gate
 from products.signals.backend.signal_metadata import EMBEDDING_MODEL
 from products.signals.backend.temporal import metrics
-from products.signals.backend.temporal.drop_telemetry import capture_signal_dropped
+from products.signals.backend.temporal.drop_telemetry import capture_signal_batch_dropped, capture_signal_dropped
 from products.signals.backend.temporal.llm import MAX_QUERY_TOKENS, call_llm, truncate_query_to_token_limit
 from products.signals.backend.temporal.signal_queries import (
     SIGNAL_DOCUMENT_PRODUCT,
@@ -1226,7 +1226,7 @@ async def _process_signal_batch(
             team_id=team_id,
             batch_size=len(batch),
         )
-        await asyncio.gather(*(capture_signal_dropped(signal, e, stage="grouping_prep") for signal in batch))
+        await capture_signal_batch_dropped(batch, e, stage="grouping_prep")
         raise
 
     # === SEQUENTIAL PHASE (steps 5-7) ===
