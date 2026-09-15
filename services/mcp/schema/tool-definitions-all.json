@@ -11592,7 +11592,7 @@
         }
     },
     "subscriptions-list": {
-        "description": "List the team's subscriptions. Use `search` to filter by title, insight name (including the auto-generated name of an unnamed insight), or dashboard name. Prompt subscriptions are only matched on their `title` — the `prompt` text is not searchable.",
+        "description": "List the team's subscriptions. Use `search` to filter by title, insight name (including the auto-generated name of an unnamed insight), dashboard name, or prompt text. Prompt subscriptions match both their `title` and `prompt` text.",
         "category": "Subscriptions",
         "feature": "subscriptions",
         "summary": "List subscriptions",
