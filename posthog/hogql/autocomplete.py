@@ -162,8 +162,14 @@ class NarrowedTable(Table):
 
 
 def type_resolution_table(table: Table) -> Table:
-    """The table an expression in `table` resolves against."""
-    return table.source if isinstance(table, NarrowedTable) else table
+    """The table an expression in `table` resolves against.
+
+    Each subquery level narrows the table again, so unwrap every layer. Only the table at the
+    bottom still holds a column that the intermediate select lists leave out.
+    """
+    while isinstance(table, NarrowedTable):
+        table = table.source
+    return table
 
 
 def expected_type_at_position(

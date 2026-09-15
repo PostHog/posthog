@@ -528,15 +528,21 @@ class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
 
         assert convert_field_or_table_to_type_string(table.fields["doubled_score"], table, context) == "Float64"
 
-    def test_autocomplete_resolves_expression_field_inside_a_subquery(self):
+    @parameterized.expand(
+        [
+            ("one subquery", "select  from (select expr_field from events)"),
+            ("two subqueries", "select  from (select expr_field from (select expr_field from events))"),
+        ]
+    )
+    def test_autocomplete_resolves_expression_field_inside_a_subquery(self, _name: str, query: str):
         # A subquery narrows the table to the columns it selects. The expression reads a column the
-        # subquery leaves out, so it only resolves if the source table stays available.
+        # subquery leaves out, so it only resolves if the source table stays available. Every nesting
+        # level narrows the table again, and only the table at the bottom still holds that column.
         database = Database.create_for(team=self.team)
         database.get_table("events").fields["expr_field"] = ast.ExpressionField(
             name="expr_field", expr=parse_expr("length(event)")
         )
 
-        query = "select  from (select expr_field from events)"
         results = self._select(query=query, start=7, end=7, database=database)
 
         details = {suggestion.label: suggestion.detail for suggestion in results.suggestions}
