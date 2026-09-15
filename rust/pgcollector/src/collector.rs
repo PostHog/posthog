@@ -99,6 +99,10 @@ pub struct Snapshot {
     /// Written by the sink after the primary rows.
     #[serde(default)]
     pub aux: Vec<Snapshot>,
+    /// Extra indexes for a `ts_` table, one column list each, built as
+    /// `(server_id, <cols>, collected_at)`.
+    #[serde(default)]
+    pub indexes: Vec<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

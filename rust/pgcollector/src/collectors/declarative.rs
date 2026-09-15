@@ -184,6 +184,7 @@ impl Collector for SqlCollector {
                 rows,
                 events,
                 aux: vec![],
+                indexes: vec![],
             },
             state,
         ))

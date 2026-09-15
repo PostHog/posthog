@@ -141,7 +141,11 @@ impl Collector for Logs {
         }
         extra.assemblers.retain(|_, a| a.pending.is_some());
 
-        let mk = |name: &str, key: Vec<&str>, rows: Vec<Row>, types: BTreeMap<String, String>| {
+        let mk = |name: &str,
+                  key: Vec<&str>,
+                  rows: Vec<Row>,
+                  types: BTreeMap<String, String>,
+                  indexes: Vec<Vec<String>>| {
             Snapshot {
                 collector: name.into(),
                 kind: Kind::Gauge,
@@ -153,10 +157,21 @@ impl Collector for Logs {
                 rows,
                 events: vec![],
                 aux: vec![],
+                indexes,
             }
         };
+        // pgapi looks statements up by fingerprint (RDS cannot log %Q, so query_id is
+        // usually NULL) or by query id.
+        let by_statement = || {
+            vec![
+                vec!["fingerprint".to_string()],
+                vec!["query_id".to_string()],
+            ]
+        };
         let mut aux = Vec::new();
-        if !out.durations.is_empty() {
+        // Always emitted, even empty, so an existing table gets its indexes without
+        // waiting for a new statement.
+        {
             aux.push(mk(
                 "query_durations",
                 vec![],
@@ -169,9 +184,10 @@ impl Collector for Logs {
                     ("duration_ms", "double precision"),
                     ("query", "text"),
                 ]),
+                by_statement(),
             ));
         }
-        if !out.plans.is_empty() {
+        {
             aux.push(mk(
                 "log_plans",
                 vec![],
@@ -185,6 +201,7 @@ impl Collector for Logs {
                     ("plan", "jsonb"),
                     ("query", "text"),
                 ]),
+                by_statement(),
             ));
         }
         if !out.autovacuum.is_empty() {
@@ -193,6 +210,7 @@ impl Collector for Logs {
                 vec![],
                 out.autovacuum,
                 types_of(&[("log_time", "timestamptz"), ("aggressive", "boolean")]),
+                vec![],
             ));
         }
         if !out.checkpoints.is_empty() {
@@ -201,6 +219,7 @@ impl Collector for Logs {
                 vec![],
                 out.checkpoints,
                 types_of(&[("log_time", "timestamptz")]),
+                vec![],
             ));
         }
         if !out.temp_files.is_empty() {
@@ -215,6 +234,7 @@ impl Collector for Logs {
                     ("size_bytes", "bigint"),
                     ("statement", "text"),
                 ]),
+                vec![],
             ));
         }
         if !out.errors.is_empty() {
@@ -230,6 +250,7 @@ impl Collector for Logs {
                     ("statement", "text"),
                     ("detail", "text"),
                 ]),
+                vec![],
             ));
         }
 
@@ -245,7 +266,13 @@ impl Collector for Logs {
                 r
             })
             .collect();
-        let mut snap = mk("logs", vec![], counts, types_of(&[("count", "bigint")]));
+        let mut snap = mk(
+            "logs",
+            vec![],
+            counts,
+            types_of(&[("count", "bigint")]),
+            vec![],
+        );
         snap.events = out.events;
         snap.aux = aux;
         Ok((
@@ -273,6 +300,7 @@ impl Logs {
                 rows: vec![],
                 events: vec![],
                 aux: vec![],
+                indexes: vec![],
             },
             State {
                 collected_at: Some(cx.now),

@@ -59,6 +59,7 @@ pub fn empty(
             rows: vec![],
             events: vec![],
             aux: vec![],
+            indexes: vec![],
         },
         State {
             collected_at: Some(cx.now),
@@ -167,6 +168,7 @@ pub async fn collect(
             rows: text_rows,
             events: vec![],
             aux: vec![],
+            indexes: vec![],
         });
     }
 
@@ -183,6 +185,7 @@ pub async fn collect(
             rows: deltas,
             events,
             aux,
+            indexes: vec![],
         },
         state,
     ))
