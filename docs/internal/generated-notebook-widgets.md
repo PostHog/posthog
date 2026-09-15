@@ -38,7 +38,8 @@ Widgets that use only insight dataframes refresh after preparation without requi
 Opening a notebook, renaming a dataframe, or refreshing an insight's display does not prepare dataframes or save preparation metadata.
 Preparation uses the insight query cache and saves the run reference and column metadata only after the SQL run completes.
 If the insight query changes during preparation, the completed result is discarded and the editor can try again.
-Concurrent preparation requests reuse the same matching run; completed runs can be reused across editors for one hour.
+Concurrent preparation requests from the same user reuse the same matching run for up to one hour.
+Run reuse is disabled for token-only callers because runs do not record their individual identities.
 An unchanged insight with a saved completed run reuses that snapshot. **Refresh dataframe** prepares a fresh snapshot; **Try again** retries a failed preparation.
 Viewers and shared notebooks do not show insight dataframe controls or prepare dataframes.
 

@@ -468,20 +468,49 @@ class TestSQLV2Run(APIBaseTest):
         start_workflow.assert_not_called()
         assert not KernelRuntime.objects.filter(team=self.team).exists()
 
-    @parameterized.expand([("running", True), ("done", True), ("failed", False), ("interrupted", False)])
+    @parameterized.expand(
+        [
+            ("running", "self", True),
+            ("done", "self", True),
+            ("failed", "self", False),
+            ("interrupted", "self", False),
+            ("running", "collaborator", False),
+            ("done", "collaborator", False),
+            ("running", "unknown", False),
+            ("done", "unknown", False),
+            ("done", "token", False),
+        ]
+    )
     @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
     @patch("products.notebooks.backend.presentation.views.notebook.enqueue_direct_run")
-    def test_reuses_only_matching_active_or_completed_run(self, status, should_reuse, enqueue, _enabled):
+    def test_reuses_only_matching_active_or_completed_run(
+        self, status: str, principal: str, should_reuse: bool, enqueue: Mock, _enabled: Mock
+    ) -> None:
+        owner = self.user if principal == "self" else None
+        if principal == "collaborator":
+            owner = User.objects.create_and_join(self.organization, "collaborator@example.com", None)
         with team_scope(self.team.id):
             saved = NotebookNodeRun.objects.create(
-                team=self.team, notebook=self.notebook, node_id="n1", code="select 1", node_type="hogql", status=status
+                team=self.team,
+                notebook=self.notebook,
+                user=owner,
+                node_id="n1",
+                code="select 1",
+                node_type="hogql",
+                status=status,
             )
-        response = self.client.post(
-            self.run_url, data={"node_id": "n1", "code": "select 1", "reuse_results": True}, format="json"
-        )
+        with patch(
+            "products.notebooks.backend.presentation.views.notebook.NotebookViewSet._current_user",
+            return_value=None if principal == "token" else self.user,
+        ):
+            response = self.client.post(
+                self.run_url, data={"node_id": "n1", "code": "select 1", "reuse_results": True}, format="json"
+            )
         assert response.status_code == 200
         assert (response.json()["run_id"] == str(saved.id)) is should_reuse
         assert enqueue.call_count == (0 if should_reuse else 1)
+        if not should_reuse:
+            assert enqueue.call_args.args[1] == (None if principal == "token" else self.user)
 
     def _age_slot(self, run_id: str) -> None:
         """Backdate a held slot so it reads as old enough to have been abandoned.

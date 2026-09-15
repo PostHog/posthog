@@ -122,7 +122,7 @@ class NotebookSQLV2RunRequestSerializer(serializers.Serializer):
     reuse_results = serializers.BooleanField(
         required=False,
         default=False,
-        help_text="Reuse a running or completed HogQL run with the same cell and resolved query from the last hour. Does not apply to kernel or connection runs.",
+        help_text="Reuse the requesting user's running or completed HogQL run with the same cell and resolved query from the last hour. Does not apply to token-only callers, kernel runs, or connection runs.",
     )
     node_id = serializers.CharField(help_text="ProseMirror node id of the SQLV2 node being run.")
     node_type = serializers.ChoiceField(

@@ -1752,6 +1752,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             NotebookNodeRun.objects.for_team(self.team_id)
             .filter(
                 notebook=notebook,
+                user=user,
                 node_id=serializer.validated_data["node_id"],
                 code=plan.code,
                 node_type="hogql",
@@ -1760,7 +1761,10 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                 created_at__gte=now() - timedelta(hours=1),
             )
             .order_by("-created_at")
-            if serializer.validated_data["reuse_results"] and plan.node_type == "hogql" and connection_id is None
+            if serializer.validated_data["reuse_results"]
+            and user is not None
+            and plan.node_type == "hogql"
+            and connection_id is None
             else None
         )
 
