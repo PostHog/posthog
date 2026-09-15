@@ -15,6 +15,7 @@ from unittest import TestCase
 from unittest.mock import patch
 
 from django.conf import settings
+from django.contrib.auth.models import AnonymousUser
 from django.db import connection
 from django.test import override_settings
 from django.test.utils import CaptureQueriesContext
@@ -4358,6 +4359,18 @@ class TestDatabase(BaseTest, QueryMatchingTest):
                 user=self.user,
                 allowed_system_tables=frozenset({"accounts"}),
             )
+
+    @parameterized.expand(
+        [
+            ("stub_object", SimpleNamespace()),
+            # SharedLinkUser subclasses AnonymousUser, so a guard written against the base class
+            # would wrongly accept a bare anonymous principal as a supported one.
+            ("anonymous_user", AnonymousUser()),
+        ]
+    )
+    def test_unsupported_principal_is_rejected_at_the_boundary(self, _name: str, user: object) -> None:
+        with pytest.raises(TypeError, match="User, SyntheticUser or SharedLinkUser"):
+            Database.create_for(team=self.team, user=user)  # type: ignore[arg-type]
 
     def test_system_table_allowlist_does_not_override_cloud_entitlements(self) -> None:
         self.organization.available_product_features = []
