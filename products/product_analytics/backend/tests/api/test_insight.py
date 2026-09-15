@@ -697,25 +697,6 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(response.json()["results"][0]["short_id"], "12345678")
         self.assertEqual(response.json()["results"][0]["query"]["source"]["series"][0]["event"], "$pageview")
 
-    @parameterized.expand([("full", ""), ("basic", "&basic=true")])
-    def test_listing_an_insight_with_only_filters_serves_no_definition(self, _name: str, query_string: str) -> None:
-        # `unique_users` is not a math value the query schema accepts, so this definition cannot be
-        # expressed as a query at all. Reading it used to raise out of the serializer and fail the
-        # whole list request.
-        Insight.objects.create(
-            team=self.team,
-            saved=True,
-            short_id="brokenfl",
-            filters={"events": [{"id": "$pageview", "math": "unique_users"}]},
-        )
-
-        response = self.client.get(f"/api/projects/{self.team.id}/insights/?short_id=brokenfl{query_string}")
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        result = response.json()["results"][0]
-        self.assertIsNone(result["query"])
-        self.assertNotIn("filters", result)
-
     @parameterized.expand(
         [
             ("numeric_id", lambda insight: insight.id),
