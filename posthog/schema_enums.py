@@ -2671,6 +2671,7 @@ class ExternalDataSourceType(StrEnum):
     SMARTLEAD = "Smartlead"
     SUBSTACK = "Substack"
     ELECTRICITY_MAPS = "ElectricityMaps"
+    AMPLEMARKET = "Amplemarket"
 
 
 class ExternalQueryErrorCode(StrEnum):
