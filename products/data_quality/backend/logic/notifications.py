@@ -131,9 +131,7 @@ class _WarehouseSubjectResolver(RecipientsResolver):
             return False
         if not self._reference_gate_applies():
             return True
-        if not can_be_object_denied(access):
-            return True
-        if self._references_unknown:
+        if self._references_unknown and can_be_object_denied(access):
             return False
         return self._gate_of(user).admits(self._executed_references, self._referenced_names)
 

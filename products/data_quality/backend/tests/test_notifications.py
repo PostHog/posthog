@@ -428,9 +428,12 @@ class TestDataQualityNotifications(BaseTest):
         assert denied_first.id not in resolved
         assert denied_second.id not in resolved
 
-    def test_the_reference_gate_builds_no_warehouse_database_for_members_nothing_can_deny(self) -> None:
-        admin = User.objects.create_and_join(
-            self.organization, "admin-ref@test.com", "password", level=OrganizationMembership.Level.ADMIN
+    def test_org_admins_share_one_access_posture(self) -> None:
+        first_admin = User.objects.create_and_join(
+            self.organization, "first-admin@test.com", "password", level=OrganizationMembership.Level.ADMIN
+        )
+        second_admin = User.objects.create_and_join(
+            self.organization, "second-admin@test.com", "password", level=OrganizationMembership.Level.ADMIN
         )
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save(update_fields=["level"])
@@ -440,8 +443,8 @@ class TestDataQualityNotifications(BaseTest):
         with patch.object(Database, "create_for", side_effect=Database.create_for) as build:
             resolved = self._resolver_for(check).resolve(TargetType.TEAM, str(self.team.id), self.team.id)
 
-        assert build.call_count == 0
-        assert {admin.id, self.user.id} <= set(resolved)
+        assert build.call_count == 1
+        assert {first_admin.id, second_admin.id, self.user.id} <= set(resolved)
 
     def test_a_relationship_target_keeps_its_name_for_notification_filtering(self) -> None:
         check = self._check(

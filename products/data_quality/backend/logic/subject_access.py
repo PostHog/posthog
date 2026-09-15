@@ -117,11 +117,19 @@ class DenialContext:
 
 @frozen
 class ReferenceGate:
-    """Whether a caller may read a count taken over the subjects a check reads besides its own.
+    """Decides whether one person may be told a check failed.
 
-    The half of a :class:`DenialContext` that follows from the caller's :class:`AccessPosture` and
-    nothing else, so one gate serves every member who shares that posture. The context itself must
-    not be shared that way, because it also carries the HogQL database built for one member.
+    A check can read tables other than the one it is defined on: a ``custom_sql`` check reads
+    whatever its query selects, and a ``relationships`` check reads the table it points at. The
+    failure count in the notification therefore says something about every one of those tables, so
+    a person who may not read one of them must not get the notification.
+
+    Holds the two things that answer this: the tables, views and metrics the person may read, and
+    a matcher for the table names they are denied.
+
+    Both come from the person's :class:`AccessPosture` and from nothing else, so one gate can serve
+    every person with the same posture. The :class:`DenialContext` it is built from cannot be
+    shared that way, because that also holds the HogQL database built for one specific person.
     """
 
     readable: ReadableSubjects
@@ -138,11 +146,14 @@ class ReferenceGate:
 
 @frozen
 class AccessPosture:
-    """The caller-dependent inputs :func:`denial_context` resolves a caller's denial set from.
+    """What one person is allowed to read, as four values that can be used as a cache key.
 
-    Two callers with the same posture over the same team resolve to the same denial set, so a
-    surface that gates many members can build one HogQL database per posture rather than one per
-    member.
+    Working out which table names a person is denied is expensive: it builds a HogQL database for
+    them. These four values are the only things about the person that the answer depends on, so two
+    people on the same team with equal postures are denied exactly the same names.
+
+    A surface that has to check hundreds of people can therefore do the expensive work once per
+    distinct posture instead of once per person.
     """
 
     allowed_table_ids: frozenset[UUID]
@@ -152,7 +163,7 @@ class AccessPosture:
 
 
 def access_posture(team: "Team", user: "User", user_access_control: "UserAccessControl") -> AccessPosture:
-    """One caller's :class:`AccessPosture`. Reads Postgres only and builds no HogQL database."""
+    """Reads one person's posture. Runs a few Postgres queries and builds no HogQL database."""
     return AccessPosture(
         allowed_table_ids=warehouse_facade.allowed_table_ids(team.id, user_access_control),
         allowed_view_ids=data_modeling_facade.allowed_saved_query_ids(team.id, user_access_control),
