@@ -673,6 +673,7 @@ export interface sourceWizardLogicActions {
             | 'AmazonSellingPartner'
             | 'AmazonSNS'
             | 'AmazonSQS'
+            | 'Amplemarket'
             | 'Amplitude'
             | 'AnodotCost'
             | 'Anomalo'
