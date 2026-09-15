@@ -264,6 +264,34 @@ class TestResolveIntegration:
         assert result.integration == self.integration_b
         assert result.stale_default == StaleDefault(team_id=self.team_a.id, scope=expected_scope)
 
+    def test_stale_personal_default_survives_the_workspace_fallback(self):
+        # The personal pin is dead but the workspace row still resolves. The workspace
+        # project answers, and the skipped personal pin must still reach the caller:
+        # it is the reason this mention went somewhere the user did not choose.
+        SlackSettings.objects.create(
+            default_integration=self.integration_a,
+            slack_workspace_id=WORKSPACE,
+            slack_user_id=SLACK_USER,
+        )
+        SlackSettings.objects.create(
+            default_integration=self.integration_b,
+            slack_workspace_id=WORKSPACE,
+            slack_user_id=None,
+        )
+        self.integration_a.kind = "github"
+        self.integration_a.save(update_fields=["kind"])
+
+        result = load_integrations(
+            slack_team_id=WORKSPACE,
+            kinds=["slack"],
+            slack_user_id=SLACK_USER,
+            user=self.user,
+        )
+
+        assert result.source == "workspace_default"
+        assert result.integration == self.integration_b
+        assert result.stale_default == StaleDefault(team_id=self.team_a.id, scope="personal")
+
     def test_no_stale_default_reported_when_default_still_resolves(self):
         SlackSettings.objects.create(
             default_integration=self.integration_a,

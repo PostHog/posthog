@@ -1,4 +1,4 @@
-from dataclasses import dataclass, field
+from dataclasses import field
 from typing import Literal
 
 from django.db.models import Q
@@ -86,7 +86,7 @@ def user_resolution_failure_reply(
     return None
 
 
-@dataclass
+@frozen
 class ResolutionResult:
     integration: Integration | None
     source: ResolutionSource
@@ -209,7 +209,11 @@ def resolve_from_candidates(
             if accessible_team_ids is not None and target.team_id not in accessible_team_ids:
                 continue
             source: ResolutionSource = "user_default" if default.slack_user_id else "workspace_default"
-            return ResolutionResult(integration=target, source=source, candidates=accessible)
+            # ``stale_default`` rides along: a personal row skipped on the way here is
+            # why the workspace row is answering, and the caller has to be able to say so.
+            return ResolutionResult(
+                integration=target, source=source, candidates=accessible, stale_default=stale_default
+            )
 
     if len(accessible) == 1:
         return ResolutionResult(
@@ -252,7 +256,7 @@ def load_integrations(
     )
 
 
-@dataclass
+@frozen
 class UserAndIntegrationsResolution:
     """Outcome of the user identification + access-filter step.
 
