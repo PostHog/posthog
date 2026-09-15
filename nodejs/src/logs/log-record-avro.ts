@@ -172,11 +172,30 @@ const encodeLogRecordsInstrumented = instrumented({
     ...logRecordProcessInstrumentOpts,
 })(encodeLogRecords)
 
+function* jsonEntries(value: object): Generator<[string, unknown]> {
+    if (Array.isArray(value)) {
+        for (let i = 0; i < value.length; i++) {
+            yield [String(i), value[i]]
+        }
+    } else {
+        for (const key in value) {
+            if (Object.hasOwn(value, key)) {
+                yield [key, (value as Record<string, unknown>)[key]]
+            }
+        }
+    }
+}
+
 /**
  * Flattens a JSON object into a flat key-value map with dot-notation keys.
  * Arrays are indexed with numeric keys (e.g., "items.0.name").
  */
-export function flattenJson(obj: unknown, prefix = '', result: Record<string, any> = {}): Record<string, any> {
+export function flattenJson(
+    obj: unknown,
+    prefix = '',
+    result: Record<string, any> = {},
+    maxAttributes = Infinity
+): Record<string, any> {
     if (obj === null || obj === undefined) {
         if (prefix) {
             result[prefix] = String(obj)
@@ -191,27 +210,41 @@ export function flattenJson(obj: unknown, prefix = '', result: Record<string, an
         return result
     }
 
-    if (Array.isArray(obj)) {
-        for (let i = 0; i < obj.length; i++) {
-            flattenJson(obj[i], prefix ? `${prefix}.${i}` : String(i), result)
+    // Lazy iterators avoid recursion and stop visiting children once the output budget is exhausted.
+    const stack = [{ entries: jsonEntries(obj), prefix }]
+    let count = Object.keys(result).length
+    while (stack.length > 0 && count < maxAttributes) {
+        const frame = stack[stack.length - 1]
+        const next = frame.entries.next()
+        if (next.done) {
+            stack.pop()
+            continue
         }
-        return result
-    }
-
-    for (const [key, value] of Object.entries(obj)) {
-        const newKey = prefix ? `${prefix}.${key}` : key
-        flattenJson(value, newKey, result)
+        const [key, value] = next.value
+        const newKey = frame.prefix ? `${frame.prefix}.${key}` : key
+        if (value !== null && typeof value === 'object') {
+            stack.push({ entries: jsonEntries(value), prefix: newKey })
+        } else if (newKey) {
+            if (!Object.hasOwn(result, newKey)) {
+                count++
+            }
+            result[newKey] = value === null || value === undefined ? String(value) : value
+        }
     }
 
     return result
 }
 
-function jsonAttributesFromBodyParse(bodyParse: LogBodyParseResult, prefix = ''): Record<string, string> {
+function jsonAttributesFromBodyParse(
+    bodyParse: LogBodyParseResult,
+    prefix = '',
+    maxAttributes = Infinity
+): Record<string, string> {
     if (bodyParse.kind !== 'json_object_or_array') {
         return {}
     }
 
-    const flattened = flattenJson(bodyParse.value, prefix)
+    const flattened = flattenJson(bodyParse.value, prefix, {}, maxAttributes)
     const newAttributes: Record<string, string> = {}
     let count = 0
 
@@ -287,7 +320,7 @@ const enrichBatchAttributeJsonAttributes = instrumented({
             // SDKs commonly stringify the attribute value, so the first parse yields the JSON document as a string.
             parsed = parseLogBodyForIngestion(parsed.value)
         }
-        addJsonAttributes(record, jsonAttributesFromBodyParse(parsed, attributeKey))
+        addJsonAttributes(record, jsonAttributesFromBodyParse(parsed, attributeKey, MAX_JSON_ATTRIBUTES))
     }
     return Promise.resolve()
 })
@@ -304,9 +337,7 @@ const scrubBatch = instrumented({
 })
 
 /**
- * Applies PII scrub and optional JSON parse + attribute enrichment to decoded records in place.
- * Used by the main buffer processor and by the sampling path (which must decode even when
- * json_parse / pii_scrub are off, then optionally runs this when either flag is on).
+ * Scrubs before body and attribute extraction so flattened fields inherit redacted values.
  */
 export async function transformDecodedLogRecordsInPlace(
     records: LogRecord[],
@@ -315,15 +346,12 @@ export async function transformDecodedLogRecordsInPlace(
     const jsonParse = settings.json_parse_logs ?? false
     const piiScrub = settings.pii_scrub_logs ?? false
     let pii: PiiScrubStats = EMPTY_PII
-    if (jsonParse && piiScrub) {
+    if (piiScrub) {
         pii = await scrubBatch(records)
+    }
+    if (jsonParse) {
         const bodyParses = await parseLogBodiesForIngestion(records)
         await enrichBatchJsonAttributes(records, bodyParses)
-    } else if (jsonParse) {
-        const bodyParses = await parseLogBodiesForIngestion(records)
-        await enrichBatchJsonAttributes(records, bodyParses)
-    } else if (piiScrub) {
-        pii = await scrubBatch(records)
     }
     const attributeKey = settings.json_parse_logs_attribute_key
     if (attributeKey) {
@@ -378,9 +406,9 @@ export function bufferProcessingMode(
 
 /**
  * The single decode → transform → encode path for a log message buffer.
- * Passthrough (no decode) when json_parse_logs and pii_scrub_logs are off, there are no `stages`, and
- * no `onRecordsDecoded` visitor.
- * Otherwise: decode → normalize (optional PII scrub on `body`, then optional JSON parse + enrich) →
+ * Passthrough (no decode) when body parsing, attribute parsing, and PII scrubbing are off,
+ * there are no `stages`, and no `onRecordsDecoded` visitor.
+ * Otherwise: decode → normalize (optional PII scrub, then body and attribute extraction) →
  * `onRecordsDecoded` visitor → run `stages` in order → encode.
  *
  * When both `json_parse_logs` and `pii_scrub_logs` are on, scrub runs **before** parse/enrich so flattened JSON

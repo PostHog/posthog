@@ -560,18 +560,19 @@ describe('LogsIngestionConsumer', () => {
             ['team', 'attributes', true],
             ['all', 'attributes', true],
             ['other team', 'attributes', false],
+            ['malformed', 'attributes', false],
             ['all', '', false],
         ])('honors the %s rollout with key %j', async (rollout, attributeKey, enabled) => {
+            const rolloutConfig: Record<string, string> = {
+                disabled: '',
+                team: `0, ${team.id}`,
+                all: '*',
+                'other team': '0',
+                malformed: `${team.id}oops`,
+            }
             await consumer.stop()
             consumer = await createLogsIngestionConsumer(hub, {
-                LOGS_JSON_ATTRIBUTE_PARSING_ENABLED_TEAMS:
-                    rollout === 'all'
-                        ? '*'
-                        : rollout === 'team'
-                          ? String(team.id)
-                          : rollout === 'other team'
-                            ? '0'
-                            : '',
+                LOGS_JSON_ATTRIBUTE_PARSING_ENABLED_TEAMS: rolloutConfig[rollout],
             })
             await hub.postgres.query(
                 PostgresUse.COMMON_WRITE,
@@ -600,6 +601,9 @@ describe('LogsIngestionConsumer', () => {
 
             await waitForBackgroundTasks(consumer.processKafkaBatch(messages))
 
+            expect((await hub.teamManager.getTeam(team.id))?.logs_settings?.json_parse_logs_attribute_key).toBe(
+                attributeKey
+            )
             const produced = getProducedKafkaMessages().filter((message) => message.topic === 'clickhouse_logs_test')
             expect(produced).toHaveLength(2)
             for (const message of produced) {

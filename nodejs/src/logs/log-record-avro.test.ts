@@ -426,6 +426,11 @@ describe('log-record-avro', () => {
             ['number', '42', {}],
             ['boolean', 'true', {}],
             ['empty object', '{}', {}],
+            [
+                'deeply nested object',
+                '{"nested":'.repeat(10000) + '1' + '}'.repeat(10000),
+                { ['context.' + 'nested.'.repeat(9999) + 'nested']: '1' },
+            ],
         ])('parses a selected attribute: %s', async (_name, attribute, expected) => {
             const record: LogRecord = {
                 uuid: 'test-uuid',
@@ -487,9 +492,10 @@ describe('log-record-avro', () => {
         })
 
         it('limits extraction to 50 attributes without removing the original', async () => {
-            const attribute = JSON.stringify(
+            const firstFields = JSON.stringify(
                 Object.fromEntries(Array.from({ length: 60 }, (_, index) => [`field${index}`, index]))
             )
+            const attribute = firstFields.slice(0, -1) + ',"tail":' + '['.repeat(10000) + '1' + ']'.repeat(10000) + '}'
             const records = [{ body: null, attributes: { context: attribute } } as unknown as LogRecord]
             await transformDecodedLogRecordsInPlace(records, { json_parse_logs_attribute_key: 'context' })
             expect(Object.keys(records[0].attributes!)).toHaveLength(51)

@@ -115,11 +115,10 @@ function teamIdMatchesCsv(raw: string, teamId: number): boolean {
     if (trimmed === '*') {
         return true
     }
-    return trimmed
-        .split(',')
-        .map((s) => parseInt(s.trim(), 10))
-        .filter((n) => !Number.isNaN(n))
-        .includes(teamId)
+    return trimmed.split(',').some((part) => {
+        const id = part.trim()
+        return /^\d+$/.test(id) && Number(id) === teamId
+    })
 }
 
 /**
@@ -904,13 +903,13 @@ export class LogsIngestionConsumer {
                         const team = await this.retryOnDependencyUnavailable(() =>
                             this.deps.teamManager.getTeam(message.teamId)
                         )
-                        const logsSettings = {
-                            ...team?.logs_settings,
-                            json_parse_logs_attribute_key:
-                                this.appSource === 'logs' &&
-                                teamIdMatchesCsv(this.jsonAttributeParsingEnabledTeamsRaw, message.teamId)
-                                    ? team?.logs_settings?.json_parse_logs_attribute_key
-                                    : undefined,
+                        let logsSettings = team?.logs_settings ?? {}
+                        if (
+                            logsSettings.json_parse_logs_attribute_key &&
+                            (this.appSource !== 'logs' ||
+                                !teamIdMatchesCsv(this.jsonAttributeParsingEnabledTeamsRaw, message.teamId))
+                        ) {
+                            logsSettings = { ...logsSettings, json_parse_logs_attribute_key: undefined }
                         }
 
                         // Extract settings with defaults
