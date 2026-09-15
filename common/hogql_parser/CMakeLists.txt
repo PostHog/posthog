@@ -54,14 +54,18 @@ if(EMSCRIPTEN)
 
     # Shared link flags for all WASM targets
     #
-    # DYNAMIC_EXECUTION=0 removes the one `new Function` Emscripten emits. Embind builds an
-    # invoker per bound signature by concatenating a function body and compiling it, which the
-    # app's `script-src` reports as an eval violation. Without the flag the browser build is the
-    # only part of the app that still needs `'unsafe-eval'`, and we are not adding that token.
-    # The flag makes embind close over the argument converters and call `.apply` instead, so it
-    # costs a little per call and nothing per parse. The build fails outright if anything else
-    # in the glue needs dynamic execution, which is what keeps this honest; do not answer such a
-    # failure with `=2`, which only downgrades the error and leaves the eval in place.
+    # DYNAMIC_EXECUTION=0 removes the `new Function` that embind emits. By default embind builds
+    # an invoker per bound signature by concatenating a function body and compiling it, and the
+    # app's `script-src` reports that as an eval violation. With the flag, embind closes over the
+    # argument converters and calls `.apply` instead. That costs a little per call and nothing
+    # per parse.
+    #
+    # The flag does not fail the build when the glue needs dynamic execution. Emscripten replaces
+    # each eval site with `abort('DYNAMIC_EXECUTION=0 was set, cannot eval')`, so a binding that
+    # needs one links clean and aborts at runtime. The check is on the output:
+    # frontend/src/lib/monaco/__tests__/hogqlParserCjs.test.ts asserts that the published glue
+    # contains neither `new Function(` nor that abort string. Do not switch to `=2`, which keeps
+    # the eval and only logs a warning.
     set(WASM_COMMON_LINK_FLAGS "\
         -lembind \
         -s WASM=1 \
