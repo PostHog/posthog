@@ -204,15 +204,27 @@ class LLMDetector(BaseDetector):
             # confidence gate is what stopped the alert.
             metadata["below_threshold"] = True
 
+        anomaly_score = self._anomaly_score(verdict)
         return DetectionResult(
             is_anomaly=is_anomaly,
-            score=verdict.confidence,
+            score=anomaly_score,
             triggered_indices=indices,
-            all_scores=self._scores(verdict.confidence, indices=indices, length=len(data))
+            all_scores=self._scores(anomaly_score, indices=indices, length=len(data))
             if judge_every_point
-            else [verdict.confidence],
+            else [anomaly_score],
             metadata=metadata,
         )
+
+    @staticmethod
+    def _anomaly_score(verdict: LLMDetectionVerdict) -> float:
+        """The verdict as a probability of anomaly, which is the scale the threshold and the
+        check history chart read scores on.
+
+        The model reports confidence in its verdict, whichever way it went. A confident "no
+        anomaly" is a low anomaly score; stored raw, it would plot above the threshold as a
+        check that would have fired.
+        """
+        return verdict.confidence if verdict.is_anomaly else 1.0 - verdict.confidence
 
     @staticmethod
     def _clamp_indices(indices: list[int], *, length: int) -> list[int]:

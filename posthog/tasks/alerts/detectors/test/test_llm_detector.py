@@ -69,16 +69,26 @@ def _detect(
 class TestLLMDetectorVerdictMapping:
     @parameterized.expand(
         [
-            ("confident_anomaly", 0.9, 0.7, True),
-            ("at_threshold", 0.7, 0.7, True),
-            ("below_threshold", 0.5, 0.7, False),
+            # name, is_anomaly, confidence, threshold, fires, stored anomaly score
+            ("confident_anomaly", True, 0.9, 0.7, True, 0.9),
+            ("at_threshold", True, 0.7, 0.7, True, 0.7),
+            ("below_threshold", True, 0.5, 0.7, False, 0.5),
+            # A confident "no anomaly" must land below the threshold, or the check history
+            # chart shows it as a check that would have fired.
+            ("confident_no_anomaly", False, 0.9, 0.7, False, 0.1),
         ]
     )
-    def test_confidence_gates_firing(self, _name: str, confidence: float, threshold: float, fires: bool) -> None:
-        result = _detect(LLMDetector({"type": "llm", "threshold": threshold}), _verdict(confidence=confidence))
+    def test_confidence_gates_firing(
+        self, _name: str, is_anomaly: bool, confidence: float, threshold: float, fires: bool, score: float
+    ) -> None:
+        result = _detect(
+            LLMDetector({"type": "llm", "threshold": threshold}),
+            _verdict(is_anomaly=is_anomaly, confidence=confidence, kind="drop" if is_anomaly else "none"),
+        )
 
         assert result.is_anomaly is fires
-        assert result.score == confidence
+        assert result.score == pytest.approx(score)
+        assert result.all_scores == [pytest.approx(score)]
         assert result.triggered_indices == ([len(SERIES) - 1] if fires else [])
 
     def test_below_threshold_verdict_is_recorded_not_lost(self) -> None:
