@@ -2,7 +2,7 @@ from datetime import UTC, date, datetime
 from typing import Any
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from unittest import mock
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.npm_registry.npm_registry import (
@@ -119,7 +119,7 @@ class TestFirstLicense:
 
 
 class TestGetRowsDownloads:
-    @freeze_time("2016-08-01")
+    @time_machine.travel("2016-08-01", tick=False)
     def test_windows_date_range_into_chunks(self):
         # First 540-day window from EARLIEST_DOWNLOAD_DATE runs 2015-01-10..2016-07-02; the second
         # window then starts 2016-07-03 and is clamped to "today" (frozen at 2016-08-01).
@@ -152,7 +152,7 @@ class TestGetRowsDownloads:
         ]
         assert fetch.call_count == 2
 
-    @freeze_time("2024-02-15")
+    @time_machine.travel("2024-02-15", tick=False)
     def test_incremental_starts_the_day_after_the_watermark(self):
         with mock.patch(f"{_MODULE}._fetch_json", return_value={"downloads": []}) as fetch:
             list(
@@ -167,7 +167,7 @@ class TestGetRowsDownloads:
             )
         assert "2024-02-02:2024-02-15" in fetch.call_args_list[0].args[1]
 
-    @freeze_time("2024-02-15")
+    @time_machine.travel("2024-02-15", tick=False)
     def test_resume_starts_from_saved_package_and_window(self):
         with mock.patch(f"{_MODULE}._fetch_json", return_value={"downloads": []}) as fetch:
             list(
@@ -186,7 +186,7 @@ class TestGetRowsDownloads:
         assert "lodash" in url
         assert "2024-02-10:2024-02-15" in url
 
-    @freeze_time("2024-02-15")
+    @time_machine.travel("2024-02-15", tick=False)
     def test_missing_package_is_skipped_without_raising(self):
         with mock.patch(f"{_MODULE}._fetch_json", return_value=None) as fetch:
             batches = list(
@@ -200,7 +200,7 @@ class TestGetRowsDownloads:
         assert batches == []
         assert fetch.call_count == 1
 
-    @freeze_time("2024-02-15")
+    @time_machine.travel("2024-02-15", tick=False)
     def test_saves_state_after_each_window_and_advances_package_on_completion(self):
         manager = _manager()
         with mock.patch(f"{_MODULE}._fetch_json", return_value={"downloads": [{"day": "2015-01-10", "downloads": 1}]}):

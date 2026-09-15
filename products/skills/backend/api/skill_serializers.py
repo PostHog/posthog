@@ -1,8 +1,11 @@
+from dataclasses import asdict
 from typing import Any
 
 from django.db import transaction
+from django.db.models import F, Value
+from django.db.models.functions import Length, Replace
 
-from drf_spectacular.utils import extend_schema_field
+from drf_spectacular.utils import extend_schema_field, extend_schema_serializer
 from rest_framework import serializers
 
 from posthog.api.shared import UserBasicSerializer
@@ -24,6 +27,7 @@ from .skill_services import (
     SKILL_NAME_PATTERN,
     LLMSkillOwnerNotFoundError,
     check_allowed_tool_name,
+    compute_spec_problems,
     normalize_skill_file_path,
     resolve_owner_users,
     resolve_skill_owners,
@@ -190,6 +194,51 @@ class LLMSkillListQuerySerializer(serializers.Serializer):
     )
 
 
+class LLMSkillSearchQuerySerializer(serializers.Serializer):
+    query = serializers.CharField(
+        min_length=1,
+        max_length=200,
+        trim_whitespace=True,
+        help_text="Case-insensitive substring to search across ordinary skill names, descriptions, bodies, file paths, and Markdown file contents.",
+    )
+
+
+class LLMSkillSearchMatchSerializer(serializers.Serializer):
+    matched_field = serializers.ChoiceField(
+        choices=["name", "description", "body", "file_path", "file_content"],
+        help_text="Skill field that matched the search query.",
+    )
+    path = serializers.CharField(
+        required=False,
+        help_text="Skill-relative file path for body or bundled-file matches. Omitted for name and description matches.",
+    )
+    line = serializers.IntegerField(
+        min_value=1,
+        required=False,
+        help_text="One-based line containing the match when the result came from a body or bundled file.",
+    )
+    excerpt = serializers.CharField(help_text="Short excerpt showing why this skill matched.")
+
+
+class LLMSkillSearchResultSerializer(serializers.Serializer):
+    name = serializers.CharField(help_text="Unique skill name.")
+    description = serializers.CharField(help_text="What this skill does and when to use it.")
+    matches = LLMSkillSearchMatchSerializer(
+        many=True,
+        help_text="Up to two locations that matched the search query, ordered by field relevance.",
+    )
+
+
+@extend_schema_serializer(many=False)
+class LLMSkillSearchResponseSerializer(serializers.Serializer):
+    count = serializers.IntegerField(help_text="Number of matching skills returned, capped at 10.")
+    results = LLMSkillSearchResultSerializer(many=True, help_text="Matching ordinary skills in relevance order.")
+
+
+class LLMSkillSearchErrorSerializer(serializers.Serializer):
+    detail = serializers.CharField(help_text="Explanation of why the skill search could not complete.")
+
+
 class LLMSkillResolveQuerySerializer(LLMSkillFetchQuerySerializer):
     version_id = serializers.UUIDField(
         required=False,
@@ -224,6 +273,16 @@ class LLMSkillOutlineEntrySerializer(serializers.Serializer):
     text = serializers.CharField(help_text="Heading text.")
 
 
+class LLMSkillSpecProblemSerializer(serializers.Serializer):
+    code = serializers.CharField(
+        help_text="Stable machine-readable code for the problem, e.g. description_too_long or file_path_collides."
+    )
+    message = serializers.CharField(help_text="What is wrong and what to change, written for the skill's author.")
+    file_path = serializers.CharField(
+        allow_null=True, help_text="The bundled file the problem is about. Null when it is about the skill itself."
+    )
+
+
 class LLMSkillFileSerializer(serializers.ModelSerializer):
     class Meta:
         model = LLMSkillFile
@@ -231,9 +290,20 @@ class LLMSkillFileSerializer(serializers.ModelSerializer):
 
 
 class LLMSkillFileManifestSerializer(serializers.ModelSerializer):
+    line_count = serializers.IntegerField(help_text="Number of lines in the file content.")
+    char_count = serializers.IntegerField(help_text="Number of characters in the file content.")
+    size = serializers.IntegerField(
+        allow_null=True,
+        help_text="Size of the file content in bytes. Null on rows written before digests were stamped.",
+    )
+    sha256 = serializers.CharField(
+        allow_null=True,
+        help_text="Hex SHA-256 of the file content. Null on rows written before digests were stamped.",
+    )
+
     class Meta:
         model = LLMSkillFile
-        fields = ["path", "content_type"]
+        fields = ["path", "content_type", "line_count", "char_count", "size", "sha256"]
 
 
 class LLMSkillFileInputSerializer(serializers.Serializer):
@@ -345,7 +415,10 @@ class LLMSkillPublishSerializer(serializers.Serializer):
     allowed_tools = serializers.ListField(
         child=serializers.CharField(validators=[validate_allowed_tool]),
         required=False,
-        help_text="List of pre-approved tools the skill may use. Tool names cannot contain whitespace.",
+        help_text="Tools the skill asks to use. Tool names cannot contain whitespace. A harness that reads the "
+        "skill from a file (zip export, git marketplace, a content=full bundle) treats the list as pre-approved. "
+        "A harness that loads the skill over MCP, including the default content=stub bundle, ignores the list "
+        "until the user approves that grant.",
     )
     metadata = serializers.DictField(
         required=False,
@@ -440,7 +513,10 @@ class LLMSkillSerializer(serializers.ModelSerializer):
         child=serializers.CharField(validators=[validate_allowed_tool]),
         required=False,
         default=list,
-        help_text="List of pre-approved tools the skill may use. Tool names cannot contain whitespace.",
+        help_text="Tools the skill asks to use. Tool names cannot contain whitespace. A harness that reads the "
+        "skill from a file (zip export, git marketplace, a content=full bundle) treats the list as pre-approved. "
+        "A harness that loads the skill over MCP, including the default content=stub bundle, ignores the list "
+        "until the user approves that grant.",
     )
     metadata = serializers.DictField(
         required=False,
@@ -460,10 +536,14 @@ class LLMSkillSerializer(serializers.ModelSerializer):
         "Empty for scout sandbox fetches of skills that haven't opted into the report channel.",
     )
     files = serializers.SerializerMethodField(
-        help_text="Bundled files manifest. Each entry is path + content_type only; fetch content via /llm_skills/name/{name}/files/{path}/.",
+        help_text="Bundled files manifest. Each entry carries path, content_type, and line/char counts — no content; fetch content via /llm_skills/name/{name}/files/{path}/.",
     )
     outline = serializers.SerializerMethodField(
         help_text="Flat list of markdown headings parsed from the skill body. Useful as a lightweight table of contents.",
+    )
+    spec_problems = serializers.SerializerMethodField(
+        help_text="Why this skill is left out of the skills bundle and the plugin marketplace, as stable codes with "
+        "author-facing messages. Empty when the skill packages cleanly.",
     )
     body_total_length = serializers.SerializerMethodField(
         help_text="Total length of the full body in characters, independent of any body_offset/body_length paging. "
@@ -493,6 +573,7 @@ class LLMSkillSerializer(serializers.ModelSerializer):
             "owners",
             "files",
             "outline",
+            "spec_problems",
             "version",
             "version_description",
             "created_by",
@@ -509,6 +590,7 @@ class LLMSkillSerializer(serializers.ModelSerializer):
             "owners",
             "files",
             "outline",
+            "spec_problems",
             "body_total_length",
             "body_next_offset",
             "version",
@@ -581,7 +663,29 @@ class LLMSkillSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(LLMSkillFileManifestSerializer(many=True))
     def get_files(self, instance: LLMSkill) -> list[dict[str, Any]]:
-        return [dict(row) for row in LLMSkillFile.objects.filter(skill=instance).values("path", "content_type")]
+        # Counts are computed in the database so the manifest never fetches file contents. The byte
+        # size comes from the stamped column rather than a `Length()` count, which counts characters.
+        annotated = LLMSkillFile.objects.filter(skill=instance).annotate(
+            char_count=Length("content"),
+            line_count=Length("content") - Length(Replace("content", Value("\n"))) + 1,
+            size=F("content_size"),
+            sha256=F("content_sha256"),
+        )
+        return [
+            dict(row) for row in annotated.values("path", "content_type", "line_count", "char_count", "size", "sha256")
+        ]
+
+    @extend_schema_field(LLMSkillSpecProblemSerializer(many=True))
+    def get_spec_problems(self, instance: LLMSkill) -> list[dict[str, Any]]:
+        # Like owners: the list endpoint pre-resolves paths for the whole page (one query) and passes
+        # them via context to avoid N+1; a single-skill fetch reads them on demand. Paths only,
+        # because loading the relation would carry every bundled file's content the response drops.
+        paths_by_skill_id = self.context.get("file_paths_by_skill_id")
+        if paths_by_skill_id is not None:
+            paths = paths_by_skill_id.get(instance.id, [])
+        else:
+            paths = sorted(LLMSkillFile.objects.filter(skill=instance).values_list("path", flat=True))
+        return [asdict(problem) for problem in compute_spec_problems(instance.name, instance.description, paths)]
 
     @extend_schema_field(LLMSkillOutlineEntrySerializer(many=True))
     def get_outline(self, instance: LLMSkill) -> list[dict[str, Any]]:
@@ -774,6 +878,46 @@ class LLMSkillResolveResponseSerializer(serializers.Serializer):
     has_more = serializers.BooleanField()
 
 
+@extend_schema_field(
+    {
+        "type": "object",
+        "properties": {
+            "name": {"type": "string"},
+            "description": {"type": "string"},
+            "license": {"type": "string"},
+            "compatibility": {"type": "string"},
+            "metadata": {"type": "object", "additionalProperties": {"type": "string"}},
+            "allowed-tools": {"type": "string"},
+        },
+        "required": ["name", "description", "metadata"],
+    }
+)
+class SkillFrontmatterField(serializers.DictField):
+    """The Agent Skills frontmatter mapping, passed through with the spec's own key names.
+
+    ``allowed-tools`` is hyphenated in the spec, so the mapping is served verbatim instead of
+    through declared fields: a client must be able to compare it to ``yaml.safe_load`` of the
+    block in ``content`` key for key.
+    """
+
+
+class LLMSkillMarkdownSerializer(serializers.Serializer):
+    name = serializers.CharField(help_text="Name of the skill, which is also its directory name.")
+    version = serializers.IntegerField(help_text="Version of the skill that this SKILL.md was rendered from.")
+    content = serializers.CharField(
+        help_text=(
+            "The complete SKILL.md file: the YAML frontmatter block, a blank line, then the skill body. "
+            "Serve these bytes as the file; a digest must be taken over this exact string."
+        )
+    )
+    frontmatter = SkillFrontmatterField(
+        help_text=(
+            "The frontmatter block of content as a JSON object. Equal to yaml.safe_load of that block, "
+            "so a listing can carry the same fields the file carries."
+        )
+    )
+
+
 class LLMSkillFileCreateSerializer(LLMSkillFileInputSerializer):
     base_version = serializers.IntegerField(
         min_value=1,
@@ -890,6 +1034,13 @@ class LLMSkillMarketplaceCommandSerializer(serializers.Serializer):
 
 
 class LLMSkillPublishToCommunitySerializer(serializers.Serializer):
+    expected_skill_id = serializers.UUIDField(
+        help_text="Immutable ID of the skill version that the publisher reviewed."
+    )
+    expected_version = serializers.IntegerField(
+        min_value=1,
+        help_text="Skill version that the publisher reviewed. The request returns 409 if the latest version changed.",
+    )
     display_name = serializers.RegexField(
         DISPLAY_NAME_PATTERN,
         required=False,
@@ -917,6 +1068,10 @@ class LLMSkillPublishToCommunitySerializer(serializers.Serializer):
             "and self-reported: it is not verified against the publisher's PostHog account."
         ),
     )
+
+
+class LLMSkillPublishConflictSerializer(serializers.Serializer):
+    detail = serializers.CharField(help_text="Reason that the reviewed skill version can no longer be published.")
 
 
 class CommunitySkillPublishResultSerializer(serializers.Serializer):

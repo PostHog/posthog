@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import re
 import json
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator
@@ -48,6 +48,14 @@ MAX_CHART_CAPTION_LENGTH = 500
 ChartSize = Literal["small", "medium", "large"]
 CHART_SIZES: tuple[ChartSize, ...] = ("small", "medium", "large")
 
+# When to attach a chart, as both chart prompts state it: the scout channel's `_REPORT_CHARTS` and
+# the research pipeline's `_REPORT_CHARTS_GUIDANCE`. Shared rather than written twice because the
+# two drifted apart once already, and each talked its readers out of charting in its own words. The
+# prose is channel-agnostic on purpose — it names no tool — so each prompt appends its own mechanics.
+WHEN_TO_CHART = """**When the finding rests on data moving, attach the chart that shows it.** A metric that broke, a rate that slid, a distribution that shifted, a funnel step that collapsed: each of those is a shape, and a reader takes a shape in at a glance where a paragraph of figures makes them rebuild it in their head. The test is the result you got back, never the tool you got it from: a query that returned a series over time, a distribution across buckets, or a set of funnel steps has a shape to draw, and the same tool returning one aggregate row does not. Attaching is what keeps the prose short, because the summary can state the finding and leave the detail to the picture.
+
+Attach nothing when there is no shape to show. A finding that lives entirely in code, in a config, or in a single count has nothing to draw, and a chart restating one number the summary already gives is noise, so write the number instead. One or two charts is the usual answer for a data-shaped report, and none for the rest."""
+
 # Bounds the JSON a single chart can carry into the report and, from there, into the safety-judge
 # prompt. Generous next to a real query node; small enough that a malformed one can't blow up a call.
 _MAX_CHART_QUERY_CHARS = 20_000
@@ -64,6 +72,40 @@ _MAX_CHART_QUERY_DEPTH = 100
 # one: its runner calls `hit_openai`, so a report carrying it spends money on the reader's behalf
 # every time someone opens it, times the chart cap.
 _EXECUTABLE_QUERY_KINDS = frozenset({"HogQuery", "SuggestedQuestionsQuery"})
+
+
+def validate_report_query(
+    query: dict[str, Any],
+    *,
+    allowed_kinds: Collection[str] = CHART_QUERY_KINDS,
+    max_query_chars: int = _MAX_CHART_QUERY_CHARS,
+) -> dict[str, Any]:
+    """Validate a query node stored on report content and return it unchanged.
+
+    Charts and metrics share the same execution boundary: both are authored outside the request
+    that eventually renders them, stored as JSON, and executed with the reader's permissions. Keep
+    the storage and executable-payload checks here so a new report surface cannot accidentally
+    become less strict than the chart surface that came before it.
+    """
+    kind = query.get("kind")
+    if not isinstance(kind, str) or kind not in allowed_kinds:
+        allowed = ", ".join(sorted(allowed_kinds))
+        raise ValueError(f"query.kind must be one of {allowed} (got {kind!r})")
+    if _nests_too_deeply(query):
+        raise ValueError(f"query must not nest deeper than {_MAX_CHART_QUERY_DEPTH} levels")
+    try:
+        serialized = json.dumps(query, allow_nan=False)
+    except ValueError:
+        raise ValueError("query must not contain a non-finite number") from None
+    if len(serialized) > max_query_chars:
+        raise ValueError(f"query must not exceed {max_query_chars} characters when serialized")
+    unstorable = _unstorable_text(query)
+    if unstorable:
+        raise ValueError(f"query must not contain {unstorable}")
+    executable = _executable_payload(query)
+    if executable:
+        raise ValueError(f"query must not carry {executable} — a report query renders data, it does not run code")
+    return query
 
 
 def _nests_too_deeply(value: Any) -> bool:
@@ -244,32 +286,7 @@ class ReportChart(BaseModel):
     @field_validator("query")
     @classmethod
     def query_must_be_a_renderable_node(cls, v: dict[str, Any]) -> dict[str, Any]:
-        kind = v.get("kind")
-        # `kind` is caller-supplied JSON, so it can be any type. Check it's a string before the
-        # membership test — an unhashable one (`{"kind": []}`) would raise TypeError out of the
-        # validator, escaping the ValidationError path that turns a bad write into a 400.
-        if not isinstance(kind, str) or kind not in CHART_QUERY_KINDS:
-            allowed = ", ".join(sorted(CHART_QUERY_KINDS))
-            raise ValueError(f"query.kind must be one of {allowed} (got {kind!r})")
-        if _nests_too_deeply(v):
-            raise ValueError(f"query must not nest deeper than {_MAX_CHART_QUERY_DEPTH} levels")
-        try:
-            serialized = json.dumps(v, allow_nan=False)
-        except ValueError:
-            # `NaN` and `Infinity` are not JSON, but the project parses requests with DRF's
-            # STRICT_JSON off, so a caller can put one in a query and `json.dumps` will happily
-            # write it back out. Postgres `jsonb` then refuses the INSERT, past every handler that
-            # turns bad input into a 400.
-            raise ValueError("query must not contain a non-finite number") from None
-        if len(serialized) > _MAX_CHART_QUERY_CHARS:
-            raise ValueError(f"query must not exceed {_MAX_CHART_QUERY_CHARS} characters when serialized")
-        unstorable = _unstorable_text(v)
-        if unstorable:
-            raise ValueError(f"query must not contain {unstorable}")
-        executable = _executable_payload(v)
-        if executable:
-            raise ValueError(f"query must not carry {executable} — a chart renders data, it does not run code")
-        return v
+        return validate_report_query(v)
 
 
 def chart_batch_query_chars(charts: Sequence[ReportChart]) -> int:

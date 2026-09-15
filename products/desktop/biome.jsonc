@@ -79,6 +79,7 @@
         "!apps/code/src/main/index.ts",
         "!apps/code/src/main/window.ts",
         "!apps/code/src/main/quick-ask.ts",
+        "!apps/code/src/main/quick-ask-trpc.test.ts",
         "!apps/code/src/main/quick-ask-capture.ts",
         "!apps/code/src/main/external-links.ts",
         "!apps/code/src/main/menu.ts",
@@ -370,6 +371,27 @@
             "noRestrictedImports": {
               "level": "error",
               "options": {
+                "paths": {
+                  "@posthog/quill": {
+                    "importNames": ["Spinner"],
+                    "message": "Use Spinner or LoadingState from @posthog/ui/primitives so every loading indicator shares one glyph, size scale and compositor-only animation."
+                  },
+                  "@radix-ui/themes": {
+                    "importNames": ["Spinner"],
+                    "message": "Use Spinner or LoadingState from @posthog/ui/primitives so every loading indicator shares one glyph, size scale and compositor-only animation."
+                  },
+                  "@phosphor-icons/react": {
+                    "importNames": [
+                      "Spinner",
+                      "SpinnerIcon",
+                      "SpinnerGap",
+                      "SpinnerGapIcon",
+                      "CircleNotch",
+                      "CircleNotchIcon"
+                    ],
+                    "message": "Use Spinner from @posthog/ui/primitives/Spinner instead of spinning a phosphor glyph."
+                  }
+                },
                 "patterns": [
                   {
                     "group": [

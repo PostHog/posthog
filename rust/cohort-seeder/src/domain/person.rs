@@ -9,12 +9,11 @@
 //! decode would strand claimed chunks `scanning`.
 
 use std::collections::{BTreeMap, HashSet};
-use std::sync::Arc;
 
 use chrono::NaiveDate;
 use cohort_core::filters::{CohortId, TeamFilters, TeamId};
 use cohort_core::hogvm::{
-    build_person_scan_globals, classify_vm_error, CohortEvaluator, EvalOutcome,
+    build_person_scan_globals, classify_vm_error, CohortEvaluator, ConditionProgram, EvalOutcome,
 };
 use cohort_core::seed::PersonSeed;
 use cohort_core::{LeafStateKey, StateVariant};
@@ -195,7 +194,7 @@ impl PinnedPersonRun {
         let tz = resolve_timezone(&snapshot.timezone, &mut warnings);
         let participation = ParticipationSet::build(snapshot.team_id, snapshot.participations, tz)?;
 
-        let mut surviving: BTreeMap<ConditionHash, Arc<Vec<Value>>> = BTreeMap::new();
+        let mut surviving: BTreeMap<ConditionHash, ConditionProgram> = BTreeMap::new();
         let mut covered: HashSet<CohortId> = HashSet::new();
         for raw in payload.conditions {
             let cohort_id = CohortId(raw.cohort_id);
@@ -213,8 +212,8 @@ impl PinnedPersonRun {
                 continue;
             }
             match classify_person_condition(hash, participation.filters()) {
-                PersonSurvival::Survives(bytecode) => {
-                    surviving.entry(hash).or_insert(bytecode);
+                PersonSurvival::Survives(program) => {
+                    surviving.entry(hash).or_insert(program);
                     covered.insert(cohort_id);
                 }
                 PersonSurvival::Dropped(reason) => {
@@ -275,7 +274,7 @@ impl PinnedPersonRun {
 /// Whether one pinned hash survives against the frozen catalog — the structural mirror of the
 /// processor's `effective_hashes` projection.
 enum PersonSurvival {
-    Survives(Arc<Vec<Value>>),
+    Survives(ConditionProgram),
     Dropped(PinnedDropReason),
 }
 
@@ -293,21 +292,21 @@ fn classify_person_condition(hash: ConditionHash, filters: &TeamFilters) -> Pers
         Some(_) => return PersonSurvival::Dropped(PinnedDropReason::VariantMismatch),
         None => return PersonSurvival::Dropped(PinnedDropReason::AbsentFromFrozenCatalog),
     }
-    match filters.by_condition_to_bytecode.get(&bytes) {
-        Some(bytecode) => PersonSurvival::Survives(Arc::clone(bytecode)),
+    match filters.by_condition_to_program.get(&bytes) {
+        Some(program) => PersonSurvival::Survives(program.clone()),
         None => PersonSurvival::Dropped(PinnedDropReason::AbsentFromFrozenCatalog),
     }
 }
 
 /// The surviving person conditions: non-empty, sorted-distinct by hash, each with its frozen
-/// bytecode — so an empty `evaluated` or a hash/bytecode mismatch is unrepresentable at eval time.
+/// program — so an empty `evaluated` or a hash/program mismatch is unrepresentable at eval time.
 #[derive(Debug, Clone)]
-pub struct EvaluatedConditions(Vec<(ConditionHash, Arc<Vec<Value>>)>);
+pub struct EvaluatedConditions(Vec<(ConditionHash, ConditionProgram)>);
 
 // Non-empty by construction, so an `is_empty` would be a method whose contract is "never call me".
 #[allow(clippy::len_without_is_empty)]
 impl EvaluatedConditions {
-    fn new(surviving: BTreeMap<ConditionHash, Arc<Vec<Value>>>) -> Result<Self, PinnedError> {
+    fn new(surviving: BTreeMap<ConditionHash, ConditionProgram>) -> Result<Self, PinnedError> {
         if surviving.is_empty() {
             return Err(PinnedError::NoSurvivingPersonConditions);
         }
@@ -321,7 +320,7 @@ impl EvaluatedConditions {
         self.0.len()
     }
 
-    pub fn iter(&self) -> impl Iterator<Item = &(ConditionHash, Arc<Vec<Value>>)> {
+    pub fn iter(&self) -> impl Iterator<Item = &(ConditionHash, ConditionProgram)> {
         self.0.iter()
     }
 }
@@ -404,8 +403,8 @@ impl PersonEvaluator {
 
         let mut evaluated = Vec::with_capacity(self.conditions.len());
         let mut matched = Vec::new();
-        for (hash, bytecode) in self.conditions.iter() {
-            match self.evaluator.evaluate_detailed(Arc::clone(bytecode)) {
+        for (hash, program) in self.conditions.iter() {
+            match self.evaluator.evaluate_detailed(program) {
                 EvalOutcome::Matched(true) => {
                     evaluated.push(*hash);
                     matched.push(*hash);
@@ -897,9 +896,9 @@ mod tests {
             let PersonRowOutcome::Seed(seed) = outcome else {
                 panic!("expected a seed, got {outcome:?}");
             };
-            for (hash, bytecode) in build_evaluator(true).conditions.iter() {
+            for (hash, program) in build_evaluator(true).conditions.iter() {
                 let live = matches!(
-                    cohort_core::hogvm::evaluate_detailed(bytecode, globals.clone()),
+                    cohort_core::hogvm::evaluate_detailed(program.tokens(), globals.clone()),
                     EvalOutcome::Matched(true)
                 );
                 assert_eq!(seed.matched().contains(hash), live, "hash {hash} diverged");
@@ -911,7 +910,9 @@ mod tests {
     /// assert FALSE for a hash the VM never answered — and an all-failure row emits nothing.
     #[test]
     fn vm_failures_drop_hashes_from_evaluated_rather_than_asserting_false() {
-        let broken = json!([]);
+        // Loads (the header is valid) but 9999 is no opcode, so it fails at run time. Bytecode the
+        // loader rejects outright never reaches the evaluator: that leaf is dropped at catalog build.
+        let broken = json!(["_H", 1, 9999]);
         let mut leaves = person_filter_leaves(&[(HASH_A, "email", "a@b.com")]);
         leaves["properties"]["values"]
             .as_array_mut()

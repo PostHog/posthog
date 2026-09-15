@@ -15,6 +15,8 @@ export const subscriptionsCreateBodyAiPromptConfigOneWindowOneStartDaysAgoMax = 
 export const subscriptionsCreateBodyAiPromptConfigOneWindowOneEndDaysAgoMin = 0
 export const subscriptionsCreateBodyAiPromptConfigOneWindowOneEndDaysAgoMax = 365
 
+export const subscriptionsCreateBodyContextsMax = 3
+
 export const subscriptionsCreateBodyIntervalMax = 2147483647
 
 export const subscriptionsCreateBodyBysetposMin = -2147483648
@@ -89,6 +91,22 @@ export const SubscriptionsCreateBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 "Configuration for AI report subscriptions (analysis window, future knobs). Only valid when resource_type is 'ai_prompt'. Replaced wholesale on writes."
+            ),
+        contexts: zod
+            .array(
+                zod.union([
+                    zod.object({
+                        dashboard_id: zod.number().min(1),
+                    }),
+                    zod.object({
+                        insight_id: zod.number().min(1),
+                    }),
+                ])
+            )
+            .max(subscriptionsCreateBodyContextsMax)
+            .optional()
+            .describe(
+                'Complete dashboard and insight context for an AI report. Omit on PATCH to preserve, pass an empty list to clear, or pass up to 3 items to replace all contexts.'
             ),
         target_type: zod
             .enum(['email', 'slack', 'teams'])
@@ -194,6 +212,30 @@ export const SubscriptionsCreateBody = /* @__PURE__ */ zod
                     .describe(
                         'Slack only: when true, upload all insight images together in the main Slack message instead of posting the first image in the main message and the rest as threaded replies. Defaults to false.'
                     ),
+                include_images: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        'AI prompt subscriptions only: include generated chart images. Defaults to true when omitted.'
+                    ),
+                include_feedback: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        'AI prompt subscriptions only: include report feedback links. Defaults to true when omitted.'
+                    ),
+                include_manage_link: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        'AI prompt subscriptions only: include a link to manage the subscription. Defaults to true when omitted.'
+                    ),
+                include_posthog_hint: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        'AI prompt subscriptions only: include PostHog product guidance. Slack only. Email and Microsoft Teams reports do not include it. Defaults to true when omitted.'
+                    ),
             })
             .describe('Typed view over the Subscription.delivery_config JSON blob.')
             .optional()
@@ -206,6 +248,8 @@ export const subscriptionsUpdateBodyAiPromptConfigOneWindowOneStartDaysAgoMax = 
 
 export const subscriptionsUpdateBodyAiPromptConfigOneWindowOneEndDaysAgoMin = 0
 export const subscriptionsUpdateBodyAiPromptConfigOneWindowOneEndDaysAgoMax = 365
+
+export const subscriptionsUpdateBodyContextsMax = 3
 
 export const subscriptionsUpdateBodyIntervalMax = 2147483647
 
@@ -281,6 +325,22 @@ export const SubscriptionsUpdateBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 "Configuration for AI report subscriptions (analysis window, future knobs). Only valid when resource_type is 'ai_prompt'. Replaced wholesale on writes."
+            ),
+        contexts: zod
+            .array(
+                zod.union([
+                    zod.object({
+                        dashboard_id: zod.number().min(1),
+                    }),
+                    zod.object({
+                        insight_id: zod.number().min(1),
+                    }),
+                ])
+            )
+            .max(subscriptionsUpdateBodyContextsMax)
+            .optional()
+            .describe(
+                'Complete dashboard and insight context for an AI report. Omit on PATCH to preserve, pass an empty list to clear, or pass up to 3 items to replace all contexts.'
             ),
         target_type: zod
             .enum(['email', 'slack', 'teams'])
@@ -386,6 +446,30 @@ export const SubscriptionsUpdateBody = /* @__PURE__ */ zod
                     .describe(
                         'Slack only: when true, upload all insight images together in the main Slack message instead of posting the first image in the main message and the rest as threaded replies. Defaults to false.'
                     ),
+                include_images: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        'AI prompt subscriptions only: include generated chart images. Defaults to true when omitted.'
+                    ),
+                include_feedback: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        'AI prompt subscriptions only: include report feedback links. Defaults to true when omitted.'
+                    ),
+                include_manage_link: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        'AI prompt subscriptions only: include a link to manage the subscription. Defaults to true when omitted.'
+                    ),
+                include_posthog_hint: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        'AI prompt subscriptions only: include PostHog product guidance. Slack only. Email and Microsoft Teams reports do not include it. Defaults to true when omitted.'
+                    ),
             })
             .describe('Typed view over the Subscription.delivery_config JSON blob.')
             .optional()
@@ -398,6 +482,8 @@ export const subscriptionsPartialUpdateBodyAiPromptConfigOneWindowOneStartDaysAg
 
 export const subscriptionsPartialUpdateBodyAiPromptConfigOneWindowOneEndDaysAgoMin = 0
 export const subscriptionsPartialUpdateBodyAiPromptConfigOneWindowOneEndDaysAgoMax = 365
+
+export const subscriptionsPartialUpdateBodyContextsMax = 3
 
 export const subscriptionsPartialUpdateBodyIntervalMax = 2147483647
 
@@ -473,6 +559,22 @@ export const SubscriptionsPartialUpdateBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 "Configuration for AI report subscriptions (analysis window, future knobs). Only valid when resource_type is 'ai_prompt'. Replaced wholesale on writes."
+            ),
+        contexts: zod
+            .array(
+                zod.union([
+                    zod.object({
+                        dashboard_id: zod.number().min(1),
+                    }),
+                    zod.object({
+                        insight_id: zod.number().min(1),
+                    }),
+                ])
+            )
+            .max(subscriptionsPartialUpdateBodyContextsMax)
+            .optional()
+            .describe(
+                'Complete dashboard and insight context for an AI report. Omit on PATCH to preserve, pass an empty list to clear, or pass up to 3 items to replace all contexts.'
             ),
         target_type: zod
             .enum(['email', 'slack', 'teams'])
@@ -582,6 +684,30 @@ export const SubscriptionsPartialUpdateBody = /* @__PURE__ */ zod
                     .default(subscriptionsPartialUpdateBodyDeliveryConfigOnePostAllInsightsInMainMessageDefault)
                     .describe(
                         'Slack only: when true, upload all insight images together in the main Slack message instead of posting the first image in the main message and the rest as threaded replies. Defaults to false.'
+                    ),
+                include_images: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        'AI prompt subscriptions only: include generated chart images. Defaults to true when omitted.'
+                    ),
+                include_feedback: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        'AI prompt subscriptions only: include report feedback links. Defaults to true when omitted.'
+                    ),
+                include_manage_link: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        'AI prompt subscriptions only: include a link to manage the subscription. Defaults to true when omitted.'
+                    ),
+                include_posthog_hint: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        'AI prompt subscriptions only: include PostHog product guidance. Slack only. Email and Microsoft Teams reports do not include it. Defaults to true when omitted.'
                     ),
             })
             .describe('Typed view over the Subscription.delivery_config JSON blob.')

@@ -12,9 +12,9 @@ export interface ResolveReportDialogResult {
 }
 
 interface OpenResolveReportDialogParams {
-    /** Report title for single-report copy. Ignored when `selectedCount > 1`. */
+    /** Report title for single-report copy. Ignored when `selectedCount` is set. */
     reportTitle?: string | null
-    /** When greater than 1, copy reflects a bulk resolve of the current selection. */
+    /** How many reports the selection bar holds. When set, the copy counts reports instead of naming one. */
     selectedCount?: number
     /** Whether the report has an implementation PR that is still open. Resolving closes it, so the copy says so. */
     hasOpenPr?: boolean
@@ -41,17 +41,20 @@ const REASON_RADIO_OPTIONS: LemonRadioOption<ResolveReasonValue>[] = RESOLVE_REA
  */
 export function openResolveReportDialog({
     reportTitle,
-    selectedCount = 1,
+    selectedCount,
     hasOpenPr = false,
     hotkeys = false,
     initialReason,
     onConfirm,
 }: OpenResolveReportDialogParams): void {
-    const isBulk = selectedCount > 1
-    const title = isBulk
-        ? `Resolve ${selectedCount} reports?`
+    // The selection bar knows the count and no titles, so its copy counts reports even when one
+    // report is selected. Every other caller names the report instead.
+    const isSelection = selectedCount !== undefined
+    const isPlural = (selectedCount ?? 1) > 1
+    const title = isSelection
+        ? `Resolve ${selectedCount} ${isPlural ? 'reports' : 'report'}?`
         : `Resolve report "${reportTitle?.trim() ? reportTitle : 'Untitled report'}"?`
-    const description = isBulk
+    const description = isPlural
         ? 'These reports are marked as done. If an issue comes back, you get a new report linked to the old one. Any open pull request for these reports is closed.'
         : `This marks the report as done. If the issue comes back, you get a new report linked to this one.${
               hasOpenPr ? ' The pull request opened for this report is closed.' : ''
@@ -97,7 +100,7 @@ export function openResolveReportDialog({
         errors: {
             reason: (reason) => (!reason ? "You haven't picked a reason" : undefined),
         },
-        primaryButtonProps: { children: isBulk ? 'Resolve reports' : 'Resolve report' },
+        primaryButtonProps: { children: isPlural ? 'Resolve reports' : 'Resolve report' },
         shouldAwaitSubmit: true,
         onSubmit: async ({ reason, note }) => {
             if (!reason) {

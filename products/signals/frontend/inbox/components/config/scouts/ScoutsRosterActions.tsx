@@ -29,24 +29,67 @@ export function ScoutsRosterActions(): JSX.Element {
     )
 }
 
-/** Takes the "Suggest a scout" spot while the strip is closed, and reopens it in place of a chat. */
+/**
+ * Takes the "Suggest a scout" spot whenever the strip has no picks to show. With picks waiting it
+ * reopens the closed strip; with none it opens the authoring chat.
+ */
 function ShowSuggestionsButton(): JSX.Element | null {
-    const { hasBatch, stripHidden } = useValues(scoutSuggestionsLogic)
-    const { showStrip } = useActions(scoutSuggestionsLogic)
-    if (!hasBatch || !stripHidden) {
+    const { suggestButtonVisible, hasPicks, isRefreshing, suggestionSetLoading, aiConsentDisabledReason } =
+        useValues(scoutSuggestionsLogic)
+    const { runningChatType } = useValues(scoutFleetLogic)
+    const { askForSuggestions } = useActions(scoutSuggestionsLogic)
+    // Opening the chat ends in a skill write, so it carries the editor gate. Reopening needs neither.
+    const creationDisabledReason = useScoutCreateDisabledReason()
+    if (!suggestButtonVisible) {
         return null
     }
+    const busyReason = showSuggestionsBusyReason({ hasPicks, isRefreshing, suggestionSetLoading, runningChatType })
+    const gateReason = hasPicks ? null : (creationDisabledReason ?? aiConsentDisabledReason)
     return (
         <LemonButton
             type="secondary"
             size="small"
             icon={<IconSparkles />}
-            onClick={() => showStrip()}
+            loading={!!busyReason}
+            disabledReason={busyReason ?? gateReason ?? undefined}
+            onClick={() => askForSuggestions()}
             data-attr="scout-suggestions-show"
         >
             Suggest a scout
         </LemonButton>
     )
+}
+
+function showSuggestionsBusyReason({
+    hasPicks,
+    isRefreshing,
+    suggestionSetLoading,
+    runningChatType,
+}: {
+    hasPicks: boolean
+    isRefreshing: boolean
+    suggestionSetLoading: boolean
+    runningChatType: ScoutChatType | null
+}): string | null {
+    // With picks waiting, the press only reopens the strip: no read, no task. Nothing else the
+    // header is doing holds that up, and every reason below would name work it never starts.
+    if (hasPicks) {
+        return null
+    }
+    if (suggestionSetLoading) {
+        return 'Reading the suggestions…'
+    }
+    // A scan already running is the answer to the press, so say so instead of opening a chat on top.
+    if (isRefreshing) {
+        return 'Scanning the project…'
+    }
+    if (runningChatType === 'author_scout') {
+        return 'Starting a task…'
+    }
+    if (runningChatType !== null) {
+        return 'Starting another task…'
+    }
+    return null
 }
 
 /**

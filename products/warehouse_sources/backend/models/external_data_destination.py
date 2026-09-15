@@ -32,7 +32,7 @@ class ExternalDataDestination(TeamScopedRootMixin, UpdatedMetaFields, DeletedMet
     # take a lock on it while being created. Team scoping is enforced at the app level
     # via `TeamScopedRootMixin`. See products/README.md "Adding or moving backend models
     # and migrations".
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     type = models.CharField(max_length=64, choices=Type)
     name = models.CharField(max_length=400)
     config = models.JSONField(
@@ -45,11 +45,12 @@ class ExternalDataDestination(TeamScopedRootMixin, UpdatedMetaFields, DeletedMet
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
+        related_name="+",
         help_text="Credentials for this destination. Null for the PostHog warehouse.",
     )
     # `db_constraint=False`: `posthog_user` is a hot table, same reasoning as `team`.
     created_by = models.ForeignKey(
-        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False
+        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False, related_name="+"
     )
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -77,7 +78,7 @@ class ExternalDataDestination(TeamScopedRootMixin, UpdatedMetaFields, DeletedMet
 class ExternalDataSourceDestination(TeamScopedRootMixin, UpdatedMetaFields, UUIDTModel):
     """Source-level default destination set, inherited by every schema that does not override it."""
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     source = models.ForeignKey(
         "warehouse_sources.ExternalDataSource", on_delete=models.CASCADE, related_name="destination_links"
     )
@@ -104,7 +105,7 @@ class ExternalDataSchemaDestination(TeamScopedRootMixin, UpdatedMetaFields, UUID
     mirroring how `ExternalDataSchema.api_version` overrides the source pin.
     """
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     schema = models.ForeignKey(
         "warehouse_sources.ExternalDataSchema", on_delete=models.CASCADE, related_name="destination_links"
     )

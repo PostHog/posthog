@@ -189,6 +189,11 @@
         "params": [],
         "scope": "project"
     },
+    "aiTask": {
+        "template": "/ai",
+        "params": [],
+        "scope": "project"
+    },
     "alert": {
         "template": "/alerts",
         "params": [],
@@ -254,6 +259,11 @@
         "params": [],
         "scope": "project"
     },
+    "businessKnowledgeSettings": {
+        "template": "/business-knowledge/settings",
+        "params": [],
+        "scope": "project"
+    },
     "canvas": {
         "template": "/canvas",
         "params": [],
@@ -277,6 +287,11 @@
     "codeChannelLink": {
         "template": "/code/channel/{channelId}",
         "params": ["channelId"],
+        "scope": "project"
+    },
+    "codeLoopLink": {
+        "template": "/code/loop/{loopId}",
+        "params": ["loopId"],
         "scope": "project"
     },
     "codeReview": {
@@ -308,16 +323,6 @@
         "template": "/feature_flags/staff/cohorts",
         "params": [],
         "scope": "global"
-    },
-    "comment": {
-        "template": "/data-management/comments/{id}",
-        "params": ["id"],
-        "scope": "project"
-    },
-    "comments": {
-        "template": "/data-management/comments",
-        "params": [],
-        "scope": "project"
     },
     "communitySkills": {
         "template": "/skills/community",
@@ -1129,6 +1134,11 @@
         "params": ["tab"],
         "scope": "project"
     },
+    "mcpRegistry": {
+        "template": "/mcp-registry",
+        "params": [],
+        "scope": "project"
+    },
     "metrics": {
         "template": "/metrics",
         "params": [],
@@ -1417,6 +1427,11 @@
     "sharedDashboard": {
         "template": "/shared_dashboard/{shareToken}",
         "params": ["shareToken"],
+        "scope": "project"
+    },
+    "shipIt": {
+        "template": "/games/shipit",
+        "params": [],
         "scope": "project"
     },
     "signup": {
@@ -1709,6 +1724,11 @@
         "params": [],
         "scope": "project"
     },
+    "webAnalyticsContentAutopilot": {
+        "template": "/web/content-autopilot",
+        "params": [],
+        "scope": "project"
+    },
     "webAnalyticsHealth": {
         "template": "/web/health",
         "params": [],
@@ -1754,8 +1774,8 @@
         "params": [],
         "scope": "project"
     },
-    "wizard": {
-        "template": "/wizard",
+    "wizardRuns": {
+        "template": "/wizard/runs",
         "params": [],
         "scope": "project"
     },

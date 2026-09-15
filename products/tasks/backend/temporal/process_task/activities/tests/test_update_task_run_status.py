@@ -605,3 +605,54 @@ class TestRecordRunTokenUsageMetrics:
         recorded = self._record(activity_environment, benjamin_enabled=benjamin_enabled)
 
         assert {entry[2]["benjamin_enabled"] for entry in recorded} == {expected}
+
+
+@pytest.mark.requires_secrets
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize(
+    "origin_product,origin_key,wakes",
+    [
+        (Task.OriginProduct.WORKFLOW, "job:step:1", True),
+        (Task.OriginProduct.USER_CREATED, None, False),
+    ],
+)
+def test_terminal_transition_wakes_the_workflow_step_that_started_the_run(
+    activity_environment, test_task_run, origin_product, origin_key, wakes
+):
+    task = test_task_run.task
+    task.origin_product = origin_product
+    task.origin_key = origin_key
+    task.save(update_fields=["origin_product", "origin_key"])
+    test_task_run.output = {"final_message": "done"}
+    test_task_run.save(update_fields=["output"])
+    input_data = UpdateTaskRunStatusInput(run_id=str(test_task_run.id), status=TaskRun.Status.COMPLETED)
+
+    with patch("products.tasks.backend.logic.services.workflow_step_resume.emit_workflow_step_resume") as resume:
+        async_to_sync(activity_environment.run)(update_task_run_status, input_data)
+        async_to_sync(activity_environment.run)(update_task_run_status, input_data)
+
+    assert resume.call_count == (2 if wakes else 0)
+    if wakes:
+        assert resume.call_args.kwargs["origin_key"] == "job:step:1"
+        assert resume.call_args.kwargs["status"] == "completed"
+
+
+@pytest.mark.django_db(transaction=True)
+def test_terminal_retry_reschedules_a_wake_after_broker_failure(activity_environment, test_task_run):
+    task = test_task_run.task
+    task.origin_product = Task.OriginProduct.WORKFLOW
+    task.origin_key = "job:step:1"
+    task.save(update_fields=["origin_product", "origin_key"])
+    input_data = UpdateTaskRunStatusInput(run_id=str(test_task_run.id), status=TaskRun.Status.COMPLETED)
+
+    with patch(
+        "products.tasks.backend.logic.services.workflow_step_resume.current_app.send_task",
+        side_effect=[RuntimeError("broker down"), None],
+    ) as send_task:
+        with pytest.raises(RuntimeError, match="broker down"):
+            async_to_sync(activity_environment.run)(update_task_run_status, input_data)
+        test_task_run.refresh_from_db()
+        assert test_task_run.status == TaskRun.Status.COMPLETED
+        async_to_sync(activity_environment.run)(update_task_run_status, input_data)
+
+    assert send_task.call_count == 2

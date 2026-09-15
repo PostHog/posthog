@@ -162,8 +162,9 @@ export function parseUsageData(
             (a, b) => b.quantity - a.quantity || a.producerId.localeCompare(b.producerId)
         ),
         timeSeries: {
-            // Buckets are UTC-aligned, so label them in UTC rather than in the reader's timezone.
-            labels: starts.map((start) => dayjs.unix(start).utc().format('YYYY-MM-DD HH:mm')),
+            labels: starts.map((start) => dayjs.unix(start).toISOString()),
+            interval: granularity === '5m' ? 'minute' : granularity,
+            timezone: 'UTC',
             series: Array.from(series.entries()).map(([key, values]) => ({
                 name: breakdownByProject ? key.replace(/^\d+:/, '') : key,
                 values: starts.map((start) => values.get(start) ?? 0),

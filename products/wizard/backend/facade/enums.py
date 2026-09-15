@@ -26,10 +26,6 @@ class WizardSessionTaskStatus(StrEnum):
     CANCELED = "canceled"
 
 
-RunPhase = WizardSessionRunPhase
-TaskStatus = WizardSessionTaskStatus
-
-
 class WizardRunStatus(StrEnum):
     CREATED = "created"
     RUNNING = "running"

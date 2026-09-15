@@ -71,12 +71,16 @@ const EMPTY_PAYLOAD: WelcomePayload = {
 
 export type WelcomeCardKind = 'members' | 'activity' | 'dashboards' | 'products' | 'next_steps'
 
+/** Which control closed the dialog. Reported as the `source` property of `welcome_screen_closed`,
+ * which is how we tell a deliberate "Start exploring" from an escape through the X. */
+export type WelcomeCloseSource = 'start_exploring' | 'modal_close' | 'ask_max_card'
+
 // LocalStorage key used to suppress the dialog on subsequent visits after the user has dismissed it.
 // Scoped per user AND organization so a contractor/agency who works across multiple orgs gets
 // a fresh welcome in each org instead of only ever seeing it once across their lifetime.
 const LOCAL_DISMISSED_KEY_PREFIX = 'posthog_welcome_dismissed:'
 // SessionStorage key used to suppress the dialog for the remainder of a tab's session after
-// the user clicks "I'll look around" — avoids re-opening on every project-home remount.
+// the user closes it without dismissing it, which avoids re-opening on every project-home remount.
 const SESSION_LOOKED_AROUND_KEY = 'posthog_welcome_looked_around'
 
 function dismissedKey(userUuid: string | undefined, orgId: string | undefined): string | null {
@@ -160,8 +164,8 @@ export interface welcomeDialogLogicActions {
     acknowledgeStorageChange: () => {
         value: true
     }
-    closeDialog: () => {
-        value: true
+    closeDialog: (source: WelcomeCloseSource) => {
+        source: WelcomeCloseSource
     }
     dismissWelcome: () => {
         value: true
@@ -237,7 +241,7 @@ export const welcomeDialogLogic = kea<welcomeDialogLogicType>([
 
     actions({
         dismissWelcome: true,
-        closeDialog: true,
+        closeDialog: (source: WelcomeCloseSource) => ({ source }),
         resetForOrgChange: true,
         trackCardClick: (card: WelcomeCardKind, targetHref: string) => ({ card, targetHref }),
         markCardInteracted: (card: WelcomeCardKind) => ({ card }),
@@ -401,9 +405,14 @@ export const welcomeDialogLogic = kea<welcomeDialogLogicType>([
                 from_invite_type: welcomeData.inviter ? 'invite' : 'unknown',
             })
         },
-        closeDialog: () => {
-            // Persist "I'll look around" across remounts in the same tab.
+        closeDialog: ({ source }) => {
+            // Persist the close across remounts in the same tab.
             rememberLookedAround(values.user?.organization?.id)
+            posthog.capture('welcome_screen_closed', {
+                source,
+                time_on_screen_ms: values.shownAt ? Date.now() - values.shownAt : null,
+                cards_interacted_with: Object.keys(values.interactedCards).length,
+            })
         },
         dismissWelcome: () => {
             const interactedCount = Object.keys(values.interactedCards).length

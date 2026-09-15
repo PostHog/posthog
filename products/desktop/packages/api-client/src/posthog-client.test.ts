@@ -84,6 +84,75 @@ describe("PostHogAPIClient", () => {
     });
   });
 
+  describe("getLlmSkillByName", () => {
+    // The endpoint pages a body over 8,000 characters, so a single request
+    // returns instructions that stop mid-skill.
+    it("follows body_next_offset until the whole body is fetched", async () => {
+      const body = `${"x".repeat(8000)}final instruction`;
+      const fetch = vi.fn().mockImplementation((url: URL) => {
+        const offset = Number(url.searchParams.get("body_offset") ?? "0");
+        const page = body.slice(offset, offset + 8000);
+        const next = offset + 8000 < body.length ? offset + 8000 : null;
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              name: "pr-shepherd",
+              version: 3,
+              body: page,
+              body_total_length: body.length,
+              body_next_offset: next,
+              files: [],
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          ),
+        );
+      });
+      const client = new PostHogAPIClient(
+        "https://app.posthog.test",
+        async () => "token",
+        async () => "token",
+        42,
+        { fetch },
+      );
+
+      const skill = await client.getLlmSkillByName("pr-shepherd");
+
+      expect(skill.body).toBe(body);
+      // The continuation pins the version, so a publish between pages cannot
+      // splice two bodies together.
+      const second = fetch.mock.calls[1][0] as URL;
+      expect(second.searchParams.get("body_offset")).toBe("8000");
+      expect(second.searchParams.get("version")).toBe("3");
+    });
+
+    it("rejects a body that arrives shorter than the server reports", async () => {
+      const fetch = vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            name: "pr-shepherd",
+            version: 3,
+            body: "# Body",
+            body_total_length: 9689,
+            body_next_offset: null,
+            files: [],
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
+      const client = new PostHogAPIClient(
+        "https://app.posthog.test",
+        async () => "token",
+        async () => "token",
+        42,
+        { fetch },
+      );
+
+      await expect(client.getLlmSkillByName("pr-shepherd")).rejects.toThrow(
+        "got 6 of 9689 characters",
+      );
+    });
+  });
+
   describe("getInsightDefinition", () => {
     it("loads the saved insight with a blocking refresh and returns its result", async () => {
       const fetch = vi.fn().mockResolvedValue(
@@ -498,6 +567,7 @@ describe("PostHogAPIClient", () => {
     ["pinned", { pinned: true }, "pinned", "true"],
     ["commented-by", { commentedBy: 17 }, "commented_by", "17"],
     ["mentions", { mentions: 19 }, "mentions", "19"],
+    ["basic summary", { basic: true }, "basic", "true"],
   ])("sends the %s task-list filter", async (_name, options, param, value) => {
     const fetch = vi.fn().mockResolvedValue(
       new Response(JSON.stringify({ results: [], count: 0 }), {
@@ -518,6 +588,29 @@ describe("PostHogAPIClient", () => {
     expect(url.pathname).toBe("/api/projects/42/tasks/");
     expect(url.searchParams.get(param)).toBe(value);
   });
+
+  it.each([undefined, { basic: false }])(
+    "omits basic unless the caller asks for the summary payload (%o)",
+    async (options) => {
+      const fetch = vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ results: [], count: 0 }), {
+          status: 200,
+        }),
+      );
+      const client = new PostHogAPIClient(
+        "https://app.posthog.test",
+        async () => "token",
+        async () => "token",
+        42,
+        { fetch },
+      );
+
+      await client.getTasksPage(options);
+
+      const url = fetch.mock.calls[0][0] as URL;
+      expect(url.searchParams.has("basic")).toBe(false);
+    },
+  );
 
   it.each([
     "user_message",
@@ -918,38 +1011,46 @@ describe("PostHogAPIClient", () => {
     );
   });
 
-  it("omits the permission mode when no adapter is set", async () => {
-    const client = new PostHogAPIClient(
-      "http://localhost:8000",
-      async () => "token",
-      async () => "token",
-      123,
-    );
+  it.each([false, true])(
+    "omits the permission mode when no adapter is set (Pi: %s)",
+    async (piRuntime) => {
+      const client = new PostHogAPIClient(
+        "http://localhost:8000",
+        async () => "token",
+        async () => "token",
+        123,
+      );
 
-    const post = vi.fn().mockResolvedValue({
-      id: "task-123",
-      title: "Task",
-      description: "Task",
-      created_at: "2026-04-14T00:00:00Z",
-      updated_at: "2026-04-14T00:00:00Z",
-      origin_product: "user_created",
-    });
+      const post = vi.fn().mockResolvedValue({
+        id: "task-123",
+        title: "Task",
+        description: "Task",
+        created_at: "2026-04-14T00:00:00Z",
+        updated_at: "2026-04-14T00:00:00Z",
+        origin_product: "user_created",
+      });
 
-    (client as unknown as { api: { post: typeof post } }).api = { post };
+      (client as unknown as { api: { post: typeof post } }).api = { post };
 
-    await client.runTaskInCloud("task-123", "feature/no-adapter", {
-      initialPermissionMode: "plan",
-    });
+      await client.runTaskInCloud("task-123", "feature/no-adapter", {
+        initialPermissionMode: "plan",
+        piRuntime,
+        claudeModelAccess: "own-subscription",
+      });
 
-    expect(post).toHaveBeenCalledWith(
-      "/api/projects/{project_id}/tasks/{id}/run/",
-      expect.objectContaining({
-        body: expect.not.objectContaining({
-          initial_permission_mode: expect.anything(),
+      expect(post).toHaveBeenCalledWith(
+        "/api/projects/{project_id}/tasks/{id}/run/",
+        expect.objectContaining({
+          body: expect.not.objectContaining({
+            initial_permission_mode: expect.anything(),
+          }),
         }),
-      }),
-    );
-  });
+      );
+      expect(post.mock.calls[0][1].body.claude_model_access).toBe(
+        piRuntime ? undefined : "own-subscription",
+      );
+    },
+  );
 
   it.each([true, false])("forwards auto publish %s", async (autoPublish) => {
     const client = new PostHogAPIClient(
@@ -1219,35 +1320,43 @@ describe("PostHogAPIClient", () => {
     });
   });
 
-  it("omits the permission mode from created task runs without an adapter", async () => {
-    const fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({ id: "run-123", environment: "cloud" }),
-    });
-    const client = new PostHogAPIClient(
-      "http://localhost:8000",
-      async () => "token",
-      async () => "token",
-      123,
-    );
+  it.each([false, true])(
+    "omits the permission mode from created task runs without an adapter (Pi: %s)",
+    async (piRuntime) => {
+      const fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ id: "run-123", environment: "cloud" }),
+      });
+      const client = new PostHogAPIClient(
+        "http://localhost:8000",
+        async () => "token",
+        async () => "token",
+        123,
+      );
 
-    (
-      client as unknown as {
-        api: { baseUrl: string; fetcher: { fetch: typeof fetch } };
-      }
-    ).api = {
-      baseUrl: "http://localhost:8000",
-      fetcher: { fetch },
-    };
+      (
+        client as unknown as {
+          api: { baseUrl: string; fetcher: { fetch: typeof fetch } };
+        }
+      ).api = {
+        baseUrl: "http://localhost:8000",
+        fetcher: { fetch },
+      };
 
-    await client.createTaskRun("task-123", {
-      environment: "cloud",
-      initialPermissionMode: "plan",
-    });
+      await client.createTaskRun("task-123", {
+        environment: "cloud",
+        initialPermissionMode: "plan",
+        piRuntime,
+        claudeModelAccess: "own-subscription",
+      });
 
-    const body = JSON.parse(fetch.mock.calls[0][0].overrides.body as string);
-    expect(body).not.toHaveProperty("initial_permission_mode");
-  });
+      const body = JSON.parse(fetch.mock.calls[0][0].overrides.body as string);
+      expect(body).not.toHaveProperty("initial_permission_mode");
+      expect(body.claude_model_access).toBe(
+        piRuntime ? undefined : "own-subscription",
+      );
+    },
+  );
 
   it("omits the permission mode when none is selected", async () => {
     const client = new PostHogAPIClient(
@@ -2095,10 +2204,10 @@ describe("PostHogAPIClient", () => {
       return client;
     }
 
-    function page(results: object[], next: string | null = null) {
+    function page(results: object[], count: number = results.length) {
       return {
         ok: true,
-        json: async () => ({ count: 0, previous: null, next, results }),
+        json: async () => ({ count, previous: null, next: null, results }),
       };
     }
 
@@ -2116,46 +2225,34 @@ describe("PostHogAPIClient", () => {
       expect(fetch).not.toHaveBeenCalled();
     });
 
-    it("returns single-page results without further requests", async () => {
+    it("requests the max page size and stops when one page covers the count", async () => {
       const fetch = buildFetchForPages(page([{ id: "a" }]));
       await expect(buildClient(fetch).getTaskSummaries(["a"])).resolves.toEqual(
         [{ id: "a" }],
       );
       expect(fetch).toHaveBeenCalledTimes(1);
+      expect(fetch.mock.calls[0][0]).toMatchObject({
+        method: "post",
+        path: `${SUMMARIES_PATH}?limit=100&offset=0`,
+      });
     });
 
-    it.each([
-      {
-        name: "same-host next URL",
-        nextUrl: `http://localhost:8000${SUMMARIES_PATH}?limit=2&offset=2`,
-        expectedSecondPath: `${SUMMARIES_PATH}?limit=2&offset=2`,
-      },
-      {
-        name: "cross-host next URL (proxy variance)",
-        nextUrl: `https://internal.posthog.example${SUMMARIES_PATH}?limit=1&offset=1`,
-        expectedSecondPath: `${SUMMARIES_PATH}?limit=1&offset=1`,
-      },
-    ])(
-      "follows the next cursor across pages and merges results: $name",
-      async ({ nextUrl, expectedSecondPath }) => {
-        const fetch = buildFetchForPages(
-          page([{ id: "a" }, { id: "b" }], nextUrl),
-          page([{ id: "c" }]),
-        );
-        await expect(
-          buildClient(fetch).getTaskSummaries(["a", "b", "c"]),
-        ).resolves.toEqual([{ id: "a" }, { id: "b" }, { id: "c" }]);
-        expect(fetch).toHaveBeenCalledTimes(2);
-        expect(fetch.mock.calls[0][0]).toMatchObject({
-          method: "post",
-          path: SUMMARIES_PATH,
-        });
-        expect(fetch.mock.calls[1][0]).toMatchObject({
-          method: "post",
-          path: expectedSecondPath,
-        });
-      },
-    );
+    it("fetches remaining pages by offset from count, not by walking next", async () => {
+      const fetch = buildFetchForPages(
+        page([{ id: "a" }], 250),
+        page([{ id: "b" }]),
+        page([{ id: "c" }]),
+      );
+      await expect(
+        buildClient(fetch).getTaskSummaries(["a", "b", "c"]),
+      ).resolves.toEqual([{ id: "a" }, { id: "b" }, { id: "c" }]);
+      expect(fetch).toHaveBeenCalledTimes(3);
+      expect(fetch.mock.calls.map((call) => call[0].path)).toEqual([
+        `${SUMMARIES_PATH}?limit=100&offset=0`,
+        `${SUMMARIES_PATH}?limit=100&offset=100`,
+        `${SUMMARIES_PATH}?limit=100&offset=200`,
+      ]);
+    });
 
     it("throws when the server responds non-OK", async () => {
       const fetch = vi
@@ -2166,18 +2263,27 @@ describe("PostHogAPIClient", () => {
       );
     });
 
-    it("returns partial results when MAX_PAGES is exceeded", async () => {
-      const fetch = vi
-        .fn()
-        .mockResolvedValue(
-          page(
-            [{ id: "x" }],
-            `http://localhost:8000${SUMMARIES_PATH}?offset=1`,
-          ),
-        );
+    it("caps at MAX_PAGES when the count is unbounded", async () => {
+      const fetch = vi.fn().mockResolvedValue(page([{ id: "x" }], 1_000_000));
       const result = await buildClient(fetch).getTaskSummaries(["a"]);
       expect(fetch).toHaveBeenCalledTimes(50);
       expect(result.length).toBe(50);
+    });
+
+    it("caps how many page fetches are in flight at once", async () => {
+      let inFlight = 0;
+      let maxInFlight = 0;
+      const fetch = vi.fn().mockImplementation(async () => {
+        inFlight++;
+        maxInFlight = Math.max(maxInFlight, inFlight);
+        await Promise.resolve();
+        inFlight--;
+        return page([{ id: "x" }], 2000);
+      });
+      await buildClient(fetch).getTaskSummaries(["a"]);
+      // 20 pages (count 2000 / 100), fetched in bounded batches, never all at once.
+      expect(fetch).toHaveBeenCalledTimes(20);
+      expect(maxInFlight).toBeLessThanOrEqual(6);
     });
   });
 

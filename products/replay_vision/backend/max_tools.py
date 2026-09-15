@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 from rest_framework.exceptions import Throttled
 
 from posthog.clickhouse.client.connection import ClickHouseUser
+from posthog.event_usage import EventSource, report_user_action
 from posthog.exceptions import QuotaLimitExceeded
 from posthog.models.team import Team
 from posthog.models.user import User
@@ -369,11 +370,12 @@ class SearchObservationsArgs(BaseModel):
     )
     date_from: str | None = Field(
         default=None,
-        description="Only recordings analyzed at or after this time: ISO 8601 or relative like '-7d'.",
+        description="Only recordings analyzed at or after this time: ISO 8601, relative like '-7d', or 'now'.",
     )
     date_to: str | None = Field(
         default=None,
-        description="Only recordings analyzed at or before this time: ISO 8601 or relative like '-1d'.",
+        description="Only recordings analyzed at or before this time: ISO 8601, relative like '-1d', or 'now'. "
+        "Omit it to search through the current time.",
     )
     limit: int | None = Field(
         default=None,
@@ -1079,7 +1081,13 @@ class CreateReplayVisionScannerTool(ReplayVisionGatesMixin, MaxTool):
                 "sampling_rate": sampling_rate,
                 "enabled": enabled,
             },
-            context={"get_team": lambda: self._team, "user": self._user},
+            # No HTTP request here, so the surface can't be derived from one. Declared instead, or
+            # the creation-flow comparison counts a scanner Max made as one nobody can account for.
+            context={
+                "get_team": lambda: self._team,
+                "user": self._user,
+                "event_source": EventSource.POSTHOG_AI,
+            },
         )
         if not serializer.is_valid():
             return _first_error(serializer.errors), {"error": "invalid_config"}
@@ -1512,17 +1520,46 @@ class LabelReplayVisionObservationTool(ReplayVisionGatesMixin, MaxTool):
         observation = self._observation_for(observation_id)
         if observation is None:
             return f"Observation {observation_id} not found.", {"error": "not_found"}
+        cleaned_feedback = (feedback or "").strip()[:MAX_FEEDBACK_LENGTH]
         # One shared label per observation, like the API: a second rating replaces the first. Atomic
         # because the one-to-one turns two concurrent labels into an IntegrityError rather than a retry.
         with transaction.atomic():
-            ReplayObservationLabel.objects.update_or_create(
+            # The same parent lock the API path takes. Without it the `previous` read can land before a
+            # concurrent rater commits, and this path then reports a change that never happened.
+            ReplayObservation.objects.select_for_update().only("pk").filter(
+                pk=observation.pk, team_id=observation.team_id
+            ).first()
+            previous = (
+                ReplayObservationLabel.objects.filter(observation=observation, team_id=observation.team_id)
+                .values("is_correct", "feedback")
+                .first()
+            )
+            label, is_new = ReplayObservationLabel.objects.update_or_create(
                 observation=observation,
                 team_id=observation.team_id,
                 defaults={
                     "is_correct": is_correct,
-                    "feedback": (feedback or "").strip()[:MAX_FEEDBACK_LENGTH],
+                    "feedback": cleaned_feedback,
                     "created_by": self._user,
                 },
+            )
+        verdict_changed = previous is None or previous["is_correct"] != label.is_correct
+        feedback_changed = previous is None or previous["feedback"] != label.feedback
+        # Same gate as the API path, so a re-rate that changes nothing does not count a second time.
+        if verdict_changed or feedback_changed:
+            report_user_action(
+                self._user,
+                "replay_vision_observation_rated",
+                {
+                    "observation_id": str(observation.id),
+                    "scanner_id": str(observation.scanner_id),
+                    "is_correct": label.is_correct,
+                    "has_feedback": bool(label.feedback),
+                    "is_new": is_new,
+                    "verdict_changed": verdict_changed,
+                },
+                team=self._team,
+                analytics_props={"source": EventSource.POSTHOG_AI},
             )
         verdict = "correct" if is_correct else "wrong"
         return f"Recorded that the scanner was {verdict} on that recording.", {

@@ -1,4 +1,5 @@
 import { execSync } from "node:child_process";
+import { writeFileSync } from "node:fs";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -45,8 +46,11 @@ import {
 } from "@posthog/workspace-server/db/repositories/worktree-repository.mock";
 import { ArchiveService } from "./archive";
 
-async function createTempGitRepo(): Promise<string> {
-  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "archive-test-"));
+async function createTempRepo(): Promise<string> {
+  return fs.mkdtemp(path.join(os.tmpdir(), "archive-test-"));
+}
+
+function initializeGitRepo(dir: string): void {
   execSync("git init", { cwd: dir, stdio: "pipe" });
   execSync("git config user.email 'test@test.com'", {
     cwd: dir,
@@ -54,12 +58,12 @@ async function createTempGitRepo(): Promise<string> {
   });
   execSync("git config user.name 'Test'", { cwd: dir, stdio: "pipe" });
   execSync("git config commit.gpgsign false", { cwd: dir, stdio: "pipe" });
-  await fs.writeFile(path.join(dir, "README.md"), "# Test Repo");
+  execSync("git config tag.gpgsign false", { cwd: dir, stdio: "pipe" });
+  writeFileSync(path.join(dir, "README.md"), "# Test Repo");
   execSync("git add . && git commit -m 'Initial commit'", {
     cwd: dir,
     stdio: "pipe",
   });
-  return dir;
 }
 
 async function pathExists(p: string): Promise<boolean> {
@@ -106,8 +110,20 @@ async function withTestContext(
   fn: (ctx: TestContext) => Promise<void>,
 ): Promise<void> {
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "archive-int-"));
-  const repoPath = await createTempGitRepo();
+  const repoPath =
+    opts.hasWorkspace === false
+      ? path.join(tempDir, "repo")
+      : await createTempRepo();
   const worktreeBasePath = path.join(tempDir, "worktrees");
+  let gitRepoInitialized = false;
+
+  const ensureGitRepo = (): void => {
+    if (gitRepoInitialized) {
+      return;
+    }
+    initializeGitRepo(repoPath);
+    gitRepoInitialized = true;
+  };
   await fs.mkdir(worktreeBasePath, { recursive: true });
 
   testWorktreeBasePath = worktreeBasePath;
@@ -163,12 +179,14 @@ async function withTestContext(
     archiveLogger as never,
   );
 
-  const git = (cmd: string) =>
-    execSync(`git ${cmd}`, {
+  const git = (cmd: string) => {
+    ensureGitRepo();
+    return execSync(`git ${cmd}`, {
       cwd: repoPath,
       encoding: "utf8",
       stdio: "pipe",
     }).trim();
+  };
 
   const archiveInput = () => ({ taskId: TASK_ID });
 
@@ -176,6 +194,7 @@ async function withTestContext(
     method: "detached" | "branch",
     branchName?: string,
   ) => {
+    ensureGitRepo();
     const manager = new WorktreeManager({
       mainRepoPath: repoPath,
       worktreeBasePath,
@@ -733,7 +752,7 @@ describe("ArchiveService integration", () => {
       }));
 
     it("throws when workspace not found for unarchive", () =>
-      withTestContext({}, async (ctx) => {
+      withTestContext({ hasWorkspace: false }, async (ctx) => {
         await expect(ctx.service.unarchiveTask("nonexistent")).rejects.toThrow(
           "Workspace not found",
         );
@@ -824,7 +843,7 @@ describe("ArchiveService integration", () => {
       }));
 
     it("throws when workspace not found for delete", () =>
-      withTestContext({}, async (ctx) => {
+      withTestContext({ hasWorkspace: false }, async (ctx) => {
         await expect(
           ctx.service.deleteArchivedTask("nonexistent"),
         ).rejects.toThrow("Workspace not found");

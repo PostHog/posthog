@@ -372,10 +372,12 @@ def get_pool(
     return make_ch_pool(**kwargs)
 
 
-def default_client(host=settings.CLICKHOUSE_HOST):
+def default_client(host=settings.CLICKHOUSE_HOST, password=None):
     """
     Return a bare bones client for use in places where we are only interested in general ClickHouse state
     DO NOT USE THIS FOR QUERYING DATA
+
+    password overrides the static CLICKHOUSE_PASSWORD, for example with a resolved file-backed token.
     """
     return SyncClient(
         host=host,
@@ -388,7 +390,7 @@ def default_client(host=settings.CLICKHOUSE_HOST):
         database="system",
         secure=settings.CLICKHOUSE_SECURE,
         user=settings.CLICKHOUSE_USER,
-        password=settings.CLICKHOUSE_PASSWORD,
+        password=settings.CLICKHOUSE_PASSWORD if password is None else password,
         ca_certs=settings.CLICKHOUSE_CA,
         verify=settings.CLICKHOUSE_VERIFY,
     )

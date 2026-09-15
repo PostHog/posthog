@@ -33,6 +33,8 @@ else:
 
 from products.access_control.backend.models.access_control import AccessControl
 
+from .enums import ResolvedAccessSourceSubjectValue, ResolvedAccessSourceValue
+
 
 class AccessSource(Enum):
     """Enum for how a user got access to a resource"""
@@ -60,6 +62,7 @@ ACCESS_CONTROL_MAX_OBJECTS_PER_RESOURCE = 1000
 ACCESS_CONTROL_RESOURCES: tuple[APIScopeObject, ...] = (
     "action",
     "customer_analytics",
+    "data_catalog",
     "dashboard",
     "early_access_feature",
     "endpoint",
@@ -262,19 +265,10 @@ class ResolvedAccess:
     """
 
     access_level: AccessControlLevel
-    source: Literal[
-        "object",
-        "parent_object",
-        "resource",
-        "parent_resource",
-        "system_default",
-        "org_admin",
-        "creator",
-        "org_membership",
-    ]
+    source: ResolvedAccessSourceValue
     # The source rule's subject: an everyone-row ("default"), a role row, or a member row.
     # None when no row decided.
-    source_subject: Optional[Literal["member", "role", "default"]]
+    source_subject: Optional[ResolvedAccessSourceSubjectValue]
     # The resource the source rule belongs to — a table resolved through its source reports the
     # source's resource, and the system default reports the resource whose rules would apply
     # (the RESOURCE_INHERITANCE_MAP umbrella), not necessarily the object's own.
@@ -288,9 +282,9 @@ class ResolvedAccess:
     subject_name: Optional[str] = None
 
 
-def model_to_resource(model: Model) -> Optional[APIScopeObject]:
+def model_to_resource(model: Model | type[Model]) -> Optional[APIScopeObject]:
     """
-    Given a model, return the resource type it represents
+    Given a model instance or class, return the resource type it represents
     """
     if hasattr(model, "_meta"):
         name = model._meta.model_name
@@ -342,8 +336,15 @@ def model_to_resource(model: Model) -> Optional[APIScopeObject]:
         return "customer_task"
     if name in ("replayscanner", "replayobservation"):
         return "replay_scanner"
+    if name == "llmskill":
+        return "llm_skill"
     if name in ("visionalertconfiguration", "visionalertevent"):
         return "vision_alert"
+    # These scopes are served by several viewsets, each with its own model
+    if name in ("parserrecipe", "reviewqueue", "reviewqueueitem", "scoredefinition", "tracereview"):
+        return "llm_analytics"
+    if name in ("dataqualitycheck", "dataqualitysuiterun"):
+        return "warehouse_objects"
 
     if name not in API_SCOPE_OBJECTS or name in INTERNAL_API_SCOPE_OBJECTS:
         return None
@@ -414,14 +415,28 @@ class UserAccessControl:
         # object in a list response. The events carry no object id, so these repeats are
         # identical events. Report each distinct divergence once per request.
         self._reported_resolved_access_divergences: set[tuple] = set()
+        # Project-wide object-id resolutions, keyed by (resource, team, level). Each one scans the
+        # resource and preloads its access controls, and one request asks for the same set several
+        # times over. Narrowed lookups are never stored here, only whole-resource ones.
+        self._allowed_object_ids: dict[tuple[str, int, str], frozenset] = {}
 
         if not organization_id and team:
             organization_id = str(team.organization_id)
 
         self._organization_id = organization_id
 
+    def allowed_object_ids(
+        self, resource: str, team_id: int, required_level: str, resolve: Callable[[], frozenset]
+    ) -> frozenset:
+        """Memoize one whole-resource object-id resolution for the life of this request."""
+        key = (resource, team_id, required_level)
+        if key not in self._allowed_object_ids:
+            self._allowed_object_ids[key] = resolve()
+        return self._allowed_object_ids[key]
+
     def _clear_cache(self):
         self._cache = {}
+        self._allowed_object_ids = {}
         # Pop from __dict__ rather than hasattr/delattr
         # hasattr on an un-computed cached_property would re-populate the value we're clearing
         self.__dict__.pop("_cached_access_controls", None)

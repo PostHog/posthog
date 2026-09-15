@@ -5,7 +5,7 @@ from typing import Any, Generic, TypeVar, cast
 from django.conf import settings
 
 import structlog
-from drf_spectacular.utils import OpenApiResponse, extend_schema
+from drf_spectacular.utils import OpenApiResponse, PolymorphicProxySerializer, extend_schema
 from pydantic import BaseModel, ValidationError
 from rest_framework import serializers
 from rest_framework.exceptions import ParseError
@@ -218,7 +218,12 @@ def validated_request(
                 if response_config is None:
                     return result
                 response_serializer = response_config.response
-                if response_serializer is None:
+                # A PolymorphicProxySerializer only describes the schema; it cannot validate data.
+                # `many=True` wraps one in a plain ListSerializer, so the child needs the same check.
+                declares_polymorphic_proxy = isinstance(response_serializer, PolymorphicProxySerializer) or isinstance(
+                    getattr(response_serializer, "child", None), PolymorphicProxySerializer
+                )
+                if response_serializer is None or declares_polymorphic_proxy:
                     return result
 
                 context: dict[str, Any] = getattr(self, "get_serializer_context", lambda: {})()

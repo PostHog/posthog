@@ -1,6 +1,6 @@
 from datetime import UTC, datetime, timedelta
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest
 
 from django.utils import timezone
@@ -145,7 +145,7 @@ class TestRecentReviewsAPI(APIBaseTest):
         # (stale, never completed) run must not appear — a filter regression would leak other users'
         # review activity or show a dead run as forever in progress.
         mine = self._report(pr_number=1, acting_user=self.user)
-        with freeze_time(timezone.now() - timedelta(hours=2)):
+        with time_machine.travel(timezone.now() - timedelta(hours=2), tick=False):
             self._report(pr_number=2, acting_user=self.user, completed=False)
         other = User.objects.create_and_join(self.organization, "other-reviews@posthog.com", None)
         self._report(pr_number=3, acting_user=other)
@@ -531,7 +531,7 @@ class TestRecentReviewsAPI(APIBaseTest):
         # redelivered foreign verdict, not a previous run's verdict for a re-queued thread, and not
         # a judged thread whose GitHub writes haven't landed.
         report = self._report(pr_number=5, acting_user=self.user, status=ReviewReport.Status.ACTIVE)
-        with freeze_time(timezone.now() - timedelta(hours=1)):
+        with time_machine.travel(timezone.now() - timedelta(hours=1), tick=False):
             # A previous run already judged PRRT_3; a new comment re-queued it, so only a verdict
             # written during THIS run may count toward its progress.
             self._thread_verdict(report, "PRRT_3", "fixed")
@@ -566,7 +566,7 @@ class TestRecentReviewsAPI(APIBaseTest):
         # closing note is the completion marker), and a crashed run must yield the row to a newer
         # review turn's own progress instead of pinning a stale "didn't finish" on it.
         report = self._report(pr_number=5, acting_user=self.user, status=ReviewReport.Status.ACTIVE, head_sha="sha1")
-        with freeze_time(timezone.now() - timedelta(hours=2)):
+        with time_machine.travel(timezone.now() - timedelta(hours=2), tick=False):
             self._resolution_run(report, ["PRRT_1"])
             self._thread_verdict(report, "PRRT_1", "fixed")
             if scenario == "completed_run_via_closing_note":
@@ -589,7 +589,7 @@ class TestRecentReviewsAPI(APIBaseTest):
         # The silent-death mode: a resolution that dies partway used to leave no trace anywhere.
         # With the run anchor present, no closing note, and activity past the staleness window, the
         # row must say where it stopped instead of nothing.
-        with freeze_time(timezone.now() - timedelta(hours=2)):
+        with time_machine.travel(timezone.now() - timedelta(hours=2), tick=False):
             report = self._report(pr_number=5, acting_user=self.user, status=ReviewReport.Status.IDLE)
             self._resolution_run(report, ["PRRT_1", "PRRT_2", "PRRT_3"])
             self._thread_verdict(report, "PRRT_1", "fixed")

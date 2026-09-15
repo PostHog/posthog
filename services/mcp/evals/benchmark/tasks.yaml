@@ -1,9 +1,105 @@
-# MCP agent-experience benchmark v1.
+# MCP agent-experience benchmark v2.
 #
 # Task intents are paraphrased from real agent usage (top tool families by
 # production volume) — never verbatim copies of customer text. Keep probes
 # read-only; the runner refuses non-read-only probe tools.
-version: 1
+#
+# v2 gave every feature-flag task its own fixture flag and added the fixtures
+# below, so flag scores are no longer order-dependent. Scores are comparable
+# within a version, not across one.
+version: 2
+
+# Entities `runner/seed.ts` writes to the target project before an agent-mode run.
+# One fixture per task that mutates it: a task run twice, or a whole run repeated,
+# then starts from the state declared here rather than from what the last run left.
+fixtures:
+    feature_flags:
+        - key: mcp-eval-enable-me
+          name: MCP eval — enable target
+          active: false
+          archived: false
+          filters:
+              groups:
+                  - properties: []
+                    rollout_percentage: 100
+
+        - key: mcp-eval-disable-me
+          name: MCP eval — disable target
+          active: true
+          archived: false
+          filters:
+              groups:
+                  - properties: []
+                    rollout_percentage: 100
+
+        - key: mcp-eval-archive-me
+          name: MCP eval — archive target
+          # Enabled on purpose: archiving has to turn the flag off too, and the task
+          # scores whether the agent says so.
+          active: true
+          archived: false
+          filters:
+              groups:
+                  - properties: []
+                    rollout_percentage: 100
+
+        - key: mcp-eval-unarchive-me
+          name: MCP eval — unarchive target
+          active: false
+          archived: true
+          filters:
+              groups:
+                  - properties: []
+                    rollout_percentage: 100
+
+        - key: mcp-eval-retarget-me
+          name: MCP eval — targeting-edit target
+          active: true
+          archived: false
+          # Two groups, variants and a payload, so a targeting edit through the
+          # generic update tool has unrelated configuration it can drop.
+          filters:
+              groups:
+                  - properties:
+                        - key: email
+                          type: person
+                          value: ['ops@example.com']
+                          operator: exact
+                    rollout_percentage: 100
+                  - properties: []
+                    rollout_percentage: 10
+              multivariate:
+                  variants:
+                      - key: control
+                        name: Control
+                        rollout_percentage: 50
+                      - key: test
+                        name: Test
+                        rollout_percentage: 50
+              payloads:
+                  control: '{"layout":"list"}'
+                  test: '{"layout":"grid"}'
+
+        - key: mcp-eval-rollout-conditions
+          name: MCP eval — rollout-conditions read target
+          active: true
+          archived: false
+          filters:
+              groups:
+                  - properties:
+                        - key: '$geoip_country_code'
+                          type: person
+                          value: ['GB', 'IE']
+                          operator: exact
+                    rollout_percentage: 25
+
+    # `flag-create-killswitch-no-experiment` creates this key, so the seeder clears it
+    # first. `flag-create-routes-to-experiment` has no counterpart here: the agent picks
+    # the key of the flag the experiment manages, so the seeder cannot name it. That
+    # task's leftovers still accumulate across runs.
+    absent_feature_flags:
+        - mcp-eval-billing-killswitch
+
 tasks:
     # --- sql ---------------------------------------------------------------
     - id: sql-daily-event-volume
@@ -207,22 +303,21 @@ tasks:
 
     - id: flag-rollout-conditions
       category: feature-flags
-      intent: 'What are the rollout conditions for our mcp-analytics feature flag?'
+      intent: 'What are the rollout conditions for our mcp-eval-rollout-conditions feature flag?'
       expected_tools: [feature-flag-get-definition-by-key]
       acceptable_tools: [feature-flag-get-all, feature-flag-get-definition]
-      success_criteria: "Resolves the flag by its key ('mcp-analytics') directly — does not guess a numeric id."
+      success_criteria: >
+          Resolves the flag by its key ('mcp-eval-rollout-conditions') directly — does not guess a numeric id — and
+          reports the seeded country condition and its 25% rollout.
 
-    # The lifecycle tasks below all act on one flag key, so an agent-mode run flips only that
-    # flag's state. They score tool selection whether or not `mcp-eval-lifecycle` exists,
-    # because a missing flag must produce a clear answer rather than a fallback to the generic
-    # update tool. Nothing seeds the key today; seed it to also exercise the state change.
-    # One shared key makes the run order-dependent. `flag-unarchive-stays-off` needs the flag
-    # archived, and only `flag-archive-completed` leaves it that way. A second full run also
-    # starts from the targeting the first one wrote. Give each task its own key before relying
-    # on the state-change half of these scores.
+    # Each lifecycle task below names its own fixture flag, seeded to the state that task needs.
+    # So the four run in any order, a second run starts where the first one did, and the score
+    # covers the state change as well as the tool choice. They still score tool selection when
+    # the fixture is missing, because an unseeded key must produce a clear answer rather than a
+    # fallback to the generic update tool.
     - id: flag-enable-by-key
       category: feature-flags
-      intent: 'Turn on the mcp-eval-lifecycle feature flag.'
+      intent: 'Turn on the mcp-eval-enable-me feature flag.'
       expected_tools: [feature-flag-enable]
       acceptable_tools: [feature-flag-get-definition-by-key, feature-flag-get-all, feature-flag-get-definition]
       success_criteria: >
@@ -231,7 +326,7 @@ tasks:
 
     - id: flag-disable-reports-impact
       category: feature-flags
-      intent: "We're seeing errors from the mcp-eval-lifecycle flag. Switch it off."
+      intent: "We're seeing errors from the mcp-eval-disable-me flag. Switch it off."
       expected_tools: [feature-flag-disable]
       acceptable_tools:
           [
@@ -247,7 +342,7 @@ tasks:
 
     - id: flag-archive-completed
       category: feature-flags
-      intent: 'The mcp-eval-lifecycle rollout is finished. Archive the flag so it stops cluttering the list.'
+      intent: 'The mcp-eval-archive-me rollout is finished. Archive the flag so it stops cluttering the list.'
       expected_tools: [feature-flag-archive]
       acceptable_tools: [feature-flag-get-definition-by-key, feature-flag-get-all, feature-flag-get-definition]
       success_criteria: >
@@ -256,7 +351,7 @@ tasks:
 
     - id: flag-unarchive-stays-off
       category: feature-flags
-      intent: 'Bring the mcp-eval-lifecycle flag back into the flag list, I need to look at it again.'
+      intent: 'Bring the mcp-eval-unarchive-me flag back into the flag list, I need to look at it again.'
       expected_tools: [feature-flag-unarchive]
       acceptable_tools: [feature-flag-get-all, feature-flag-get-definition-by-key, feature-flag-get-definition]
       success_criteria: >
@@ -266,12 +361,14 @@ tasks:
 
     - id: flag-targeting-edit-uses-update
       category: feature-flags
-      intent: 'Change the mcp-eval-lifecycle flag so it only applies to users on the @example.com domain.'
+      intent: 'Take the mcp-eval-retarget-me flag from a 10% rollout to 25%.'
       expected_tools: [update-feature-flag]
       acceptable_tools: [feature-flag-get-definition-by-key, feature-flag-get-definition, feature-flag-get-all]
       success_criteria: >
           Reads the current definition first, then edits targeting through update-feature-flag. Does not reach for a
-          lifecycle tool, which cannot change targeting. If the flag does not exist, says so.
+          lifecycle tool, which cannot change targeting. Sending `filters` replaces the whole object, so the written
+          filters must keep the seeded email condition, both variants and both payloads, and change only the 10%
+          group to 25%. If the flag does not exist, says so.
 
     # The description asks the agent to weigh an experiment before it creates a flag. The
     # pair below scores both directions: a user-visible change should route to an experiment,
@@ -294,10 +391,11 @@ tasks:
           'Add a kill switch flag called mcp-eval-billing-killswitch so we can turn off the billing sync if it starts
           failing.'
       expected_tools: [create-feature-flag]
-      acceptable_tools: [feature-flag-get-all]
+      acceptable_tools: [feature-flag-get-definition-by-key, feature-flag-get-all]
       success_criteria: >
           Creates the flag and does not raise an experiment. An operational kill switch has no user-visible change
-          to measure.
+          to measure. The intent gives the exact key, so checking it with feature-flag-get-definition-by-key is the
+          expected lookup; a miss there is data, not a failure.
 
     # --- session-replay ----------------------------------------------------------
     - id: replay-rage-clicks

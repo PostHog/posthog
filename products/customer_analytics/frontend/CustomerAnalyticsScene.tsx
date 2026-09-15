@@ -13,7 +13,6 @@ import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getAccessControlDisabledReason, userHasAccess } from 'lib/utils/accessControlUtils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { GroupsIntroduction } from 'scenes/groups/GroupsIntroduction'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -27,6 +26,7 @@ import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-genera
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { SessionInsights } from 'products/customer_analytics/frontend/components/Insights/SessionInsights'
+import { GroupsIntroduction } from 'products/groups/frontend/components/GroupsIntroduction'
 
 import { AccountNotesTabContent } from './components/AccountNotes/AccountNotesTabContent'
 import { AccountsTabContent } from './components/Accounts/AccountsTabContent'

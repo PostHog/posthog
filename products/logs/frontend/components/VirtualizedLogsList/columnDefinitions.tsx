@@ -21,6 +21,7 @@ import {
 import { logsViewerLogic } from 'products/logs/frontend/components/LogsViewer/logsViewerLogic'
 import { AttributeCell } from 'products/logs/frontend/components/VirtualizedLogsList/cells/AttributeCell'
 import { MessageCell } from 'products/logs/frontend/components/VirtualizedLogsList/cells/MessageCell'
+import { SessionErrorsCell } from 'products/logs/frontend/components/VirtualizedLogsList/cells/SessionErrorsCell'
 import {
     CHECKBOX_WIDTH,
     DEFAULT_ATTRIBUTE_COLUMN_WIDTH,
@@ -31,6 +32,7 @@ import {
     PATTERN_WIDTH,
     PERSON_WIDTH,
     RESIZER_HANDLE_WIDTH,
+    SESSION_ERRORS_WIDTH,
     SESSION_WIDTH,
     SEVERITY_WIDTH,
     TIMESTAMP_WIDTH,
@@ -57,7 +59,7 @@ export const SEVERITY_BAR_COLORS: Record<LogMessage['severity_text'], string> = 
 // Cell components that read per-row state from kea — avoids baking
 // frequently-changing state into column closures.
 
-function ControlsCell({ log }: { log: ParsedLogMessage }): JSX.Element {
+function ControlsCell({ log, showSessionErrors }: { log: ParsedLogMessage; showSessionErrors: boolean }): JSX.Element {
     const { selectedLogIds, expandedLogIds } = useValues(logsViewerLogic)
     const { toggleSelectLog, toggleExpandLog } = useActions(logsViewerLogic)
 
@@ -94,11 +96,18 @@ function ControlsCell({ log }: { log: ParsedLogMessage }): JSX.Element {
                     onClick={(e) => e.stopPropagation()}
                 />
             </div>
+            {showSessionErrors && <SessionErrorsCell log={log} />}
         </div>
     )
 }
 
-function ControlsHeader({ dataSourceRef }: { dataSourceRef: RefObject<ParsedLogMessage[]> }): JSX.Element {
+function ControlsHeader({
+    dataSourceRef,
+    showSessionErrors,
+}: {
+    dataSourceRef: RefObject<ParsedLogMessage[]>
+    showSessionErrors: boolean
+}): JSX.Element {
     const { selectedCount } = useValues(logsViewerLogic)
     const { selectAll, clearSelection } = useActions(logsViewerLogic)
 
@@ -117,6 +126,7 @@ function ControlsHeader({ dataSourceRef }: { dataSourceRef: RefObject<ParsedLogM
                 />
             </div>
             <div style={{ width: EXPAND_WIDTH, flexShrink: 0 }} />
+            {showSessionErrors && <div style={{ width: SESSION_ERRORS_WIDTH, flexShrink: 0 }} />}
         </div>
     )
 }
@@ -196,12 +206,19 @@ function MessageColumnCell({
 
 export function createControlsColumn(params: {
     dataSourceRef: RefObject<ParsedLogMessage[]>
+    showSessionErrors: boolean
 }): VirtualizedTableColumn<ParsedLogMessage> {
     return {
         key: 'controls',
-        sizing: { type: 'fixed', width: SEVERITY_WIDTH + CHECKBOX_WIDTH + EXPAND_WIDTH },
-        render: (log) => <ControlsCell log={log} />,
-        renderHeader: () => <ControlsHeader dataSourceRef={params.dataSourceRef} />,
+        sizing: {
+            type: 'fixed',
+            width:
+                SEVERITY_WIDTH + CHECKBOX_WIDTH + EXPAND_WIDTH + (params.showSessionErrors ? SESSION_ERRORS_WIDTH : 0),
+        },
+        render: (log) => <ControlsCell log={log} showSessionErrors={params.showSessionErrors} />,
+        renderHeader: () => (
+            <ControlsHeader dataSourceRef={params.dataSourceRef} showSessionErrors={params.showSessionErrors} />
+        ),
     }
 }
 

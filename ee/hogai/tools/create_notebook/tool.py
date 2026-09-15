@@ -28,7 +28,7 @@ from ee.hogai.utils.types.base import AssistantState, NodePath
 NOTEBOOK_WIDGET_CATALOG_PROMPT = format_notebook_widget_catalog_for_agents()
 
 
-def create_notebook_prompt(*, sql_v2_enabled: bool) -> str:
+def create_notebook_prompt(*, sql_v2_enabled: bool, widgets_enabled: bool) -> str:
     """Build the tool description for one user.
 
     `sql_v2_enabled` follows the same flag the notebook run endpoint enforces. Without it the
@@ -36,7 +36,7 @@ def create_notebook_prompt(*, sql_v2_enabled: bool) -> str:
     button, so an authored SQLV2 or PythonV2 cell gives the user a dead control and no
     explanation. Offer the ungated `<Query />` cell to those users instead.
     """
-    cell_guidance = cell_guidance_prompt(sql_v2_enabled=sql_v2_enabled)
+    cell_guidance = cell_guidance_prompt(sql_v2_enabled=sql_v2_enabled, widgets_enabled=widgets_enabled)
     return f"""
 Use this tool to create a notebook document with rich content.
 
@@ -140,7 +140,7 @@ class CreateNotebookTool(MaxTool):
     args_schema: type[BaseModel] = CreateNotebookToolArgs
     # Fail closed: a caller that skips `create_tool_class` gets the description that authors no
     # cell the user may be unable to run.
-    description: str = create_notebook_prompt(sql_v2_enabled=False)
+    description: str = create_notebook_prompt(sql_v2_enabled=False, widgets_enabled=False)
 
     @classmethod
     async def create_tool_class(
@@ -156,6 +156,7 @@ class CreateNotebookTool(MaxTool):
         # The flag lookup reads `user.organization`, so it needs a thread with a database
         # connection rather than this coroutine.
         sql_v2_enabled = await database_sync_to_async(notebooks.is_sql_v2_enabled)(user)
+        widgets_enabled = await database_sync_to_async(notebooks.is_notebook_widget_enabled)(user)
         return cls(
             team=team,
             user=user,
@@ -163,7 +164,7 @@ class CreateNotebookTool(MaxTool):
             state=state,
             config=config,
             context_manager=context_manager,
-            description=create_notebook_prompt(sql_v2_enabled=sql_v2_enabled),
+            description=create_notebook_prompt(sql_v2_enabled=sql_v2_enabled, widgets_enabled=widgets_enabled),
         )
 
     async def _arun_impl(

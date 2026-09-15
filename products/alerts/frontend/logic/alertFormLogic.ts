@@ -10,7 +10,6 @@ import api, { ApiError } from 'lib/api'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
-import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -31,6 +30,7 @@ import {
     isSubDailyAlertInterval,
 } from 'products/alerts/frontend/logic/alertIntervalHelpers'
 import { resolveSnoozeUntil } from 'products/alerts/frontend/utils'
+import { trendsDataLogic } from 'products/product_analytics/frontend/insights/trends/trendsDataLogic'
 
 import {
     AlertConfig,
@@ -66,6 +66,7 @@ export type AlertFormType = Pick<
     | 'config'
     | 'skip_weekend'
     | 'schedule_restriction'
+    | 'schedule_start_time'
     | 'detector_config'
     | 'investigation_agent_enabled'
     | 'investigation_gates_notifications'
@@ -556,6 +557,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
                           calculation_interval: calculationInterval,
                           skip_weekend: false,
                           schedule_restriction: null,
+                          schedule_start_time: null,
                           detector_config: props.defaultToAnomalyDetection
                               ? getDefaultAnomalyDetectorConfig(calculationInterval)
                               : null,

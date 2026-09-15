@@ -17,6 +17,7 @@ from posthog.scopes import (
     INTERNAL_API_SCOPE_OBJECTS,
     MCP_BUILT_IN_AGENT_SCOPE,
     OAUTH_HIDDEN_SCOPE_OBJECTS,
+    SLACK_RUN_SCOPE,
     resolve_ceiling,
 )
 from posthog.utils import get_instance_region
@@ -157,6 +158,7 @@ SCOUT_REPORT_SCOPES: list[str] = [
 ]
 
 LOOP_CONTEXT_INTERNAL_SCOPE = "loop_context_internal:write"
+CONTEXT_LAYER_INTERNAL_SCOPE = "context_layer_internal:write"
 
 
 # A deliberately narrow set of user-facing WRITE scopes granted to the Signals scout
@@ -193,30 +195,63 @@ SCOUT_USER_WRITE_SCOPES: list[str] = [
 #
 # These scopes are object-level rather than tool-level, so each one carries update and delete of
 # every matching object the token can reach, not only the objects the scout created. The reach
-# is not the same for all four, and any surface that offers a grant has to say so plainly:
+# is not the same for all of them, and any surface that offers a grant has to say so plainly:
 #
-#   dashboard:write   Every dashboard in the scout's project. Delete is a recoverable
-#                     soft-delete.
-#   insight:write     Every saved insight in the scout's project. Delete is a recoverable
-#                     soft-delete.
-#   annotation:write  Every annotation in the scout's project, AND every organization-scoped
-#                     annotation in the organization, including ones a sibling project owns
-#                     (see `_filter_queryset_by_parents_lookups` in the annotations viewset).
-#                     An update can also move an organization annotation to the scout's team.
-#   alert:write       Every insight alert in the scout's project. Delete is PERMANENT: the
-#                     viewset has no soft-delete, so it removes the alert and its check
-#                     history for good.
+#   dashboard:write        Every dashboard in the scout's project. Delete is a recoverable
+#                          soft-delete.
+#   insight:write          Every saved insight in the scout's project. Delete is a recoverable
+#                          soft-delete.
+#   annotation:write       Every annotation in the scout's project, AND every organization-scoped
+#                          annotation in the organization, including ones a sibling project owns
+#                          (see `_filter_queryset_by_parents_lookups` in the annotations viewset).
+#                          An update can also move an organization annotation to the scout's team.
+#   alert:write            Every insight alert in the scout's project. Delete is PERMANENT: the
+#                          viewset has no soft-delete, so it removes the alert and its check
+#                          history for good. It also attaches and removes the alert's Slack
+#                          destinations, bounded to workspaces the project already connected, so a
+#                          scout still reaches no URL of its own choosing.
+#   llm_skill:write        Every shared skill on the scout's project: body, description, and
+#                          bundled files. Custom scouts are skills in that same store, so this
+#                          reaches a sibling scout's prompt and the scout's own. Archive marks
+#                          every version deleted and they stay readable. It also gates the
+#                          review-hog perspective, validator, and blind-spot config endpoints,
+#                          which are scoped `llm_skill` because they carry skill bodies. It
+#                          reaches no scout config on its own: the scout create and note
+#                          endpoints require `signal_scout:write` as well.
+#   warehouse_view:write   Every saved query (view) in the scout's project, plus the joins,
+#                          managed viewsets, column annotations, and data quality checks that
+#                          hang off them. Delete is a recoverable soft-delete that refuses a
+#                          view other views depend on. Run and materialize cost warehouse
+#                          compute, bounded by the existing run and materialization throttles.
+#   warehouse_table:write  Every warehouse table in the scout's project, its schema refresh, its
+#                          column annotations, and its data quality checks. Delete is a
+#                          recoverable soft-delete that refuses a table a source owns. Deleting
+#                          a data quality check is the one PERMANENT delete in this set, and a
+#                          check is cheap to recreate.
+#   replay_scanner:write   Every Replay vision scanner in the scout's project, plus the prompt
+#                          suggestion loop and the shared rating on observations. Scanning spends
+#                          the organization's credits, and delete is PERMANENT (it takes the
+#                          scanner's observations with it), so this scope alone misses the bar the
+#                          others meet. One scope object covers the whole surface, so the two
+#                          exclusions live in `products/replay_vision/backend/scout_writes.py`
+#                          instead: a scout cannot delete, and must cap what it creates or enables.
 #
-# The last two exceed the "recoverable, project-scoped" bar the other two meet. They stay in
-# the v1 set that #94263 puts to the team, because narrowing the set is that decision to make,
-# not a default to assume. Whoever confirms the set has to accept those two reaches, or drop
-# the scopes.
+# `annotation:write` and `alert:write` exceed the "recoverable, project-scoped" bar the other
+# scopes meet. They stay in the v1 set that #94263 puts to the team, because narrowing the set is
+# that decision to make, not a default to assume. Whoever confirms the set has to accept those two
+# reaches, or drop the scopes. `llm_skill:write` carries the same kind of open question: a scout
+# holding it can rewrite the skill body it runs from. That is accepted while the grant is a
+# deliberate per-scout choice a person makes, and the surfaces that offer it say so.
 SCOUT_GRANTABLE_WRITE_SCOPES: frozenset[str] = frozenset(
     {
         "dashboard:write",
         "insight:write",
         "annotation:write",
         "alert:write",
+        "llm_skill:write",
+        "warehouse_view:write",
+        "warehouse_table:write",
+        "replay_scanner:write",
     }
 )
 
@@ -399,6 +434,8 @@ def resolve_scopes(
             resolved = [*MCP_READ_SCOPES, *internal]
     else:
         resolved = [*scopes, *internal]
+    if include_internal_scopes and "organization:write" in resolved:
+        resolved.append(CONTEXT_LAYER_INTERNAL_SCOPE)
     return list(dict.fromkeys(resolved))
 
 
@@ -540,6 +577,7 @@ def create_oauth_access_token_for_user(
     include_internal_scopes: bool = True,
     include_mcp_builtin_agent_scope: bool = False,
     include_interactive_run_scope: bool = False,
+    include_slack_run_scope: bool = False,
     application: SandboxOAuthApplication = "array",
     sandbox_task_id: UUID | None = None,
 ) -> str:
@@ -553,6 +591,8 @@ def create_oauth_access_token_for_user(
         # Provenance marker only — it grants no access. The LLM gateway meters a run
         # carrying it against the interactive budget instead of the pipeline's.
         resolved.append(INTERACTIVE_RUN_SCOPE)
+    if include_slack_run_scope:
+        resolved.append(SLACK_RUN_SCOPE)
     app = get_sandbox_oauth_app(application)
     return _mint_oauth_access_token(user, team_id, app=app, scopes=list(resolved), sandbox_task_id=sandbox_task_id)
 

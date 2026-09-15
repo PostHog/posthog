@@ -40,6 +40,7 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
 
 from ee import settings
+from ee.api.google_oauth_diagnostics import fetch_userinfo_with_diagnostics
 from ee.api.scim.utils import mask_email
 from ee.api.vercel.types import VercelClaims, VercelSystemClaims, VercelUser, VercelUserClaims
 from ee.api.vercel.utils import get_vercel_jwks
@@ -427,6 +428,15 @@ class CustomGoogleOAuth2(GoogleOAuth2):
 
         return extra_args
 
+    def user_data(self, access_token: str, *args: Any, **kwargs: Any) -> Any:
+        parent_user_data = super().user_data
+        return fetch_userinfo_with_diagnostics(
+            self,
+            access_token,
+            kwargs.get("response") or {},
+            lambda: parent_user_data(access_token, *args, **kwargs),
+        )
+
     def get_user_id(self, details, response):
         """
         Retrieve and migrate Google OAuth user identification.
@@ -568,6 +578,7 @@ class VercelAuthentication(authentication.BaseAuthentication):
                 user_avatar_url=payload.get("user_avatar_url"),
                 user_name=payload.get("user_name"),
                 user_email=payload.get("user_email"),
+                user_email_verified=payload.get("user_email_verified"),
             )
         elif auth_type == "system":
             self._validate_system_claims(payload)

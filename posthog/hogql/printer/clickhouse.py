@@ -246,6 +246,15 @@ class ClickHousePrinter(BasePrinter):
                         relevant_clickhouse_name = overload_clickhouse_name
                         break  # Found an overload matching the first function org
 
+                # A Float duration is Decimal(18, 6) at runtime once the timestamps are DateTime64, and
+                # both constructors reject a Decimal with code 44. toFloat64 is a no-op for a real float.
+                if (
+                    args
+                    and relevant_clickhouse_name in ("toDate", "toDateTime")
+                    and isinstance(first_arg_constant_type, ast.FloatType)
+                ):
+                    args[0] = f"toFloat64({args[0]})"
+
         if func_meta.tz_aware:
             has_tz_override = len(node.args) == func_meta.max_args
 
@@ -357,9 +366,14 @@ class ClickHousePrinter(BasePrinter):
             if not isinstance(node, ast.SelectQuery) and not isinstance(node, ast.SelectSetQuery):
                 raise QueryError("Settings can only be applied to SELECT queries")
             merged = self._merge_table_top_level_settings(self.settings)
-            printed = self._print_settings(merged)
-            if printed is not None:
-                response += " " + printed
+            if self.context.emit_top_level_settings:
+                printed = self._print_settings(merged)
+                if printed is not None:
+                    response += " " + printed
+            else:
+                self.context.top_level_settings = {
+                    key: value for key, value in self._normalize_settings(merged).items() if key != "readonly"
+                }
 
         return response
 
@@ -1177,7 +1191,9 @@ class ClickHousePrinter(BasePrinter):
 
         # When self.settings exists, table-level settings are merged in visit() instead
         merged = (
-            self._merge_table_top_level_settings(node.settings)
+            None
+            if is_top_level_query and not self.context.emit_top_level_settings
+            else self._merge_table_top_level_settings(node.settings)
             if is_top_level_query and not self.settings
             else node.settings
         )

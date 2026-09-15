@@ -198,8 +198,9 @@ Jobs run synchronously inside `execute()` — there is no background queue, so P
 - `ready_empty` — INSERT succeeded but wrote no rows, PENDING → READY. Still a success; split out because an empty window is only provisionally computed (see `TtlSchedule.empty_result_ttl_seconds`), so a climbing share here points at a lagging source rather than a broken query.
 - `failed` — INSERT raised (retryable or non-retryable), PENDING → FAILED.
 - `stale` — a waiter detected the owning executor crashed (`_try_mark_stale_job_as_failed`) and the atomic update flipped the row to FAILED.
+- `expired` — a create conflict found the blocking PENDING row past its own `expires_at` and flipped it to FAILED (`_try_fail_expired_pending_job`), unblocking the window. Like `stale`, each increment means an executor died earlier without cleanup.
 
-Sum `ready` and `ready_empty` for total successes, and prefer `outcome=~"failed|stale"` over `outcome!="ready"` when alerting — the latter counts empty-but-successful jobs as problems.
+Sum `ready` and `ready_empty` for total successes, and prefer `outcome=~"failed|stale|expired"` over `outcome!="ready"` when alerting — the latter counts empty-but-successful jobs as problems.
 
 Net job throughput (positive = backlog growing, expected ~0 in steady state):
 
@@ -212,7 +213,7 @@ sum(rate(lazy_computation_jobs_finished_total[5m]))
 Failure share per table:
 
 ```promql
-sum by (table) (rate(lazy_computation_jobs_finished_total{outcome=~"failed|stale"}[5m]))
+sum by (table) (rate(lazy_computation_jobs_finished_total{outcome=~"failed|stale|expired"}[5m]))
   /
 sum by (table) (rate(lazy_computation_jobs_finished_total[5m]))
 ```
