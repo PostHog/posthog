@@ -1145,6 +1145,7 @@ def _get_deploy_stats_rows(
     """
     now = int(datetime.now(UTC).timestamp())
     stats_by_revision: dict[str, dict[str, Any]] = {}
+    windows_done = 0
 
     for markers in _get_windowed_rows(
         session,
@@ -1157,6 +1158,16 @@ def _get_deploy_stats_rows(
         db_incremental_field_last_value=db_incremental_field_last_value,
         initial_start=now - DEPLOY_STATS_INITIAL_LOOKBACK_SECONDS,
     ):
+        # The budget is spent between windows, never inside one. Leaving a window part-done
+        # would lose its checkpoint, and a window holding the whole budget would then be redone
+        # from the start on every sync without the walk ever reaching the windows after it.
+        if windows_done and len(stats_by_revision) >= MAX_DEPLOY_STATS_PER_SYNC:
+            logger.warning(
+                f"AppSignal: reached the {MAX_DEPLOY_STATS_PER_SYNC} revision limit for {config.name}, "
+                f"the next sync continues from the last completed window"
+            )
+            return
+
         rows: list[dict[str, Any]] = []
         for marker in markers:
             marker_id, revision = marker.get("id"), marker.get("revision")
@@ -1165,14 +1176,6 @@ def _get_deploy_stats_rows(
 
             stats = stats_by_revision.get(revision)
             if stats is None:
-                if len(stats_by_revision) >= MAX_DEPLOY_STATS_PER_SYNC:
-                    logger.warning(
-                        f"AppSignal: reached the {MAX_DEPLOY_STATS_PER_SYNC} revision limit for {config.name}, "
-                        f"the next sync continues from the last completed window"
-                    )
-                    if rows:
-                        yield rows
-                    return
                 stats = _fetch_deploy_stats(session, api_token, app_id, revision, logger)
                 stats_by_revision[revision] = stats
 
@@ -1188,6 +1191,7 @@ def _get_deploy_stats_rows(
 
         if rows:
             yield rows
+        windows_done += 1
 
 
 def _get_performance_action_rows(
@@ -1305,8 +1309,11 @@ def _get_slow_event_action_rows(
 ) -> Iterator[list[dict[str, Any]]]:
     """Fan the actions of each slow event out per digest, oldest bucket first.
 
-    A digest costs a request, so the sweep stops at MAX_SLOW_EVENT_DIGESTS_PER_SYNC without
-    checkpointing the bucket it stopped in — the next sync redoes that whole bucket.
+    A digest costs a request, so the sweep stops once it has spent
+    MAX_SLOW_EVENT_DIGESTS_PER_SYNC of them. The budget is checked between buckets, never
+    inside one: a bucket abandoned part-way keeps no checkpoint, so a single bucket holding the
+    whole budget would be redone from the start on every sync and the walk would never advance.
+    Finishing the bucket overshoots by at most the digests it holds.
     """
     now = int(datetime.now(UTC).timestamp())
     start = _resolve_walk_start(
@@ -1321,20 +1328,19 @@ def _get_slow_event_action_rows(
     )
 
     digests_fetched = 0
+    buckets_done = 0
     for window in _iter_aligned_windows(start, now, SLOW_EVENT_BUCKET_SECONDS):
+        if buckets_done and digests_fetched >= MAX_SLOW_EVENT_DIGESTS_PER_SYNC:
+            logger.warning(
+                f"AppSignal: reached the {MAX_SLOW_EVENT_DIGESTS_PER_SYNC} digest limit for {config.name}, "
+                f"the next sync continues from the last completed bucket"
+            )
+            return
+
         bucket = _to_iso(window.since)
         rows: list[dict[str, Any]] = []
 
         for event in _fetch_slow_events(session, api_token, app_id, window, logger):
-            if digests_fetched >= MAX_SLOW_EVENT_DIGESTS_PER_SYNC:
-                logger.warning(
-                    f"AppSignal: reached the {MAX_SLOW_EVENT_DIGESTS_PER_SYNC} digest limit for {config.name}, "
-                    f"the next sync continues from the last completed bucket"
-                )
-                if rows:
-                    yield rows
-                return
-
             digests_fetched += 1
             digest = event["digest"]
             actions = (
@@ -1361,6 +1367,7 @@ def _get_slow_event_action_rows(
         if rows:
             yield rows
         resumable_source_manager.save_state(AppsignalResumeConfig(window_start=window.before))
+        buckets_done += 1
 
 
 _WALKERS = {

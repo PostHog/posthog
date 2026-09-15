@@ -149,7 +149,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         "docs_url": "https://docs.appsignal.com/api/v2/traces",
         "columns": {
             "timestamp": "Start of the daily bucket the counts cover.",
-            "digest": "Digest of the slow operation. Joins onto slow_events.digest.",
+            "digest": "Digest of the slow operation. Join to slow_events on timestamp and digest.",
             "namespace": "Namespace the action belongs to (e.g. web, background).",
             "action_name": "Action the slow operation ran in.",
             "count": "Number of times the operation ran in this action.",

@@ -733,7 +733,7 @@ class TestPerformanceActionRows:
         assert {row["action"] for row in rows} == {"UsersController#show"}
         requested_from = [call.kwargs["json"]["from"] for call in session.post.call_args_list]
         assert [row["timestamp"] for row in rows] == requested_from
-        assert all(_to_epoch(value) % AGGREGATE_BUCKET_SECONDS == 0 for value in requested_from)
+        assert all((_to_epoch(value) or 0) % AGGREGATE_BUCKET_SECONDS == 0 for value in requested_from)
 
     @mock.patch(f"{MODULE}.AGGREGATE_INITIAL_LOOKBACK_SECONDS", 2 * 3600)
     @mock.patch(f"{MODULE}.make_tracked_session")
@@ -816,18 +816,19 @@ class TestSlowEventRows:
 
     @mock.patch(f"{MODULE}.MAX_SLOW_EVENT_DIGESTS_PER_SYNC", 1)
     @mock.patch(f"{MODULE}.SLOW_EVENT_BUCKET_SECONDS", 3600)
-    @mock.patch(f"{MODULE}.SLOW_EVENT_INITIAL_LOOKBACK_SECONDS", 900)
+    @mock.patch(f"{MODULE}.SLOW_EVENT_INITIAL_LOOKBACK_SECONDS", 2 * 3600)
     @mock.patch(f"{MODULE}.make_tracked_session")
-    def test_digest_cap_leaves_the_partial_bucket_uncheckpointed(self, mock_session):
-        # Checkpointing a bucket the cap cut short would skip the digests never fetched.
+    def test_digest_cap_stops_between_buckets_so_the_walk_advances(self, mock_session):
+        # Stopping inside a bucket would leave it uncheckpointed, and a bucket holding the whole
+        # budget would then be redone from the start on every sync, reaching no later bucket.
         mock_session.return_value = self._session()
         manager = _make_manager()
         logger = mock.MagicMock()
 
         batches = list(get_rows("token", "app-id", "slow_event_actions", logger, manager))
 
-        assert [row["digest"] for batch in batches for row in batch] == ["d1"]
-        manager.save_state.assert_not_called()
+        assert [row["digest"] for batch in batches for row in batch] == ["d1", "d2"]
+        manager.save_state.assert_called_once()
         assert "digest limit" in logger.warning.call_args.args[0]
 
 
@@ -894,6 +895,22 @@ class TestDeployStatsRows:
         batches = list(get_rows("token", "app-id", "deploy_stats", mock.MagicMock(), _make_manager()))
 
         assert [(row["marker_id"], row["throughput"]) for batch in batches for row in batch] == [("m0", None)]
+
+    @mock.patch(f"{MODULE}.MAX_DEPLOY_STATS_PER_SYNC", 1)
+    @mock.patch(f"{MODULE}.WINDOW_PAGE_LIMIT", 1)
+    @mock.patch(f"{MODULE}.make_tracked_session")
+    def test_revision_cap_stops_between_windows_so_the_walk_advances(self, mock_session):
+        # Same reason as the slow-event digest cap: a window abandoned part-way keeps no
+        # checkpoint, so the next sync would redo it and never reach the windows after it.
+        markers = self._markers(["r0", "r1", "r2"])
+        session = _deploy_stats_session(markers, {"throughput": 1})
+        mock_session.return_value = session
+        manager = _make_manager()
+
+        batches = list(get_rows("token", "app-id", "deploy_stats", mock.MagicMock(), manager))
+
+        assert [row["marker_id"] for batch in batches for row in batch] == ["m0"]
+        assert manager.save_state.call_count == 1
 
     @mock.patch(f"{MODULE}.make_tracked_session")
     def test_a_watermark_older_than_the_initial_lookback_still_wins(self, mock_session):
