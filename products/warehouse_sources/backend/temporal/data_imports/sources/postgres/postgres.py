@@ -67,9 +67,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
     Table,
     TableProjection,
     ValidatedRowFilter,
-    check_filter_columns,
     compute_projected_columns,
-    reconcile_enabled_columns,
     resolve_table_projection,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.batching import (
@@ -3366,22 +3364,13 @@ def postgres_source(
     def _resolve_projection(
         full_table: Table[PostgreSQLColumn], primary_keys: list[str] | None
     ) -> TableProjection[PostgreSQLColumn]:
-        available = {column.name for column in full_table.columns}
-        reconciled = reconcile_enabled_columns(
-            enabled_columns,
-            available,
-            incremental_field=incremental_field,
-            should_use_incremental_field=should_use_incremental_field,
-            table=f"{schema}.{table_name}",
-            logger=logger,
-        )
-        check_filter_columns([f.column for f in row_filters or []], available, f"{schema}.{table_name}")
         return resolve_table_projection(
             full_table,
-            enabled_columns=reconciled.enabled_columns,
+            enabled_columns=enabled_columns,
             primary_keys=primary_keys,
             incremental_field=incremental_field,
-            removed_columns=reconciled.removed,
+            should_use_incremental_field=should_use_incremental_field,
+            table_name=f"{schema}.{table_name}",
         )
 
     with _tunnel_with_handshake_translation(tunnel) as (host, port):
@@ -4362,7 +4351,6 @@ def postgres_source(
         name=name,
         items=lambda: get_rows(chunk_size),
         primary_keys=primary_keys,
-        removed_columns=setup_projection.removed_columns,
         partition_count=partition_settings.partition_count if partition_settings else None,
         partition_size=partition_settings.partition_size if partition_settings else None,
         rows_to_sync=rows_to_sync,

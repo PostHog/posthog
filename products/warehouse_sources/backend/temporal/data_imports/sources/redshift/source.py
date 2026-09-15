@@ -1,7 +1,6 @@
 from typing import TYPE_CHECKING, Optional, cast
 
 from psycopg import OperationalError
-from psycopg.errors import UndefinedColumn
 from sshtunnel import BaseSSHTunnelForwarderError
 
 from posthog.schema import (
@@ -29,20 +28,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.mix
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import (
-    MISSING_FILTER_COLUMN_MATCH,
-    MISSING_FILTER_COLUMN_MESSAGE,
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.base import SQLSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.projection import (
     MISSING_INCREMENTAL_FIELD_MATCH,
     MISSING_INCREMENTAL_FIELD_MESSAGE,
-    MISSING_PROJECTED_COLUMN_MATCH,
-    MISSING_PROJECTED_COLUMN_MESSAGE,
-    PERSISTENT_MISSING_COLUMN_MATCH,
-    PERSISTENT_MISSING_COLUMN_MESSAGE,
-    missing_column_error,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.base import SQLSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.errors_psycopg import (
-    reader_without_dropped_columns,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.redshift import (
@@ -177,23 +166,12 @@ class RedshiftSource(SQLSource[RedshiftSourceConfig], SSHTunnelMixin, ValidateDa
         )
 
     def get_retryable_errors(self) -> set[str]:
-        return {
-            # The bounded lookup in front of every connect raises these when the resolver stalls or
-            # answers "try again". Neither is a verdict on the host, so a fresh attempt recovers.
-            HOST_RESOLUTION_TIMEOUT_ERROR,
-            TEMPORARY_HOST_RESOLUTION_ERROR,
-            # A column the query names is gone from the table, re-raised as
-            # `ProjectedColumnMissingError` clear of the "does not exist" bucket. The stale column
-            # selection is dropped at the start of every run, so the next run recovers.
-            MISSING_PROJECTED_COLUMN_MATCH,
-        }
+        # The bounded lookup in front of every connect raises these when the resolver stalls or
+        # answers "try again". Neither is a verdict on the host, so a fresh attempt recovers.
+        return {HOST_RESOLUTION_TIMEOUT_ERROR, TEMPORARY_HOST_RESOLUTION_ERROR}
 
     def get_retry_exhausted_errors(self) -> dict[str, str]:
-        return {
-            HOST_RESOLUTION_TIMEOUT_ERROR: HOST_RESOLUTION_EXHAUSTED_MESSAGE,
-            TEMPORARY_HOST_RESOLUTION_ERROR: HOST_RESOLUTION_EXHAUSTED_MESSAGE,
-            MISSING_PROJECTED_COLUMN_MATCH: MISSING_PROJECTED_COLUMN_MESSAGE,
-        }
+        return dict.fromkeys(self.get_retryable_errors(), HOST_RESOLUTION_EXHAUSTED_MESSAGE)
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
@@ -211,17 +189,10 @@ class RedshiftSource(SQLSource[RedshiftSourceConfig], SSHTunnelMixin, ValidateDa
             "failed: timeout expired": None,
             "SSL connection has been closed unexpectedly": None,
             "server does not support SSL": None,
-            # The table's incremental field is gone from the source catalog, raised by
-            # `reconcile_enabled_columns` before the first query runs. Every query puts that field
-            # in its WHERE and ORDER BY, so the sync cannot run until the customer picks another
-            # one. Listed above the broad "does not exist" bucket so its wording wins.
+            # Raised before the first query when the table's incremental field is gone from the
+            # catalog. Every query puts that field in its WHERE and ORDER BY, so the sync cannot
+            # run until the customer picks another one.
             MISSING_INCREMENTAL_FIELD_MATCH: MISSING_INCREMENTAL_FIELD_MESSAGE,
-            # A saved row filter names a column the catalog read no longer has. The filter decides
-            # which rows sync, so dropping it would widen the sync instead of healing it.
-            MISSING_FILTER_COLUMN_MATCH: MISSING_FILTER_COLUMN_MESSAGE,
-            # A repeat attempt still named a missing column, so nothing this sync reconciles is
-            # responsible. Stop instead of replaying it for the whole retry budget every schedule.
-            PERSISTENT_MISSING_COLUMN_MATCH: PERSISTENT_MISSING_COLUMN_MESSAGE,
             "does not exist": None,
             "QueryTimeoutException": None,
             # `QueryTimeoutException` above only matches once Temporal's `ApplicationError` wraps
@@ -307,18 +278,9 @@ class RedshiftSource(SQLSource[RedshiftSourceConfig], SSHTunnelMixin, ValidateDa
         # implementation in `redshift.py` stays free of Django ORM
         # imports.
         schema_row = ExternalDataSchema.objects.get(id=inputs.schema_id)
-        try:
-            response = self.get_implementation.build_pipeline(
-                config, inputs, chunk_size_override=schema_row.chunk_size_override
-            )
-        except UndefinedColumn as e:
-            # SQLSTATE 42703, worded "column ... does not exist" — the substring the non-retryable
-            # rules match on to catch a dropped relation. Re-raise clear of it so a column that
-            # vanished mid-run stays retryable instead of disabling the schema.
-            raise missing_column_error(inputs.activity_attempt) from e
-
-        response.items = reader_without_dropped_columns(response.items, inputs.activity_attempt)
-        return response
+        return self.get_implementation.build_pipeline(
+            config, inputs, chunk_size_override=schema_row.chunk_size_override
+        )
 
     def reconcile_schema_metadata(
         self,

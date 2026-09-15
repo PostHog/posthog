@@ -50,9 +50,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
     Table,
     TableProjection,
     ValidatedRowFilter,
-    check_filter_columns,
     compute_projected_columns,
-    reconcile_enabled_columns,
     resolve_table_projection,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.batching import (
@@ -1559,22 +1557,13 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
         def _resolve_projection(
             full_table: Table[RedshiftColumn], primary_keys: list[str] | None
         ) -> TableProjection[RedshiftColumn]:
-            available = {column.name for column in full_table.columns}
-            reconciled = reconcile_enabled_columns(
-                enabled_columns,
-                available,
-                incremental_field=incremental_field,
-                should_use_incremental_field=should_use_incremental_field,
-                table=f"{schema}.{table_name}",
-                logger=logger,
-            )
-            check_filter_columns([f.column for f in row_filters or []], available, f"{schema}.{table_name}")
             return resolve_table_projection(
                 full_table,
-                enabled_columns=reconciled.enabled_columns,
+                enabled_columns=enabled_columns,
                 primary_keys=primary_keys,
                 incremental_field=incremental_field,
-                removed_columns=reconciled.removed,
+                should_use_incremental_field=should_use_incremental_field,
+                table_name=f"{schema}.{table_name}",
             )
 
         def _discover_and_probe() -> RedshiftTableSetup:
@@ -1746,7 +1735,6 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
             name=location.response_name,
             items=get_rows,
             primary_keys=primary_keys,
-            removed_columns=setup.projection.removed_columns,
             partition_count=partition_settings.partition_count if partition_settings else None,
             partition_size=partition_settings.partition_size if partition_settings else None,
             rows_to_sync=rows_to_sync,

@@ -17,7 +17,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.con
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.base import (
     SQLSource,
-    _persist_removed_columns,
     reconcile_source_schema_metadata,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.implementation import (
@@ -324,18 +323,6 @@ class TestReconcileSourceSchemaMetadata(BaseTest):
         reconcile_source_schema_metadata(
             source, [self._source_schema(columns=[("id", "Int64", False), ("ts", "DateTime", True)])], self.team.pk
         )
-
-        schema.refresh_from_db()
-        assert schema.enabled_columns == ["id"]
-
-    def test_a_sync_persists_the_columns_it_dropped(self) -> None:
-        # The read already skips a dropped column. Leaving it in the stored selection keeps it on
-        # the warehouse table, where the loader refills it with a type default that queries back
-        # as real data, so the sync prunes the stored list the same way a reload does.
-        source = self._source()
-        schema = self._schema(source, enabled_columns=["id", "dropped"])
-
-        _persist_removed_columns(schema.id, ["dropped"])
 
         schema.refresh_from_db()
         assert schema.enabled_columns == ["id"]

@@ -70,8 +70,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
     Table,
     TableProjection,
     ValidatedRowFilter,
-    check_filter_columns,
-    reconcile_enabled_columns,
     resolve_table_projection,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.batching import fetch_row_batches
@@ -1643,30 +1641,17 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
         def _resolve_projection(
             full_table: Table[MySQLColumn], primary_keys: list[str] | None
         ) -> TableProjection[MySQLColumn]:
-            # Reconcile against every catalog name, including invisible columns: MySQL returns an
-            # invisible column when a query names it, so an explicit selection of one is valid.
-            available = {column.name for column in full_table.columns}
-            reconciled = reconcile_enabled_columns(
-                enabled_columns,
-                available,
-                incremental_field=incremental_field,
-                should_use_incremental_field=should_use_incremental_field,
-                table=f"{schema}.{table_name}",
-                logger=logger,
-            )
-            check_filter_columns([f.column for f in row_filters or []], available, f"{schema}.{table_name}")
             # An invisible primary key is kept out of the catalog names but comes back through
             # `compute_projected_columns`, which a merge needs.
-            available_columns = (
-                _syncable_column_names(full_table, logger) if reconciled.enabled_columns is None else None
-            )
+            available_columns = _syncable_column_names(full_table, logger) if enabled_columns is None else None
             return resolve_table_projection(
                 full_table,
-                enabled_columns=reconciled.enabled_columns,
+                enabled_columns=enabled_columns,
                 primary_keys=primary_keys,
                 incremental_field=incremental_field,
+                should_use_incremental_field=should_use_incremental_field,
                 available_columns=available_columns,
-                removed_columns=reconciled.removed,
+                table_name=f"{schema}.{table_name}",
             )
 
         def _discover_metadata() -> MySQLTableSetup:
@@ -1893,7 +1878,6 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
             name=location.response_name,
             items=get_rows,
             primary_keys=primary_keys,
-            removed_columns=setup_projection.removed_columns,
             partition_count=partition_settings.partition_count if partition_settings else None,
             partition_size=partition_settings.partition_size if partition_settings else None,
             rows_to_sync=rows_to_sync,

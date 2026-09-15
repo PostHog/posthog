@@ -22,16 +22,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.mix
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import (
-    MISSING_FILTER_COLUMN_MATCH,
-    MISSING_FILTER_COLUMN_MESSAGE,
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.base import SQLSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.projection import (
     MISSING_INCREMENTAL_FIELD_MATCH,
     MISSING_INCREMENTAL_FIELD_MESSAGE,
-    MISSING_PROJECTED_COLUMN_MESSAGE,
-    PERSISTENT_MISSING_COLUMN_MATCH,
-    PERSISTENT_MISSING_COLUMN_MESSAGE,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.base import SQLSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mssql import MSSQLSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.mssql.mssql import (
     _SSH_HANDSHAKE_EOF_ERROR,
@@ -79,16 +74,6 @@ class MSSQLSource(SQLSource[MSSQLSourceConfig], SSHTunnelMixin, ValidateDatabase
             # A fresh connection from the next Temporal retry resolves it; keep it out of
             # error tracking so it doesn't surface as noise.
             "Unexpected EOF from the server",
-            # A column the query names is gone from the table. The stale column selection is
-            # dropped at the start of every run, so this only survives when the column disappears
-            # between that read and the streaming query, or when a view's definition still names
-            # it. The next run reads the catalog again and recovers.
-            "Invalid column name",
-        }
-
-    def get_retry_exhausted_errors(self) -> dict[str, str]:
-        return {
-            "Invalid column name": MISSING_PROJECTED_COLUMN_MESSAGE,
         }
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
@@ -125,19 +110,15 @@ class MSSQLSource(SQLSource[MSSQLSourceConfig], SSHTunnelMixin, ValidateDatabase
             # not the volatile object name / procedure / line number in the rest of the message.
             "Invalid object name": "One of the tables or views you're syncing references a database object that no longer exists or that this login can't access (SQL Server error 208). Check that the object still exists and that the connection user has permission to read it (including any tables a view depends on), then re-sync.",
             "Cannot find the CREDENTIAL": "Cannot find the credential - check that it exists and you have permission to access it",
-            # The table's incremental field is gone from the source catalog, raised by
-            # `reconcile_enabled_columns` before the first query runs. Every query puts that field
-            # in its WHERE and ORDER BY, so the sync cannot run until the customer picks another
-            # one. SQL Server's own "Invalid column name" is deliberately not listed here: for any
-            # other column the catalog read at the start of the next run picks up the new column
-            # list, so disabling the schema would stop a sync that recovers on its own.
+            # SQL Server error 207, the column-level counterpart of 208: the `SELECT` references a
+            # column that doesn't exist — a column dropped or renamed at the source, or a view
+            # whose definition selects a column that's no longer present. Fixed source-data shape,
+            # so retrying won't help.
+            # Raised before the first query when the table's incremental field is gone from the
+            # catalog. Every query puts that field in its WHERE and ORDER BY, so the sync cannot
+            # run until the customer picks another one.
             MISSING_INCREMENTAL_FIELD_MATCH: MISSING_INCREMENTAL_FIELD_MESSAGE,
-            # A saved row filter names a column the catalog read no longer has. The filter decides
-            # which rows sync, so dropping it would widen the sync instead of healing it.
-            MISSING_FILTER_COLUMN_MATCH: MISSING_FILTER_COLUMN_MESSAGE,
-            # A repeat attempt still named a missing column, so nothing this sync reconciles is
-            # responsible. Stop instead of replaying it for the whole retry budget every schedule.
-            PERSISTENT_MISSING_COLUMN_MATCH: PERSISTENT_MISSING_COLUMN_MESSAGE,
+            "Invalid column name": "One of the columns being synced no longer exists in your SQL Server. A column was likely dropped or renamed, or a view's definition references a column that's no longer present. Fix the column or view definition at the source, then re-enable the sync.",
             # SQL Server error 209 — a name in the object we select from resolves to more than one
             # column. Our SELECT reads a single qualified object and only ever names columns
             # discovered from information_schema, so the ambiguity is inside a view body: most often
