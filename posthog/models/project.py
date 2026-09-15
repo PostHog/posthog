@@ -90,6 +90,11 @@ class Project(UpdatedMetaFields):
         blank=True,
         help_text="Set to True when project deletion has been initiated. Blocks UI access to this project until the async task completes.",
     )
+    deletion_scheduled_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When the scheduled project deletion will run.",
+    )
 
     objects: ProjectManager = ProjectManager()
 

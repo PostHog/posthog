@@ -6,6 +6,7 @@ import temporalio.exceptions
 
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.delete_teams.activities import (
+    check_project_pending_deletion_activity,
     delete_batch_exports_activity,
     delete_cohort_members_activity,
     delete_data_modeling_schedules_activity,
@@ -186,6 +187,17 @@ class DeleteProjectDataWorkflow(PostHogWorkflow):
 
     @temporalio.workflow.run
     async def run(self, inputs: DeleteProjectDataWorkflowInputs) -> None:
+        if inputs.project_id is not None:
+            project_is_pending_deletion = await temporalio.workflow.execute_activity(
+                check_project_pending_deletion_activity,
+                ProjectRecordInputs(project_id=inputs.project_id),
+                start_to_close_timeout=LIGHT_ACTIVITY_TIMEOUT,
+                heartbeat_timeout=LIGHT_HEARTBEAT_TIMEOUT,
+                retry_policy=DELETE_RETRY_POLICY,
+            )
+            if not project_is_pending_deletion:
+                return
+
         if inputs.team_ids:
             await _delete_teams_data_child(
                 DeleteTeamsDataWorkflowInputs(team_ids=inputs.team_ids, user_id=inputs.user_id),
