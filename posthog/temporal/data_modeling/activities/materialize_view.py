@@ -65,7 +65,11 @@ from products.data_modeling.backend.facade.system_tables import DATA_MODELING_AL
 from products.data_quality.backend.facade import api as data_quality_facade
 from products.data_quality.backend.facade.contracts import QUALITY_AUDIT_SKIP, QualityAuditMode
 from products.data_warehouse.backend.facade.api import ensure_bucket_exists, get_s3_client
-from products.endpoints.backend.facade.temporal import prepare_executable_query
+from products.endpoints.backend.facade.temporal import (
+    OrphanedEndpointSavedQueryError,
+    prepare_executable_query,
+    unschedule_orphaned_endpoint_saved_query,
+)
 from products.warehouse_sources.backend.facade.hooks import saved_query_binding
 from products.warehouse_sources.backend.facade.pipelines import CDPProducer
 from products.warehouse_sources.backend.facade.temporal import AccountPropertyRowSink, PersonPropertyRowSink
@@ -742,7 +746,13 @@ def _get_matview_input_objects(
         .get(id=node.saved_query.id, team_id=inputs.team_id)
     )
     if saved_query.origin == DataWarehouseSavedQuery.Origin.ENDPOINT:
-        prepare_executable_query(saved_query)
+        try:
+            prepare_executable_query(saved_query)
+        except OrphanedEndpointSavedQueryError:
+            # No version means no way to rebuild the HogQL, on this run or any later one.
+            # Drop the node so the cadence tier stops firing a run that cannot succeed.
+            unschedule_orphaned_endpoint_saved_query(saved_query)
+            raise
 
     job = DataModelingJob.objects.get(id=inputs.job_id, team_id=inputs.team_id)
     return MatviewInputObjects(team=team, node=node, saved_query=saved_query, job=job)

@@ -39,6 +39,7 @@ from products.data_modeling.backend.facade.api import (
 )
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.endpoints.backend.constants import DATA_FRESHNESS_BUCKETS
+from products.endpoints.backend.facade.contracts import OrphanedEndpointSavedQueryError
 from products.endpoints.backend.logic.activity import EndpointContext
 from products.endpoints.backend.logic.strategies import apply_where_filter, strategy_for
 from products.endpoints.backend.materialization_transforms import (
@@ -56,10 +57,6 @@ from products.endpoints.backend.rate_limit import clear_endpoint_materialization
 from products.warehouse_sources.backend.facade.models import sync_frequency_to_sync_frequency_interval
 
 logger = structlog.get_logger(__name__)
-
-
-class OrphanedEndpointSavedQueryError(Exception):
-    pass
 
 
 def prepare_executable_query(saved_query: DataWarehouseSavedQuery) -> None:
@@ -82,6 +79,35 @@ def prepare_executable_query(saved_query: DataWarehouseSavedQuery) -> None:
         bypass_warehouse_access_control=True,
     )
     saved_query.save(update_fields=["query", "updated_at"])
+
+
+def unschedule_orphaned_endpoint_saved_query(saved_query: DataWarehouseSavedQuery) -> bool:
+    """Remove the DAG node of an endpoint saved query that no version points at.
+
+    Such a query can never materialize again, because rebuilding its HogQL needs a
+    version. Its node keeps the cadence tier scheduling it, so every fire is a
+    guaranteed failure. Dropping the node ends that. The query and its backing table
+    stay: `retire_orphaned_endpoint_saved_queries` clears those under human review.
+    """
+    try:
+        delete_node_from_dag(saved_query)
+    except Exception as e:
+        # Report and carry on. The caller re-raises the orphan error, which names the
+        # real problem better than a failure to tidy up after it.
+        logger.exception(
+            "Could not unschedule orphaned endpoint saved query",
+            saved_query_id=str(saved_query.id),
+            team_id=saved_query.team_id,
+        )
+        capture_exception(e)
+        return False
+
+    logger.warning(
+        "Unscheduled orphaned endpoint saved query",
+        saved_query_id=str(saved_query.id),
+        team_id=saved_query.team_id,
+    )
+    return True
 
 
 ELIGIBILITY_CHECK_FAILED_REASON = (
