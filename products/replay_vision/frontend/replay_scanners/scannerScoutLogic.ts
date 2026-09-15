@@ -888,6 +888,10 @@ export const scannerScoutLogic = kea<scannerScoutLogicType>([
                 const config = values.scoutConfigsForScanner.find(
                     (candidate) => candidate.skill_name === values.settingsSkillName
                 )
+                // Read with the config, before the first await. Every request below can outlive the
+                // modal that started it, and the user can open another scout meanwhile, so a later
+                // read would return that scout's instructions and version instead of this one's.
+                const prompt = values.skillPrompt
                 if (!teamId || !projectId || !config || !form.body.trim()) {
                     actions.saveScoutSettingsFinished()
                     return
@@ -921,8 +925,7 @@ export const scannerScoutLogic = kea<scannerScoutLogicType>([
                     // version the form was read at. It runs last because it is the only call here a
                     // concurrent edit can reject, and the rename, the schedule and the delivery must
                     // not go down with it.
-                    const prompt = values.skillPrompt
-                    if (prompt && form.body !== prompt.body) {
+                    if (prompt?.skillName === config.skill_name && form.body !== prompt.body) {
                         const published = await llmSkillsNamePartialUpdate(String(projectId), config.skill_name, {
                             body: form.body,
                             base_version: prompt.latestVersion,
@@ -930,16 +933,20 @@ export const scannerScoutLogic = kea<scannerScoutLogicType>([
                         // A second save from the same open modal must not send the version this one
                         // already replaced. Only while the modal is still on this scout: a save that
                         // outlives its own modal would leave one scout's body under another's form.
-                        if (values.settingsSkillName === prompt.skillName) {
+                        if (values.settingsSkillName === config.skill_name) {
                             actions.loadSkillPromptSuccess({
-                                skillName: prompt.skillName,
+                                skillName: config.skill_name,
                                 body: published.body,
                                 latestVersion: published.version,
                             })
                         }
                     }
                     lemonToast.success('Scout updated. Changes take effect on its next run.')
-                    actions.closeScoutSettings()
+                    // Same reason: closing whatever is open now would discard a draft the user
+                    // started on another scout after abandoning this save.
+                    if (values.settingsSkillName === config.skill_name) {
+                        actions.closeScoutSettings()
+                    }
                 } catch (error: any) {
                     lemonToast.error(
                         error?.status === 409
