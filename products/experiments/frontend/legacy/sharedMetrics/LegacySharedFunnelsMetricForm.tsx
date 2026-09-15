@@ -10,7 +10,7 @@ import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFil
 import { getHogQLValue } from 'scenes/insights/filters/AggregationSelect'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
+import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/actionsAndEventsToSeries'
 import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { Query } from '~/queries/Query/Query'
 import { ExperimentFunnelsQuery, NodeKind } from '~/queries/schema/schema-general'
