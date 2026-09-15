@@ -194,9 +194,21 @@ class TestUser(BaseTest):
         newer.last_login = datetime.datetime(2025, 1, 1, tzinfo=datetime.UTC)
         newer.save(update_fields=["last_login"])
 
-        # Exact match wins over case-insensitive fallback when a row matches the typed casing.
-        self.assertEqual(User.objects.get_by_natural_key("dup@example.com"), older)
-        self.assertEqual(User.objects.get_by_natural_key("Dup@example.com"), newer)
+        # Every typed casing resolves to the account in active use, so a login, a password reset,
+        # and the login precheck cannot disagree about who is signing in.
+        for typed_email in ("dup@example.com", "Dup@example.com", "DUP@example.com"):
+            with self.subTest(email=typed_email):
+                self.assertEqual(User.objects.get_by_natural_key(typed_email), newer)
 
-        # When the typed casing matches no row exactly, fallback picks the most recent login.
-        self.assertEqual(User.objects.get_by_natural_key("DUP@example.com"), newer)
+    def test_get_by_natural_key_prefers_the_active_case_variant(self):
+        active = User.objects.create(email="Shadow@example.com")
+        active.last_login = datetime.datetime(2024, 1, 1, tzinfo=datetime.UTC)
+        active.save(update_fields=["last_login"])
+
+        deactivated = User.objects.create(email="shadow@example.com", is_active=False)
+        deactivated.last_login = datetime.datetime(2025, 1, 1, tzinfo=datetime.UTC)
+        deactivated.save(update_fields=["last_login"])
+
+        for typed_email in ("shadow@example.com", "Shadow@example.com"):
+            with self.subTest(email=typed_email):
+                self.assertEqual(User.objects.get_by_natural_key(typed_email), active)

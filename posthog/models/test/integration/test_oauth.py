@@ -128,6 +128,17 @@ class TestOauthIntegrationModel(BaseTest):
             assert "code_challenge" not in url
             assert cache.get("oauth_pkce_verifier/no_pkce_state_token") is None
 
+    def test_hubspot_authorize_url_requests_plan_gated_read_scopes_as_optional(self):
+        # A plan-gated scope in the mandatory `scope` fails the whole authorization for a portal
+        # that cannot grant it. Dropping it from `optional_scope` is just as bad: the connection
+        # authorizes without the scope and the tables it covers 403 on every sync.
+        with self.settings(**self.mock_settings):
+            url = OauthIntegration.authorize_url("hubspot", token="state_token", next="/projects/test")
+            params = {k: v[0] for k, v in parse_qs(url.partition("?")[2]).items()}
+
+            assert "crm.objects.leads.read" in params["optional_scope"].split(" ")
+            assert "crm.objects.leads.read" not in params["scope"].split(" ")
+
     def test_authorize_url_with_additional_authorize_params(self):
         with self.settings(**self.mock_settings):
             url = OauthIntegration.authorize_url("google-ads", token="state_token", next="/projects/test")
@@ -1498,6 +1509,47 @@ class TestPardotIntegrationModel(BaseTest):
         # minted for the CRM kind cannot call it. That is why this kind exists at all.
         assert config.scope == "pardot_api refresh_token"
         assert config.scope != OauthIntegration.oauth_config_for_kind("salesforce").scope
+
+    def test_authorize_url_sends_the_registered_salesforce_callback(self):
+        url = OauthIntegration.authorize_url("pardot", token="state_token", next="/projects/test")
+        params = {k: v[0] for k, v in parse_qs(url.partition("?")[2]).items()}
+        state = {k: v[0] for k, v in parse_qs(params["state"]).items()}
+
+        # This kind borrows the Salesforce connected app, whose allowed callback list holds only the
+        # Salesforce path. A /integrations/pardot/callback redirect_uri is rejected with
+        # redirect_uri_mismatch before the user can grant anything.
+        assert params["redirect_uri"] == "https://localhost:8010/integrations/salesforce/callback"
+        # The callback path can no longer name the kind, so the kind rides in the state instead.
+        assert state["kind"] == "pardot"
+
+    @patch("posthog.models.integration.oauth.requests.post")
+    def test_token_exchange_retries_against_the_sandbox_host(self, mock_post):
+        # An Account Engagement business unit can live on a Salesforce sandbox org, which mints a
+        # code the production token host rejects. Refresh and revoke already follow the org's own
+        # host, so without this retry the connect is the only step that fails for those orgs.
+        production = MagicMock(status_code=400, text='{"error":"invalid_grant"}')
+        production.json.return_value = {"error": "invalid_grant"}
+        sandbox = MagicMock(status_code=200)
+        sandbox.json.return_value = {
+            "access_token": "at",
+            "refresh_token": "rt",
+            "instance_url": "https://acme--sandbox.sandbox.my.salesforce.com",
+        }
+        mock_post.side_effect = [production, sandbox]
+
+        integration = OauthIntegration.integration_from_oauth_response(
+            "pardot",
+            self.team.id,
+            self.user,
+            {"code": "code", "state": "token=state_token"},
+        )
+
+        assert integration.integration_id == "https://acme--sandbox.sandbox.my.salesforce.com"
+        retry = mock_post.call_args_list[1]
+        assert retry.args[0] == "https://test.salesforce.com/services/oauth2/token"
+        assert retry.kwargs["data"]["redirect_uri"] == "https://localhost:8010/integrations/salesforce/callback"
+        # Same guard as the first exchange: a 30x must not resend the client secret and the code.
+        assert retry.kwargs["allow_redirects"] is False
 
     def test_pardot_is_an_oauth_kind(self):
         # Not being listed makes the authorize + callback endpoints reject the kind and drops

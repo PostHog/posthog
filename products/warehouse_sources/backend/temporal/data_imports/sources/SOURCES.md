@@ -347,6 +347,7 @@ the row lists both.
 | height                           | HTTP                        | requests                                                        | ✅                          |
 | helicone                         | HTTP                        | requests                                                        | ✅                          |
 | hellobaton                       | HTTP                        | requests                                                        | ✅                          |
+| helpscout                        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | heroku                           | HTTP                        | requests                                                        | ✅                          |
 | hetzner                          | HTTP                        | requests                                                        | ✅                          |
 | hex                              | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -1003,6 +1004,7 @@ doesn't conflict with concurrent PRs.
 - dwolla
 - e2b
 - ebay
+- electricity_maps
 - eloqua
 - emarsys
 - embrace
@@ -1105,7 +1107,6 @@ doesn't conflict with concurrent PRs.
 - harvey
 - healthie
 - heap
-- helpscout
 - hetzner
 - heygen
 - hibob
@@ -1375,6 +1376,7 @@ doesn't conflict with concurrent PRs.
 - slash
 - sleuth
 - smaily
+- smartlead
 - smartlook
 - smartrecruiters
 - smartwaiver
@@ -1396,6 +1398,7 @@ doesn't conflict with concurrent PRs.
 - strato
 - strava
 - streamlabs
+- substack
 - sumsub
 - superwall
 - surveymonkey

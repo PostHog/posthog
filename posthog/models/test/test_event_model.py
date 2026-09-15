@@ -107,6 +107,19 @@ class TestSelectors(BaseTest):
         self.assertEqual(selector1.parts[1].direct_descendant, True)
         self.assertEqual(selector1.parts[1].unique_order, 0)
 
+    @parameterized.expand(
+        [
+            (
+                "a class name that contains the pseudo-class text",
+                "div.foo-nth-child(2)",
+                [{"tag_name": "div", "attr_class__contains": ["foo-nth-child(2)"]}],
+            ),
+            ("the pseudo-class text with no colon", "nth-child(2)", [{"tag_name": "nth-child(2)"}]),
+        ]
+    )
+    def test_nth_child_without_a_colon_is_not_a_positional_selector(self, _name, selector, expected):
+        self.assertEqual([part.data for part in Selector(selector).parts], expected)
+
     def test_unique_order(self):
         selector1 = Selector("div > div")
         self.assertEqual(selector1.parts[0].data, {"tag_name": "div"})

@@ -13,6 +13,7 @@ from django.http import HttpRequest, HttpResponse, HttpResponseRedirect
 from django.test import (
     Client as DjangoClient,
     RequestFactory,
+    SimpleTestCase,
 )
 from django.urls import reverse
 
@@ -25,14 +26,14 @@ from social_core.exceptions import AuthCanceled, AuthFailed, AuthMissingParamete
 
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
-from posthog.middleware import CSPMiddleware, per_request_logging_context_middleware
+from posthog.middleware import CSPMiddleware, app_csp_header_name, per_request_logging_context_middleware
 from posthog.models.organization import Organization
+from posthog.models.organization_invite import OrganizationInvite
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.settings import SITE_URL
 
 from products.actions.backend.models.action import Action
-from products.canvas.backend.artifacts import CANVAS_ARTIFACT_RESPONSE_MARKER
 from products.cohorts.backend.models.cohort import Cohort
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -1818,6 +1819,53 @@ class TestActiveOrganizationMiddleware(APIBaseTest):
         if expected_location:
             self.assertEqual(response.headers["Location"], expected_location)
 
+    @parameterized.expand(
+        [
+            ("deactivated_keeps_invites", "is_active", "/signup/{invite_id}", status.HTTP_200_OK),
+            ("deactivated_keeps_billing", "is_active", "/organization/billing", status.HTTP_200_OK),
+            ("deactivated_keeps_stripe_return", "is_active", "/billing/authorization_status", status.HTTP_200_OK),
+            ("pending_deletion_keeps_invites", "is_pending_deletion", "/signup/{invite_id}", status.HTTP_200_OK),
+            ("pending_deletion_drops_billing", "is_pending_deletion", "/organization/billing", status.HTTP_302_FOUND),
+            (
+                "pending_deletion_drops_stripe_return",
+                "is_pending_deletion",
+                "/billing/authorization_status",
+                status.HTTP_302_FOUND,
+            ),
+        ]
+    )
+    def test_blocked_organization_page_access(
+        self, _name: str, blocking_field: str, path_template: str, expected_status: int
+    ) -> None:
+        inviting_org = Organization.objects.create(name="Inviting Org")
+        invite = OrganizationInvite.objects.create(organization=inviting_org, target_email=self.user.email)
+
+        setattr(self.organization, blocking_field, blocking_field == "is_pending_deletion")
+        self.organization.save()
+
+        response = self.client.get(path_template.format(invite_id=invite.id))
+        self.assertEqual(response.status_code, expected_status)
+
+    def test_link_into_another_active_organization_loads(self):
+        active_org = Organization.objects.create(name="Active Org")
+        active_team = Team.objects.create(organization=active_org, name="Active Team")
+        self.user.organizations.add(active_org)
+
+        self.organization.is_active = False
+        self.organization.save()
+
+        response = self.client.get(f"/project/{active_team.pk}/dashboard")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_runs_after_the_middleware_that_switches_project(self):
+        # The block check reads `current_organization`, so it only sees the organization a
+        # `/project/<id>` URL names once AutoProjectMiddleware has switched the user into it.
+        middleware = list(settings.MIDDLEWARE)
+        self.assertLess(
+            middleware.index("posthog.middleware.AutoProjectMiddleware"),
+            middleware.index("posthog.middleware.ActiveOrganizationMiddleware"),
+        )
+
 
 class TestActivityLoggingMiddleware(APIBaseTest):
     def setUp(self):
@@ -1927,51 +1975,41 @@ class TestCSPMiddleware(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("app_root", "/"),
+            ("app_root", "/", True),
             # No route serves this path, so the app catch-all answers it. It must keep the app
             # policy, because the frame policy is enforced and its script-src 'none' stops the app
             # from starting.
-            ("path_under_the_replay_frame_prefix", "/replay_player_frame"),
+            ("path_under_the_replay_frame_prefix", "/replay_player_frame", True),
+            # A customer's page frames this document, and the enforced list names only PostHog
+            # origins.
+            ("embeddable_document", "/shared/notarealtoken", False),
         ]
     )
-    def test_html_response_gets_report_only_csp(self, _name, path):
+    def test_html_response_without_the_flag_enforces_only_frame_ancestors(self, _name, path, enforces_frame_ancestors):
         response = self.client.get(path)
-        assert response.status_code == 200
-        assert "Content-Security-Policy-Report-Only" in response
-        assert "Content-Security-Policy" not in response
-
-    @parameterized.expand(
-        [
-            ("custom_policy", "/", False, "default-src 'self'", True),
-            ("canvas", "/", True, "sandbox allow-scripts; default-src 'none'", False),
-            ("custom_admin", "/admin/", False, "default-src *", True),
-            ("marked_admin", "/admin/", True, "default-src *", True),
-            ("marker_without_policy", "/", True, None, True),
-        ]
-    )
-    @override_settings(CLOUD_DEPLOYMENT="US")
-    def test_html_response_with_view_managed_csp(
-        self, _name: str, path: str, canvas_artifact: bool, policy: str | None, expects_reporting: bool
-    ) -> None:
-        def view(_request: HttpRequest) -> HttpResponse:
-            response = HttpResponse("<html><body>artifact</body></html>", content_type="text/html; charset=utf-8")
-            if policy is not None:
-                response["Content-Security-Policy"] = policy
-            if canvas_artifact:
-                setattr(response, CANVAS_ARTIFACT_RESPONSE_MARKER, True)
-            return response
-
-        response = CSPMiddleware(view)(RequestFactory().get(path))
-
-        if path == "/admin/":
-            assert "frame-ancestors 'none'" in response["Content-Security-Policy"]
-            assert "default-src *" not in response["Content-Security-Policy"]
-        elif policy is not None:
-            assert response["Content-Security-Policy"] == policy
-        else:
+        reported = response["Content-Security-Policy-Report-Only"]
+        assert "default-src 'self'" in reported
+        if not enforces_frame_ancestors:
             assert "Content-Security-Policy" not in response
-        assert ("Content-Security-Policy-Report-Only" in response) == (expects_reporting and path != "/admin/")
-        assert ("Reporting-Endpoints" in response) == expects_reporting
+            return
+        # Framing is enforced ahead of the flag because it is what lets posthog.com frame the app.
+        # The enforced list has to be the one the reported policy names, or the two drift apart.
+        enforced = response["Content-Security-Policy"]
+        assert enforced.startswith("frame-ancestors https://posthog.com")
+        assert "default-src" not in enforced
+        assert enforced in reported
+
+    @patch("posthog.middleware.posthoganalytics.feature_enabled", return_value=True)
+    def test_enforcement_reaches_an_app_page_but_not_an_embeddable_one(self, _mock_flag):
+        # The wiring guard for app_csp_header_name. The matrix of paths lives in
+        # TestAppCspHeaderName, which needs no database.
+        enforced = self.client.get("/")
+        assert "default-src 'self'" in enforced["Content-Security-Policy"]
+        assert "Content-Security-Policy-Report-Only" not in enforced
+
+        embedded = self.client.get("/shared/notarealtoken")
+        assert "Content-Security-Policy" not in embedded
+        assert "frame-ancestors" in embedded["Content-Security-Policy-Report-Only"]
 
     @override_settings(CLOUD_DEPLOYMENT="US")  # As PostHog Cloud
     def test_html_response_declares_default_reporting_endpoint_with_distinct_id(self):
@@ -2514,3 +2552,108 @@ class TestPerRequestLoggingContextMiddlewareMcpHeaders(APIBaseTest):
         assert "mcp_session_id" not in ctx
         assert "mcp_conversation_id" not in ctx
         span.set_attribute.assert_not_called()
+
+
+class TestAppCspHeaderName(SimpleTestCase):
+    def _request(
+        self, path: str, *, distinct_id: str | None = "abc", email: str = "someone@posthog.com"
+    ) -> HttpRequest:
+        request = RequestFactory().get(path)
+        request.user = MagicMock(is_authenticated=distinct_id is not None, distinct_id=distinct_id, email=email)
+        return request
+
+    @parameterized.expand(
+        [
+            ("shared_dashboard", "/shared_dashboard/abc123"),
+            ("shared", "/shared/abc123"),
+            ("embedded", "/embedded/abc123"),
+            ("interview", "/interview/abc123"),
+            ("exporter_with_token", "/exporter/abc123"),
+            ("exporter_render", "/exporter"),
+            ("render_query", "/render_query"),
+            ("external_survey", "/external_surveys/019efb7e-0672-0000-729b-e234586f6177"),
+        ]
+    )
+    @patch("posthog.middleware.posthoganalytics.feature_enabled", return_value=True)
+    def test_embeddable_document_stays_report_only_under_enforcement(self, _name, path, _mock_flag):
+        # A customer's site frames each of these. The app policy names only PostHog origins in
+        # frame-ancestors, so enforcing it here stops the document rendering on their page.
+        assert app_csp_header_name(self._request(path)) == "Content-Security-Policy-Report-Only"
+
+    @parameterized.expand(
+        [
+            ("app_root", "/"),
+            ("project_page", "/project/2/dashboard"),
+            # Neither prefix owns these. A shorter prefix match would hand the app catch-all the
+            # carve-out and quietly exempt an ordinary page from enforcement.
+            ("shared_prefix_without_separator", "/sharedthing"),
+            ("exporter_prefix_without_separator", "/exporterthing"),
+        ]
+    )
+    @patch("posthog.middleware.posthoganalytics.feature_enabled", return_value=True)
+    def test_ordinary_page_is_enforced_for_a_flagged_user(self, _name, path, _mock_flag):
+        assert app_csp_header_name(self._request(path)) == "Content-Security-Policy"
+
+    @patch("posthog.middleware.posthoganalytics.feature_enabled", return_value=False)
+    def test_ordinary_page_stays_report_only_without_the_flag(self, _mock_flag):
+        assert app_csp_header_name(self._request("/")) == "Content-Security-Policy-Report-Only"
+
+    @patch("posthog.middleware.posthoganalytics.feature_enabled", return_value=True)
+    def test_the_flag_lookup_carries_the_email_for_local_evaluation(self, mock_flag):
+        # Local evaluation cannot resolve a condition on email unless the caller supplies it, so a
+        # staff-only rollout would enforce nothing.
+        app_csp_header_name(self._request("/", email="staff@posthog.com"))
+        assert mock_flag.call_args.kwargs["person_properties"] == {"email": "staff@posthog.com"}
+        # Local evaluation keeps a flag network call out of every HTML response.
+        assert mock_flag.call_args.kwargs["only_evaluate_locally"] is True
+
+    @patch("posthog.middleware.posthoganalytics.feature_enabled", return_value=True)
+    def test_anonymous_request_stays_report_only(self, mock_flag):
+        # Nothing identifies an anonymous viewer, so the flag cannot bucket them. Login and signup
+        # keep the report-only header until enforcement covers everyone.
+        assert app_csp_header_name(self._request("/login", distinct_id=None)) == "Content-Security-Policy-Report-Only"
+        mock_flag.assert_not_called()
+
+    @patch("posthog.middleware.posthoganalytics.feature_enabled", side_effect=Exception("flags unavailable"))
+    def test_a_failing_flag_lookup_leaves_the_policy_report_only(self, _mock_flag):
+        # Fail safe: an enforced policy that nobody meant to turn on breaks the page.
+        assert app_csp_header_name(self._request("/")) == "Content-Security-Policy-Report-Only"
+
+
+class TestViewManagedCsp(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("custom_policy", "/", False, "default-src 'self'", False),
+            # The workflow asset endpoint sandboxes captured email HTML and leaves frame-ancestors
+            # open so the app can frame it. Enforcement must not replace that policy, because the
+            # app policy drops the sandbox and names a frame-ancestors list the app origin does not
+            # match, which blanks the viewer.
+            ("custom_policy_under_enforcement", "/", True, "sandbox; default-src 'none'", False),
+            ("custom_admin", "/admin/", False, "default-src *", True),
+            ("no_policy", "/", False, None, True),
+        ]
+    )
+    @override_settings(CLOUD_DEPLOYMENT="US")
+    def test_html_response_with_view_managed_csp(
+        self, _name: str, path: str, enforced: bool, policy: str | None, expects_reporting: bool
+    ) -> None:
+        def view(_request: HttpRequest) -> HttpResponse:
+            response = HttpResponse("<html><body>artifact</body></html>", content_type="text/html; charset=utf-8")
+            if policy is not None:
+                response["Content-Security-Policy"] = policy
+            return response
+
+        request = RequestFactory().get(path)
+        request.user = MagicMock(is_authenticated=True, distinct_id="abc", email="someone@posthog.com")
+        with patch("posthog.middleware.posthoganalytics.feature_enabled", return_value=enforced):
+            response = CSPMiddleware(view)(request)
+
+        if path == "/admin/":
+            assert "frame-ancestors 'none'" in response["Content-Security-Policy"]
+            assert "default-src *" not in response["Content-Security-Policy"]
+        elif policy is not None:
+            assert response["Content-Security-Policy"] == policy
+        else:
+            assert response["Content-Security-Policy"].startswith("frame-ancestors ")
+        assert ("Content-Security-Policy-Report-Only" in response) == (expects_reporting and path != "/admin/")
+        assert ("Reporting-Endpoints" in response) == expects_reporting

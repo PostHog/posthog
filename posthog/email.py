@@ -65,6 +65,15 @@ def is_smtp_email_service_available() -> bool:
     return bool(get_instance_setting("EMAIL_HOST"))
 
 
+def single_line(value: str) -> str:
+    """Flatten CR/LF to spaces so a user-set value is safe in an email Subject.
+
+    A CR or LF in a Subject makes Django raise BadHeaderError, which the send path swallows, so
+    the whole notification would be dropped.
+    """
+    return value.replace("\r", " ").replace("\n", " ")
+
+
 def is_email_available(with_absolute_urls: bool = False) -> bool:
     """
     Returns whether email services are available on this instance (i.e. settings are in place).

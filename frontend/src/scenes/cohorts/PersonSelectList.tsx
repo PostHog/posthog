@@ -11,11 +11,12 @@ import { LemonButton, LemonCheckbox, LemonTag } from '@posthog/lemon-ui'
 import { AutoSizer } from 'lib/components/AutoSizer'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { Spinner } from 'lib/lemon-ui/Spinner'
-import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { urls } from 'scenes/urls'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { ActorsQuery } from '~/queries/schema/schema-general'
+
+import { PersonDisplay } from 'products/persons/frontend/components/PersonDisplay'
 
 const ROW_HEIGHT = 44
 

@@ -1336,13 +1336,62 @@ describe('CDP API', () => {
                     .post(
                         `/api/projects/${batchHogFlow.team_id}/hog_flows/${batchHogFlow.id}/batch_invocations/job-791`
                     )
-                    .send({ filters: { properties: snapshotProperties } })
+                    .send({ filters: { properties: snapshotProperties, assignment_status: 'assigned' } })
 
                 expect(res.status).toEqual(200)
                 const arg = createJobMock.mock.calls[0][0]
                 const state = parseJSON((arg.state as Buffer).toString('utf-8')) as Record<string, any>
                 expect(state.filters.properties).toEqual(snapshotProperties)
+                expect(state.filters.assignment_status).toEqual('assigned')
+                expect(state.filters.all_roles_unassigned).toBeUndefined()
                 expect(state.filters.properties).not.toEqual((batchHogFlow as any).trigger.filters.properties)
+            } finally {
+                api['batchResolverProducer'] = null
+            }
+        })
+
+        it('takes the whole assignment filter from the snapshot instead of one key at a time', async () => {
+            // A snapshot saved before assignment statuses existed carries assignee ids and no status.
+            // If the status came off the live trigger instead, Django would reject 'unassigned'
+            // paired with those ids and the run would fail.
+            const statusFlow = await insertHogFlow({
+                id: new UUIDT().toString(),
+                name: 'test batch hog flow with an assignment status',
+                status: 'active',
+                version: 1,
+                exit_condition: 'exit_on_conversion',
+                edges: [],
+                actions: [],
+                trigger: {
+                    type: 'batch',
+                    filters: {
+                        audience_type: 'accounts',
+                        properties: [],
+                        assignment_status: 'unassigned',
+                        assigned_to_user_ids: [],
+                    },
+                },
+            })
+
+            const createJobMock = jest.fn().mockResolvedValue('resolver-job-id')
+            api['batchResolverProducer'] = {
+                createJob: createJobMock,
+                countInFlightJobs: jest.fn().mockResolvedValue({ count: 0, byAction: {}, positionUnknown: 0 }),
+                rescheduleParkedJobs: jest.fn(),
+                cancelJobs: jest.fn(),
+                disconnect: jest.fn().mockResolvedValue(undefined),
+            }
+
+            try {
+                const res = await supertest(app)
+                    .post(`/api/projects/${statusFlow.team_id}/hog_flows/${statusFlow.id}/batch_invocations/job-792`)
+                    .send({ filters: { audience_type: 'accounts', properties: [], assigned_to_user_ids: [7] } })
+
+                expect(res.status).toEqual(200)
+                const arg = createJobMock.mock.calls[0][0]
+                const state = parseJSON((arg.state as Buffer).toString('utf-8')) as Record<string, any>
+                expect(state.filters.assigned_to_user_ids).toEqual([7])
+                expect(state.filters.assignment_status).toBeUndefined()
             } finally {
                 api['batchResolverProducer'] = null
             }
@@ -1546,6 +1595,57 @@ describe('CDP API', () => {
             expect(res.body.status).toEqual('queued')
             expect(res.body.invocation_id).toBeDefined()
             expect(mockQueueInvocations).toHaveBeenCalledTimes(1)
+        })
+
+        it('stamps the run start into the state before the invocation is queued', async () => {
+            // Snapshot at call time, so a stamp applied after queueInvocations does not count.
+            let stateWhenQueued: string | undefined
+            mockQueueInvocations.mockImplementation((invocations: any[]) => {
+                stateWhenQueued = JSON.stringify(invocations[0].state)
+                return Promise.resolve()
+            })
+            // `hub` is shared across this file, so the flag is restored rather than left on.
+            const resultsEnabled = hub.HOG_INVOCATION_RESULTS_ENABLED
+            hub.HOG_INVOCATION_RESULTS_ENABLED = true
+
+            try {
+                const res = await supertest(app)
+                    .post(
+                        `/api/projects/${scheduleHogFlow.team_id}/hog_flows/${scheduleHogFlow.id}/scheduled_invocations`
+                    )
+                    .send({})
+
+                expect(res.status).toEqual(200)
+                expect(parseJSON(stateWhenQueued!).firstScheduledAt).toEqual(expect.any(String))
+            } finally {
+                hub.HOG_INVOCATION_RESULTS_ENABLED = resultsEnabled
+            }
+        })
+
+        it('drops the buffered lifecycle row when the invocation cannot be queued', async () => {
+            const resultsEnabled = hub.HOG_INVOCATION_RESULTS_ENABLED
+            hub.HOG_INVOCATION_RESULTS_ENABLED = true
+            const rowsService = api['invocationResultsService'].invocationResultsRowsService
+            const produceSpy = jest.spyOn(rowsService['outputs'], 'produce').mockResolvedValue(undefined as any)
+            mockQueueInvocations.mockRejectedValueOnce(new Error('queue unavailable'))
+
+            try {
+                const res = await supertest(app)
+                    .post(
+                        `/api/projects/${scheduleHogFlow.team_id}/hog_flows/${scheduleHogFlow.id}/scheduled_invocations`
+                    )
+                    .send({})
+
+                expect(res.status).toEqual(500)
+
+                // The row outlives the request on the shared service, so a later flush would
+                // publish a run that never entered cyclotron.
+                await rowsService.flush()
+                expect(produceSpy).not.toHaveBeenCalled()
+            } finally {
+                hub.HOG_INVOCATION_RESULTS_ENABLED = resultsEnabled
+                produceSpy.mockRestore()
+            }
         })
 
         it('queues invocation with empty variables when none provided', async () => {

@@ -617,6 +617,36 @@ class TestEEAuthenticationAPI(APILicensedTest):
         )
         self.assertEqual(len(mail.outbox), 0)
 
+    def test_sso_enforcement_follows_the_account_the_typed_address_resolves_to(self):
+        self.client.logout()
+        member = User.objects.create_and_join(self.organization, "member@victim.example", self.CONFIG_PASSWORD)
+        member.is_email_verified = True
+        member.save(update_fields=["is_email_verified"])
+        self.create_enforced_domain(domain="victim.example")
+
+        # Postgres lowercases `İ` (U+0130) to `i`, so the second address resolves to the member's account
+        # while its typed domain does not match the enforced one.
+        for typed_email in ("member@victim.example", "member@vİctim.example"):
+            with self.subTest(email=typed_email), self.settings(**GOOGLE_MOCK_SETTINGS):
+                precheck = self.client.post("/api/login/precheck", {"email": typed_email})
+                response = self.client.post("/api/login", {"email": typed_email, "password": self.CONFIG_PASSWORD})
+
+                self.assertEqual(precheck.json()["sso_enforcement"], "google-oauth2")
+                self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
+                self.assertEqual(response.json()["code"], "sso_enforced")
+                self.assertNotIn("_auth_user_id", self.client.session)
+
+    def test_cannot_reset_password_through_a_typed_domain_that_resolves_to_an_enforced_account(self):
+        User.objects.create_and_join(self.organization, "member@victim.example", self.CONFIG_PASSWORD)
+        self.create_enforced_domain(domain="victim.example")
+
+        with self.settings(**GOOGLE_MOCK_SETTINGS, EMAIL_HOST="localhost", SITE_URL="https://my.posthog.net"):
+            response = self.client.post("/api/reset/", {"email": "member@vİctim.example"})
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["code"], "sso_enforced")
+        self.assertEqual(len(mail.outbox), 0)
+
     @patch("posthog.models.organization_domain.logger.warning")
     def test_cannot_enforce_sso_without_a_license(self, mock_warning):
         self.client.logout()
@@ -654,6 +684,26 @@ class TestEEAuthenticationAPI(APILicensedTest):
             self.client.post("/login/google-oauth2/", {})
             second_key = self.client.session.session_key
             self.assertNotEqual(first_key, second_key)
+
+    @patch("social_core.backends.base.BaseAuth.request")
+    def test_google_login_returns_to_saved_insight(self, mock_request):
+        UserSocialAuth.objects.create(user=self.user, provider="google-oauth2", uid="google-sub-123")
+        insight_url = "/project/1/insights/test-insight"
+
+        with self.settings(**GOOGLE_MOCK_SETTINGS):
+            response = self.client.get(f"/login/google-oauth2/?{urlencode({'next': insight_url})}")
+            self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+            state = self.client.session["google-oauth2_state"]
+
+            mock_request.return_value.json.return_value = {
+                "access_token": "123",
+                "email": self.user.email,
+                "sub": "google-sub-123",
+            }
+            response = self.client.get(f"/complete/google-oauth2/?code=2&state={state}")
+
+        self.assertRedirects(response, insight_url, fetch_redirect_response=False)
+        self.assertEqual(self.client.session.get("_auth_user_id"), str(self.user.pk))
 
     @parameterized.expand(
         [
