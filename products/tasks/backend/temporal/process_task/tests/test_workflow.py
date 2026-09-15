@@ -1769,10 +1769,19 @@ class TestProcessTaskWorkflowUnit:
         assert workflow._agent_lost_mid_turn() is expected
 
     @pytest.mark.parametrize(
-        "outcome, expected",
-        [(None, False), (STEER_DECLINED_OUTCOME, True), (RuntimeError("Sandbox session is dead"), True)],
+        "outcome, reported_agent_active, preserve_state, expected_end, expected_active",
+        [
+            (None, None, True, False, None),
+            (None, False, True, True, False),
+            (None, True, True, False, True),
+            (None, False, False, False, None),
+            (STEER_DECLINED_OUTCOME, None, True, True, False),
+            (RuntimeError("Sandbox session is dead"), None, True, True, False),
+        ],
     )
-    async def test_a_delivered_followup_opens_the_turn_before_any_heartbeat(self, monkeypatch, outcome, expected):
+    async def test_followup_delivery_preserves_new_agent_state(
+        self, monkeypatch, outcome, reported_agent_active, preserve_state, expected_end, expected_active
+    ):
         workflow = ProcessTaskWorkflow()
         workflow._context = _build_context(github_integration_id=123)
         workflow._end_of_turn_received = True
@@ -1780,16 +1789,29 @@ class TestProcessTaskWorkflowUnit:
         # ingest-only run must not inherit it, or a lost agent later this turn is hidden.
         workflow._agent_active = False
         monkeypatch.setattr(process_task_workflow_module.workflow, "logger", Mock())
-        monkeypatch.setattr(process_task_workflow_module.workflow, "patched", Mock(return_value=True))
+        monkeypatch.setattr(process_task_workflow_module.workflow, "in_workflow", Mock(return_value=True))
+        monkeypatch.setattr(
+            process_task_workflow_module.workflow,
+            "patched",
+            lambda patch_id: preserve_state or patch_id != "tasks-preserve-agent-state-during-dispatch",
+        )
         monkeypatch.setattr(process_task_workflow_module.workflow, "uuid4", Mock(return_value="uuid"))
         monkeypatch.setattr(workflow, "_emit_progress", AsyncMock())
-        activity = AsyncMock(side_effect=outcome) if isinstance(outcome, Exception) else AsyncMock(return_value=outcome)
-        monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", activity)
+
+        async def deliver_followup(*_args, **_kwargs):
+            if reported_agent_active is not None:
+                await workflow.agent_state_changed(reported_agent_active)
+            if isinstance(outcome, Exception):
+                raise outcome
+            return outcome
+
+        monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", deliver_followup)
 
         await workflow._send_followup_to_sandbox("go", [])
 
-        assert workflow._end_of_turn_received is expected
-        assert workflow._agent_active is (None if outcome is None else False)
+        assert workflow._end_of_turn_received is expected_end
+        assert workflow._agent_active is expected_active
+        assert workflow._agent_lost_mid_turn() is (expected_end is False and expected_active is not False)
 
     async def test_credential_refresh_exit_marks_sandbox_gone(self, monkeypatch):
         workflow = ProcessTaskWorkflow()
