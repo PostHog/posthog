@@ -17,43 +17,46 @@ const report = {
 } satisfies SignalReport;
 
 describe("DismissReportDialog", () => {
-  it("keeps dismiss nomenclature while explaining temporary behavior", async () => {
+  it("groups reasons by outcome and explains the choice above the footer", async () => {
     const user = userEvent.setup();
     render(
       <DismissReportDialog
         open
         onOpenChange={vi.fn()}
-        report={report}
+        report={{
+          ...report,
+          implementation_pr_url: "https://example.com/pr/1",
+        }}
         isSubmitting={false}
         snoozeDisabledReason={null}
         onConfirm={vi.fn()}
       />,
     );
 
+    const description = screen.getByText(/dismisses the report for everyone/);
     expect(
-      screen.getByText('Dismiss report "Checkout errors"?'),
-    ).toBeInTheDocument();
-    expect(screen.getByText(/dismisses the report for everyone/)).toBeTruthy();
+      screen.getByRole("group", { name: "Pause until a new matching signal" }),
+    ).toContainElement(screen.getByRole("radio", { name: "Already fixed" }));
     expect(
-      screen.getByText(
-        "Dismiss this report until another matching signal arrives.",
-      ),
-    ).toBeVisible();
-    expect(
-      screen.getAllByText(
-        "Dismiss this report so matching signals do not surface it again.",
-      ),
-    ).toHaveLength(5);
+      screen.getByRole("group", { name: "Don't surface again" }),
+    ).toContainElement(screen.getByRole("radio", { name: "Something else…" }));
 
     await user.click(screen.getByRole("radio", { name: "Already fixed" }));
+    expect(description).toHaveTextContent(/dismisses the report for everyone/);
+    expect(
+      screen.getByText(
+        "The report comes back if another matching signal arrives.",
+      ),
+    ).toBeVisible();
 
+    await user.click(
+      screen.getByRole("radio", { name: "Agent's analysis is wrong" }),
+    );
     expect(
-      screen.getByText('Dismiss report "Checkout errors"?'),
-    ).toBeInTheDocument();
-    expect(screen.getByText(/dismisses the report until/)).toBeTruthy();
-    expect(
-      screen.getByRole("button", { name: "Dismiss report" }),
-    ).toBeInTheDocument();
+      screen.getByText(
+        "Matching signals won't surface the report again. The open pull request will be closed.",
+      ),
+    ).toBeVisible();
   });
 
   it("selects the other reason when the user enters a note first", async () => {
@@ -76,7 +79,7 @@ describe("DismissReportDialog", () => {
     expect(submitButton).toHaveAttribute("aria-disabled", "true");
 
     await user.type(
-      screen.getByPlaceholderText("Optional: add detail"),
+      screen.getByLabelText("Details (optional)"),
       "The report needs more context.",
     );
 
@@ -109,6 +112,6 @@ describe("DismissReportDialog", () => {
     expect(
       screen.getByRole("radio", { name: "Something else…" }),
     ).toBeChecked();
-    expect(screen.getByPlaceholderText("Optional: add detail")).toHaveFocus();
+    expect(screen.getByLabelText("Details (optional)")).toHaveFocus();
   });
 });
