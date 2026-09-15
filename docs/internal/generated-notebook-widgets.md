@@ -132,3 +132,27 @@ Same-team scoping reduces exposure but does not eliminate realistic risk. The ca
 The sandboxed cross-origin iframe, Canvas CSP, signed artifact route, capability manifest, and permission-checked dataframe bridge limit blast radius. They do not turn arbitrary JavaScript into trusted code. Runtime navigation interception is defense-in-depth for preview reliability, not a security claim. The Navigation API guard applies only in Chromium. Capturing link clicks and form submissions plus disabling `window.open` blocks common paths in other browsers, but it cannot prove arbitrary programmatic self-navigation is impossible.
 
 The automated review is advisory because a model cannot prove arbitrary or obfuscated JavaScript safe. A clean review improves the first-pass decision but does not replace the runtime controls above or provide a security guarantee.
+
+## Usage instrumentation
+
+The backend emits `reusable widget operation` after a successful database commit for publish, attach, fork, save version, discard, restore, demo data edits, and accepted generation jobs.
+The `operation` values are `publish`, `attach`, `fork`, `save_version`, `discard`, `restore`, `demo_data_update`, and `generate`.
+Generation events describe accepted jobs, not completed builds; retries with the same generation ID do not emit another event.
+
+Events include widget and version IDs, placement notebook and node IDs where applicable, `is_rebind`, and `bindings_use_hog`.
+Forks include `source_widget_id` and the source version in `previous_version_id`; saved and restored versions include the previous published version.
+Generation events include `generation_id` and `generation_operation`.
+Telemetry excludes widget names, prompts, source, demo rows, dataframe names, and Hog programs.
+
+`origin` uses the shared request-source classifier: browser sessions map to `ui`, ordinary API tokens to `api`, and MCP requests to `mcp` or the recognized agent surface.
+In-process callers default to `server` and can pass their own origin.
+The frontend marks attachment while loading an existing MDX widget with `X-PostHog-Widget-Auto-Attach: true`, which produces `origin=auto_attach`.
+This distinguishes automatic attachment from deliberate UI attachment but does not identify who originally wrote the MDX tag.
+The origin and automatic-attachment header are analytics metadata, not authorization signals.
+
+Shared catalog changes also create `GeneratedWidget` activity-log entries for publish, save version, discard, restore, and demo data edits.
+These entries retain the actor, widget name, operation, version IDs, and changed field, including the ID of a discarded draft after its row is deleted.
+Demo data values are excluded from the audit trail.
+Both audit entries and analytics callbacks are dropped if the surrounding transaction rolls back.
+
+Autocapture can identify the publish and picker confirmation buttons with `reusable-widget-publish` and `reusable-widget-attach`.

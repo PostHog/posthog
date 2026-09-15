@@ -16,6 +16,7 @@ from rest_framework.exceptions import PermissionDenied
 
 from posthog.constants import AvailableFeature
 from posthog.models import OrganizationMembership, Team
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token, hash_key_value
 
@@ -70,6 +71,9 @@ class TestReusableWidgets(APIBaseTest):
 
     def setUp(self) -> None:
         super().setUp()
+        self.capture_operation = self.enterContext(
+            patch("products.notebooks.backend.widget_analytics.report_user_or_team_action")
+        )
         self.notebook = Notebook.objects.create(
             team=self.team,
             created_by=self.user,
@@ -157,6 +161,60 @@ class TestReusableWidgets(APIBaseTest):
                 format="json",
             )
 
+    def test_rolled_back_publication_emits_no_event_or_audit_entry(self) -> None:
+        with self.captureOnCommitCallbacks(execute=True):
+            with self.assertRaises(RuntimeError), transaction.atomic():
+                assert self._publish().status_code == 201
+                self.capture_operation.assert_not_called()
+                assert not ActivityLog.objects.filter(scope="GeneratedWidget").exists()
+                raise RuntimeError("Roll back publication")
+        self.capture_operation.assert_not_called()
+        assert not ActivityLog.objects.filter(scope="GeneratedWidget").exists()
+        self.widget.refresh_from_db()
+        assert self.widget.publication_status == GeneratedWidget.PublicationStatus.PRIVATE
+
+    @parameterized.expand(["ui", "api", "mcp", "auto_attach"])
+    def test_reattachment_records_the_origin_and_existing_placement(self, origin: str) -> None:
+        self._publish()
+        if origin in {"api", "mcp"}:
+            token = generate_random_token()
+            PersonalAPIKey.objects.create(
+                user=self.user,
+                label="Widget attachment",
+                scopes=["notebook:write"],
+                secure_value=hash_key_value(token),
+            )
+            self.client.logout()
+            self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+        with (
+            self.captureOnCommitCallbacks(execute=True),
+            patch(
+                "products.canvas.backend.notebook_integration.get_canvas_generation_state",
+                return_value=CanvasGenerationState(
+                    current_source_version_id=self.version.canvas_source_version_id,
+                    artifact_url="https://example.com/widget.html",
+                    build_status="ready",
+                    build_error=None,
+                    build_hash="a" * 64,
+                ),
+            ),
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/notebooks/{self.notebook.short_id}/widgets/{self.node_id}/attach/",
+                {"widget_id": str(self.widget.id), "input_bindings": {}},
+                format="json",
+                HTTP_X_POSTHOG_CLIENT="mcp" if origin == "mcp" else "",
+                HTTP_X_POSTHOG_WIDGET_AUTO_ATTACH="true" if origin == "auto_attach" else "",
+            )
+        assert response.status_code == 200, response.json()
+        self.capture_operation.assert_called_once()
+        properties = self.capture_operation.call_args.args[1]
+        assert properties["operation"] == "attach"
+        assert properties["origin"] == origin
+        assert properties["is_rebind"] is True
+        assert properties["node_id"] == self.node_id
+        assert self.capture_operation.call_args.kwargs["user"] == self.user
+
     @parameterized.expand([("published", False), ("draft", True)])
     def test_source_reads_the_requested_version_without_publishing_the_draft(
         self, _name: str, request_draft: bool
@@ -213,7 +271,8 @@ class TestReusableWidgets(APIBaseTest):
             }
             self.instance.save(update_fields=["input_bindings"])
         bindings = self.instance.input_bindings
-        response = self._publish()
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self._publish()
 
         assert response.status_code == 201, response.json()
         assert response.json()["name"] == "Revenue by plan"
@@ -242,6 +301,22 @@ class TestReusableWidgets(APIBaseTest):
         if mapped:
             assert self.instance.input_bindings == bindings
 
+        self.capture_operation.assert_called_once()
+        event, properties = self.capture_operation.call_args.args
+        assert event == "reusable widget operation"
+        assert properties["operation"] == "publish"
+        assert properties["origin"] == "ui"
+        assert properties["bindings_use_hog"] is mapped
+        assert properties["notebook_id"] == str(self.notebook.id)
+        assert properties["version_id"] == str(self.version.id)
+        assert self.capture_operation.call_args.kwargs["team"] == self.team
+        assert self.capture_operation.call_args.kwargs["organization"] == self.organization
+        entry = ActivityLog.objects.get(scope="GeneratedWidget", item_id=str(self.widget.id))
+        assert entry.detail is not None
+        assert entry.user_id == self.user.id
+        assert entry.detail["context"]["operation"] == "publish"
+        assert entry.detail["changes"][0]["after"] == "published"
+
     @parameterized.expand([("published", False), ("draft", True)])
     def test_demo_edits_update_only_the_selected_preview(self, _name: str, edit_draft: bool) -> None:
         self._publish()
@@ -261,11 +336,12 @@ class TestReusableWidgets(APIBaseTest):
         untouched = self.version if edit_draft else draft
         original_source = selected.canvas_source_version_id
         rows = [["Starter", 250], ["Growth", 900]]
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/notebook_widgets/{self.widget.id}/demo-data/",
-            data={"version_id": str(selected.id), "frame_name": self.input_name, "rows": rows},
-            format="json",
-        )
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/notebook_widgets/{self.widget.id}/demo-data/",
+                data={"version_id": str(selected.id), "frame_name": self.input_name, "rows": rows},
+                format="json",
+            )
         assert response.status_code == 200, response.json()
         frame = response.json()
         assert frame["rows"] == rows
@@ -285,6 +361,18 @@ class TestReusableWidgets(APIBaseTest):
         assert self.widget.current_version_id == self.version.id
         assert self.widget.pending_version_id == draft.id
         assert self.node_run.envelope["first_page"][0] == ["Plan 0", 0]
+
+        self.capture_operation.assert_called_once()
+        properties = self.capture_operation.call_args.args[1]
+        assert properties["operation"] == "demo_data_update"
+        assert properties["version_id"] == str(selected.id)
+        entry = ActivityLog.objects.get(scope="GeneratedWidget", item_id=str(self.widget.id))
+        assert entry.detail is not None
+        assert entry.user_id == self.user.id
+        assert entry.detail["context"]["version_id"] == str(selected.id)
+        assert entry.detail["changes"][0]["field"] == "demo_data"
+        assert "Starter" not in json.dumps(entry.detail)
+        assert "Starter" not in json.dumps(properties)
 
     @parameterized.expand([("historical", 409), ("other_project", 404), ("invalid_row", 400), ("oversized", 400)])
     def test_demo_edits_reject_invalid_targets_and_rows(self, scenario: str, expected_status: int) -> None:
@@ -552,9 +640,12 @@ class TestReusableWidgets(APIBaseTest):
             build_hash="d" * 64,
         )
         url = f"/api/projects/{self.team.id}/notebooks/{notebook.short_id}/widgets/copy/attach/"
-        with patch(
-            "products.canvas.backend.notebook_integration.get_canvas_generation_state",
-            return_value=state,
+        with (
+            self.captureOnCommitCallbacks(execute=True),
+            patch(
+                "products.canvas.backend.notebook_integration.get_canvas_generation_state",
+                return_value=state,
+            ),
         ):
             response = self.client.post(
                 url,
@@ -570,6 +661,7 @@ class TestReusableWidgets(APIBaseTest):
 
         assert response.status_code == expected_status, response.json()
         if expected_status != 200:
+            self.capture_operation.assert_not_called()
             assert (
                 not NotebookWidgetInstance.objects.for_team(self.team.id)
                 .filter(notebook=notebook, node_id="copy")
@@ -592,6 +684,15 @@ class TestReusableWidgets(APIBaseTest):
             user=self.user,
         )
         assert frame.frame["rows"] == [["Enterprise", 500]]
+
+        self.capture_operation.assert_called_once()
+        properties = self.capture_operation.call_args.args[1]
+        assert properties["operation"] == "attach"
+        assert properties["is_rebind"] is False
+        assert properties["bindings_use_hog"] is bool(hog.strip())
+        assert "other_df" not in json.dumps(properties)
+        if hog.strip():
+            assert hog not in json.dumps(properties)
 
     @parameterized.expand([("original_placement", False), ("removed_original", True)])
     def test_shared_edit_stages_a_review_draft_without_changing_the_published_version(
@@ -642,13 +743,30 @@ class TestReusableWidgets(APIBaseTest):
                 user_id=self.user.id,
             )
 
+            start_reusable_widget_generation(
+                team_id=self.team.id,
+                widget_id=self.widget.id,
+                prompt="Use a stacked bar chart",
+                model="claude-sonnet-4-6",
+                generation_id=generation_id,
+                operation=GeneratedWidgetVersion.Operation.IMPROVE,
+                expected_current_version_id=self.version.id,
+                user_id=self.user.id,
+            )
+
         job = GeneratedWidgetGenerationJob.objects.for_team(self.team.id).get(idempotency_key=generation_id)
         self.instance.refresh_from_db()
         assert status.active_job is not None
         assert job.instance_id == active_instance.id
         assert job.input_contract == self.version.input_contract
         assert self.instance.pinned_version is None
-        start_workflow.assert_called_once()
+        assert start_workflow.call_count == 2
+        self.capture_operation.assert_called_once()
+        properties = self.capture_operation.call_args.args[1]
+        assert properties["operation"] == "generate"
+        assert properties["generation_id"] == str(generation_id)
+        assert properties["generation_operation"] == "improve"
+        assert properties["origin"] == "server"
 
         draft_source_version_id = uuid4()
         with (
@@ -768,6 +886,7 @@ class TestReusableWidgets(APIBaseTest):
             ]
 
         with (
+            self.captureOnCommitCallbacks(execute=True),
             patch(
                 "products.canvas.backend.notebook_integration.list_notebook_canvas_versions",
                 side_effect=canvas_versions,
@@ -798,6 +917,14 @@ class TestReusableWidgets(APIBaseTest):
             expected_current_version_id=self.version.canvas_source_version_id,
         )
 
+        self.capture_operation.assert_called_once()
+        assert self.capture_operation.call_args.args[1]["operation"] == "save_version"
+        entry = ActivityLog.objects.get(scope="GeneratedWidget", item_id=str(self.widget.id))
+        assert entry.detail is not None
+        assert entry.user_id == self.user.id
+        assert entry.detail["context"]["operation"] == "save_version"
+        assert entry.detail["context"]["version_id"] == str(candidate.id)
+
     @patch("products.canvas.backend.notebook_integration.discard_notebook_canvas_draft")
     def test_discarding_a_review_draft_keeps_the_published_version(self, discard) -> None:
         self._publish()
@@ -817,9 +944,12 @@ class TestReusableWidgets(APIBaseTest):
         self.widget.pending_version = candidate
         self.widget.save(update_fields=["pending_version"])
         url = f"/api/projects/{self.team.id}/notebook_widgets/{self.widget.id}/discard-version/"
-        with patch(
-            "products.canvas.backend.notebook_integration.list_notebook_canvas_versions",
-            return_value=[self._canvas_version()],
+        with (
+            self.captureOnCommitCallbacks(execute=True),
+            patch(
+                "products.canvas.backend.notebook_integration.list_notebook_canvas_versions",
+                return_value=[self._canvas_version()],
+            ),
         ):
             response = self.client.post(
                 url,
@@ -840,6 +970,14 @@ class TestReusableWidgets(APIBaseTest):
         assert self.widget.current_version_id == self.version.id
         assert self.widget.pending_version_id is None
         assert not GeneratedWidgetVersion.objects.for_team(self.team.id).filter(id=candidate.id).exists()
+
+        self.capture_operation.assert_called_once()
+        assert self.capture_operation.call_args.args[1]["operation"] == "discard"
+        entry = ActivityLog.objects.get(scope="GeneratedWidget", item_id=str(self.widget.id))
+        assert entry.detail is not None
+        assert entry.user_id == self.user.id
+        assert entry.detail["context"]["operation"] == "discard"
+        assert entry.detail["context"]["version_id"] == str(candidate.id)
 
     def _add_published_version(self) -> GeneratedWidgetVersion:
         version = GeneratedWidgetVersion.objects.for_team(self.team.id).create(
@@ -903,6 +1041,7 @@ class TestReusableWidgets(APIBaseTest):
         self.version.save(update_fields=["security_review_severity", "security_reviewed_at", "model"])
         source_version_id = uuid4()
         with (
+            self.captureOnCommitCallbacks(execute=True),
             patch(
                 "products.canvas.backend.notebook_integration.get_notebook_canvas_source",
                 return_value="export default function Widget() { return null }",
@@ -942,6 +1081,14 @@ class TestReusableWidgets(APIBaseTest):
         assert restored.canvas_source_version_id == source_version_id
         assert self.instance.pinned_version_id == latest.id
         assert GeneratedWidgetVersion.objects.for_team(self.team.id).filter(widget=self.widget).count() == 3
+
+        self.capture_operation.assert_called_once()
+        assert self.capture_operation.call_args.args[1]["operation"] == "restore"
+        entry = ActivityLog.objects.get(scope="GeneratedWidget", item_id=str(self.widget.id))
+        assert entry.detail is not None
+        assert entry.user_id == self.user.id
+        assert entry.detail["context"]["operation"] == "restore"
+        assert entry.detail["context"]["version_id"] == str(restored.id)
 
     @parameterized.expand(["stale", "pending", "active", "foreign_widget", "foreign_team"])
     def test_restore_rejects_conflicts_and_versions_outside_the_widget(self, reason: str) -> None:
@@ -1074,6 +1221,7 @@ class TestReusableWidgets(APIBaseTest):
             )
 
         if fail_placement:
+            self.capture_operation.assert_not_called()
             assert response.status_code == 500
             enqueue_build.assert_not_called()
             self.instance.refresh_from_db()
@@ -1097,6 +1245,12 @@ class TestReusableWidgets(APIBaseTest):
         assert response.json()["current_version_id"] == str(self.instance.widget.current_version_id)
         assert self.instance.widget.current_version is not None
         assert self.instance.widget.current_version.canvas_source_version_id == forked_source_version_id
+
+        self.capture_operation.assert_called_once()
+        properties = self.capture_operation.call_args.args[1]
+        assert properties["operation"] == "fork"
+        assert properties["source_widget_id"] == str(self.widget.id)
+        assert properties["widget_id"] == str(self.instance.widget_id)
 
 
 class TestConcurrentReusableWidgetAttach(NonAtomicBaseTest):

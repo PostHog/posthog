@@ -95545,6 +95545,7 @@ export namespace Schemas {
      * * `EventDefinition` - EventDefinition
      * * `PropertyDefinition` - PropertyDefinition
      * * `Notebook` - Notebook
+     * * `GeneratedWidget` - GeneratedWidget
      * * `Canvas` - Canvas
      * * `Endpoint` - Endpoint
      * * `EndpointVersion` - EndpointVersion
@@ -95644,6 +95645,7 @@ export namespace Schemas {
       EventDefinition: 'EventDefinition',
       PropertyDefinition: 'PropertyDefinition',
       Notebook: 'Notebook',
+      GeneratedWidget: 'GeneratedWidget',
       Canvas: 'Canvas',
       Endpoint: 'Endpoint',
       EndpointVersion: 'EndpointVersion',
@@ -95729,6 +95731,7 @@ export namespace Schemas {
      * * `EventDefinition` - EventDefinition
      * * `PropertyDefinition` - PropertyDefinition
      * * `Notebook` - Notebook
+     * * `GeneratedWidget` - GeneratedWidget
      * * `Canvas` - Canvas
      * * `Endpoint` - Endpoint
      * * `EndpointVersion` - EndpointVersion
@@ -95816,6 +95819,7 @@ export namespace Schemas {
       EventDefinition: 'EventDefinition',
       PropertyDefinition: 'PropertyDefinition',
       Notebook: 'Notebook',
+      GeneratedWidget: 'GeneratedWidget',
       Canvas: 'Canvas',
       Endpoint: 'Endpoint',
       EndpointVersion: 'EndpointVersion',

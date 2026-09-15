@@ -163,6 +163,7 @@ from products.notebooks.backend.sql_v2_variables import (
 )
 from products.notebooks.backend.temporal.client import start_sql_v2_run_workflow
 from products.notebooks.backend.temporal.sql_v2 import SQLV2RunInput
+from products.notebooks.backend.widget_analytics import reusable_widget_origin
 from products.tasks.backend.facade.exceptions import SandboxProvisionError
 from products.tasks.backend.facade.sandbox import SandboxStatus
 
@@ -937,6 +938,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         try:
             result = publish_reusable_widget(
                 team_id=self.team_id,
+                origin=reusable_widget_origin(request),
                 notebook_id=notebook.id,
                 node_id=node_id,
                 name=serializer.validated_data["name"],
@@ -986,6 +988,9 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         try:
             result = attach_reusable_widget(
                 team_id=self.team_id,
+                origin=reusable_widget_origin(
+                    request, automatic=request.headers.get("X-PostHog-Widget-Auto-Attach") == "true"
+                ),
                 notebook_id=self.get_object().id,
                 node_id=node_id,
                 widget_id=serializer.validated_data["widget_id"],
@@ -1035,6 +1040,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         try:
             result = fork_reusable_widget(
                 team_id=self.team_id,
+                origin=reusable_widget_origin(request),
                 notebook_id=self.get_object().id,
                 node_id=node_id,
                 user_id=user.id,

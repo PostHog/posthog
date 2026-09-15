@@ -21,6 +21,7 @@ from products.notebooks.backend.models import (
     NotebookNodeRun,
     NotebookWidgetInstance,
 )
+from products.notebooks.backend.widget_analytics import record_reusable_widget_operation
 from products.notebooks.backend.widgets import (
     WidgetConflictError,
     WidgetError,
@@ -349,6 +350,7 @@ def publish_reusable_widget(
     tags: list[str],
     user_id: int,
     authorize_run,
+    origin: str = "server",
 ) -> ReusableWidgetDetail:
     notebook = Notebook.objects.get(team_id=team_id, id=notebook_id, deleted=False)
     assert_widget_node_exists(notebook, node_id)
@@ -418,6 +420,16 @@ def publish_reusable_widget(
         locked_instance.pinned_version = None
         locked_instance.input_bindings = original_bindings
         locked_instance.save(update_fields=["pinned_version", "input_bindings"])
+        record_reusable_widget_operation(
+            widget=widget,
+            operation="publish",
+            version_id=version.id,
+            user_id=user_id,
+            origin=origin,
+            notebook_id=notebook.id,
+            node_id=node_id,
+            input_bindings=original_bindings,
+        )
     return get_reusable_widget(team_id=notebook.team_id, widget_id=widget.id)
 
 
@@ -464,6 +476,7 @@ def attach_reusable_widget(
     version_id: UUID | None,
     input_bindings: dict[str, object],
     user_id: int,
+    origin: str = "server",
 ) -> WidgetStatus:
     notebook = Notebook.objects.get(team_id=team_id, id=notebook_id, deleted=False)
     assert_widget_node_exists(notebook, node_id)
@@ -503,11 +516,28 @@ def attach_reusable_widget(
             existing.pinned_version = version if version_id is not None else None
             existing.input_bindings = bindings
             existing.save(update_fields=["pinned_version", "input_bindings"])
+        record_reusable_widget_operation(
+            widget=widget,
+            operation="attach",
+            version_id=version.id,
+            user_id=user_id,
+            origin=origin,
+            notebook_id=notebook.id,
+            node_id=node_id,
+            input_bindings=bindings,
+            is_rebind=not created,
+        )
     return get_widget_status(notebook=notebook, node_id=node_id)
 
 
 def fork_reusable_widget(
-    *, team_id: int, notebook_id: UUID, node_id: str, user_id: int, version_id: UUID | None = None
+    *,
+    team_id: int,
+    notebook_id: UUID,
+    node_id: str,
+    user_id: int,
+    version_id: UUID | None = None,
+    origin: str = "server",
 ) -> WidgetStatus:
     from products.canvas.backend import (  # noqa: PLC0415 — keeps Canvas storage imports off notebook startup
         notebook_integration as canvas_facade,
@@ -611,6 +641,18 @@ def fork_reusable_widget(
             locked_instance.widget = widget
             locked_instance.pinned_version = None
             locked_instance.save(update_fields=["widget", "pinned_version"])
+            record_reusable_widget_operation(
+                widget=widget,
+                operation="fork",
+                version_id=version.id,
+                user_id=user_id,
+                origin=origin,
+                notebook_id=notebook.id,
+                node_id=node_id,
+                input_bindings=locked_instance.input_bindings,
+                source_widget_id=instance.widget_id,
+                previous_version_id=source_version.id,
+            )
     except canvas_facade.NotebookCanvasBuildCapacityError as error:
         raise WidgetRateLimitError("Widget build capacity is full. Try again shortly.", "build_capacity") from error
     except canvas_facade.NotebookCanvasError as error:
@@ -640,7 +682,14 @@ def read_reusable_widget_demo_frame(
 
 
 def update_reusable_widget_demo_data(
-    *, team_id: int, widget_id: UUID, version_id: UUID, frame_name: str, rows: list[list[object]]
+    *,
+    team_id: int,
+    widget_id: UUID,
+    version_id: UUID,
+    frame_name: str,
+    rows: list[list[object]],
+    user_id: int | None = None,
+    origin: str = "server",
 ) -> WidgetFrameRead:
     with transaction.atomic():
         widget = _published_widgets(team_id).select_for_update().filter(id=widget_id).first()
@@ -685,6 +734,9 @@ def update_reusable_widget_demo_data(
         version.save(update_fields=["demo_data"])
         widget.updated_at = timezone.now()
         widget.save(update_fields=["updated_at"])
+        record_reusable_widget_operation(
+            widget=widget, operation="demo_data_update", version_id=version.id, user_id=user_id, origin=origin
+        )
     return WidgetFrameRead(frame=frame)
 
 
@@ -695,6 +747,7 @@ def save_reusable_widget_version(
     pending_version_id: UUID,
     expected_current_version_id: UUID,
     user_id: int,
+    origin: str = "server",
 ) -> ReusableWidgetDetail:
     from products.canvas.backend import (  # noqa: PLC0415 — keeps Canvas build imports off notebook startup
         notebook_integration as canvas_facade,
@@ -747,11 +800,25 @@ def save_reusable_widget_version(
         widget.pending_version = None
         widget.updated_at = timezone.now()
         widget.save(update_fields=["current_version", "pending_version", "updated_at"])
+        record_reusable_widget_operation(
+            widget=widget,
+            operation="save_version",
+            version_id=candidate.id,
+            user_id=user_id,
+            origin=origin,
+            previous_version_id=expected_current_version_id,
+        )
     return get_reusable_widget(team_id=team_id, widget_id=widget_id)
 
 
 def discard_reusable_widget_version(
-    *, team_id: int, widget_id: UUID, pending_version_id: UUID, expected_current_version_id: UUID
+    *,
+    team_id: int,
+    widget_id: UUID,
+    pending_version_id: UUID,
+    expected_current_version_id: UUID,
+    user_id: int | None = None,
+    origin: str = "server",
 ) -> ReusableWidgetDetail:
     # Keep Canvas build dependencies off notebook startup.
     from products.canvas.backend import notebook_integration as canvas_facade  # noqa: PLC0415
@@ -782,6 +849,9 @@ def discard_reusable_widget_version(
             raise WidgetError("This reusable widget draft could not be discarded.", "review_discard_failed") from error
         widget.pending_version = None
         widget.save(update_fields=["pending_version"])
+        record_reusable_widget_operation(
+            widget=widget, operation="discard", version_id=candidate.id, user_id=user_id, origin=origin
+        )
         candidate.delete()
     return get_reusable_widget(team_id=team_id, widget_id=widget_id)
 
@@ -822,6 +892,7 @@ def start_reusable_widget_generation(
     operation: str,
     expected_current_version_id: UUID,
     user_id: int,
+    origin: str = "server",
 ) -> WidgetStatus:
     widget = _published_widgets(team_id).select_related("current_version").filter(id=widget_id).first()
     if widget is None or widget.current_version is None:
@@ -858,6 +929,7 @@ def start_reusable_widget_generation(
         operation=operation,
         expected_current_version_id=expected_current_version_id,
         allow_reusable=True,
+        origin=origin,
         input_contract_override=_input_contract(widget.current_version.input_contract),
     )
     return get_reusable_widget_status(team_id=team_id, widget_id=widget_id)

@@ -226,7 +226,10 @@ describe('notebookNodeGeneratedWidgetLogic', () => {
                     props.notebookShortId,
                     props.nodeId,
                     { widget_id: widgetId, version_id: null, input_bindings: inputBindings ?? {} },
-                    expect.objectContaining({ signal: expect.anything() })
+                    expect.objectContaining({
+                        signal: expect.anything(),
+                        headers: { 'X-PostHog-Widget-Auto-Attach': 'true' },
+                    })
                 )
             } else {
                 expect(notebooksWidgetAttach).not.toHaveBeenCalled()

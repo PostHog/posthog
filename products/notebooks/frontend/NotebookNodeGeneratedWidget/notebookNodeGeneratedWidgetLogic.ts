@@ -1327,7 +1327,7 @@ export const notebookNodeGeneratedWidgetLogic: LogicWrapper<notebookNodeGenerate
                                         version_id: props.reusableVersionId ?? null,
                                         input_bindings: props.inputBindings ?? {},
                                     },
-                                    { signal }
+                                    { signal, headers: { 'X-PostHog-Widget-Auto-Attach': 'true' } }
                                 )
                             )
                         }

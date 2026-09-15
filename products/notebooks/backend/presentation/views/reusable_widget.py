@@ -48,6 +48,7 @@ from products.notebooks.backend.presentation.widget_serializers import (
     WidgetStatusSerializer,
     WidgetVersionQuerySerializer,
 )
+from products.notebooks.backend.widget_analytics import reusable_widget_origin
 
 
 class ReusableWidgetViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
@@ -158,6 +159,7 @@ class ReusableWidgetViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         try:
             result = restore_reusable_widget_version(
                 team_id=self.team_id,
+                origin=reusable_widget_origin(request),
                 widget_id=self._widget_id(),
                 version_id=serializer.validated_data["version_id"],
                 expected_current_version_id=serializer.validated_data["expected_current_version_id"],
@@ -229,6 +231,8 @@ class ReusableWidgetViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         try:
             result = update_reusable_widget_demo_data(
                 team_id=self.team_id,
+                user_id=request.user.id if isinstance(request.user, User) else None,
+                origin=reusable_widget_origin(request),
                 widget_id=self._widget_id(),
                 **serializer.validated_data,
             )
@@ -296,6 +300,7 @@ class ReusableWidgetViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         try:
             result = start_reusable_widget_generation(
                 team_id=self.team_id,
+                origin=reusable_widget_origin(request),
                 widget_id=self._widget_id(),
                 prompt=serializer.validated_data["prompt"],
                 model=serializer.validated_data["model"],
@@ -329,6 +334,7 @@ class ReusableWidgetViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         try:
             result = save_reusable_widget_version(
                 team_id=self.team_id,
+                origin=reusable_widget_origin(request),
                 widget_id=self._widget_id(),
                 pending_version_id=serializer.validated_data["pending_version_id"],
                 expected_current_version_id=serializer.validated_data["expected_current_version_id"],
@@ -357,6 +363,8 @@ class ReusableWidgetViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         try:
             result = discard_reusable_widget_version(
                 team_id=self.team_id,
+                user_id=request.user.id if isinstance(request.user, User) else None,
+                origin=reusable_widget_origin(request),
                 widget_id=self._widget_id(),
                 pending_version_id=serializer.validated_data["pending_version_id"],
                 expected_current_version_id=serializer.validated_data["expected_current_version_id"],

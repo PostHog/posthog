@@ -12,6 +12,7 @@ from products.notebooks.backend.reusable_widgets import (
     _version_detail,
     get_reusable_widget,
 )
+from products.notebooks.backend.widget_analytics import record_reusable_widget_operation
 from products.notebooks.backend.widgets import WidgetConflictError, WidgetError, WidgetRateLimitError, _prompt_history
 
 
@@ -74,7 +75,13 @@ def _check_restore_available(widget: GeneratedWidget, expected_current_version_i
 
 
 def restore_reusable_widget_version(
-    *, team_id: int, widget_id: UUID, version_id: UUID, expected_current_version_id: UUID, user_id: int
+    *,
+    team_id: int,
+    widget_id: UUID,
+    version_id: UUID,
+    expected_current_version_id: UUID,
+    user_id: int,
+    origin: str = "server",
 ) -> ReusableWidgetDetail:
     # Keep Canvas build dependencies off notebook startup.
     from products.canvas.backend import notebook_integration as canvas_facade  # noqa: PLC0415
@@ -139,6 +146,14 @@ def restore_reusable_widget_version(
             widget.current_version = version
             widget.updated_at = timezone.now()
             widget.save(update_fields=["current_version", "updated_at"])
+            record_reusable_widget_operation(
+                widget=widget,
+                operation="restore",
+                version_id=version.id,
+                user_id=user_id,
+                origin=origin,
+                previous_version_id=current.id,
+            )
     except canvas_facade.NotebookCanvasVersionConflictError as error:
         raise WidgetConflictError(
             "This widget changed. Reload it before making a version latest.", "revert_conflict"

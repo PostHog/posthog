@@ -38,6 +38,7 @@ from products.notebooks.backend.util import (
     _iter_markdown_component_blocks,
     _parse_markdown_component_props,
 )
+from products.notebooks.backend.widget_analytics import record_reusable_widget_operation
 from products.notebooks.backend.widget_models import MAX_WIDGET_EFFECTIVE_PROMPT_LENGTH, MAX_WIDGET_PROMPT_LENGTH
 
 logger = logging.getLogger(__name__)
@@ -663,6 +664,7 @@ def start_widget_generation(
     operation: str,
     expected_current_version_id: UUID | None = None,
     allow_reusable: bool = False,
+    origin: str = "server",
     input_contract_override: list[dict[str, object]] | None = None,
 ) -> WidgetStatus:
     assert_widget_node_exists(notebook, node_id)
@@ -791,6 +793,18 @@ def start_widget_generation(
             input_contract=input_contract,
             schema_hash=_json_hash(input_contract),
         )
+        if allow_reusable:
+            record_reusable_widget_operation(
+                widget=locked_instance.widget,
+                operation="generate",
+                version_id=job.base_version_id,
+                user_id=user_id,
+                origin=origin,
+                notebook_id=notebook.id,
+                node_id=node_id,
+                generation_id=generation_id,
+                generation_operation=resolved_operation,
+            )
         transaction.on_commit(lambda: _dispatch_widget_generation(job.id, notebook.team_id))
     return get_widget_status(notebook=notebook, node_id=node_id)
 

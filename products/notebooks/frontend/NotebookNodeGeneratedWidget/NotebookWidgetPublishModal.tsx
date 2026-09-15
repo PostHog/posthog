@@ -28,6 +28,7 @@ export function NotebookWidgetPublishModal(props: NotebookNodeGeneratedWidgetLog
                     <LemonButton
                         type="primary"
                         onClick={publishReusableWidget}
+                        data-attr="reusable-widget-publish"
                         loading={publishInFlight}
                         disabledReason={!publishName.trim() ? 'Add a widget name.' : undefined}
                     >

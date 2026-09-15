@@ -52,6 +52,7 @@ export function ReusableWidgetPickerModal(props: ReusableWidgetPickerLogicProps)
                         <LemonButton
                             type="primary"
                             onClick={attachReusableWidget}
+                            data-attr="reusable-widget-attach"
                             loading={attachInFlight && !aiHandoffInFlight}
                             disabledReason={aiHandoffInFlight ? 'Opening AI…' : attachDisabledReason}
                         >
