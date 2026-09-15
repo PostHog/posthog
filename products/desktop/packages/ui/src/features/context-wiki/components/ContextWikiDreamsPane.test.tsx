@@ -49,6 +49,11 @@ const hoisted = vi.hoisted(() => ({
     started_at: "2026-08-18T04:00:00Z",
   },
   refetch: vi.fn(),
+  unpublishedRun: null as null | {
+    task_url: string;
+    run_status: string;
+    started_at: string;
+  },
 }));
 
 vi.mock("../hooks/useContextWiki", () => ({
@@ -57,6 +62,7 @@ vi.mock("../hooks/useContextWiki", () => ({
       head_sha: "head-1",
       dreams: hoisted.dreams,
       active_run: hoisted.activeRun,
+      unpublished_run: hoisted.unpublishedRun,
     },
     isLoading: false,
     error: null,
@@ -87,6 +93,22 @@ vi.mock("../../../shell/themeStore", () => ({
 describe("ContextWikiDreamsPane", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    hoisted.unpublishedRun = null;
+  });
+
+  it("links an unpublished attempt to its task in the correct project", () => {
+    hoisted.unpublishedRun = {
+      task_url: "https://example.com/project/123/tasks/dream-task",
+      run_status: "completed",
+      started_at: "2026-08-18T05:00:00Z",
+    };
+    render(<ContextWikiDreamsPane />);
+
+    expect(screen.getByText("No update published")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "View task" })).toHaveAttribute(
+      "href",
+      "https://example.com/project/123/tasks/dream-task",
+    );
   });
 
   it("shows the newest run's summary and per-file changes, and switches runs", async () => {

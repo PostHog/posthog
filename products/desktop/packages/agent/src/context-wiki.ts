@@ -57,7 +57,9 @@ For a correction to an existing shared page under org/, areas/, or decisions/, r
 
 If the proposal tool is not available, give the user the corrected Markdown to apply in Context. Do not claim it is published.
 
-Ordinary tasks cannot approve suggestions or publish commit bundles. Do not use scripts/publish for an ordinary task. Tasks can directly update their own channel page with task-context-wiki-page-update; loops can update only their configured channel page. Server-owned nightly maintenance follows its assigned publishing workflow.
+Ordinary tasks cannot approve suggestions or publish commit bundles. Do not use scripts/publish for an ordinary task. Tasks can directly update their own channel page with task-context-wiki-page-update; loops can update only their configured channel page.
+
+For server-owned nightly maintenance only, use scripts/publish --dream <summary-file> to publish the mounted wiki. This server-provided helper creates the local dream branch and commit, then sends a bundle to the context layer API. The GitHub branch, commit, and pull request rules do not apply to this helper: the mounted wiki uses a local bundle remote, so git_signed_commit cannot publish it. The API still verifies the maintenance run and the allowed content paths. Report a failed publish as unpublished.
 
 For a new product decision, prepare a Markdown draft named decisions/<YYYY-MM-DD>-<slug>.md with sources frontmatter pointing at this task. Give the draft to the user. Do not claim that a draft is published.
 `;

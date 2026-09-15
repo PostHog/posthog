@@ -31,6 +31,7 @@ import {
   useContextWikiDreams,
 } from "../hooks/useContextWiki";
 import { firstSummaryLine } from "./contextWikiDreams";
+import { UnpublishedDreamNotice } from "./UnpublishedDreamNotice";
 
 const dreamMarkdownComponents: Partial<Components> = {
   img: ({ alt }) => (
@@ -51,6 +52,7 @@ export function ContextWikiDreamsPane() {
 
   const dreams = useMemo(() => data?.dreams ?? [], [data]);
   const activeRun = data?.active_run ?? null;
+  const unpublishedRun = data?.unpublished_run ?? null;
   const effectiveSha =
     selectedSha && dreams.some((dream) => dream.sha === selectedSha)
       ? selectedSha
@@ -80,7 +82,7 @@ export function ContextWikiDreamsPane() {
     );
   }
 
-  if (!selectedRun && !activeRun) {
+  if (!selectedRun && !activeRun && !unpublishedRun) {
     return (
       <Empty>
         <EmptyHeader>
@@ -101,6 +103,9 @@ export function ContextWikiDreamsPane() {
     <div className="flex h-full min-h-0">
       <div className="flex w-72 shrink-0 flex-col overflow-y-auto border-(--gray-5) border-r">
         {activeRun ? <ActiveDreamListItem run={activeRun} /> : null}
+        {unpublishedRun ? (
+          <UnpublishedDreamNotice run={unpublishedRun} />
+        ) : null}
         {dreams.map((dream) => (
           <DreamListItem
             key={dream.sha}
@@ -119,9 +124,13 @@ export function ContextWikiDreamsPane() {
               <EmptyMedia variant="icon">
                 <MoonIcon size={28} />
               </EmptyMedia>
-              <EmptyTitle>Dream in progress</EmptyTitle>
+              <EmptyTitle>
+                {activeRun ? "Dream in progress" : "No published dreams yet"}
+              </EmptyTitle>
               <EmptyDescription>
-                This run will appear in the history after it lands its changes.
+                {activeRun
+                  ? "This run will appear in the history after it lands its changes."
+                  : "Open the latest task to review its outcome. Published wiki updates will appear here."}
               </EmptyDescription>
             </EmptyHeader>
           </Empty>

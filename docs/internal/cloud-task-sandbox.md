@@ -63,6 +63,8 @@ Scheduled dreams run `scripts/publish --dream <summary-file>` from the mounted w
 The helper creates the dated branch and local commit, includes the summary in the commit message, and uploads a git bundle through the context layer API.
 GitHub signed-commit tools do not apply to this local bundle repository.
 The helper reports `publish: landed` only after a successful upload, reports `publish: no changes` for an unchanged wiki, and returns a nonzero exit for failures.
+The Dreams tab also shows the latest finished task when it has no published update, with a link to the task outcome.
+A finished task can mean either no changes were needed or publication failed; task completion alone does not confirm publication.
 Direct human page editing remains available.
 This review gate applies to server-minted task and loop tokens. Human/API credentials keep their existing permissions.
 
