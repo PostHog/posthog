@@ -38,9 +38,11 @@ const ProviderMappings: Record<
         accessSecretLabel: 'Access secret',
     },
     azure: {
+        // The host names the storage account and the first path segment names the container — two
+        // different values, so the example has to keep them visibly distinct.
         fileUrlPatternPlaceholder:
-            'https://your-storage-container.blob.core.windows.net/airbyte/stripe/invoices/*.parquet',
-        accessKeyPlaceholder: 'your-storage-container',
+            'eg: https://your-storage-account.blob.core.windows.net/your-container/stripe/invoices/*.parquet',
+        accessKeyPlaceholder: 'eg: yourstorageaccount',
         accessKeyLabel: 'Storage account name',
         accessSecretLabel: 'Account key',
     },
@@ -176,6 +178,13 @@ export function SelfManagedSourceForm({ onUpdate }: Props): JSX.Element {
                         />
                     )}
                 </LemonField>
+                {provider === 'azure' && (
+                    <div className="text-xs text-secondary">
+                        Find your storage account name and account key in the Azure portal, under the storage account's{' '}
+                        <strong>Security + networking → Access keys</strong>. The storage account name is the first part
+                        of the blob URL above, and the container is the segment right after it.
+                    </div>
+                )}
                 {provider === 'google-cloud' && (
                     <div className="text-xs text-secondary">
                         We use HMAC keys to access your Google Cloud Storage. Find more about generating them{' '}
