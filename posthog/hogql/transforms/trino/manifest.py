@@ -33,7 +33,9 @@ from posthog.hogql.database.models import (
 from posthog.hogql.database.trino_locator import TrinoTableLocator
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.placeholders import find_placeholders
-from posthog.hogql.printer.utils import prepare_and_print_ast, print_prepared_ast
+from posthog.hogql.printer.trino_hogql import TrinoHogQLPrinter
+from posthog.hogql.printer.utils import prepare_and_print_ast
+from posthog.hogql.resolver import resolve_types
 from posthog.hogql.resolver_utils import extract_select_queries
 from posthog.hogql.transforms.trino.errors import TrinoLoweringError
 from posthog.hogql.visitor import TraversingVisitor, clone_expr
@@ -418,7 +420,8 @@ def transpile_hogql_to_trino_with_database(
     print_columns: list[str] = []
     if include_hogql:
         hogql_context = create_context()
-        hogql, prepared_hogql = prepare_and_print_ast(clone_expr(node), hogql_context, dialect="hogql")
+        prepared_hogql = resolve_types(clone_expr(node), hogql_context, dialect="trino")
+        hogql = TrinoHogQLPrinter(context=hogql_context).visit(prepared_hogql)
         if isinstance(prepared_hogql, ast.SelectQuery | ast.SelectSetQuery):
             columns_query = (
                 next(extract_select_queries(prepared_hogql))
@@ -429,10 +432,8 @@ def transpile_hogql_to_trino_with_database(
                 if isinstance(select_node, ast.Alias):
                     print_columns.append(select_node.alias)
                 else:
-                    stack = [prepared_hogql] if isinstance(prepared_hogql, ast.SelectQuery) else None
-                    print_columns.append(
-                        print_prepared_ast(node=select_node, context=hogql_context, dialect="hogql", stack=stack)
-                    )
+                    stack: list[ast.AST] = [prepared_hogql] if isinstance(prepared_hogql, ast.SelectQuery) else []
+                    print_columns.append(TrinoHogQLPrinter(context=hogql_context, stack=stack).visit(select_node))
     sql, _ = prepare_and_print_ast(node, context, dialect="trino", pretty=pretty)
     return TrinoManifestTranspilerResult(
         sql=sql, values=dict(context.values), hogql=hogql, print_columns=tuple(print_columns)
