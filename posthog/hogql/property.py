@@ -1113,6 +1113,7 @@ def property_to_expr(
         "event", "person", "group", "session", "replay", "replay_entity", "revenue_analytics", "log_resource"
     ] = "event",
     strict: bool = False,
+    cohort_via_distinct_id: bool = False,
 ) -> ast.Expr:
     if isinstance(property, dict):
         is_behavioral = property.get("type") == "behavioral"
@@ -1128,7 +1129,10 @@ def property_to_expr(
                 raise QueryError(f"Invalid behavioral property filter: {e}")
             return ast.Constant(value=1)
     elif isinstance(property, list):
-        properties = [property_to_expr(p, team, scope, strict=strict) for p in property]
+        properties = [
+            property_to_expr(p, team, scope, strict=strict, cohort_via_distinct_id=cohort_via_distinct_id)
+            for p in property
+        ]
         if len(properties) == 0:
             return ast.Constant(value=1)
         if len(properties) == 1:
@@ -1159,12 +1163,24 @@ def property_to_expr(
         if len(property.values) == 0:
             return ast.Constant(value=1)
         if len(property.values) == 1:
-            return property_to_expr(property.values[0], team, scope, strict=strict)
+            return property_to_expr(
+                property.values[0], team, scope, strict=strict, cohort_via_distinct_id=cohort_via_distinct_id
+            )
 
         if property.type == PropertyOperatorType.AND or property.type == FilterLogicalOperator.AND_:
-            return ast.And(exprs=[property_to_expr(p, team, scope, strict=strict) for p in property.values])
+            return ast.And(
+                exprs=[
+                    property_to_expr(p, team, scope, strict=strict, cohort_via_distinct_id=cohort_via_distinct_id)
+                    for p in property.values
+                ]
+            )
         else:
-            return ast.Or(exprs=[property_to_expr(p, team, scope, strict=strict) for p in property.values])
+            return ast.Or(
+                exprs=[
+                    property_to_expr(p, team, scope, strict=strict, cohort_via_distinct_id=cohort_via_distinct_id)
+                    for p in property.values
+                ]
+            )
     elif isinstance(property, EmptyPropertyFilter):
         return ast.Constant(value=1)
     elif isinstance(property, FlagPropertyFilter):
@@ -1571,14 +1587,30 @@ def property_to_expr(
         if not isinstance(property.value, (str, int)):
             raise ValidationError("Cohort property value must be a cohort ID")
         cohort = Cohort.objects.get(team__project_id=team.project_id, id=property.value)
+        # Kludge: negation is outdated but still used in places
+        negated = property.negation or property.operator == PropertyOperator.NOT_IN.value
+
+        if cohort_via_distinct_id:
+            # `person_id` on a warehouse table can be an alias of the configured `distinct_id_field`,
+            # which holds arbitrary strings. Cohort membership is defined over person UUIDs, so
+            # comparing the two makes ClickHouse parse those strings as UUIDs and fail the query.
+            return ast.CompareOperation(
+                left=ast.Field(chain=["distinct_id"]),
+                op=(ast.CompareOperationOp.NotIn if negated else ast.CompareOperationOp.In),
+                right=ast.SelectQuery(
+                    select=[ast.Field(chain=["distinct_id"])],
+                    select_from=ast.JoinExpr(table=ast.Field(chain=["person_distinct_ids"])),
+                    where=ast.CompareOperation(
+                        left=ast.Field(chain=["person_id"]),
+                        op=ast.CompareOperationOp.InCohort,
+                        right=ast.Constant(value=cohort.pk),
+                    ),
+                ),
+            )
+
         return ast.CompareOperation(
             left=ast.Field(chain=["id" if scope == "person" else "person_id"]),
-            op=(
-                ast.CompareOperationOp.NotInCohort
-                # Kludge: negation is outdated but still used in places
-                if property.negation or property.operator == PropertyOperator.NOT_IN.value
-                else ast.CompareOperationOp.InCohort
-            ),
+            op=(ast.CompareOperationOp.NotInCohort if negated else ast.CompareOperationOp.InCohort),
             right=ast.Constant(value=cohort.pk),
         )
 

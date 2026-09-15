@@ -267,6 +267,7 @@ def first_pageview_aware_properties_to_expr(
     modifiers: Optional[HogQLQueryModifiers],
     date_range: "QueryDateRange",
     timings: Optional[HogQLTimings] = None,
+    cohort_via_distinct_id: bool = False,
 ) -> ast.Expr:
     """`property_to_expr`, with session-entry attribution filters rewritten.
 
@@ -281,7 +282,7 @@ def first_pageview_aware_properties_to_expr(
     """
     rewritable = rewritable_session_filters(properties)
     if not (modifiers and modifiers.webAnalyticsFirstPageviewFilters) or not rewritable:
-        return property_to_expr(properties, team)
+        return property_to_expr(properties, team, cohort_via_distinct_id=cohort_via_distinct_id)
 
     inside_periods = parse_expr(
         "timestamp >= {date_from} AND timestamp <= {date_to}",
@@ -303,4 +304,5 @@ def first_pageview_aware_properties_to_expr(
             ),
         ],
         team,
+        cohort_via_distinct_id=cohort_via_distinct_id,
     )

@@ -41,6 +41,7 @@ from posthog.hogql.timings import HogQLTimings
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.instance_setting import override_instance_config
 
+from products.cohorts.backend.models.cohort import Cohort
 from products.data_tools.backend.models.join import DataWarehouseJoin
 from products.product_analytics.backend.hogql_queries.trends.trends_query_builder import TrendsQueryBuilder
 from products.product_analytics.backend.hogql_queries.trends.trends_query_runner import TrendsQueryRunner
@@ -264,6 +265,38 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
         assert response.columns is not None
         assert set(response.columns).issubset({"date", "total"})
         assert response.results[0][1] == [1, 0, 0, 0, 0, 0, 0]
+
+    def test_trends_cohort_property_matches_through_distinct_id(self):
+        table_name = self.setup_data_warehouse()
+
+        # `id` holds "1".."4", which ClickHouse cannot parse as the person UUIDs a cohort holds.
+        _create_person(team_id=self.team.pk, distinct_ids=["2"], properties={"$os": "Chrome"})
+        flush_persons_and_events()
+        cohort = Cohort.objects.create(
+            team=self.team,
+            groups=[{"properties": [{"key": "$os", "value": "Chrome", "type": "person"}]}],
+        )
+        cohort.calculate_people_ch(pending_version=0)
+
+        trends_query = TrendsQuery(
+            kind="TrendsQuery",
+            dateRange=DateRange(date_from="2023-01-01"),
+            series=[
+                DataWarehouseNode(
+                    id=table_name,
+                    table_name=table_name,
+                    id_field="id",
+                    timestamp_field="created",
+                    distinct_id_field="id",
+                    properties=[{"type": "cohort", "key": "id", "value": cohort.pk}],
+                )
+            ],
+        )
+
+        with time_machine.travel("2023-01-07", tick=False):
+            response = self.get_response(trends_query=trends_query)
+
+        assert response.results[0][1] == [0, 1, 0, 0, 0, 0, 0]
 
     def _avg_view_setup(self, function_name: str):
         from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
