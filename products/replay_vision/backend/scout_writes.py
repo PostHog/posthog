@@ -87,7 +87,6 @@ def check_scout_scanner_credit_limit(
             "provider",
             "model",
             "experiment_targeting",
-            "emits_signals",
         }
         changes_cost = any(field in attrs and attrs[field] != getattr(instance, field) for field in cost_fields)
         if attrs.get("enabled", instance.enabled) and changes_cost:

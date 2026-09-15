@@ -54,6 +54,18 @@ class TestScoutScannerCreditLimit(SimpleTestCase):
             ),
             ("unchanged_cost_field", {"credit_limit": None, "sampling_rate": 0.1}, {"sampling_rate": 0.1}, True),
             (
+                "enable_signals_without_a_limit",
+                {"credit_limit": None, "enabled": True, "emits_signals": False},
+                {"emits_signals": True},
+                True,
+            ),
+            (
+                "disable_signals_without_a_limit",
+                {"credit_limit": None, "enabled": True, "emits_signals": True},
+                {"emits_signals": False},
+                True,
+            ),
+            (
                 "disable_and_change",
                 {"credit_limit": None, "sampling_rate": 0.1},
                 {"sampling_rate": 1.0, "enabled": False},
