@@ -66,6 +66,14 @@ export const MaintainerScout: Story = {
     ),
 }
 
+export const ScannerMaintainerScout: Story = {
+    render: () => (
+        <div className="max-w-md p-4">
+            <ControlledPicker compact initialScopes={['replay_scanner:write']} />
+        </div>
+    ),
+}
+
 export const CannotEdit: Story = {
     render: () => (
         <div className="max-w-md p-4">
