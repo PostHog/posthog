@@ -47,6 +47,7 @@ from products.stamphog.backend.temporal.activities import (
     run_review_in_sandbox,
 )
 from products.stamphog.backend.temporal.constants import (
+    SANDBOX_RETRY_POLICY,
     STAMPHOG_SANDBOX_CONTEXT_PATH,
     STAMPHOG_SANDBOX_REPO_DIR,
     SandboxPhaseError,
@@ -253,6 +254,9 @@ def test_failure_once_the_sandbox_exists_is_not_retried(team, stamphog_chain: St
     # stamphog:read can read run.error, and this phase reads an untrusted PR head.
     assert run.error == "SandboxPhaseError: the sandbox phase failed with RuntimeError"
     assert "modal refused the box" not in (run.error or "")
+    # The marker only saves a run from a second bill while the policy excludes it and retries the rest.
+    assert SANDBOX_RETRY_POLICY.maximum_attempts > 1
+    assert SandboxPhaseError.__name__ in (SANDBOX_RETRY_POLICY.non_retryable_error_types or [])
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
@@ -603,11 +607,14 @@ def test_hosted_review_fails_closed_without_gateway_instead_of_anthropic_fallbac
 _GO_GATEWAY_SETTINGS = {"AI_GATEWAY_URL": "https://ai-gateway.test/v1", "AI_GATEWAY_API_KEY": "phs_stamphog_mint"}
 
 
-def _mint_response(status_code: int, payload: dict | None = None, text: str = "") -> MagicMock:
+def _mint_response(
+    status_code: int, payload: dict | None = None, text: str = "", headers: dict | None = None
+) -> MagicMock:
     response = MagicMock()
     response.status_code = status_code
     response.json.return_value = payload if payload is not None else {}
     response.text = text
+    response.headers = headers or {}
     return response
 
 
@@ -678,7 +685,8 @@ def test_sandbox_gets_a_scoped_gateway_token_when_the_go_gateway_is_configured(
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
 def test_hosted_review_fails_closed_when_the_scoped_token_mint_fails(team, stamphog_chain: StamphogChain) -> None:
-    # A mint outage retries once and then fails the run: no sandbox, never a shared-key fallback.
+    # A mint outage is retried with backoff and then fails the run: no sandbox, never a shared-key
+    # fallback.
     # Nothing was paid for, so the failure stays retryable (not SandboxPhaseError).
     _repo_config(team.id)
     event = _register_review(stamphog_chain, 114, "sha114a")
@@ -695,9 +703,40 @@ def test_hosted_review_fails_closed_when_the_scoped_token_mint_fails(team, stamp
     assert run.status == ReviewRunStatus.FAILED
     assert "gateway" in (run.error or "").lower()
     assert "HTTP 503" in (run.error or "")
-    assert mint.call_count == 2
+    assert mint.call_count == activities._MINT_ATTEMPTS
     assert not stamphog_chain.sandbox_class.created_configs
     assert not (run.error or "").startswith("SandboxPhaseError")
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_scoped_token_mint_waits_out_a_rate_limit_and_obeys_retry_after(team, stamphog_chain: StamphogChain) -> None:
+    # A rate-limited mint must not cost the review. The mint costs nothing, so it waits as long as the
+    # gateway asked and then keeps trying, and only a burst longer than every attempt fails the run.
+    _repo_config(team.id)
+    event = _register_review(stamphog_chain, 123, "sha123a")
+    mint = MagicMock(
+        side_effect=[
+            _mint_response(429, text="slow down", headers={"Retry-After": "7"}),
+            _mint_response(429, text="slow down"),
+            _mint_response(201, {"token": "phe_run"}),
+            _mint_response(200, {"revoked": True}),
+        ]
+    )
+    sleeps: list[float] = []
+
+    with (
+        override_settings(**_GO_GATEWAY_SETTINGS),
+        patch.object(activities.requests, "post", mint),
+        patch.object(activities.time, "sleep", side_effect=sleeps.append),
+    ):
+        stamphog_chain.post_webhook(event, delivery_id=str(uuid.uuid4()))
+
+    run = ReviewRun.objects.for_team(team.id).latest("created_at")
+    assert run.status == ReviewRunStatus.COMPLETED
+    assert stamphog_chain.sandbox_class.created_configs[0].environment_variables["AI_GATEWAY_API_KEY"] == "phe_run"
+    # The header wins the first wait; the second grows on its own, jittered but bounded.
+    assert sleeps[0] == 7.0
+    assert 2.0 <= sleeps[1] <= 2.5
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
