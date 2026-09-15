@@ -186,19 +186,19 @@ def _recently_tolerated_count(repo_id: UUID, identifiers: list[str], since: date
     """Distinct identifiers with at least one intentional toleration in the window."""
     if not identifiers:
         return 0
-    return len(_intentional_tolerations(repo_id, identifiers, since).values_list("identifier", flat=True).distinct())
+    return _intentional_tolerations(repo_id, identifiers, since).values("identifier").distinct().count()
 
 
 def _frequently_tolerated_count(repo_id: UUID, identifiers: list[str], since: datetime) -> int:
     """Distinct identifiers tolerated repeatedly in the window."""
     if not identifiers:
         return 0
-    return len(
+    return (
         _intentional_tolerations(repo_id, identifiers, since)
         .values("identifier")
         .annotate(c=Count("id"))
         .filter(c__gte=_FREQUENT_TOLERATE_MIN)
-        .values_list("identifier", flat=True)
+        .count()
     )
 
 
