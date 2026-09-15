@@ -54,3 +54,4 @@ heatmaps_ingestion
 ingestion-clientwarnings-main-1
 log_entries
 plugin_log_entries
+session_recording_snapshot_item_events

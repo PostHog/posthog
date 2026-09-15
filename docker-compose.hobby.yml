@@ -633,6 +633,15 @@ services:
                         fi
                     fi
                 done
+                # The replay snapshot topic is a transport buffer a healthy consumer drains within
+                # seconds. Bound it so a stalled ingestion-sessionreplay can't grow it until the
+                # disk fills and takes the broker — and everything on it — down.
+                if rpk topic alter-config session_recording_snapshot_item_events --brokers kafka:9092 \
+                    --set retention.ms=86400000 --set retention.bytes=53687091200; then
+                    echo "Applied retention caps to session_recording_snapshot_item_events"
+                else
+                    echo "Failed to apply retention caps to session_recording_snapshot_item_events"
+                fi
                 echo "Final topic list:"
                 rpk topic list --brokers kafka:9092
                 echo "Topics ready"
