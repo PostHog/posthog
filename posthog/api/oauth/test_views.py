@@ -47,7 +47,7 @@ from posthog.models.oauth import (
     revoke_oauth_session,
 )
 from posthog.models.team.team import Team
-from posthog.scopes import get_oauth_scopes_supported
+from posthog.scopes import ALWAYS_ALLOWED_SCOPES, get_oauth_scopes_supported
 from posthog.settings.utils import generate_rsa_private_key_pem
 from posthog.utils import absolute_uri
 
@@ -267,6 +267,48 @@ class TestOAuthAPI(APIBaseTest):
                 "scopes": ["openid", "notebook:read", "notebook:write", "query:read"],
             },
         )
+
+    @parameterized.expand(
+        [
+            ("truncated", "insight:read canvas:read can", ["canvas:read", "insight:read", "notebook:read"], True),
+            ("complete", "insight:read canvas:read", ["canvas:read", "insight:read"], False),
+        ]
+    )
+    @patch("posthog.api.oauth.views.render_template")
+    def test_authorize_resolves_scopes_for_the_consent_screen(
+        self, _name, requested_scope, expected_resource_scopes, expected_was_defaulted, mock_render
+    ):
+        mock_render.return_value = HttpResponse(status=status.HTTP_200_OK)
+        self.confidential_application.scopes = ["insight:read", "canvas:read", "notebook:read"]
+        self.confidential_application.save()
+
+        response = self.client.get(f"{self.base_authorization_url}&scope={quote(requested_scope)}")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        template_context = mock_render.call_args.kwargs["context"]
+        self.assertEqual(
+            template_context["oauth_scope_resolution"],
+            {
+                "scopes": sorted(set(expected_resource_scopes) | ALWAYS_ALLOWED_SCOPES)
+                if expected_was_defaulted
+                else expected_resource_scopes,
+                "was_defaulted": expected_was_defaulted,
+            },
+        )
+
+    def test_authorize_bootstraps_the_resolved_scopes_into_the_app_context(self):
+        self.confidential_application.scopes = ["insight:read", "canvas:read"]
+        self.confidential_application.save()
+
+        response = self.client.get(f"{self.base_authorization_url}&scope={quote('insight:read can')}")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        # The serialized bootstrap, not the view's own template context: `_build_template_context`
+        # forwards only an allowlist of caller-provided keys, and a key it omits never reaches the
+        # frontend.
+        resolution = json.loads(response.context["posthog_app_context"])["oauth_scope_resolution"]
+        self.assertEqual(resolution["scopes"], sorted({"insight:read", "canvas:read"} | ALWAYS_ALLOWED_SCOPES))
+        self.assertTrue(resolution["was_defaulted"])
 
     @patch("posthog.api.oauth.views.render_template")
     def test_authorize_omits_mcp_consent_for_untrusted_resource(self, mock_render):

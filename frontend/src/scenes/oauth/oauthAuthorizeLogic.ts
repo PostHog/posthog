@@ -896,8 +896,9 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
         const handleAuthorize = (_: Record<string, any>, searchParams: Record<string, any>): void => {
             const requestedScopes = searchParams['scope']?.split(' ')?.filter((scope: string) => scope.length) ?? []
             const oauthMcpConsent = getAppContext()?.oauth_mcp_consent
+            const scopeResolution = getAppContext()?.oauth_scope_resolution
 
-            const scopesWereDefaulted = requestedScopes.length === 0
+            const scopesWereDefaulted = scopeResolution?.was_defaulted ?? requestedScopes.length === 0
 
             const rawRequiredAccessLevel = searchParams['required_access_level'] as 'organization' | 'project' | null
             const requiredAccessLevel = rawRequiredAccessLevel === 'project' ? 'team' : rawRequiredAccessLevel
@@ -914,14 +915,16 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
             actions.loadAllTeams()
 
             if (scopesWereDefaulted && oauthMcpConsent?.is_mcp_resource) {
+                // The MCP branch narrows the resolved set to the scopes MCP tools actually
+                // require, so an app with a broad ceiling doesn't consent to more than the
+                // resource server can use.
                 actions.setIsMcpResource(true)
                 actions.setScopes(oauthMcpConsent.scopes ?? DEFAULT_OAUTH_SCOPES)
-            } else if (scopesWereDefaulted) {
-                actions.setIsMcpResource(false)
-                actions.setScopes(DEFAULT_OAUTH_SCOPES)
             } else {
                 actions.setIsMcpResource(false)
-                actions.setScopes(requestedScopes)
+                actions.setScopes(
+                    scopeResolution?.scopes ?? (requestedScopes.length ? requestedScopes : DEFAULT_OAUTH_SCOPES)
+                )
             }
         }
 
