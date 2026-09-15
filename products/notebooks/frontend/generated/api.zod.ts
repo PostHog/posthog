@@ -391,7 +391,9 @@ export const NotebooksKernelConfigCreateBody = /* @__PURE__ */ zod.object({
     idle_timeout_seconds: zod
         .number()
         .optional()
-        .describe('Seconds of inactivity before the sandbox kernel shuts down.'),
+        .describe(
+            'Maximum lifetime of the sandbox kernel in seconds. It shuts down this long after it starts, even while in use. A running kernel keeps its current lifetime until it restarts.'
+        ),
 })
 
 /**
