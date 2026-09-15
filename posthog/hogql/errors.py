@@ -82,6 +82,12 @@ class TableAccessDeniedError(QueryError):
         self.table_name = table_name
 
 
+class ViewDepthExceededError(QueryError):
+    """The query nests data warehouse views deeper than the resolver inlines them."""
+
+    code_name = "hogql_view_depth_exceeded"
+
+
 class NotImplementedError(InternalHogQLError):
     """This feature isn't implemented in HogQL (yet)."""
 

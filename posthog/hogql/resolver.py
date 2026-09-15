@@ -9,7 +9,7 @@ import re2
 from posthog.hogql import ast
 from posthog.hogql.ast import ConstantType, FieldTraverserType
 from posthog.hogql.base import _T_AST
-from posthog.hogql.constants import SQL_TARGET_DIALECTS, HogQLDialect
+from posthog.hogql.constants import MAX_VIEW_DEPTH, SQL_TARGET_DIALECTS, HogQLDialect
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.direct_clickhouse_table import DirectClickHouseTable
@@ -25,7 +25,13 @@ from posthog.hogql.database.schema.duckdb_table_functions import (
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.persons import PersonsTable
 from posthog.hogql.database.trino_unnest_table import resolve_internal_trino_table_function
-from posthog.hogql.errors import ImpossibleASTError, NotImplementedError, QueryError, ResolutionError
+from posthog.hogql.errors import (
+    ImpossibleASTError,
+    NotImplementedError,
+    QueryError,
+    ResolutionError,
+    ViewDepthExceededError,
+)
 from posthog.hogql.escape_sql import safe_identifier
 from posthog.hogql.functions import find_hogql_posthog_function
 from posthog.hogql.functions.action import matches_action
@@ -382,6 +388,8 @@ class Resolver(CloningVisitor):
         self.scopes: list[ast.SelectQueryType] = scopes or []
         self.ctes: dict[str, ast.CTE] = {}
         self.current_view_depth: int = 0
+        # set by visit_join_expr when it inlines a view, consumed by the body visit that follows
+        self._inlining_view_body: bool = False
         self.context = context
         self.dialect = dialect
         self.database = context.database
@@ -1385,7 +1393,12 @@ class Resolver(CloningVisitor):
                 database_table = lower_trino_table(database_table, self.context)
 
             if isinstance(database_table, SavedQuery):
-                self.current_view_depth += 1
+                # the body visit below holds the depth, so look ahead by one
+                if self.current_view_depth + 1 > MAX_VIEW_DEPTH:
+                    raise ViewDepthExceededError(
+                        f'View "{database_table.name}" is nested more than {MAX_VIEW_DEPTH} views deep. '
+                        "Check that no view in the chain reads itself, directly or through another view."
+                    )
 
                 node.table = parse_select(str(database_table.query))
 
@@ -1393,10 +1406,8 @@ class Resolver(CloningVisitor):
                     node.table.view_name = database_table.name
 
                 node.alias = table_alias or database_table.name
-                node = self.visit(node)
-
-                self.current_view_depth -= 1
-                return node
+                self._inlining_view_body = True
+                return self.visit(node)
 
             if isinstance(database_table, LazyTable):
                 if isinstance(database_table, PersonsTable):
@@ -1510,6 +1521,9 @@ class Resolver(CloningVisitor):
             return node
 
         elif isinstance(node.table, ast.SelectQuery) or isinstance(node.table, ast.SelectSetQuery):
+            inlining_view_body = self._inlining_view_body
+            self._inlining_view_body = False
+
             node = cast(ast.JoinExpr, clone_expr(node))
             if node.constraint and node.constraint.constraint_type == "USING":
                 # visit USING constraint before adding the table to avoid ambiguous names
@@ -1517,7 +1531,16 @@ class Resolver(CloningVisitor):
             if node.alias is None and self._join_chain_has_using(node):
                 node.alias = self._synthesize_using_join_alias(scope)
 
-            node.table = cast("ast.SelectQuery | ast.SelectSetQuery", super().visit(node.table))
+            # An inlined view body is one level of nesting. The tables joined after it, which the
+            # node.next_join visit below resolves in the same walk, are not. So the depth must
+            # cover the body visit alone.
+            if inlining_view_body:
+                self.current_view_depth += 1
+            try:
+                node.table = cast("ast.SelectQuery | ast.SelectSetQuery", super().visit(node.table))
+            finally:
+                if inlining_view_body:
+                    self.current_view_depth -= 1
 
             # Remap column names if column_aliases is provided (e.g. AS v(id, name))
             if node.column_aliases and node.table.type:
