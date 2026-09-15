@@ -496,11 +496,14 @@ export const ManyColumns: Story = {
                         throw new Error('Inline editor controls must stay inside the cell')
                     }
                 }
-                if (
-                    save.getBoundingClientRect().top < input.getBoundingClientRect().bottom ||
-                    save.getBoundingClientRect().top !== cancel.getBoundingClientRect().top
-                ) {
+                const inputBounds = input.getBoundingClientRect()
+                const saveBounds = save.getBoundingClientRect()
+                const cancelBounds = cancel.getBoundingClientRect()
+                if (saveBounds.top < inputBounds.bottom || saveBounds.top !== cancelBounds.top) {
                     throw new Error('Save and Cancel must wrap together below the input in narrow columns')
+                }
+                if (cancelBounds.right <= inputBounds.right) {
+                    throw new Error('Save and Cancel must align to the right of the available cell space')
                 }
                 if (cellBounds.width !== originalWidth) {
                     throw new Error('Inline editing must not widen the column')

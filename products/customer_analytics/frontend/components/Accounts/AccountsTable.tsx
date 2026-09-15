@@ -606,7 +606,7 @@ function CustomPropertyCell({
                 </div>
                 {!isDatePicker && (
                     <div
-                        className={`flex shrink-0 items-center ${definition.display_type === 'boolean' ? 'gap-2' : 'gap-1'}`}
+                        className={`ml-auto flex shrink-0 items-center ${definition.display_type === 'boolean' ? 'gap-2' : 'gap-1'}`}
                     >
                         <LemonButton
                             type="primary"

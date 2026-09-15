@@ -55,5 +55,5 @@ Automatic sizing uses the existing resized-table layout and does not change scro
 
 The `ManyColumns` story in `AccountsTab.stories.tsx` covers six added custom properties alongside native and relationship columns.
 Its browser assertions check content-dependent widths, the 200px cap, horizontal scrolling, and the row expansion control.
-At narrow widths, it also covers custom-property inline editing: the input fits the available column width, and Save and Cancel stay together below it when needed.
+At narrow widths, it also covers custom-property inline editing: the input fits the available column width, and Save and Cancel stay together below it when needed, aligned to the right.
 The row grows without widening the column.
