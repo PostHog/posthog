@@ -84,6 +84,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     PostgresProducer,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.s3.writer import S3BatchWriter
+from products.warehouse_sources.backend.temporal.data_imports.sync_failure_events import produce_sync_failed_events
 from products.warehouse_sources.backend.temporal.data_imports.util import NonRetryableException
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.create_job_model import (
     _build_schema_snapshot,
@@ -1712,10 +1713,12 @@ class CDCExtractActivity:
                 self._create_failure_visibility_jobs(friendly)
             except Exception:
                 self.log.warning("cdc_failure_visibility_jobs_failed", exc_info=True)
-        # mark_cdc_broken schedules the digest itself; every other terminal failure schedules it
-        # here, mirroring what update_external_job_status does for non-CDC syncs.
+        # mark_cdc_broken schedules the digest and produces the sync failed events itself; every other
+        # terminal failure does both here, mirroring what update_external_job_status does for non-CDC syncs.
         if terminal and not marked_broken:
             self._schedule_failure_digest()
+            if self.source is not None:
+                produce_sync_failed_events(self.source, self.cdc_schemas, friendly)
         # An unclassified failure stays retryable and never pauses the schedule, so a deterministic
         # one re-fails every scheduled run indefinitely. Only _capture_non_retryable emits analytics,
         # so these never reach error triage — capture the terminal case so the taxonomy can be taught
