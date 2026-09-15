@@ -22,9 +22,7 @@ import type {
   AnalyticsUserGroups,
 } from "@posthog/ui/shell/analytics";
 import { logger } from "@posthog/ui/shell/logger";
-import {
-  getApiBaseHost,
-} from "./apiBaseHostRegistry";
+import { getApiBaseHost } from "./apiBaseHostRegistry";
 
 const log = logger.scope("analytics");
 
