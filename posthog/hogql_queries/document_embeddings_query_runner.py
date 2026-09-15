@@ -1,3 +1,4 @@
+import re
 import datetime
 from collections.abc import Callable
 from typing import Literal
@@ -18,6 +19,9 @@ from posthog.hogql.constants import LimitContext
 from posthog.hogql_queries.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.utils import relative_date_parse
+
+# `relative_date_parse` also accepts dates without zero-padding, e.g. 2021-1-1
+DATE_ONLY_RE = re.compile(r"^\d{4}-\d{1,2}-\d{1,2}$")
 
 
 class DocumentEmbeddingsQueryRunner(AnalyticsQueryRunner[DocumentSimilarityQueryResponse]):
@@ -53,7 +57,13 @@ class DocumentEmbeddingsQueryRunner(AnalyticsQueryRunner[DocumentSimilarityQuery
         if date == "all":
             raise ValueError("Invalid date range")
 
-        return relative_date_parse(date, ZoneInfo("UTC"), increase=True)
+        parsed = relative_date_parse(date, ZoneInfo("UTC"), increase=True)
+        # A bare `YYYY-MM-DD` parses to midnight, which would drop that whole day. Every other query
+        # runner treats a date-only `date_to` as inclusive of the day, so match that here.
+        if DATE_ONLY_RE.match(date):
+            return parsed.replace(hour=23, minute=59, second=59, microsecond=999999)
+
+        return parsed
 
     def _calculate(self) -> DocumentSimilarityQueryResponse:
         with self.timings.measure("document_embeddings_query_hogql_execute"):
