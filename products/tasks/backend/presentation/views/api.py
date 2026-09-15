@@ -2805,17 +2805,10 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         token = tasks_facade.create_task_run_stream_read_token(pk, task_id, self.team_id)
         if stream_info is None or token is None:
             raise NotFound()
-        # Only the Django read leg serves the durable backlog, so thin-tail runs must
-        # not be routed to the agent-proxy — a proxy reader would silently lose
-        # everything behind the 500-entry live window.
-        stream_base_url = (
-            None
-            if run_stream_thin_tail(stream_info.state)
-            else tasks_facade.resolve_stream_base_url(
-                distinct_id=request.user.distinct_id,
-                organization_id=self.team.organization_id,
-                force_proxy=tasks_facade.task_uses_pi_runtime(task_id, self.team_id),
-            )
+        stream_base_url = tasks_facade.resolve_stream_base_url(
+            distinct_id=request.user.distinct_id,
+            organization_id=self.team.organization_id,
+            force_proxy=tasks_facade.task_uses_pi_runtime(task_id, self.team_id),
         )
         return Response(StreamReadTokenResponseSerializer({"token": token, "stream_base_url": stream_base_url}).data)
 
