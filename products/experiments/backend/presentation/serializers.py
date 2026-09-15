@@ -356,6 +356,8 @@ class ExperimentSerializer(ExperimentBaseSerializer):
             "'funnel' (set series to an array of EventsNode steps), "
             "'ratio' (set numerator and denominator EventsNode entries), or "
             "'retention' (set start_event and completion_event). "
+            "Any metric source can instead read a data warehouse table: set kind='ExperimentDataWarehouseNode' "
+            "with table_name, timestamp_field, events_join_key and data_warehouse_join_key. "
             "Use the read-data-schema tool with query kind 'events' to find available events in the project."
         ),
     )

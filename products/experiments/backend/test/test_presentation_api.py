@@ -45,7 +45,7 @@ from products.experiments.backend.models.experiment import (
 )
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.experiments.backend.models.web_experiment import WebExperiment
-from products.experiments.backend.presentation.serializers import ExperimentSerializer
+from products.experiments.backend.presentation.serializers import ExperimentSerializer, _ExperimentApiMetricsList
 from products.experiments.backend.presentation.views import LIST_DEFERRED_FIELDS, EnterpriseExperimentsViewSet
 from products.feature_flags.backend.models.evaluation_context import EvaluationContext, FeatureFlagEvaluationContext
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -8923,6 +8923,101 @@ class TestExperimentApiExposureCriteriaParity(unittest.TestCase):
             "Generated write clients (MCP, frontend) strip these silently — add them to the slim API "
             "type in frontend/src/queries/schema/schema-general.ts and rerun hogli build:schema.",
         )
+
+
+class TestExperimentWarehouseMetric(APILicensedTest):
+    """The slim API metric schema must carry data warehouse sources.
+
+    ``metrics`` is a plain JSONField, so the backend has always stored a warehouse metric.
+    The write contract generated clients (MCP, frontend) hold comes from ``ExperimentApiMetric``.
+    While that type described event sources only, a client could read a warehouse metric back
+    from the API and then fail to write the very same metric again.
+    """
+
+    WAREHOUSE_METRIC = {
+        "kind": "ExperimentMetric",
+        "metric_type": "mean",
+        "name": "Revenue per charge",
+        "source": {
+            "kind": "ExperimentDataWarehouseNode",
+            "table_name": "stripe_charges",
+            "timestamp_field": "created_at",
+            "events_join_key": "distinct_id",
+            "data_warehouse_join_key": "customer_id",
+            "math": "sum",
+            "math_property": "amount",
+            "properties": [{"key": "status", "value": ["succeeded"], "operator": "exact", "type": "data_warehouse"}],
+        },
+    }
+
+    @parameterized.expand(
+        [
+            ("source",),
+            ("series",),
+            ("numerator",),
+            ("denominator",),
+            ("start_event",),
+            ("completion_event",),
+        ]
+    )
+    def test_api_metric_source_accepts_warehouse_node(self, field: str) -> None:
+        from posthog.schema import ExperimentApiDataWarehouseSource, ExperimentApiMetric
+
+        annotation = repr(ExperimentApiMetric.model_fields[field].annotation)
+        self.assertIn(
+            ExperimentApiDataWarehouseSource.__name__,
+            annotation,
+            f"ExperimentApiMetric.{field} omits the warehouse source, so generated write clients "
+            "reject a metric the API itself returns. Widen the slim API type in "
+            "frontend/src/queries/schema/schema-general.ts and rerun hogli build:schema.",
+        )
+
+    def test_api_warehouse_source_exposes_every_required_field(self) -> None:
+        from posthog.schema import ExperimentApiDataWarehouseSource, ExperimentDataWarehouseNode
+
+        required = {name for name, field in ExperimentDataWarehouseNode.model_fields.items() if field.is_required()}
+        dropped = required - set(ExperimentApiDataWarehouseSource.model_fields)
+        self.assertFalse(
+            dropped,
+            f"ExperimentApiDataWarehouseSource omits warehouse fields the runtime requires: {dropped}. "
+            "Generated write clients strip these silently.",
+        )
+
+    def test_running_experiment_warehouse_metric_survives_read_modify_write(self) -> None:
+        create = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Warehouse revenue",
+                "feature_flag_key": "warehouse-revenue",
+                "start_date": "2026-01-01T00:00:00Z",
+                "metrics": [self.WAREHOUSE_METRIC],
+            },
+        )
+        self.assertEqual(create.status_code, status.HTTP_201_CREATED, create.json())
+        experiment_id = create.json()["id"]
+
+        read = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment_id}/")
+        self.assertEqual(read.status_code, status.HTTP_200_OK)
+        # `fingerprint` is computed on read and absent from the write contract, which strips it.
+        metrics = [
+            {key: value for key, value in metric.items() if key != "fingerprint"} for metric in read.json()["metrics"]
+        ]
+        # The read-modify-write a generated client performs: the metrics it just read must
+        # validate against the schema its write body is generated from.
+        _ExperimentApiMetricsList.model_validate(metrics)
+
+        write = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/",
+            {"metrics": [{**metrics[0], "name": "Revenue per charge (v2)"}]},
+        )
+        self.assertEqual(write.status_code, status.HTTP_200_OK, write.json())
+        source = write.json()["metrics"][0]["source"]
+        self.assertEqual(source["kind"], "ExperimentDataWarehouseNode")
+        self.assertEqual(source["table_name"], "stripe_charges")
+        self.assertEqual(source["timestamp_field"], "created_at")
+        self.assertEqual(source["events_join_key"], "distinct_id")
+        self.assertEqual(source["data_warehouse_join_key"], "customer_id")
+        self.assertEqual(source["properties"][0]["type"], "data_warehouse")
 
 
 class TestExperimentConcurrency(_HoistFlagConfigClientMixin, APILicensedTest):

@@ -24026,6 +24026,57 @@
             "required": ["kind", "source"],
             "type": "object"
         },
+        "ExperimentApiDataWarehouseSource": {
+            "additionalProperties": false,
+            "description": "Slim data warehouse table source for experiment API payloads.",
+            "properties": {
+                "data_warehouse_join_key": {
+                    "description": "Table-side column to join on, e.g. 'customer_id'.",
+                    "type": "string"
+                },
+                "events_join_key": {
+                    "description": "Event-side column to join on, e.g. 'distinct_id'.",
+                    "type": "string"
+                },
+                "kind": {
+                    "const": "ExperimentDataWarehouseNode",
+                    "type": "string"
+                },
+                "math": {
+                    "$ref": "#/definitions/ExperimentMetricMathType",
+                    "description": "How to aggregate this source. Defaults to 'total' (row count). Use 'sum' together with math_property to aggregate a numeric column — e.g. revenue per charge."
+                },
+                "math_hogql": {
+                    "description": "HogQL aggregation expression. Required when math is 'hogql'.",
+                    "type": "string"
+                },
+                "math_property": {
+                    "description": "Numeric table column to aggregate when math is 'sum', 'avg', 'min', or 'max'.",
+                    "type": "string"
+                },
+                "name": {
+                    "description": "Display name for the source.",
+                    "type": "string"
+                },
+                "properties": {
+                    "description": "Filters on the table's own columns.",
+                    "items": {
+                        "$ref": "#/definitions/DataWarehousePropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "table_name": {
+                    "description": "Data warehouse table to read from, e.g. 'stripe_charges'.",
+                    "type": "string"
+                },
+                "timestamp_field": {
+                    "description": "Table column that holds the row timestamp, e.g. 'created_at'.",
+                    "type": "string"
+                }
+            },
+            "required": ["kind", "table_name", "timestamp_field", "events_join_key", "data_warehouse_join_key"],
+            "type": "object"
+        },
         "ExperimentApiEventSource": {
             "additionalProperties": false,
             "description": "Slim event/action source for experiment API payloads.",
@@ -24125,7 +24176,7 @@
             "description": "Experiment metric for API create/update. All metric-type-specific fields are optional; discriminated by metric_type at runtime.",
             "properties": {
                 "completion_event": {
-                    "$ref": "#/definitions/ExperimentApiEventSource",
+                    "$ref": "#/definitions/ExperimentApiMetricSource",
                     "description": "For retention metrics: completion event."
                 },
                 "conversion_window": {
@@ -24133,7 +24184,7 @@
                     "description": "Conversion window duration."
                 },
                 "denominator": {
-                    "$ref": "#/definitions/ExperimentApiEventSource",
+                    "$ref": "#/definitions/ExperimentApiMetricSource",
                     "description": "For ratio metrics: denominator source."
                 },
                 "denominator_outlier_handling": {
@@ -24166,7 +24217,7 @@
                     "type": "string"
                 },
                 "numerator": {
-                    "$ref": "#/definitions/ExperimentApiEventSource",
+                    "$ref": "#/definitions/ExperimentApiMetricSource",
                     "description": "For ratio metrics: numerator source."
                 },
                 "numerator_outlier_handling": {
@@ -24183,18 +24234,18 @@
                     "$ref": "#/definitions/FunnelConversionWindowTimeUnit"
                 },
                 "series": {
-                    "description": "For funnel metrics: array of EventsNode/ActionsNode steps.",
+                    "description": "For funnel metrics: array of EventsNode/ActionsNode/ExperimentDataWarehouseNode steps.",
                     "items": {
-                        "$ref": "#/definitions/ExperimentApiEventSource"
+                        "$ref": "#/definitions/ExperimentApiMetricSource"
                     },
                     "type": "array"
                 },
                 "source": {
-                    "$ref": "#/definitions/ExperimentApiEventSource",
-                    "description": "For mean metrics: event source."
+                    "$ref": "#/definitions/ExperimentApiMetricSource",
+                    "description": "For mean metrics: metric source."
                 },
                 "start_event": {
-                    "$ref": "#/definitions/ExperimentApiEventSource",
+                    "$ref": "#/definitions/ExperimentApiMetricSource",
                     "description": "For retention metrics: start event."
                 },
                 "start_handling": {
@@ -24218,6 +24269,17 @@
             },
             "required": ["kind", "metric_type"],
             "type": "object"
+        },
+        "ExperimentApiMetricSource": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/ExperimentApiEventSource"
+                },
+                {
+                    "$ref": "#/definitions/ExperimentApiDataWarehouseSource"
+                }
+            ],
+            "description": "Slim metric source for experiment API payloads: an event, an action, or a warehouse table."
         },
         "ExperimentBreakdownResult": {
             "additionalProperties": false,

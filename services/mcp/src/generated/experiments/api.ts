@@ -853,8 +853,12 @@ export const experimentsCreateBodyExposureCriteriaOneExposureConfigOneProperties
 export const experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwofourTypeDefault = `behavioral`
 export const experimentsCreateBodyMetricsOneItemCompletionEventOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsCreateBodyMetricsOneItemCompletionEventOnePropertiesOneItemTypeDefault = `event`
+export const experimentsCreateBodyMetricsOneItemCompletionEventTwoKindDefault = `ExperimentDataWarehouseNode`
+export const experimentsCreateBodyMetricsOneItemCompletionEventTwoPropertiesOneItemTypeDefault = `data_warehouse`
 export const experimentsCreateBodyMetricsOneItemDenominatorOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsCreateBodyMetricsOneItemDenominatorOnePropertiesOneItemTypeDefault = `event`
+export const experimentsCreateBodyMetricsOneItemDenominatorTwoKindDefault = `ExperimentDataWarehouseNode`
+export const experimentsCreateBodyMetricsOneItemDenominatorTwoPropertiesOneItemTypeDefault = `data_warehouse`
 export const experimentsCreateBodyMetricsOneItemDenominatorOutlierHandlingOneLowerBoundPercentileOneMin = 0
 export const experimentsCreateBodyMetricsOneItemDenominatorOutlierHandlingOneLowerBoundPercentileOneMax = 1
 
@@ -867,25 +871,37 @@ export const experimentsCreateBodyMetricsOneItemLowerBoundPercentileOneMax = 1
 
 export const experimentsCreateBodyMetricsOneItemNumeratorOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsCreateBodyMetricsOneItemNumeratorOnePropertiesOneItemTypeDefault = `event`
+export const experimentsCreateBodyMetricsOneItemNumeratorTwoKindDefault = `ExperimentDataWarehouseNode`
+export const experimentsCreateBodyMetricsOneItemNumeratorTwoPropertiesOneItemTypeDefault = `data_warehouse`
 export const experimentsCreateBodyMetricsOneItemNumeratorOutlierHandlingOneLowerBoundPercentileOneMin = 0
 export const experimentsCreateBodyMetricsOneItemNumeratorOutlierHandlingOneLowerBoundPercentileOneMax = 1
 
 export const experimentsCreateBodyMetricsOneItemNumeratorOutlierHandlingOneUpperBoundPercentileOneMin = 0
 export const experimentsCreateBodyMetricsOneItemNumeratorOutlierHandlingOneUpperBoundPercentileOneMax = 1
 
-export const experimentsCreateBodyMetricsOneItemSeriesOneItemPropertiesOneItemOperatorDefault = `exact`
-export const experimentsCreateBodyMetricsOneItemSeriesOneItemPropertiesOneItemTypeDefault = `event`
+export const experimentsCreateBodyMetricsOneItemSeriesOneItemOnePropertiesOneItemOperatorDefault = `exact`
+export const experimentsCreateBodyMetricsOneItemSeriesOneItemOnePropertiesOneItemTypeDefault = `event`
+export const experimentsCreateBodyMetricsOneItemSeriesOneItemTwoKindDefault = `ExperimentDataWarehouseNode`
+export const experimentsCreateBodyMetricsOneItemSeriesOneItemTwoPropertiesOneItemTypeDefault = `data_warehouse`
 export const experimentsCreateBodyMetricsOneItemSourceOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsCreateBodyMetricsOneItemSourceOnePropertiesOneItemTypeDefault = `event`
+export const experimentsCreateBodyMetricsOneItemSourceTwoKindDefault = `ExperimentDataWarehouseNode`
+export const experimentsCreateBodyMetricsOneItemSourceTwoPropertiesOneItemTypeDefault = `data_warehouse`
 export const experimentsCreateBodyMetricsOneItemStartEventOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsCreateBodyMetricsOneItemStartEventOnePropertiesOneItemTypeDefault = `event`
+export const experimentsCreateBodyMetricsOneItemStartEventTwoKindDefault = `ExperimentDataWarehouseNode`
+export const experimentsCreateBodyMetricsOneItemStartEventTwoPropertiesOneItemTypeDefault = `data_warehouse`
 export const experimentsCreateBodyMetricsOneItemUpperBoundPercentileOneMin = 0
 export const experimentsCreateBodyMetricsOneItemUpperBoundPercentileOneMax = 1
 
 export const experimentsCreateBodyMetricsSecondaryOneItemCompletionEventOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsCreateBodyMetricsSecondaryOneItemCompletionEventOnePropertiesOneItemTypeDefault = `event`
+export const experimentsCreateBodyMetricsSecondaryOneItemCompletionEventTwoKindDefault = `ExperimentDataWarehouseNode`
+export const experimentsCreateBodyMetricsSecondaryOneItemCompletionEventTwoPropertiesOneItemTypeDefault = `data_warehouse`
 export const experimentsCreateBodyMetricsSecondaryOneItemDenominatorOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsCreateBodyMetricsSecondaryOneItemDenominatorOnePropertiesOneItemTypeDefault = `event`
+export const experimentsCreateBodyMetricsSecondaryOneItemDenominatorTwoKindDefault = `ExperimentDataWarehouseNode`
+export const experimentsCreateBodyMetricsSecondaryOneItemDenominatorTwoPropertiesOneItemTypeDefault = `data_warehouse`
 export const experimentsCreateBodyMetricsSecondaryOneItemDenominatorOutlierHandlingOneLowerBoundPercentileOneMin = 0
 export const experimentsCreateBodyMetricsSecondaryOneItemDenominatorOutlierHandlingOneLowerBoundPercentileOneMax = 1
 
@@ -898,18 +914,26 @@ export const experimentsCreateBodyMetricsSecondaryOneItemLowerBoundPercentileOne
 
 export const experimentsCreateBodyMetricsSecondaryOneItemNumeratorOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsCreateBodyMetricsSecondaryOneItemNumeratorOnePropertiesOneItemTypeDefault = `event`
+export const experimentsCreateBodyMetricsSecondaryOneItemNumeratorTwoKindDefault = `ExperimentDataWarehouseNode`
+export const experimentsCreateBodyMetricsSecondaryOneItemNumeratorTwoPropertiesOneItemTypeDefault = `data_warehouse`
 export const experimentsCreateBodyMetricsSecondaryOneItemNumeratorOutlierHandlingOneLowerBoundPercentileOneMin = 0
 export const experimentsCreateBodyMetricsSecondaryOneItemNumeratorOutlierHandlingOneLowerBoundPercentileOneMax = 1
 
 export const experimentsCreateBodyMetricsSecondaryOneItemNumeratorOutlierHandlingOneUpperBoundPercentileOneMin = 0
 export const experimentsCreateBodyMetricsSecondaryOneItemNumeratorOutlierHandlingOneUpperBoundPercentileOneMax = 1
 
-export const experimentsCreateBodyMetricsSecondaryOneItemSeriesOneItemPropertiesOneItemOperatorDefault = `exact`
-export const experimentsCreateBodyMetricsSecondaryOneItemSeriesOneItemPropertiesOneItemTypeDefault = `event`
+export const experimentsCreateBodyMetricsSecondaryOneItemSeriesOneItemOnePropertiesOneItemOperatorDefault = `exact`
+export const experimentsCreateBodyMetricsSecondaryOneItemSeriesOneItemOnePropertiesOneItemTypeDefault = `event`
+export const experimentsCreateBodyMetricsSecondaryOneItemSeriesOneItemTwoKindDefault = `ExperimentDataWarehouseNode`
+export const experimentsCreateBodyMetricsSecondaryOneItemSeriesOneItemTwoPropertiesOneItemTypeDefault = `data_warehouse`
 export const experimentsCreateBodyMetricsSecondaryOneItemSourceOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsCreateBodyMetricsSecondaryOneItemSourceOnePropertiesOneItemTypeDefault = `event`
+export const experimentsCreateBodyMetricsSecondaryOneItemSourceTwoKindDefault = `ExperimentDataWarehouseNode`
+export const experimentsCreateBodyMetricsSecondaryOneItemSourceTwoPropertiesOneItemTypeDefault = `data_warehouse`
 export const experimentsCreateBodyMetricsSecondaryOneItemStartEventOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsCreateBodyMetricsSecondaryOneItemStartEventOnePropertiesOneItemTypeDefault = `event`
+export const experimentsCreateBodyMetricsSecondaryOneItemStartEventTwoKindDefault = `ExperimentDataWarehouseNode`
+export const experimentsCreateBodyMetricsSecondaryOneItemStartEventTwoPropertiesOneItemTypeDefault = `data_warehouse`
 export const experimentsCreateBodyMetricsSecondaryOneItemUpperBoundPercentileOneMin = 0
 export const experimentsCreateBodyMetricsSecondaryOneItemUpperBoundPercentileOneMax = 1
 
@@ -4712,6 +4736,128 @@ export const ExperimentsCreateBody = () => zod
                                             .optional()
                                             .describe('Event property filters to narrow which events are counted.'),
                                     }),
+                                    zod.object({
+                                        data_warehouse_join_key: zod
+                                            .string()
+                                            .describe("Table-side column to join on, e.g. 'customer_id'."),
+                                        events_join_key: zod
+                                            .string()
+                                            .describe("Event-side column to join on, e.g. 'distinct_id'."),
+                                        kind: zod
+                                            .literal('ExperimentDataWarehouseNode')
+                                            .default(experimentsCreateBodyMetricsOneItemCompletionEventTwoKindDefault),
+                                        math: zod
+                                            .union([
+                                                zod.enum([
+                                                    'total',
+                                                    'sum',
+                                                    'unique_session',
+                                                    'min',
+                                                    'max',
+                                                    'avg',
+                                                    'dau',
+                                                    'unique_group',
+                                                    'hogql',
+                                                ]),
+                                                zod.null(),
+                                            ])
+                                            .optional()
+                                            .describe(
+                                                "How to aggregate this source. Defaults to 'total' (row count). Use 'sum' together with math_property to aggregate a numeric column — e.g. revenue per charge."
+                                            ),
+                                        math_hogql: zod
+                                            .union([zod.string(), zod.null()])
+                                            .optional()
+                                            .describe("HogQL aggregation expression. Required when math is 'hogql'."),
+                                        math_property: zod
+                                            .union([zod.string(), zod.null()])
+                                            .optional()
+                                            .describe(
+                                                "Numeric table column to aggregate when math is 'sum', 'avg', 'min', or 'max'."
+                                            ),
+                                        name: zod
+                                            .union([zod.string(), zod.null()])
+                                            .optional()
+                                            .describe('Display name for the source.'),
+                                        properties: zod
+                                            .union([
+                                                zod.array(
+                                                    zod.object({
+                                                        key: zod.string(),
+                                                        label: zod.union([zod.string(), zod.null()]).optional(),
+                                                        operator: zod.enum([
+                                                            'exact',
+                                                            'is_not',
+                                                            'icontains',
+                                                            'not_icontains',
+                                                            'starts_with',
+                                                            'not_starts_with',
+                                                            'ends_with',
+                                                            'not_ends_with',
+                                                            'regex',
+                                                            'not_regex',
+                                                            'gt',
+                                                            'gte',
+                                                            'lt',
+                                                            'lte',
+                                                            'is_set',
+                                                            'is_not_set',
+                                                            'is_date_exact',
+                                                            'is_date_before',
+                                                            'is_date_after',
+                                                            'between',
+                                                            'not_between',
+                                                            'min',
+                                                            'max',
+                                                            'in',
+                                                            'not_in',
+                                                            'is_cleaned_path_exact',
+                                                            'flag_evaluates_to',
+                                                            'semver_eq',
+                                                            'semver_neq',
+                                                            'semver_gt',
+                                                            'semver_gte',
+                                                            'semver_lt',
+                                                            'semver_lte',
+                                                            'semver_tilde',
+                                                            'semver_caret',
+                                                            'semver_wildcard',
+                                                            'icontains_multi',
+                                                            'not_icontains_multi',
+                                                        ]),
+                                                        type: zod
+                                                            .literal('data_warehouse')
+                                                            .default(
+                                                                experimentsCreateBodyMetricsOneItemCompletionEventTwoPropertiesOneItemTypeDefault
+                                                            ),
+                                                        value: zod
+                                                            .union([
+                                                                zod.array(
+                                                                    zod.union([
+                                                                        zod.string(),
+                                                                        zod.number(),
+                                                                        zod.boolean(),
+                                                                    ])
+                                                                ),
+                                                                zod.string(),
+                                                                zod.number(),
+                                                                zod.boolean(),
+                                                                zod.null(),
+                                                            ])
+                                                            .optional(),
+                                                    })
+                                                ),
+                                                zod.null(),
+                                            ])
+                                            .optional()
+                                            .describe("Filters on the table's own columns."),
+                                        table_name: zod
+                                            .string()
+                                            .describe("Data warehouse table to read from, e.g. 'stripe_charges'."),
+                                        timestamp_field: zod
+                                            .string()
+                                            .describe("Table column that holds the row timestamp, e.g. 'created_at'."),
+                                    }),
                                     zod.null(),
                                 ])
                                 .optional()
@@ -4858,6 +5004,128 @@ export const ExperimentsCreateBody = () => zod
                                             ])
                                             .optional()
                                             .describe('Event property filters to narrow which events are counted.'),
+                                    }),
+                                    zod.object({
+                                        data_warehouse_join_key: zod
+                                            .string()
+                                            .describe("Table-side column to join on, e.g. 'customer_id'."),
+                                        events_join_key: zod
+                                            .string()
+                                            .describe("Event-side column to join on, e.g. 'distinct_id'."),
+                                        kind: zod
+                                            .literal('ExperimentDataWarehouseNode')
+                                            .default(experimentsCreateBodyMetricsOneItemDenominatorTwoKindDefault),
+                                        math: zod
+                                            .union([
+                                                zod.enum([
+                                                    'total',
+                                                    'sum',
+                                                    'unique_session',
+                                                    'min',
+                                                    'max',
+                                                    'avg',
+                                                    'dau',
+                                                    'unique_group',
+                                                    'hogql',
+                                                ]),
+                                                zod.null(),
+                                            ])
+                                            .optional()
+                                            .describe(
+                                                "How to aggregate this source. Defaults to 'total' (row count). Use 'sum' together with math_property to aggregate a numeric column — e.g. revenue per charge."
+                                            ),
+                                        math_hogql: zod
+                                            .union([zod.string(), zod.null()])
+                                            .optional()
+                                            .describe("HogQL aggregation expression. Required when math is 'hogql'."),
+                                        math_property: zod
+                                            .union([zod.string(), zod.null()])
+                                            .optional()
+                                            .describe(
+                                                "Numeric table column to aggregate when math is 'sum', 'avg', 'min', or 'max'."
+                                            ),
+                                        name: zod
+                                            .union([zod.string(), zod.null()])
+                                            .optional()
+                                            .describe('Display name for the source.'),
+                                        properties: zod
+                                            .union([
+                                                zod.array(
+                                                    zod.object({
+                                                        key: zod.string(),
+                                                        label: zod.union([zod.string(), zod.null()]).optional(),
+                                                        operator: zod.enum([
+                                                            'exact',
+                                                            'is_not',
+                                                            'icontains',
+                                                            'not_icontains',
+                                                            'starts_with',
+                                                            'not_starts_with',
+                                                            'ends_with',
+                                                            'not_ends_with',
+                                                            'regex',
+                                                            'not_regex',
+                                                            'gt',
+                                                            'gte',
+                                                            'lt',
+                                                            'lte',
+                                                            'is_set',
+                                                            'is_not_set',
+                                                            'is_date_exact',
+                                                            'is_date_before',
+                                                            'is_date_after',
+                                                            'between',
+                                                            'not_between',
+                                                            'min',
+                                                            'max',
+                                                            'in',
+                                                            'not_in',
+                                                            'is_cleaned_path_exact',
+                                                            'flag_evaluates_to',
+                                                            'semver_eq',
+                                                            'semver_neq',
+                                                            'semver_gt',
+                                                            'semver_gte',
+                                                            'semver_lt',
+                                                            'semver_lte',
+                                                            'semver_tilde',
+                                                            'semver_caret',
+                                                            'semver_wildcard',
+                                                            'icontains_multi',
+                                                            'not_icontains_multi',
+                                                        ]),
+                                                        type: zod
+                                                            .literal('data_warehouse')
+                                                            .default(
+                                                                experimentsCreateBodyMetricsOneItemDenominatorTwoPropertiesOneItemTypeDefault
+                                                            ),
+                                                        value: zod
+                                                            .union([
+                                                                zod.array(
+                                                                    zod.union([
+                                                                        zod.string(),
+                                                                        zod.number(),
+                                                                        zod.boolean(),
+                                                                    ])
+                                                                ),
+                                                                zod.string(),
+                                                                zod.number(),
+                                                                zod.boolean(),
+                                                                zod.null(),
+                                                            ])
+                                                            .optional(),
+                                                    })
+                                                ),
+                                                zod.null(),
+                                            ])
+                                            .optional()
+                                            .describe("Filters on the table's own columns."),
+                                        table_name: zod
+                                            .string()
+                                            .describe("Data warehouse table to read from, e.g. 'stripe_charges'."),
+                                        timestamp_field: zod
+                                            .string()
+                                            .describe("Table column that holds the row timestamp, e.g. 'created_at'."),
                                     }),
                                     zod.null(),
                                 ])
@@ -5075,6 +5343,128 @@ export const ExperimentsCreateBody = () => zod
                                             .optional()
                                             .describe('Event property filters to narrow which events are counted.'),
                                     }),
+                                    zod.object({
+                                        data_warehouse_join_key: zod
+                                            .string()
+                                            .describe("Table-side column to join on, e.g. 'customer_id'."),
+                                        events_join_key: zod
+                                            .string()
+                                            .describe("Event-side column to join on, e.g. 'distinct_id'."),
+                                        kind: zod
+                                            .literal('ExperimentDataWarehouseNode')
+                                            .default(experimentsCreateBodyMetricsOneItemNumeratorTwoKindDefault),
+                                        math: zod
+                                            .union([
+                                                zod.enum([
+                                                    'total',
+                                                    'sum',
+                                                    'unique_session',
+                                                    'min',
+                                                    'max',
+                                                    'avg',
+                                                    'dau',
+                                                    'unique_group',
+                                                    'hogql',
+                                                ]),
+                                                zod.null(),
+                                            ])
+                                            .optional()
+                                            .describe(
+                                                "How to aggregate this source. Defaults to 'total' (row count). Use 'sum' together with math_property to aggregate a numeric column — e.g. revenue per charge."
+                                            ),
+                                        math_hogql: zod
+                                            .union([zod.string(), zod.null()])
+                                            .optional()
+                                            .describe("HogQL aggregation expression. Required when math is 'hogql'."),
+                                        math_property: zod
+                                            .union([zod.string(), zod.null()])
+                                            .optional()
+                                            .describe(
+                                                "Numeric table column to aggregate when math is 'sum', 'avg', 'min', or 'max'."
+                                            ),
+                                        name: zod
+                                            .union([zod.string(), zod.null()])
+                                            .optional()
+                                            .describe('Display name for the source.'),
+                                        properties: zod
+                                            .union([
+                                                zod.array(
+                                                    zod.object({
+                                                        key: zod.string(),
+                                                        label: zod.union([zod.string(), zod.null()]).optional(),
+                                                        operator: zod.enum([
+                                                            'exact',
+                                                            'is_not',
+                                                            'icontains',
+                                                            'not_icontains',
+                                                            'starts_with',
+                                                            'not_starts_with',
+                                                            'ends_with',
+                                                            'not_ends_with',
+                                                            'regex',
+                                                            'not_regex',
+                                                            'gt',
+                                                            'gte',
+                                                            'lt',
+                                                            'lte',
+                                                            'is_set',
+                                                            'is_not_set',
+                                                            'is_date_exact',
+                                                            'is_date_before',
+                                                            'is_date_after',
+                                                            'between',
+                                                            'not_between',
+                                                            'min',
+                                                            'max',
+                                                            'in',
+                                                            'not_in',
+                                                            'is_cleaned_path_exact',
+                                                            'flag_evaluates_to',
+                                                            'semver_eq',
+                                                            'semver_neq',
+                                                            'semver_gt',
+                                                            'semver_gte',
+                                                            'semver_lt',
+                                                            'semver_lte',
+                                                            'semver_tilde',
+                                                            'semver_caret',
+                                                            'semver_wildcard',
+                                                            'icontains_multi',
+                                                            'not_icontains_multi',
+                                                        ]),
+                                                        type: zod
+                                                            .literal('data_warehouse')
+                                                            .default(
+                                                                experimentsCreateBodyMetricsOneItemNumeratorTwoPropertiesOneItemTypeDefault
+                                                            ),
+                                                        value: zod
+                                                            .union([
+                                                                zod.array(
+                                                                    zod.union([
+                                                                        zod.string(),
+                                                                        zod.number(),
+                                                                        zod.boolean(),
+                                                                    ])
+                                                                ),
+                                                                zod.string(),
+                                                                zod.number(),
+                                                                zod.boolean(),
+                                                                zod.null(),
+                                                            ])
+                                                            .optional(),
+                                                    })
+                                                ),
+                                                zod.null(),
+                                            ])
+                                            .optional()
+                                            .describe("Filters on the table's own columns."),
+                                        table_name: zod
+                                            .string()
+                                            .describe("Data warehouse table to read from, e.g. 'stripe_charges'."),
+                                        timestamp_field: zod
+                                            .string()
+                                            .describe("Table column that holds the row timestamp, e.g. 'created_at'."),
+                                    }),
                                     zod.null(),
                                 ])
                                 .optional()
@@ -5130,148 +5520,284 @@ export const ExperimentsCreateBody = () => zod
                             series: zod
                                 .union([
                                     zod.array(
-                                        zod.object({
-                                            event: zod
-                                                .union([zod.string(), zod.null()])
-                                                .optional()
-                                                .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
-                                            id: zod
-                                                .union([zod.number(), zod.null()])
-                                                .optional()
-                                                .describe('Action ID. Required for ActionsNode.'),
-                                            kind: zod.enum(['EventsNode', 'ActionsNode']),
-                                            math: zod
-                                                .union([
-                                                    zod.enum([
-                                                        'total',
-                                                        'sum',
-                                                        'unique_session',
-                                                        'min',
-                                                        'max',
-                                                        'avg',
-                                                        'dau',
-                                                        'unique_group',
-                                                        'hogql',
-                                                    ]),
-                                                    zod.null(),
-                                                ])
-                                                .optional()
-                                                .describe(
-                                                    "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
-                                                ),
-                                            math_group_type_index: zod
-                                                .union([
-                                                    zod.union([
-                                                        zod.literal(0),
-                                                        zod.literal(1),
-                                                        zod.literal(2),
-                                                        zod.literal(3),
-                                                        zod.literal(4),
-                                                    ]),
-                                                    zod.null(),
-                                                ])
-                                                .optional()
-                                                .describe(
-                                                    "Group type index to aggregate over. Required when math is 'unique_group'."
-                                                ),
-                                            math_hogql: zod
-                                                .union([zod.string(), zod.null()])
-                                                .optional()
-                                                .describe(
-                                                    "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
-                                                ),
-                                            math_property: zod
-                                                .union([zod.string(), zod.null()])
-                                                .optional()
-                                                .describe(
-                                                    "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue')."
-                                                ),
-                                            properties: zod
-                                                .union([
-                                                    zod.array(
-                                                        zod.object({
-                                                            key: zod.string(),
-                                                            label: zod.union([zod.string(), zod.null()]).optional(),
-                                                            operator: zod
-                                                                .union([
-                                                                    zod.enum([
-                                                                        'exact',
-                                                                        'is_not',
-                                                                        'icontains',
-                                                                        'not_icontains',
-                                                                        'starts_with',
-                                                                        'not_starts_with',
-                                                                        'ends_with',
-                                                                        'not_ends_with',
-                                                                        'regex',
-                                                                        'not_regex',
-                                                                        'gt',
-                                                                        'gte',
-                                                                        'lt',
-                                                                        'lte',
-                                                                        'is_set',
-                                                                        'is_not_set',
-                                                                        'is_date_exact',
-                                                                        'is_date_before',
-                                                                        'is_date_after',
-                                                                        'between',
-                                                                        'not_between',
-                                                                        'min',
-                                                                        'max',
-                                                                        'in',
-                                                                        'not_in',
-                                                                        'is_cleaned_path_exact',
-                                                                        'flag_evaluates_to',
-                                                                        'semver_eq',
-                                                                        'semver_neq',
-                                                                        'semver_gt',
-                                                                        'semver_gte',
-                                                                        'semver_lt',
-                                                                        'semver_lte',
-                                                                        'semver_tilde',
-                                                                        'semver_caret',
-                                                                        'semver_wildcard',
-                                                                        'icontains_multi',
-                                                                        'not_icontains_multi',
-                                                                    ]),
-                                                                    zod.null(),
-                                                                ])
-                                                                .default(
-                                                                    experimentsCreateBodyMetricsOneItemSeriesOneItemPropertiesOneItemOperatorDefault
-                                                                ),
-                                                            type: zod
-                                                                .literal('event')
-                                                                .default(
-                                                                    experimentsCreateBodyMetricsOneItemSeriesOneItemPropertiesOneItemTypeDefault
-                                                                )
-                                                                .describe('Event properties'),
-                                                            value: zod
-                                                                .union([
-                                                                    zod.array(
-                                                                        zod.union([
-                                                                            zod.string(),
-                                                                            zod.number(),
-                                                                            zod.boolean(),
-                                                                        ])
-                                                                    ),
-                                                                    zod.string(),
-                                                                    zod.number(),
-                                                                    zod.boolean(),
-                                                                    zod.null(),
-                                                                ])
-                                                                .optional(),
-                                                        })
+                                        zod.union([
+                                            zod.object({
+                                                event: zod
+                                                    .union([zod.string(), zod.null()])
+                                                    .optional()
+                                                    .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
+                                                id: zod
+                                                    .union([zod.number(), zod.null()])
+                                                    .optional()
+                                                    .describe('Action ID. Required for ActionsNode.'),
+                                                kind: zod.enum(['EventsNode', 'ActionsNode']),
+                                                math: zod
+                                                    .union([
+                                                        zod.enum([
+                                                            'total',
+                                                            'sum',
+                                                            'unique_session',
+                                                            'min',
+                                                            'max',
+                                                            'avg',
+                                                            'dau',
+                                                            'unique_group',
+                                                            'hogql',
+                                                        ]),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional()
+                                                    .describe(
+                                                        "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
                                                     ),
-                                                    zod.null(),
-                                                ])
-                                                .optional()
-                                                .describe('Event property filters to narrow which events are counted.'),
-                                        })
+                                                math_group_type_index: zod
+                                                    .union([
+                                                        zod.union([
+                                                            zod.literal(0),
+                                                            zod.literal(1),
+                                                            zod.literal(2),
+                                                            zod.literal(3),
+                                                            zod.literal(4),
+                                                        ]),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional()
+                                                    .describe(
+                                                        "Group type index to aggregate over. Required when math is 'unique_group'."
+                                                    ),
+                                                math_hogql: zod
+                                                    .union([zod.string(), zod.null()])
+                                                    .optional()
+                                                    .describe(
+                                                        "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
+                                                    ),
+                                                math_property: zod
+                                                    .union([zod.string(), zod.null()])
+                                                    .optional()
+                                                    .describe(
+                                                        "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue')."
+                                                    ),
+                                                properties: zod
+                                                    .union([
+                                                        zod.array(
+                                                            zod.object({
+                                                                key: zod.string(),
+                                                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                                                operator: zod
+                                                                    .union([
+                                                                        zod.enum([
+                                                                            'exact',
+                                                                            'is_not',
+                                                                            'icontains',
+                                                                            'not_icontains',
+                                                                            'starts_with',
+                                                                            'not_starts_with',
+                                                                            'ends_with',
+                                                                            'not_ends_with',
+                                                                            'regex',
+                                                                            'not_regex',
+                                                                            'gt',
+                                                                            'gte',
+                                                                            'lt',
+                                                                            'lte',
+                                                                            'is_set',
+                                                                            'is_not_set',
+                                                                            'is_date_exact',
+                                                                            'is_date_before',
+                                                                            'is_date_after',
+                                                                            'between',
+                                                                            'not_between',
+                                                                            'min',
+                                                                            'max',
+                                                                            'in',
+                                                                            'not_in',
+                                                                            'is_cleaned_path_exact',
+                                                                            'flag_evaluates_to',
+                                                                            'semver_eq',
+                                                                            'semver_neq',
+                                                                            'semver_gt',
+                                                                            'semver_gte',
+                                                                            'semver_lt',
+                                                                            'semver_lte',
+                                                                            'semver_tilde',
+                                                                            'semver_caret',
+                                                                            'semver_wildcard',
+                                                                            'icontains_multi',
+                                                                            'not_icontains_multi',
+                                                                        ]),
+                                                                        zod.null(),
+                                                                    ])
+                                                                    .default(
+                                                                        experimentsCreateBodyMetricsOneItemSeriesOneItemOnePropertiesOneItemOperatorDefault
+                                                                    ),
+                                                                type: zod
+                                                                    .literal('event')
+                                                                    .default(
+                                                                        experimentsCreateBodyMetricsOneItemSeriesOneItemOnePropertiesOneItemTypeDefault
+                                                                    )
+                                                                    .describe('Event properties'),
+                                                                value: zod
+                                                                    .union([
+                                                                        zod.array(
+                                                                            zod.union([
+                                                                                zod.string(),
+                                                                                zod.number(),
+                                                                                zod.boolean(),
+                                                                            ])
+                                                                        ),
+                                                                        zod.string(),
+                                                                        zod.number(),
+                                                                        zod.boolean(),
+                                                                        zod.null(),
+                                                                    ])
+                                                                    .optional(),
+                                                            })
+                                                        ),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional()
+                                                    .describe(
+                                                        'Event property filters to narrow which events are counted.'
+                                                    ),
+                                            }),
+                                            zod.object({
+                                                data_warehouse_join_key: zod
+                                                    .string()
+                                                    .describe("Table-side column to join on, e.g. 'customer_id'."),
+                                                events_join_key: zod
+                                                    .string()
+                                                    .describe("Event-side column to join on, e.g. 'distinct_id'."),
+                                                kind: zod
+                                                    .literal('ExperimentDataWarehouseNode')
+                                                    .default(
+                                                        experimentsCreateBodyMetricsOneItemSeriesOneItemTwoKindDefault
+                                                    ),
+                                                math: zod
+                                                    .union([
+                                                        zod.enum([
+                                                            'total',
+                                                            'sum',
+                                                            'unique_session',
+                                                            'min',
+                                                            'max',
+                                                            'avg',
+                                                            'dau',
+                                                            'unique_group',
+                                                            'hogql',
+                                                        ]),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional()
+                                                    .describe(
+                                                        "How to aggregate this source. Defaults to 'total' (row count). Use 'sum' together with math_property to aggregate a numeric column — e.g. revenue per charge."
+                                                    ),
+                                                math_hogql: zod
+                                                    .union([zod.string(), zod.null()])
+                                                    .optional()
+                                                    .describe(
+                                                        "HogQL aggregation expression. Required when math is 'hogql'."
+                                                    ),
+                                                math_property: zod
+                                                    .union([zod.string(), zod.null()])
+                                                    .optional()
+                                                    .describe(
+                                                        "Numeric table column to aggregate when math is 'sum', 'avg', 'min', or 'max'."
+                                                    ),
+                                                name: zod
+                                                    .union([zod.string(), zod.null()])
+                                                    .optional()
+                                                    .describe('Display name for the source.'),
+                                                properties: zod
+                                                    .union([
+                                                        zod.array(
+                                                            zod.object({
+                                                                key: zod.string(),
+                                                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                                                operator: zod.enum([
+                                                                    'exact',
+                                                                    'is_not',
+                                                                    'icontains',
+                                                                    'not_icontains',
+                                                                    'starts_with',
+                                                                    'not_starts_with',
+                                                                    'ends_with',
+                                                                    'not_ends_with',
+                                                                    'regex',
+                                                                    'not_regex',
+                                                                    'gt',
+                                                                    'gte',
+                                                                    'lt',
+                                                                    'lte',
+                                                                    'is_set',
+                                                                    'is_not_set',
+                                                                    'is_date_exact',
+                                                                    'is_date_before',
+                                                                    'is_date_after',
+                                                                    'between',
+                                                                    'not_between',
+                                                                    'min',
+                                                                    'max',
+                                                                    'in',
+                                                                    'not_in',
+                                                                    'is_cleaned_path_exact',
+                                                                    'flag_evaluates_to',
+                                                                    'semver_eq',
+                                                                    'semver_neq',
+                                                                    'semver_gt',
+                                                                    'semver_gte',
+                                                                    'semver_lt',
+                                                                    'semver_lte',
+                                                                    'semver_tilde',
+                                                                    'semver_caret',
+                                                                    'semver_wildcard',
+                                                                    'icontains_multi',
+                                                                    'not_icontains_multi',
+                                                                ]),
+                                                                type: zod
+                                                                    .literal('data_warehouse')
+                                                                    .default(
+                                                                        experimentsCreateBodyMetricsOneItemSeriesOneItemTwoPropertiesOneItemTypeDefault
+                                                                    ),
+                                                                value: zod
+                                                                    .union([
+                                                                        zod.array(
+                                                                            zod.union([
+                                                                                zod.string(),
+                                                                                zod.number(),
+                                                                                zod.boolean(),
+                                                                            ])
+                                                                        ),
+                                                                        zod.string(),
+                                                                        zod.number(),
+                                                                        zod.boolean(),
+                                                                        zod.null(),
+                                                                    ])
+                                                                    .optional(),
+                                                            })
+                                                        ),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional()
+                                                    .describe("Filters on the table's own columns."),
+                                                table_name: zod
+                                                    .string()
+                                                    .describe(
+                                                        "Data warehouse table to read from, e.g. 'stripe_charges'."
+                                                    ),
+                                                timestamp_field: zod
+                                                    .string()
+                                                    .describe(
+                                                        "Table column that holds the row timestamp, e.g. 'created_at'."
+                                                    ),
+                                            }),
+                                        ])
                                     ),
                                     zod.null(),
                                 ])
                                 .optional()
-                                .describe('For funnel metrics: array of EventsNode\/ActionsNode steps.'),
+                                .describe(
+                                    'For funnel metrics: array of EventsNode\/ActionsNode\/ExperimentDataWarehouseNode steps.'
+                                ),
                             source: zod
                                 .union([
                                     zod.object({
@@ -5411,10 +5937,132 @@ export const ExperimentsCreateBody = () => zod
                                             .optional()
                                             .describe('Event property filters to narrow which events are counted.'),
                                     }),
+                                    zod.object({
+                                        data_warehouse_join_key: zod
+                                            .string()
+                                            .describe("Table-side column to join on, e.g. 'customer_id'."),
+                                        events_join_key: zod
+                                            .string()
+                                            .describe("Event-side column to join on, e.g. 'distinct_id'."),
+                                        kind: zod
+                                            .literal('ExperimentDataWarehouseNode')
+                                            .default(experimentsCreateBodyMetricsOneItemSourceTwoKindDefault),
+                                        math: zod
+                                            .union([
+                                                zod.enum([
+                                                    'total',
+                                                    'sum',
+                                                    'unique_session',
+                                                    'min',
+                                                    'max',
+                                                    'avg',
+                                                    'dau',
+                                                    'unique_group',
+                                                    'hogql',
+                                                ]),
+                                                zod.null(),
+                                            ])
+                                            .optional()
+                                            .describe(
+                                                "How to aggregate this source. Defaults to 'total' (row count). Use 'sum' together with math_property to aggregate a numeric column — e.g. revenue per charge."
+                                            ),
+                                        math_hogql: zod
+                                            .union([zod.string(), zod.null()])
+                                            .optional()
+                                            .describe("HogQL aggregation expression. Required when math is 'hogql'."),
+                                        math_property: zod
+                                            .union([zod.string(), zod.null()])
+                                            .optional()
+                                            .describe(
+                                                "Numeric table column to aggregate when math is 'sum', 'avg', 'min', or 'max'."
+                                            ),
+                                        name: zod
+                                            .union([zod.string(), zod.null()])
+                                            .optional()
+                                            .describe('Display name for the source.'),
+                                        properties: zod
+                                            .union([
+                                                zod.array(
+                                                    zod.object({
+                                                        key: zod.string(),
+                                                        label: zod.union([zod.string(), zod.null()]).optional(),
+                                                        operator: zod.enum([
+                                                            'exact',
+                                                            'is_not',
+                                                            'icontains',
+                                                            'not_icontains',
+                                                            'starts_with',
+                                                            'not_starts_with',
+                                                            'ends_with',
+                                                            'not_ends_with',
+                                                            'regex',
+                                                            'not_regex',
+                                                            'gt',
+                                                            'gte',
+                                                            'lt',
+                                                            'lte',
+                                                            'is_set',
+                                                            'is_not_set',
+                                                            'is_date_exact',
+                                                            'is_date_before',
+                                                            'is_date_after',
+                                                            'between',
+                                                            'not_between',
+                                                            'min',
+                                                            'max',
+                                                            'in',
+                                                            'not_in',
+                                                            'is_cleaned_path_exact',
+                                                            'flag_evaluates_to',
+                                                            'semver_eq',
+                                                            'semver_neq',
+                                                            'semver_gt',
+                                                            'semver_gte',
+                                                            'semver_lt',
+                                                            'semver_lte',
+                                                            'semver_tilde',
+                                                            'semver_caret',
+                                                            'semver_wildcard',
+                                                            'icontains_multi',
+                                                            'not_icontains_multi',
+                                                        ]),
+                                                        type: zod
+                                                            .literal('data_warehouse')
+                                                            .default(
+                                                                experimentsCreateBodyMetricsOneItemSourceTwoPropertiesOneItemTypeDefault
+                                                            ),
+                                                        value: zod
+                                                            .union([
+                                                                zod.array(
+                                                                    zod.union([
+                                                                        zod.string(),
+                                                                        zod.number(),
+                                                                        zod.boolean(),
+                                                                    ])
+                                                                ),
+                                                                zod.string(),
+                                                                zod.number(),
+                                                                zod.boolean(),
+                                                                zod.null(),
+                                                            ])
+                                                            .optional(),
+                                                    })
+                                                ),
+                                                zod.null(),
+                                            ])
+                                            .optional()
+                                            .describe("Filters on the table's own columns."),
+                                        table_name: zod
+                                            .string()
+                                            .describe("Data warehouse table to read from, e.g. 'stripe_charges'."),
+                                        timestamp_field: zod
+                                            .string()
+                                            .describe("Table column that holds the row timestamp, e.g. 'created_at'."),
+                                    }),
                                     zod.null(),
                                 ])
                                 .optional()
-                                .describe('For mean metrics: event source.'),
+                                .describe('For mean metrics: metric source.'),
                             start_event: zod
                                 .union([
                                     zod.object({
@@ -5554,6 +6202,128 @@ export const ExperimentsCreateBody = () => zod
                                             .optional()
                                             .describe('Event property filters to narrow which events are counted.'),
                                     }),
+                                    zod.object({
+                                        data_warehouse_join_key: zod
+                                            .string()
+                                            .describe("Table-side column to join on, e.g. 'customer_id'."),
+                                        events_join_key: zod
+                                            .string()
+                                            .describe("Event-side column to join on, e.g. 'distinct_id'."),
+                                        kind: zod
+                                            .literal('ExperimentDataWarehouseNode')
+                                            .default(experimentsCreateBodyMetricsOneItemStartEventTwoKindDefault),
+                                        math: zod
+                                            .union([
+                                                zod.enum([
+                                                    'total',
+                                                    'sum',
+                                                    'unique_session',
+                                                    'min',
+                                                    'max',
+                                                    'avg',
+                                                    'dau',
+                                                    'unique_group',
+                                                    'hogql',
+                                                ]),
+                                                zod.null(),
+                                            ])
+                                            .optional()
+                                            .describe(
+                                                "How to aggregate this source. Defaults to 'total' (row count). Use 'sum' together with math_property to aggregate a numeric column — e.g. revenue per charge."
+                                            ),
+                                        math_hogql: zod
+                                            .union([zod.string(), zod.null()])
+                                            .optional()
+                                            .describe("HogQL aggregation expression. Required when math is 'hogql'."),
+                                        math_property: zod
+                                            .union([zod.string(), zod.null()])
+                                            .optional()
+                                            .describe(
+                                                "Numeric table column to aggregate when math is 'sum', 'avg', 'min', or 'max'."
+                                            ),
+                                        name: zod
+                                            .union([zod.string(), zod.null()])
+                                            .optional()
+                                            .describe('Display name for the source.'),
+                                        properties: zod
+                                            .union([
+                                                zod.array(
+                                                    zod.object({
+                                                        key: zod.string(),
+                                                        label: zod.union([zod.string(), zod.null()]).optional(),
+                                                        operator: zod.enum([
+                                                            'exact',
+                                                            'is_not',
+                                                            'icontains',
+                                                            'not_icontains',
+                                                            'starts_with',
+                                                            'not_starts_with',
+                                                            'ends_with',
+                                                            'not_ends_with',
+                                                            'regex',
+                                                            'not_regex',
+                                                            'gt',
+                                                            'gte',
+                                                            'lt',
+                                                            'lte',
+                                                            'is_set',
+                                                            'is_not_set',
+                                                            'is_date_exact',
+                                                            'is_date_before',
+                                                            'is_date_after',
+                                                            'between',
+                                                            'not_between',
+                                                            'min',
+                                                            'max',
+                                                            'in',
+                                                            'not_in',
+                                                            'is_cleaned_path_exact',
+                                                            'flag_evaluates_to',
+                                                            'semver_eq',
+                                                            'semver_neq',
+                                                            'semver_gt',
+                                                            'semver_gte',
+                                                            'semver_lt',
+                                                            'semver_lte',
+                                                            'semver_tilde',
+                                                            'semver_caret',
+                                                            'semver_wildcard',
+                                                            'icontains_multi',
+                                                            'not_icontains_multi',
+                                                        ]),
+                                                        type: zod
+                                                            .literal('data_warehouse')
+                                                            .default(
+                                                                experimentsCreateBodyMetricsOneItemStartEventTwoPropertiesOneItemTypeDefault
+                                                            ),
+                                                        value: zod
+                                                            .union([
+                                                                zod.array(
+                                                                    zod.union([
+                                                                        zod.string(),
+                                                                        zod.number(),
+                                                                        zod.boolean(),
+                                                                    ])
+                                                                ),
+                                                                zod.string(),
+                                                                zod.number(),
+                                                                zod.boolean(),
+                                                                zod.null(),
+                                                            ])
+                                                            .optional(),
+                                                    })
+                                                ),
+                                                zod.null(),
+                                            ])
+                                            .optional()
+                                            .describe("Filters on the table's own columns."),
+                                        table_name: zod
+                                            .string()
+                                            .describe("Data warehouse table to read from, e.g. 'stripe_charges'."),
+                                        timestamp_field: zod
+                                            .string()
+                                            .describe("Table column that holds the row timestamp, e.g. 'created_at'."),
+                                    }),
                                     zod.null(),
                                 ])
                                 .optional()
@@ -5588,7 +6358,7 @@ export const ExperimentsCreateBody = () => zod
             ])
             .optional()
             .describe(
-                "Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event). Use the read-data-schema tool with query kind 'events' to find available events in the project."
+                "Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event). Any metric source can instead read a data warehouse table: set kind='ExperimentDataWarehouseNode' with table_name, timestamp_field, events_join_key and data_warehouse_join_key. Use the read-data-schema tool with query kind 'events' to find available events in the project."
             ),
         metrics_secondary: zod
             .union([
@@ -5733,6 +6503,130 @@ export const ExperimentsCreateBody = () => zod
                                             ])
                                             .optional()
                                             .describe('Event property filters to narrow which events are counted.'),
+                                    }),
+                                    zod.object({
+                                        data_warehouse_join_key: zod
+                                            .string()
+                                            .describe("Table-side column to join on, e.g. 'customer_id'."),
+                                        events_join_key: zod
+                                            .string()
+                                            .describe("Event-side column to join on, e.g. 'distinct_id'."),
+                                        kind: zod
+                                            .literal('ExperimentDataWarehouseNode')
+                                            .default(
+                                                experimentsCreateBodyMetricsSecondaryOneItemCompletionEventTwoKindDefault
+                                            ),
+                                        math: zod
+                                            .union([
+                                                zod.enum([
+                                                    'total',
+                                                    'sum',
+                                                    'unique_session',
+                                                    'min',
+                                                    'max',
+                                                    'avg',
+                                                    'dau',
+                                                    'unique_group',
+                                                    'hogql',
+                                                ]),
+                                                zod.null(),
+                                            ])
+                                            .optional()
+                                            .describe(
+                                                "How to aggregate this source. Defaults to 'total' (row count). Use 'sum' together with math_property to aggregate a numeric column — e.g. revenue per charge."
+                                            ),
+                                        math_hogql: zod
+                                            .union([zod.string(), zod.null()])
+                                            .optional()
+                                            .describe("HogQL aggregation expression. Required when math is 'hogql'."),
+                                        math_property: zod
+                                            .union([zod.string(), zod.null()])
+                                            .optional()
+                                            .describe(
+                                                "Numeric table column to aggregate when math is 'sum', 'avg', 'min', or 'max'."
+                                            ),
+                                        name: zod
+                                            .union([zod.string(), zod.null()])
+                                            .optional()
+                                            .describe('Display name for the source.'),
+                                        properties: zod
+                                            .union([
+                                                zod.array(
+                                                    zod.object({
+                                                        key: zod.string(),
+                                                        label: zod.union([zod.string(), zod.null()]).optional(),
+                                                        operator: zod.enum([
+                                                            'exact',
+                                                            'is_not',
+                                                            'icontains',
+                                                            'not_icontains',
+                                                            'starts_with',
+                                                            'not_starts_with',
+                                                            'ends_with',
+                                                            'not_ends_with',
+                                                            'regex',
+                                                            'not_regex',
+                                                            'gt',
+                                                            'gte',
+                                                            'lt',
+                                                            'lte',
+                                                            'is_set',
+                                                            'is_not_set',
+                                                            'is_date_exact',
+                                                            'is_date_before',
+                                                            'is_date_after',
+                                                            'between',
+                                                            'not_between',
+                                                            'min',
+                                                            'max',
+                                                            'in',
+                                                            'not_in',
+                                                            'is_cleaned_path_exact',
+                                                            'flag_evaluates_to',
+                                                            'semver_eq',
+                                                            'semver_neq',
+                                                            'semver_gt',
+                                                            'semver_gte',
+                                                            'semver_lt',
+                                                            'semver_lte',
+                                                            'semver_tilde',
+                                                            'semver_caret',
+                                                            'semver_wildcard',
+                                                            'icontains_multi',
+                                                            'not_icontains_multi',
+                                                        ]),
+                                                        type: zod
+                                                            .literal('data_warehouse')
+                                                            .default(
+                                                                experimentsCreateBodyMetricsSecondaryOneItemCompletionEventTwoPropertiesOneItemTypeDefault
+                                                            ),
+                                                        value: zod
+                                                            .union([
+                                                                zod.array(
+                                                                    zod.union([
+                                                                        zod.string(),
+                                                                        zod.number(),
+                                                                        zod.boolean(),
+                                                                    ])
+                                                                ),
+                                                                zod.string(),
+                                                                zod.number(),
+                                                                zod.boolean(),
+                                                                zod.null(),
+                                                            ])
+                                                            .optional(),
+                                                    })
+                                                ),
+                                                zod.null(),
+                                            ])
+                                            .optional()
+                                            .describe("Filters on the table's own columns."),
+                                        table_name: zod
+                                            .string()
+                                            .describe("Data warehouse table to read from, e.g. 'stripe_charges'."),
+                                        timestamp_field: zod
+                                            .string()
+                                            .describe("Table column that holds the row timestamp, e.g. 'created_at'."),
                                     }),
                                     zod.null(),
                                 ])
@@ -5880,6 +6774,130 @@ export const ExperimentsCreateBody = () => zod
                                             ])
                                             .optional()
                                             .describe('Event property filters to narrow which events are counted.'),
+                                    }),
+                                    zod.object({
+                                        data_warehouse_join_key: zod
+                                            .string()
+                                            .describe("Table-side column to join on, e.g. 'customer_id'."),
+                                        events_join_key: zod
+                                            .string()
+                                            .describe("Event-side column to join on, e.g. 'distinct_id'."),
+                                        kind: zod
+                                            .literal('ExperimentDataWarehouseNode')
+                                            .default(
+                                                experimentsCreateBodyMetricsSecondaryOneItemDenominatorTwoKindDefault
+                                            ),
+                                        math: zod
+                                            .union([
+                                                zod.enum([
+                                                    'total',
+                                                    'sum',
+                                                    'unique_session',
+                                                    'min',
+                                                    'max',
+                                                    'avg',
+                                                    'dau',
+                                                    'unique_group',
+                                                    'hogql',
+                                                ]),
+                                                zod.null(),
+                                            ])
+                                            .optional()
+                                            .describe(
+                                                "How to aggregate this source. Defaults to 'total' (row count). Use 'sum' together with math_property to aggregate a numeric column — e.g. revenue per charge."
+                                            ),
+                                        math_hogql: zod
+                                            .union([zod.string(), zod.null()])
+                                            .optional()
+                                            .describe("HogQL aggregation expression. Required when math is 'hogql'."),
+                                        math_property: zod
+                                            .union([zod.string(), zod.null()])
+                                            .optional()
+                                            .describe(
+                                                "Numeric table column to aggregate when math is 'sum', 'avg', 'min', or 'max'."
+                                            ),
+                                        name: zod
+                                            .union([zod.string(), zod.null()])
+                                            .optional()
+                                            .describe('Display name for the source.'),
+                                        properties: zod
+                                            .union([
+                                                zod.array(
+                                                    zod.object({
+                                                        key: zod.string(),
+                                                        label: zod.union([zod.string(), zod.null()]).optional(),
+                                                        operator: zod.enum([
+                                                            'exact',
+                                                            'is_not',
+                                                            'icontains',
+                                                            'not_icontains',
+                                                            'starts_with',
+                                                            'not_starts_with',
+                                                            'ends_with',
+                                                            'not_ends_with',
+                                                            'regex',
+                                                            'not_regex',
+                                                            'gt',
+                                                            'gte',
+                                                            'lt',
+                                                            'lte',
+                                                            'is_set',
+                                                            'is_not_set',
+                                                            'is_date_exact',
+                                                            'is_date_before',
+                                                            'is_date_after',
+                                                            'between',
+                                                            'not_between',
+                                                            'min',
+                                                            'max',
+                                                            'in',
+                                                            'not_in',
+                                                            'is_cleaned_path_exact',
+                                                            'flag_evaluates_to',
+                                                            'semver_eq',
+                                                            'semver_neq',
+                                                            'semver_gt',
+                                                            'semver_gte',
+                                                            'semver_lt',
+                                                            'semver_lte',
+                                                            'semver_tilde',
+                                                            'semver_caret',
+                                                            'semver_wildcard',
+                                                            'icontains_multi',
+                                                            'not_icontains_multi',
+                                                        ]),
+                                                        type: zod
+                                                            .literal('data_warehouse')
+                                                            .default(
+                                                                experimentsCreateBodyMetricsSecondaryOneItemDenominatorTwoPropertiesOneItemTypeDefault
+                                                            ),
+                                                        value: zod
+                                                            .union([
+                                                                zod.array(
+                                                                    zod.union([
+                                                                        zod.string(),
+                                                                        zod.number(),
+                                                                        zod.boolean(),
+                                                                    ])
+                                                                ),
+                                                                zod.string(),
+                                                                zod.number(),
+                                                                zod.boolean(),
+                                                                zod.null(),
+                                                            ])
+                                                            .optional(),
+                                                    })
+                                                ),
+                                                zod.null(),
+                                            ])
+                                            .optional()
+                                            .describe("Filters on the table's own columns."),
+                                        table_name: zod
+                                            .string()
+                                            .describe("Data warehouse table to read from, e.g. 'stripe_charges'."),
+                                        timestamp_field: zod
+                                            .string()
+                                            .describe("Table column that holds the row timestamp, e.g. 'created_at'."),
                                     }),
                                     zod.null(),
                                 ])
@@ -6097,6 +7115,130 @@ export const ExperimentsCreateBody = () => zod
                                             .optional()
                                             .describe('Event property filters to narrow which events are counted.'),
                                     }),
+                                    zod.object({
+                                        data_warehouse_join_key: zod
+                                            .string()
+                                            .describe("Table-side column to join on, e.g. 'customer_id'."),
+                                        events_join_key: zod
+                                            .string()
+                                            .describe("Event-side column to join on, e.g. 'distinct_id'."),
+                                        kind: zod
+                                            .literal('ExperimentDataWarehouseNode')
+                                            .default(
+                                                experimentsCreateBodyMetricsSecondaryOneItemNumeratorTwoKindDefault
+                                            ),
+                                        math: zod
+                                            .union([
+                                                zod.enum([
+                                                    'total',
+                                                    'sum',
+                                                    'unique_session',
+                                                    'min',
+                                                    'max',
+                                                    'avg',
+                                                    'dau',
+                                                    'unique_group',
+                                                    'hogql',
+                                                ]),
+                                                zod.null(),
+                                            ])
+                                            .optional()
+                                            .describe(
+                                                "How to aggregate this source. Defaults to 'total' (row count). Use 'sum' together with math_property to aggregate a numeric column — e.g. revenue per charge."
+                                            ),
+                                        math_hogql: zod
+                                            .union([zod.string(), zod.null()])
+                                            .optional()
+                                            .describe("HogQL aggregation expression. Required when math is 'hogql'."),
+                                        math_property: zod
+                                            .union([zod.string(), zod.null()])
+                                            .optional()
+                                            .describe(
+                                                "Numeric table column to aggregate when math is 'sum', 'avg', 'min', or 'max'."
+                                            ),
+                                        name: zod
+                                            .union([zod.string(), zod.null()])
+                                            .optional()
+                                            .describe('Display name for the source.'),
+                                        properties: zod
+                                            .union([
+                                                zod.array(
+                                                    zod.object({
+                                                        key: zod.string(),
+                                                        label: zod.union([zod.string(), zod.null()]).optional(),
+                                                        operator: zod.enum([
+                                                            'exact',
+                                                            'is_not',
+                                                            'icontains',
+                                                            'not_icontains',
+                                                            'starts_with',
+                                                            'not_starts_with',
+                                                            'ends_with',
+                                                            'not_ends_with',
+                                                            'regex',
+                                                            'not_regex',
+                                                            'gt',
+                                                            'gte',
+                                                            'lt',
+                                                            'lte',
+                                                            'is_set',
+                                                            'is_not_set',
+                                                            'is_date_exact',
+                                                            'is_date_before',
+                                                            'is_date_after',
+                                                            'between',
+                                                            'not_between',
+                                                            'min',
+                                                            'max',
+                                                            'in',
+                                                            'not_in',
+                                                            'is_cleaned_path_exact',
+                                                            'flag_evaluates_to',
+                                                            'semver_eq',
+                                                            'semver_neq',
+                                                            'semver_gt',
+                                                            'semver_gte',
+                                                            'semver_lt',
+                                                            'semver_lte',
+                                                            'semver_tilde',
+                                                            'semver_caret',
+                                                            'semver_wildcard',
+                                                            'icontains_multi',
+                                                            'not_icontains_multi',
+                                                        ]),
+                                                        type: zod
+                                                            .literal('data_warehouse')
+                                                            .default(
+                                                                experimentsCreateBodyMetricsSecondaryOneItemNumeratorTwoPropertiesOneItemTypeDefault
+                                                            ),
+                                                        value: zod
+                                                            .union([
+                                                                zod.array(
+                                                                    zod.union([
+                                                                        zod.string(),
+                                                                        zod.number(),
+                                                                        zod.boolean(),
+                                                                    ])
+                                                                ),
+                                                                zod.string(),
+                                                                zod.number(),
+                                                                zod.boolean(),
+                                                                zod.null(),
+                                                            ])
+                                                            .optional(),
+                                                    })
+                                                ),
+                                                zod.null(),
+                                            ])
+                                            .optional()
+                                            .describe("Filters on the table's own columns."),
+                                        table_name: zod
+                                            .string()
+                                            .describe("Data warehouse table to read from, e.g. 'stripe_charges'."),
+                                        timestamp_field: zod
+                                            .string()
+                                            .describe("Table column that holds the row timestamp, e.g. 'created_at'."),
+                                    }),
                                     zod.null(),
                                 ])
                                 .optional()
@@ -6152,148 +7294,284 @@ export const ExperimentsCreateBody = () => zod
                             series: zod
                                 .union([
                                     zod.array(
-                                        zod.object({
-                                            event: zod
-                                                .union([zod.string(), zod.null()])
-                                                .optional()
-                                                .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
-                                            id: zod
-                                                .union([zod.number(), zod.null()])
-                                                .optional()
-                                                .describe('Action ID. Required for ActionsNode.'),
-                                            kind: zod.enum(['EventsNode', 'ActionsNode']),
-                                            math: zod
-                                                .union([
-                                                    zod.enum([
-                                                        'total',
-                                                        'sum',
-                                                        'unique_session',
-                                                        'min',
-                                                        'max',
-                                                        'avg',
-                                                        'dau',
-                                                        'unique_group',
-                                                        'hogql',
-                                                    ]),
-                                                    zod.null(),
-                                                ])
-                                                .optional()
-                                                .describe(
-                                                    "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
-                                                ),
-                                            math_group_type_index: zod
-                                                .union([
-                                                    zod.union([
-                                                        zod.literal(0),
-                                                        zod.literal(1),
-                                                        zod.literal(2),
-                                                        zod.literal(3),
-                                                        zod.literal(4),
-                                                    ]),
-                                                    zod.null(),
-                                                ])
-                                                .optional()
-                                                .describe(
-                                                    "Group type index to aggregate over. Required when math is 'unique_group'."
-                                                ),
-                                            math_hogql: zod
-                                                .union([zod.string(), zod.null()])
-                                                .optional()
-                                                .describe(
-                                                    "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
-                                                ),
-                                            math_property: zod
-                                                .union([zod.string(), zod.null()])
-                                                .optional()
-                                                .describe(
-                                                    "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue')."
-                                                ),
-                                            properties: zod
-                                                .union([
-                                                    zod.array(
-                                                        zod.object({
-                                                            key: zod.string(),
-                                                            label: zod.union([zod.string(), zod.null()]).optional(),
-                                                            operator: zod
-                                                                .union([
-                                                                    zod.enum([
-                                                                        'exact',
-                                                                        'is_not',
-                                                                        'icontains',
-                                                                        'not_icontains',
-                                                                        'starts_with',
-                                                                        'not_starts_with',
-                                                                        'ends_with',
-                                                                        'not_ends_with',
-                                                                        'regex',
-                                                                        'not_regex',
-                                                                        'gt',
-                                                                        'gte',
-                                                                        'lt',
-                                                                        'lte',
-                                                                        'is_set',
-                                                                        'is_not_set',
-                                                                        'is_date_exact',
-                                                                        'is_date_before',
-                                                                        'is_date_after',
-                                                                        'between',
-                                                                        'not_between',
-                                                                        'min',
-                                                                        'max',
-                                                                        'in',
-                                                                        'not_in',
-                                                                        'is_cleaned_path_exact',
-                                                                        'flag_evaluates_to',
-                                                                        'semver_eq',
-                                                                        'semver_neq',
-                                                                        'semver_gt',
-                                                                        'semver_gte',
-                                                                        'semver_lt',
-                                                                        'semver_lte',
-                                                                        'semver_tilde',
-                                                                        'semver_caret',
-                                                                        'semver_wildcard',
-                                                                        'icontains_multi',
-                                                                        'not_icontains_multi',
-                                                                    ]),
-                                                                    zod.null(),
-                                                                ])
-                                                                .default(
-                                                                    experimentsCreateBodyMetricsSecondaryOneItemSeriesOneItemPropertiesOneItemOperatorDefault
-                                                                ),
-                                                            type: zod
-                                                                .literal('event')
-                                                                .default(
-                                                                    experimentsCreateBodyMetricsSecondaryOneItemSeriesOneItemPropertiesOneItemTypeDefault
-                                                                )
-                                                                .describe('Event properties'),
-                                                            value: zod
-                                                                .union([
-                                                                    zod.array(
-                                                                        zod.union([
-                                                                            zod.string(),
-                                                                            zod.number(),
-                                                                            zod.boolean(),
-                                                                        ])
-                                                                    ),
-                                                                    zod.string(),
-                                                                    zod.number(),
-                                                                    zod.boolean(),
-                                                                    zod.null(),
-                                                                ])
-                                                                .optional(),
-                                                        })
+                                        zod.union([
+                                            zod.object({
+                                                event: zod
+                                                    .union([zod.string(), zod.null()])
+                                                    .optional()
+                                                    .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
+                                                id: zod
+                                                    .union([zod.number(), zod.null()])
+                                                    .optional()
+                                                    .describe('Action ID. Required for ActionsNode.'),
+                                                kind: zod.enum(['EventsNode', 'ActionsNode']),
+                                                math: zod
+                                                    .union([
+                                                        zod.enum([
+                                                            'total',
+                                                            'sum',
+                                                            'unique_session',
+                                                            'min',
+                                                            'max',
+                                                            'avg',
+                                                            'dau',
+                                                            'unique_group',
+                                                            'hogql',
+                                                        ]),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional()
+                                                    .describe(
+                                                        "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
                                                     ),
-                                                    zod.null(),
-                                                ])
-                                                .optional()
-                                                .describe('Event property filters to narrow which events are counted.'),
-                                        })
+                                                math_group_type_index: zod
+                                                    .union([
+                                                        zod.union([
+                                                            zod.literal(0),
+                                                            zod.literal(1),
+                                                            zod.literal(2),
+                                                            zod.literal(3),
+                                                            zod.literal(4),
+                                                        ]),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional()
+                                                    .describe(
+                                                        "Group type index to aggregate over. Required when math is 'unique_group'."
+                                                    ),
+                                                math_hogql: zod
+                                                    .union([zod.string(), zod.null()])
+                                                    .optional()
+                                                    .describe(
+                                                        "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
+                                                    ),
+                                                math_property: zod
+                                                    .union([zod.string(), zod.null()])
+                                                    .optional()
+                                                    .describe(
+                                                        "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue')."
+                                                    ),
+                                                properties: zod
+                                                    .union([
+                                                        zod.array(
+                                                            zod.object({
+                                                                key: zod.string(),
+                                                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                                                operator: zod
+                                                                    .union([
+                                                                        zod.enum([
+                                                                            'exact',
+                                                                            'is_not',
+                                                                            'icontains',
+                                                                            'not_icontains',
+                                                                            'starts_with',
+                                                                            'not_starts_with',
+                                                                            'ends_with',
+                                                                            'not_ends_with',
+                                                                            'regex',
+                                                                            'not_regex',
+                                                                            'gt',
+                                                                            'gte',
+                                                                            'lt',
+                                                                            'lte',
+                                                                            'is_set',
+                                                                            'is_not_set',
+                                                                            'is_date_exact',
+                                                                            'is_date_before',
+                                                                            'is_date_after',
+                                                                            'between',
+                                                                            'not_between',
+                                                                            'min',
+                                                                            'max',
+                                                                            'in',
+                                                                            'not_in',
+                                                                            'is_cleaned_path_exact',
+                                                                            'flag_evaluates_to',
+                                                                            'semver_eq',
+                                                                            'semver_neq',
+                                                                            'semver_gt',
+                                                                            'semver_gte',
+                                                                            'semver_lt',
+                                                                            'semver_lte',
+                                                                            'semver_tilde',
+                                                                            'semver_caret',
+                                                                            'semver_wildcard',
+                                                                            'icontains_multi',
+                                                                            'not_icontains_multi',
+                                                                        ]),
+                                                                        zod.null(),
+                                                                    ])
+                                                                    .default(
+                                                                        experimentsCreateBodyMetricsSecondaryOneItemSeriesOneItemOnePropertiesOneItemOperatorDefault
+                                                                    ),
+                                                                type: zod
+                                                                    .literal('event')
+                                                                    .default(
+                                                                        experimentsCreateBodyMetricsSecondaryOneItemSeriesOneItemOnePropertiesOneItemTypeDefault
+                                                                    )
+                                                                    .describe('Event properties'),
+                                                                value: zod
+                                                                    .union([
+                                                                        zod.array(
+                                                                            zod.union([
+                                                                                zod.string(),
+                                                                                zod.number(),
+                                                                                zod.boolean(),
+                                                                            ])
+                                                                        ),
+                                                                        zod.string(),
+                                                                        zod.number(),
+                                                                        zod.boolean(),
+                                                                        zod.null(),
+                                                                    ])
+                                                                    .optional(),
+                                                            })
+                                                        ),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional()
+                                                    .describe(
+                                                        'Event property filters to narrow which events are counted.'
+                                                    ),
+                                            }),
+                                            zod.object({
+                                                data_warehouse_join_key: zod
+                                                    .string()
+                                                    .describe("Table-side column to join on, e.g. 'customer_id'."),
+                                                events_join_key: zod
+                                                    .string()
+                                                    .describe("Event-side column to join on, e.g. 'distinct_id'."),
+                                                kind: zod
+                                                    .literal('ExperimentDataWarehouseNode')
+                                                    .default(
+                                                        experimentsCreateBodyMetricsSecondaryOneItemSeriesOneItemTwoKindDefault
+                                                    ),
+                                                math: zod
+                                                    .union([
+                                                        zod.enum([
+                                                            'total',
+                                                            'sum',
+                                                            'unique_session',
+                                                            'min',
+                                                            'max',
+                                                            'avg',
+                                                            'dau',
+                                                            'unique_group',
+                                                            'hogql',
+                                                        ]),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional()
+                                                    .describe(
+                                                        "How to aggregate this source. Defaults to 'total' (row count). Use 'sum' together with math_property to aggregate a numeric column — e.g. revenue per charge."
+                                                    ),
+                                                math_hogql: zod
+                                                    .union([zod.string(), zod.null()])
+                                                    .optional()
+                                                    .describe(
+                                                        "HogQL aggregation expression. Required when math is 'hogql'."
+                                                    ),
+                                                math_property: zod
+                                                    .union([zod.string(), zod.null()])
+                                                    .optional()
+                                                    .describe(
+                                                        "Numeric table column to aggregate when math is 'sum', 'avg', 'min', or 'max'."
+                                                    ),
+                                                name: zod
+                                                    .union([zod.string(), zod.null()])
+                                                    .optional()
+                                                    .describe('Display name for the source.'),
+                                                properties: zod
+                                                    .union([
+                                                        zod.array(
+                                                            zod.object({
+                                                                key: zod.string(),
+                                                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                                                operator: zod.enum([
+                                                                    'exact',
+                                                                    'is_not',
+                                                                    'icontains',
+                                                                    'not_icontains',
+                                                                    'starts_with',
+                                                                    'not_starts_with',
+                                                                    'ends_with',
+                                                                    'not_ends_with',
+                                                                    'regex',
+                                                                    'not_regex',
+                                                                    'gt',
+                                                                    'gte',
+                                                                    'lt',
+                                                                    'lte',
+                                                                    'is_set',
+                                                                    'is_not_set',
+                                                                    'is_date_exact',
+                                                                    'is_date_before',
+                                                                    'is_date_after',
+                                                                    'between',
+                                                                    'not_between',
+                                                                    'min',
+                                                                    'max',
+                                                                    'in',
+                                                                    'not_in',
+                                                                    'is_cleaned_path_exact',
+                                                                    'flag_evaluates_to',
+                                                                    'semver_eq',
+                                                                    'semver_neq',
+                                                                    'semver_gt',
+                                                                    'semver_gte',
+                                                                    'semver_lt',
+                                                                    'semver_lte',
+                                                                    'semver_tilde',
+                                                                    'semver_caret',
+                                                                    'semver_wildcard',
+                                                                    'icontains_multi',
+                                                                    'not_icontains_multi',
+                                                                ]),
+                                                                type: zod
+                                                                    .literal('data_warehouse')
+                                                                    .default(
+                                                                        experimentsCreateBodyMetricsSecondaryOneItemSeriesOneItemTwoPropertiesOneItemTypeDefault
+                                                                    ),
+                                                                value: zod
+                                                                    .union([
+                                                                        zod.array(
+                                                                            zod.union([
+                                                                                zod.string(),
+                                                                                zod.number(),
+                                                                                zod.boolean(),
+                                                                            ])
+                                                                        ),
+                                                                        zod.string(),
+                                                                        zod.number(),
+                                                                        zod.boolean(),
+                                                                        zod.null(),
+                                                                    ])
+                                                                    .optional(),
+                                                            })
+                                                        ),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional()
+                                                    .describe("Filters on the table's own columns."),
+                                                table_name: zod
+                                                    .string()
+                                                    .describe(
+                                                        "Data warehouse table to read from, e.g. 'stripe_charges'."
+                                                    ),
+                                                timestamp_field: zod
+                                                    .string()
+                                                    .describe(
+                                                        "Table column that holds the row timestamp, e.g. 'created_at'."
+                                                    ),
+                                            }),
+                                        ])
                                     ),
                                     zod.null(),
                                 ])
                                 .optional()
-                                .describe('For funnel metrics: array of EventsNode\/ActionsNode steps.'),
+                                .describe(
+                                    'For funnel metrics: array of EventsNode\/ActionsNode\/ExperimentDataWarehouseNode steps.'
+                                ),
                             source: zod
                                 .union([
                                     zod.object({
@@ -6433,10 +7711,132 @@ export const ExperimentsCreateBody = () => zod
                                             .optional()
                                             .describe('Event property filters to narrow which events are counted.'),
                                     }),
+                                    zod.object({
+                                        data_warehouse_join_key: zod
+                                            .string()
+                                            .describe("Table-side column to join on, e.g. 'customer_id'."),
+                                        events_join_key: zod
+                                            .string()
+                                            .describe("Event-side column to join on, e.g. 'distinct_id'."),
+                                        kind: zod
+                                            .literal('ExperimentDataWarehouseNode')
+                                            .default(experimentsCreateBodyMetricsSecondaryOneItemSourceTwoKindDefault),
+                                        math: zod
+                                            .union([
+                                                zod.enum([
+                                                    'total',
+                                                    'sum',
+                                                    'unique_session',
+                                                    'min',
+                                                    'max',
+                                                    'avg',
+                                                    'dau',
+                                                    'unique_group',
+                                                    'hogql',
+                                                ]),
+                                                zod.null(),
+                                            ])
+                                            .optional()
+                                            .describe(
+                                                "How to aggregate this source. Defaults to 'total' (row count). Use 'sum' together with math_property to aggregate a numeric column — e.g. revenue per charge."
+                                            ),
+                                        math_hogql: zod
+                                            .union([zod.string(), zod.null()])
+                                            .optional()
+                                            .describe("HogQL aggregation expression. Required when math is 'hogql'."),
+                                        math_property: zod
+                                            .union([zod.string(), zod.null()])
+                                            .optional()
+                                            .describe(
+                                                "Numeric table column to aggregate when math is 'sum', 'avg', 'min', or 'max'."
+                                            ),
+                                        name: zod
+                                            .union([zod.string(), zod.null()])
+                                            .optional()
+                                            .describe('Display name for the source.'),
+                                        properties: zod
+                                            .union([
+                                                zod.array(
+                                                    zod.object({
+                                                        key: zod.string(),
+                                                        label: zod.union([zod.string(), zod.null()]).optional(),
+                                                        operator: zod.enum([
+                                                            'exact',
+                                                            'is_not',
+                                                            'icontains',
+                                                            'not_icontains',
+                                                            'starts_with',
+                                                            'not_starts_with',
+                                                            'ends_with',
+                                                            'not_ends_with',
+                                                            'regex',
+                                                            'not_regex',
+                                                            'gt',
+                                                            'gte',
+                                                            'lt',
+                                                            'lte',
+                                                            'is_set',
+                                                            'is_not_set',
+                                                            'is_date_exact',
+                                                            'is_date_before',
+                                                            'is_date_after',
+                                                            'between',
+                                                            'not_between',
+                                                            'min',
+                                                            'max',
+                                                            'in',
+                                                            'not_in',
+                                                            'is_cleaned_path_exact',
+                                                            'flag_evaluates_to',
+                                                            'semver_eq',
+                                                            'semver_neq',
+                                                            'semver_gt',
+                                                            'semver_gte',
+                                                            'semver_lt',
+                                                            'semver_lte',
+                                                            'semver_tilde',
+                                                            'semver_caret',
+                                                            'semver_wildcard',
+                                                            'icontains_multi',
+                                                            'not_icontains_multi',
+                                                        ]),
+                                                        type: zod
+                                                            .literal('data_warehouse')
+                                                            .default(
+                                                                experimentsCreateBodyMetricsSecondaryOneItemSourceTwoPropertiesOneItemTypeDefault
+                                                            ),
+                                                        value: zod
+                                                            .union([
+                                                                zod.array(
+                                                                    zod.union([
+                                                                        zod.string(),
+                                                                        zod.number(),
+                                                                        zod.boolean(),
+                                                                    ])
+                                                                ),
+                                                                zod.string(),
+                                                                zod.number(),
+                                                                zod.boolean(),
+                                                                zod.null(),
+                                                            ])
+                                                            .optional(),
+                                                    })
+                                                ),
+                                                zod.null(),
+                                            ])
+                                            .optional()
+                                            .describe("Filters on the table's own columns."),
+                                        table_name: zod
+                                            .string()
+                                            .describe("Data warehouse table to read from, e.g. 'stripe_charges'."),
+                                        timestamp_field: zod
+                                            .string()
+                                            .describe("Table column that holds the row timestamp, e.g. 'created_at'."),
+                                    }),
                                     zod.null(),
                                 ])
                                 .optional()
-                                .describe('For mean metrics: event source.'),
+                                .describe('For mean metrics: metric source.'),
                             start_event: zod
                                 .union([
                                     zod.object({
@@ -6575,6 +7975,130 @@ export const ExperimentsCreateBody = () => zod
                                             ])
                                             .optional()
                                             .describe('Event property filters to narrow which events are counted.'),
+                                    }),
+                                    zod.object({
+                                        data_warehouse_join_key: zod
+                                            .string()
+                                            .describe("Table-side column to join on, e.g. 'customer_id'."),
+                                        events_join_key: zod
+                                            .string()
+                                            .describe("Event-side column to join on, e.g. 'distinct_id'."),
+                                        kind: zod
+                                            .literal('ExperimentDataWarehouseNode')
+                                            .default(
+                                                experimentsCreateBodyMetricsSecondaryOneItemStartEventTwoKindDefault
+                                            ),
+                                        math: zod
+                                            .union([
+                                                zod.enum([
+                                                    'total',
+                                                    'sum',
+                                                    'unique_session',
+                                                    'min',
+                                                    'max',
+                                                    'avg',
+                                                    'dau',
+                                                    'unique_group',
+                                                    'hogql',
+                                                ]),
+                                                zod.null(),
+                                            ])
+                                            .optional()
+                                            .describe(
+                                                "How to aggregate this source. Defaults to 'total' (row count). Use 'sum' together with math_property to aggregate a numeric column — e.g. revenue per charge."
+                                            ),
+                                        math_hogql: zod
+                                            .union([zod.string(), zod.null()])
+                                            .optional()
+                                            .describe("HogQL aggregation expression. Required when math is 'hogql'."),
+                                        math_property: zod
+                                            .union([zod.string(), zod.null()])
+                                            .optional()
+                                            .describe(
+                                                "Numeric table column to aggregate when math is 'sum', 'avg', 'min', or 'max'."
+                                            ),
+                                        name: zod
+                                            .union([zod.string(), zod.null()])
+                                            .optional()
+                                            .describe('Display name for the source.'),
+                                        properties: zod
+                                            .union([
+                                                zod.array(
+                                                    zod.object({
+                                                        key: zod.string(),
+                                                        label: zod.union([zod.string(), zod.null()]).optional(),
+                                                        operator: zod.enum([
+                                                            'exact',
+                                                            'is_not',
+                                                            'icontains',
+                                                            'not_icontains',
+                                                            'starts_with',
+                                                            'not_starts_with',
+                                                            'ends_with',
+                                                            'not_ends_with',
+                                                            'regex',
+                                                            'not_regex',
+                                                            'gt',
+                                                            'gte',
+                                                            'lt',
+                                                            'lte',
+                                                            'is_set',
+                                                            'is_not_set',
+                                                            'is_date_exact',
+                                                            'is_date_before',
+                                                            'is_date_after',
+                                                            'between',
+                                                            'not_between',
+                                                            'min',
+                                                            'max',
+                                                            'in',
+                                                            'not_in',
+                                                            'is_cleaned_path_exact',
+                                                            'flag_evaluates_to',
+                                                            'semver_eq',
+                                                            'semver_neq',
+                                                            'semver_gt',
+                                                            'semver_gte',
+                                                            'semver_lt',
+                                                            'semver_lte',
+                                                            'semver_tilde',
+                                                            'semver_caret',
+                                                            'semver_wildcard',
+                                                            'icontains_multi',
+                                                            'not_icontains_multi',
+                                                        ]),
+                                                        type: zod
+                                                            .literal('data_warehouse')
+                                                            .default(
+                                                                experimentsCreateBodyMetricsSecondaryOneItemStartEventTwoPropertiesOneItemTypeDefault
+                                                            ),
+                                                        value: zod
+                                                            .union([
+                                                                zod.array(
+                                                                    zod.union([
+                                                                        zod.string(),
+                                                                        zod.number(),
+                                                                        zod.boolean(),
+                                                                    ])
+                                                                ),
+                                                                zod.string(),
+                                                                zod.number(),
+                                                                zod.boolean(),
+                                                                zod.null(),
+                                                            ])
+                                                            .optional(),
+                                                    })
+                                                ),
+                                                zod.null(),
+                                            ])
+                                            .optional()
+                                            .describe("Filters on the table's own columns."),
+                                        table_name: zod
+                                            .string()
+                                            .describe("Data warehouse table to read from, e.g. 'stripe_charges'."),
+                                        timestamp_field: zod
+                                            .string()
+                                            .describe("Table column that holds the row timestamp, e.g. 'created_at'."),
                                     }),
                                     zod.null(),
                                 ])
@@ -6770,8 +8294,12 @@ export const experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePro
 export const experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwofourTypeDefault = `behavioral`
 export const experimentsPartialUpdateBodyMetricsOneItemCompletionEventOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsPartialUpdateBodyMetricsOneItemCompletionEventOnePropertiesOneItemTypeDefault = `event`
+export const experimentsPartialUpdateBodyMetricsOneItemCompletionEventTwoKindDefault = `ExperimentDataWarehouseNode`
+export const experimentsPartialUpdateBodyMetricsOneItemCompletionEventTwoPropertiesOneItemTypeDefault = `data_warehouse`
 export const experimentsPartialUpdateBodyMetricsOneItemDenominatorOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsPartialUpdateBodyMetricsOneItemDenominatorOnePropertiesOneItemTypeDefault = `event`
+export const experimentsPartialUpdateBodyMetricsOneItemDenominatorTwoKindDefault = `ExperimentDataWarehouseNode`
+export const experimentsPartialUpdateBodyMetricsOneItemDenominatorTwoPropertiesOneItemTypeDefault = `data_warehouse`
 export const experimentsPartialUpdateBodyMetricsOneItemDenominatorOutlierHandlingOneLowerBoundPercentileOneMin = 0
 export const experimentsPartialUpdateBodyMetricsOneItemDenominatorOutlierHandlingOneLowerBoundPercentileOneMax = 1
 
@@ -6784,25 +8312,37 @@ export const experimentsPartialUpdateBodyMetricsOneItemLowerBoundPercentileOneMa
 
 export const experimentsPartialUpdateBodyMetricsOneItemNumeratorOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsPartialUpdateBodyMetricsOneItemNumeratorOnePropertiesOneItemTypeDefault = `event`
+export const experimentsPartialUpdateBodyMetricsOneItemNumeratorTwoKindDefault = `ExperimentDataWarehouseNode`
+export const experimentsPartialUpdateBodyMetricsOneItemNumeratorTwoPropertiesOneItemTypeDefault = `data_warehouse`
 export const experimentsPartialUpdateBodyMetricsOneItemNumeratorOutlierHandlingOneLowerBoundPercentileOneMin = 0
 export const experimentsPartialUpdateBodyMetricsOneItemNumeratorOutlierHandlingOneLowerBoundPercentileOneMax = 1
 
 export const experimentsPartialUpdateBodyMetricsOneItemNumeratorOutlierHandlingOneUpperBoundPercentileOneMin = 0
 export const experimentsPartialUpdateBodyMetricsOneItemNumeratorOutlierHandlingOneUpperBoundPercentileOneMax = 1
 
-export const experimentsPartialUpdateBodyMetricsOneItemSeriesOneItemPropertiesOneItemOperatorDefault = `exact`
-export const experimentsPartialUpdateBodyMetricsOneItemSeriesOneItemPropertiesOneItemTypeDefault = `event`
+export const experimentsPartialUpdateBodyMetricsOneItemSeriesOneItemOnePropertiesOneItemOperatorDefault = `exact`
+export const experimentsPartialUpdateBodyMetricsOneItemSeriesOneItemOnePropertiesOneItemTypeDefault = `event`
+export const experimentsPartialUpdateBodyMetricsOneItemSeriesOneItemTwoKindDefault = `ExperimentDataWarehouseNode`
+export const experimentsPartialUpdateBodyMetricsOneItemSeriesOneItemTwoPropertiesOneItemTypeDefault = `data_warehouse`
 export const experimentsPartialUpdateBodyMetricsOneItemSourceOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsPartialUpdateBodyMetricsOneItemSourceOnePropertiesOneItemTypeDefault = `event`
+export const experimentsPartialUpdateBodyMetricsOneItemSourceTwoKindDefault = `ExperimentDataWarehouseNode`
+export const experimentsPartialUpdateBodyMetricsOneItemSourceTwoPropertiesOneItemTypeDefault = `data_warehouse`
 export const experimentsPartialUpdateBodyMetricsOneItemStartEventOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsPartialUpdateBodyMetricsOneItemStartEventOnePropertiesOneItemTypeDefault = `event`
+export const experimentsPartialUpdateBodyMetricsOneItemStartEventTwoKindDefault = `ExperimentDataWarehouseNode`
+export const experimentsPartialUpdateBodyMetricsOneItemStartEventTwoPropertiesOneItemTypeDefault = `data_warehouse`
 export const experimentsPartialUpdateBodyMetricsOneItemUpperBoundPercentileOneMin = 0
 export const experimentsPartialUpdateBodyMetricsOneItemUpperBoundPercentileOneMax = 1
 
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemCompletionEventOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemCompletionEventOnePropertiesOneItemTypeDefault = `event`
+export const experimentsPartialUpdateBodyMetricsSecondaryOneItemCompletionEventTwoKindDefault = `ExperimentDataWarehouseNode`
+export const experimentsPartialUpdateBodyMetricsSecondaryOneItemCompletionEventTwoPropertiesOneItemTypeDefault = `data_warehouse`
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemDenominatorOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemDenominatorOnePropertiesOneItemTypeDefault = `event`
+export const experimentsPartialUpdateBodyMetricsSecondaryOneItemDenominatorTwoKindDefault = `ExperimentDataWarehouseNode`
+export const experimentsPartialUpdateBodyMetricsSecondaryOneItemDenominatorTwoPropertiesOneItemTypeDefault = `data_warehouse`
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemDenominatorOutlierHandlingOneLowerBoundPercentileOneMin = 0
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemDenominatorOutlierHandlingOneLowerBoundPercentileOneMax = 1
 
@@ -6815,18 +8355,26 @@ export const experimentsPartialUpdateBodyMetricsSecondaryOneItemLowerBoundPercen
 
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemNumeratorOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemNumeratorOnePropertiesOneItemTypeDefault = `event`
+export const experimentsPartialUpdateBodyMetricsSecondaryOneItemNumeratorTwoKindDefault = `ExperimentDataWarehouseNode`
+export const experimentsPartialUpdateBodyMetricsSecondaryOneItemNumeratorTwoPropertiesOneItemTypeDefault = `data_warehouse`
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemNumeratorOutlierHandlingOneLowerBoundPercentileOneMin = 0
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemNumeratorOutlierHandlingOneLowerBoundPercentileOneMax = 1
 
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemNumeratorOutlierHandlingOneUpperBoundPercentileOneMin = 0
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemNumeratorOutlierHandlingOneUpperBoundPercentileOneMax = 1
 
-export const experimentsPartialUpdateBodyMetricsSecondaryOneItemSeriesOneItemPropertiesOneItemOperatorDefault = `exact`
-export const experimentsPartialUpdateBodyMetricsSecondaryOneItemSeriesOneItemPropertiesOneItemTypeDefault = `event`
+export const experimentsPartialUpdateBodyMetricsSecondaryOneItemSeriesOneItemOnePropertiesOneItemOperatorDefault = `exact`
+export const experimentsPartialUpdateBodyMetricsSecondaryOneItemSeriesOneItemOnePropertiesOneItemTypeDefault = `event`
+export const experimentsPartialUpdateBodyMetricsSecondaryOneItemSeriesOneItemTwoKindDefault = `ExperimentDataWarehouseNode`
+export const experimentsPartialUpdateBodyMetricsSecondaryOneItemSeriesOneItemTwoPropertiesOneItemTypeDefault = `data_warehouse`
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemSourceOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemSourceOnePropertiesOneItemTypeDefault = `event`
+export const experimentsPartialUpdateBodyMetricsSecondaryOneItemSourceTwoKindDefault = `ExperimentDataWarehouseNode`
+export const experimentsPartialUpdateBodyMetricsSecondaryOneItemSourceTwoPropertiesOneItemTypeDefault = `data_warehouse`
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemStartEventOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemStartEventOnePropertiesOneItemTypeDefault = `event`
+export const experimentsPartialUpdateBodyMetricsSecondaryOneItemStartEventTwoKindDefault = `ExperimentDataWarehouseNode`
+export const experimentsPartialUpdateBodyMetricsSecondaryOneItemStartEventTwoPropertiesOneItemTypeDefault = `data_warehouse`
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemUpperBoundPercentileOneMin = 0
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemUpperBoundPercentileOneMax = 1
 
@@ -10626,6 +12174,130 @@ export const ExperimentsPartialUpdateBody = () => zod
                                             .optional()
                                             .describe('Event property filters to narrow which events are counted.'),
                                     }),
+                                    zod.object({
+                                        data_warehouse_join_key: zod
+                                            .string()
+                                            .describe("Table-side column to join on, e.g. 'customer_id'."),
+                                        events_join_key: zod
+                                            .string()
+                                            .describe("Event-side column to join on, e.g. 'distinct_id'."),
+                                        kind: zod
+                                            .literal('ExperimentDataWarehouseNode')
+                                            .default(
+                                                experimentsPartialUpdateBodyMetricsOneItemCompletionEventTwoKindDefault
+                                            ),
+                                        math: zod
+                                            .union([
+                                                zod.enum([
+                                                    'total',
+                                                    'sum',
+                                                    'unique_session',
+                                                    'min',
+                                                    'max',
+                                                    'avg',
+                                                    'dau',
+                                                    'unique_group',
+                                                    'hogql',
+                                                ]),
+                                                zod.null(),
+                                            ])
+                                            .optional()
+                                            .describe(
+                                                "How to aggregate this source. Defaults to 'total' (row count). Use 'sum' together with math_property to aggregate a numeric column — e.g. revenue per charge."
+                                            ),
+                                        math_hogql: zod
+                                            .union([zod.string(), zod.null()])
+                                            .optional()
+                                            .describe("HogQL aggregation expression. Required when math is 'hogql'."),
+                                        math_property: zod
+                                            .union([zod.string(), zod.null()])
+                                            .optional()
+                                            .describe(
+                                                "Numeric table column to aggregate when math is 'sum', 'avg', 'min', or 'max'."
+                                            ),
+                                        name: zod
+                                            .union([zod.string(), zod.null()])
+                                            .optional()
+                                            .describe('Display name for the source.'),
+                                        properties: zod
+                                            .union([
+                                                zod.array(
+                                                    zod.object({
+                                                        key: zod.string(),
+                                                        label: zod.union([zod.string(), zod.null()]).optional(),
+                                                        operator: zod.enum([
+                                                            'exact',
+                                                            'is_not',
+                                                            'icontains',
+                                                            'not_icontains',
+                                                            'starts_with',
+                                                            'not_starts_with',
+                                                            'ends_with',
+                                                            'not_ends_with',
+                                                            'regex',
+                                                            'not_regex',
+                                                            'gt',
+                                                            'gte',
+                                                            'lt',
+                                                            'lte',
+                                                            'is_set',
+                                                            'is_not_set',
+                                                            'is_date_exact',
+                                                            'is_date_before',
+                                                            'is_date_after',
+                                                            'between',
+                                                            'not_between',
+                                                            'min',
+                                                            'max',
+                                                            'in',
+                                                            'not_in',
+                                                            'is_cleaned_path_exact',
+                                                            'flag_evaluates_to',
+                                                            'semver_eq',
+                                                            'semver_neq',
+                                                            'semver_gt',
+                                                            'semver_gte',
+                                                            'semver_lt',
+                                                            'semver_lte',
+                                                            'semver_tilde',
+                                                            'semver_caret',
+                                                            'semver_wildcard',
+                                                            'icontains_multi',
+                                                            'not_icontains_multi',
+                                                        ]),
+                                                        type: zod
+                                                            .literal('data_warehouse')
+                                                            .default(
+                                                                experimentsPartialUpdateBodyMetricsOneItemCompletionEventTwoPropertiesOneItemTypeDefault
+                                                            ),
+                                                        value: zod
+                                                            .union([
+                                                                zod.array(
+                                                                    zod.union([
+                                                                        zod.string(),
+                                                                        zod.number(),
+                                                                        zod.boolean(),
+                                                                    ])
+                                                                ),
+                                                                zod.string(),
+                                                                zod.number(),
+                                                                zod.boolean(),
+                                                                zod.null(),
+                                                            ])
+                                                            .optional(),
+                                                    })
+                                                ),
+                                                zod.null(),
+                                            ])
+                                            .optional()
+                                            .describe("Filters on the table's own columns."),
+                                        table_name: zod
+                                            .string()
+                                            .describe("Data warehouse table to read from, e.g. 'stripe_charges'."),
+                                        timestamp_field: zod
+                                            .string()
+                                            .describe("Table column that holds the row timestamp, e.g. 'created_at'."),
+                                    }),
                                     zod.null(),
                                 ])
                                 .optional()
@@ -10772,6 +12444,130 @@ export const ExperimentsPartialUpdateBody = () => zod
                                             ])
                                             .optional()
                                             .describe('Event property filters to narrow which events are counted.'),
+                                    }),
+                                    zod.object({
+                                        data_warehouse_join_key: zod
+                                            .string()
+                                            .describe("Table-side column to join on, e.g. 'customer_id'."),
+                                        events_join_key: zod
+                                            .string()
+                                            .describe("Event-side column to join on, e.g. 'distinct_id'."),
+                                        kind: zod
+                                            .literal('ExperimentDataWarehouseNode')
+                                            .default(
+                                                experimentsPartialUpdateBodyMetricsOneItemDenominatorTwoKindDefault
+                                            ),
+                                        math: zod
+                                            .union([
+                                                zod.enum([
+                                                    'total',
+                                                    'sum',
+                                                    'unique_session',
+                                                    'min',
+                                                    'max',
+                                                    'avg',
+                                                    'dau',
+                                                    'unique_group',
+                                                    'hogql',
+                                                ]),
+                                                zod.null(),
+                                            ])
+                                            .optional()
+                                            .describe(
+                                                "How to aggregate this source. Defaults to 'total' (row count). Use 'sum' together with math_property to aggregate a numeric column — e.g. revenue per charge."
+                                            ),
+                                        math_hogql: zod
+                                            .union([zod.string(), zod.null()])
+                                            .optional()
+                                            .describe("HogQL aggregation expression. Required when math is 'hogql'."),
+                                        math_property: zod
+                                            .union([zod.string(), zod.null()])
+                                            .optional()
+                                            .describe(
+                                                "Numeric table column to aggregate when math is 'sum', 'avg', 'min', or 'max'."
+                                            ),
+                                        name: zod
+                                            .union([zod.string(), zod.null()])
+                                            .optional()
+                                            .describe('Display name for the source.'),
+                                        properties: zod
+                                            .union([
+                                                zod.array(
+                                                    zod.object({
+                                                        key: zod.string(),
+                                                        label: zod.union([zod.string(), zod.null()]).optional(),
+                                                        operator: zod.enum([
+                                                            'exact',
+                                                            'is_not',
+                                                            'icontains',
+                                                            'not_icontains',
+                                                            'starts_with',
+                                                            'not_starts_with',
+                                                            'ends_with',
+                                                            'not_ends_with',
+                                                            'regex',
+                                                            'not_regex',
+                                                            'gt',
+                                                            'gte',
+                                                            'lt',
+                                                            'lte',
+                                                            'is_set',
+                                                            'is_not_set',
+                                                            'is_date_exact',
+                                                            'is_date_before',
+                                                            'is_date_after',
+                                                            'between',
+                                                            'not_between',
+                                                            'min',
+                                                            'max',
+                                                            'in',
+                                                            'not_in',
+                                                            'is_cleaned_path_exact',
+                                                            'flag_evaluates_to',
+                                                            'semver_eq',
+                                                            'semver_neq',
+                                                            'semver_gt',
+                                                            'semver_gte',
+                                                            'semver_lt',
+                                                            'semver_lte',
+                                                            'semver_tilde',
+                                                            'semver_caret',
+                                                            'semver_wildcard',
+                                                            'icontains_multi',
+                                                            'not_icontains_multi',
+                                                        ]),
+                                                        type: zod
+                                                            .literal('data_warehouse')
+                                                            .default(
+                                                                experimentsPartialUpdateBodyMetricsOneItemDenominatorTwoPropertiesOneItemTypeDefault
+                                                            ),
+                                                        value: zod
+                                                            .union([
+                                                                zod.array(
+                                                                    zod.union([
+                                                                        zod.string(),
+                                                                        zod.number(),
+                                                                        zod.boolean(),
+                                                                    ])
+                                                                ),
+                                                                zod.string(),
+                                                                zod.number(),
+                                                                zod.boolean(),
+                                                                zod.null(),
+                                                            ])
+                                                            .optional(),
+                                                    })
+                                                ),
+                                                zod.null(),
+                                            ])
+                                            .optional()
+                                            .describe("Filters on the table's own columns."),
+                                        table_name: zod
+                                            .string()
+                                            .describe("Data warehouse table to read from, e.g. 'stripe_charges'."),
+                                        timestamp_field: zod
+                                            .string()
+                                            .describe("Table column that holds the row timestamp, e.g. 'created_at'."),
                                     }),
                                     zod.null(),
                                 ])
@@ -10989,6 +12785,128 @@ export const ExperimentsPartialUpdateBody = () => zod
                                             .optional()
                                             .describe('Event property filters to narrow which events are counted.'),
                                     }),
+                                    zod.object({
+                                        data_warehouse_join_key: zod
+                                            .string()
+                                            .describe("Table-side column to join on, e.g. 'customer_id'."),
+                                        events_join_key: zod
+                                            .string()
+                                            .describe("Event-side column to join on, e.g. 'distinct_id'."),
+                                        kind: zod
+                                            .literal('ExperimentDataWarehouseNode')
+                                            .default(experimentsPartialUpdateBodyMetricsOneItemNumeratorTwoKindDefault),
+                                        math: zod
+                                            .union([
+                                                zod.enum([
+                                                    'total',
+                                                    'sum',
+                                                    'unique_session',
+                                                    'min',
+                                                    'max',
+                                                    'avg',
+                                                    'dau',
+                                                    'unique_group',
+                                                    'hogql',
+                                                ]),
+                                                zod.null(),
+                                            ])
+                                            .optional()
+                                            .describe(
+                                                "How to aggregate this source. Defaults to 'total' (row count). Use 'sum' together with math_property to aggregate a numeric column — e.g. revenue per charge."
+                                            ),
+                                        math_hogql: zod
+                                            .union([zod.string(), zod.null()])
+                                            .optional()
+                                            .describe("HogQL aggregation expression. Required when math is 'hogql'."),
+                                        math_property: zod
+                                            .union([zod.string(), zod.null()])
+                                            .optional()
+                                            .describe(
+                                                "Numeric table column to aggregate when math is 'sum', 'avg', 'min', or 'max'."
+                                            ),
+                                        name: zod
+                                            .union([zod.string(), zod.null()])
+                                            .optional()
+                                            .describe('Display name for the source.'),
+                                        properties: zod
+                                            .union([
+                                                zod.array(
+                                                    zod.object({
+                                                        key: zod.string(),
+                                                        label: zod.union([zod.string(), zod.null()]).optional(),
+                                                        operator: zod.enum([
+                                                            'exact',
+                                                            'is_not',
+                                                            'icontains',
+                                                            'not_icontains',
+                                                            'starts_with',
+                                                            'not_starts_with',
+                                                            'ends_with',
+                                                            'not_ends_with',
+                                                            'regex',
+                                                            'not_regex',
+                                                            'gt',
+                                                            'gte',
+                                                            'lt',
+                                                            'lte',
+                                                            'is_set',
+                                                            'is_not_set',
+                                                            'is_date_exact',
+                                                            'is_date_before',
+                                                            'is_date_after',
+                                                            'between',
+                                                            'not_between',
+                                                            'min',
+                                                            'max',
+                                                            'in',
+                                                            'not_in',
+                                                            'is_cleaned_path_exact',
+                                                            'flag_evaluates_to',
+                                                            'semver_eq',
+                                                            'semver_neq',
+                                                            'semver_gt',
+                                                            'semver_gte',
+                                                            'semver_lt',
+                                                            'semver_lte',
+                                                            'semver_tilde',
+                                                            'semver_caret',
+                                                            'semver_wildcard',
+                                                            'icontains_multi',
+                                                            'not_icontains_multi',
+                                                        ]),
+                                                        type: zod
+                                                            .literal('data_warehouse')
+                                                            .default(
+                                                                experimentsPartialUpdateBodyMetricsOneItemNumeratorTwoPropertiesOneItemTypeDefault
+                                                            ),
+                                                        value: zod
+                                                            .union([
+                                                                zod.array(
+                                                                    zod.union([
+                                                                        zod.string(),
+                                                                        zod.number(),
+                                                                        zod.boolean(),
+                                                                    ])
+                                                                ),
+                                                                zod.string(),
+                                                                zod.number(),
+                                                                zod.boolean(),
+                                                                zod.null(),
+                                                            ])
+                                                            .optional(),
+                                                    })
+                                                ),
+                                                zod.null(),
+                                            ])
+                                            .optional()
+                                            .describe("Filters on the table's own columns."),
+                                        table_name: zod
+                                            .string()
+                                            .describe("Data warehouse table to read from, e.g. 'stripe_charges'."),
+                                        timestamp_field: zod
+                                            .string()
+                                            .describe("Table column that holds the row timestamp, e.g. 'created_at'."),
+                                    }),
                                     zod.null(),
                                 ])
                                 .optional()
@@ -11044,148 +12962,284 @@ export const ExperimentsPartialUpdateBody = () => zod
                             series: zod
                                 .union([
                                     zod.array(
-                                        zod.object({
-                                            event: zod
-                                                .union([zod.string(), zod.null()])
-                                                .optional()
-                                                .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
-                                            id: zod
-                                                .union([zod.number(), zod.null()])
-                                                .optional()
-                                                .describe('Action ID. Required for ActionsNode.'),
-                                            kind: zod.enum(['EventsNode', 'ActionsNode']),
-                                            math: zod
-                                                .union([
-                                                    zod.enum([
-                                                        'total',
-                                                        'sum',
-                                                        'unique_session',
-                                                        'min',
-                                                        'max',
-                                                        'avg',
-                                                        'dau',
-                                                        'unique_group',
-                                                        'hogql',
-                                                    ]),
-                                                    zod.null(),
-                                                ])
-                                                .optional()
-                                                .describe(
-                                                    "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
-                                                ),
-                                            math_group_type_index: zod
-                                                .union([
-                                                    zod.union([
-                                                        zod.literal(0),
-                                                        zod.literal(1),
-                                                        zod.literal(2),
-                                                        zod.literal(3),
-                                                        zod.literal(4),
-                                                    ]),
-                                                    zod.null(),
-                                                ])
-                                                .optional()
-                                                .describe(
-                                                    "Group type index to aggregate over. Required when math is 'unique_group'."
-                                                ),
-                                            math_hogql: zod
-                                                .union([zod.string(), zod.null()])
-                                                .optional()
-                                                .describe(
-                                                    "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
-                                                ),
-                                            math_property: zod
-                                                .union([zod.string(), zod.null()])
-                                                .optional()
-                                                .describe(
-                                                    "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue')."
-                                                ),
-                                            properties: zod
-                                                .union([
-                                                    zod.array(
-                                                        zod.object({
-                                                            key: zod.string(),
-                                                            label: zod.union([zod.string(), zod.null()]).optional(),
-                                                            operator: zod
-                                                                .union([
-                                                                    zod.enum([
-                                                                        'exact',
-                                                                        'is_not',
-                                                                        'icontains',
-                                                                        'not_icontains',
-                                                                        'starts_with',
-                                                                        'not_starts_with',
-                                                                        'ends_with',
-                                                                        'not_ends_with',
-                                                                        'regex',
-                                                                        'not_regex',
-                                                                        'gt',
-                                                                        'gte',
-                                                                        'lt',
-                                                                        'lte',
-                                                                        'is_set',
-                                                                        'is_not_set',
-                                                                        'is_date_exact',
-                                                                        'is_date_before',
-                                                                        'is_date_after',
-                                                                        'between',
-                                                                        'not_between',
-                                                                        'min',
-                                                                        'max',
-                                                                        'in',
-                                                                        'not_in',
-                                                                        'is_cleaned_path_exact',
-                                                                        'flag_evaluates_to',
-                                                                        'semver_eq',
-                                                                        'semver_neq',
-                                                                        'semver_gt',
-                                                                        'semver_gte',
-                                                                        'semver_lt',
-                                                                        'semver_lte',
-                                                                        'semver_tilde',
-                                                                        'semver_caret',
-                                                                        'semver_wildcard',
-                                                                        'icontains_multi',
-                                                                        'not_icontains_multi',
-                                                                    ]),
-                                                                    zod.null(),
-                                                                ])
-                                                                .default(
-                                                                    experimentsPartialUpdateBodyMetricsOneItemSeriesOneItemPropertiesOneItemOperatorDefault
-                                                                ),
-                                                            type: zod
-                                                                .literal('event')
-                                                                .default(
-                                                                    experimentsPartialUpdateBodyMetricsOneItemSeriesOneItemPropertiesOneItemTypeDefault
-                                                                )
-                                                                .describe('Event properties'),
-                                                            value: zod
-                                                                .union([
-                                                                    zod.array(
-                                                                        zod.union([
-                                                                            zod.string(),
-                                                                            zod.number(),
-                                                                            zod.boolean(),
-                                                                        ])
-                                                                    ),
-                                                                    zod.string(),
-                                                                    zod.number(),
-                                                                    zod.boolean(),
-                                                                    zod.null(),
-                                                                ])
-                                                                .optional(),
-                                                        })
+                                        zod.union([
+                                            zod.object({
+                                                event: zod
+                                                    .union([zod.string(), zod.null()])
+                                                    .optional()
+                                                    .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
+                                                id: zod
+                                                    .union([zod.number(), zod.null()])
+                                                    .optional()
+                                                    .describe('Action ID. Required for ActionsNode.'),
+                                                kind: zod.enum(['EventsNode', 'ActionsNode']),
+                                                math: zod
+                                                    .union([
+                                                        zod.enum([
+                                                            'total',
+                                                            'sum',
+                                                            'unique_session',
+                                                            'min',
+                                                            'max',
+                                                            'avg',
+                                                            'dau',
+                                                            'unique_group',
+                                                            'hogql',
+                                                        ]),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional()
+                                                    .describe(
+                                                        "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
                                                     ),
-                                                    zod.null(),
-                                                ])
-                                                .optional()
-                                                .describe('Event property filters to narrow which events are counted.'),
-                                        })
+                                                math_group_type_index: zod
+                                                    .union([
+                                                        zod.union([
+                                                            zod.literal(0),
+                                                            zod.literal(1),
+                                                            zod.literal(2),
+                                                            zod.literal(3),
+                                                            zod.literal(4),
+                                                        ]),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional()
+                                                    .describe(
+                                                        "Group type index to aggregate over. Required when math is 'unique_group'."
+                                                    ),
+                                                math_hogql: zod
+                                                    .union([zod.string(), zod.null()])
+                                                    .optional()
+                                                    .describe(
+                                                        "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
+                                                    ),
+                                                math_property: zod
+                                                    .union([zod.string(), zod.null()])
+                                                    .optional()
+                                                    .describe(
+                                                        "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue')."
+                                                    ),
+                                                properties: zod
+                                                    .union([
+                                                        zod.array(
+                                                            zod.object({
+                                                                key: zod.string(),
+                                                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                                                operator: zod
+                                                                    .union([
+                                                                        zod.enum([
+                                                                            'exact',
+                                                                            'is_not',
+                                                                            'icontains',
+                                                                            'not_icontains',
+                                                                            'starts_with',
+                                                                            'not_starts_with',
+                                                                            'ends_with',
+                                                                            'not_ends_with',
+                                                                            'regex',
+                                                                            'not_regex',
+                                                                            'gt',
+                                                                            'gte',
+                                                                            'lt',
+                                                                            'lte',
+                                                                            'is_set',
+                                                                            'is_not_set',
+                                                                            'is_date_exact',
+                                                                            'is_date_before',
+                                                                            'is_date_after',
+                                                                            'between',
+                                                                            'not_between',
+                                                                            'min',
+                                                                            'max',
+                                                                            'in',
+                                                                            'not_in',
+                                                                            'is_cleaned_path_exact',
+                                                                            'flag_evaluates_to',
+                                                                            'semver_eq',
+                                                                            'semver_neq',
+                                                                            'semver_gt',
+                                                                            'semver_gte',
+                                                                            'semver_lt',
+                                                                            'semver_lte',
+                                                                            'semver_tilde',
+                                                                            'semver_caret',
+                                                                            'semver_wildcard',
+                                                                            'icontains_multi',
+                                                                            'not_icontains_multi',
+                                                                        ]),
+                                                                        zod.null(),
+                                                                    ])
+                                                                    .default(
+                                                                        experimentsPartialUpdateBodyMetricsOneItemSeriesOneItemOnePropertiesOneItemOperatorDefault
+                                                                    ),
+                                                                type: zod
+                                                                    .literal('event')
+                                                                    .default(
+                                                                        experimentsPartialUpdateBodyMetricsOneItemSeriesOneItemOnePropertiesOneItemTypeDefault
+                                                                    )
+                                                                    .describe('Event properties'),
+                                                                value: zod
+                                                                    .union([
+                                                                        zod.array(
+                                                                            zod.union([
+                                                                                zod.string(),
+                                                                                zod.number(),
+                                                                                zod.boolean(),
+                                                                            ])
+                                                                        ),
+                                                                        zod.string(),
+                                                                        zod.number(),
+                                                                        zod.boolean(),
+                                                                        zod.null(),
+                                                                    ])
+                                                                    .optional(),
+                                                            })
+                                                        ),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional()
+                                                    .describe(
+                                                        'Event property filters to narrow which events are counted.'
+                                                    ),
+                                            }),
+                                            zod.object({
+                                                data_warehouse_join_key: zod
+                                                    .string()
+                                                    .describe("Table-side column to join on, e.g. 'customer_id'."),
+                                                events_join_key: zod
+                                                    .string()
+                                                    .describe("Event-side column to join on, e.g. 'distinct_id'."),
+                                                kind: zod
+                                                    .literal('ExperimentDataWarehouseNode')
+                                                    .default(
+                                                        experimentsPartialUpdateBodyMetricsOneItemSeriesOneItemTwoKindDefault
+                                                    ),
+                                                math: zod
+                                                    .union([
+                                                        zod.enum([
+                                                            'total',
+                                                            'sum',
+                                                            'unique_session',
+                                                            'min',
+                                                            'max',
+                                                            'avg',
+                                                            'dau',
+                                                            'unique_group',
+                                                            'hogql',
+                                                        ]),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional()
+                                                    .describe(
+                                                        "How to aggregate this source. Defaults to 'total' (row count). Use 'sum' together with math_property to aggregate a numeric column — e.g. revenue per charge."
+                                                    ),
+                                                math_hogql: zod
+                                                    .union([zod.string(), zod.null()])
+                                                    .optional()
+                                                    .describe(
+                                                        "HogQL aggregation expression. Required when math is 'hogql'."
+                                                    ),
+                                                math_property: zod
+                                                    .union([zod.string(), zod.null()])
+                                                    .optional()
+                                                    .describe(
+                                                        "Numeric table column to aggregate when math is 'sum', 'avg', 'min', or 'max'."
+                                                    ),
+                                                name: zod
+                                                    .union([zod.string(), zod.null()])
+                                                    .optional()
+                                                    .describe('Display name for the source.'),
+                                                properties: zod
+                                                    .union([
+                                                        zod.array(
+                                                            zod.object({
+                                                                key: zod.string(),
+                                                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                                                operator: zod.enum([
+                                                                    'exact',
+                                                                    'is_not',
+                                                                    'icontains',
+                                                                    'not_icontains',
+                                                                    'starts_with',
+                                                                    'not_starts_with',
+                                                                    'ends_with',
+                                                                    'not_ends_with',
+                                                                    'regex',
+                                                                    'not_regex',
+                                                                    'gt',
+                                                                    'gte',
+                                                                    'lt',
+                                                                    'lte',
+                                                                    'is_set',
+                                                                    'is_not_set',
+                                                                    'is_date_exact',
+                                                                    'is_date_before',
+                                                                    'is_date_after',
+                                                                    'between',
+                                                                    'not_between',
+                                                                    'min',
+                                                                    'max',
+                                                                    'in',
+                                                                    'not_in',
+                                                                    'is_cleaned_path_exact',
+                                                                    'flag_evaluates_to',
+                                                                    'semver_eq',
+                                                                    'semver_neq',
+                                                                    'semver_gt',
+                                                                    'semver_gte',
+                                                                    'semver_lt',
+                                                                    'semver_lte',
+                                                                    'semver_tilde',
+                                                                    'semver_caret',
+                                                                    'semver_wildcard',
+                                                                    'icontains_multi',
+                                                                    'not_icontains_multi',
+                                                                ]),
+                                                                type: zod
+                                                                    .literal('data_warehouse')
+                                                                    .default(
+                                                                        experimentsPartialUpdateBodyMetricsOneItemSeriesOneItemTwoPropertiesOneItemTypeDefault
+                                                                    ),
+                                                                value: zod
+                                                                    .union([
+                                                                        zod.array(
+                                                                            zod.union([
+                                                                                zod.string(),
+                                                                                zod.number(),
+                                                                                zod.boolean(),
+                                                                            ])
+                                                                        ),
+                                                                        zod.string(),
+                                                                        zod.number(),
+                                                                        zod.boolean(),
+                                                                        zod.null(),
+                                                                    ])
+                                                                    .optional(),
+                                                            })
+                                                        ),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional()
+                                                    .describe("Filters on the table's own columns."),
+                                                table_name: zod
+                                                    .string()
+                                                    .describe(
+                                                        "Data warehouse table to read from, e.g. 'stripe_charges'."
+                                                    ),
+                                                timestamp_field: zod
+                                                    .string()
+                                                    .describe(
+                                                        "Table column that holds the row timestamp, e.g. 'created_at'."
+                                                    ),
+                                            }),
+                                        ])
                                     ),
                                     zod.null(),
                                 ])
                                 .optional()
-                                .describe('For funnel metrics: array of EventsNode\/ActionsNode steps.'),
+                                .describe(
+                                    'For funnel metrics: array of EventsNode\/ActionsNode\/ExperimentDataWarehouseNode steps.'
+                                ),
                             source: zod
                                 .union([
                                     zod.object({
@@ -11325,10 +13379,132 @@ export const ExperimentsPartialUpdateBody = () => zod
                                             .optional()
                                             .describe('Event property filters to narrow which events are counted.'),
                                     }),
+                                    zod.object({
+                                        data_warehouse_join_key: zod
+                                            .string()
+                                            .describe("Table-side column to join on, e.g. 'customer_id'."),
+                                        events_join_key: zod
+                                            .string()
+                                            .describe("Event-side column to join on, e.g. 'distinct_id'."),
+                                        kind: zod
+                                            .literal('ExperimentDataWarehouseNode')
+                                            .default(experimentsPartialUpdateBodyMetricsOneItemSourceTwoKindDefault),
+                                        math: zod
+                                            .union([
+                                                zod.enum([
+                                                    'total',
+                                                    'sum',
+                                                    'unique_session',
+                                                    'min',
+                                                    'max',
+                                                    'avg',
+                                                    'dau',
+                                                    'unique_group',
+                                                    'hogql',
+                                                ]),
+                                                zod.null(),
+                                            ])
+                                            .optional()
+                                            .describe(
+                                                "How to aggregate this source. Defaults to 'total' (row count). Use 'sum' together with math_property to aggregate a numeric column — e.g. revenue per charge."
+                                            ),
+                                        math_hogql: zod
+                                            .union([zod.string(), zod.null()])
+                                            .optional()
+                                            .describe("HogQL aggregation expression. Required when math is 'hogql'."),
+                                        math_property: zod
+                                            .union([zod.string(), zod.null()])
+                                            .optional()
+                                            .describe(
+                                                "Numeric table column to aggregate when math is 'sum', 'avg', 'min', or 'max'."
+                                            ),
+                                        name: zod
+                                            .union([zod.string(), zod.null()])
+                                            .optional()
+                                            .describe('Display name for the source.'),
+                                        properties: zod
+                                            .union([
+                                                zod.array(
+                                                    zod.object({
+                                                        key: zod.string(),
+                                                        label: zod.union([zod.string(), zod.null()]).optional(),
+                                                        operator: zod.enum([
+                                                            'exact',
+                                                            'is_not',
+                                                            'icontains',
+                                                            'not_icontains',
+                                                            'starts_with',
+                                                            'not_starts_with',
+                                                            'ends_with',
+                                                            'not_ends_with',
+                                                            'regex',
+                                                            'not_regex',
+                                                            'gt',
+                                                            'gte',
+                                                            'lt',
+                                                            'lte',
+                                                            'is_set',
+                                                            'is_not_set',
+                                                            'is_date_exact',
+                                                            'is_date_before',
+                                                            'is_date_after',
+                                                            'between',
+                                                            'not_between',
+                                                            'min',
+                                                            'max',
+                                                            'in',
+                                                            'not_in',
+                                                            'is_cleaned_path_exact',
+                                                            'flag_evaluates_to',
+                                                            'semver_eq',
+                                                            'semver_neq',
+                                                            'semver_gt',
+                                                            'semver_gte',
+                                                            'semver_lt',
+                                                            'semver_lte',
+                                                            'semver_tilde',
+                                                            'semver_caret',
+                                                            'semver_wildcard',
+                                                            'icontains_multi',
+                                                            'not_icontains_multi',
+                                                        ]),
+                                                        type: zod
+                                                            .literal('data_warehouse')
+                                                            .default(
+                                                                experimentsPartialUpdateBodyMetricsOneItemSourceTwoPropertiesOneItemTypeDefault
+                                                            ),
+                                                        value: zod
+                                                            .union([
+                                                                zod.array(
+                                                                    zod.union([
+                                                                        zod.string(),
+                                                                        zod.number(),
+                                                                        zod.boolean(),
+                                                                    ])
+                                                                ),
+                                                                zod.string(),
+                                                                zod.number(),
+                                                                zod.boolean(),
+                                                                zod.null(),
+                                                            ])
+                                                            .optional(),
+                                                    })
+                                                ),
+                                                zod.null(),
+                                            ])
+                                            .optional()
+                                            .describe("Filters on the table's own columns."),
+                                        table_name: zod
+                                            .string()
+                                            .describe("Data warehouse table to read from, e.g. 'stripe_charges'."),
+                                        timestamp_field: zod
+                                            .string()
+                                            .describe("Table column that holds the row timestamp, e.g. 'created_at'."),
+                                    }),
                                     zod.null(),
                                 ])
                                 .optional()
-                                .describe('For mean metrics: event source.'),
+                                .describe('For mean metrics: metric source.'),
                             start_event: zod
                                 .union([
                                     zod.object({
@@ -11468,6 +13644,130 @@ export const ExperimentsPartialUpdateBody = () => zod
                                             .optional()
                                             .describe('Event property filters to narrow which events are counted.'),
                                     }),
+                                    zod.object({
+                                        data_warehouse_join_key: zod
+                                            .string()
+                                            .describe("Table-side column to join on, e.g. 'customer_id'."),
+                                        events_join_key: zod
+                                            .string()
+                                            .describe("Event-side column to join on, e.g. 'distinct_id'."),
+                                        kind: zod
+                                            .literal('ExperimentDataWarehouseNode')
+                                            .default(
+                                                experimentsPartialUpdateBodyMetricsOneItemStartEventTwoKindDefault
+                                            ),
+                                        math: zod
+                                            .union([
+                                                zod.enum([
+                                                    'total',
+                                                    'sum',
+                                                    'unique_session',
+                                                    'min',
+                                                    'max',
+                                                    'avg',
+                                                    'dau',
+                                                    'unique_group',
+                                                    'hogql',
+                                                ]),
+                                                zod.null(),
+                                            ])
+                                            .optional()
+                                            .describe(
+                                                "How to aggregate this source. Defaults to 'total' (row count). Use 'sum' together with math_property to aggregate a numeric column — e.g. revenue per charge."
+                                            ),
+                                        math_hogql: zod
+                                            .union([zod.string(), zod.null()])
+                                            .optional()
+                                            .describe("HogQL aggregation expression. Required when math is 'hogql'."),
+                                        math_property: zod
+                                            .union([zod.string(), zod.null()])
+                                            .optional()
+                                            .describe(
+                                                "Numeric table column to aggregate when math is 'sum', 'avg', 'min', or 'max'."
+                                            ),
+                                        name: zod
+                                            .union([zod.string(), zod.null()])
+                                            .optional()
+                                            .describe('Display name for the source.'),
+                                        properties: zod
+                                            .union([
+                                                zod.array(
+                                                    zod.object({
+                                                        key: zod.string(),
+                                                        label: zod.union([zod.string(), zod.null()]).optional(),
+                                                        operator: zod.enum([
+                                                            'exact',
+                                                            'is_not',
+                                                            'icontains',
+                                                            'not_icontains',
+                                                            'starts_with',
+                                                            'not_starts_with',
+                                                            'ends_with',
+                                                            'not_ends_with',
+                                                            'regex',
+                                                            'not_regex',
+                                                            'gt',
+                                                            'gte',
+                                                            'lt',
+                                                            'lte',
+                                                            'is_set',
+                                                            'is_not_set',
+                                                            'is_date_exact',
+                                                            'is_date_before',
+                                                            'is_date_after',
+                                                            'between',
+                                                            'not_between',
+                                                            'min',
+                                                            'max',
+                                                            'in',
+                                                            'not_in',
+                                                            'is_cleaned_path_exact',
+                                                            'flag_evaluates_to',
+                                                            'semver_eq',
+                                                            'semver_neq',
+                                                            'semver_gt',
+                                                            'semver_gte',
+                                                            'semver_lt',
+                                                            'semver_lte',
+                                                            'semver_tilde',
+                                                            'semver_caret',
+                                                            'semver_wildcard',
+                                                            'icontains_multi',
+                                                            'not_icontains_multi',
+                                                        ]),
+                                                        type: zod
+                                                            .literal('data_warehouse')
+                                                            .default(
+                                                                experimentsPartialUpdateBodyMetricsOneItemStartEventTwoPropertiesOneItemTypeDefault
+                                                            ),
+                                                        value: zod
+                                                            .union([
+                                                                zod.array(
+                                                                    zod.union([
+                                                                        zod.string(),
+                                                                        zod.number(),
+                                                                        zod.boolean(),
+                                                                    ])
+                                                                ),
+                                                                zod.string(),
+                                                                zod.number(),
+                                                                zod.boolean(),
+                                                                zod.null(),
+                                                            ])
+                                                            .optional(),
+                                                    })
+                                                ),
+                                                zod.null(),
+                                            ])
+                                            .optional()
+                                            .describe("Filters on the table's own columns."),
+                                        table_name: zod
+                                            .string()
+                                            .describe("Data warehouse table to read from, e.g. 'stripe_charges'."),
+                                        timestamp_field: zod
+                                            .string()
+                                            .describe("Table column that holds the row timestamp, e.g. 'created_at'."),
+                                    }),
                                     zod.null(),
                                 ])
                                 .optional()
@@ -11502,7 +13802,7 @@ export const ExperimentsPartialUpdateBody = () => zod
             ])
             .optional()
             .describe(
-                "Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event). Use the read-data-schema tool with query kind 'events' to find available events in the project."
+                "Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event). Any metric source can instead read a data warehouse table: set kind='ExperimentDataWarehouseNode' with table_name, timestamp_field, events_join_key and data_warehouse_join_key. Use the read-data-schema tool with query kind 'events' to find available events in the project."
             ),
         metrics_secondary: zod
             .union([
@@ -11647,6 +13947,130 @@ export const ExperimentsPartialUpdateBody = () => zod
                                             ])
                                             .optional()
                                             .describe('Event property filters to narrow which events are counted.'),
+                                    }),
+                                    zod.object({
+                                        data_warehouse_join_key: zod
+                                            .string()
+                                            .describe("Table-side column to join on, e.g. 'customer_id'."),
+                                        events_join_key: zod
+                                            .string()
+                                            .describe("Event-side column to join on, e.g. 'distinct_id'."),
+                                        kind: zod
+                                            .literal('ExperimentDataWarehouseNode')
+                                            .default(
+                                                experimentsPartialUpdateBodyMetricsSecondaryOneItemCompletionEventTwoKindDefault
+                                            ),
+                                        math: zod
+                                            .union([
+                                                zod.enum([
+                                                    'total',
+                                                    'sum',
+                                                    'unique_session',
+                                                    'min',
+                                                    'max',
+                                                    'avg',
+                                                    'dau',
+                                                    'unique_group',
+                                                    'hogql',
+                                                ]),
+                                                zod.null(),
+                                            ])
+                                            .optional()
+                                            .describe(
+                                                "How to aggregate this source. Defaults to 'total' (row count). Use 'sum' together with math_property to aggregate a numeric column — e.g. revenue per charge."
+                                            ),
+                                        math_hogql: zod
+                                            .union([zod.string(), zod.null()])
+                                            .optional()
+                                            .describe("HogQL aggregation expression. Required when math is 'hogql'."),
+                                        math_property: zod
+                                            .union([zod.string(), zod.null()])
+                                            .optional()
+                                            .describe(
+                                                "Numeric table column to aggregate when math is 'sum', 'avg', 'min', or 'max'."
+                                            ),
+                                        name: zod
+                                            .union([zod.string(), zod.null()])
+                                            .optional()
+                                            .describe('Display name for the source.'),
+                                        properties: zod
+                                            .union([
+                                                zod.array(
+                                                    zod.object({
+                                                        key: zod.string(),
+                                                        label: zod.union([zod.string(), zod.null()]).optional(),
+                                                        operator: zod.enum([
+                                                            'exact',
+                                                            'is_not',
+                                                            'icontains',
+                                                            'not_icontains',
+                                                            'starts_with',
+                                                            'not_starts_with',
+                                                            'ends_with',
+                                                            'not_ends_with',
+                                                            'regex',
+                                                            'not_regex',
+                                                            'gt',
+                                                            'gte',
+                                                            'lt',
+                                                            'lte',
+                                                            'is_set',
+                                                            'is_not_set',
+                                                            'is_date_exact',
+                                                            'is_date_before',
+                                                            'is_date_after',
+                                                            'between',
+                                                            'not_between',
+                                                            'min',
+                                                            'max',
+                                                            'in',
+                                                            'not_in',
+                                                            'is_cleaned_path_exact',
+                                                            'flag_evaluates_to',
+                                                            'semver_eq',
+                                                            'semver_neq',
+                                                            'semver_gt',
+                                                            'semver_gte',
+                                                            'semver_lt',
+                                                            'semver_lte',
+                                                            'semver_tilde',
+                                                            'semver_caret',
+                                                            'semver_wildcard',
+                                                            'icontains_multi',
+                                                            'not_icontains_multi',
+                                                        ]),
+                                                        type: zod
+                                                            .literal('data_warehouse')
+                                                            .default(
+                                                                experimentsPartialUpdateBodyMetricsSecondaryOneItemCompletionEventTwoPropertiesOneItemTypeDefault
+                                                            ),
+                                                        value: zod
+                                                            .union([
+                                                                zod.array(
+                                                                    zod.union([
+                                                                        zod.string(),
+                                                                        zod.number(),
+                                                                        zod.boolean(),
+                                                                    ])
+                                                                ),
+                                                                zod.string(),
+                                                                zod.number(),
+                                                                zod.boolean(),
+                                                                zod.null(),
+                                                            ])
+                                                            .optional(),
+                                                    })
+                                                ),
+                                                zod.null(),
+                                            ])
+                                            .optional()
+                                            .describe("Filters on the table's own columns."),
+                                        table_name: zod
+                                            .string()
+                                            .describe("Data warehouse table to read from, e.g. 'stripe_charges'."),
+                                        timestamp_field: zod
+                                            .string()
+                                            .describe("Table column that holds the row timestamp, e.g. 'created_at'."),
                                     }),
                                     zod.null(),
                                 ])
@@ -11794,6 +14218,130 @@ export const ExperimentsPartialUpdateBody = () => zod
                                             ])
                                             .optional()
                                             .describe('Event property filters to narrow which events are counted.'),
+                                    }),
+                                    zod.object({
+                                        data_warehouse_join_key: zod
+                                            .string()
+                                            .describe("Table-side column to join on, e.g. 'customer_id'."),
+                                        events_join_key: zod
+                                            .string()
+                                            .describe("Event-side column to join on, e.g. 'distinct_id'."),
+                                        kind: zod
+                                            .literal('ExperimentDataWarehouseNode')
+                                            .default(
+                                                experimentsPartialUpdateBodyMetricsSecondaryOneItemDenominatorTwoKindDefault
+                                            ),
+                                        math: zod
+                                            .union([
+                                                zod.enum([
+                                                    'total',
+                                                    'sum',
+                                                    'unique_session',
+                                                    'min',
+                                                    'max',
+                                                    'avg',
+                                                    'dau',
+                                                    'unique_group',
+                                                    'hogql',
+                                                ]),
+                                                zod.null(),
+                                            ])
+                                            .optional()
+                                            .describe(
+                                                "How to aggregate this source. Defaults to 'total' (row count). Use 'sum' together with math_property to aggregate a numeric column — e.g. revenue per charge."
+                                            ),
+                                        math_hogql: zod
+                                            .union([zod.string(), zod.null()])
+                                            .optional()
+                                            .describe("HogQL aggregation expression. Required when math is 'hogql'."),
+                                        math_property: zod
+                                            .union([zod.string(), zod.null()])
+                                            .optional()
+                                            .describe(
+                                                "Numeric table column to aggregate when math is 'sum', 'avg', 'min', or 'max'."
+                                            ),
+                                        name: zod
+                                            .union([zod.string(), zod.null()])
+                                            .optional()
+                                            .describe('Display name for the source.'),
+                                        properties: zod
+                                            .union([
+                                                zod.array(
+                                                    zod.object({
+                                                        key: zod.string(),
+                                                        label: zod.union([zod.string(), zod.null()]).optional(),
+                                                        operator: zod.enum([
+                                                            'exact',
+                                                            'is_not',
+                                                            'icontains',
+                                                            'not_icontains',
+                                                            'starts_with',
+                                                            'not_starts_with',
+                                                            'ends_with',
+                                                            'not_ends_with',
+                                                            'regex',
+                                                            'not_regex',
+                                                            'gt',
+                                                            'gte',
+                                                            'lt',
+                                                            'lte',
+                                                            'is_set',
+                                                            'is_not_set',
+                                                            'is_date_exact',
+                                                            'is_date_before',
+                                                            'is_date_after',
+                                                            'between',
+                                                            'not_between',
+                                                            'min',
+                                                            'max',
+                                                            'in',
+                                                            'not_in',
+                                                            'is_cleaned_path_exact',
+                                                            'flag_evaluates_to',
+                                                            'semver_eq',
+                                                            'semver_neq',
+                                                            'semver_gt',
+                                                            'semver_gte',
+                                                            'semver_lt',
+                                                            'semver_lte',
+                                                            'semver_tilde',
+                                                            'semver_caret',
+                                                            'semver_wildcard',
+                                                            'icontains_multi',
+                                                            'not_icontains_multi',
+                                                        ]),
+                                                        type: zod
+                                                            .literal('data_warehouse')
+                                                            .default(
+                                                                experimentsPartialUpdateBodyMetricsSecondaryOneItemDenominatorTwoPropertiesOneItemTypeDefault
+                                                            ),
+                                                        value: zod
+                                                            .union([
+                                                                zod.array(
+                                                                    zod.union([
+                                                                        zod.string(),
+                                                                        zod.number(),
+                                                                        zod.boolean(),
+                                                                    ])
+                                                                ),
+                                                                zod.string(),
+                                                                zod.number(),
+                                                                zod.boolean(),
+                                                                zod.null(),
+                                                            ])
+                                                            .optional(),
+                                                    })
+                                                ),
+                                                zod.null(),
+                                            ])
+                                            .optional()
+                                            .describe("Filters on the table's own columns."),
+                                        table_name: zod
+                                            .string()
+                                            .describe("Data warehouse table to read from, e.g. 'stripe_charges'."),
+                                        timestamp_field: zod
+                                            .string()
+                                            .describe("Table column that holds the row timestamp, e.g. 'created_at'."),
                                     }),
                                     zod.null(),
                                 ])
@@ -12015,6 +14563,130 @@ export const ExperimentsPartialUpdateBody = () => zod
                                             .optional()
                                             .describe('Event property filters to narrow which events are counted.'),
                                     }),
+                                    zod.object({
+                                        data_warehouse_join_key: zod
+                                            .string()
+                                            .describe("Table-side column to join on, e.g. 'customer_id'."),
+                                        events_join_key: zod
+                                            .string()
+                                            .describe("Event-side column to join on, e.g. 'distinct_id'."),
+                                        kind: zod
+                                            .literal('ExperimentDataWarehouseNode')
+                                            .default(
+                                                experimentsPartialUpdateBodyMetricsSecondaryOneItemNumeratorTwoKindDefault
+                                            ),
+                                        math: zod
+                                            .union([
+                                                zod.enum([
+                                                    'total',
+                                                    'sum',
+                                                    'unique_session',
+                                                    'min',
+                                                    'max',
+                                                    'avg',
+                                                    'dau',
+                                                    'unique_group',
+                                                    'hogql',
+                                                ]),
+                                                zod.null(),
+                                            ])
+                                            .optional()
+                                            .describe(
+                                                "How to aggregate this source. Defaults to 'total' (row count). Use 'sum' together with math_property to aggregate a numeric column — e.g. revenue per charge."
+                                            ),
+                                        math_hogql: zod
+                                            .union([zod.string(), zod.null()])
+                                            .optional()
+                                            .describe("HogQL aggregation expression. Required when math is 'hogql'."),
+                                        math_property: zod
+                                            .union([zod.string(), zod.null()])
+                                            .optional()
+                                            .describe(
+                                                "Numeric table column to aggregate when math is 'sum', 'avg', 'min', or 'max'."
+                                            ),
+                                        name: zod
+                                            .union([zod.string(), zod.null()])
+                                            .optional()
+                                            .describe('Display name for the source.'),
+                                        properties: zod
+                                            .union([
+                                                zod.array(
+                                                    zod.object({
+                                                        key: zod.string(),
+                                                        label: zod.union([zod.string(), zod.null()]).optional(),
+                                                        operator: zod.enum([
+                                                            'exact',
+                                                            'is_not',
+                                                            'icontains',
+                                                            'not_icontains',
+                                                            'starts_with',
+                                                            'not_starts_with',
+                                                            'ends_with',
+                                                            'not_ends_with',
+                                                            'regex',
+                                                            'not_regex',
+                                                            'gt',
+                                                            'gte',
+                                                            'lt',
+                                                            'lte',
+                                                            'is_set',
+                                                            'is_not_set',
+                                                            'is_date_exact',
+                                                            'is_date_before',
+                                                            'is_date_after',
+                                                            'between',
+                                                            'not_between',
+                                                            'min',
+                                                            'max',
+                                                            'in',
+                                                            'not_in',
+                                                            'is_cleaned_path_exact',
+                                                            'flag_evaluates_to',
+                                                            'semver_eq',
+                                                            'semver_neq',
+                                                            'semver_gt',
+                                                            'semver_gte',
+                                                            'semver_lt',
+                                                            'semver_lte',
+                                                            'semver_tilde',
+                                                            'semver_caret',
+                                                            'semver_wildcard',
+                                                            'icontains_multi',
+                                                            'not_icontains_multi',
+                                                        ]),
+                                                        type: zod
+                                                            .literal('data_warehouse')
+                                                            .default(
+                                                                experimentsPartialUpdateBodyMetricsSecondaryOneItemNumeratorTwoPropertiesOneItemTypeDefault
+                                                            ),
+                                                        value: zod
+                                                            .union([
+                                                                zod.array(
+                                                                    zod.union([
+                                                                        zod.string(),
+                                                                        zod.number(),
+                                                                        zod.boolean(),
+                                                                    ])
+                                                                ),
+                                                                zod.string(),
+                                                                zod.number(),
+                                                                zod.boolean(),
+                                                                zod.null(),
+                                                            ])
+                                                            .optional(),
+                                                    })
+                                                ),
+                                                zod.null(),
+                                            ])
+                                            .optional()
+                                            .describe("Filters on the table's own columns."),
+                                        table_name: zod
+                                            .string()
+                                            .describe("Data warehouse table to read from, e.g. 'stripe_charges'."),
+                                        timestamp_field: zod
+                                            .string()
+                                            .describe("Table column that holds the row timestamp, e.g. 'created_at'."),
+                                    }),
                                     zod.null(),
                                 ])
                                 .optional()
@@ -12070,148 +14742,284 @@ export const ExperimentsPartialUpdateBody = () => zod
                             series: zod
                                 .union([
                                     zod.array(
-                                        zod.object({
-                                            event: zod
-                                                .union([zod.string(), zod.null()])
-                                                .optional()
-                                                .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
-                                            id: zod
-                                                .union([zod.number(), zod.null()])
-                                                .optional()
-                                                .describe('Action ID. Required for ActionsNode.'),
-                                            kind: zod.enum(['EventsNode', 'ActionsNode']),
-                                            math: zod
-                                                .union([
-                                                    zod.enum([
-                                                        'total',
-                                                        'sum',
-                                                        'unique_session',
-                                                        'min',
-                                                        'max',
-                                                        'avg',
-                                                        'dau',
-                                                        'unique_group',
-                                                        'hogql',
-                                                    ]),
-                                                    zod.null(),
-                                                ])
-                                                .optional()
-                                                .describe(
-                                                    "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
-                                                ),
-                                            math_group_type_index: zod
-                                                .union([
-                                                    zod.union([
-                                                        zod.literal(0),
-                                                        zod.literal(1),
-                                                        zod.literal(2),
-                                                        zod.literal(3),
-                                                        zod.literal(4),
-                                                    ]),
-                                                    zod.null(),
-                                                ])
-                                                .optional()
-                                                .describe(
-                                                    "Group type index to aggregate over. Required when math is 'unique_group'."
-                                                ),
-                                            math_hogql: zod
-                                                .union([zod.string(), zod.null()])
-                                                .optional()
-                                                .describe(
-                                                    "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
-                                                ),
-                                            math_property: zod
-                                                .union([zod.string(), zod.null()])
-                                                .optional()
-                                                .describe(
-                                                    "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue')."
-                                                ),
-                                            properties: zod
-                                                .union([
-                                                    zod.array(
-                                                        zod.object({
-                                                            key: zod.string(),
-                                                            label: zod.union([zod.string(), zod.null()]).optional(),
-                                                            operator: zod
-                                                                .union([
-                                                                    zod.enum([
-                                                                        'exact',
-                                                                        'is_not',
-                                                                        'icontains',
-                                                                        'not_icontains',
-                                                                        'starts_with',
-                                                                        'not_starts_with',
-                                                                        'ends_with',
-                                                                        'not_ends_with',
-                                                                        'regex',
-                                                                        'not_regex',
-                                                                        'gt',
-                                                                        'gte',
-                                                                        'lt',
-                                                                        'lte',
-                                                                        'is_set',
-                                                                        'is_not_set',
-                                                                        'is_date_exact',
-                                                                        'is_date_before',
-                                                                        'is_date_after',
-                                                                        'between',
-                                                                        'not_between',
-                                                                        'min',
-                                                                        'max',
-                                                                        'in',
-                                                                        'not_in',
-                                                                        'is_cleaned_path_exact',
-                                                                        'flag_evaluates_to',
-                                                                        'semver_eq',
-                                                                        'semver_neq',
-                                                                        'semver_gt',
-                                                                        'semver_gte',
-                                                                        'semver_lt',
-                                                                        'semver_lte',
-                                                                        'semver_tilde',
-                                                                        'semver_caret',
-                                                                        'semver_wildcard',
-                                                                        'icontains_multi',
-                                                                        'not_icontains_multi',
-                                                                    ]),
-                                                                    zod.null(),
-                                                                ])
-                                                                .default(
-                                                                    experimentsPartialUpdateBodyMetricsSecondaryOneItemSeriesOneItemPropertiesOneItemOperatorDefault
-                                                                ),
-                                                            type: zod
-                                                                .literal('event')
-                                                                .default(
-                                                                    experimentsPartialUpdateBodyMetricsSecondaryOneItemSeriesOneItemPropertiesOneItemTypeDefault
-                                                                )
-                                                                .describe('Event properties'),
-                                                            value: zod
-                                                                .union([
-                                                                    zod.array(
-                                                                        zod.union([
-                                                                            zod.string(),
-                                                                            zod.number(),
-                                                                            zod.boolean(),
-                                                                        ])
-                                                                    ),
-                                                                    zod.string(),
-                                                                    zod.number(),
-                                                                    zod.boolean(),
-                                                                    zod.null(),
-                                                                ])
-                                                                .optional(),
-                                                        })
+                                        zod.union([
+                                            zod.object({
+                                                event: zod
+                                                    .union([zod.string(), zod.null()])
+                                                    .optional()
+                                                    .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
+                                                id: zod
+                                                    .union([zod.number(), zod.null()])
+                                                    .optional()
+                                                    .describe('Action ID. Required for ActionsNode.'),
+                                                kind: zod.enum(['EventsNode', 'ActionsNode']),
+                                                math: zod
+                                                    .union([
+                                                        zod.enum([
+                                                            'total',
+                                                            'sum',
+                                                            'unique_session',
+                                                            'min',
+                                                            'max',
+                                                            'avg',
+                                                            'dau',
+                                                            'unique_group',
+                                                            'hogql',
+                                                        ]),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional()
+                                                    .describe(
+                                                        "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
                                                     ),
-                                                    zod.null(),
-                                                ])
-                                                .optional()
-                                                .describe('Event property filters to narrow which events are counted.'),
-                                        })
+                                                math_group_type_index: zod
+                                                    .union([
+                                                        zod.union([
+                                                            zod.literal(0),
+                                                            zod.literal(1),
+                                                            zod.literal(2),
+                                                            zod.literal(3),
+                                                            zod.literal(4),
+                                                        ]),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional()
+                                                    .describe(
+                                                        "Group type index to aggregate over. Required when math is 'unique_group'."
+                                                    ),
+                                                math_hogql: zod
+                                                    .union([zod.string(), zod.null()])
+                                                    .optional()
+                                                    .describe(
+                                                        "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
+                                                    ),
+                                                math_property: zod
+                                                    .union([zod.string(), zod.null()])
+                                                    .optional()
+                                                    .describe(
+                                                        "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue')."
+                                                    ),
+                                                properties: zod
+                                                    .union([
+                                                        zod.array(
+                                                            zod.object({
+                                                                key: zod.string(),
+                                                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                                                operator: zod
+                                                                    .union([
+                                                                        zod.enum([
+                                                                            'exact',
+                                                                            'is_not',
+                                                                            'icontains',
+                                                                            'not_icontains',
+                                                                            'starts_with',
+                                                                            'not_starts_with',
+                                                                            'ends_with',
+                                                                            'not_ends_with',
+                                                                            'regex',
+                                                                            'not_regex',
+                                                                            'gt',
+                                                                            'gte',
+                                                                            'lt',
+                                                                            'lte',
+                                                                            'is_set',
+                                                                            'is_not_set',
+                                                                            'is_date_exact',
+                                                                            'is_date_before',
+                                                                            'is_date_after',
+                                                                            'between',
+                                                                            'not_between',
+                                                                            'min',
+                                                                            'max',
+                                                                            'in',
+                                                                            'not_in',
+                                                                            'is_cleaned_path_exact',
+                                                                            'flag_evaluates_to',
+                                                                            'semver_eq',
+                                                                            'semver_neq',
+                                                                            'semver_gt',
+                                                                            'semver_gte',
+                                                                            'semver_lt',
+                                                                            'semver_lte',
+                                                                            'semver_tilde',
+                                                                            'semver_caret',
+                                                                            'semver_wildcard',
+                                                                            'icontains_multi',
+                                                                            'not_icontains_multi',
+                                                                        ]),
+                                                                        zod.null(),
+                                                                    ])
+                                                                    .default(
+                                                                        experimentsPartialUpdateBodyMetricsSecondaryOneItemSeriesOneItemOnePropertiesOneItemOperatorDefault
+                                                                    ),
+                                                                type: zod
+                                                                    .literal('event')
+                                                                    .default(
+                                                                        experimentsPartialUpdateBodyMetricsSecondaryOneItemSeriesOneItemOnePropertiesOneItemTypeDefault
+                                                                    )
+                                                                    .describe('Event properties'),
+                                                                value: zod
+                                                                    .union([
+                                                                        zod.array(
+                                                                            zod.union([
+                                                                                zod.string(),
+                                                                                zod.number(),
+                                                                                zod.boolean(),
+                                                                            ])
+                                                                        ),
+                                                                        zod.string(),
+                                                                        zod.number(),
+                                                                        zod.boolean(),
+                                                                        zod.null(),
+                                                                    ])
+                                                                    .optional(),
+                                                            })
+                                                        ),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional()
+                                                    .describe(
+                                                        'Event property filters to narrow which events are counted.'
+                                                    ),
+                                            }),
+                                            zod.object({
+                                                data_warehouse_join_key: zod
+                                                    .string()
+                                                    .describe("Table-side column to join on, e.g. 'customer_id'."),
+                                                events_join_key: zod
+                                                    .string()
+                                                    .describe("Event-side column to join on, e.g. 'distinct_id'."),
+                                                kind: zod
+                                                    .literal('ExperimentDataWarehouseNode')
+                                                    .default(
+                                                        experimentsPartialUpdateBodyMetricsSecondaryOneItemSeriesOneItemTwoKindDefault
+                                                    ),
+                                                math: zod
+                                                    .union([
+                                                        zod.enum([
+                                                            'total',
+                                                            'sum',
+                                                            'unique_session',
+                                                            'min',
+                                                            'max',
+                                                            'avg',
+                                                            'dau',
+                                                            'unique_group',
+                                                            'hogql',
+                                                        ]),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional()
+                                                    .describe(
+                                                        "How to aggregate this source. Defaults to 'total' (row count). Use 'sum' together with math_property to aggregate a numeric column — e.g. revenue per charge."
+                                                    ),
+                                                math_hogql: zod
+                                                    .union([zod.string(), zod.null()])
+                                                    .optional()
+                                                    .describe(
+                                                        "HogQL aggregation expression. Required when math is 'hogql'."
+                                                    ),
+                                                math_property: zod
+                                                    .union([zod.string(), zod.null()])
+                                                    .optional()
+                                                    .describe(
+                                                        "Numeric table column to aggregate when math is 'sum', 'avg', 'min', or 'max'."
+                                                    ),
+                                                name: zod
+                                                    .union([zod.string(), zod.null()])
+                                                    .optional()
+                                                    .describe('Display name for the source.'),
+                                                properties: zod
+                                                    .union([
+                                                        zod.array(
+                                                            zod.object({
+                                                                key: zod.string(),
+                                                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                                                operator: zod.enum([
+                                                                    'exact',
+                                                                    'is_not',
+                                                                    'icontains',
+                                                                    'not_icontains',
+                                                                    'starts_with',
+                                                                    'not_starts_with',
+                                                                    'ends_with',
+                                                                    'not_ends_with',
+                                                                    'regex',
+                                                                    'not_regex',
+                                                                    'gt',
+                                                                    'gte',
+                                                                    'lt',
+                                                                    'lte',
+                                                                    'is_set',
+                                                                    'is_not_set',
+                                                                    'is_date_exact',
+                                                                    'is_date_before',
+                                                                    'is_date_after',
+                                                                    'between',
+                                                                    'not_between',
+                                                                    'min',
+                                                                    'max',
+                                                                    'in',
+                                                                    'not_in',
+                                                                    'is_cleaned_path_exact',
+                                                                    'flag_evaluates_to',
+                                                                    'semver_eq',
+                                                                    'semver_neq',
+                                                                    'semver_gt',
+                                                                    'semver_gte',
+                                                                    'semver_lt',
+                                                                    'semver_lte',
+                                                                    'semver_tilde',
+                                                                    'semver_caret',
+                                                                    'semver_wildcard',
+                                                                    'icontains_multi',
+                                                                    'not_icontains_multi',
+                                                                ]),
+                                                                type: zod
+                                                                    .literal('data_warehouse')
+                                                                    .default(
+                                                                        experimentsPartialUpdateBodyMetricsSecondaryOneItemSeriesOneItemTwoPropertiesOneItemTypeDefault
+                                                                    ),
+                                                                value: zod
+                                                                    .union([
+                                                                        zod.array(
+                                                                            zod.union([
+                                                                                zod.string(),
+                                                                                zod.number(),
+                                                                                zod.boolean(),
+                                                                            ])
+                                                                        ),
+                                                                        zod.string(),
+                                                                        zod.number(),
+                                                                        zod.boolean(),
+                                                                        zod.null(),
+                                                                    ])
+                                                                    .optional(),
+                                                            })
+                                                        ),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional()
+                                                    .describe("Filters on the table's own columns."),
+                                                table_name: zod
+                                                    .string()
+                                                    .describe(
+                                                        "Data warehouse table to read from, e.g. 'stripe_charges'."
+                                                    ),
+                                                timestamp_field: zod
+                                                    .string()
+                                                    .describe(
+                                                        "Table column that holds the row timestamp, e.g. 'created_at'."
+                                                    ),
+                                            }),
+                                        ])
                                     ),
                                     zod.null(),
                                 ])
                                 .optional()
-                                .describe('For funnel metrics: array of EventsNode\/ActionsNode steps.'),
+                                .describe(
+                                    'For funnel metrics: array of EventsNode\/ActionsNode\/ExperimentDataWarehouseNode steps.'
+                                ),
                             source: zod
                                 .union([
                                     zod.object({
@@ -12351,10 +15159,134 @@ export const ExperimentsPartialUpdateBody = () => zod
                                             .optional()
                                             .describe('Event property filters to narrow which events are counted.'),
                                     }),
+                                    zod.object({
+                                        data_warehouse_join_key: zod
+                                            .string()
+                                            .describe("Table-side column to join on, e.g. 'customer_id'."),
+                                        events_join_key: zod
+                                            .string()
+                                            .describe("Event-side column to join on, e.g. 'distinct_id'."),
+                                        kind: zod
+                                            .literal('ExperimentDataWarehouseNode')
+                                            .default(
+                                                experimentsPartialUpdateBodyMetricsSecondaryOneItemSourceTwoKindDefault
+                                            ),
+                                        math: zod
+                                            .union([
+                                                zod.enum([
+                                                    'total',
+                                                    'sum',
+                                                    'unique_session',
+                                                    'min',
+                                                    'max',
+                                                    'avg',
+                                                    'dau',
+                                                    'unique_group',
+                                                    'hogql',
+                                                ]),
+                                                zod.null(),
+                                            ])
+                                            .optional()
+                                            .describe(
+                                                "How to aggregate this source. Defaults to 'total' (row count). Use 'sum' together with math_property to aggregate a numeric column — e.g. revenue per charge."
+                                            ),
+                                        math_hogql: zod
+                                            .union([zod.string(), zod.null()])
+                                            .optional()
+                                            .describe("HogQL aggregation expression. Required when math is 'hogql'."),
+                                        math_property: zod
+                                            .union([zod.string(), zod.null()])
+                                            .optional()
+                                            .describe(
+                                                "Numeric table column to aggregate when math is 'sum', 'avg', 'min', or 'max'."
+                                            ),
+                                        name: zod
+                                            .union([zod.string(), zod.null()])
+                                            .optional()
+                                            .describe('Display name for the source.'),
+                                        properties: zod
+                                            .union([
+                                                zod.array(
+                                                    zod.object({
+                                                        key: zod.string(),
+                                                        label: zod.union([zod.string(), zod.null()]).optional(),
+                                                        operator: zod.enum([
+                                                            'exact',
+                                                            'is_not',
+                                                            'icontains',
+                                                            'not_icontains',
+                                                            'starts_with',
+                                                            'not_starts_with',
+                                                            'ends_with',
+                                                            'not_ends_with',
+                                                            'regex',
+                                                            'not_regex',
+                                                            'gt',
+                                                            'gte',
+                                                            'lt',
+                                                            'lte',
+                                                            'is_set',
+                                                            'is_not_set',
+                                                            'is_date_exact',
+                                                            'is_date_before',
+                                                            'is_date_after',
+                                                            'between',
+                                                            'not_between',
+                                                            'min',
+                                                            'max',
+                                                            'in',
+                                                            'not_in',
+                                                            'is_cleaned_path_exact',
+                                                            'flag_evaluates_to',
+                                                            'semver_eq',
+                                                            'semver_neq',
+                                                            'semver_gt',
+                                                            'semver_gte',
+                                                            'semver_lt',
+                                                            'semver_lte',
+                                                            'semver_tilde',
+                                                            'semver_caret',
+                                                            'semver_wildcard',
+                                                            'icontains_multi',
+                                                            'not_icontains_multi',
+                                                        ]),
+                                                        type: zod
+                                                            .literal('data_warehouse')
+                                                            .default(
+                                                                experimentsPartialUpdateBodyMetricsSecondaryOneItemSourceTwoPropertiesOneItemTypeDefault
+                                                            ),
+                                                        value: zod
+                                                            .union([
+                                                                zod.array(
+                                                                    zod.union([
+                                                                        zod.string(),
+                                                                        zod.number(),
+                                                                        zod.boolean(),
+                                                                    ])
+                                                                ),
+                                                                zod.string(),
+                                                                zod.number(),
+                                                                zod.boolean(),
+                                                                zod.null(),
+                                                            ])
+                                                            .optional(),
+                                                    })
+                                                ),
+                                                zod.null(),
+                                            ])
+                                            .optional()
+                                            .describe("Filters on the table's own columns."),
+                                        table_name: zod
+                                            .string()
+                                            .describe("Data warehouse table to read from, e.g. 'stripe_charges'."),
+                                        timestamp_field: zod
+                                            .string()
+                                            .describe("Table column that holds the row timestamp, e.g. 'created_at'."),
+                                    }),
                                     zod.null(),
                                 ])
                                 .optional()
-                                .describe('For mean metrics: event source.'),
+                                .describe('For mean metrics: metric source.'),
                             start_event: zod
                                 .union([
                                     zod.object({
@@ -12493,6 +15425,130 @@ export const ExperimentsPartialUpdateBody = () => zod
                                             ])
                                             .optional()
                                             .describe('Event property filters to narrow which events are counted.'),
+                                    }),
+                                    zod.object({
+                                        data_warehouse_join_key: zod
+                                            .string()
+                                            .describe("Table-side column to join on, e.g. 'customer_id'."),
+                                        events_join_key: zod
+                                            .string()
+                                            .describe("Event-side column to join on, e.g. 'distinct_id'."),
+                                        kind: zod
+                                            .literal('ExperimentDataWarehouseNode')
+                                            .default(
+                                                experimentsPartialUpdateBodyMetricsSecondaryOneItemStartEventTwoKindDefault
+                                            ),
+                                        math: zod
+                                            .union([
+                                                zod.enum([
+                                                    'total',
+                                                    'sum',
+                                                    'unique_session',
+                                                    'min',
+                                                    'max',
+                                                    'avg',
+                                                    'dau',
+                                                    'unique_group',
+                                                    'hogql',
+                                                ]),
+                                                zod.null(),
+                                            ])
+                                            .optional()
+                                            .describe(
+                                                "How to aggregate this source. Defaults to 'total' (row count). Use 'sum' together with math_property to aggregate a numeric column — e.g. revenue per charge."
+                                            ),
+                                        math_hogql: zod
+                                            .union([zod.string(), zod.null()])
+                                            .optional()
+                                            .describe("HogQL aggregation expression. Required when math is 'hogql'."),
+                                        math_property: zod
+                                            .union([zod.string(), zod.null()])
+                                            .optional()
+                                            .describe(
+                                                "Numeric table column to aggregate when math is 'sum', 'avg', 'min', or 'max'."
+                                            ),
+                                        name: zod
+                                            .union([zod.string(), zod.null()])
+                                            .optional()
+                                            .describe('Display name for the source.'),
+                                        properties: zod
+                                            .union([
+                                                zod.array(
+                                                    zod.object({
+                                                        key: zod.string(),
+                                                        label: zod.union([zod.string(), zod.null()]).optional(),
+                                                        operator: zod.enum([
+                                                            'exact',
+                                                            'is_not',
+                                                            'icontains',
+                                                            'not_icontains',
+                                                            'starts_with',
+                                                            'not_starts_with',
+                                                            'ends_with',
+                                                            'not_ends_with',
+                                                            'regex',
+                                                            'not_regex',
+                                                            'gt',
+                                                            'gte',
+                                                            'lt',
+                                                            'lte',
+                                                            'is_set',
+                                                            'is_not_set',
+                                                            'is_date_exact',
+                                                            'is_date_before',
+                                                            'is_date_after',
+                                                            'between',
+                                                            'not_between',
+                                                            'min',
+                                                            'max',
+                                                            'in',
+                                                            'not_in',
+                                                            'is_cleaned_path_exact',
+                                                            'flag_evaluates_to',
+                                                            'semver_eq',
+                                                            'semver_neq',
+                                                            'semver_gt',
+                                                            'semver_gte',
+                                                            'semver_lt',
+                                                            'semver_lte',
+                                                            'semver_tilde',
+                                                            'semver_caret',
+                                                            'semver_wildcard',
+                                                            'icontains_multi',
+                                                            'not_icontains_multi',
+                                                        ]),
+                                                        type: zod
+                                                            .literal('data_warehouse')
+                                                            .default(
+                                                                experimentsPartialUpdateBodyMetricsSecondaryOneItemStartEventTwoPropertiesOneItemTypeDefault
+                                                            ),
+                                                        value: zod
+                                                            .union([
+                                                                zod.array(
+                                                                    zod.union([
+                                                                        zod.string(),
+                                                                        zod.number(),
+                                                                        zod.boolean(),
+                                                                    ])
+                                                                ),
+                                                                zod.string(),
+                                                                zod.number(),
+                                                                zod.boolean(),
+                                                                zod.null(),
+                                                            ])
+                                                            .optional(),
+                                                    })
+                                                ),
+                                                zod.null(),
+                                            ])
+                                            .optional()
+                                            .describe("Filters on the table's own columns."),
+                                        table_name: zod
+                                            .string()
+                                            .describe("Data warehouse table to read from, e.g. 'stripe_charges'."),
+                                        timestamp_field: zod
+                                            .string()
+                                            .describe("Table column that holds the row timestamp, e.g. 'created_at'."),
                                     }),
                                     zod.null(),
                                 ])
@@ -12765,8 +15821,12 @@ export const experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOneP
 export const experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwofourTypeDefault = `behavioral`
 export const experimentsDuplicateCreateBodyMetricsOneItemCompletionEventOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsDuplicateCreateBodyMetricsOneItemCompletionEventOnePropertiesOneItemTypeDefault = `event`
+export const experimentsDuplicateCreateBodyMetricsOneItemCompletionEventTwoKindDefault = `ExperimentDataWarehouseNode`
+export const experimentsDuplicateCreateBodyMetricsOneItemCompletionEventTwoPropertiesOneItemTypeDefault = `data_warehouse`
 export const experimentsDuplicateCreateBodyMetricsOneItemDenominatorOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsDuplicateCreateBodyMetricsOneItemDenominatorOnePropertiesOneItemTypeDefault = `event`
+export const experimentsDuplicateCreateBodyMetricsOneItemDenominatorTwoKindDefault = `ExperimentDataWarehouseNode`
+export const experimentsDuplicateCreateBodyMetricsOneItemDenominatorTwoPropertiesOneItemTypeDefault = `data_warehouse`
 export const experimentsDuplicateCreateBodyMetricsOneItemDenominatorOutlierHandlingOneLowerBoundPercentileOneMin = 0
 export const experimentsDuplicateCreateBodyMetricsOneItemDenominatorOutlierHandlingOneLowerBoundPercentileOneMax = 1
 
@@ -12779,25 +15839,37 @@ export const experimentsDuplicateCreateBodyMetricsOneItemLowerBoundPercentileOne
 
 export const experimentsDuplicateCreateBodyMetricsOneItemNumeratorOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsDuplicateCreateBodyMetricsOneItemNumeratorOnePropertiesOneItemTypeDefault = `event`
+export const experimentsDuplicateCreateBodyMetricsOneItemNumeratorTwoKindDefault = `ExperimentDataWarehouseNode`
+export const experimentsDuplicateCreateBodyMetricsOneItemNumeratorTwoPropertiesOneItemTypeDefault = `data_warehouse`
 export const experimentsDuplicateCreateBodyMetricsOneItemNumeratorOutlierHandlingOneLowerBoundPercentileOneMin = 0
 export const experimentsDuplicateCreateBodyMetricsOneItemNumeratorOutlierHandlingOneLowerBoundPercentileOneMax = 1
 
 export const experimentsDuplicateCreateBodyMetricsOneItemNumeratorOutlierHandlingOneUpperBoundPercentileOneMin = 0
 export const experimentsDuplicateCreateBodyMetricsOneItemNumeratorOutlierHandlingOneUpperBoundPercentileOneMax = 1
 
-export const experimentsDuplicateCreateBodyMetricsOneItemSeriesOneItemPropertiesOneItemOperatorDefault = `exact`
-export const experimentsDuplicateCreateBodyMetricsOneItemSeriesOneItemPropertiesOneItemTypeDefault = `event`
+export const experimentsDuplicateCreateBodyMetricsOneItemSeriesOneItemOnePropertiesOneItemOperatorDefault = `exact`
+export const experimentsDuplicateCreateBodyMetricsOneItemSeriesOneItemOnePropertiesOneItemTypeDefault = `event`
+export const experimentsDuplicateCreateBodyMetricsOneItemSeriesOneItemTwoKindDefault = `ExperimentDataWarehouseNode`
+export const experimentsDuplicateCreateBodyMetricsOneItemSeriesOneItemTwoPropertiesOneItemTypeDefault = `data_warehouse`
 export const experimentsDuplicateCreateBodyMetricsOneItemSourceOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsDuplicateCreateBodyMetricsOneItemSourceOnePropertiesOneItemTypeDefault = `event`
+export const experimentsDuplicateCreateBodyMetricsOneItemSourceTwoKindDefault = `ExperimentDataWarehouseNode`
+export const experimentsDuplicateCreateBodyMetricsOneItemSourceTwoPropertiesOneItemTypeDefault = `data_warehouse`
 export const experimentsDuplicateCreateBodyMetricsOneItemStartEventOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsDuplicateCreateBodyMetricsOneItemStartEventOnePropertiesOneItemTypeDefault = `event`
+export const experimentsDuplicateCreateBodyMetricsOneItemStartEventTwoKindDefault = `ExperimentDataWarehouseNode`
+export const experimentsDuplicateCreateBodyMetricsOneItemStartEventTwoPropertiesOneItemTypeDefault = `data_warehouse`
 export const experimentsDuplicateCreateBodyMetricsOneItemUpperBoundPercentileOneMin = 0
 export const experimentsDuplicateCreateBodyMetricsOneItemUpperBoundPercentileOneMax = 1
 
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemCompletionEventOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemCompletionEventOnePropertiesOneItemTypeDefault = `event`
+export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemCompletionEventTwoKindDefault = `ExperimentDataWarehouseNode`
+export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemCompletionEventTwoPropertiesOneItemTypeDefault = `data_warehouse`
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemDenominatorOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemDenominatorOnePropertiesOneItemTypeDefault = `event`
+export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemDenominatorTwoKindDefault = `ExperimentDataWarehouseNode`
+export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemDenominatorTwoPropertiesOneItemTypeDefault = `data_warehouse`
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemDenominatorOutlierHandlingOneLowerBoundPercentileOneMin = 0
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemDenominatorOutlierHandlingOneLowerBoundPercentileOneMax = 1
 
@@ -12810,18 +15882,26 @@ export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemLowerBoundPerc
 
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemNumeratorOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemNumeratorOnePropertiesOneItemTypeDefault = `event`
+export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemNumeratorTwoKindDefault = `ExperimentDataWarehouseNode`
+export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemNumeratorTwoPropertiesOneItemTypeDefault = `data_warehouse`
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemNumeratorOutlierHandlingOneLowerBoundPercentileOneMin = 0
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemNumeratorOutlierHandlingOneLowerBoundPercentileOneMax = 1
 
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemNumeratorOutlierHandlingOneUpperBoundPercentileOneMin = 0
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemNumeratorOutlierHandlingOneUpperBoundPercentileOneMax = 1
 
-export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemSeriesOneItemPropertiesOneItemOperatorDefault = `exact`
-export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemSeriesOneItemPropertiesOneItemTypeDefault = `event`
+export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemSeriesOneItemOnePropertiesOneItemOperatorDefault = `exact`
+export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemSeriesOneItemOnePropertiesOneItemTypeDefault = `event`
+export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemSeriesOneItemTwoKindDefault = `ExperimentDataWarehouseNode`
+export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemSeriesOneItemTwoPropertiesOneItemTypeDefault = `data_warehouse`
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemSourceOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemSourceOnePropertiesOneItemTypeDefault = `event`
+export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemSourceTwoKindDefault = `ExperimentDataWarehouseNode`
+export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemSourceTwoPropertiesOneItemTypeDefault = `data_warehouse`
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemStartEventOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemStartEventOnePropertiesOneItemTypeDefault = `event`
+export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemStartEventTwoKindDefault = `ExperimentDataWarehouseNode`
+export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemStartEventTwoPropertiesOneItemTypeDefault = `data_warehouse`
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemUpperBoundPercentileOneMin = 0
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemUpperBoundPercentileOneMax = 1
 
@@ -16520,6 +19600,130 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                             .optional()
                                             .describe('Event property filters to narrow which events are counted.'),
                                     }),
+                                    zod.object({
+                                        data_warehouse_join_key: zod
+                                            .string()
+                                            .describe("Table-side column to join on, e.g. 'customer_id'."),
+                                        events_join_key: zod
+                                            .string()
+                                            .describe("Event-side column to join on, e.g. 'distinct_id'."),
+                                        kind: zod
+                                            .literal('ExperimentDataWarehouseNode')
+                                            .default(
+                                                experimentsDuplicateCreateBodyMetricsOneItemCompletionEventTwoKindDefault
+                                            ),
+                                        math: zod
+                                            .union([
+                                                zod.enum([
+                                                    'total',
+                                                    'sum',
+                                                    'unique_session',
+                                                    'min',
+                                                    'max',
+                                                    'avg',
+                                                    'dau',
+                                                    'unique_group',
+                                                    'hogql',
+                                                ]),
+                                                zod.null(),
+                                            ])
+                                            .optional()
+                                            .describe(
+                                                "How to aggregate this source. Defaults to 'total' (row count). Use 'sum' together with math_property to aggregate a numeric column — e.g. revenue per charge."
+                                            ),
+                                        math_hogql: zod
+                                            .union([zod.string(), zod.null()])
+                                            .optional()
+                                            .describe("HogQL aggregation expression. Required when math is 'hogql'."),
+                                        math_property: zod
+                                            .union([zod.string(), zod.null()])
+                                            .optional()
+                                            .describe(
+                                                "Numeric table column to aggregate when math is 'sum', 'avg', 'min', or 'max'."
+                                            ),
+                                        name: zod
+                                            .union([zod.string(), zod.null()])
+                                            .optional()
+                                            .describe('Display name for the source.'),
+                                        properties: zod
+                                            .union([
+                                                zod.array(
+                                                    zod.object({
+                                                        key: zod.string(),
+                                                        label: zod.union([zod.string(), zod.null()]).optional(),
+                                                        operator: zod.enum([
+                                                            'exact',
+                                                            'is_not',
+                                                            'icontains',
+                                                            'not_icontains',
+                                                            'starts_with',
+                                                            'not_starts_with',
+                                                            'ends_with',
+                                                            'not_ends_with',
+                                                            'regex',
+                                                            'not_regex',
+                                                            'gt',
+                                                            'gte',
+                                                            'lt',
+                                                            'lte',
+                                                            'is_set',
+                                                            'is_not_set',
+                                                            'is_date_exact',
+                                                            'is_date_before',
+                                                            'is_date_after',
+                                                            'between',
+                                                            'not_between',
+                                                            'min',
+                                                            'max',
+                                                            'in',
+                                                            'not_in',
+                                                            'is_cleaned_path_exact',
+                                                            'flag_evaluates_to',
+                                                            'semver_eq',
+                                                            'semver_neq',
+                                                            'semver_gt',
+                                                            'semver_gte',
+                                                            'semver_lt',
+                                                            'semver_lte',
+                                                            'semver_tilde',
+                                                            'semver_caret',
+                                                            'semver_wildcard',
+                                                            'icontains_multi',
+                                                            'not_icontains_multi',
+                                                        ]),
+                                                        type: zod
+                                                            .literal('data_warehouse')
+                                                            .default(
+                                                                experimentsDuplicateCreateBodyMetricsOneItemCompletionEventTwoPropertiesOneItemTypeDefault
+                                                            ),
+                                                        value: zod
+                                                            .union([
+                                                                zod.array(
+                                                                    zod.union([
+                                                                        zod.string(),
+                                                                        zod.number(),
+                                                                        zod.boolean(),
+                                                                    ])
+                                                                ),
+                                                                zod.string(),
+                                                                zod.number(),
+                                                                zod.boolean(),
+                                                                zod.null(),
+                                                            ])
+                                                            .optional(),
+                                                    })
+                                                ),
+                                                zod.null(),
+                                            ])
+                                            .optional()
+                                            .describe("Filters on the table's own columns."),
+                                        table_name: zod
+                                            .string()
+                                            .describe("Data warehouse table to read from, e.g. 'stripe_charges'."),
+                                        timestamp_field: zod
+                                            .string()
+                                            .describe("Table column that holds the row timestamp, e.g. 'created_at'."),
+                                    }),
                                     zod.null(),
                                 ])
                                 .optional()
@@ -16666,6 +19870,130 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                             ])
                                             .optional()
                                             .describe('Event property filters to narrow which events are counted.'),
+                                    }),
+                                    zod.object({
+                                        data_warehouse_join_key: zod
+                                            .string()
+                                            .describe("Table-side column to join on, e.g. 'customer_id'."),
+                                        events_join_key: zod
+                                            .string()
+                                            .describe("Event-side column to join on, e.g. 'distinct_id'."),
+                                        kind: zod
+                                            .literal('ExperimentDataWarehouseNode')
+                                            .default(
+                                                experimentsDuplicateCreateBodyMetricsOneItemDenominatorTwoKindDefault
+                                            ),
+                                        math: zod
+                                            .union([
+                                                zod.enum([
+                                                    'total',
+                                                    'sum',
+                                                    'unique_session',
+                                                    'min',
+                                                    'max',
+                                                    'avg',
+                                                    'dau',
+                                                    'unique_group',
+                                                    'hogql',
+                                                ]),
+                                                zod.null(),
+                                            ])
+                                            .optional()
+                                            .describe(
+                                                "How to aggregate this source. Defaults to 'total' (row count). Use 'sum' together with math_property to aggregate a numeric column — e.g. revenue per charge."
+                                            ),
+                                        math_hogql: zod
+                                            .union([zod.string(), zod.null()])
+                                            .optional()
+                                            .describe("HogQL aggregation expression. Required when math is 'hogql'."),
+                                        math_property: zod
+                                            .union([zod.string(), zod.null()])
+                                            .optional()
+                                            .describe(
+                                                "Numeric table column to aggregate when math is 'sum', 'avg', 'min', or 'max'."
+                                            ),
+                                        name: zod
+                                            .union([zod.string(), zod.null()])
+                                            .optional()
+                                            .describe('Display name for the source.'),
+                                        properties: zod
+                                            .union([
+                                                zod.array(
+                                                    zod.object({
+                                                        key: zod.string(),
+                                                        label: zod.union([zod.string(), zod.null()]).optional(),
+                                                        operator: zod.enum([
+                                                            'exact',
+                                                            'is_not',
+                                                            'icontains',
+                                                            'not_icontains',
+                                                            'starts_with',
+                                                            'not_starts_with',
+                                                            'ends_with',
+                                                            'not_ends_with',
+                                                            'regex',
+                                                            'not_regex',
+                                                            'gt',
+                                                            'gte',
+                                                            'lt',
+                                                            'lte',
+                                                            'is_set',
+                                                            'is_not_set',
+                                                            'is_date_exact',
+                                                            'is_date_before',
+                                                            'is_date_after',
+                                                            'between',
+                                                            'not_between',
+                                                            'min',
+                                                            'max',
+                                                            'in',
+                                                            'not_in',
+                                                            'is_cleaned_path_exact',
+                                                            'flag_evaluates_to',
+                                                            'semver_eq',
+                                                            'semver_neq',
+                                                            'semver_gt',
+                                                            'semver_gte',
+                                                            'semver_lt',
+                                                            'semver_lte',
+                                                            'semver_tilde',
+                                                            'semver_caret',
+                                                            'semver_wildcard',
+                                                            'icontains_multi',
+                                                            'not_icontains_multi',
+                                                        ]),
+                                                        type: zod
+                                                            .literal('data_warehouse')
+                                                            .default(
+                                                                experimentsDuplicateCreateBodyMetricsOneItemDenominatorTwoPropertiesOneItemTypeDefault
+                                                            ),
+                                                        value: zod
+                                                            .union([
+                                                                zod.array(
+                                                                    zod.union([
+                                                                        zod.string(),
+                                                                        zod.number(),
+                                                                        zod.boolean(),
+                                                                    ])
+                                                                ),
+                                                                zod.string(),
+                                                                zod.number(),
+                                                                zod.boolean(),
+                                                                zod.null(),
+                                                            ])
+                                                            .optional(),
+                                                    })
+                                                ),
+                                                zod.null(),
+                                            ])
+                                            .optional()
+                                            .describe("Filters on the table's own columns."),
+                                        table_name: zod
+                                            .string()
+                                            .describe("Data warehouse table to read from, e.g. 'stripe_charges'."),
+                                        timestamp_field: zod
+                                            .string()
+                                            .describe("Table column that holds the row timestamp, e.g. 'created_at'."),
                                     }),
                                     zod.null(),
                                 ])
@@ -16883,6 +20211,130 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                             .optional()
                                             .describe('Event property filters to narrow which events are counted.'),
                                     }),
+                                    zod.object({
+                                        data_warehouse_join_key: zod
+                                            .string()
+                                            .describe("Table-side column to join on, e.g. 'customer_id'."),
+                                        events_join_key: zod
+                                            .string()
+                                            .describe("Event-side column to join on, e.g. 'distinct_id'."),
+                                        kind: zod
+                                            .literal('ExperimentDataWarehouseNode')
+                                            .default(
+                                                experimentsDuplicateCreateBodyMetricsOneItemNumeratorTwoKindDefault
+                                            ),
+                                        math: zod
+                                            .union([
+                                                zod.enum([
+                                                    'total',
+                                                    'sum',
+                                                    'unique_session',
+                                                    'min',
+                                                    'max',
+                                                    'avg',
+                                                    'dau',
+                                                    'unique_group',
+                                                    'hogql',
+                                                ]),
+                                                zod.null(),
+                                            ])
+                                            .optional()
+                                            .describe(
+                                                "How to aggregate this source. Defaults to 'total' (row count). Use 'sum' together with math_property to aggregate a numeric column — e.g. revenue per charge."
+                                            ),
+                                        math_hogql: zod
+                                            .union([zod.string(), zod.null()])
+                                            .optional()
+                                            .describe("HogQL aggregation expression. Required when math is 'hogql'."),
+                                        math_property: zod
+                                            .union([zod.string(), zod.null()])
+                                            .optional()
+                                            .describe(
+                                                "Numeric table column to aggregate when math is 'sum', 'avg', 'min', or 'max'."
+                                            ),
+                                        name: zod
+                                            .union([zod.string(), zod.null()])
+                                            .optional()
+                                            .describe('Display name for the source.'),
+                                        properties: zod
+                                            .union([
+                                                zod.array(
+                                                    zod.object({
+                                                        key: zod.string(),
+                                                        label: zod.union([zod.string(), zod.null()]).optional(),
+                                                        operator: zod.enum([
+                                                            'exact',
+                                                            'is_not',
+                                                            'icontains',
+                                                            'not_icontains',
+                                                            'starts_with',
+                                                            'not_starts_with',
+                                                            'ends_with',
+                                                            'not_ends_with',
+                                                            'regex',
+                                                            'not_regex',
+                                                            'gt',
+                                                            'gte',
+                                                            'lt',
+                                                            'lte',
+                                                            'is_set',
+                                                            'is_not_set',
+                                                            'is_date_exact',
+                                                            'is_date_before',
+                                                            'is_date_after',
+                                                            'between',
+                                                            'not_between',
+                                                            'min',
+                                                            'max',
+                                                            'in',
+                                                            'not_in',
+                                                            'is_cleaned_path_exact',
+                                                            'flag_evaluates_to',
+                                                            'semver_eq',
+                                                            'semver_neq',
+                                                            'semver_gt',
+                                                            'semver_gte',
+                                                            'semver_lt',
+                                                            'semver_lte',
+                                                            'semver_tilde',
+                                                            'semver_caret',
+                                                            'semver_wildcard',
+                                                            'icontains_multi',
+                                                            'not_icontains_multi',
+                                                        ]),
+                                                        type: zod
+                                                            .literal('data_warehouse')
+                                                            .default(
+                                                                experimentsDuplicateCreateBodyMetricsOneItemNumeratorTwoPropertiesOneItemTypeDefault
+                                                            ),
+                                                        value: zod
+                                                            .union([
+                                                                zod.array(
+                                                                    zod.union([
+                                                                        zod.string(),
+                                                                        zod.number(),
+                                                                        zod.boolean(),
+                                                                    ])
+                                                                ),
+                                                                zod.string(),
+                                                                zod.number(),
+                                                                zod.boolean(),
+                                                                zod.null(),
+                                                            ])
+                                                            .optional(),
+                                                    })
+                                                ),
+                                                zod.null(),
+                                            ])
+                                            .optional()
+                                            .describe("Filters on the table's own columns."),
+                                        table_name: zod
+                                            .string()
+                                            .describe("Data warehouse table to read from, e.g. 'stripe_charges'."),
+                                        timestamp_field: zod
+                                            .string()
+                                            .describe("Table column that holds the row timestamp, e.g. 'created_at'."),
+                                    }),
                                     zod.null(),
                                 ])
                                 .optional()
@@ -16938,148 +20390,284 @@ export const ExperimentsDuplicateCreateBody = () => zod
                             series: zod
                                 .union([
                                     zod.array(
-                                        zod.object({
-                                            event: zod
-                                                .union([zod.string(), zod.null()])
-                                                .optional()
-                                                .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
-                                            id: zod
-                                                .union([zod.number(), zod.null()])
-                                                .optional()
-                                                .describe('Action ID. Required for ActionsNode.'),
-                                            kind: zod.enum(['EventsNode', 'ActionsNode']),
-                                            math: zod
-                                                .union([
-                                                    zod.enum([
-                                                        'total',
-                                                        'sum',
-                                                        'unique_session',
-                                                        'min',
-                                                        'max',
-                                                        'avg',
-                                                        'dau',
-                                                        'unique_group',
-                                                        'hogql',
-                                                    ]),
-                                                    zod.null(),
-                                                ])
-                                                .optional()
-                                                .describe(
-                                                    "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
-                                                ),
-                                            math_group_type_index: zod
-                                                .union([
-                                                    zod.union([
-                                                        zod.literal(0),
-                                                        zod.literal(1),
-                                                        zod.literal(2),
-                                                        zod.literal(3),
-                                                        zod.literal(4),
-                                                    ]),
-                                                    zod.null(),
-                                                ])
-                                                .optional()
-                                                .describe(
-                                                    "Group type index to aggregate over. Required when math is 'unique_group'."
-                                                ),
-                                            math_hogql: zod
-                                                .union([zod.string(), zod.null()])
-                                                .optional()
-                                                .describe(
-                                                    "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
-                                                ),
-                                            math_property: zod
-                                                .union([zod.string(), zod.null()])
-                                                .optional()
-                                                .describe(
-                                                    "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue')."
-                                                ),
-                                            properties: zod
-                                                .union([
-                                                    zod.array(
-                                                        zod.object({
-                                                            key: zod.string(),
-                                                            label: zod.union([zod.string(), zod.null()]).optional(),
-                                                            operator: zod
-                                                                .union([
-                                                                    zod.enum([
-                                                                        'exact',
-                                                                        'is_not',
-                                                                        'icontains',
-                                                                        'not_icontains',
-                                                                        'starts_with',
-                                                                        'not_starts_with',
-                                                                        'ends_with',
-                                                                        'not_ends_with',
-                                                                        'regex',
-                                                                        'not_regex',
-                                                                        'gt',
-                                                                        'gte',
-                                                                        'lt',
-                                                                        'lte',
-                                                                        'is_set',
-                                                                        'is_not_set',
-                                                                        'is_date_exact',
-                                                                        'is_date_before',
-                                                                        'is_date_after',
-                                                                        'between',
-                                                                        'not_between',
-                                                                        'min',
-                                                                        'max',
-                                                                        'in',
-                                                                        'not_in',
-                                                                        'is_cleaned_path_exact',
-                                                                        'flag_evaluates_to',
-                                                                        'semver_eq',
-                                                                        'semver_neq',
-                                                                        'semver_gt',
-                                                                        'semver_gte',
-                                                                        'semver_lt',
-                                                                        'semver_lte',
-                                                                        'semver_tilde',
-                                                                        'semver_caret',
-                                                                        'semver_wildcard',
-                                                                        'icontains_multi',
-                                                                        'not_icontains_multi',
-                                                                    ]),
-                                                                    zod.null(),
-                                                                ])
-                                                                .default(
-                                                                    experimentsDuplicateCreateBodyMetricsOneItemSeriesOneItemPropertiesOneItemOperatorDefault
-                                                                ),
-                                                            type: zod
-                                                                .literal('event')
-                                                                .default(
-                                                                    experimentsDuplicateCreateBodyMetricsOneItemSeriesOneItemPropertiesOneItemTypeDefault
-                                                                )
-                                                                .describe('Event properties'),
-                                                            value: zod
-                                                                .union([
-                                                                    zod.array(
-                                                                        zod.union([
-                                                                            zod.string(),
-                                                                            zod.number(),
-                                                                            zod.boolean(),
-                                                                        ])
-                                                                    ),
-                                                                    zod.string(),
-                                                                    zod.number(),
-                                                                    zod.boolean(),
-                                                                    zod.null(),
-                                                                ])
-                                                                .optional(),
-                                                        })
+                                        zod.union([
+                                            zod.object({
+                                                event: zod
+                                                    .union([zod.string(), zod.null()])
+                                                    .optional()
+                                                    .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
+                                                id: zod
+                                                    .union([zod.number(), zod.null()])
+                                                    .optional()
+                                                    .describe('Action ID. Required for ActionsNode.'),
+                                                kind: zod.enum(['EventsNode', 'ActionsNode']),
+                                                math: zod
+                                                    .union([
+                                                        zod.enum([
+                                                            'total',
+                                                            'sum',
+                                                            'unique_session',
+                                                            'min',
+                                                            'max',
+                                                            'avg',
+                                                            'dau',
+                                                            'unique_group',
+                                                            'hogql',
+                                                        ]),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional()
+                                                    .describe(
+                                                        "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
                                                     ),
-                                                    zod.null(),
-                                                ])
-                                                .optional()
-                                                .describe('Event property filters to narrow which events are counted.'),
-                                        })
+                                                math_group_type_index: zod
+                                                    .union([
+                                                        zod.union([
+                                                            zod.literal(0),
+                                                            zod.literal(1),
+                                                            zod.literal(2),
+                                                            zod.literal(3),
+                                                            zod.literal(4),
+                                                        ]),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional()
+                                                    .describe(
+                                                        "Group type index to aggregate over. Required when math is 'unique_group'."
+                                                    ),
+                                                math_hogql: zod
+                                                    .union([zod.string(), zod.null()])
+                                                    .optional()
+                                                    .describe(
+                                                        "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
+                                                    ),
+                                                math_property: zod
+                                                    .union([zod.string(), zod.null()])
+                                                    .optional()
+                                                    .describe(
+                                                        "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue')."
+                                                    ),
+                                                properties: zod
+                                                    .union([
+                                                        zod.array(
+                                                            zod.object({
+                                                                key: zod.string(),
+                                                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                                                operator: zod
+                                                                    .union([
+                                                                        zod.enum([
+                                                                            'exact',
+                                                                            'is_not',
+                                                                            'icontains',
+                                                                            'not_icontains',
+                                                                            'starts_with',
+                                                                            'not_starts_with',
+                                                                            'ends_with',
+                                                                            'not_ends_with',
+                                                                            'regex',
+                                                                            'not_regex',
+                                                                            'gt',
+                                                                            'gte',
+                                                                            'lt',
+                                                                            'lte',
+                                                                            'is_set',
+                                                                            'is_not_set',
+                                                                            'is_date_exact',
+                                                                            'is_date_before',
+                                                                            'is_date_after',
+                                                                            'between',
+                                                                            'not_between',
+                                                                            'min',
+                                                                            'max',
+                                                                            'in',
+                                                                            'not_in',
+                                                                            'is_cleaned_path_exact',
+                                                                            'flag_evaluates_to',
+                                                                            'semver_eq',
+                                                                            'semver_neq',
+                                                                            'semver_gt',
+                                                                            'semver_gte',
+                                                                            'semver_lt',
+                                                                            'semver_lte',
+                                                                            'semver_tilde',
+                                                                            'semver_caret',
+                                                                            'semver_wildcard',
+                                                                            'icontains_multi',
+                                                                            'not_icontains_multi',
+                                                                        ]),
+                                                                        zod.null(),
+                                                                    ])
+                                                                    .default(
+                                                                        experimentsDuplicateCreateBodyMetricsOneItemSeriesOneItemOnePropertiesOneItemOperatorDefault
+                                                                    ),
+                                                                type: zod
+                                                                    .literal('event')
+                                                                    .default(
+                                                                        experimentsDuplicateCreateBodyMetricsOneItemSeriesOneItemOnePropertiesOneItemTypeDefault
+                                                                    )
+                                                                    .describe('Event properties'),
+                                                                value: zod
+                                                                    .union([
+                                                                        zod.array(
+                                                                            zod.union([
+                                                                                zod.string(),
+                                                                                zod.number(),
+                                                                                zod.boolean(),
+                                                                            ])
+                                                                        ),
+                                                                        zod.string(),
+                                                                        zod.number(),
+                                                                        zod.boolean(),
+                                                                        zod.null(),
+                                                                    ])
+                                                                    .optional(),
+                                                            })
+                                                        ),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional()
+                                                    .describe(
+                                                        'Event property filters to narrow which events are counted.'
+                                                    ),
+                                            }),
+                                            zod.object({
+                                                data_warehouse_join_key: zod
+                                                    .string()
+                                                    .describe("Table-side column to join on, e.g. 'customer_id'."),
+                                                events_join_key: zod
+                                                    .string()
+                                                    .describe("Event-side column to join on, e.g. 'distinct_id'."),
+                                                kind: zod
+                                                    .literal('ExperimentDataWarehouseNode')
+                                                    .default(
+                                                        experimentsDuplicateCreateBodyMetricsOneItemSeriesOneItemTwoKindDefault
+                                                    ),
+                                                math: zod
+                                                    .union([
+                                                        zod.enum([
+                                                            'total',
+                                                            'sum',
+                                                            'unique_session',
+                                                            'min',
+                                                            'max',
+                                                            'avg',
+                                                            'dau',
+                                                            'unique_group',
+                                                            'hogql',
+                                                        ]),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional()
+                                                    .describe(
+                                                        "How to aggregate this source. Defaults to 'total' (row count). Use 'sum' together with math_property to aggregate a numeric column — e.g. revenue per charge."
+                                                    ),
+                                                math_hogql: zod
+                                                    .union([zod.string(), zod.null()])
+                                                    .optional()
+                                                    .describe(
+                                                        "HogQL aggregation expression. Required when math is 'hogql'."
+                                                    ),
+                                                math_property: zod
+                                                    .union([zod.string(), zod.null()])
+                                                    .optional()
+                                                    .describe(
+                                                        "Numeric table column to aggregate when math is 'sum', 'avg', 'min', or 'max'."
+                                                    ),
+                                                name: zod
+                                                    .union([zod.string(), zod.null()])
+                                                    .optional()
+                                                    .describe('Display name for the source.'),
+                                                properties: zod
+                                                    .union([
+                                                        zod.array(
+                                                            zod.object({
+                                                                key: zod.string(),
+                                                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                                                operator: zod.enum([
+                                                                    'exact',
+                                                                    'is_not',
+                                                                    'icontains',
+                                                                    'not_icontains',
+                                                                    'starts_with',
+                                                                    'not_starts_with',
+                                                                    'ends_with',
+                                                                    'not_ends_with',
+                                                                    'regex',
+                                                                    'not_regex',
+                                                                    'gt',
+                                                                    'gte',
+                                                                    'lt',
+                                                                    'lte',
+                                                                    'is_set',
+                                                                    'is_not_set',
+                                                                    'is_date_exact',
+                                                                    'is_date_before',
+                                                                    'is_date_after',
+                                                                    'between',
+                                                                    'not_between',
+                                                                    'min',
+                                                                    'max',
+                                                                    'in',
+                                                                    'not_in',
+                                                                    'is_cleaned_path_exact',
+                                                                    'flag_evaluates_to',
+                                                                    'semver_eq',
+                                                                    'semver_neq',
+                                                                    'semver_gt',
+                                                                    'semver_gte',
+                                                                    'semver_lt',
+                                                                    'semver_lte',
+                                                                    'semver_tilde',
+                                                                    'semver_caret',
+                                                                    'semver_wildcard',
+                                                                    'icontains_multi',
+                                                                    'not_icontains_multi',
+                                                                ]),
+                                                                type: zod
+                                                                    .literal('data_warehouse')
+                                                                    .default(
+                                                                        experimentsDuplicateCreateBodyMetricsOneItemSeriesOneItemTwoPropertiesOneItemTypeDefault
+                                                                    ),
+                                                                value: zod
+                                                                    .union([
+                                                                        zod.array(
+                                                                            zod.union([
+                                                                                zod.string(),
+                                                                                zod.number(),
+                                                                                zod.boolean(),
+                                                                            ])
+                                                                        ),
+                                                                        zod.string(),
+                                                                        zod.number(),
+                                                                        zod.boolean(),
+                                                                        zod.null(),
+                                                                    ])
+                                                                    .optional(),
+                                                            })
+                                                        ),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional()
+                                                    .describe("Filters on the table's own columns."),
+                                                table_name: zod
+                                                    .string()
+                                                    .describe(
+                                                        "Data warehouse table to read from, e.g. 'stripe_charges'."
+                                                    ),
+                                                timestamp_field: zod
+                                                    .string()
+                                                    .describe(
+                                                        "Table column that holds the row timestamp, e.g. 'created_at'."
+                                                    ),
+                                            }),
+                                        ])
                                     ),
                                     zod.null(),
                                 ])
                                 .optional()
-                                .describe('For funnel metrics: array of EventsNode\/ActionsNode steps.'),
+                                .describe(
+                                    'For funnel metrics: array of EventsNode\/ActionsNode\/ExperimentDataWarehouseNode steps.'
+                                ),
                             source: zod
                                 .union([
                                     zod.object({
@@ -17219,10 +20807,132 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                             .optional()
                                             .describe('Event property filters to narrow which events are counted.'),
                                     }),
+                                    zod.object({
+                                        data_warehouse_join_key: zod
+                                            .string()
+                                            .describe("Table-side column to join on, e.g. 'customer_id'."),
+                                        events_join_key: zod
+                                            .string()
+                                            .describe("Event-side column to join on, e.g. 'distinct_id'."),
+                                        kind: zod
+                                            .literal('ExperimentDataWarehouseNode')
+                                            .default(experimentsDuplicateCreateBodyMetricsOneItemSourceTwoKindDefault),
+                                        math: zod
+                                            .union([
+                                                zod.enum([
+                                                    'total',
+                                                    'sum',
+                                                    'unique_session',
+                                                    'min',
+                                                    'max',
+                                                    'avg',
+                                                    'dau',
+                                                    'unique_group',
+                                                    'hogql',
+                                                ]),
+                                                zod.null(),
+                                            ])
+                                            .optional()
+                                            .describe(
+                                                "How to aggregate this source. Defaults to 'total' (row count). Use 'sum' together with math_property to aggregate a numeric column — e.g. revenue per charge."
+                                            ),
+                                        math_hogql: zod
+                                            .union([zod.string(), zod.null()])
+                                            .optional()
+                                            .describe("HogQL aggregation expression. Required when math is 'hogql'."),
+                                        math_property: zod
+                                            .union([zod.string(), zod.null()])
+                                            .optional()
+                                            .describe(
+                                                "Numeric table column to aggregate when math is 'sum', 'avg', 'min', or 'max'."
+                                            ),
+                                        name: zod
+                                            .union([zod.string(), zod.null()])
+                                            .optional()
+                                            .describe('Display name for the source.'),
+                                        properties: zod
+                                            .union([
+                                                zod.array(
+                                                    zod.object({
+                                                        key: zod.string(),
+                                                        label: zod.union([zod.string(), zod.null()]).optional(),
+                                                        operator: zod.enum([
+                                                            'exact',
+                                                            'is_not',
+                                                            'icontains',
+                                                            'not_icontains',
+                                                            'starts_with',
+                                                            'not_starts_with',
+                                                            'ends_with',
+                                                            'not_ends_with',
+                                                            'regex',
+                                                            'not_regex',
+                                                            'gt',
+                                                            'gte',
+                                                            'lt',
+                                                            'lte',
+                                                            'is_set',
+                                                            'is_not_set',
+                                                            'is_date_exact',
+                                                            'is_date_before',
+                                                            'is_date_after',
+                                                            'between',
+                                                            'not_between',
+                                                            'min',
+                                                            'max',
+                                                            'in',
+                                                            'not_in',
+                                                            'is_cleaned_path_exact',
+                                                            'flag_evaluates_to',
+                                                            'semver_eq',
+                                                            'semver_neq',
+                                                            'semver_gt',
+                                                            'semver_gte',
+                                                            'semver_lt',
+                                                            'semver_lte',
+                                                            'semver_tilde',
+                                                            'semver_caret',
+                                                            'semver_wildcard',
+                                                            'icontains_multi',
+                                                            'not_icontains_multi',
+                                                        ]),
+                                                        type: zod
+                                                            .literal('data_warehouse')
+                                                            .default(
+                                                                experimentsDuplicateCreateBodyMetricsOneItemSourceTwoPropertiesOneItemTypeDefault
+                                                            ),
+                                                        value: zod
+                                                            .union([
+                                                                zod.array(
+                                                                    zod.union([
+                                                                        zod.string(),
+                                                                        zod.number(),
+                                                                        zod.boolean(),
+                                                                    ])
+                                                                ),
+                                                                zod.string(),
+                                                                zod.number(),
+                                                                zod.boolean(),
+                                                                zod.null(),
+                                                            ])
+                                                            .optional(),
+                                                    })
+                                                ),
+                                                zod.null(),
+                                            ])
+                                            .optional()
+                                            .describe("Filters on the table's own columns."),
+                                        table_name: zod
+                                            .string()
+                                            .describe("Data warehouse table to read from, e.g. 'stripe_charges'."),
+                                        timestamp_field: zod
+                                            .string()
+                                            .describe("Table column that holds the row timestamp, e.g. 'created_at'."),
+                                    }),
                                     zod.null(),
                                 ])
                                 .optional()
-                                .describe('For mean metrics: event source.'),
+                                .describe('For mean metrics: metric source.'),
                             start_event: zod
                                 .union([
                                     zod.object({
@@ -17362,6 +21072,130 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                             .optional()
                                             .describe('Event property filters to narrow which events are counted.'),
                                     }),
+                                    zod.object({
+                                        data_warehouse_join_key: zod
+                                            .string()
+                                            .describe("Table-side column to join on, e.g. 'customer_id'."),
+                                        events_join_key: zod
+                                            .string()
+                                            .describe("Event-side column to join on, e.g. 'distinct_id'."),
+                                        kind: zod
+                                            .literal('ExperimentDataWarehouseNode')
+                                            .default(
+                                                experimentsDuplicateCreateBodyMetricsOneItemStartEventTwoKindDefault
+                                            ),
+                                        math: zod
+                                            .union([
+                                                zod.enum([
+                                                    'total',
+                                                    'sum',
+                                                    'unique_session',
+                                                    'min',
+                                                    'max',
+                                                    'avg',
+                                                    'dau',
+                                                    'unique_group',
+                                                    'hogql',
+                                                ]),
+                                                zod.null(),
+                                            ])
+                                            .optional()
+                                            .describe(
+                                                "How to aggregate this source. Defaults to 'total' (row count). Use 'sum' together with math_property to aggregate a numeric column — e.g. revenue per charge."
+                                            ),
+                                        math_hogql: zod
+                                            .union([zod.string(), zod.null()])
+                                            .optional()
+                                            .describe("HogQL aggregation expression. Required when math is 'hogql'."),
+                                        math_property: zod
+                                            .union([zod.string(), zod.null()])
+                                            .optional()
+                                            .describe(
+                                                "Numeric table column to aggregate when math is 'sum', 'avg', 'min', or 'max'."
+                                            ),
+                                        name: zod
+                                            .union([zod.string(), zod.null()])
+                                            .optional()
+                                            .describe('Display name for the source.'),
+                                        properties: zod
+                                            .union([
+                                                zod.array(
+                                                    zod.object({
+                                                        key: zod.string(),
+                                                        label: zod.union([zod.string(), zod.null()]).optional(),
+                                                        operator: zod.enum([
+                                                            'exact',
+                                                            'is_not',
+                                                            'icontains',
+                                                            'not_icontains',
+                                                            'starts_with',
+                                                            'not_starts_with',
+                                                            'ends_with',
+                                                            'not_ends_with',
+                                                            'regex',
+                                                            'not_regex',
+                                                            'gt',
+                                                            'gte',
+                                                            'lt',
+                                                            'lte',
+                                                            'is_set',
+                                                            'is_not_set',
+                                                            'is_date_exact',
+                                                            'is_date_before',
+                                                            'is_date_after',
+                                                            'between',
+                                                            'not_between',
+                                                            'min',
+                                                            'max',
+                                                            'in',
+                                                            'not_in',
+                                                            'is_cleaned_path_exact',
+                                                            'flag_evaluates_to',
+                                                            'semver_eq',
+                                                            'semver_neq',
+                                                            'semver_gt',
+                                                            'semver_gte',
+                                                            'semver_lt',
+                                                            'semver_lte',
+                                                            'semver_tilde',
+                                                            'semver_caret',
+                                                            'semver_wildcard',
+                                                            'icontains_multi',
+                                                            'not_icontains_multi',
+                                                        ]),
+                                                        type: zod
+                                                            .literal('data_warehouse')
+                                                            .default(
+                                                                experimentsDuplicateCreateBodyMetricsOneItemStartEventTwoPropertiesOneItemTypeDefault
+                                                            ),
+                                                        value: zod
+                                                            .union([
+                                                                zod.array(
+                                                                    zod.union([
+                                                                        zod.string(),
+                                                                        zod.number(),
+                                                                        zod.boolean(),
+                                                                    ])
+                                                                ),
+                                                                zod.string(),
+                                                                zod.number(),
+                                                                zod.boolean(),
+                                                                zod.null(),
+                                                            ])
+                                                            .optional(),
+                                                    })
+                                                ),
+                                                zod.null(),
+                                            ])
+                                            .optional()
+                                            .describe("Filters on the table's own columns."),
+                                        table_name: zod
+                                            .string()
+                                            .describe("Data warehouse table to read from, e.g. 'stripe_charges'."),
+                                        timestamp_field: zod
+                                            .string()
+                                            .describe("Table column that holds the row timestamp, e.g. 'created_at'."),
+                                    }),
                                     zod.null(),
                                 ])
                                 .optional()
@@ -17396,7 +21230,7 @@ export const ExperimentsDuplicateCreateBody = () => zod
             ])
             .optional()
             .describe(
-                "Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event). Use the read-data-schema tool with query kind 'events' to find available events in the project."
+                "Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event). Any metric source can instead read a data warehouse table: set kind='ExperimentDataWarehouseNode' with table_name, timestamp_field, events_join_key and data_warehouse_join_key. Use the read-data-schema tool with query kind 'events' to find available events in the project."
             ),
         metrics_secondary: zod
             .union([
@@ -17541,6 +21375,130 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                             ])
                                             .optional()
                                             .describe('Event property filters to narrow which events are counted.'),
+                                    }),
+                                    zod.object({
+                                        data_warehouse_join_key: zod
+                                            .string()
+                                            .describe("Table-side column to join on, e.g. 'customer_id'."),
+                                        events_join_key: zod
+                                            .string()
+                                            .describe("Event-side column to join on, e.g. 'distinct_id'."),
+                                        kind: zod
+                                            .literal('ExperimentDataWarehouseNode')
+                                            .default(
+                                                experimentsDuplicateCreateBodyMetricsSecondaryOneItemCompletionEventTwoKindDefault
+                                            ),
+                                        math: zod
+                                            .union([
+                                                zod.enum([
+                                                    'total',
+                                                    'sum',
+                                                    'unique_session',
+                                                    'min',
+                                                    'max',
+                                                    'avg',
+                                                    'dau',
+                                                    'unique_group',
+                                                    'hogql',
+                                                ]),
+                                                zod.null(),
+                                            ])
+                                            .optional()
+                                            .describe(
+                                                "How to aggregate this source. Defaults to 'total' (row count). Use 'sum' together with math_property to aggregate a numeric column — e.g. revenue per charge."
+                                            ),
+                                        math_hogql: zod
+                                            .union([zod.string(), zod.null()])
+                                            .optional()
+                                            .describe("HogQL aggregation expression. Required when math is 'hogql'."),
+                                        math_property: zod
+                                            .union([zod.string(), zod.null()])
+                                            .optional()
+                                            .describe(
+                                                "Numeric table column to aggregate when math is 'sum', 'avg', 'min', or 'max'."
+                                            ),
+                                        name: zod
+                                            .union([zod.string(), zod.null()])
+                                            .optional()
+                                            .describe('Display name for the source.'),
+                                        properties: zod
+                                            .union([
+                                                zod.array(
+                                                    zod.object({
+                                                        key: zod.string(),
+                                                        label: zod.union([zod.string(), zod.null()]).optional(),
+                                                        operator: zod.enum([
+                                                            'exact',
+                                                            'is_not',
+                                                            'icontains',
+                                                            'not_icontains',
+                                                            'starts_with',
+                                                            'not_starts_with',
+                                                            'ends_with',
+                                                            'not_ends_with',
+                                                            'regex',
+                                                            'not_regex',
+                                                            'gt',
+                                                            'gte',
+                                                            'lt',
+                                                            'lte',
+                                                            'is_set',
+                                                            'is_not_set',
+                                                            'is_date_exact',
+                                                            'is_date_before',
+                                                            'is_date_after',
+                                                            'between',
+                                                            'not_between',
+                                                            'min',
+                                                            'max',
+                                                            'in',
+                                                            'not_in',
+                                                            'is_cleaned_path_exact',
+                                                            'flag_evaluates_to',
+                                                            'semver_eq',
+                                                            'semver_neq',
+                                                            'semver_gt',
+                                                            'semver_gte',
+                                                            'semver_lt',
+                                                            'semver_lte',
+                                                            'semver_tilde',
+                                                            'semver_caret',
+                                                            'semver_wildcard',
+                                                            'icontains_multi',
+                                                            'not_icontains_multi',
+                                                        ]),
+                                                        type: zod
+                                                            .literal('data_warehouse')
+                                                            .default(
+                                                                experimentsDuplicateCreateBodyMetricsSecondaryOneItemCompletionEventTwoPropertiesOneItemTypeDefault
+                                                            ),
+                                                        value: zod
+                                                            .union([
+                                                                zod.array(
+                                                                    zod.union([
+                                                                        zod.string(),
+                                                                        zod.number(),
+                                                                        zod.boolean(),
+                                                                    ])
+                                                                ),
+                                                                zod.string(),
+                                                                zod.number(),
+                                                                zod.boolean(),
+                                                                zod.null(),
+                                                            ])
+                                                            .optional(),
+                                                    })
+                                                ),
+                                                zod.null(),
+                                            ])
+                                            .optional()
+                                            .describe("Filters on the table's own columns."),
+                                        table_name: zod
+                                            .string()
+                                            .describe("Data warehouse table to read from, e.g. 'stripe_charges'."),
+                                        timestamp_field: zod
+                                            .string()
+                                            .describe("Table column that holds the row timestamp, e.g. 'created_at'."),
                                     }),
                                     zod.null(),
                                 ])
@@ -17688,6 +21646,130 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                             ])
                                             .optional()
                                             .describe('Event property filters to narrow which events are counted.'),
+                                    }),
+                                    zod.object({
+                                        data_warehouse_join_key: zod
+                                            .string()
+                                            .describe("Table-side column to join on, e.g. 'customer_id'."),
+                                        events_join_key: zod
+                                            .string()
+                                            .describe("Event-side column to join on, e.g. 'distinct_id'."),
+                                        kind: zod
+                                            .literal('ExperimentDataWarehouseNode')
+                                            .default(
+                                                experimentsDuplicateCreateBodyMetricsSecondaryOneItemDenominatorTwoKindDefault
+                                            ),
+                                        math: zod
+                                            .union([
+                                                zod.enum([
+                                                    'total',
+                                                    'sum',
+                                                    'unique_session',
+                                                    'min',
+                                                    'max',
+                                                    'avg',
+                                                    'dau',
+                                                    'unique_group',
+                                                    'hogql',
+                                                ]),
+                                                zod.null(),
+                                            ])
+                                            .optional()
+                                            .describe(
+                                                "How to aggregate this source. Defaults to 'total' (row count). Use 'sum' together with math_property to aggregate a numeric column — e.g. revenue per charge."
+                                            ),
+                                        math_hogql: zod
+                                            .union([zod.string(), zod.null()])
+                                            .optional()
+                                            .describe("HogQL aggregation expression. Required when math is 'hogql'."),
+                                        math_property: zod
+                                            .union([zod.string(), zod.null()])
+                                            .optional()
+                                            .describe(
+                                                "Numeric table column to aggregate when math is 'sum', 'avg', 'min', or 'max'."
+                                            ),
+                                        name: zod
+                                            .union([zod.string(), zod.null()])
+                                            .optional()
+                                            .describe('Display name for the source.'),
+                                        properties: zod
+                                            .union([
+                                                zod.array(
+                                                    zod.object({
+                                                        key: zod.string(),
+                                                        label: zod.union([zod.string(), zod.null()]).optional(),
+                                                        operator: zod.enum([
+                                                            'exact',
+                                                            'is_not',
+                                                            'icontains',
+                                                            'not_icontains',
+                                                            'starts_with',
+                                                            'not_starts_with',
+                                                            'ends_with',
+                                                            'not_ends_with',
+                                                            'regex',
+                                                            'not_regex',
+                                                            'gt',
+                                                            'gte',
+                                                            'lt',
+                                                            'lte',
+                                                            'is_set',
+                                                            'is_not_set',
+                                                            'is_date_exact',
+                                                            'is_date_before',
+                                                            'is_date_after',
+                                                            'between',
+                                                            'not_between',
+                                                            'min',
+                                                            'max',
+                                                            'in',
+                                                            'not_in',
+                                                            'is_cleaned_path_exact',
+                                                            'flag_evaluates_to',
+                                                            'semver_eq',
+                                                            'semver_neq',
+                                                            'semver_gt',
+                                                            'semver_gte',
+                                                            'semver_lt',
+                                                            'semver_lte',
+                                                            'semver_tilde',
+                                                            'semver_caret',
+                                                            'semver_wildcard',
+                                                            'icontains_multi',
+                                                            'not_icontains_multi',
+                                                        ]),
+                                                        type: zod
+                                                            .literal('data_warehouse')
+                                                            .default(
+                                                                experimentsDuplicateCreateBodyMetricsSecondaryOneItemDenominatorTwoPropertiesOneItemTypeDefault
+                                                            ),
+                                                        value: zod
+                                                            .union([
+                                                                zod.array(
+                                                                    zod.union([
+                                                                        zod.string(),
+                                                                        zod.number(),
+                                                                        zod.boolean(),
+                                                                    ])
+                                                                ),
+                                                                zod.string(),
+                                                                zod.number(),
+                                                                zod.boolean(),
+                                                                zod.null(),
+                                                            ])
+                                                            .optional(),
+                                                    })
+                                                ),
+                                                zod.null(),
+                                            ])
+                                            .optional()
+                                            .describe("Filters on the table's own columns."),
+                                        table_name: zod
+                                            .string()
+                                            .describe("Data warehouse table to read from, e.g. 'stripe_charges'."),
+                                        timestamp_field: zod
+                                            .string()
+                                            .describe("Table column that holds the row timestamp, e.g. 'created_at'."),
                                     }),
                                     zod.null(),
                                 ])
@@ -17909,6 +21991,130 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                             .optional()
                                             .describe('Event property filters to narrow which events are counted.'),
                                     }),
+                                    zod.object({
+                                        data_warehouse_join_key: zod
+                                            .string()
+                                            .describe("Table-side column to join on, e.g. 'customer_id'."),
+                                        events_join_key: zod
+                                            .string()
+                                            .describe("Event-side column to join on, e.g. 'distinct_id'."),
+                                        kind: zod
+                                            .literal('ExperimentDataWarehouseNode')
+                                            .default(
+                                                experimentsDuplicateCreateBodyMetricsSecondaryOneItemNumeratorTwoKindDefault
+                                            ),
+                                        math: zod
+                                            .union([
+                                                zod.enum([
+                                                    'total',
+                                                    'sum',
+                                                    'unique_session',
+                                                    'min',
+                                                    'max',
+                                                    'avg',
+                                                    'dau',
+                                                    'unique_group',
+                                                    'hogql',
+                                                ]),
+                                                zod.null(),
+                                            ])
+                                            .optional()
+                                            .describe(
+                                                "How to aggregate this source. Defaults to 'total' (row count). Use 'sum' together with math_property to aggregate a numeric column — e.g. revenue per charge."
+                                            ),
+                                        math_hogql: zod
+                                            .union([zod.string(), zod.null()])
+                                            .optional()
+                                            .describe("HogQL aggregation expression. Required when math is 'hogql'."),
+                                        math_property: zod
+                                            .union([zod.string(), zod.null()])
+                                            .optional()
+                                            .describe(
+                                                "Numeric table column to aggregate when math is 'sum', 'avg', 'min', or 'max'."
+                                            ),
+                                        name: zod
+                                            .union([zod.string(), zod.null()])
+                                            .optional()
+                                            .describe('Display name for the source.'),
+                                        properties: zod
+                                            .union([
+                                                zod.array(
+                                                    zod.object({
+                                                        key: zod.string(),
+                                                        label: zod.union([zod.string(), zod.null()]).optional(),
+                                                        operator: zod.enum([
+                                                            'exact',
+                                                            'is_not',
+                                                            'icontains',
+                                                            'not_icontains',
+                                                            'starts_with',
+                                                            'not_starts_with',
+                                                            'ends_with',
+                                                            'not_ends_with',
+                                                            'regex',
+                                                            'not_regex',
+                                                            'gt',
+                                                            'gte',
+                                                            'lt',
+                                                            'lte',
+                                                            'is_set',
+                                                            'is_not_set',
+                                                            'is_date_exact',
+                                                            'is_date_before',
+                                                            'is_date_after',
+                                                            'between',
+                                                            'not_between',
+                                                            'min',
+                                                            'max',
+                                                            'in',
+                                                            'not_in',
+                                                            'is_cleaned_path_exact',
+                                                            'flag_evaluates_to',
+                                                            'semver_eq',
+                                                            'semver_neq',
+                                                            'semver_gt',
+                                                            'semver_gte',
+                                                            'semver_lt',
+                                                            'semver_lte',
+                                                            'semver_tilde',
+                                                            'semver_caret',
+                                                            'semver_wildcard',
+                                                            'icontains_multi',
+                                                            'not_icontains_multi',
+                                                        ]),
+                                                        type: zod
+                                                            .literal('data_warehouse')
+                                                            .default(
+                                                                experimentsDuplicateCreateBodyMetricsSecondaryOneItemNumeratorTwoPropertiesOneItemTypeDefault
+                                                            ),
+                                                        value: zod
+                                                            .union([
+                                                                zod.array(
+                                                                    zod.union([
+                                                                        zod.string(),
+                                                                        zod.number(),
+                                                                        zod.boolean(),
+                                                                    ])
+                                                                ),
+                                                                zod.string(),
+                                                                zod.number(),
+                                                                zod.boolean(),
+                                                                zod.null(),
+                                                            ])
+                                                            .optional(),
+                                                    })
+                                                ),
+                                                zod.null(),
+                                            ])
+                                            .optional()
+                                            .describe("Filters on the table's own columns."),
+                                        table_name: zod
+                                            .string()
+                                            .describe("Data warehouse table to read from, e.g. 'stripe_charges'."),
+                                        timestamp_field: zod
+                                            .string()
+                                            .describe("Table column that holds the row timestamp, e.g. 'created_at'."),
+                                    }),
                                     zod.null(),
                                 ])
                                 .optional()
@@ -17964,148 +22170,284 @@ export const ExperimentsDuplicateCreateBody = () => zod
                             series: zod
                                 .union([
                                     zod.array(
-                                        zod.object({
-                                            event: zod
-                                                .union([zod.string(), zod.null()])
-                                                .optional()
-                                                .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
-                                            id: zod
-                                                .union([zod.number(), zod.null()])
-                                                .optional()
-                                                .describe('Action ID. Required for ActionsNode.'),
-                                            kind: zod.enum(['EventsNode', 'ActionsNode']),
-                                            math: zod
-                                                .union([
-                                                    zod.enum([
-                                                        'total',
-                                                        'sum',
-                                                        'unique_session',
-                                                        'min',
-                                                        'max',
-                                                        'avg',
-                                                        'dau',
-                                                        'unique_group',
-                                                        'hogql',
-                                                    ]),
-                                                    zod.null(),
-                                                ])
-                                                .optional()
-                                                .describe(
-                                                    "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
-                                                ),
-                                            math_group_type_index: zod
-                                                .union([
-                                                    zod.union([
-                                                        zod.literal(0),
-                                                        zod.literal(1),
-                                                        zod.literal(2),
-                                                        zod.literal(3),
-                                                        zod.literal(4),
-                                                    ]),
-                                                    zod.null(),
-                                                ])
-                                                .optional()
-                                                .describe(
-                                                    "Group type index to aggregate over. Required when math is 'unique_group'."
-                                                ),
-                                            math_hogql: zod
-                                                .union([zod.string(), zod.null()])
-                                                .optional()
-                                                .describe(
-                                                    "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
-                                                ),
-                                            math_property: zod
-                                                .union([zod.string(), zod.null()])
-                                                .optional()
-                                                .describe(
-                                                    "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue')."
-                                                ),
-                                            properties: zod
-                                                .union([
-                                                    zod.array(
-                                                        zod.object({
-                                                            key: zod.string(),
-                                                            label: zod.union([zod.string(), zod.null()]).optional(),
-                                                            operator: zod
-                                                                .union([
-                                                                    zod.enum([
-                                                                        'exact',
-                                                                        'is_not',
-                                                                        'icontains',
-                                                                        'not_icontains',
-                                                                        'starts_with',
-                                                                        'not_starts_with',
-                                                                        'ends_with',
-                                                                        'not_ends_with',
-                                                                        'regex',
-                                                                        'not_regex',
-                                                                        'gt',
-                                                                        'gte',
-                                                                        'lt',
-                                                                        'lte',
-                                                                        'is_set',
-                                                                        'is_not_set',
-                                                                        'is_date_exact',
-                                                                        'is_date_before',
-                                                                        'is_date_after',
-                                                                        'between',
-                                                                        'not_between',
-                                                                        'min',
-                                                                        'max',
-                                                                        'in',
-                                                                        'not_in',
-                                                                        'is_cleaned_path_exact',
-                                                                        'flag_evaluates_to',
-                                                                        'semver_eq',
-                                                                        'semver_neq',
-                                                                        'semver_gt',
-                                                                        'semver_gte',
-                                                                        'semver_lt',
-                                                                        'semver_lte',
-                                                                        'semver_tilde',
-                                                                        'semver_caret',
-                                                                        'semver_wildcard',
-                                                                        'icontains_multi',
-                                                                        'not_icontains_multi',
-                                                                    ]),
-                                                                    zod.null(),
-                                                                ])
-                                                                .default(
-                                                                    experimentsDuplicateCreateBodyMetricsSecondaryOneItemSeriesOneItemPropertiesOneItemOperatorDefault
-                                                                ),
-                                                            type: zod
-                                                                .literal('event')
-                                                                .default(
-                                                                    experimentsDuplicateCreateBodyMetricsSecondaryOneItemSeriesOneItemPropertiesOneItemTypeDefault
-                                                                )
-                                                                .describe('Event properties'),
-                                                            value: zod
-                                                                .union([
-                                                                    zod.array(
-                                                                        zod.union([
-                                                                            zod.string(),
-                                                                            zod.number(),
-                                                                            zod.boolean(),
-                                                                        ])
-                                                                    ),
-                                                                    zod.string(),
-                                                                    zod.number(),
-                                                                    zod.boolean(),
-                                                                    zod.null(),
-                                                                ])
-                                                                .optional(),
-                                                        })
+                                        zod.union([
+                                            zod.object({
+                                                event: zod
+                                                    .union([zod.string(), zod.null()])
+                                                    .optional()
+                                                    .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
+                                                id: zod
+                                                    .union([zod.number(), zod.null()])
+                                                    .optional()
+                                                    .describe('Action ID. Required for ActionsNode.'),
+                                                kind: zod.enum(['EventsNode', 'ActionsNode']),
+                                                math: zod
+                                                    .union([
+                                                        zod.enum([
+                                                            'total',
+                                                            'sum',
+                                                            'unique_session',
+                                                            'min',
+                                                            'max',
+                                                            'avg',
+                                                            'dau',
+                                                            'unique_group',
+                                                            'hogql',
+                                                        ]),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional()
+                                                    .describe(
+                                                        "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
                                                     ),
-                                                    zod.null(),
-                                                ])
-                                                .optional()
-                                                .describe('Event property filters to narrow which events are counted.'),
-                                        })
+                                                math_group_type_index: zod
+                                                    .union([
+                                                        zod.union([
+                                                            zod.literal(0),
+                                                            zod.literal(1),
+                                                            zod.literal(2),
+                                                            zod.literal(3),
+                                                            zod.literal(4),
+                                                        ]),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional()
+                                                    .describe(
+                                                        "Group type index to aggregate over. Required when math is 'unique_group'."
+                                                    ),
+                                                math_hogql: zod
+                                                    .union([zod.string(), zod.null()])
+                                                    .optional()
+                                                    .describe(
+                                                        "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
+                                                    ),
+                                                math_property: zod
+                                                    .union([zod.string(), zod.null()])
+                                                    .optional()
+                                                    .describe(
+                                                        "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue')."
+                                                    ),
+                                                properties: zod
+                                                    .union([
+                                                        zod.array(
+                                                            zod.object({
+                                                                key: zod.string(),
+                                                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                                                operator: zod
+                                                                    .union([
+                                                                        zod.enum([
+                                                                            'exact',
+                                                                            'is_not',
+                                                                            'icontains',
+                                                                            'not_icontains',
+                                                                            'starts_with',
+                                                                            'not_starts_with',
+                                                                            'ends_with',
+                                                                            'not_ends_with',
+                                                                            'regex',
+                                                                            'not_regex',
+                                                                            'gt',
+                                                                            'gte',
+                                                                            'lt',
+                                                                            'lte',
+                                                                            'is_set',
+                                                                            'is_not_set',
+                                                                            'is_date_exact',
+                                                                            'is_date_before',
+                                                                            'is_date_after',
+                                                                            'between',
+                                                                            'not_between',
+                                                                            'min',
+                                                                            'max',
+                                                                            'in',
+                                                                            'not_in',
+                                                                            'is_cleaned_path_exact',
+                                                                            'flag_evaluates_to',
+                                                                            'semver_eq',
+                                                                            'semver_neq',
+                                                                            'semver_gt',
+                                                                            'semver_gte',
+                                                                            'semver_lt',
+                                                                            'semver_lte',
+                                                                            'semver_tilde',
+                                                                            'semver_caret',
+                                                                            'semver_wildcard',
+                                                                            'icontains_multi',
+                                                                            'not_icontains_multi',
+                                                                        ]),
+                                                                        zod.null(),
+                                                                    ])
+                                                                    .default(
+                                                                        experimentsDuplicateCreateBodyMetricsSecondaryOneItemSeriesOneItemOnePropertiesOneItemOperatorDefault
+                                                                    ),
+                                                                type: zod
+                                                                    .literal('event')
+                                                                    .default(
+                                                                        experimentsDuplicateCreateBodyMetricsSecondaryOneItemSeriesOneItemOnePropertiesOneItemTypeDefault
+                                                                    )
+                                                                    .describe('Event properties'),
+                                                                value: zod
+                                                                    .union([
+                                                                        zod.array(
+                                                                            zod.union([
+                                                                                zod.string(),
+                                                                                zod.number(),
+                                                                                zod.boolean(),
+                                                                            ])
+                                                                        ),
+                                                                        zod.string(),
+                                                                        zod.number(),
+                                                                        zod.boolean(),
+                                                                        zod.null(),
+                                                                    ])
+                                                                    .optional(),
+                                                            })
+                                                        ),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional()
+                                                    .describe(
+                                                        'Event property filters to narrow which events are counted.'
+                                                    ),
+                                            }),
+                                            zod.object({
+                                                data_warehouse_join_key: zod
+                                                    .string()
+                                                    .describe("Table-side column to join on, e.g. 'customer_id'."),
+                                                events_join_key: zod
+                                                    .string()
+                                                    .describe("Event-side column to join on, e.g. 'distinct_id'."),
+                                                kind: zod
+                                                    .literal('ExperimentDataWarehouseNode')
+                                                    .default(
+                                                        experimentsDuplicateCreateBodyMetricsSecondaryOneItemSeriesOneItemTwoKindDefault
+                                                    ),
+                                                math: zod
+                                                    .union([
+                                                        zod.enum([
+                                                            'total',
+                                                            'sum',
+                                                            'unique_session',
+                                                            'min',
+                                                            'max',
+                                                            'avg',
+                                                            'dau',
+                                                            'unique_group',
+                                                            'hogql',
+                                                        ]),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional()
+                                                    .describe(
+                                                        "How to aggregate this source. Defaults to 'total' (row count). Use 'sum' together with math_property to aggregate a numeric column — e.g. revenue per charge."
+                                                    ),
+                                                math_hogql: zod
+                                                    .union([zod.string(), zod.null()])
+                                                    .optional()
+                                                    .describe(
+                                                        "HogQL aggregation expression. Required when math is 'hogql'."
+                                                    ),
+                                                math_property: zod
+                                                    .union([zod.string(), zod.null()])
+                                                    .optional()
+                                                    .describe(
+                                                        "Numeric table column to aggregate when math is 'sum', 'avg', 'min', or 'max'."
+                                                    ),
+                                                name: zod
+                                                    .union([zod.string(), zod.null()])
+                                                    .optional()
+                                                    .describe('Display name for the source.'),
+                                                properties: zod
+                                                    .union([
+                                                        zod.array(
+                                                            zod.object({
+                                                                key: zod.string(),
+                                                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                                                operator: zod.enum([
+                                                                    'exact',
+                                                                    'is_not',
+                                                                    'icontains',
+                                                                    'not_icontains',
+                                                                    'starts_with',
+                                                                    'not_starts_with',
+                                                                    'ends_with',
+                                                                    'not_ends_with',
+                                                                    'regex',
+                                                                    'not_regex',
+                                                                    'gt',
+                                                                    'gte',
+                                                                    'lt',
+                                                                    'lte',
+                                                                    'is_set',
+                                                                    'is_not_set',
+                                                                    'is_date_exact',
+                                                                    'is_date_before',
+                                                                    'is_date_after',
+                                                                    'between',
+                                                                    'not_between',
+                                                                    'min',
+                                                                    'max',
+                                                                    'in',
+                                                                    'not_in',
+                                                                    'is_cleaned_path_exact',
+                                                                    'flag_evaluates_to',
+                                                                    'semver_eq',
+                                                                    'semver_neq',
+                                                                    'semver_gt',
+                                                                    'semver_gte',
+                                                                    'semver_lt',
+                                                                    'semver_lte',
+                                                                    'semver_tilde',
+                                                                    'semver_caret',
+                                                                    'semver_wildcard',
+                                                                    'icontains_multi',
+                                                                    'not_icontains_multi',
+                                                                ]),
+                                                                type: zod
+                                                                    .literal('data_warehouse')
+                                                                    .default(
+                                                                        experimentsDuplicateCreateBodyMetricsSecondaryOneItemSeriesOneItemTwoPropertiesOneItemTypeDefault
+                                                                    ),
+                                                                value: zod
+                                                                    .union([
+                                                                        zod.array(
+                                                                            zod.union([
+                                                                                zod.string(),
+                                                                                zod.number(),
+                                                                                zod.boolean(),
+                                                                            ])
+                                                                        ),
+                                                                        zod.string(),
+                                                                        zod.number(),
+                                                                        zod.boolean(),
+                                                                        zod.null(),
+                                                                    ])
+                                                                    .optional(),
+                                                            })
+                                                        ),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional()
+                                                    .describe("Filters on the table's own columns."),
+                                                table_name: zod
+                                                    .string()
+                                                    .describe(
+                                                        "Data warehouse table to read from, e.g. 'stripe_charges'."
+                                                    ),
+                                                timestamp_field: zod
+                                                    .string()
+                                                    .describe(
+                                                        "Table column that holds the row timestamp, e.g. 'created_at'."
+                                                    ),
+                                            }),
+                                        ])
                                     ),
                                     zod.null(),
                                 ])
                                 .optional()
-                                .describe('For funnel metrics: array of EventsNode\/ActionsNode steps.'),
+                                .describe(
+                                    'For funnel metrics: array of EventsNode\/ActionsNode\/ExperimentDataWarehouseNode steps.'
+                                ),
                             source: zod
                                 .union([
                                     zod.object({
@@ -18245,10 +22587,134 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                             .optional()
                                             .describe('Event property filters to narrow which events are counted.'),
                                     }),
+                                    zod.object({
+                                        data_warehouse_join_key: zod
+                                            .string()
+                                            .describe("Table-side column to join on, e.g. 'customer_id'."),
+                                        events_join_key: zod
+                                            .string()
+                                            .describe("Event-side column to join on, e.g. 'distinct_id'."),
+                                        kind: zod
+                                            .literal('ExperimentDataWarehouseNode')
+                                            .default(
+                                                experimentsDuplicateCreateBodyMetricsSecondaryOneItemSourceTwoKindDefault
+                                            ),
+                                        math: zod
+                                            .union([
+                                                zod.enum([
+                                                    'total',
+                                                    'sum',
+                                                    'unique_session',
+                                                    'min',
+                                                    'max',
+                                                    'avg',
+                                                    'dau',
+                                                    'unique_group',
+                                                    'hogql',
+                                                ]),
+                                                zod.null(),
+                                            ])
+                                            .optional()
+                                            .describe(
+                                                "How to aggregate this source. Defaults to 'total' (row count). Use 'sum' together with math_property to aggregate a numeric column — e.g. revenue per charge."
+                                            ),
+                                        math_hogql: zod
+                                            .union([zod.string(), zod.null()])
+                                            .optional()
+                                            .describe("HogQL aggregation expression. Required when math is 'hogql'."),
+                                        math_property: zod
+                                            .union([zod.string(), zod.null()])
+                                            .optional()
+                                            .describe(
+                                                "Numeric table column to aggregate when math is 'sum', 'avg', 'min', or 'max'."
+                                            ),
+                                        name: zod
+                                            .union([zod.string(), zod.null()])
+                                            .optional()
+                                            .describe('Display name for the source.'),
+                                        properties: zod
+                                            .union([
+                                                zod.array(
+                                                    zod.object({
+                                                        key: zod.string(),
+                                                        label: zod.union([zod.string(), zod.null()]).optional(),
+                                                        operator: zod.enum([
+                                                            'exact',
+                                                            'is_not',
+                                                            'icontains',
+                                                            'not_icontains',
+                                                            'starts_with',
+                                                            'not_starts_with',
+                                                            'ends_with',
+                                                            'not_ends_with',
+                                                            'regex',
+                                                            'not_regex',
+                                                            'gt',
+                                                            'gte',
+                                                            'lt',
+                                                            'lte',
+                                                            'is_set',
+                                                            'is_not_set',
+                                                            'is_date_exact',
+                                                            'is_date_before',
+                                                            'is_date_after',
+                                                            'between',
+                                                            'not_between',
+                                                            'min',
+                                                            'max',
+                                                            'in',
+                                                            'not_in',
+                                                            'is_cleaned_path_exact',
+                                                            'flag_evaluates_to',
+                                                            'semver_eq',
+                                                            'semver_neq',
+                                                            'semver_gt',
+                                                            'semver_gte',
+                                                            'semver_lt',
+                                                            'semver_lte',
+                                                            'semver_tilde',
+                                                            'semver_caret',
+                                                            'semver_wildcard',
+                                                            'icontains_multi',
+                                                            'not_icontains_multi',
+                                                        ]),
+                                                        type: zod
+                                                            .literal('data_warehouse')
+                                                            .default(
+                                                                experimentsDuplicateCreateBodyMetricsSecondaryOneItemSourceTwoPropertiesOneItemTypeDefault
+                                                            ),
+                                                        value: zod
+                                                            .union([
+                                                                zod.array(
+                                                                    zod.union([
+                                                                        zod.string(),
+                                                                        zod.number(),
+                                                                        zod.boolean(),
+                                                                    ])
+                                                                ),
+                                                                zod.string(),
+                                                                zod.number(),
+                                                                zod.boolean(),
+                                                                zod.null(),
+                                                            ])
+                                                            .optional(),
+                                                    })
+                                                ),
+                                                zod.null(),
+                                            ])
+                                            .optional()
+                                            .describe("Filters on the table's own columns."),
+                                        table_name: zod
+                                            .string()
+                                            .describe("Data warehouse table to read from, e.g. 'stripe_charges'."),
+                                        timestamp_field: zod
+                                            .string()
+                                            .describe("Table column that holds the row timestamp, e.g. 'created_at'."),
+                                    }),
                                     zod.null(),
                                 ])
                                 .optional()
-                                .describe('For mean metrics: event source.'),
+                                .describe('For mean metrics: metric source.'),
                             start_event: zod
                                 .union([
                                     zod.object({
@@ -18387,6 +22853,130 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                             ])
                                             .optional()
                                             .describe('Event property filters to narrow which events are counted.'),
+                                    }),
+                                    zod.object({
+                                        data_warehouse_join_key: zod
+                                            .string()
+                                            .describe("Table-side column to join on, e.g. 'customer_id'."),
+                                        events_join_key: zod
+                                            .string()
+                                            .describe("Event-side column to join on, e.g. 'distinct_id'."),
+                                        kind: zod
+                                            .literal('ExperimentDataWarehouseNode')
+                                            .default(
+                                                experimentsDuplicateCreateBodyMetricsSecondaryOneItemStartEventTwoKindDefault
+                                            ),
+                                        math: zod
+                                            .union([
+                                                zod.enum([
+                                                    'total',
+                                                    'sum',
+                                                    'unique_session',
+                                                    'min',
+                                                    'max',
+                                                    'avg',
+                                                    'dau',
+                                                    'unique_group',
+                                                    'hogql',
+                                                ]),
+                                                zod.null(),
+                                            ])
+                                            .optional()
+                                            .describe(
+                                                "How to aggregate this source. Defaults to 'total' (row count). Use 'sum' together with math_property to aggregate a numeric column — e.g. revenue per charge."
+                                            ),
+                                        math_hogql: zod
+                                            .union([zod.string(), zod.null()])
+                                            .optional()
+                                            .describe("HogQL aggregation expression. Required when math is 'hogql'."),
+                                        math_property: zod
+                                            .union([zod.string(), zod.null()])
+                                            .optional()
+                                            .describe(
+                                                "Numeric table column to aggregate when math is 'sum', 'avg', 'min', or 'max'."
+                                            ),
+                                        name: zod
+                                            .union([zod.string(), zod.null()])
+                                            .optional()
+                                            .describe('Display name for the source.'),
+                                        properties: zod
+                                            .union([
+                                                zod.array(
+                                                    zod.object({
+                                                        key: zod.string(),
+                                                        label: zod.union([zod.string(), zod.null()]).optional(),
+                                                        operator: zod.enum([
+                                                            'exact',
+                                                            'is_not',
+                                                            'icontains',
+                                                            'not_icontains',
+                                                            'starts_with',
+                                                            'not_starts_with',
+                                                            'ends_with',
+                                                            'not_ends_with',
+                                                            'regex',
+                                                            'not_regex',
+                                                            'gt',
+                                                            'gte',
+                                                            'lt',
+                                                            'lte',
+                                                            'is_set',
+                                                            'is_not_set',
+                                                            'is_date_exact',
+                                                            'is_date_before',
+                                                            'is_date_after',
+                                                            'between',
+                                                            'not_between',
+                                                            'min',
+                                                            'max',
+                                                            'in',
+                                                            'not_in',
+                                                            'is_cleaned_path_exact',
+                                                            'flag_evaluates_to',
+                                                            'semver_eq',
+                                                            'semver_neq',
+                                                            'semver_gt',
+                                                            'semver_gte',
+                                                            'semver_lt',
+                                                            'semver_lte',
+                                                            'semver_tilde',
+                                                            'semver_caret',
+                                                            'semver_wildcard',
+                                                            'icontains_multi',
+                                                            'not_icontains_multi',
+                                                        ]),
+                                                        type: zod
+                                                            .literal('data_warehouse')
+                                                            .default(
+                                                                experimentsDuplicateCreateBodyMetricsSecondaryOneItemStartEventTwoPropertiesOneItemTypeDefault
+                                                            ),
+                                                        value: zod
+                                                            .union([
+                                                                zod.array(
+                                                                    zod.union([
+                                                                        zod.string(),
+                                                                        zod.number(),
+                                                                        zod.boolean(),
+                                                                    ])
+                                                                ),
+                                                                zod.string(),
+                                                                zod.number(),
+                                                                zod.boolean(),
+                                                                zod.null(),
+                                                            ])
+                                                            .optional(),
+                                                    })
+                                                ),
+                                                zod.null(),
+                                            ])
+                                            .optional()
+                                            .describe("Filters on the table's own columns."),
+                                        table_name: zod
+                                            .string()
+                                            .describe("Data warehouse table to read from, e.g. 'stripe_charges'."),
+                                        timestamp_field: zod
+                                            .string()
+                                            .describe("Table column that holds the row timestamp, e.g. 'created_at'."),
                                     }),
                                     zod.null(),
                                 ])
