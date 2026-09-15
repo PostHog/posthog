@@ -403,7 +403,7 @@ class QueryCoalescingMiddleware:
                 return None
             # The experiment_exposure recordings filter is gated per experiment inside the
             # query runner, which a coalescing follower never reaches. Let every such request
-            # run itself. #94639 tracks the general gap; remove this guard when it lands.
+            # run itself.
             if cls._carries_experiment_exposure(request.body, parsed_post_body):
                 query_coalesce_counter.labels(outcome="skipped_experiment_exposure").inc()
                 return None
