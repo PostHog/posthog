@@ -8,21 +8,21 @@ import { useInboxAvailableSuggestedReviewers } from "@posthog/ui/features/inbox/
 import { useMemo } from "react";
 
 interface InboxScopeOptions {
-  meOption: SuggestedReviewerFilterOption | null;
-  teammateOptions: SuggestedReviewerFilterOption[];
+  people: SuggestedReviewerFilterOption[];
 }
 
 /**
- * Available teammates for the inbox scope picker. The "For you" segment is
- * driven directly by the store; this hook only powers the dropdown attached
- * to the "Entire project" segment.
+ * People available in the inbox scope picker, the signed-in user first. That
+ * user keeps a row of their own beside the pinned "For you" row: "For you" is
+ * the default and resolves to whoever looks at it, so the named row is the only
+ * way to pin the inbox to one person.
  */
 export function useInboxScopeOptions(): InboxScopeOptions {
   const client = useOptionalAuthenticatedClient();
   const { data: currentUser } = useCurrentUser({ client });
   const { data: reviewersResponse } = useInboxAvailableSuggestedReviewers();
 
-  const reviewerOptions = useMemo(
+  const people = useMemo(
     () =>
       buildSuggestedReviewerFilterOptions(
         reviewersResponse?.results ?? [],
@@ -38,8 +38,5 @@ export function useInboxScopeOptions(): InboxScopeOptions {
     [currentUser, reviewersResponse?.results],
   );
 
-  const meOption = reviewerOptions.find((option) => option.isMe) ?? null;
-  const teammateOptions = reviewerOptions.filter((option) => !option.isMe);
-
-  return { meOption, teammateOptions };
+  return { people };
 }
