@@ -520,8 +520,7 @@ class TestQualityBlockMaterializationActivity:
 
 
 class TestNodeSuspension:
-    @pytest.mark.parametrize("enforced", [True, False])
-    async def test_suspends_for_engine_after_consecutive_failures(self, ateam, anode, asaved_query, adag, enforced):
+    async def test_suspends_for_engine_after_consecutive_failures(self, ateam, anode, asaved_query, adag):
         from posthog.temporal.data_modeling.activities.utils import (
             CONSECUTIVE_FAILURES_TO_SUSPEND,
             is_node_suspended,
@@ -535,25 +534,22 @@ class TestNodeSuspension:
         job = await _make_job(ateam, asaved_query, DataModelingJob.Status.FAILED, error="boom")
         jobs.append(job)
 
-        with unittest.mock.patch(
-            "posthog.temporal.data_modeling.activities.utils.is_suspension_enforced", return_value=enforced
-        ):
-            suspended = await maybe_suspend_node_for_engine(
-                node_id=str(anode.id),
-                team_id=ateam.pk,
-                dag_id=str(adag.id),
-                saved_query_id=asaved_query.id,
-                engine=DataModelingJobEngine.CLICKHOUSE,
-                reason="boom",
-                job_id=str(job.id),
-            )
+        suspended = await maybe_suspend_node_for_engine(
+            node_id=str(anode.id),
+            team_id=ateam.pk,
+            dag_id=str(adag.id),
+            saved_query_id=asaved_query.id,
+            engine=DataModelingJobEngine.CLICKHOUSE,
+            reason="boom",
+            job_id=str(job.id),
+        )
 
         assert suspended is True
         await database_sync_to_async(anode.refresh_from_db)()
         assert is_node_suspended(anode, DataModelingJobEngine.CLICKHOUSE) is True
         assert is_node_suspended(anode, DataModelingJobEngine.MANAGED_WAREHOUSE) is False
         await database_sync_to_async(job.refresh_from_db)()
-        assert ("has been suspended" in job.error) is enforced
+        assert "has been suspended" in job.error
 
         # DataModelingJob.team is SET_NULL, so it survives the ateam fixture's team teardown.
         for j in jobs:

@@ -18,6 +18,8 @@ pub struct PostgresSink {
     retention_by_collector: BTreeMap<String, u32>,
     /// table → known columns, so we only hit the catalog when a new column shows up.
     schema_cache: Mutex<BTreeMap<String, HashSet<String>>>,
+    /// Tables whose declared indexes this process already ensured.
+    indexed: Mutex<HashSet<String>>,
 }
 
 /// Columns the sink owns. A collector row carrying one of these (e.g. `datname` from
@@ -80,6 +82,7 @@ impl PostgresSink {
             retention_days: cfg.retention_days,
             retention_by_collector: cfg.retention.clone(),
             schema_cache: Mutex::new(BTreeMap::new()),
+            indexed: Mutex::new(HashSet::new()),
         };
         sink.migrate().await?;
         sink.maintain().await?;
@@ -153,6 +156,9 @@ impl PostgresSink {
                     .is_some();
                 if !exists {
                     self.create_table(c, table, snap, &wanted).await?;
+                }
+                if snap.kind != Kind::Snapshot && !snap.indexes.is_empty() {
+                    self.ensure_indexes(c, table, &snap.indexes).await?;
                 }
                 let cols = c
                     .query(
@@ -230,6 +236,42 @@ impl PostgresSink {
             .and_then(|name| self.retention_by_collector.get(name))
             .copied()
             .unwrap_or(self.retention_days)
+    }
+
+    /// Parent-only index: no build on existing partitions, which would hold a lock on
+    /// the table for the whole build. New partitions inherit it; old ones get theirs
+    /// concurrently in the background, and the parent turns valid once all are attached.
+    async fn ensure_indexes(
+        &self,
+        c: &deadpool_postgres::Client,
+        table: &str,
+        indexes: &[Vec<String>],
+    ) -> Result<()> {
+        if !self.indexed.lock().unwrap().insert(table.to_string()) {
+            return Ok(());
+        }
+        for cols in indexes {
+            c.batch_execute(&format!(
+                "BEGIN; SELECT pg_advisory_xact_lock(hashtext('pgcollector:{table}')); \
+                 CREATE INDEX IF NOT EXISTS {} ON ONLY {table} ({}); COMMIT;",
+                index_name(table, cols),
+                index_cols(cols)
+            ))
+            .await
+            .with_context(|| format!("indexing {table}"))?;
+        }
+        self.spawn_backfill(table);
+        Ok(())
+    }
+
+    /// Background, because a `CONCURRENTLY` build of a large partition takes minutes.
+    fn spawn_backfill(&self, table: &str) {
+        let (pool, table) = (self.pool.clone(), table.to_string());
+        tokio::spawn(async move {
+            if let Err(e) = backfill_partition_indexes(&pool, &table).await {
+                tracing::warn!(table, error = %format!("{e:#}"), "partition index backfill failed");
+            }
+        });
     }
 
     async fn ensure_partitions(&self, c: &deadpool_postgres::Client, table: &str) -> Result<()> {
@@ -379,13 +421,30 @@ impl Sink for PostgresSink {
             )
             .await?;
         }
-        if snap.rows.is_empty() {
-            return Ok(());
-        }
         let table = match snap.kind {
             Kind::Snapshot => format!("cur_{}", snap.collector),
             _ => format!("ts_{}", snap.collector),
         };
+        if snap.rows.is_empty() {
+            // An existing table gets its declared indexes from the first snapshot of
+            // this process, rows or not, rather than waiting for the next row.
+            if snap.kind != Kind::Snapshot
+                && !snap.indexes.is_empty()
+                && !self.indexed.lock().unwrap().contains(&table)
+            {
+                let exists = c
+                    .query_opt(
+                        "SELECT 1 FROM pg_tables WHERE schemaname = 'public' AND tablename = $1",
+                        &[&table],
+                    )
+                    .await?
+                    .is_some();
+                if exists {
+                    self.ensure_indexes(&c, &table, &snap.indexes).await?;
+                }
+            }
+            return Ok(());
+        }
         self.ensure_table(&c, &table, snap).await?;
         match snap.kind {
             Kind::Snapshot => self.write_cur(&c, &table, snap).await,
@@ -477,8 +536,97 @@ impl Sink for PostgresSink {
                 }
             }
         }
+        // Parent indexes still invalid: a backfill that a restart or an error cut short.
+        let unfinished = c
+            .query(
+                "SELECT DISTINCT x.indrelid::regclass::text FROM pg_index x \
+                 JOIN pg_class t ON t.oid = x.indrelid \
+                 WHERE t.relkind = 'p' AND t.relname LIKE 'ts\\_%' AND NOT x.indisvalid",
+                &[],
+            )
+            .await?;
+        for row in unfinished {
+            self.spawn_backfill(&row.get::<_, String>(0));
+        }
         Ok(())
     }
+}
+
+/// Attach a partition index for every partition the table's invalid parent indexes
+/// still lack, one at a time: two concurrent builds on the same partition deadlock.
+/// Runs on a connection taken out of the pool and held for the whole job, so the
+/// advisory lock that keeps a second collector process off the table is released
+/// however the job ends.
+async fn backfill_partition_indexes(pool: &Pool, table: &str) -> Result<()> {
+    let c = deadpool_postgres::Object::take(pool.get().await?);
+    let locked: bool = c
+        .query_one(
+            "SELECT pg_try_advisory_lock(hashtext('pgcollector:backfill:' || $1))",
+            &[&table],
+        )
+        .await?
+        .get(0);
+    if !locked {
+        return Ok(());
+    }
+    let parents = c
+        .query(
+            "SELECT i.relname, array_agg(a.attname::text ORDER BY k.ord) \
+             FROM pg_index x JOIN pg_class i ON i.oid = x.indexrelid \
+             JOIN LATERAL unnest(x.indkey::int2[]) WITH ORDINALITY AS k(attnum, ord) ON true \
+             JOIN pg_attribute a ON a.attrelid = x.indrelid AND a.attnum = k.attnum \
+             WHERE x.indrelid = $1::text::regclass AND NOT x.indisvalid \
+             GROUP BY i.relname",
+            &[&table],
+        )
+        .await?;
+    for parent_row in parents {
+        let parent: String = parent_row.get(0);
+        let cols: Vec<String> = parent_row.get(1);
+        let suffix = parent
+            .strip_prefix(table)
+            .with_context(|| format!("index {parent} is not named after {table}"))?;
+        let missing = c
+            .query(
+                "SELECT p.inhrelid::regclass::text FROM pg_inherits p \
+                 WHERE p.inhparent = $1::text::regclass AND NOT EXISTS ( \
+                   SELECT 1 FROM pg_inherits i JOIN pg_index x ON x.indexrelid = i.inhrelid \
+                   WHERE i.inhparent = $2::text::regclass AND x.indrelid = p.inhrelid) \
+                 ORDER BY 1 DESC",
+                &[&table, &parent],
+            )
+            .await?;
+        for row in missing {
+            let part: String = row.get(0);
+            let child = format!("{part}{suffix}");
+            tracing::info!(partition = part, index = child, "building partition index");
+            // A build that failed part-way leaves an invalid index under this name.
+            c.batch_execute(&format!("DROP INDEX CONCURRENTLY IF EXISTS {child}"))
+                .await?;
+            c.batch_execute(&format!(
+                "CREATE INDEX CONCURRENTLY {child} ON {part} ({})",
+                cols.iter().map(|c| q(c)).collect::<Vec<_>>().join(", ")
+            ))
+            .await
+            .with_context(|| format!("building {child}"))?;
+            c.batch_execute(&format!("ALTER INDEX {parent} ATTACH PARTITION {child}"))
+                .await?;
+        }
+    }
+    Ok(())
+}
+
+fn index_name(table: &str, cols: &[String]) -> String {
+    format!("{table}_{}_idx", cols.join("_"))
+}
+
+fn index_cols(cols: &[String]) -> String {
+    std::iter::once("server_id")
+        .chain(cols.iter().map(String::as_str))
+        .chain(std::iter::once("collected_at"))
+        .map(q)
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 fn q(ident: &str) -> String {
@@ -531,6 +679,7 @@ mod tests {
             retention_days: 14,
             retention_by_collector: BTreeMap::from([("query_durations".to_string(), 7)]),
             schema_cache: Mutex::new(BTreeMap::new()),
+            indexed: Mutex::new(HashSet::new()),
         };
         assert_eq!(sink.retention_days_for("ts_query_durations"), 7);
         assert_eq!(sink.retention_days_for("ts_query_stats"), 14);
