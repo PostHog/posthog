@@ -67,6 +67,14 @@ export function hasWildcardInPort(input: unknown): boolean {
     return portWildcardRegex.test(input.trim())
 }
 
+/**
+ * The add URL form starts with `https://` already in the box, so a pasted full URL leaves two
+ * protocols behind. Drop the leading one, because the protocol the user supplied is the real one.
+ */
+export function stripDuplicateProtocol(url: string): string {
+    return url.replace(/^(https?:\/\/)+(?=[a-z][a-z0-9+.-]*:\/\/)/i, '')
+}
+
 export const validateProposedUrl = (
     proposedUrl: string,
     currentUrls: string[],
@@ -624,6 +632,15 @@ export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
         },
         newUrl: () => {
             actions.setProposedUrlValue('url', NEW_URL)
+        },
+        setProposedUrlValue: ({ value }) => {
+            if (typeof value !== 'string') {
+                return
+            }
+            const stripped = stripDuplicateProtocol(value)
+            if (stripped !== value) {
+                actions.setProposedUrlValue('url', stripped)
+            }
         },
         addUrl: async ({ url, launch }) => {
             // Await the app_urls PATCH before markTaskAsCompleted to avoid a race on the team PATCH response.

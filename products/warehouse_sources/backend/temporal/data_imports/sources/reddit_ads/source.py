@@ -66,7 +66,10 @@ class RedditAdsSource(ResumableSource[RedditAdsSourceConfig, RedditAdsResumeConf
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
-            "401 Client Error": None,
+            # Reddit returns 401 once the OAuth grant behind the connected account expires or
+            # is revoked. Every retry replays the same rejected token, and without a message of
+            # its own the schema stops with no sign that reconnecting is what fixes it.
+            "401 Client Error": "Your Reddit Ads connection is no longer valid. Reconnect your Reddit account in the source settings, then re-enable the sync.",
             # Reddit returns 403 when the connected account lacks permission to read the
             # configured ad account's reports (access revoked or insufficient scope). The
             # request can never succeed without the user reconnecting, so stop retrying.

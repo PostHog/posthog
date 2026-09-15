@@ -36,6 +36,10 @@ Follow-up messages collect in "Up next" and send after the first response finish
 Once the agent starts, Steer can send them before the current turn ends.
 The thread hides empty and whitespace-only assistant messages during streaming and history replay.
 
+The chat history filters for PostHog AI, Slack, and Desktop show tasks created by the current user.
+These requests wait until the current user's ID is available, including filter changes, searches, and refreshes.
+When the user loads, the pending request uses the active filter and search term.
+
 ```text
 Your product code
     │
