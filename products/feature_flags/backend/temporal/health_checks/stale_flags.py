@@ -144,14 +144,19 @@ class StaleFeatureFlagsCheck(HealthCheck):
 
         stale_candidates = list(filter_stale_flags(reportable_flags, stale_threshold=stale_threshold))
         stale_ids = {flag.id for flag in stale_candidates}
-        # The prefilter returns a superset, so the checker settles each row. A flag the stale
-        # filter already returned is dropped here instead of reported twice, because
-        # `hash_keys=["flag_id"]` gives both rows the same issue identity.
+        # The two queries overlap on flags with no call data, which the stale filter already
+        # returned, so exclude those ids rather than fetch the rows again and drop them in Python.
+        # `hash_keys=["flag_id"]` would otherwise give both rows the same issue identity.
+        # The ids go in as a bound list. A subquery looks tidier and is wrong here: the inner
+        # `.extra(where=...)` hard-codes `posthog_featureflag`, the subquery aliases that table,
+        # and the raw text then tests the outer row instead of the inner one.
+        # The prefilter returns a superset, so the checker settles each remaining row.
         full_rollout_candidates = [
             flag
-            for flag in filter_effectively_full_rollout_flags(reportable_flags, stale_threshold=stale_threshold)
-            if flag.id not in stale_ids
-            and not _serves_more_than_one_result(flag)
+            for flag in filter_effectively_full_rollout_flags(
+                reportable_flags, stale_threshold=stale_threshold
+            ).exclude(pk__in=stale_ids)
+            if not _serves_more_than_one_result(flag)
             and FeatureFlagStatusChecker(feature_flag=flag).get_rollout_summary(flag).effectively_full_rollout
         ]
         candidates = stale_candidates + full_rollout_candidates
@@ -214,6 +219,19 @@ def _serves_more_than_one_result(flag: FeatureFlag) -> bool:
     # keep the same list for the same reason.
     if any(filters.get(key) for key in ("holdout", "holdout_groups", "super_groups", "early_exit")):
         return True
+    # These three decide the result from evaluation context the configuration does not carry, so a
+    # blanket condition does not reach everyone. A group-aggregated condition is skipped for a
+    # request that carries no group of that type. Device-id bucketing skips person-aggregated
+    # conditions when the request has no device id. Feature enrollment evaluates the flag against
+    # the person property `$feature_enrollment/{key}`. An explicit null aggregation index means
+    # person aggregation, so only a set index excludes.
+    if flag.bucketing_identifier == "device_id" or filters.get("feature_enrollment"):
+        return True
+    groups = filters.get("groups") or []
+    if filters.get("aggregation_group_type_index") is not None:
+        return True
+    if any(group.get("aggregation_group_type_index") is not None for group in groups):
+        return True
     return not _multivariate_results_agree(flag)
 
 
@@ -240,13 +258,17 @@ def _multivariate_results_agree(flag: FeatureFlag) -> bool:
         return False
 
     distributed = _sole_reachable_variant(variants)
+    variant_keys = {variant.get("key") for variant in variants}
     results = set()
     for group in groups[: decider + 1]:
         # A missing rollout_percentage evaluates to 100% at runtime, matching `get_rollout_summary`.
         percentage = group.get("rollout_percentage")
         if percentage is not None and percentage <= 0:
             continue
-        results.add(group.get("variant") or distributed)
+        # The matcher ignores an override naming a variant the flag does not configure, and the
+        # distribution decides instead.
+        override = group.get("variant")
+        results.add(override if override in variant_keys else distributed)
     # `None` is in the set when a path falls through to a distribution that is not itself constant.
     return len(results) == 1 and None not in results
 

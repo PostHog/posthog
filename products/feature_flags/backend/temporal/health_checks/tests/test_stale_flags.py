@@ -234,6 +234,77 @@ class TestStaleFlagsDetect(BaseTest):
                 None,
                 False,
             ),
+            # Group aggregation, device-id bucketing and feature enrollment decide the result from
+            # evaluation context the configuration does not carry, so the blanket condition does not
+            # reach everyone.
+            (
+                "constant_but_group_aggregated",
+                {**constant_and_called(), "filters": {**FULL_ROLLOUT_FILTERS, "aggregation_group_type_index": 0}},
+                None,
+                False,
+            ),
+            (
+                "constant_but_condition_group_aggregated",
+                {
+                    **constant_and_called(),
+                    "filters": {
+                        "groups": [{"properties": [], "rollout_percentage": 100, "aggregation_group_type_index": 0}]
+                    },
+                },
+                None,
+                False,
+            ),
+            # An explicit null index means person aggregation, so it must not be read as a group.
+            (
+                "constant_with_null_aggregation_index",
+                {
+                    **constant_and_called(),
+                    "filters": {
+                        "groups": [{"properties": [], "rollout_percentage": 100, "aggregation_group_type_index": None}]
+                    },
+                },
+                None,
+                True,
+            ),
+            (
+                "constant_but_device_id_bucketed",
+                {**constant_and_called(), "bucketing_identifier": "device_id"},
+                None,
+                False,
+            ),
+            (
+                "constant_but_feature_enrollment",
+                {**constant_and_called(), "filters": {**FULL_ROLLOUT_FILTERS, "feature_enrollment": True}},
+                None,
+                False,
+            ),
+            # The matcher ignores an override naming a variant the flag does not configure, so the
+            # distribution decides and a split one is not constant.
+            (
+                "constant_but_unknown_variant_override",
+                {
+                    **constant_and_called(),
+                    "filters": {
+                        "multivariate": {
+                            "variants": [
+                                {"key": "a", "rollout_percentage": 50},
+                                {"key": "b", "rollout_percentage": 50},
+                            ]
+                        },
+                        "groups": [{"properties": [], "rollout_percentage": 100, "variant": "ghost"}],
+                    },
+                },
+                None,
+                False,
+            ),
+            # A legacy scalar `groups` makes jsonb_array_elements raise, which aborts the statement
+            # for every team in the batch rather than skipping the row.
+            (
+                "legacy_scalar_groups_does_not_abort_the_batch",
+                {**constant_and_called(), "filters": {"groups": "all"}},
+                None,
+                False,
+            ),
             # A targeted condition declared before the blanket one decides the result for the users
             # it matches, so the cohort it pins to "test" never receives the named winner.
             (

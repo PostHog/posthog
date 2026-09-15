@@ -187,6 +187,10 @@ def filter_effectively_full_rollout_flags(queryset: QuerySet, *, stale_threshold
     `[]` and therefore misses both legacy rows; matching them here lets the confirmation step
     decide.
 
+    `jsonb_array_elements` raises on a value that is not an array, and the error aborts the whole
+    statement, so a single legacy row storing `groups` as a scalar would take down the batch for
+    every team in it. The `jsonb_typeof` test runs first and keeps that row out instead.
+
     Flags with no release conditions at all (`filters` NULL, `{}`, or `{"groups": []}`) stay out,
     although the checker calls them fully rolled out. `{"groups": []}` is the model default, so
     matching it would report every flag in a project that nobody has configured.
@@ -211,7 +215,8 @@ def filter_effectively_full_rollout_flags(queryset: QuerySet, *, stale_threshold
     ).extra(
         where=[
             """
-            EXISTS (
+            jsonb_typeof(posthog_featureflag.filters->'groups') = 'array'
+            AND EXISTS (
                 SELECT 1 FROM jsonb_array_elements(posthog_featureflag.filters->'groups') AS elem
                 WHERE elem->>'rollout_percentage' = '100'
                 AND (
