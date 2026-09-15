@@ -282,7 +282,7 @@ export interface LLMSkillSpecProblemApi {
 export interface LLMSkillApi {
     readonly id: string
     /**
-     * Unique skill name. Lowercase letters, numbers, and hyphens only. Max 64 characters. Cannot be the name of a skill PostHog ships.
+     * Unique skill name. Lowercase letters, numbers, and hyphens only. Max 64 characters.
      * @maxLength 64
      */
     name: string
@@ -358,7 +358,7 @@ export type LLMSkillListApiMetadata = { [key: string]: unknown }
 export interface LLMSkillListApi {
     readonly id: string
     /**
-     * Unique skill name. Lowercase letters, numbers, and hyphens only. Max 64 characters. Cannot be the name of a skill PostHog ships.
+     * Unique skill name. Lowercase letters, numbers, and hyphens only. Max 64 characters.
      * @maxLength 64
      */
     name: string

@@ -618,9 +618,11 @@ class LLMSkillSerializer(serializers.ModelSerializer):
             "first_version_created_at",
         ]
         extra_kwargs = {
+            # No bundled-name rule here: this base serves the read responses, and a project's
+            # seeded canonical skills come back under the names PostHog ships. The write
+            # serializers carry that rule.
             "name": {
-                "help_text": "Unique skill name. Lowercase letters, numbers, and hyphens only. Max 64 characters. "
-                "Cannot be the name of a skill PostHog ships."
+                "help_text": "Unique skill name. Lowercase letters, numbers, and hyphens only. Max 64 characters."
             },
             # No max_length here: this base serves read responses, and legacy rows can hold up to the
             # 4096 column limit, above the 1024 spec cap. Deriving max_length from the model keeps the
@@ -786,6 +788,13 @@ class LLMSkillCreateSerializer(LLMSkillSerializer):
 
     class Meta(LLMSkillSerializer.Meta):
         read_only_fields = [f for f in LLMSkillSerializer.Meta.read_only_fields if f not in ("files", "owners")]
+        extra_kwargs = {
+            **LLMSkillSerializer.Meta.extra_kwargs,
+            "name": {
+                "help_text": "Unique skill name. Lowercase letters, numbers, and hyphens only. Max 64 characters. "
+                "Cannot be the name of a skill PostHog ships."
+            },
+        }
 
     def validate_files(self, value: list[dict[str, Any]]) -> list[dict[str, Any]]:
         return _validate_files(value)
