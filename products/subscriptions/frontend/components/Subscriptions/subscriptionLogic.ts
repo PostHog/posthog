@@ -157,11 +157,13 @@ function validateTargetValue(
     return undefined
 }
 
-function validateDashboardExportInsights(
-    subscription: Partial<SubscriptionType>,
-    dashboardId: number | undefined
-): any {
-    if (subscription.resource_type === SubscriptionResourceTypes.AiPrompt || !dashboardId) {
+function validateDashboardExportInsights(subscription: Partial<SubscriptionType>, props: SubscriptionLogicProps): any {
+    if (subscription.resource_type === SubscriptionResourceTypes.AiPrompt || !props.dashboardId) {
+        return undefined
+    }
+    // The insight selector is the only way to answer this error. When the form has no selector to
+    // show, blocking the submit leaves a Save button that does nothing.
+    if (!props.dashboardHasSelectableInsights) {
         return undefined
     }
     return subscription.dashboard_export_insights?.length ? undefined : 'Select at least one insight'
@@ -232,6 +234,8 @@ export interface SubscriptionLogicProps extends SubscriptionBaseProps {
     id: number | 'new'
     /** Used to build the prefilled title when the form is opened via the subscribe-nudge notification. */
     dashboardName?: string | null
+    /** Whether the dashboard has insight tiles the form can offer. Set by whichever view renders the selector. */
+    dashboardHasSelectableInsights?: boolean
     insightName?: string
     creationSource?: 'editor' | 'wizard'
 }
@@ -633,13 +637,15 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                     subscription.target_value,
                     isTeamsWebhookKept(subscription.target_type, values.storedTeamsWebhookHost)
                 ),
-                dashboard_export_insights: validateDashboardExportInsights(subscription, props.dashboardId),
+                dashboard_export_insights: validateDashboardExportInsights(subscription, props),
             }),
             submit: async (subscription, breakpoint) => {
                 const isAi = subscription.resource_type === SubscriptionResourceTypes.AiPrompt
                 const insightId = !isAi && props.insightShortId ? await getInsightId(props.insightShortId) : undefined
 
                 const webhookKept = isTeamsWebhookKept(subscription.target_type, values.storedTeamsWebhookHost)
+                const keepsStoredInsightSelection =
+                    props.id !== 'new' && !subscription.dashboard_export_insights?.length
                 const payload = {
                     ...subscription,
                     // Omitting it tells the backend to keep the stored URL. Sending the host back
@@ -653,8 +659,14 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                     insight: isAi ? undefined : insightId,
                     dashboard: isAi ? undefined : props.dashboardId,
                     // AI subscriptions have no dashboard, so a carried-over insight selection would
-                    // trip the backend's "insights without a dashboard" guard. Clear it.
-                    dashboard_export_insights: isAi ? [] : subscription.dashboard_export_insights,
+                    // trip the backend's "insights without a dashboard" guard. Clear it. An update
+                    // that sends an empty list is rejected, so omit the field instead and keep the
+                    // stored selection, which lets a name-only edit save.
+                    dashboard_export_insights: isAi
+                        ? []
+                        : keepsStoredInsightSelection
+                          ? undefined
+                          : subscription.dashboard_export_insights,
                     // Only AI subscriptions carry a prompt; a stale one on a non-AI sub (e.g. after
                     // toggling resource_type back) would be rejected by the backend, so drop it.
                     prompt: isAi ? subscription.prompt?.trim() : undefined,

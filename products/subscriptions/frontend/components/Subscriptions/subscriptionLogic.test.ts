@@ -778,6 +778,54 @@ describe('subscriptionLogic', () => {
         expect(capturedBody?.insight).toBeUndefined()
     })
 
+    it.each<[string, boolean, string | undefined]>([
+        ['while the dashboard offers insights to pick', true, 'Select at least one insight'],
+        ['unless the dashboard has no insights to pick', false, undefined],
+    ])('requires an insight selection %s', async (_label, dashboardHasSelectableInsights, expectedError) => {
+        // The insight selector is the only way to answer this error, and the form only renders it
+        // for a dashboard that has insight tiles. Blocking the submit without it hides the reason.
+        const dashboardForm = subscriptionLogic({ id: 'new', dashboardId: 9, dashboardHasSelectableInsights })
+        dashboardForm.mount()
+        await expectLogic(dashboardForm).toFinishListeners()
+
+        expect(dashboardForm.values.subscriptionValidationErrors.dashboard_export_insights).toBe(expectedError)
+
+        dashboardForm.unmount()
+    })
+
+    it('keeps the stored insight selection when a dashboard subscription is renamed', async () => {
+        // The API rejects an update that sets the selection to empty, so a row that carries none
+        // could never be renamed while the form sent the field back.
+        let capturedBody: Partial<SubscriptionType> | undefined
+        useMocks({
+            get: {
+                '/api/environments/:team/subscriptions/1': fixtureSubscriptionResponse(1, {
+                    dashboard: 9,
+                    dashboard_export_insights: [],
+                }),
+            },
+            patch: {
+                '/api/environments/:team/subscriptions/1': async ({ request }) => {
+                    capturedBody = (await request.json()) as Partial<SubscriptionType>
+                    return [200, fixtureSubscriptionResponse(1, capturedBody)]
+                },
+            },
+        })
+        const dashboardForm = subscriptionLogic({ id: 1, dashboardId: 9, dashboardHasSelectableInsights: false })
+        dashboardForm.mount()
+        router.actions.push('/dashboard/9/subscriptions/1')
+        await expectLogic(dashboardForm).toFinishListeners().toDispatchActions(['loadSubscriptionSuccess'])
+
+        dashboardForm.actions.setSubscriptionValue('title', 'Renamed digest')
+        dashboardForm.actions.submitSubscription()
+        await expectLogic(dashboardForm).toFinishListeners().toDispatchActions(['submitSubscriptionSuccess'])
+
+        expect(capturedBody?.title).toEqual('Renamed digest')
+        expect(capturedBody).not.toHaveProperty('dashboard_export_insights')
+
+        dashboardForm.unmount()
+    })
+
     it.each<[string, string, string | undefined]>([
         ['accepts a webhook URL', TEAMS_WEBHOOK_URL, undefined],
         ['accepts a webhook URL pasted with stray whitespace', `  ${TEAMS_WEBHOOK_URL}\n`, undefined],

@@ -27,6 +27,13 @@ const DASHBOARD = {
     ],
 } as unknown as DashboardType
 
+// A dashboard whose tiles carry no insight, so the form has no insight selection to offer.
+const DASHBOARD_WITHOUT_INSIGHTS = {
+    id: 2,
+    name: 'Team notes',
+    tiles: [{ id: 3, text: { body: 'Release checklist' } }],
+} as unknown as DashboardType
+
 const DASHBOARD_SUBSCRIPTIONS = [
     createMockSubscription({
         id: 11,
@@ -303,4 +310,17 @@ export const DashboardWithSubscriptions: Story = {
 export const InsightWithSubscriptions: Story = {
     parameters: AI_PROMPT_PARAMETERS,
     args: { subscriptionId: null, insightShortId: 'ins11' as InsightShortId },
+}
+
+export const DashboardAiPromptNew: Story = {
+    parameters: {
+        ...AI_PROMPT_PARAMETERS,
+        pageUrl: '/dashboard/1/subscriptions/new?resource_type=ai_prompt',
+    },
+    args: { isCreating: true, dashboard: DASHBOARD },
+}
+
+export const DashboardWithoutInsightsNew: Story = {
+    parameters: AI_PROMPT_PARAMETERS,
+    args: { isCreating: true, dashboard: DASHBOARD_WITHOUT_INSIGHTS },
 }

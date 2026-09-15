@@ -42,6 +42,7 @@ import type { SubscriptionDeliveryApi } from 'products/subscriptions/frontend/ge
 
 import { AiPromptFields, AiPromptSubscriptionIntroduction } from '../AiPromptFields'
 import { InsightSelector } from '../InsightSelector'
+import { subscribableInsightTiles } from '../insightSelectorLogic'
 import { subscriptionCountLogic } from '../subscriptionCountLogic'
 import { SubscriptionDayPicker } from '../SubscriptionDayPicker'
 import { subscriptionLogic } from '../subscriptionLogic'
@@ -247,11 +248,13 @@ function EditSubscriptionForm({
     onDelete,
 }: EditSubscriptionProps): JSX.Element {
     const dashboardId = dashboard?.id
+    const dashboardInsightTiles = subscribableInsightTiles(dashboard?.tiles)
     const logicProps = {
         id,
         insightShortId,
         dashboardId,
         dashboardName: dashboard?.name,
+        dashboardHasSelectableInsights: dashboardInsightTiles.length > 0,
     }
     const logic = subscriptionLogic(logicProps)
     const subscriptionslogic = subscriptionsLogic({
@@ -450,7 +453,10 @@ function EditSubscriptionForm({
 
                         {isAiPrompt ? (
                             <>
-                                <AiPromptSubscriptionIntroduction />
+                                <AiPromptSubscriptionIntroduction
+                                    parentResource={dashboardId ? 'dashboard' : insightShortId ? 'insight' : undefined}
+                                    canSwitchToSnapshot={aiGate.showResourceTypeToggle}
+                                />
                                 <AiPromptFields
                                     prompt={subscription.prompt}
                                     targetType={subscription.target_type}
