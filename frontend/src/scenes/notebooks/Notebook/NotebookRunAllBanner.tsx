@@ -10,7 +10,7 @@ import { notebookRunLogic } from './notebookRunLogic'
  * on a cell, because it is the same kind of nudge rather than an error state.
  */
 export const NotebookRunAllBanner = ({ shortId }: { shortId: string }): JSX.Element | null => {
-    const { isRunning, progressLabel } = useValues(notebookRunLogic({ shortId }))
+    const { isRunning, isInterrupting, progressLabel } = useValues(notebookRunLogic({ shortId }))
     const { interruptRun } = useActions(notebookRunLogic({ shortId }))
 
     if (!isRunning) {
@@ -25,6 +25,8 @@ export const NotebookRunAllBanner = ({ shortId }: { shortId: string }): JSX.Elem
                 type="secondary"
                 size="xsmall"
                 onClick={() => interruptRun()}
+                loading={isInterrupting}
+                disabledReason={isInterrupting ? 'Stopping the run' : undefined}
                 data-attr="notebook-run-all-banner-stop"
             >
                 Stop

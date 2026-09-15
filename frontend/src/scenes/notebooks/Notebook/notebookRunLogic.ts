@@ -22,6 +22,9 @@ import { sandboxStartMessage } from './SandboxStartMessage'
 /** How often the scene asks the backend where the run has got to. Matches the workflow's own cadence. */
 const POLL_INTERVAL_MS = 2000
 
+/** Consecutive failed status reads before the run is treated as lost, about ten seconds. */
+const MAX_POLL_FAILURES = 5
+
 export interface NotebookRunLogicProps {
     shortId: string
 }
@@ -40,6 +43,7 @@ export interface notebookRunLogicValues {
     isBusy: boolean // notebookOperationsLogic
     cellCount: number
     currentCellNumber: number
+    isInterrupting: boolean
     isRunning: boolean
     isSandboxComputeFree: boolean
     isStarting: boolean
@@ -73,6 +77,9 @@ export interface notebookRunLogicActions {
     }
     runFinished: (run: NotebookRunStatusResponseApi) => {
         run: NotebookRunStatusResponseApi
+    }
+    setInterrupting: (isInterrupting: boolean) => {
+        isInterrupting: boolean
     }
     setRun: (run: NotebookRunStatusResponseApi | null) => {
         run: NotebookRunStatusResponseApi | null
@@ -143,6 +150,7 @@ export const notebookRunLogic = kea<notebookRunLogicType>([
         stopPolling: true,
         setRun: (run: NotebookRunStatusResponseApi | null) => ({ run }),
         setStarting: (isStarting: boolean) => ({ isStarting }),
+        setInterrupting: (isInterrupting: boolean) => ({ isInterrupting }),
         runFinished: (run: NotebookRunStatusResponseApi) => ({ run }),
     }),
     reducers({
@@ -151,6 +159,16 @@ export const notebookRunLogic = kea<notebookRunLogicType>([
             {
                 setRun: (_, { run }) => run,
                 startRun: () => null,
+            },
+        ],
+        // The stop request is in flight; guards the Stop button against a second click.
+        isInterrupting: [
+            false,
+            {
+                interruptRun: () => true,
+                setInterrupting: (_, { isInterrupting }) => isInterrupting,
+                stopPolling: () => false,
+                startRun: () => false,
             },
         ],
         // The window between the start request and the first status: the button is already
@@ -216,6 +234,7 @@ export const notebookRunLogic = kea<notebookRunLogicType>([
                         )
                     }
                     cache.seenCellRunIds = new Set<string>()
+                    cache.pollFailures = 0
                     actions.setStarting(false)
                     actions.pollRun()
                     cache.disposables.add(() => {
@@ -245,12 +264,19 @@ export const notebookRunLogic = kea<notebookRunLogicType>([
                             actions.adoptChainRun(cell.node_id, cell.run_id)
                         }
                     }
+                    cache.pollFailures = 0
                     if (run.status !== 'running') {
                         actions.runFinished(run)
                     }
                 } catch (error: any) {
-                    actions.stopPolling()
-                    lemonToast.error(error?.detail || error?.message || 'Lost track of the run')
+                    // The run keeps going on the backend whether or not this poll lands, so a
+                    // blip must not strand the UI on Stop with the notebook still held. Give up
+                    // only once the status endpoint has been unreachable for several tries.
+                    cache.pollFailures = (cache.pollFailures ?? 0) + 1
+                    if (cache.pollFailures >= MAX_POLL_FAILURES) {
+                        actions.stopPolling()
+                        lemonToast.error(error?.detail || error?.message || 'Lost track of the run')
+                    }
                 } finally {
                     cache.pollInFlight = false
                 }
@@ -287,6 +313,7 @@ export const notebookRunLogic = kea<notebookRunLogicType>([
                     // The next poll observes the terminal state and reports it once.
                     actions.pollRun()
                 } catch (error: any) {
+                    actions.setInterrupting(false)
                     lemonToast.error(error?.detail || error?.message || 'Could not stop the run')
                 }
             },
