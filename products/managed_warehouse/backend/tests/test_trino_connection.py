@@ -1,6 +1,8 @@
 import pytest
 from unittest import mock
 
+from django.test import override_settings
+
 from rest_framework.response import Response
 
 from products.managed_warehouse.backend.facade.contracts import (
@@ -150,5 +152,39 @@ def test_connect_managed_warehouse_trino_enforces_verified_https_and_closes() ->
         auth=authentication,
         request_timeout=60,
         verify=True,
+    )
+    driver_connection.close.assert_called_once_with()
+
+
+@override_settings(MANAGED_WAREHOUSE_LOCAL_DEV_ENABLED=True)
+def test_connect_managed_warehouse_trino_uses_local_http_without_authentication() -> None:
+    driver_connection = mock.MagicMock()
+
+    with (
+        mock.patch(
+            "products.managed_warehouse.backend.trino_connection.resolve_managed_warehouse_trino_connection",
+            return_value=mock.Mock(
+                host="127.0.0.1",
+                port=38080,
+                catalog="ducklake",
+                username="posthog",
+                password="posthog",
+            ),
+        ),
+        mock.patch("trino.auth.BasicAuthentication") as basic_authentication,
+        mock.patch("trino.dbapi.connect", return_value=driver_connection) as connect,
+    ):
+        with connect_managed_warehouse_trino("org-1") as connection:
+            assert connection is driver_connection
+
+    basic_authentication.assert_not_called()
+    connect.assert_called_once_with(
+        host="127.0.0.1",
+        port=38080,
+        user="posthog",
+        catalog="ducklake",
+        http_scheme="http",
+        request_timeout=60,
+        verify=False,
     )
     driver_connection.close.assert_called_once_with()
