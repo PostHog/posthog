@@ -2,20 +2,26 @@ import { useValues } from 'kea'
 
 import { LemonSelect, Tooltip } from '@posthog/lemon-ui'
 
+import { NextScheduledRun } from 'lib/components/ScheduledRunStatus'
 import { TZLabel } from 'lib/components/TZLabel'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { AlertCalculationInterval } from '~/queries/schema/schema-general'
 import { AvailableFeature } from '~/types'
 
-import { AlertDefinitionRow, AlertNextEvaluationStatus } from 'products/alerts/frontend/components/AlertDefinition'
+import { AlertDefinitionRow } from 'products/alerts/frontend/components/AlertDefinition'
 import { AlertFormType } from 'products/alerts/frontend/logic/alertFormLogic'
 import {
+    canSetAlertScheduleStartTime,
     cadenceFinerThanInsightInterval,
+    getAlertScheduleStartMinute,
     selectAlertCalculationInterval,
+    scheduleStartTimeForInterval,
+    scheduleStartTimeForMinute,
 } from 'products/alerts/frontend/logic/alertIntervalHelpers'
 import { approximateNextAlertRun } from 'products/alerts/frontend/logic/alertSchedulingStale'
 import {
@@ -94,13 +100,17 @@ export function AlertIntervalRow({
     if (alertForm.calculation_interval === AlertCalculationInterval.REAL_TIME) {
         nextEvaluation = null
     } else if (creatingNewAlert || nextPlannedEvaluationStale) {
-        const approximateTime = approximateNextAlertRun(alertForm.calculation_interval, currentTeam?.timezone ?? 'UTC')
+        const approximateTime = approximateNextAlertRun(
+            alertForm.calculation_interval,
+            currentTeam?.timezone ?? 'UTC',
+            alertForm.schedule_start_time
+        )
         nextEvaluation = (
-            <AlertNextEvaluationStatus>
+            <NextScheduledRun label="Next planned evaluation:">
                 <span>
                     Approximately <TZLabel time={approximateTime} />
                 </span>
-            </AlertNextEvaluationStatus>
+            </NextScheduledRun>
         )
     } else if (alert) {
         let status: JSX.Element
@@ -110,9 +120,12 @@ export function AlertIntervalRow({
             status = <span>We're calculating this. This can take a few minutes.</span>
         }
         nextEvaluation = (
-            <AlertNextEvaluationStatus loading={!nextPlannedEvaluationStale && !alert.next_check_at}>
+            <NextScheduledRun
+                label="Next planned evaluation:"
+                loading={!nextPlannedEvaluationStale && !alert.next_check_at}
+            >
                 {status}
-            </AlertNextEvaluationStatus>
+            </NextScheduledRun>
         )
     } else {
         nextEvaluation = null
@@ -120,7 +133,6 @@ export function AlertIntervalRow({
 
     const scheduleLabel =
         alertForm.calculation_interval === AlertCalculationInterval.REAL_TIME ? 'Run alert' : 'Run alert every'
-
     return (
         <div className="space-y-2">
             <AlertDefinitionRow label={scheduleLabel}>
@@ -140,6 +152,10 @@ export function AlertIntervalRow({
                                     guardAvailableFeature,
                                     onSelect: (selected) => {
                                         onChange(selected)
+                                        onSetAlertFormValue(
+                                            'schedule_start_time',
+                                            scheduleStartTimeForInterval(selected, alertForm.schedule_start_time)
+                                        )
                                         if (
                                             cadenceFinerThanInsightInterval(selected, trendInterval) &&
                                             canCheckOngoingInterval &&
@@ -159,6 +175,26 @@ export function AlertIntervalRow({
                         />
                     )}
                 </LemonField>
+                {canSetAlertScheduleStartTime(alertForm.calculation_interval) && (
+                    <>
+                        <span>at minute</span>
+                        <LemonInput
+                            className="w-20 shrink-0"
+                            type="number"
+                            min={0}
+                            max={59}
+                            step={1}
+                            value={getAlertScheduleStartMinute(alertForm.schedule_start_time)}
+                            onFocus={(event) => event.currentTarget.select()}
+                            onChange={(minute) =>
+                                onSetAlertFormValue('schedule_start_time', scheduleStartTimeForMinute(minute))
+                            }
+                            aria-label="Alert evaluation minute"
+                            data-attr="alertForm-schedule-start-time"
+                        />
+                        <span>of the hour</span>
+                    </>
+                )}
                 {evaluatedWindow}
             </AlertDefinitionRow>
             {nextEvaluation}

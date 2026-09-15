@@ -323,7 +323,15 @@ class TestSCIMUsersAPI(APILicensedTest):
         assert "groups" in data
         assert any(g.get("display") == "Engineers" for g in data["groups"])
 
-    def test_deactivate_user(self):
+    @parameterized.expand(
+        [
+            ("replace_without_path", {"op": "replace", "value": {"active": False}}),
+            ("replace_with_path", {"op": "replace", "path": "active", "value": False}),
+            ("add_with_path", {"op": "add", "path": "active", "value": False}),
+            ("remove_with_path", {"op": "remove", "path": "active", "value": False}),
+        ]
+    )
+    def test_deactivate_user(self, _name: str, operation: dict):
         user = User.objects.create_user(
             email="deactivate@example.com", password=None, first_name="Test", is_email_verified=True
         )
@@ -341,7 +349,7 @@ class TestSCIMUsersAPI(APILicensedTest):
 
         patch_data = {
             "schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
-            "Operations": [{"op": "replace", "value": {"active": False}}],
+            "Operations": [operation],
         }
 
         response = self.client.patch(
@@ -489,10 +497,16 @@ class TestSCIMUsersAPI(APILicensedTest):
         )
         assert not User.objects.filter(email="nonexistent@example.com").exists()
 
-    def test_put_user_email_belongs_to_another_user(self):
+    @parameterized.expand(
+        [
+            ("exact", "alpha@example.com", "alpha@example.com"),
+            ("dotted_capital_i", "bill@example.com", "bİll@example.com"),
+        ]
+    )
+    def test_put_user_email_belongs_to_another_user(self, _name, existing_email, submitted_email):
         # Existing user A in org
         user_a = User.objects.create_user(
-            email="alpha@example.com", password=None, first_name="Alpha", is_email_verified=True
+            email=existing_email, password=None, first_name="Alpha", is_email_verified=True
         )
         OrganizationMembership.objects.create(
             user=user_a, organization=self.organization, level=OrganizationMembership.Level.MEMBER
@@ -509,9 +523,9 @@ class TestSCIMUsersAPI(APILicensedTest):
         # IdP mismatches B and tries to PUT with A email
         put_data_conflict = {
             "schemas": ["urn:ietf:params:scim:schemas:core:2.0:User"],
-            "userName": "alpha@example.com",
+            "userName": submitted_email,
             "name": {"givenName": "Should", "familyName": "Fail"},
-            "emails": [{"value": "alpha@example.com", "primary": True}],
+            "emails": [{"value": submitted_email, "primary": True}],
             "active": True,
         }
 
@@ -830,6 +844,67 @@ class TestSCIMUsersAPI(APILicensedTest):
         user.refresh_from_db()
         assert user.email == "primary@example.com"
 
+    @parameterized.expand([("replace",), ("add",)])
+    def test_patch_user_name_updates_scim_record(self, op: str):
+        user = User.objects.create_user(
+            email="rename@example.com", password=None, first_name="Test", is_email_verified=True
+        )
+        OrganizationMembership.objects.create(
+            user=user, organization=self.organization, level=OrganizationMembership.Level.MEMBER
+        )
+        SCIMProvisionedUser.objects.create(
+            user=user,
+            identity_provider_config=self.config,
+            username="old-username@example.com",
+            identity_provider=SCIMProvisionedUser.IdentityProvider.OKTA,
+            active=True,
+        )
+
+        patch_data = {
+            "schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+            "Operations": [{"op": op, "path": "userName", "value": "new-username@example.com"}],
+        }
+
+        response = self.client.patch(
+            f"/scim/v2/{self.config.scim_slug}/Users/{user.id}", data=patch_data, content_type="application/scim+json"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["userName"] == "new-username@example.com"
+        scim_user = SCIMProvisionedUser.objects.get(user=user, identity_provider_config=self.config)
+        assert scim_user.username == "new-username@example.com"
+        # The upsert must not reset which provider owns the record
+        assert scim_user.identity_provider == SCIMProvisionedUser.IdentityProvider.OKTA
+
+    @parameterized.expand(
+        [
+            ("unmapped_attribute", "nickName", "Nick"),
+            ("unmapped_sub_attribute", "name.middleName", "Middle"),
+        ]
+    )
+    def test_patch_ignores_attributes_we_do_not_support(self, _name: str, path: str, value: str):
+        # Identity providers send attributes we do not store. Rejecting them fails the whole sync.
+        user = User.objects.create_user(
+            email="extra@example.com", password=None, first_name="Test", last_name="User", is_email_verified=True
+        )
+        OrganizationMembership.objects.create(
+            user=user, organization=self.organization, level=OrganizationMembership.Level.MEMBER
+        )
+
+        patch_data = {
+            "schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+            "Operations": [{"op": "replace", "path": path, "value": value}],
+        }
+
+        response = self.client.patch(
+            f"/scim/v2/{self.config.scim_slug}/Users/{user.id}", data=patch_data, content_type="application/scim+json"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        user.refresh_from_db()
+        assert user.first_name == "Test"
+        assert user.last_name == "User"
+
     def test_patch_remove_user_family_name_with_simple_path(self):
         user = User.objects.create_user(
             email="removesimple@example.com",
@@ -1083,9 +1158,15 @@ class TestSCIMUsersAPI(APILicensedTest):
         user.refresh_from_db()
         assert user.email == "multiat@example.com"
 
-    def test_patch_replace_email_case_collision_rejected(self):
-        # A case-variant of an existing account's email collides at login time (email__iexact),
-        # so SCIM must reject it even though the unique index is case-sensitive.
+    @parameterized.expand(
+        [
+            ("ascii_case_variant", "EXISTING@example.com"),
+            ("dotted_capital_i", "exİsting@example.com"),
+        ]
+    )
+    def test_patch_replace_email_case_collision_rejected(self, _name, colliding_email):
+        # A case-variant of an existing account's email collides at login time, so SCIM must reject it
+        # even though the unique index is case-sensitive.
         user_a = User.objects.create_user(
             email="existing@example.com", password=None, first_name="A", is_email_verified=True
         )
@@ -1112,7 +1193,7 @@ class TestSCIMUsersAPI(APILicensedTest):
                 {
                     "op": "replace",
                     "path": "emails",
-                    "value": [{"value": "EXISTING@example.com", "primary": True}],
+                    "value": [{"value": colliding_email, "primary": True}],
                 }
             ],
         }

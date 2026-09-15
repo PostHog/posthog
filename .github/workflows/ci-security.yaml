@@ -40,6 +40,8 @@ jobs:
               with:
                   clean: false
                   persist-credentials: false
+                  sparse-checkout: .github/actions/paths-filter
+                  sparse-checkout-cone-mode: false
             - name: Force all scans for oversized pull requests
               id: oversized
               if: github.event_name == 'pull_request' && github.event.pull_request.changed_files > 3000
@@ -49,7 +51,7 @@ jobs:
               # forks can't read org secrets — fall back to github.token
               if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
               with:
-                  client-id: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
+                  client-id: ${{ vars.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
                   # paths-filter only calls pulls.listFiles
                   permission-pull-requests: read
@@ -74,6 +76,7 @@ jobs:
                         - '.github/workflows/ci-security.yaml'
                       go:
                         - 'livestream/**'
+                        - 'services/hogql-language-service/**'
                         - '.github/workflows/ci-security.yaml'
                       rust:
                         - 'cli/**'
@@ -82,6 +85,7 @@ jobs:
                       js:
                         - 'frontend/**'
                         - 'nodejs/**'
+                        - 'packages/**'
                         - 'services/agent-proxy/**'
                         - 'services/integration-service/**'
                         - 'services/mcp/**'
@@ -103,6 +107,7 @@ jobs:
                         - '!frontend/**'
                         - '!livestream/**'
                         - '!nodejs/**'
+                        - '!packages/**'
                         - '!posthog/**'
                         - '!products/**'
                         - '!rust/**'
@@ -145,7 +150,10 @@ jobs:
             DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
 
         steps:
+            # The login only lifts the Docker Hub pull rate limit, and anonymous pulls still
+            # work, so every Docker Hub login in CI is best-effort.
             - name: Log in to Docker Hub
+              continue-on-error: true
               if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
               uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
               with:
@@ -191,6 +199,7 @@ jobs:
 
         steps:
             - name: Log in to Docker Hub
+              continue-on-error: true
               if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
               uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
               with:
@@ -212,6 +221,7 @@ jobs:
                       --config r/go.lang.security
                       --exclude-rule go.lang.security.audit.xss.no-fprintf-to-responsewriter.no-fprintf-to-responsewriter
                       --include /livestream
+                      --include /services/hogql-language-service
 
     semgrep-rust:
         needs: changes
@@ -225,6 +235,7 @@ jobs:
 
         steps:
             - name: Log in to Docker Hub
+              continue-on-error: true
               if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
               uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
               with:
@@ -262,6 +273,7 @@ jobs:
 
         steps:
             - name: Log in to Docker Hub
+              continue-on-error: true
               if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
               uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
               with:
@@ -283,6 +295,7 @@ jobs:
                       --config p/trailofbits
                       --include /frontend
                       --include /nodejs
+                      --include /packages
                       --include /services/agent-proxy
                       --include /services/integration-service
                       --include /services/mcp
@@ -301,6 +314,7 @@ jobs:
 
         steps:
             - name: Log in to Docker Hub
+              continue-on-error: true
               if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
               uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
               with:
@@ -337,6 +351,7 @@ jobs:
 
         steps:
             - name: Log in to Docker Hub
+              continue-on-error: true
               if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
               uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
               with:
@@ -366,6 +381,7 @@ jobs:
                       --exclude /frontend
                       --exclude /livestream
                       --exclude /nodejs
+                      --exclude /packages
                       --exclude /posthog
                       --exclude /products
                       --exclude /rust
@@ -391,6 +407,7 @@ jobs:
 
         steps:
             - name: Log in to Docker Hub
+              continue-on-error: true
               if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
               uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
               with:
@@ -470,6 +487,7 @@ jobs:
 
         steps:
             - name: Log in to Docker Hub
+              continue-on-error: true
               if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
               uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
               with:
@@ -504,6 +522,7 @@ jobs:
 
         steps:
             - name: Log in to Docker Hub
+              continue-on-error: true
               if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
               uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
               with:
@@ -548,7 +567,7 @@ jobs:
         name: Semgrep Checks Pass
         runs-on: ubuntu-latest
         timeout-minutes: 5
-        if: always()
+        if: ${{ !cancelled() }}
         steps:
             - name: Check matrix outcome
               run: |

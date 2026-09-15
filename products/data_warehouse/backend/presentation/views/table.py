@@ -279,7 +279,13 @@ class TableSerializer(UserAccessControlSerializerMixin, serializers.ModelSeriali
             SimpleExternalDataSchemaSerializer,
         )
 
-        return SimpleExternalDataSchemaSerializer(instance.externaldataschema_set.first(), read_only=True).data or None
+        schema = instance.externaldataschema_set.first()
+        if schema is None:
+            # `Serializer(None).data` is not falsy: DRF falls back to `get_initial()`, which returns a
+            # dict of the serializer's writable fields. Trusting `or None` emitted an id-less schema
+            # object for every unsynced table, which callers read as "this table has a schema".
+            return None
+        return SimpleExternalDataSchemaSerializer(schema, read_only=True).data
 
     def create(self, validated_data):
         team_id = self.context["team_id"]
@@ -594,7 +600,12 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
     def refresh_schema(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         table: DataWarehouseTable = self.get_object()
 
-        table.columns = table.get_columns()
+        # get_columns surfaces read failures as a plain Exception carrying a user-facing message.
+        # Without this it reaches the handler as a 500, the same way TableSerializer.create avoids.
+        try:
+            table.columns = table.get_columns()
+        except Exception as err:
+            raise serializers.ValidationError(str(err))
         table.save()
 
         return response.Response(status=status.HTTP_200_OK)

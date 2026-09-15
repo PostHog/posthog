@@ -1,4 +1,4 @@
-from typing import Optional, cast
+from typing import Any, Optional, cast
 
 from posthog.schema import (
     DataWarehouseSourceCategory,
@@ -21,11 +21,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.mongo import (
     DATABASE_NAME_REQUIRED_ERROR,
+    MONGO_DOCUMENT_MISSING_ID_ERROR,
     _parse_connection_string,
     filter_mongo_incremental_fields,
     get_collection_names,
     get_leading_index_keys,
     get_schemas as get_mongo_schemas,
+    get_server_metadata as get_mongo_server_metadata,
     mongo_client,
     mongo_source,
 )
@@ -75,6 +77,17 @@ _MONGO_NOT_AUTHORIZED_MESSAGE = (
 
 _MONGO_CONNECT_FAILED_MESSAGE = (
     "Could not connect to your MongoDB database. Check your connection string and credentials, then try again."
+)
+
+# MongoDB error code 211 (KeyNotFound): the cluster's internal keystore has no HMAC key valid for
+# the requested timestamp. This is a cluster-side key management problem (e.g. key rotation
+# removed keys the importer needed). Retrying reads the same cursor against the same cluster and
+# always fails with the same error, so it is non-retryable.
+_MONGO_KEY_NOT_FOUND_MESSAGE = (
+    "PostHog couldn't sync this MongoDB collection because your cluster reported a key management "
+    "error (MongoDB code 211: KeyNotFound). Your cluster's keystore does not have a valid HMAC key "
+    "for the time range being queried. Check your MongoDB cluster's key management configuration "
+    "and ensure all replica set members are healthy, then try again."
 )
 
 # Connection succeeded but nothing importable came back. This is usually a wrong-database or
@@ -140,6 +153,10 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
             # reach the user — match the stable 'not authorized' fragment. Granting permission is a
             # config change the user must make, so this never recovers on retry.
             "not authorized": _MONGO_NOT_AUTHORIZED_MESSAGE,
+            # A view whose pipeline drops `_id` yields documents the importer can't key on. mongo.py
+            # raises MONGO_DOCUMENT_MISSING_ID_ERROR for this instead of a bare KeyError. Every retry
+            # reads the same `_id`-less documents, so it never recovers. Match our own stable phrase.
+            "one of its documents has no _id field": MONGO_DOCUMENT_MISSING_ID_ERROR,
             "SSL handshake failed": None,
             # Atlas SQL / Data Federation endpoints live under *.query.mongodb.net and are served by
             # a query proxy the standard MongoDB driver can't drive: the handshake is closed, the
@@ -162,6 +179,12 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
             # differently (a bare AutoReconnect / NetworkTimeout with no topology description) and
             # stays retryable.
             "Topology Description:": _MONGO_UNREACHABLE_MESSAGE,
+            # MongoDB OperationFailure code 211 (KeyNotFound): the cluster's HMAC keystore has no
+            # valid key for the cursor's timestamp. pymongo formats the full server error response
+            # as part of the exception message; the leading phrase before the variable parts
+            # (timestamp, key id) is stable and unambiguous. Retrying the same cursor against the
+            # same cluster always fails with the same error.
+            "No keys found for HMAC": _MONGO_KEY_NOT_FOUND_MESSAGE,
         }
 
     def get_retryable_errors(self) -> set[str]:
@@ -179,7 +202,24 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
         # from the persistent "Topology Description:" server-selection failures above. Match the
         # fixed "connection pool paused" phrase pymongo always uses for this state, not the
         # surrounding host/timeout values.
-        return {"The resolution lifetime expired", "connection pool paused"}
+        #
+        # A cluster that is rotating its signing keys fails a command with OperationFailure code 211
+        # (KeyNotFound), which it clears on its own, so Temporal retrying the activity recovers.
+        # mongo.py rewrites that failure to MONGO_KEYS_UNAVAILABLE_ERROR, so match our own stable
+        # phrase — pymongo's text appends the whole server response instead.
+        #
+        # pymongo raises NotPrimaryError when an in-flight read is killed because the server node
+        # is shutting down or stepping down (OperationFailure codeName 'InterruptedAtShutdown',
+        # code 11600) — a routine replica-set failover such as a rolling restart or managed-cluster
+        # maintenance. The driver reconnects to the newly-elected primary, so Temporal retrying the
+        # whole activity is self-recovering. Match the stable errmsg phrase, not the volatile
+        # topologyVersion/clusterTime blob pymongo appends.
+        return {
+            "The resolution lifetime expired",
+            "connection pool paused",
+            "the cluster's signing keys were briefly unavailable",
+            "interrupted at shutdown",
+        }
 
     def get_schemas(
         self,
@@ -309,6 +349,9 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
 
         return True, None
 
+    def get_server_metadata(self, config: MongoDBSourceConfig, team_id: int) -> dict[str, Any]:
+        return get_mongo_server_metadata(config.connection_string, team_id)
+
     def source_for_pipeline(self, config: MongoDBSourceConfig, inputs: SourceInputs) -> SourceResponse:
         return mongo_source(
             connection_string=config.connection_string,
@@ -339,12 +382,17 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
                 [
                     SourceFieldInputConfig(
                         name="connection_string",
-                        label="Connection String",
+                        label="Connection string",
                         # The connection string is this source's only credential, so `password` keeps
                         # it editable on update for rotation.
                         type=SourceFieldInputConfigType.PASSWORD,
                         required=True,
                         placeholder="mongodb://username:password@host:port/database?authSource=admin&tls=true",
+                        caption=(
+                            "In MongoDB Atlas, open your cluster and click **Connect → Drivers** to copy this, "
+                            "then replace `<db_password>` with your database user's password. Self-hosted "
+                            "clusters use the host and port form in the placeholder, keeping `tls=true`."
+                        ),
                         secret=True,
                     ),
                     SourceFieldInputConfig(

@@ -1,0 +1,140 @@
+{
+    "LA1": {
+        "is_real": false,
+        "severity": null,
+        "cluster": 58,
+        "source": "verified-same-claim:KA13"
+    },
+    "LA2": {
+        "is_real": false,
+        "severity": null,
+        "cluster": 13,
+        "source": "cluster 0/3"
+    },
+    "LA3": {
+        "is_real": true,
+        "severity": "consider",
+        "cluster": 35,
+        "source": "cluster 3/3"
+    },
+    "LA4": {
+        "is_real": true,
+        "severity": "should_fix",
+        "cluster": 29,
+        "source": "verified (high)"
+    },
+    "LA5": {
+        "is_real": false,
+        "severity": null,
+        "cluster": 58,
+        "source": "verified-same-claim:KA13"
+    },
+    "LA6": {
+        "is_real": false,
+        "severity": null,
+        "cluster": 58,
+        "source": "verified (high)"
+    },
+    "LA7": {
+        "is_real": true,
+        "severity": "consider",
+        "cluster": 8,
+        "source": "verified (medium)"
+    },
+    "LA8": {
+        "is_real": true,
+        "severity": "consider",
+        "cluster": null,
+        "source": "verified (medium)"
+    },
+    "LA9": {
+        "is_real": false,
+        "severity": null,
+        "cluster": 4,
+        "source": "cluster 0/9"
+    },
+    "LA10": {
+        "is_real": false,
+        "severity": null,
+        "cluster": 2,
+        "source": "verified-same-claim:KB5"
+    },
+    "LA11": {
+        "is_real": true,
+        "severity": "must_fix",
+        "cluster": 2,
+        "source": "verified-same-claim:KA10"
+    },
+    "LA12": {
+        "is_real": false,
+        "severity": null,
+        "cluster": null,
+        "source": "verified (medium)"
+    },
+    "LA13": {
+        "is_real": true,
+        "severity": "must_fix",
+        "cluster": 2,
+        "source": "verified-same-claim:KA10"
+    },
+    "LA14": {
+        "is_real": true,
+        "severity": "must_fix",
+        "cluster": 75,
+        "source": "cluster 1/1 (KA2 same claim)"
+    },
+    "LA15": {
+        "is_real": true,
+        "severity": "must_fix",
+        "cluster": null,
+        "source": "verified (high)"
+    },
+    "LA16": {
+        "is_real": false,
+        "severity": null,
+        "cluster": 39,
+        "source": "verified-same-claim:KA5"
+    },
+    "LA17": {
+        "is_real": true,
+        "severity": "should_fix",
+        "cluster": 57,
+        "source": "verified-same-claim:KA4"
+    },
+    "LA18": {
+        "is_real": true,
+        "severity": "should_fix",
+        "cluster": 1,
+        "source": "verified-same-claim:W11"
+    },
+    "LA19": {
+        "is_real": true,
+        "severity": "must_fix",
+        "cluster": 6,
+        "source": "verified (high)"
+    },
+    "LA20": {
+        "is_real": false,
+        "severity": null,
+        "cluster": 31,
+        "source": "cluster 0/6"
+    },
+    "LA21": {
+        "is_real": true,
+        "severity": "consider",
+        "cluster": 23,
+        "source": "cluster 1/1 (S9 same claim)"
+    },
+    "LA22": {
+        "is_real": false,
+        "severity": null,
+        "cluster": 76,
+        "source": "verified (high)"
+    },
+    "LA23": {
+        "is_real": false,
+        "severity": null,
+        "cluster": null,
+        "source": "verified (high)"
+    }
+}

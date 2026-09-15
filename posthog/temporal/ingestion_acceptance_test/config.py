@@ -28,22 +28,58 @@ class Config(BaseSettings):
     poll_interval_seconds: float = Field(default=10.0)
     activity_timeout_seconds: int = Field(default=3600)
     slack_webhook_url: str | None = Field(default=None)
+    # Deployment name used in alert metadata and Grafana links. Derived from
+    # api_host when unset.
+    environment: str | None = Field(default=None)
+    grafana_url: str | None = Field(default=None)
+    loki_datasource_uid: str = Field(default="P44D702D3E93867EC")
+    runbook_url: str | None = Field(
+        default="https://runbooks.posthog.com/services/ingestion/runbooks/ingestion-acceptance-test"
+    )
 
     @field_validator("api_host")
     @classmethod
     def strip_trailing_slash(cls, v: str) -> str:
         return v.rstrip("/")
 
+    @property
+    def environment_name(self) -> str:
+        if self.environment:
+            return self.environment
+        return _environment_from_api_host(self.api_host)
+
+    @property
+    def grafana_base_url(self) -> str | None:
+        if self.grafana_url:
+            return self.grafana_url.rstrip("/")
+        env = self.environment_name
+        if env in _KNOWN_ENVIRONMENTS:
+            return f"https://grafana.{env}.posthog.dev"
+        return None
+
     def to_safe_dict(self) -> dict[str, str]:
         """Return configuration as a dictionary with sensitive values redacted."""
         return {
             "api_host": self.api_host,
+            "environment": self.environment_name,
             "team_id": str(self.team_id),
             "lane": self.lane,
             "event_timeout_seconds": str(self.event_timeout_seconds),
             "poll_interval_seconds": str(self.poll_interval_seconds),
             "activity_timeout_seconds": str(self.activity_timeout_seconds),
         }
+
+
+_ENVIRONMENT_BY_API_HOST = {
+    "us.posthog.com": "prod-us",
+    "eu.posthog.com": "prod-eu",
+}
+_KNOWN_ENVIRONMENTS = frozenset({"prod-us", "prod-eu", "dev"})
+
+
+def _environment_from_api_host(api_host: str) -> str:
+    host = api_host.removeprefix("https://").removeprefix("http://").split("/", 1)[0]
+    return _ENVIRONMENT_BY_API_HOST.get(host, "dev")
 
 
 def _lane_env_segment(lane: str) -> str:

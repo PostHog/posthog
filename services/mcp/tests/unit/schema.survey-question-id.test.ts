@@ -8,8 +8,8 @@ import { SurveysCreateBody, SurveysPartialUpdateBody } from '@/generated/surveys
 // UUID, orphaning historical responses (support ticket 61130).
 describe('Survey question id preservation', () => {
     it.each([
-        ['survey-create', SurveysCreateBody.shape.questions],
-        ['survey-update', SurveysPartialUpdateBody.shape.questions],
+        ['survey-create', SurveysCreateBody().shape.questions],
+        ['survey-update', SurveysPartialUpdateBody().shape.questions],
     ])('preserves an explicit question id through %s validation', (_label, questionsSchema) => {
         const existingId = '0190a1b2-c3d4-7e8f-9012-3456789abcde'
 

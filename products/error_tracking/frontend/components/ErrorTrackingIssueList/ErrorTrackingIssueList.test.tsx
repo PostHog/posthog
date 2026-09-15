@@ -3,9 +3,6 @@ import '@testing-library/jest-dom'
 import { cleanup, render, screen } from '@testing-library/react'
 import { Provider } from 'kea'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-
 import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
@@ -68,27 +65,14 @@ describe('ErrorTrackingIssueListRow', () => {
         )
     })
 
-    it.each([
-        ['disabled', false, false],
-        ['enabled', true, true],
-    ])('shows severity only when the feature flag is %s', (_label, enabled, expectedVisible) => {
-        featureFlagLogic.mount()
-        featureFlagLogic.actions.setFeatureFlags(
-            enabled ? [FEATURE_FLAGS.ERROR_TRACKING_SEVERITY_RULES] : [],
-            enabled ? { [FEATURE_FLAGS.ERROR_TRACKING_SEVERITY_RULES]: true } : {}
-        )
-
+    it('shows severity', () => {
         render(
             <Provider>
                 <ErrorTrackingIssueListRow issue={ISSUE} />
             </Provider>
         )
 
-        if (expectedVisible) {
-            expect(screen.getByText('High')).toBeInTheDocument()
-        } else {
-            expect(screen.queryByText('High')).not.toBeInTheDocument()
-        }
+        expect(screen.getByText('High')).toBeInTheDocument()
     })
 })
 

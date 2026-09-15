@@ -29,10 +29,7 @@ def snowflake_env_vars_are_set():
     return True
 
 
-SKIP_IF_MISSING_REQUIRED_ENV_VARS = pytest.mark.skipif(
-    not snowflake_env_vars_are_set(),
-    reason="Snowflake required env vars are not set",
-)
+SKIP_IF_MISSING_REQUIRED_ENV_VARS = pytest.mark.requires_vendor_credentials(check=snowflake_env_vars_are_set)
 
 pytestmark = [SKIP_IF_MISSING_REQUIRED_ENV_VARS, pytest.mark.asyncio]
 
@@ -74,7 +71,8 @@ def snowflake_config(database, schema) -> dict[str, str]:
     }
     if private_key:
         config["private_key"] = private_key
-        config["private_key_passphrase"] = private_key_passphrase
+        if private_key_passphrase is not None:
+            config["private_key_passphrase"] = private_key_passphrase
         config["authentication_type"] = "keypair"
     elif password:
         config["password"] = password
@@ -93,7 +91,7 @@ def snowflake_cursor(snowflake_config):
         if snowflake_config.get("private_key") is None:
             raise ValueError("Private key is required for keypair authentication")
 
-        private_key = load_private_key(snowflake_config["private_key"], snowflake_config["private_key_passphrase"])
+        private_key = load_private_key(snowflake_config["private_key"], snowflake_config.get("private_key_passphrase"))
     else:
         password = snowflake_config["password"]
 

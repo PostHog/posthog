@@ -15,7 +15,7 @@ import structlog
 from posthog.models.integration import Integration
 
 from products.conversations.backend.services.region_routing import is_primary_region, proxy_to_secondary_region
-from products.conversations.backend.tasks import process_github_event
+from products.conversations.backend.tasks.github import process_github_event
 
 logger = structlog.get_logger(__name__)
 

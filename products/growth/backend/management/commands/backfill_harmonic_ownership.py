@@ -154,10 +154,11 @@ class Command(BaseCommand):
         # path (core.py) — the refreshed payload now carries ownershipStatus/relatedCompanies for
         # the labels pipeline and any future offline re-analysis to read.
         if not dry_run:
+            base_payload = lookup.raw_payload if lookup.raw_payload is not None else _MISS_PAYLOAD
             archive_provider_fetch(
                 organization_id=str(record.organization_id),
                 provider=provider.name,
-                payload=lookup.raw_payload if lookup.raw_payload is not None else _MISS_PAYLOAD,
+                payload={**base_payload, "enrichmentUrn": lookup.enrichment_urn},
                 is_recheck=True,
             )
 

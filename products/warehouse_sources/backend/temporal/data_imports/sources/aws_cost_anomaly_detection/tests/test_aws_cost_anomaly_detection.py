@@ -3,7 +3,7 @@ import datetime as dt
 from typing import Any, Optional, cast
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from unittest import mock
 
 import requests
@@ -316,7 +316,7 @@ class TestSendOperation:
         session.post.return_value = make_response(200, {"Anomalies": []})
         credentials = aws_cost_anomaly_detection.Credentials("AKIAEXAMPLE", "secret")
 
-        with freeze_time("2024-06-05T10:00:00Z"):
+        with time_machine.travel("2024-06-05T10:00:00Z", tick=False):
             send_operation(session, credentials, "GetAnomalies", {"MaxResults": 100})
 
         kwargs = session.post.call_args[1]
@@ -362,8 +362,12 @@ class TestSendOperation:
         assert session.post.call_count == 1
 
 
-@freeze_time("2024-06-01T12:00:00Z")
 class TestGetRows:
+    @pytest.fixture(autouse=True)
+    def _frozen_clock(self):
+        with time_machine.travel("2024-06-01T12:00:00Z", tick=False):
+            yield
+
     def _run(
         self,
         responses: list[Any],
@@ -567,7 +571,7 @@ class TestValidateCredentials:
         ):
             assert validate_credentials("key", "secret", None) == (False, "Could not reach the AWS Cost Explorer API")
 
-    @freeze_time("2024-06-01T12:00:00Z")
+    @time_machine.travel("2024-06-01T12:00:00Z", tick=False)
     def test_a_per_schema_check_probes_that_schemas_own_operation(self) -> None:
         with mock.patch.object(aws_cost_anomaly_detection, "send_operation", return_value={"Anomalies": []}) as send:
             assert validate_credentials("key", "secret", None, schema_name="anomalies") == (True, None)

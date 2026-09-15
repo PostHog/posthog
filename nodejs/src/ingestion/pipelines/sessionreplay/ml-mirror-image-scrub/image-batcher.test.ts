@@ -1,6 +1,11 @@
 import { Message, MessageHeader, TopicPartitionOffset } from 'node-rdkafka'
 import { gzipSync } from 'node:zlib'
 
+import { MlKeyReader } from '~/ingestion/pipelines/sessionreplay/ml-mirror/privacy/reader'
+import { MlPrivacyRuntime } from '~/ingestion/pipelines/sessionreplay/ml-mirror/privacy/runtime'
+import { INGESTION_VERSION_HEADER } from '~/ingestion/pipelines/sessionreplay/ml-mirror/privacy/schema'
+import { MlKafkaEncryption } from '~/ingestion/pipelines/sessionreplay/ml-mirror/privacy/transport'
+
 import { hashImageBytes, imageRef, urlRef } from './content-ref'
 import { ImageBatcher, OffsetStore } from './image-batcher'
 import { ImageShardStore, ScrubbedImage, ScrubbedUrlImage, UrlImageWriteOutcome } from './image-shard-store'
@@ -80,7 +85,70 @@ const options = {
 describe('ImageBatcher', () => {
     afterEach(() => jest.restoreAllMocks())
 
-    it('scrubs a multi-team batch into one shard for the flush, storing offsets after', async () => {
+    it.each([false, true])(
+        'retries malformed encrypted image parking and supports shutdown (stop: %s)',
+        async (stop) => {
+            jest.useFakeTimers()
+            try {
+                const store = new FakeStore()
+                const offsets = new FakeOffsets()
+                const park = jest.fn().mockRejectedValueOnce(new Error('dlq unavailable')).mockResolvedValue(undefined)
+                const privacy = {
+                    kafka: new MlKafkaEncryption({
+                        read: jest.fn().mockResolvedValue(new Map()),
+                    } as unknown as MlKeyReader),
+                } as MlPrivacyRuntime
+                const incrementVersion = jest.spyOn(ImageScrubConsumerMetrics, 'incrementVersion')
+                const batcher = new ImageBatcher(
+                    store as unknown as ImageShardStore,
+                    offsets,
+                    scrubClient,
+                    options,
+                    0,
+                    { park },
+                    privacy
+                )
+                const invalid = msg(0, 0, pt(1), Buffer.from('invalid envelope'), undefined, [
+                    { [INGESTION_VERSION_HEADER]: Buffer.from('2') },
+                ])
+                const batch = batcher.handleBatch([invalid], 1)
+                await jest.advanceTimersByTimeAsync(0)
+                expect(park).toHaveBeenCalledTimes(1)
+                expect(offsets.received).toEqual([])
+                // Neither bucket moves: a decryption outage must not read as a rollback to version 1.
+                expect(incrementVersion.mock.calls).toEqual([
+                    ['2', 0],
+                    ['1', 0],
+                ])
+                if (stop) {
+                    batcher.stop()
+                } else {
+                    await jest.advanceTimersByTimeAsync(500)
+                }
+                await expect(batch).resolves.toBeUndefined()
+                expect(park).toHaveBeenCalledTimes(stop ? 1 : 2)
+                expect(park.mock.calls[0][0]).toEqual({
+                    ref: invalid.key!.toString(),
+                    bytes: invalid.value,
+                    headers: { [INGESTION_VERSION_HEADER]: '2' },
+                    detail: {
+                        reason: 'invalid_encryption',
+                        sourceTopic: invalid.topic,
+                        sourcePartition: 0,
+                        sourceOffset: 0,
+                    },
+                })
+                expect(store.writes).toEqual([])
+                if (!stop) {
+                    expect(offsets.received.flat().map((offset) => offset.offset)).toEqual([1])
+                }
+            } finally {
+                jest.useRealTimers()
+            }
+        }
+    )
+
+    it.each([false, true])('scrubs mixed teams and separates legacy records (mixed formats: %s)', async (mixed) => {
         const store = new FakeStore()
         const offsets = new FakeOffsets()
         const observeCaptureToS3 = jest.spyOn(ImageScrubConsumerMetrics, 'observeCaptureToS3').mockImplementation()
@@ -90,13 +158,22 @@ describe('ImageBatcher', () => {
         await batcher.handleBatch(
             [
                 msg(0, 0, pt(1), Buffer.from('a'), undefined, captureHeader),
-                msg(0, 1, pt(2), Buffer.from('b'), undefined, captureHeader),
+                msg(0, 1, mixed ? '42' : pt(2), Buffer.from('b'), undefined, captureHeader),
             ],
             1
         )
 
-        expect(store.writes).toHaveLength(1)
-        expect(store.writes[0].map((i) => i.pseudoTeam).sort()).toEqual([pt(1), pt(2)])
+        expect(store.writes).toHaveLength(mixed ? 2 : 1)
+        expect(
+            store.writes
+                .flat()
+                .map((i) => i.teamId ?? i.pseudoTeam)
+                .sort()
+        ).toEqual([pt(1), mixed ? '42' : pt(2)])
+        if (mixed) {
+            expect(store.writes.flat().find((image) => image.teamId === '42')).toBeDefined()
+            expect(store.writes.flat().find((image) => image.pseudoTeam === pt(1))).toBeDefined()
+        }
         expect(offsets.stored).toBe(1)
         expect(observeCaptureToS3).toHaveBeenCalledTimes(2)
         expect(observeCaptureToS3).toHaveBeenNthCalledWith(1, 'inline', CAPTURED_AT, expect.any(Number))
@@ -120,6 +197,24 @@ describe('ImageBatcher', () => {
 
         expect(store.writes).toHaveLength(1)
         expect(store.writes[0][0].hash).toBe(ref.split(':')[2])
+    })
+
+    it('counts a cleartext image as version 1', async () => {
+        const incrementVersion = jest.spyOn(ImageScrubConsumerMetrics, 'incrementVersion')
+        const batcher = new ImageBatcher(
+            new FakeStore() as unknown as ImageShardStore,
+            new FakeOffsets(),
+            scrubClient,
+            options,
+            0
+        )
+
+        await batcher.handleBatch([msg(0, 0, pt(1), Buffer.from('a'))], 1)
+
+        expect(incrementVersion.mock.calls).toEqual([
+            ['2', 0],
+            ['1', 1],
+        ])
     })
 
     it('decodes and validates a URL image from its Kafka transport headers before scrubbing it', async () => {
@@ -782,10 +877,12 @@ describe('ImageBatcher', () => {
                 b.toString() === 'poison'
                     ? Promise.reject(
                           new ScrubPoisoned('cannot process', {
-                              reason: 'transport',
+                              reason: 'rejected',
                               lastError: 'sidecar responded 500',
                               attempts: 12,
                               waitedMs: 60_000,
+                              elapsedMs: 120_000,
+                              rejectedMs: 120_000,
                           })
                       )
                     : Promise.resolve(b),
@@ -815,6 +912,8 @@ describe('ImageBatcher', () => {
                         lastError: 'sidecar responded 500',
                         attempts: 12,
                         waitedMs: 60_000,
+                        elapsedMs: 120_000,
+                        rejectedMs: 120_000,
                     })
                 ),
         } as unknown as ScrubClient
@@ -844,6 +943,8 @@ describe('ImageBatcher', () => {
                         lastError: 'sidecar responded 500',
                         attempts: 12,
                         waitedMs: 60_000,
+                        elapsedMs: 120_000,
+                        rejectedMs: 120_000,
                     })
                 ),
         } as unknown as ScrubClient
@@ -918,10 +1019,12 @@ describe('ImageBatcher', () => {
             scrub: () =>
                 Promise.reject(
                     new ScrubPoisoned('cannot process', {
-                        reason: 'transport',
+                        reason: 'rejected',
                         lastError: 'sidecar responded 500',
                         attempts: 12,
                         waitedMs: 60_000,
+                        elapsedMs: 120_000,
+                        rejectedMs: 120_000,
                     })
                 ),
         } as unknown as ScrubClient

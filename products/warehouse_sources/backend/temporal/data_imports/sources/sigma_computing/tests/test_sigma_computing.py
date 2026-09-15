@@ -242,6 +242,7 @@ class TestSigmaComputingSourceTopLevel:
             ("Teams", "/v2/teams"),
             ("Members", "/v2/members"),
             ("Workspaces", "/v2/workspaces"),
+            ("Reports", "/v2/reports"),
         ],
     )
     def test_every_top_level_endpoint_requests_its_documented_path(

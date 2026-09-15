@@ -189,7 +189,10 @@ export const seekbarLogic = kea<seekbarLogicType>([
                 sessionPlayerData: import('../../../../types').SessionPlayerData
             ) => {
                 if (thumbLeftPos && slider && sessionPlayerData?.durationMs) {
-                    return ((thumbLeftPos + THUMB_OFFSET) / slider.offsetWidth) * sessionPlayerData.durationMs
+                    // thumbLeftPos is not recomputed when the slider resizes, so the ratio can exceed 1
+                    return (
+                        clamp((thumbLeftPos + THUMB_OFFSET) / slider.offsetWidth, 0, 1) * sessionPlayerData.durationMs
+                    )
                 }
                 return 0
             },

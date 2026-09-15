@@ -113,6 +113,7 @@ class TestSourceResponseShape:
             ("questions", ["formId", "id"], "createdAt", "asc"),
             ("submissions", ["formId", "id"], "submittedAt", "desc"),
             ("webhooks", ["id"], "createdAt", "asc"),
+            ("folders", ["workspaceId", "id"], "createdAt", "asc"),
         ]
     )
     @mock.patch(CLIENT_SESSION_PATCH)
@@ -140,6 +141,22 @@ class TestSourceResponseShape:
         # Submissions interleave one form's history after another's, so the stream is not globally
         # ascending and the watermark must only advance once the whole sync finishes.
         assert response.sort_mode == expected_sort_mode
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_metrics_has_no_partition_and_is_keyed_by_form(self, _MockSession: Any) -> None:
+        # The metrics aggregate carries no timestamp, so it must not be partitioned; it is one row
+        # per form, keyed by the injected parent form id (the object has no id of its own).
+        response = tally_source(
+            api_key="key",
+            api_version=TALLY_API_VERSION,
+            endpoint="form_analytics_metrics",
+            team_id=1,
+            job_id="job",
+            resumable_source_manager=_make_manager(),
+        )
+        assert response.primary_keys == ["formId"]
+        assert response.partition_mode is None
+        assert response.partition_keys is None
 
 
 class TestPagination:
@@ -256,6 +273,36 @@ class TestFanOut:
         }
         _rows, params, _session = _run("submissions", responses, submission_filter=submission_filter)
         assert params[1]["filter"] == submission_filter
+
+    def test_folders_fan_out_per_workspace_from_a_bare_array(self) -> None:
+        # /workspaces/{id}/folders returns a bare JSON array with no wrapper key, and a folder id is
+        # only unique within its workspace — so each row must be tagged with its parent workspace.
+        responses = {
+            f"{BASE}/workspaces?page=1": [_page([{"id": "W1"}, {"id": "W2"}], key="items")],
+            f"{BASE}/workspaces/W1/folders": [_resp([{"id": "D1", "workspaceId": "W1", "name": "A"}])],
+            f"{BASE}/workspaces/W2/folders": [_resp([{"id": "D2", "workspaceId": "W2", "name": "B"}])],
+        }
+        rows, _params, _session = _run("folders", responses)
+        assert rows == [
+            {"id": "D1", "workspaceId": "W1", "name": "A"},
+            {"id": "D2", "workspaceId": "W2", "name": "B"},
+        ]
+
+    def test_form_metrics_wrap_a_single_object_and_tag_the_form(self) -> None:
+        # The metrics endpoint returns one aggregate object per form (no wrapper, no array, no id of
+        # its own), so each becomes a single row keyed by the parent form id, and `period` is
+        # required on every child request.
+        responses = {
+            FORMS_PAGE_1: [_page([{"id": "F1"}, {"id": "F2"}])],
+            f"{BASE}/forms/F1/analytics/metrics?period=all": [_resp({"visits": 10, "submissions": 3})],
+            f"{BASE}/forms/F2/analytics/metrics?period=all": [_resp({"visits": 5, "submissions": 1})],
+        }
+        rows, params, _session = _run("form_analytics_metrics", responses)
+        assert rows == [
+            {"visits": 10, "submissions": 3, "formId": "F1"},
+            {"visits": 5, "submissions": 1, "formId": "F2"},
+        ]
+        assert params[1]["period"] == "all"
 
     def test_form_deleted_mid_sync_is_skipped(self) -> None:
         responses = {

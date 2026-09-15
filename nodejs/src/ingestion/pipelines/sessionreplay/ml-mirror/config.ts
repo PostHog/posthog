@@ -1,21 +1,30 @@
 import os from 'node:os'
 
+import { overrideConfigWithEnv } from '~/common/config/config'
 import { KAFKA_SESSION_REPLAY_IMAGE_SCRUB_DLQ } from '~/common/config/kafka-topics'
 import { RedisConnectionConfig } from '~/common/utils/db/redis'
 
 export type MlMirrorConfig = {
+    AI_RESEARCH_REPLAY_KEY_TABLE: string
+    AI_RESEARCH_REPLAY_KMS_KEY_ARN: string
+    AI_RESEARCH_REPLAY_AWS_REGION: string
+    AI_RESEARCH_REPLAY_KMS_REQUESTS_PER_SECOND: number
+    AI_RESEARCH_REPLAY_KEY_CACHE_MAX: number
+    AI_RESEARCH_REPLAY_KEY_CACHE_LIFETIME_MS: number
+    AI_RESEARCH_REPLAY_IMAGE_FETCH_V2_DYNAMODB_TABLE: string
+    AI_RESEARCH_REPLAY_S3_PREFIX: string
     /** S3 key prefix under the bucket for the block-metadata Parquet dataset (used by the sink). */
     SESSION_RECORDING_ML_METADATA_PREFIX: string
     /** Optional S3 key of the `{ text, url }` allow-list document; empty → in-binary defaults. */
     SESSION_RECORDING_ML_ALLOW_LIST_S3_KEY: string
-    /** Plaintext HMAC secret to pseudonymize ids; for local dev only — prod uses the KMS-wrapped key below. */
-    SESSION_RECORDING_ML_PSEUDONYM_SECRET: string
+    /** Plaintext root key for legacy identifiers and image hashes; local development only. Production uses the KMS-wrapped key below. */
+    AI_RESEARCH_REPLAY_PSEUDONYM_SECRET: string
     /** Base64 KMS-encrypted pseudonym key (envelope); decrypted once at startup, never persisted. Preferred over the plaintext secret. */
     SESSION_RECORDING_ML_PSEUDONYM_WRAPPED_KEY: string
     /** AWS region for the KMS Decrypt call; empty → the SDK default credential/region chain. */
-    SESSION_RECORDING_ML_PSEUDONYM_KMS_REGION: string
+    AI_RESEARCH_REPLAY_PSEUDONYM_KMS_REGION: string
     /** Expected key fingerprint; if set, startup fails when the resolved key's fingerprint differs (enforces never-rotate). */
-    SESSION_RECORDING_ML_PSEUDONYM_KEY_FINGERPRINT: string
+    AI_RESEARCH_REPLAY_PSEUDONYM_KEY_FINGERPRINT: string
     /** Consumer group id for the Parquet-sink deployment that drains the metadata topic. */
     SESSION_RECORDING_ML_PARQUET_SINK_GROUP_ID: string
     /**
@@ -39,7 +48,7 @@ export type MlMirrorConfig = {
 
     /**
      * Produce collected original images to the scrub topic. Enabling changes the mirrored JSONL
-     * shape: image fields carry `image:<pseudoTeam>:<hash>` refs instead of blurred data URIs, so
+     * shape: image fields carry `image:<teamId>:<hash>` refs instead of blurred data URIs, so
      * both the scrub consumer lane AND ref-aware downstream readers must be live first.
      */
     SESSION_RECORDING_ML_IMAGE_SCRUB_PRODUCER_ENABLED: boolean
@@ -47,12 +56,10 @@ export type MlMirrorConfig = {
     /**
      * Collect the URLs of remote images as well, so the fetch lane can download them later.
      *
-     * Enabling changes the mirrored JSONL shape a second time: a remote image keeps its grey
-     * placeholder and a `data-anon-image-ref-<attribute>` sibling carries its
-     * `imageurl:<hash>` ref. The prefix differs from the image lane's `image:` on
-     * purpose, because this hash names the URL rather than the bytes behind it. Nothing fetches
-     * those URLs yet, so every such ref is dangling. What this buys is the measurement of how many
-     * URLs and how many distinct hosts real traffic carries.
+     * Enabling changes the mirrored JSONL shape a second time. A direct remote image keeps its
+     * placeholder and a `data-anon-image-ref-<attribute>` sibling carries its `imageurl:<hash>`
+     * ref. CSS keeps numbered placeholders and a `data-anon-image-refs-<field>` sibling carries a
+     * JSON slot-to-ref map. The URL hash names the URL rather than the bytes behind it.
      */
     SESSION_RECORDING_ML_URL_COLLECTION_ENABLED: boolean
 
@@ -83,8 +90,12 @@ export type MlMirrorConfig = {
 
     /** While true, the fetch lane parses input but sends no request and writes no crawl history. */
     SESSION_RECORDING_ML_IMAGE_FETCH_DRY_RUN: boolean
+    /** Optional topic for rejected frontier records. Empty commits and drops rejected input without quarantine. */
+    SESSION_RECORDING_ML_IMAGE_FETCH_DLQ_TOPIC: string
     SESSION_RECORDING_ML_IMAGE_FETCH_GROUP_ID: string
     SESSION_RECORDING_ML_IMAGE_FETCH_BATCH_SIZE: number
+    /** Kafka group members per image-fetch worker. Their batches join into one fetch pass. */
+    SESSION_RECORDING_ML_IMAGE_FETCH_TARGET_PARTITIONS_PER_BATCH: number
     AI_RESEARCH_IMAGE_FETCH_DYNAMODB_TABLE: string
     /** Bounds one DynamoDB request so an unavailable store cannot hold the poll loop. */
     AI_RESEARCH_IMAGE_FETCH_DYNAMODB_TIMEOUT_MS: number
@@ -108,12 +119,6 @@ export type MlMirrorConfig = {
      * scale with it too. Raise the pod's memory before you raise this.
      */
     SESSION_RECORDING_ML_IMAGE_FETCH_MAX_IN_FLIGHT_REQUESTS: number
-    /** Low-diversity mode starts when the remaining request capacity is lower than this value. */
-    SESSION_RECORDING_ML_IMAGE_FETCH_LOW_ORIGIN_DIVERSITY_MINIMUM_REQUEST_SLOTS: number
-    /** Low-diversity mode starts only when more than this many undeferred canonical URL jobs remain. */
-    SESSION_RECORDING_ML_IMAGE_FETCH_LOW_ORIGIN_DIVERSITY_REPUBLISH_THRESHOLD: number
-    /** Canonical URL jobs fetched in low-diversity mode before the remaining undeferred jobs return to Kafka. */
-    SESSION_RECORDING_ML_IMAGE_FETCH_LOW_ORIGIN_DIVERSITY_PROGRESS: number
     /** Image bodies waiting for Kafka delivery. This must fit inside the producer byte queue. */
     SESSION_RECORDING_ML_IMAGE_FETCH_MAX_PENDING_PUBLISHES: number
     /**
@@ -213,12 +218,20 @@ export type MlMirrorConfig = {
 
 export function getDefaultMlMirrorConfig(): MlMirrorConfig {
     return {
+        AI_RESEARCH_REPLAY_KEY_TABLE: '',
+        AI_RESEARCH_REPLAY_KMS_KEY_ARN: '',
+        AI_RESEARCH_REPLAY_AWS_REGION: 'us-east-1',
+        AI_RESEARCH_REPLAY_KMS_REQUESTS_PER_SECOND: 100,
+        AI_RESEARCH_REPLAY_KEY_CACHE_MAX: 10_000,
+        AI_RESEARCH_REPLAY_KEY_CACHE_LIFETIME_MS: 60_000,
+        AI_RESEARCH_REPLAY_IMAGE_FETCH_V2_DYNAMODB_TABLE: '',
+        AI_RESEARCH_REPLAY_S3_PREFIX: 'rrweb_2',
         SESSION_RECORDING_ML_METADATA_PREFIX: 'block-metadata',
         SESSION_RECORDING_ML_ALLOW_LIST_S3_KEY: '',
-        SESSION_RECORDING_ML_PSEUDONYM_SECRET: '',
+        AI_RESEARCH_REPLAY_PSEUDONYM_SECRET: '',
         SESSION_RECORDING_ML_PSEUDONYM_WRAPPED_KEY: '',
-        SESSION_RECORDING_ML_PSEUDONYM_KMS_REGION: '',
-        SESSION_RECORDING_ML_PSEUDONYM_KEY_FINGERPRINT: '',
+        AI_RESEARCH_REPLAY_PSEUDONYM_KMS_REGION: '',
+        AI_RESEARCH_REPLAY_PSEUDONYM_KEY_FINGERPRINT: '',
         SESSION_RECORDING_ML_PARQUET_SINK_GROUP_ID: 'session-replay-ml-parquet-sink',
         SESSION_RECORDING_ML_PARQUET_FLUSH_INTERVAL_MS: 60 * 1000,
         SESSION_RECORDING_ML_PARQUET_MAX_ROWS: 250_000,
@@ -231,8 +244,10 @@ export function getDefaultMlMirrorConfig(): MlMirrorConfig {
         SESSION_RECORDING_ML_URL_CRAWL_HISTORY_PRECHECK_TIMEOUT_MS: 500,
         WEB_BOT_AUTH_PRIVATE_KEYS: '',
         SESSION_RECORDING_ML_IMAGE_FETCH_DRY_RUN: true,
+        SESSION_RECORDING_ML_IMAGE_FETCH_DLQ_TOPIC: '',
         SESSION_RECORDING_ML_IMAGE_FETCH_GROUP_ID: 'session-replay-ml-image-fetch',
         SESSION_RECORDING_ML_IMAGE_FETCH_BATCH_SIZE: 500,
+        SESSION_RECORDING_ML_IMAGE_FETCH_TARGET_PARTITIONS_PER_BATCH: 2,
         AI_RESEARCH_IMAGE_FETCH_DYNAMODB_TABLE: '',
         AI_RESEARCH_IMAGE_FETCH_DYNAMODB_TIMEOUT_MS: 5_000,
         AI_RESEARCH_IMAGE_FETCH_CRAWL_HISTORY_TTL_SECONDS: 30 * 24 * 60 * 60,
@@ -240,9 +255,6 @@ export function getDefaultMlMirrorConfig(): MlMirrorConfig {
         SESSION_RECORDING_ML_IMAGE_FETCH_REGISTRABLE_DOMAIN_BURST: 6,
         SESSION_RECORDING_ML_IMAGE_FETCH_MAX_CONCURRENT_PER_REGISTRABLE_DOMAIN: 6,
         SESSION_RECORDING_ML_IMAGE_FETCH_MAX_IN_FLIGHT_REQUESTS: 300,
-        SESSION_RECORDING_ML_IMAGE_FETCH_LOW_ORIGIN_DIVERSITY_MINIMUM_REQUEST_SLOTS: 48,
-        SESSION_RECORDING_ML_IMAGE_FETCH_LOW_ORIGIN_DIVERSITY_REPUBLISH_THRESHOLD: 50,
-        SESSION_RECORDING_ML_IMAGE_FETCH_LOW_ORIGIN_DIVERSITY_PROGRESS: 8,
         SESSION_RECORDING_ML_IMAGE_FETCH_MAX_PENDING_PUBLISHES: 100,
         SESSION_RECORDING_ML_IMAGE_FETCH_REQUEST_BUDGET_MS: 40_000,
         SESSION_RECORDING_ML_IMAGE_FETCH_MAX_IMAGE_BYTES: 20 * 1024 * 1024,
@@ -273,6 +285,19 @@ export function getDefaultMlMirrorConfig(): MlMirrorConfig {
         SESSION_RECORDING_ML_IMAGE_SCRUB_S3_WRITE_TIMEOUT_MS: 30 * 1000,
         SESSION_RECORDING_ML_ANONYMIZE_MAX_CONCURRENCY: 0,
     }
+}
+
+export function getMlMirrorConfig(env: Record<string, string | undefined> = process.env): MlMirrorConfig {
+    return overrideConfigWithEnv(getDefaultMlMirrorConfig(), {
+        ...env,
+        AI_RESEARCH_REPLAY_S3_PREFIX: env.AI_RESEARCH_REPLAY_S3_PREFIX ?? env.SESSION_RECORDING_ML_S3_PREFIX,
+        AI_RESEARCH_REPLAY_PSEUDONYM_SECRET:
+            env.AI_RESEARCH_REPLAY_PSEUDONYM_SECRET ?? env.SESSION_RECORDING_ML_PSEUDONYM_SECRET,
+        AI_RESEARCH_REPLAY_PSEUDONYM_KMS_REGION:
+            env.AI_RESEARCH_REPLAY_PSEUDONYM_KMS_REGION ?? env.SESSION_RECORDING_ML_PSEUDONYM_KMS_REGION,
+        AI_RESEARCH_REPLAY_PSEUDONYM_KEY_FINGERPRINT:
+            env.AI_RESEARCH_REPLAY_PSEUDONYM_KEY_FINGERPRINT ?? env.SESSION_RECORDING_ML_PSEUDONYM_KEY_FINGERPRINT,
+    })
 }
 
 const DEFAULT_UV_THREADPOOL_SIZE = 4

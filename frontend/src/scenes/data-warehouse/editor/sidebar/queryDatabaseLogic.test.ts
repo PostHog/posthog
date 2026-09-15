@@ -1,5 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 
@@ -8,6 +10,7 @@ import { performQuery } from '~/queries/query'
 import type { DatabaseSchemaField } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
+import { draftsLogic } from '../draftsLogic'
 import {
     getDefaultExpandedRootIds,
     getInitialExpandedFolders,
@@ -603,6 +606,39 @@ describe('queryDatabaseLogic', () => {
             expect(newInternalTab).toHaveBeenCalledWith(
                 expect.stringContaining('/data-management/sources/managed-source-id/schemas')
             )
+        })
+
+        it('hides drafts and unsaved queries when showing a direct connection schema', () => {
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.EDITOR_DRAFTS], {
+                [FEATURE_FLAGS.EDITOR_DRAFTS]: true,
+            })
+            draftsLogic.actions.setDrafts([{ id: 'draft-id', name: 'test_draft' }] as any)
+            logic.actions.loadQueryTabStateSuccess({
+                id: 'query-tab-state-id',
+                state: {
+                    editorModelsStateKey: JSON.stringify([{ name: 'Untitled 1', query: 'SELECT 1' }]),
+                },
+            } as any)
+            databaseTableListLogic.findMounted()?.actions.loadDatabaseSuccess({
+                tables: {
+                    'public.accounts': {
+                        id: 'accounts',
+                        name: 'public.accounts',
+                        type: 'data_warehouse',
+                        fields: {},
+                        source: {
+                            id: 'source-id',
+                            status: 'Running',
+                            source_type: 'Trino',
+                            prefix: '',
+                            access_method: 'direct',
+                        },
+                    },
+                },
+                joins: [],
+            } as any)
+
+            expect(logic.values.displayedTreeData.map((item) => item.name)).toEqual(['public'])
         })
 
         it('hydrates a table restored as expanded in the displayed direct-connection tree', async () => {

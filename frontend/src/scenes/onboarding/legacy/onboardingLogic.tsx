@@ -985,6 +985,12 @@ export const onboardingLogic = kea<onboardingLogicType>([
             return [url, searchParams, undefined, { replace: true }]
         },
         updateCurrentTeamSuccess(val) {
+            // This scene logic stays mounted under the self-driving variant, which owns its own
+            // completion redirect. Only redirect when the legacy flow is the active variant, so the
+            // two flows do not push competing destinations for the same completion PATCH.
+            if (values.onboardingFlowVariant !== 'legacy') {
+                return
+            }
             if (values.productKey && val.payload?.has_completed_onboarding_for?.[values.productKey]) {
                 const redirectUrl = values.onCompleteOnboardingRedirectUrl
                 // Reset the override after consuming it so a subsequent onboarding session

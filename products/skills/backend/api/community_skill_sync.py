@@ -10,6 +10,7 @@ from rest_framework.serializers import ValidationError as DRFValidationError
 
 from posthog.egress.github.transport import github_request
 
+from ..marketplace.packaging import SPEC_DESCRIPTION_MAX_LENGTH
 from ..models.community_skills import CommunitySkill, CommunitySkillFile, CommunitySkillTrustTier
 from .skill_serializers import validate_skill_file_path
 from .skill_services import (
@@ -93,7 +94,7 @@ def _validate_entry_shape(entry: dict[str, Any]) -> None:
         raise ValueError(f"slug '{slug}' is not a valid, routable skill identifier")
 
     # Blank passes both the type and length checks but leaves an unusable entry: a nameless card in
-    # the catalog, and a blank description that `marketplace.packaging.validate_for_export` refuses,
+    # the catalog, and a blank description that `compute_spec_problems` refuses,
     # so the skill installs and then can't be exported. The install path rejects it too.
     for required in ("name", "description"):
         if not _text(entry, required, f"'{required}'").strip():
@@ -139,7 +140,7 @@ def _validate_entry_within_caps(entry: dict[str, Any]) -> None:
 
     for field in _CHECKED_CHAR_FIELDS:
         value = _text(entry, field, f"'{field}'")
-        max_length = _field_max_length(CommunitySkill, field)
+        max_length = SPEC_DESCRIPTION_MAX_LENGTH if field == "description" else _field_max_length(CommunitySkill, field)
         if max_length is not None and len(value) > max_length:
             raise ValueError(f"'{field}' exceeds the {max_length} character limit")
 
@@ -159,7 +160,7 @@ def _validate_entry_within_caps(entry: dict[str, Any]) -> None:
             raise ValueError(f"file path '{raw_path}' is invalid: {err.detail}") from err
         if path_max is not None and len(path) > path_max:
             raise ValueError(f"file path '{path}' exceeds the {path_max} character limit")
-        # Case-insensitive, matching `_skill_files_are_tree_safe`: two paths differing only by case
+        # Case-insensitive, matching `compute_spec_problems`: two paths differing only by case
         # collide on a case-insensitive filesystem, and that check silently drops the whole skill
         # from a team's marketplace clone. Cheaper to reject the entry than to ship a skill that
         # installs fine and then vanishes from the generated tree.

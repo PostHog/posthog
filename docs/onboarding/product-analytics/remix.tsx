@@ -42,6 +42,13 @@ export const getRemixInstallSteps = (ctx: OnboardingComponentsContext): StepDefi
                                     pnpm add posthog-js
                                 `,
                             },
+                            {
+                                language: 'bash',
+                                file: 'bun',
+                                code: dedent`
+                                    bun add posthog-js
+                                `,
+                            },
                         ]}
                     />
                 </>

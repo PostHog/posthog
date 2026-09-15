@@ -71,3 +71,13 @@ export const isDistinctIdIllegal = (id: string): boolean => {
     const trimmed = id.trim()
     return trimmed === '' || CASE_INSENSITIVE_ILLEGAL_IDS.has(id.toLowerCase()) || CASE_SENSITIVE_ILLEGAL_IDS.has(id)
 }
+
+/**
+ * Ids no merge can involve, a strict superset of isDistinctIdIllegal: NUL
+ * cannot exist in Postgres text and over 400 code points cannot fit the
+ * column. Every path that picks merge participants must agree, or a merge
+ * admits an id that fails at the column instead of settling.
+ */
+export const isDistinctIdUnmergeable = (id: string): boolean => {
+    return isDistinctIdIllegal(id) || id.includes('\u0000') || [...id].length > 400
+}

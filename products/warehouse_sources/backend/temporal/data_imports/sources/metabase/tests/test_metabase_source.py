@@ -57,6 +57,29 @@ class TestMetabaseSource:
         non_retryable = self.source.get_non_retryable_errors()
         assert any(key in err for key in non_retryable)
 
+    def test_internal_ip_host_message_is_classified_non_retryable(self):
+        # `_is_host_safe` raises this exact message when the Instance URL resolves to a
+        # private/internal address (SSRF guard) — a permanent, deterministic failure until the
+        # customer points the source at a public host. Build the message via the real
+        # `_is_host_safe` code path so this test breaks if either side's wording drifts from
+        # the classifier's key.
+        with (
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins.is_cloud",
+                return_value=True,
+            ),
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins.get_instance_region",
+                return_value="US",
+            ),
+        ):
+            ok, err = _is_host_safe("10.0.0.5", team_id=999)
+
+        assert not ok
+        assert err is not None
+        non_retryable = self.source.get_non_retryable_errors()
+        assert any(key in err for key in non_retryable)
+
     def test_get_schemas_returns_all_endpoints(self):
         schemas = self.source.get_schemas(self.config, self.team_id)
         assert {s.name for s in schemas} == set(ENDPOINTS)

@@ -7,8 +7,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./*": [
-      "./src/*.ts",
-      "./src/*.tsx"
+      "./src/*.ts"
     ]
   },
   "scripts": {
@@ -25,6 +24,7 @@
     "src/**/*"
   ],
   "dependencies": {
-    "@posthog/shared": "workspace:*"
+    "@posthog/shared": "workspace:*",
+    "zod": "^4.1.12"
   }
 }

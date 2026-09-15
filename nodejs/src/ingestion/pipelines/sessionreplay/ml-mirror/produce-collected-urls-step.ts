@@ -5,12 +5,16 @@ import { logger } from '~/common/utils/logger'
 import { TopHogRegistry } from '~/ingestion/framework/extensions/tophog'
 import { ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
-import { SessionRecordingIngesterMetrics } from '~/ingestion/pipelines/sessionreplay/metrics'
 import type { CrawlHistoryStore } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/crawl-history'
 import { parseImageRef } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub/content-ref'
-import { CollectedUrl } from '~/ingestion/pipelines/sessionreplay/parse-and-anonymize-step'
 import { ML_IMAGE_FETCH_OUTPUT, MlImageFetchOutput } from '~/ingestion/pipelines/sessionreplay/shared/outputs'
 import { RefDedupCache } from '~/ingestion/pipelines/sessionreplay/shared/ref-dedup-cache'
+
+import { MlMirrorMetrics } from './metrics'
+import { CollectedUrl } from './parse-and-anonymize-step'
+import { MlPrivacyBatchController } from './privacy/batch-controller'
+import { encryptedKafkaValue, mlWireVersion, validateImageOwner } from './privacy/transport'
+import { usesRawSessionIdentifiers } from './session-identifier-format'
 
 /**
  * The same trade as the image lane's cache, at a much lower cost per entry: a record here holds a
@@ -58,6 +62,7 @@ export interface CollectedUrlsMessage {
 }
 
 export interface ProduceCollectedUrlsOptions {
+    privacy?: MlPrivacyBatchController
     producedRefCacheMax?: number
     producedRefCacheWindowMs?: number
     crawlHistory?: Pick<CrawlHistoryStore, 'read'>
@@ -96,19 +101,13 @@ async function excludeFreshCrawlHistory(
             const history = stored.get(entry.ref)
             return history?.kind !== 'url' || history.nextFetchAtMs <= nowMs
         })
-        SessionRecordingIngesterMetrics.incrementMlUrlCrawlHistory('fresh', candidates.length - publishable.length)
-        SessionRecordingIngesterMetrics.incrementMlUrlCrawlHistory('miss', publishable.length)
-        SessionRecordingIngesterMetrics.observeMlUrlCrawlHistoryDuration(
-            'success',
-            (performance.now() - startedAt) / 1000
-        )
+        MlMirrorMetrics.incrementMlUrlCrawlHistory('fresh', candidates.length - publishable.length)
+        MlMirrorMetrics.incrementMlUrlCrawlHistory('miss', publishable.length)
+        MlMirrorMetrics.observeMlUrlCrawlHistoryDuration('success', (performance.now() - startedAt) / 1000)
         return publishable
     } catch (error) {
-        SessionRecordingIngesterMetrics.incrementMlUrlCrawlHistory('error', candidates.length)
-        SessionRecordingIngesterMetrics.observeMlUrlCrawlHistoryDuration(
-            'error',
-            (performance.now() - startedAt) / 1000
-        )
+        MlMirrorMetrics.incrementMlUrlCrawlHistory('error', candidates.length)
+        MlMirrorMetrics.observeMlUrlCrawlHistoryDuration('error', (performance.now() - startedAt) / 1000)
         onError(error, candidates.length)
         return candidates
     }
@@ -141,7 +140,12 @@ async function excludeFreshCrawlHistory(
  * it goes only into the Kafka value. Log lines and metrics carry hosts and counts only.
  */
 export function createProduceCollectedUrlsStep<
-    T extends { collectedUrls?: CollectedUrl[]; message: { timestamp?: number } },
+    T extends {
+        team?: { teamId: number }
+        headers?: { session_id: string }
+        collectedUrls?: CollectedUrl[]
+        message: { timestamp?: number }
+    },
 >(
     outputs: IngestionOutputs<MlImageFetchOutput>,
     topHog: TopHogRegistry,
@@ -164,6 +168,11 @@ export function createProduceCollectedUrlsStep<
     let nextCrawlHistoryWarningAtMs = 0
 
     return async function produceCollectedUrlsStep(input) {
+        const sessionId = input.headers?.session_id
+        const key =
+            sessionId && usesRawSessionIdentifiers(sessionId) && input.team
+                ? options.privacy?.keys(input.team.teamId, sessionId)?.session
+                : undefined
         const collected = input.collectedUrls
         if (!collected?.length) {
             return ok(input)
@@ -172,9 +181,12 @@ export function createProduceCollectedUrlsStep<
         const nowMs = Date.now()
         const timeBucket = Math.floor(nowMs / producedRefCacheWindowMs)
         const fresh = collected
-            .map((entry) => ({ entry, cacheKey: producedUrlCacheKey(entry, timeBucket) }))
+            .map((entry) => ({
+                entry,
+                cacheKey: `${key?.identity.sessionId ?? ''}:${producedUrlCacheKey(entry, timeBucket)}`,
+            }))
             .filter(({ cacheKey }) => !producedTransportUrls.has(cacheKey))
-        SessionRecordingIngesterMetrics.incrementMlUrlsCollected('deduped', collected.length - fresh.length)
+        MlMirrorMetrics.incrementMlUrlsCollected('deduped', collected.length - fresh.length)
         if (fresh.length === 0) {
             return ok({ ...input, collectedUrls: undefined })
         }
@@ -184,46 +196,52 @@ export function createProduceCollectedUrlsStep<
         // reaches the fetcher under a hash nothing will ever match. Both kinds parse, so only
         // `source` separates them, and checking one entry would let every later one through.
         //
-        // Every entry must use the global URL-ref shape and carry the same transport pseudonym. One
-        // replay message belongs to one team, and a record stamped with another team's pseudonym is
+        // Every entry must use the global URL-ref shape and carry the same team ID. One
+        // replay message belongs to one team, and a record stamped with another team's ID is
         // a tenant-attribution error that nothing downstream can detect.
         const usable: typeof fresh = []
-        let pseudoTeam: string | undefined
+        let teamId: string | undefined
         for (const candidate of fresh) {
             const { entry } = candidate
+            validateImageOwner(entry.ref, key)
             const parsed = parseImageRef(entry.ref)
             if (
                 !parsed ||
                 parsed.source !== 'url' ||
                 parsed.pseudoTeam !== undefined ||
-                (pseudoTeam && entry.pseudoTeam !== pseudoTeam)
+                (teamId && entry.teamId !== teamId)
             ) {
                 continue
             }
-            pseudoTeam ??= entry.pseudoTeam
+            teamId ??= entry.teamId
             usable.push(candidate)
         }
         const unusable = fresh.length - usable.length
         if (unusable > 0) {
-            SessionRecordingIngesterMetrics.incrementMlUrlsCollected('ref_unusable', unusable)
+            MlMirrorMetrics.incrementMlUrlsCollected('ref_unusable', unusable)
             // Warn, not error: this is per replay message, so an addon-side format drift would
             // otherwise write an error line at full ingest rate for as long as it lasted.
             logger.warn('🌐', 'ml_image_fetch_ref_unusable', { count: unusable })
         }
-        if (!pseudoTeam || usable.length === 0) {
+        if (!teamId || usable.length === 0) {
             return ok({ ...input, collectedUrls: undefined })
         }
 
         for (const { cacheKey } of usable) {
             producedTransportUrls.add(cacheKey)
         }
-        const publishable = await excludeFreshCrawlHistory(usable, crawlHistory, nowMs, (error, count) => {
-            if (nowMs < nextCrawlHistoryWarningAtMs) {
-                return
+        const publishable = await excludeFreshCrawlHistory(
+            usable,
+            key ? undefined : crawlHistory,
+            nowMs,
+            (error, count) => {
+                if (nowMs < nextCrawlHistoryWarningAtMs) {
+                    return
+                }
+                nextCrawlHistoryWarningAtMs = nowMs + CRAWL_HISTORY_WARNING_INTERVAL_MS
+                logger.warn('🌐', 'ml_image_fetch_crawl_history_precheck_failed', { count, error: String(error) })
             }
-            nextCrawlHistoryWarningAtMs = nowMs + CRAWL_HISTORY_WARNING_INTERVAL_MS
-            logger.warn('🌐', 'ml_image_fetch_crawl_history_precheck_failed', { count, error: String(error) })
-        })
+        )
         if (publishable.length === 0) {
             return ok({ ...input, collectedUrls: undefined })
         }
@@ -243,14 +261,14 @@ export function createProduceCollectedUrlsStep<
                 republishCount: 0,
                 lastRepublishReason: null,
             }
-            SessionRecordingIngesterMetrics.observeMlUrlBytes(Buffer.byteLength(entry.url))
+            MlMirrorMetrics.observeMlUrlBytes(Buffer.byteLength(entry.url))
             if (group) {
                 group.push(record)
             } else {
                 byDomain.set(entry.domain, [record])
             }
         }
-        SessionRecordingIngesterMetrics.incrementMlUrlsCollected('queued', publishable.length)
+        MlMirrorMetrics.incrementMlUrlsCollected('queued', publishable.length)
 
         const messages = [...byDomain].flatMap(([domain, jobs]) =>
             packByBytes(jobs, MAX_RECORD_BYTES).map((slice) => {
@@ -260,11 +278,13 @@ export function createProduceCollectedUrlsStep<
                         jobs: slice,
                     } satisfies CollectedUrlsMessage)
                 )
-                SessionRecordingIngesterMetrics.observeMlUrlRecord(slice.length, value.length)
-                return { key: domain, value }
+                MlMirrorMetrics.observeMlUrlRecord(slice.length, value.length)
+                return { key: domain, ...encryptedKafkaValue(key, 'image-frontier', value) }
             })
         )
 
+        // The fetch consumer counts records, so the producer counts records too and the two rates compare.
+        const recordCount = messages.length
         // The failure handler captures only the cache keys, so that a produce which is not yet
         // delivered does not hold the URL strings alive longer than the messages themselves.
         const producedCacheKeys = publishable.map(({ cacheKey }) => cacheKey)
@@ -272,7 +292,8 @@ export function createProduceCollectedUrlsStep<
             .queueMessages(ML_IMAGE_FETCH_OUTPUT, messages)
             .then(() => {
                 // queueMessages resolves on the delivery acks, so `produced` counts what landed.
-                SessionRecordingIngesterMetrics.incrementMlUrlsCollected('produced', producedCacheKeys.length)
+                MlMirrorMetrics.incrementMlUrlsCollected('produced', producedCacheKeys.length)
+                MlMirrorMetrics.incrementMlProducedVersion('url', mlWireVersion(key), recordCount)
                 for (const [registrableDomain, jobs] of byDomain) {
                     producedUrlsByRegistrableDomain.record({ registrable_domain: registrableDomain }, jobs.length)
                 }
@@ -291,7 +312,10 @@ export function createProduceCollectedUrlsStep<
                     domains: byDomain.size,
                     error: String(error),
                 })
-                SessionRecordingIngesterMetrics.incrementMlUrlsCollected('produce_failed', producedCacheKeys.length)
+                MlMirrorMetrics.incrementMlUrlsCollected('produce_failed', producedCacheKeys.length)
+                if (key) {
+                    throw error
+                }
             })
         return ok({ ...input, collectedUrls: undefined }, [produce])
     }

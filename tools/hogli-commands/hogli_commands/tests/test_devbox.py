@@ -604,6 +604,32 @@ class TestDiagnoseUnreachableCoder:
     def _stub_url(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(coder, "get_coder_url", lambda: "https://coder.example.com")
 
+    def test_wrong_tailnet_dominates_every_other_cause(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A per-env tailnet fails DNS/TCP too, so its fixes would be red herrings."""
+        monkeypatch.setattr(coder, "_tailscale_status", lambda: {"CurrentTailnet": {"Name": "dev"}})
+
+        def must_not_run(*args: object, **kwargs: object) -> object:
+            raise AssertionError("probes should be skipped when the tailnet is wrong")
+
+        monkeypatch.setattr(coder, "_resolve_host_ip", must_not_run)
+        monkeypatch.setattr(coder, "_tcp_reachable", must_not_run)
+
+        diagnosis = coder._diagnose_unreachable_coder()
+        assert diagnosis.code == "wrong_tailnet"
+        assert "'dev'" in diagnosis.cause
+        assert coder.EXPECTED_TAILNET in diagnosis.next_step
+        assert "switch" in diagnosis.next_step
+        assert "Tailscale tailnet: dev" in diagnosis.facts
+
+    def test_unknown_tailnet_name_does_not_claim_wrong_tailnet(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Only accuse the tailnet when we actually read a name — else keep probing."""
+        monkeypatch.setattr(coder, "_tailscale_status", lambda: {"BackendState": "Running"})
+        monkeypatch.setattr(coder, "_resolve_host_ip", lambda host: None)
+
+        diagnosis = coder._diagnose_unreachable_coder()
+        assert diagnosis.code == "dns_lookup_failed"
+        assert "Tailscale tailnet: <unknown>" in diagnosis.facts
+
     def test_dns_failure_dominates_other_causes(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(coder, "_tailscale_status", lambda: {"CurrentTailnet": {"Name": "posthog.com"}})
         monkeypatch.setattr(coder, "_resolve_host_ip", lambda host: None)
@@ -617,6 +643,9 @@ class TestDiagnoseUnreachableCoder:
         assert diagnosis.code == "dns_lookup_failed"
         assert "DNS lookup" in diagnosis.cause
         assert "MagicDNS" in diagnosis.next_step
+        # Exit nodes route all traffic through infra and mask the real DNS cause.
+        assert "exit node" in diagnosis.next_step.lower()
+        assert "1.1.1.1" in diagnosis.next_step
         assert "Tailscale tailnet: posthog.com" in diagnosis.facts
 
     def test_tcp_open_signals_tls_or_clock(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -629,11 +658,12 @@ class TestDiagnoseUnreachableCoder:
         assert "HTTPS probe" in diagnosis.cause
         assert "clock" in diagnosis.next_step.lower()
 
-    def test_no_subnet_routers_points_to_wrong_tailnet(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_no_subnet_routers_points_at_tailnet_or_grant(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """On the right tailnet with no routes, the missing ACL grant is the suspect."""
         monkeypatch.setattr(
             coder,
             "_tailscale_status",
-            lambda: {"CurrentTailnet": {"Name": "personal.tailnet"}, "Peer": {"k": {"PrimaryRoutes": None}}},
+            lambda: {"CurrentTailnet": {"Name": "posthog.com"}, "Peer": {"k": {"PrimaryRoutes": None}}},
         )
         monkeypatch.setattr(coder, "_resolve_host_ip", lambda host: "10.0.0.1")
         monkeypatch.setattr(coder, "_tcp_reachable", lambda host, port, timeout=3.0: False)
@@ -2948,44 +2978,6 @@ class TestSetupClaudeSecret:
         assert called == []
 
 
-class TestDevboxTaskClaudeWarning:
-    """Test the Claude-secret warning printed by devbox:task."""
-
-    def test_warns_when_secret_missing(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
-        monkeypatch.setattr(devbox_cli, "server_supports_user_secrets", lambda: True)
-        monkeypatch.setattr(devbox_cli, "has_claude_oauth_secret", lambda: False)
-        monkeypatch.setattr(devbox_cli, "create_task", lambda *a, **kw: None)
-
-        result = runner.invoke(cli, ["devbox:task", "do something"])
-
-        assert result.exit_code == 0
-        assert "no 'CLAUDE_CODE_OAUTH_TOKEN' Coder user secret set" in result.output
-
-    def test_no_warning_when_secret_present(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
-        monkeypatch.setattr(devbox_cli, "server_supports_user_secrets", lambda: True)
-        monkeypatch.setattr(devbox_cli, "has_claude_oauth_secret", lambda: True)
-        monkeypatch.setattr(devbox_cli, "create_task", lambda *a, **kw: None)
-
-        result = runner.invoke(cli, ["devbox:task", "do something"])
-
-        assert result.exit_code == 0
-        assert "no 'CLAUDE_CODE_OAUTH_TOKEN' Coder user secret set" not in result.output
-
-    def test_no_warning_when_server_unsupported(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
-        monkeypatch.setattr(devbox_cli, "server_supports_user_secrets", lambda: False)
-        called: list[bool] = []
-        monkeypatch.setattr(devbox_cli, "has_claude_oauth_secret", lambda: called.append(True) or False)
-        monkeypatch.setattr(devbox_cli, "create_task", lambda *a, **kw: None)
-
-        result = runner.invoke(cli, ["devbox:task", "do something"])
-
-        assert result.exit_code == 0
-        assert called == []
-
-
 class TestDevboxSecretCommands:
     """Test the devbox:secret:list / set / rm wrappers."""
 
@@ -3063,123 +3055,6 @@ class TestDevboxSecretCommands:
         result = runner.invoke(cli, ["devbox:secret:rm", "GH_TOKEN"])
         assert result.exit_code == 0
         assert captured == ["GH_TOKEN"]
-
-
-class TestCreateTask:
-    """Test the coder task create argv assembly."""
-
-    @pytest.mark.parametrize(
-        "prompt, task_name, quiet, expected_tail",
-        [
-            ("fix CI on PR #1234", None, False, ["fix CI on PR #1234"]),
-            (None, None, False, ["--stdin"]),
-            ("do the thing", "my-task", True, ["--name", "my-task", "--quiet", "do the thing"]),
-        ],
-    )
-    def test_create_task_argv(
-        self,
-        monkeypatch: pytest.MonkeyPatch,
-        prompt: str | None,
-        task_name: str | None,
-        quiet: bool,
-        expected_tail: list[str],
-    ) -> None:
-        captured: list[list[str]] = []
-        monkeypatch.setattr(coder, "_run_or_exit", lambda args: captured.append(args))
-
-        coder.create_task(prompt, task_name=task_name, quiet=quiet)
-
-        assert captured == [["coder", "task", "create", "--template", "posthog-linux", *expected_tail]]
-
-    def test_create_task_argv_uses_selected_template(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        captured: list[list[str]] = []
-        monkeypatch.setattr(coder, "_run_or_exit", lambda args: captured.append(args))
-
-        coder.create_task("do it", template="posthog-microvm")
-
-        assert captured == [["coder", "task", "create", "--template", "posthog-microvm", "do it"]]
-
-
-class TestDevboxTaskCommand:
-    """Test the devbox:task Click command."""
-
-    @pytest.mark.parametrize(
-        "cli_args, expected",
-        [
-            (
-                ["devbox:task", "fix CI on PR #1234"],
-                {"prompt": "fix CI on PR #1234", "task_name": None, "quiet": False, "template": "posthog-linux"},
-            ),
-            (
-                ["devbox:task", "--name", "my-task", "-q", "do it"],
-                {"prompt": "do it", "task_name": "my-task", "quiet": True, "template": "posthog-linux"},
-            ),
-            (
-                ["devbox:task", "-t", "posthog-microvm", "do it"],
-                {"prompt": "do it", "task_name": None, "quiet": False, "template": "posthog-microvm"},
-            ),
-            (
-                ["devbox:task", "--template", "posthog-microvm", "do it"],
-                {"prompt": "do it", "task_name": None, "quiet": False, "template": "posthog-microvm"},
-            ),
-        ],
-    )
-    def test_options_forwarded_to_create_task(
-        self,
-        monkeypatch: pytest.MonkeyPatch,
-        cli_args: list[str],
-        expected: dict[str, object],
-    ) -> None:
-        captured: dict[str, object] = {}
-
-        monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
-        monkeypatch.setattr(
-            devbox_cli,
-            "create_task",
-            lambda prompt, task_name=None, quiet=False, template="posthog-linux": captured.update(
-                {"prompt": prompt, "task_name": task_name, "quiet": quiet, "template": template}
-            ),
-        )
-
-        result = runner.invoke(cli, cli_args)
-
-        assert result.exit_code == 0
-        assert captured == expected
-
-    def test_no_prompt_on_tty_errors(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
-
-        class FakeTTY:
-            def isatty(self) -> bool:
-                return True
-
-        monkeypatch.setattr(devbox_cli.click, "get_text_stream", lambda stream: FakeTTY())
-
-        called: list[bool] = []
-        monkeypatch.setattr(devbox_cli, "create_task", lambda *a, **kw: called.append(True))
-
-        result = runner.invoke(cli, ["devbox:task"])
-
-        assert result.exit_code != 0
-        assert "Provide a prompt" in result.output
-        assert called == []
-
-    def test_piped_stdin_passes_none_as_prompt(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        captured: dict[str, object] = {}
-
-        monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
-        monkeypatch.setattr(
-            devbox_cli,
-            "create_task",
-            lambda prompt, task_name=None, quiet=False, template="posthog-linux": captured.update(
-                {"prompt": prompt, "task_name": task_name, "quiet": quiet, "template": template}
-            ),
-        )
-
-        result = runner.invoke(cli, ["devbox:task"], input="piped prompt\n")
-
-        assert result.exit_code == 0
-        assert captured == {"prompt": None, "task_name": None, "quiet": False, "template": "posthog-linux"}
 
 
 class TestResolveLocalSigningKey:
@@ -3263,6 +3138,124 @@ class TestResolveLocalIdentityAgent:
             lambda *a, **kw: subprocess.CompletedProcess(a[0], 255, "", "Bad host"),
         )
         assert devbox_cli._resolve_local_identity_agent("coder.dev") is None
+
+
+class TestResolveIdentityAgentForCoder:
+    """Test that the Coder-host IdentityAgent lookup ignores coder's own managed block."""
+
+    CODER_BLOCK = (
+        "# ------------START-CODER-----------\n"
+        "Host coder.*\n"
+        '\tIdentityAgent "/tmp/written-by-coder.sock"\n'
+        "# ------------END-CODER------------\n"
+    )
+
+    def _patch_ssh_g(self, monkeypatch: pytest.MonkeyPatch, home: Path) -> list[list[str]]:
+        """Resolve identityagent from whichever config `ssh -G` was pointed at."""
+        calls: list[list[str]] = []
+
+        def fake_run(args: list[str], **kwargs: object) -> subprocess.CompletedProcess:
+            calls.append(args)
+            config = Path(args[2]).read_text() if args[1] == "-F" else (home / ".ssh" / "config").read_text()
+            for line in config.splitlines():
+                if "IdentityAgent" in line:
+                    return subprocess.CompletedProcess(args, 0, f"identityagent {line.split()[1].strip(chr(34))}\n", "")
+            return subprocess.CompletedProcess(args, 0, "identityagent SSH_AUTH_SOCK\n", "")
+
+        monkeypatch.setattr(devbox_cli.subprocess, "run", fake_run)
+        monkeypatch.setattr(devbox_cli.Path, "home", lambda: home)
+        return calls
+
+    def test_prefers_the_engineers_own_socket_over_the_one_coder_wrote(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        (tmp_path / ".ssh").mkdir()
+        (tmp_path / ".ssh" / "config").write_text(self.CODER_BLOCK + 'Host *\n\tIdentityAgent "/tmp/mine.sock"\n')
+        self._patch_ssh_g(monkeypatch, tmp_path)
+
+        assert devbox_cli._resolve_local_identity_agent_for_coder() == "/tmp/mine.sock"
+
+    def test_keeps_the_socket_coder_wrote_when_the_engineer_has_none(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        (tmp_path / ".ssh").mkdir()
+        (tmp_path / ".ssh" / "config").write_text(self.CODER_BLOCK)
+        self._patch_ssh_g(monkeypatch, tmp_path)
+
+        assert devbox_cli._resolve_local_identity_agent_for_coder() == "/tmp/written-by-coder.sock"
+
+
+class TestDiagnoseSigningAgent:
+    """Test the pre-flight check that devbox commits will actually sign."""
+
+    PUBLIC_KEY = "ssh-ed25519 AAAAC3 user@host"
+    FINGERPRINT = "SHA256:abc123"
+
+    def _patch(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        *,
+        identity_agent: str | None,
+        env_sock: str | None,
+        agent_keys: str | None,
+    ) -> None:
+        monkeypatch.setattr(devbox_cli, "_resolve_local_signing_key", lambda: self.PUBLIC_KEY)
+        if env_sock is None:
+            monkeypatch.delenv("SSH_AUTH_SOCK", raising=False)
+        else:
+            monkeypatch.setenv("SSH_AUTH_SOCK", env_sock)
+
+        def fake_run(args: list[str], **kwargs: object) -> subprocess.CompletedProcess:
+            if args[0] == "ssh-keygen":
+                return subprocess.CompletedProcess(args, 0, f"256 {self.FINGERPRINT} host (ED25519)\n", "")
+            if args[0] == "ssh":
+                value = identity_agent or "SSH_AUTH_SOCK"
+                return subprocess.CompletedProcess(args, 0, f"identityagent {value}\n", "")
+            if agent_keys is None:
+                return subprocess.CompletedProcess(args, 1, "", "Could not open a connection")
+            return subprocess.CompletedProcess(args, 0, agent_keys, "")
+
+        monkeypatch.setattr(devbox_cli.subprocess, "run", fake_run)
+
+    def test_ok_when_the_forwarded_agent_holds_the_signing_key(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        self._patch(
+            monkeypatch,
+            identity_agent=None,
+            env_sock="/tmp/agent.sock",
+            agent_keys=f"256 {self.FINGERPRINT} host (ED25519)\n",
+        )
+
+        assert devbox_cli._diagnose_signing_agent().ok
+
+    @pytest.mark.parametrize(
+        "identity_agent,env_sock,agent_keys,expected_detail",
+        [
+            pytest.param("none", "/tmp/agent.sock", "", "forwards no agent", id="identity-agent-none-wins"),
+            pytest.param(None, None, "", "forwards no agent", id="no-agent-anywhere"),
+            pytest.param(None, "/tmp/agent.sock", None, "no agent responding", id="dead-socket"),
+            pytest.param(
+                None,
+                "/tmp/agent.sock",
+                "256 SHA256:other host (ED25519)\n",
+                "does not hold",
+                id="agent-holds-a-different-key",
+            ),
+        ],
+    )
+    def test_reports_why_signing_will_fail(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        identity_agent: str | None,
+        env_sock: str | None,
+        agent_keys: str | None,
+        expected_detail: str,
+    ) -> None:
+        self._patch(monkeypatch, identity_agent=identity_agent, env_sock=env_sock, agent_keys=agent_keys)
+
+        status = devbox_cli._diagnose_signing_agent()
+
+        assert not status.ok
+        assert expected_detail in status.detail
 
 
 class TestConfigSshArgs:
@@ -3369,6 +3362,11 @@ class TestSetupGitSigning:
     def _patch_local_config(self, monkeypatch: pytest.MonkeyPatch, *, key: str | None, agent: str | None) -> None:
         monkeypatch.setattr(devbox_cli, "_resolve_local_signing_key", lambda: key)
         monkeypatch.setattr(devbox_cli, "_resolve_local_identity_agent_for_coder", lambda: agent)
+        monkeypatch.setattr(
+            devbox_cli,
+            "_diagnose_signing_agent",
+            lambda: devbox_cli.SigningAgentStatus(bool(agent), agent or "no agent"),
+        )
 
     def test_skips_when_secret_already_set(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(devbox_cli, "user_secret_exists", lambda name: True)
@@ -3737,7 +3735,7 @@ class TestKeepaliveShim:
         [("coder.devbox-test-user", True), ("nobody@127.0.0.1", False)],
         ids=["devbox-host-bumped", "non-devbox-host-untouched"],
     )
-    def test_shim_rewrites_keepalive_only_for_devbox_hosts(
+    def test_shim_rewrites_ssh_options_only_for_devbox_hosts(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, target: str, bumped: bool
     ) -> None:
         # End-to-end of the generated shim script: run it like mutagen would and
@@ -3767,9 +3765,14 @@ class TestKeepaliveShim:
 
         forwarded = log.read_text().splitlines()
         if bumped:
-            bump = f"-oServerAliveCountMax={devbox_mutagen._KEEPALIVE_COUNT}"
-            assert forwarded == [bump if a.startswith("-oServerAliveCountMax=") else a for a in incoming]
+            rewrites = {
+                "-oServerAliveCountMax=": f"-oServerAliveCountMax={devbox_mutagen._KEEPALIVE_COUNT}",
+                "-oConnectTimeout=": f"-oConnectTimeout={devbox_mutagen._CONNECT_TIMEOUT_SECONDS}",
+            }
+            expected = [next((v for k, v in rewrites.items() if a.startswith(k)), a) for a in incoming]
+            assert forwarded == expected
             assert "-oServerAliveCountMax=1" not in forwarded
+            assert "-oConnectTimeout=5" not in forwarded
         else:
             # Non-devbox ssh must pass through byte-for-byte, keepalive included.
             assert forwarded == incoming

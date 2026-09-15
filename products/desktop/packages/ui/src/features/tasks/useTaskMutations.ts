@@ -31,7 +31,7 @@ import { useCallback } from "react";
 
 type TaskFeedResults = { tasks: Task[]; isComplete: boolean };
 
-export function useUpdateTask() {
+function useUpdateTask() {
   const queryClient = useQueryClient();
 
   return useAuthenticatedMutation(
@@ -131,7 +131,7 @@ export function useRenameTask() {
           queryKey: taskFeedResultsQueryRoot,
         });
       const previousSummaryQueries = queryClient.getQueriesData<
-        Schemas.TaskSummary[]
+        Schemas.TaskSummaryDTO[]
       >({
         queryKey: taskKeys.allSummaries(),
       });
@@ -151,7 +151,7 @@ export function useRenameTask() {
         { queryKey: channelFeedQueryRoot },
         (old) => applyRenameToList(old, taskId, newTitle),
       );
-      queryClient.setQueriesData<Schemas.TaskSummary[]>(
+      queryClient.setQueriesData<Schemas.TaskSummaryDTO[]>(
         { queryKey: taskKeys.allSummaries() },
         (old) => applyRenameToSummaries(old, taskId, newTitle),
       );
@@ -223,7 +223,7 @@ export function useRenameTask() {
           );
         }
         for (const [queryKey, data] of previousSummaryQueries) {
-          queryClient.setQueryData<Schemas.TaskSummary[] | undefined>(
+          queryClient.setQueryData<Schemas.TaskSummaryDTO[] | undefined>(
             queryKey,
             (current) =>
               rollbackSummaryData(current, data ?? [], taskId, newTitle),

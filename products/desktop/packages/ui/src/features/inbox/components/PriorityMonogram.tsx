@@ -10,9 +10,13 @@ const PRIORITY_CLASSES: Record<SignalReportPriority, string> = {
 
 interface PriorityMonogramProps {
   priority: SignalReportPriority | null | undefined;
+  size?: "default" | "large";
 }
 
-export function PriorityMonogram({ priority }: PriorityMonogramProps) {
+export function PriorityMonogram({
+  priority,
+  size = "default",
+}: PriorityMonogramProps) {
   const label = priority ?? "–";
   const toneClass = priority
     ? PRIORITY_CLASSES[priority]
@@ -21,7 +25,8 @@ export function PriorityMonogram({ priority }: PriorityMonogramProps) {
   return (
     <div
       className={[
-        "flex h-6 w-6 shrink-0 items-center justify-center rounded-(--radius-1) font-bold text-[9px] tracking-tight",
+        "flex shrink-0 items-center justify-center rounded-(--radius-1) font-bold tracking-tight",
+        size === "large" ? "h-10 w-10 text-[12px]" : "h-6 w-6 text-[9px]",
         toneClass,
       ].join(" ")}
       aria-label={priority ? `Priority ${priority}` : "Priority unknown"}

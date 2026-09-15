@@ -26,24 +26,6 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
 import { pluralize } from 'lib/utils/strings'
 import stringWithWBR from 'lib/utils/stringWithWBR'
-import { CONCLUSION_DISPLAY_CONFIG } from 'scenes/experiments/constants'
-import { CopyExperimentToProjectModal } from 'scenes/experiments/CopyExperimentToProjectModal'
-import { DuplicateExperimentModal } from 'scenes/experiments/DuplicateExperimentModal'
-import {
-    canArchiveExperiment,
-    confirmArchiveExperiment,
-    confirmDeleteExperiment,
-} from 'scenes/experiments/experimentActions'
-import {
-    EXPERIMENTS_PER_PAGE,
-    ExperimentsFilters,
-    experimentsLogic,
-    getExperimentStatus,
-    getShippedVariantKey,
-    isSingleVariantShipped,
-} from 'scenes/experiments/experimentsLogic'
-import { ExperimentVelocityStats } from 'scenes/experiments/ExperimentVelocityStats'
-import { StatusTag } from 'scenes/experiments/ExperimentView/StatusTag'
 import MaxTool from 'scenes/max/MaxTool'
 import { useMaxTool } from 'scenes/max/useMaxTool'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -65,18 +47,36 @@ import {
     ExperimentsTabs,
 } from '~/types'
 
+import { CopyExperimentToProjectModal } from 'products/experiments/frontend/components/CopyExperimentToProjectModal'
+import { DuplicateExperimentModal } from 'products/experiments/frontend/components/DuplicateExperimentModal'
+import { ExperimentVelocityStats } from 'products/experiments/frontend/components/ExperimentVelocityStats'
+import { StatusTag } from 'products/experiments/frontend/components/StatusTag'
+import { CONCLUSION_DISPLAY_CONFIG } from 'products/experiments/frontend/constants'
 import { experimentsEmptyState } from 'products/experiments/frontend/emptyState/experimentsEmptyState'
+import {
+    canArchiveExperiment,
+    confirmArchiveExperiment,
+    confirmDeleteExperiment,
+} from 'products/experiments/frontend/experimentActions'
+import { getExperimentStatus } from 'products/experiments/frontend/experimentStatus'
 /**
  * these scenes are handled as child components. This works fine, but breaks the expectation of scenes
  * having their own routes.
  */
 import { ExperimentsHoldoutsScene } from 'products/experiments/frontend/scenes/ExperimentsHoldoutsScene'
+import {
+    EXPERIMENTS_PER_PAGE,
+    ExperimentsFilters,
+    experimentsLogic,
+    getShippedVariantKey,
+    isSingleVariantShipped,
+} from 'products/experiments/frontend/scenes/experimentsLogic'
 import { ExperimentsSettingsScene } from 'products/experiments/frontend/scenes/ExperimentsSettingsScene'
 import { ExperimentsSharedMetricsScene } from 'products/experiments/frontend/scenes/ExperimentsSharedMetricsScene'
 
-// "NPS - Experiments" in project 2: https://us.posthog.com/project/2/surveys/01902c1f-6675-0000-913b-686c40c3a957
-// The survey also self-triggers as a popover on experiment URLs; this is the on-demand path.
-const EXPERIMENTS_NPS_SURVEY_ID = '01902c1f-6675-0000-913b-686c40c3a957'
+// "Experiments open feedback" in project 2: https://us.posthog.com/project/2/surveys/01a08364-270e-0000-585b-147d32bf96ed
+// Button-only: its URL condition never matches, so this button is the survey's sole entry point.
+const EXPERIMENTS_FEEDBACK_SURVEY_ID = '01a08364-270e-0000-585b-147d32bf96ed'
 
 export const scene: SceneExport = {
     component: ExperimentsScene,
@@ -577,7 +577,7 @@ export function ExperimentsScene(): JSX.Element {
                 actions={
                     <>
                         <FeedbackSurveyButton
-                            surveyId={EXPERIMENTS_NPS_SURVEY_ID}
+                            surveyId={EXPERIMENTS_FEEDBACK_SURVEY_ID}
                             data-attr="experiments-feedback-button"
                         />
                         {tab !== ExperimentsTabs.SharedMetrics && tab !== ExperimentsTabs.Holdouts ? (

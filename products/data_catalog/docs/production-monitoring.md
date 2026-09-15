@@ -6,6 +6,10 @@ All of this lives in PostHog's internal telemetry project (US project 2), where 
 
 The division of labor follows one rule: **the judges decide what a session was trying to do; deterministic code only measures what mechanically happened.** A keyword list can never enumerate every way a person asks a metric question (measured coverage of the tile keywords: ~6.5% of SQL sessions), so any check that starts with "was this a metric question?" belongs to a judge. The tiles keep the keyword heuristic as a cheap trend signal, and the judges measure what it misses.
 
+## Local semantic-layer canary
+
+The first canary dispatcher is the local [`semantic_layer_canary.py`](../scripts/semantic_layer_canary.py) runner. A local ChatGPT session invokes it on demand against a versioned LLM Analytics dataset through the task-backed Conversations API. It deliberately has no Dagster schedule or event publishing. A separate Signals Scout reads the resulting PostHog AI task runs and ACP session logs to score routing and answer quality. See the [scripts runbook](../scripts/README.md) for the dataset contract, browser authentication, smoke command, and task/run correlation output.
+
 ## 1. Dashboard tiles (HogQL over existing telemetry)
 
 Tile group `7 · Agent behavior` on the "Data catalog usage" dashboard (project 2, dashboard 1902365):
@@ -20,7 +24,7 @@ This PR removes the `product-data-catalog` flag and the catalog reaches every or
 
 Beyond group 7, the dashboard carries curation and quality tiles worth knowing: `2 · Catalog inventory (cumulative)` (running total of metrics, certification marks, accepted relationships), `3 · Review queue backlog (current)` (entities awaiting a human decision, from each entity's latest lifecycle event), and `5 · Canonical share of metric runs` (share of runs returning an approved, non-drifted result - the consumption quality signal).
 
-Data sources: `$mcp_tool_call` events (tool names, ordering per `$session_id`) and the per-`execute-sql` `$ai_generation` events (`$ai_output_choices` carries the SQL text; `posthog.ai_events`, ~30 day retention). Session classification is regex-heuristic: SQL matching `information_schema.metrics` is a catalog lookup, other `information_schema`/`system.` references are schema discovery, everything else is data-bearing; KPI intent is a keyword match on the agent's stated intent. **The keyword match is a known undercount** - the judges below carry the semantic version of the same questions, and comparing the judges' applicability share against the tiles' keyword share over the same catalog-enabled population measures the keyword gate's miss rate.
+Data sources: `$mcp_tool_call` events (tool names, ordering per `$session_id`) and the per-`execute-sql` `$ai_generation` events (`$ai_output_choices` carries the SQL text; `posthog.ai_events`, ~30 day retention). Session classification is regex-heuristic: `metric-list` and SQL matching `information_schema.metrics` are catalog lookups, other `information_schema`/`system.` references are schema discovery, everything else is data-bearing; KPI intent is a keyword match on the agent's stated intent. **The keyword match is a known undercount** - the judges below carry the semantic version of the same questions, and comparing the judges' applicability share against the tiles' keyword share over the same catalog-enabled population measures the keyword gate's miss rate.
 
 ## 2. Online evaluations (AI evals, `/ai-evals` in project 2)
 
@@ -64,7 +68,7 @@ The Hog authoring constraints learned from those incidents still apply to any fu
 
 - MCP analytics events carried `mcp_data_catalog_enabled` (the evaluated `product-data-catalog` flag) for cohort splits from Aug 5, 2026 until this PR removes the flag. Once the removal deploys nothing stamps it, and there is no successor property: the catalog reaches every org, so there is no cohort to split.
 - `trackExecuteSqlGeneration` captures one `$ai_generation` per `execute-sql` call with the intent and SQL text; `$ai_trace_id` is the MCP session uuid, so a session is one trace.
-- `trackToolSpan` captures an `$ai_span` (args + truncated results) for every tool by default, joining the same session trace, so a trace-target evaluation sees a call's args and result. Secret-bearing fields (passwords, `client_secret`, API keys, tokens) are redacted from both input and output before capture, so defaulting every tool on never lands a credential in telemetry.
+- `trackToolSpan` captures an `$ai_span` (args + truncated results) for every tool by default, joining the same session trace, so a trace-target evaluation sees a call's args and result. That includes `metric-list` and `metric-describe`, so the judge can distinguish catalog discovery from an adapted definition. Secret-bearing fields (passwords, `client_secret`, API keys, tokens) are redacted from both input and output before capture, so defaulting every tool on never lands a credential in telemetry.
 - `execute-sql` is the one exception, because its payload is the query result and it serves all traffic. Spans are captured for its metadata queries only (SQL referencing `information_schema`, ~4.5% of calls): those results are small and describe what the agent knew about the workspace before writing its next query. That covers catalog lookups of `metrics`, `certifications`, and `relationships` without the telemetry layer naming them. The gate strips SQL comments and string literals before matching, so the marker inside a comment or literal on a data query does not pull the result into telemetry.
 
 ## 4. Prometheus metrics and alerts

@@ -4,7 +4,6 @@ import { cleanup, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { BindLogic, Provider } from 'kea'
 
-import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
@@ -23,6 +22,7 @@ import { initKeaTests } from '~/test/init'
 import { BaseMathType, InsightShortId } from '~/types'
 
 import { attachedContextLogic } from 'products/posthog_ai/frontend/api/logics'
+import { funnelDataLogic } from 'products/product_analytics/frontend/insights/funnels/funnelDataLogic'
 
 import { EditorFilters } from './EditorFilters'
 

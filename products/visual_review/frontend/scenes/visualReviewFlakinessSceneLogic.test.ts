@@ -1,3 +1,4 @@
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { useMocks } from '~/mocks/jest'
@@ -14,8 +15,11 @@ const overview: FlakinessOverviewApi = {
     totals: {
         listed: 0,
         tracked: 4494,
+        broken: 18,
         unstable: 231,
-        settled: 604,
+        at_risk: 63,
+        noisy: 604,
+        clean: 812,
         quarantined: 47,
         needs_decision: 12,
         by_run_type: {},
@@ -51,11 +55,184 @@ describe('visualReviewFlakinessSceneLogic', () => {
         it('takes the stat counts from server totals rather than the listed entries', async () => {
             await expectLogic(logic).toFinishAllListeners()
             expect(logic.values.statCounts).toEqual({
-                unstable: 231,
-                settled: 604,
-                quarantined: 47,
                 needs_decision: 12,
+                broken: 18,
+                unstable: 231,
+                at_risk: 63,
+                quiet: 1416,
+                quarantined: 47,
             })
+        })
+    })
+
+    describe('when the default preset has nothing in it', () => {
+        // A fixed default lands on an empty table whenever this repo has nothing
+        // in that bucket, and every candidate is empty on some repo. The page has
+        // to move to the most urgent preset that has rows.
+        // Totals say twelve need a decision while none of the listed entries
+        // does, which is what a capped response looks like. Landing on the
+        // totals would put a filled tile over an empty table.
+        const nothingNeedsADecision: FlakinessOverviewApi = {
+            ...overview,
+            entries: [
+                {
+                    identifier: 'components-chart--donut--dark',
+                    run_type: 'storybook',
+                    browser: null,
+                    thumbnail_hash: null,
+                    width: null,
+                    height: null,
+                    variant_count: 0,
+                    hard_count: 40,
+                    soft_count: 0,
+                    window_runs: 41,
+                    hard_rate: 40 / 41,
+                    soft_rate: 0,
+                    last_flaked_at: '2026-06-10T09:00:00Z',
+                    avg_diff_percentage: null,
+                    worst_soft_diff_percentage: null,
+                    headroom: null,
+                    baseline_age_days: 3,
+                    daily_hard_counts: [],
+                    daily_soft_counts: [],
+                    baseline_moved_day_index: null,
+                    flakiness_state: 'broken',
+                    is_quarantined: false,
+                    needs_decision: false,
+                    quarantine: null,
+                },
+            ],
+        }
+
+        beforeEach(() => {
+            initKeaTests()
+            useMocks({ get: { [FLAKINESS_URL]: nothingNeedsADecision } })
+            logic = visualReviewFlakinessSceneLogic({ repoId: REPO_ID })
+            logic.mount()
+        })
+
+        it('lands on the most urgent preset that has rows', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.filters.preset).toBe('broken')
+        })
+
+        it('keeps the landed preset when the filters are cleared', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+            logic.actions.setSearch('button')
+            logic.actions.clearAllFilters()
+            expect(logic.values.filters.search).toBe('')
+            expect(logic.values.filters.preset).toBe('broken')
+        })
+
+        it('leaves a preset the link asked for alone', async () => {
+            router.actions.push(`/visual_review/repos/${REPO_ID}/flakiness`, {}, { preset: 'at_risk' })
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.filters.preset).toBe('at_risk')
+        })
+
+        it('leaves the default preset alone when the link names it', async () => {
+            router.actions.push(`/visual_review/repos/${REPO_ID}/flakiness`, {}, { preset: 'needs_decision' })
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.filters.preset).toBe('needs_decision')
+        })
+    })
+
+    describe('when a team arrives in the URL', () => {
+        const brokenEntry = (
+            identifier: string,
+            ownerTeam: string | null
+        ): FlakinessOverviewApi['entries'][number] => ({
+            identifier,
+            run_type: 'storybook',
+            browser: null,
+            thumbnail_hash: null,
+            width: null,
+            height: null,
+            variant_count: 0,
+            hard_count: 40,
+            soft_count: 0,
+            window_runs: 41,
+            hard_rate: 40 / 41,
+            soft_rate: 0,
+            last_flaked_at: '2026-06-10T09:00:00Z',
+            avg_diff_percentage: null,
+            worst_soft_diff_percentage: null,
+            headroom: null,
+            baseline_age_days: 3,
+            daily_hard_counts: [],
+            daily_soft_counts: [],
+            baseline_moved_day_index: null,
+            flakiness_state: 'broken',
+            is_quarantined: false,
+            needs_decision: false,
+            quarantine: null,
+            owner_team: ownerTeam,
+        })
+
+        beforeEach(() => {
+            initKeaTests()
+            useMocks({
+                get: {
+                    [FLAKINESS_URL]: {
+                        ...overview,
+                        entries: [
+                            brokenEntry('replay-player--default--light', 'team-replay'),
+                            brokenEntry('heatmaps-scene--default--light', 'team-web-analytics'),
+                            brokenEntry('settings-domains--default--light', 'unowned'),
+                            brokenEntry('playwright-login--default', null),
+                        ],
+                    },
+                },
+            })
+            logic = visualReviewFlakinessSceneLogic({ repoId: REPO_ID })
+            logic.mount()
+        })
+
+        // A team's digest links here with its slug, and has to open on that team's rows.
+        it('shows only the rows that team owns', async () => {
+            router.actions.push(`/visual_review/repos/${REPO_ID}/flakiness`, {}, { teams: 'team-replay' })
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.filters.teams).toEqual(['team-replay'])
+            expect(logic.values.filteredEntries.map((entry) => entry.identifier)).toEqual([
+                'replay-player--default--light',
+            ])
+            expect(logic.values.filters.preset).toBe('broken')
+        })
+
+        it('lists each known owner and leaves out rows with no known owner', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.facetGroups.team.map((bucket) => bucket.label).sort()).toEqual([
+                'No owner',
+                'team-replay',
+                'team-web-analytics',
+            ])
+        })
+    })
+
+    describe('when the preset arrives in the URL', () => {
+        beforeEach(() => {
+            initKeaTests()
+            useMocks({ get: { [FLAKINESS_URL]: overview } })
+            logic = visualReviewFlakinessSceneLogic({ repoId: REPO_ID })
+            logic.mount()
+        })
+
+        // `settled` was this page's name for these rows before it scored on
+        // failure rate. A link carrying it has to land on the rows it asked
+        // for, and an unrecognized value has to land somewhere workable rather
+        // than filter every row away.
+        it.each([
+            ['quiet', 'quiet'],
+            ['settled', 'quiet'],
+            ['noisy', 'quiet'],
+            ['broken', 'broken'],
+            ['nonsense', 'needs_decision'],
+        ])('resolves %s to the %s preset', async (hashValue, expected) => {
+            router.actions.push(`/visual_review/repos/${REPO_ID}/flakiness`, {}, { preset: hashValue })
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.filters.preset).toBe(expected)
         })
     })
 

@@ -18,14 +18,16 @@ HOGQL_MAX_BYTES_TO_READ_FOR_METRICS_USER_QUERIES = 50_000_000_000
 
 
 class MetricsTable(Table):
-    description: str = "OpenTelemetry metric data points (gauges, sums, histograms), one row per data point."
+    description: str = "OpenTelemetry metric data points (gauges, sums, histograms), one row per data point. Labels are not on the row: join `metric_series` on `series_fingerprint` for `attributes` and `resource_attributes`."
     workload: Workload | None = Workload.LOGS  # reuse LOGS workload for now
 
     fields: dict[str, FieldOrTable] = {
-        "uuid": StringDatabaseField(
-            name="uuid", nullable=False, description="Unique identifier of this data point row."
-        ),
         "team_id": IntegerDatabaseField(name="team_id", nullable=False),
+        "series_fingerprint": IntegerDatabaseField(
+            name="series_fingerprint",
+            nullable=False,
+            description="Hash of the series' label set, assigned at ingest; join key to `metric_series`.",
+        ),
         "trace_id": StringDatabaseField(
             name="trace_id", nullable=False, description="Trace this metric exemplar is associated with, if any."
         ),
@@ -42,6 +44,9 @@ class MetricsTable(Table):
             name="observed_timestamp",
             nullable=False,
             description="When the collector observed/ingested the data point.",
+        ),
+        "original_expiry_timestamp": DateTimeDatabaseField(
+            name="original_expiry_timestamp", nullable=False, description="When the data point leaves retention."
         ),
         "service_name": StringDatabaseField(
             name="service_name", nullable=False, description="Name of the service that emitted the metric."
@@ -77,9 +82,6 @@ class MetricsTable(Table):
         "is_monotonic": BooleanDatabaseField(
             name="is_monotonic", nullable=False, description="True if the sum metric only increases."
         ),
-        "resource_attributes": MapStringDatabaseField(
-            name="resource_attributes", nullable=False, description="OpenTelemetry resource attributes as a string map."
-        ),
         "resource_fingerprint": IntegerDatabaseField(
             name="resource_fingerprint",
             nullable=False,
@@ -90,71 +92,22 @@ class MetricsTable(Table):
             nullable=False,
             description="Instrumentation scope (library/module) that emitted the metric.",
         ),
-        "attributes": MapStringDatabaseField(
-            name="attributes", nullable=False, description="Per-data-point OpenTelemetry attributes as a string map."
+        "has_labels": BooleanDatabaseField(
+            name="has_labels",
+            nullable=False,
+            description="True when the ingested record carried the series labels; only such records write `metric_series` and `metric_attributes` rows.",
         ),
     }
 
     def to_printed_clickhouse(self, context):
-        return "metrics"
+        return "metrics_distributed"
 
     def to_printed_hogql(self):
         return "metrics"
-
-
-class MetricSamplesTable(Table):
-    description: str = "Raw metric emissions: one tiny row per sample (value + timestamp), keyed to a series via `series_fingerprint` and carrying an optional `trace_id` for the metric->trace pivot. Join to `metric_series` for labels. Distinct from `metrics`, which is pre-aggregated."
-    workload: Workload | None = Workload.LOGS
-
-    fields: dict[str, FieldOrTable] = {
-        "team_id": IntegerDatabaseField(name="team_id", nullable=False),
-        "metric_name": StringDatabaseField(name="metric_name", nullable=False),
-        "series_fingerprint": IntegerDatabaseField(
-            name="series_fingerprint",
-            nullable=False,
-            description="Hash of the series' label set; join key to `metric_series`.",
-        ),
-        "timestamp": DateTimeDatabaseField(
-            name="timestamp", nullable=False, description="When the metric was emitted (UTC)."
-        ),
-        "value": FloatDatabaseField(
-            name="value",
-            nullable=False,
-            description="The emitted value. For histogram/summary points this is the distribution sum; pair with `count`.",
-        ),
-        "count": IntegerDatabaseField(
-            name="count",
-            nullable=False,
-            description="Observations behind this point: 1 for gauges/counters, the distribution count for histograms/summaries.",
-        ),
-        "histogram_bounds": StringJSONDatabaseField(
-            name="histogram_bounds",
-            nullable=False,
-            description="Histogram bucket boundaries; empty for non-histograms.",
-        ),
-        "histogram_counts": StringJSONDatabaseField(
-            name="histogram_counts",
-            nullable=False,
-            description="Per-bucket counts, aligned with `histogram_bounds`; empty for non-histograms.",
-        ),
-        "trace_id": StringDatabaseField(
-            name="trace_id",
-            nullable=False,
-            description="Trace this emission belongs to; empty if none. Pivot to spans/logs.",
-        ),
-        "span_id": StringDatabaseField(name="span_id", nullable=False),
-        "trace_flags": IntegerDatabaseField(name="trace_flags", nullable=False),
-    }
-
-    def to_printed_clickhouse(self, context):
-        return "metric_samples"
-
-    def to_printed_hogql(self):
-        return "metric_samples"
 
 
 class MetricSeriesTable(Table):
-    description: str = "One row per unique metric series (metric + label set), keyed by `series_fingerprint`. Labels are stored here once and joined to `metric_samples` at query time."
+    description: str = "One row per unique metric series (metric + label set), keyed by `series_fingerprint`. Labels are stored here once and joined to `metrics` at query time."
     workload: Workload | None = Workload.LOGS
 
     fields: dict[str, FieldOrTable] = {
@@ -163,7 +116,7 @@ class MetricSeriesTable(Table):
         "series_fingerprint": IntegerDatabaseField(
             name="series_fingerprint",
             nullable=False,
-            description="Hash of the label set; join key from `metric_samples`.",
+            description="Hash of the label set; join key from `metrics`.",
         ),
         "metric_type": StringDatabaseField(
             name="metric_type",
@@ -180,15 +133,24 @@ class MetricSeriesTable(Table):
             name="is_monotonic", nullable=False, description="True for monotonically increasing counters."
         ),
         "service_name": StringDatabaseField(name="service_name", nullable=False),
+        "instrumentation_scope": StringDatabaseField(name="instrumentation_scope", nullable=False),
         "resource_attributes": MapStringDatabaseField(name="resource_attributes", nullable=False),
+        "resource_fingerprint": IntegerDatabaseField(
+            name="resource_fingerprint",
+            nullable=False,
+            description="Hash of `resource_attributes`; matches `metrics.resource_fingerprint`.",
+        ),
         "attributes": MapStringDatabaseField(name="attributes", nullable=False),
         "last_seen": DateTimeDatabaseField(
             name="last_seen", nullable=False, description="Most recent sample timestamp seen for this series."
         ),
+        "original_expiry_timestamp": DateTimeDatabaseField(
+            name="original_expiry_timestamp", nullable=False, description="When the series leaves retention."
+        ),
     }
 
     def to_printed_clickhouse(self, context):
-        return "metric_series"
+        return "metric_series_distributed"
 
     def to_printed_hogql(self):
         return "metric_series"
@@ -221,18 +183,16 @@ class MetricAttributesTable(Table):
             nullable=False,
             description="Number of data points with this key/value in the time bucket.",
         ),
-        "resource_fingerprint": IntegerDatabaseField(
-            name="resource_fingerprint",
-            nullable=False,
-            description="Hash of the resource attributes the count is scoped to.",
-        ),
         "service_name": StringDatabaseField(
             name="service_name", nullable=False, description="Service the attribute counts are scoped to."
+        ),
+        "original_expiry_time_bucket": DateTimeDatabaseField(
+            name="original_expiry_time_bucket", nullable=False, description="When the bucket leaves retention."
         ),
     }
 
     def to_printed_clickhouse(self, context):
-        return "metric_attributes"
+        return "metric_attributes_distributed"
 
     def to_printed_hogql(self):
         return "metric_attributes"

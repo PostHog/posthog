@@ -20,11 +20,12 @@ export const useSidebarPeekStore = create<SidebarPeekStore>()((set) => ({
 // panel itself) so re-entering any of them keeps the peek alive.
 let hideTimer: ReturnType<typeof setTimeout> | null = null;
 
-// While a sidebar-spawned menu is open the peek is "held": endSidebarPeek is a
-// no-op so a pointer that leaves the panel (e.g. toward a submenu flyout) can't
-// collapse it and strand the open menu's portal anchor. Counted, not boolean,
-// so one menu's release can't drop a hold another menu still needs.
+// While a sidebar-spawned menu is open the peek is "held": endSidebarPeek is
+// deferred so a pointer that leaves the panel (e.g. toward a submenu flyout)
+// can't collapse it and strand the open menu's portal anchor. Counted, not
+// boolean, so one menu's release can't drop a hold another menu still needs.
 let holdCount = 0;
+let pendingHideDelayMs: number | null = null;
 
 const clearHideTimer = (): void => {
   if (hideTimer) {
@@ -34,25 +35,43 @@ const clearHideTimer = (): void => {
 };
 
 export function beginSidebarPeek(): void {
+  pendingHideDelayMs = null;
   clearHideTimer();
   useSidebarPeekStore.getState().setPeek(true);
 }
 
-// Pin the peek open while a menu spawned from the sidebar is open, and release
-// it when that menu closes. Paired open/close calls keep this balanced;
-// releasing hands control back to the hover logic, which collapses the peek on
-// the next pointer move outside the panel.
 export function holdSidebarPeek(): void {
   holdCount += 1;
   clearHideTimer();
 }
 
 export function releaseSidebarPeek(): void {
-  holdCount = Math.max(0, holdCount - 1);
+  if (holdCount === 0) return;
+
+  holdCount -= 1;
+  if (holdCount > 0 || pendingHideDelayMs === null) return;
+
+  const delayMs = pendingHideDelayMs;
+  pendingHideDelayMs = null;
+  endSidebarPeek(delayMs);
+}
+
+export async function withSidebarPeekHeld<T>(
+  operation: () => Promise<T>,
+): Promise<T> {
+  holdSidebarPeek();
+  try {
+    return await operation();
+  } finally {
+    releaseSidebarPeek();
+  }
 }
 
 export function endSidebarPeek(delayMs = 0): void {
-  if (holdCount > 0) return;
+  if (holdCount > 0) {
+    pendingHideDelayMs = delayMs;
+    return;
+  }
   clearHideTimer();
   hideTimer = setTimeout(() => {
     hideTimer = null;
@@ -62,6 +81,7 @@ export function endSidebarPeek(delayMs = 0): void {
 
 export function cancelSidebarPeek(): void {
   holdCount = 0;
+  pendingHideDelayMs = null;
   clearHideTimer();
   useSidebarPeekStore.getState().setPeek(false);
 }

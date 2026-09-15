@@ -10,6 +10,7 @@ import {
   planImageInput,
   setupSteps,
   setupStepsComplete,
+  splitPastedEnvVars,
   stepError,
   validateDomains,
   withEnvironmentName,
@@ -26,6 +27,26 @@ describe("environmentSetup", () => {
     const seeded = emptyEnvironmentSetupPlan({ repository: "posthog/posthog" });
     expect(seeded.environmentName).toBe("posthog cloud runs");
     expect(seeded.imageName).toBe("posthog toolchain");
+  });
+
+  it("seeds a preselected image as the existing base, except for an image scope", () => {
+    const seeded = emptyEnvironmentSetupPlan({ existingImageId: "image-1" });
+    expect(seeded.baseImage).toBe("existing");
+    expect(seeded.existingImageId).toBe("image-1");
+
+    const imageScoped = emptyEnvironmentSetupPlan({
+      scope: "image",
+      existingImageId: "image-1",
+    });
+    expect(imageScoped.baseImage).toBe("new");
+    expect(imageScoped.existingImageId).toBeNull();
+
+    const withoutImages = emptyEnvironmentSetupPlan({
+      customImages: false,
+      existingImageId: "image-1",
+    });
+    expect(withoutImages.baseImage).toBe("default");
+    expect(withoutImages.existingImageId).toBeNull();
   });
 
   it("keeps a typed environment name when the repositories change", () => {
@@ -177,6 +198,27 @@ describe("environmentSetup", () => {
       { key: "QUOTED", value: "with spaces" },
       { key: "EMPTY", value: "" },
       { key: "URL", value: "https://example.com/path?a=b" },
+    ]);
+  });
+
+  it("keeps a pasted .env usable by leaving out the keys the sandbox manages", () => {
+    const { entries, skipped } = splitPastedEnvVars(
+      [
+        "OPENAI_API_KEY=sk-example",
+        "GITHUB_TOKEN=ghp-example",
+        "GIT_AUTHOR_NAME=Jane",
+        "NODE_OPTIONS=--max-old-space-size=4096",
+        "DATABASE_URL=postgres://example.com/app",
+      ].join("\n"),
+    );
+    expect(entries).toEqual([
+      { key: "OPENAI_API_KEY", value: "sk-example" },
+      { key: "DATABASE_URL", value: "postgres://example.com/app" },
+    ]);
+    expect(skipped).toEqual([
+      "GITHUB_TOKEN",
+      "GIT_AUTHOR_NAME",
+      "NODE_OPTIONS",
     ]);
   });
 

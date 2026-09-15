@@ -9,8 +9,17 @@ from django.test import SimpleTestCase, override_settings
 import requests
 from parameterized import parameterized
 
-from posthog.egress.firecrawl.client import FirecrawlNotConfigured, FirecrawlScrapeFailed, scrape
+from posthog.egress.firecrawl.client import (
+    MAX_SEARCH_LIMIT,
+    MAX_SEARCH_QUERY_CHARS,
+    FirecrawlNotConfigured,
+    FirecrawlScrapeFailed,
+    FirecrawlSearchFailed,
+    scrape,
+    search,
+)
 from posthog.egress.firecrawl.limiter import consume_firecrawl_sync, firecrawl_account_key
+from posthog.egress.firecrawl.transport import FirecrawlEgressBudgetExhausted
 from posthog.egress.limiter.policies import Priority, resolve_policy
 
 _FAKE_API_KEY = "fake-key-for-tests"
@@ -29,6 +38,16 @@ _SUCCESSFUL_SCRAPE = {
     },
 }
 
+_SUCCESSFUL_SEARCH = {
+    "success": True,
+    "data": {
+        "web": [
+            {"url": "https://example.com/widgets", "title": "Widgets", "description": "All the widgets."},
+        ],
+    },
+    "creditsUsed": 1,
+}
+
 
 def _response(status: int, body: str) -> requests.Response:
     response = requests.models.Response()
@@ -39,10 +58,14 @@ def _response(status: int, body: str) -> requests.Response:
 
 @contextmanager
 def _firecrawl_answers(response: requests.Response) -> Iterator[tuple[MagicMock, MagicMock]]:
-    """Yield the patched sender and limiter gate. The gate is patched so these tests never draw on
-    the shared budget counter, which would couple them to each other's ordering."""
+    """Yield the patched sender and limiter gate. The gate is patched in both the transport and the
+    client, which each hold their own imported reference to consume_firecrawl_sync, so neither
+    silently draws on the shared budget counter, which would couple these tests to each other's
+    ordering."""
+    consume = MagicMock(return_value=True)
     with (
-        patch("posthog.egress.firecrawl.transport.consume_firecrawl_sync", return_value=True) as consume,
+        patch("posthog.egress.firecrawl.transport.consume_firecrawl_sync", consume),
+        patch("posthog.egress.firecrawl.client.consume_firecrawl_sync", consume),
         patch("requests.request", return_value=response) as request,
     ):
         yield request, consume
@@ -90,7 +113,6 @@ class TestFirecrawlEgress(SimpleTestCase):
 
     @override_settings(FIRECRAWL_API_KEY="")
     def test_scrape_without_a_configured_key_never_calls_out(self) -> None:
-        # Instances run without a key; sending `Bearer ` would spend a request to be told 401.
         with patch("requests.request") as request:
             with self.assertRaises(FirecrawlNotConfigured):
                 scrape("https://example.com", source="test")
@@ -115,3 +137,99 @@ class TestFirecrawlEgress(SimpleTestCase):
         # The policy reads settings through getattr defaults, which would swallow a renamed or
         # misspelled setting and quietly pin the budget to the code default forever.
         assert resolve_policy(firecrawl_account_key()).limits == ((7, 60.0), (11, 3600.0))
+
+
+@override_settings(FIRECRAWL_API_KEY=_FAKE_API_KEY)
+class TestFirecrawlSearchEgress(SimpleTestCase):
+    def test_search_sends_the_request_shape_firecrawl_documents(self) -> None:
+        with _firecrawl_answers(_response(200, json.dumps(_SUCCESSFUL_SEARCH))) as (request, _consume):
+            search("widget makers", source="test", limit=3)
+
+        assert request.call_args.args == ("POST", "https://api.firecrawl.dev/v2/search")
+        kwargs = request.call_args.kwargs
+        assert kwargs["headers"]["Authorization"] == f"Bearer {_FAKE_API_KEY}"
+        assert kwargs["json"] == {"query": "widget makers", "limit": 3, "sources": [{"type": "web"}]}
+
+    def test_search_maps_the_documented_response_onto_the_result(self) -> None:
+        body = {
+            "success": True,
+            "data": {
+                "web": [
+                    {"url": "https://example.com/widgets", "title": "Widgets", "description": "All the widgets."},
+                    {"title": "No url here"},
+                ],
+            },
+            "creditsUsed": 2,
+        }
+        with _firecrawl_answers(_response(200, json.dumps(body))):
+            result = search("widget makers", source="test")
+
+        assert result.query == "widget makers"
+        assert len(result.results) == 1
+        assert result.results[0].url == "https://example.com/widgets"
+        assert result.results[0].title == "Widgets"
+        assert result.results[0].description == "All the widgets."
+        assert result.credits_used == 2
+
+    def test_search_with_no_web_results_is_an_empty_result_not_a_failure(self) -> None:
+        body = {"success": True, "data": {}}
+        with _firecrawl_answers(_response(200, json.dumps(body))):
+            result = search("a query with no matches", source="test")
+
+        assert result.results == ()
+
+    @parameterized.expand(
+        [
+            ("http_error", 402, json.dumps({"error": "Insufficient credits"})),
+            ("unsuccessful_body", 200, json.dumps({"success": False, "error": "unreachable"})),
+            ("data_not_a_mapping", 200, json.dumps({"success": True, "data": "oops"})),
+            ("non_json_body", 200, "<html>gateway timeout</html>"),
+        ]
+    )
+    def test_search_raises_rather_than_returning_an_empty_result(self, _name: str, status: int, body: str) -> None:
+        with _firecrawl_answers(_response(status, body)), self.assertRaises(FirecrawlSearchFailed):
+            search("widget makers", source="test")
+
+    @override_settings(FIRECRAWL_API_KEY="")
+    def test_search_without_a_configured_key_never_calls_out(self) -> None:
+        with patch("requests.request") as request:
+            with self.assertRaises(FirecrawlNotConfigured):
+                search("widget makers", source="test")
+        request.assert_not_called()
+
+    def test_search_above_the_limit_ceiling_never_calls_out(self) -> None:
+        with patch("requests.request") as request:
+            with self.assertRaises(ValueError):
+                search("widget makers", source="test", limit=MAX_SEARCH_LIMIT + 1)
+        request.assert_not_called()
+
+    def test_search_above_the_query_character_ceiling_never_calls_out(self) -> None:
+        with patch("requests.request") as request:
+            with self.assertRaises(ValueError):
+                search("x" * (MAX_SEARCH_QUERY_CHARS + 1), source="test")
+        request.assert_not_called()
+
+    def test_search_priority_passes_through_to_the_limiter_gate(self) -> None:
+        with _firecrawl_answers(_response(200, json.dumps(_SUCCESSFUL_SEARCH))) as (_request, consume):
+            search("widget makers", source="test", priority=Priority.BATCH)
+
+        assert consume.call_args.kwargs["priority"] is Priority.BATCH
+
+    def test_search_reserves_two_units_for_the_two_credit_per_ten_results_cost(self) -> None:
+        with _firecrawl_answers(_response(200, json.dumps(_SUCCESSFUL_SEARCH))) as (_request, consume):
+            search("widget makers", source="test")
+
+        assert consume.call_count == 2
+
+    def test_search_denied_the_extra_credit_unit_raises_before_any_request(self) -> None:
+        with (
+            patch("posthog.egress.firecrawl.client.consume_firecrawl_sync", return_value=False) as client_consume,
+            patch("posthog.egress.firecrawl.transport.consume_firecrawl_sync") as transport_consume,
+            patch("requests.request") as request,
+        ):
+            with self.assertRaises(FirecrawlEgressBudgetExhausted):
+                search("widget makers", source="test")
+
+        client_consume.assert_called_once()
+        transport_consume.assert_not_called()
+        request.assert_not_called()

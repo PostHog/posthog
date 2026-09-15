@@ -15,6 +15,7 @@ export function DotsCircleSpinner({
 }: DotsCircleSpinnerProps) {
   return (
     <span
+      aria-hidden="true"
       className={`inline-grid place-items-center ${className}`}
       style={{
         width: size,

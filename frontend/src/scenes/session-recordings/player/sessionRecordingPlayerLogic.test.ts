@@ -28,7 +28,12 @@ import {
     recordingMetaJson,
     setupSessionRecordingTest,
 } from './__mocks__/test-setup'
-import { findNewEvents, findSegmentForTimestamp, stripRrwebScriptShims } from './sessionRecordingPlayerLogic'
+import {
+    findNewEvents,
+    findSegmentForTimestamp,
+    INSTANT_SKIP_INACTIVITY_THRESHOLD_MS,
+    stripRrwebScriptShims,
+} from './sessionRecordingPlayerLogic'
 import { markLoaded } from './snapshot-store/test-utils'
 import { snapshotDataLogic } from './snapshotDataLogic'
 import { deleteRecording as deleteRecordingMock } from './utils/playerUtils'
@@ -272,6 +277,68 @@ describe('sessionRecordingPlayerLogic', () => {
         })
     })
 
+    describe('inactivity segment traversal', () => {
+        const START = 1682952380877
+        const inactiveSegment = (kind: 'gap' | 'window', durationMs: number): RecordingSegment =>
+            ({
+                kind,
+                isActive: false,
+                startTimestamp: START,
+                endTimestamp: START + durationMs,
+                durationMs,
+                windowId: kind === 'window' ? 1 : undefined,
+            }) as RecordingSegment
+
+        it.each([
+            [
+                'seeks over a gap past the threshold while playing',
+                'gap',
+                INSTANT_SKIP_INACTIVITY_THRESHOLD_MS + 1,
+                true,
+                true,
+            ],
+            ['fast-forwards a gap exactly at the threshold', 'gap', INSTANT_SKIP_INACTIVITY_THRESHOLD_MS, true, false],
+            [
+                'does not seek when paused, even over the threshold',
+                'gap',
+                INSTANT_SKIP_INACTIVITY_THRESHOLD_MS + 1,
+                false,
+                false,
+            ],
+            ['fast-forwards a dense inactive window of any length', 'window', 35 * 3600 * 1000, true, false],
+        ] as const)('%s', async (_name, kind, durationMs, playing, expectSeek) => {
+            if (!playing) {
+                logic.actions.setPause()
+            }
+            logic.actions.setCurrentTimestamp(START)
+            const segment = inactiveSegment(kind, durationMs)
+            const expectation = expectLogic(logic, () => logic.actions.setCurrentSegment(segment))
+            if (expectSeek) {
+                await expectation.toDispatchActions([logic.actionCreators.seekToTimestamp(segment.endTimestamp)])
+            } else {
+                await expectation
+                    .toDispatchActions([logic.actionCreators.setSkippingInactivity(true)])
+                    .toNotHaveDispatchedActions(['seekToTimestamp'])
+            }
+        })
+    })
+
+    describe('end of recording', () => {
+        // Reaching the end pauses the player, and currentPlayerState only reports SKIP while playing,
+        // so the rewind control already replaces the "Skipping inactivity" overlay without touching the
+        // flag. The flag also drives playerSpeed, so it must survive end-of-recording: a rewind back into
+        // a trailing inactive stretch lands in the same segment, which does not recompute it, and clearing
+        // it there would make that dead time play at 1x.
+        it('keeps the inactivity-skip flag so a rewind into a trailing inactive stretch still skips', async () => {
+            logic.actions.setSkippingInactivity(true)
+            expect(logic.values.isSkippingInactivity).toBe(true)
+
+            await expectLogic(logic, () => logic.actions.setEndReached(true)).toMatchValues({
+                isSkippingInactivity: true,
+            })
+        })
+    })
+
     describe('terminal data failures', () => {
         // Give-up signals must surface as a player error even when partial data already loaded —
         // otherwise the affected range buffers forever with no error shown.
@@ -456,6 +523,32 @@ describe('sessionRecordingPlayerLogic', () => {
             expect(logic.values.currentTimestamp).toBeGreaterThanOrEqual(start)
             expect(logic.values.isBuffering).toBe(false)
         })
+
+        it('re-seeks a deep link only when the linked time changes or the same URL is pushed again', async () => {
+            logic.unmount()
+            router.actions.push('/replay/2', { t: 5 })
+            logic = sessionRecordingPlayerLogic({
+                sessionRecordingId: '2',
+                playerKey: 'test',
+                blobV2PollingDisabled: true,
+            })
+            logic.mount()
+
+            await expectLogic(logic).toDispatchActions(['initializePlayerFromStart']).toFinishAllListeners()
+
+            const start = logic.values.sessionPlayerData.start?.valueOf() ?? 0
+            logic.actions.setCurrentTimestamp(start + 8000)
+
+            await expectLogic(logic, () => {
+                router.actions.push('/replay/2', { t: 5, inspectorSideBar: true })
+            }).toFinishAllListeners()
+            expect(logic.values.currentTimestamp).toBe(start + 8000)
+
+            await expectLogic(logic, () => {
+                router.actions.push('/replay/2', { t: 5, inspectorSideBar: true })
+            }).toFinishAllListeners()
+            expect(logic.values.currentTimestamp).toBe(start + 5000)
+        })
     })
 
     describe('seek renderability clamping', () => {
@@ -488,13 +581,33 @@ describe('sessionRecordingPlayerLogic', () => {
 
         const inc = (timestamp: number): RecordingSnapshot => makeSnapshot(timestamp, EventType.IncrementalSnapshot)
         const fs = (timestamp: number): RecordingSnapshot => makeSnapshot(timestamp, EventType.FullSnapshot)
+        const meta = (timestamp: number): RecordingSnapshot => makeSnapshot(timestamp, EventType.Meta)
+        const idle = (timestamp: number): RecordingSnapshot =>
+            makeSnapshot(timestamp, EventType.Custom, 1, { tag: 'sessionIdle', payload: {} })
         // second-window events for the multi-window cases
         const w2inc = (timestamp: number): RecordingSnapshot =>
             makeSnapshot(timestamp, EventType.IncrementalSnapshot, 2)
         const w2fs = (timestamp: number): RecordingSnapshot => makeSnapshot(timestamp, EventType.FullSnapshot, 2)
+        const w2move = (timestamp: number): RecordingSnapshot =>
+            makeSnapshot(timestamp, EventType.IncrementalSnapshot, 2, { source: IncrementalSource.MouseMove })
+        // a continuously active second window, the shape that animates a cursor over a blank document
+        const w2moves = (fromTimestamp: number, toTimestamp: number): RecordingSnapshot[] => {
+            const moves: RecordingSnapshot[] = []
+            for (let timestamp = fromTimestamp; timestamp <= toTimestamp; timestamp += 5000) {
+                moves.push(w2move(timestamp))
+            }
+            return moves
+        }
         // an ACTIVE first-window event, so the segmenter splits a real window-1 segment before it
         const w1move = (timestamp: number): RecordingSnapshot =>
             makeSnapshot(timestamp, EventType.IncrementalSnapshot, 1, { source: IncrementalSource.MouseMove })
+        const w1moves = (fromTimestamp: number, toTimestamp: number): RecordingSnapshot[] => {
+            const moves: RecordingSnapshot[] = []
+            for (let timestamp = fromTimestamp; timestamp <= toTimestamp; timestamp += 5000) {
+                moves.push(w1move(timestamp))
+            }
+            return moves
+        }
 
         // one-minute-per-source blob fixtures matching the store test helpers
         const makeBlobSources = (
@@ -528,10 +641,31 @@ describe('sessionRecordingPlayerLogic', () => {
             sessionRecordingDataCoordinatorLogic({ sessionRecordingId: '2' }).actions.setProcessedSnapshots(processed)
         }
 
-        beforeEach(async () => {
+        // `durationMs` caps the reported spans, and the default mock recording is only 11 seconds
+        // long, so each case states the metadata duration its fixture needs.
+        const mountWithRecordingDuration = async (recordingDurationSeconds: number): Promise<void> => {
+            logic.unmount()
+            overrideSessionRecordingMocks({
+                getMocks: {
+                    '/api/environments/:team_id/session_recordings/:id': {
+                        ...recordingMetaJson,
+                        recording_duration: recordingDurationSeconds,
+                    },
+                },
+            })
+            logic = sessionRecordingPlayerLogic({
+                sessionRecordingId: '2',
+                playerKey: 'test',
+                blobV2PollingDisabled: true,
+            })
+            logic.mount()
             await expectLogic(logic)
                 .toDispatchActions([snapshotDataLogic({ sessionRecordingId: '2' }).actionTypes.loadSnapshotSources])
                 .toFinishAllListeners()
+        }
+
+        beforeEach(async () => {
+            await mountWithRecordingDuration(360)
         })
 
         // assertions below run synchronously after the seek dispatch — kea listeners
@@ -876,6 +1010,34 @@ describe('sessionRecordingPlayerLogic', () => {
                 expectedLeadingUnplayableMs: 0,
                 expectedHasLate: false,
             },
+            {
+                description:
+                    'does not flag an idle gap where only a backdated sessionIdle event precedes the full snapshot',
+                firstSourceSnapshots: [idle(START)],
+                secondSourceSnapshots: [fs(LATE_FS_TS), inc(LATE_FS_TS + 1000)],
+                expectedLeadingUnplayableMs: 0,
+                expectedHasLate: false,
+            },
+            {
+                // rrweb emits Meta and FullSnapshot together, so Meta alone means the FullSnapshot was dropped
+                description: 'flags a lost leading snapshot when only its Meta event survives',
+                firstSourceSnapshots: [meta(START)],
+                secondSourceSnapshots: [fs(LATE_FS_TS), inc(LATE_FS_TS + 1000)],
+                expectedLeadingUnplayableMs: LATE_FS_TS - START,
+                expectedHasLate: true,
+            },
+            {
+                description: 'flags a lost leading snapshot when the missing content is in a later window',
+                firstSourceSnapshots: [idle(START)],
+                secondSourceSnapshots: [
+                    w2inc(START + 61000),
+                    w2inc(START + 62000),
+                    w2fs(LATE_FS_TS),
+                    w2inc(LATE_FS_TS + 1000),
+                ],
+                expectedLeadingUnplayableMs: LATE_FS_TS - START,
+                expectedHasLate: true,
+            },
         ])(
             '$description',
             ({ firstSourceSnapshots, secondSourceSnapshots, expectedLeadingUnplayableMs, expectedHasLate }) => {
@@ -885,6 +1047,214 @@ describe('sessionRecordingPlayerLogic', () => {
                 expect(logic.values.hasLateFullSnapshot).toBe(expectedHasLate)
             }
         )
+
+        it.each([
+            {
+                description: 'reports at most the recording length when the start is skewed before the recording',
+                recordingDurationSeconds: 60,
+            },
+            {
+                // the clamped span fills the whole timeline here, so gating the warning on it would
+                // hide the warning exactly where every second of the recording is unplayable
+                description: 'still warns when the recording is no longer than the warning threshold',
+                recordingDurationSeconds: 15,
+            },
+        ])('$description', async ({ recordingDurationSeconds }) => {
+            // A skewed start drags `start` back but not the metadata duration the timeline is capped to,
+            // so the raw offset to the first full snapshot claims more time than the recording holds.
+            await mountWithRecordingDuration(recordingDurationSeconds)
+            seedRecording([inc(START), inc(START + 1000)], [fs(LATE_FS_TS)])
+
+            expect(logic.values.leadingUnplayableMs).toBe(logic.values.sessionPlayerData.durationMs)
+            expect(logic.values.leadingUnplayableMs).toBeLessThan(LATE_FS_TS - START)
+            expect(logic.values.hasLateFullSnapshot).toBe(true)
+        })
+
+        it.each([
+            {
+                // the reported symptom: window 2 opens and only sends mouse moves, so it animates a
+                // cursor over a document rrweb never built
+                description: 'reports the span of a later window that never sent a full snapshot',
+                secondSourceSnapshots: [w1move(START + 61000), ...w2moves(START + 62000, START + 122000)],
+                expectedUnrenderableWindowMs: 60000,
+                expectedHasUnrenderable: true,
+            },
+            {
+                description: 'stops the span at the full snapshot a later window eventually sends',
+                secondSourceSnapshots: [
+                    w1move(START + 61000),
+                    ...w2moves(START + 62000, START + 117000),
+                    w2fs(START + 122000),
+                    w2inc(START + 123000),
+                ],
+                expectedUnrenderableWindowMs: 60000,
+                expectedHasUnrenderable: true,
+            },
+            {
+                description: 'reports nothing when a later window opens with its own full snapshot',
+                secondSourceSnapshots: [
+                    w1move(START + 61000),
+                    w2fs(START + 62000),
+                    ...w2moves(START + 67000, START + 122000),
+                ],
+                expectedUnrenderableWindowMs: 0,
+                expectedHasUnrenderable: false,
+            },
+            {
+                // a viewer moving between tabs interleaves the windows, and window 1 still plays
+                description: 'leaves out the window that plays normally between two spans of a damaged one',
+                secondSourceSnapshots: [
+                    w1move(START + 61000),
+                    ...w2moves(START + 62000, START + 82000),
+                    w1move(START + 87000),
+                    w1move(START + 92000),
+                    ...w2moves(START + 97000, START + 117000),
+                ],
+                expectedUnrenderableWindowMs: 50000,
+                expectedHasUnrenderable: true,
+            },
+            {
+                description: 'does not flag a later window whose span is only a backdated idle event',
+                secondSourceSnapshots: [
+                    w1move(START + 61000),
+                    makeSnapshot(START + 62000, EventType.Custom, 2, { tag: 'sessionIdle', payload: {} }),
+                ],
+                expectedUnrenderableWindowMs: 0,
+                expectedHasUnrenderable: false,
+            },
+        ])('$description', ({ secondSourceSnapshots, expectedUnrenderableWindowMs, expectedHasUnrenderable }) => {
+            seedRecording([fs(START), inc(START + 1000)], secondSourceSnapshots)
+
+            expect(logic.values.unrenderableWindowMs).toBe(expectedUnrenderableWindowMs)
+            expect(logic.values.hasUnrenderableWindow).toBe(expectedHasUnrenderable)
+            // the leading span selector still owns the recording's first window
+            expect(logic.values.leadingUnplayableMs).toBe(0)
+        })
+
+        it('reports the first window when it goes blank again after the leading span', () => {
+            // window 1 never sends a full snapshot, so the leading span recovers on window 2's
+            // instead, and playback back in window 1 has nothing to clamp to
+            seedRecording(
+                [w1move(START), w2fs(START + 5000), ...w2moves(START + 10000, START + 55000)],
+                w1moves(START + 61000, START + 91000)
+            )
+
+            expect(logic.values.leadingUnplayableMs).toBe(5000)
+            expect(logic.values.hasLateFullSnapshot).toBe(false)
+            expect(logic.values.unrenderableWindowSpans).toEqual([
+                { startTimestamp: START + 61000, endTimestamp: START + 91000 },
+            ])
+            expect(logic.values.hasUnrenderableWindow).toBe(true)
+        })
+
+        // The leading span reports everything up to its handover point, so a later window that is
+        // blank before that point is time the banner and the telemetry already count.
+        it.each([
+            {
+                description: 'drops a later window span the leading span already covers',
+                firstSourceSnapshots: [idle(START)],
+                secondSourceSnapshots: [
+                    w2inc(START + 61000),
+                    w2inc(START + 62000),
+                    w2fs(LATE_FS_TS),
+                    w2inc(LATE_FS_TS + 1000),
+                ],
+                expectedLeadingUnplayableMs: LATE_FS_TS - START,
+                expectedUnrenderableWindowMs: 0,
+                expectedHasUnrenderable: false,
+            },
+            {
+                // window 1 recovers on its own late full snapshot, and window 2 stays blank across it
+                description: 'keeps only the part of a later window span that follows the handover',
+                firstSourceSnapshots: [idle(START)],
+                secondSourceSnapshots: [
+                    ...w2moves(START + 61000, START + 111000),
+                    fs(START + 116000),
+                    w1move(START + 117000),
+                    w1move(START + 122000),
+                    ...w2moves(START + 127000, START + 177000),
+                ],
+                expectedLeadingUnplayableMs: 116000,
+                expectedUnrenderableWindowMs: 55000,
+                expectedHasUnrenderable: true,
+            },
+        ])(
+            '$description',
+            ({
+                firstSourceSnapshots,
+                secondSourceSnapshots,
+                expectedLeadingUnplayableMs,
+                expectedUnrenderableWindowMs,
+                expectedHasUnrenderable,
+            }) => {
+                seedRecording(firstSourceSnapshots, secondSourceSnapshots)
+
+                expect(logic.values.leadingUnplayableMs).toBe(expectedLeadingUnplayableMs)
+                expect(logic.values.unrenderableWindowMs).toBe(expectedUnrenderableWindowMs)
+                expect(logic.values.hasUnrenderableWindow).toBe(expectedHasUnrenderable)
+            }
+        )
+
+        it('leaves a recording with no full snapshot at all to the unplayable takeover', () => {
+            // the full-screen error replaces the player here, so a banner behind it would count
+            // recordings this warning never helped
+            seedRecording(
+                [w1move(START), w1move(START + 5000)],
+                [w1move(START + 61000), ...w2moves(START + 66000, START + 126000)]
+            )
+
+            expect(logic.values.unrenderableWindowSpans).toEqual([])
+            expect(logic.values.hasUnrenderableWindow).toBe(false)
+        })
+
+        it('holds the unrenderable-window warning back while earlier data is still loading', () => {
+            seedRecording(null, [w1move(START + 61000), ...w2moves(START + 62000, START + 122000)])
+
+            expect(logic.values.unrenderableWindowSpans).toEqual([])
+            expect(logic.values.hasUnrenderableWindow).toBe(false)
+        })
+
+        // Builds a stand-in replayer whose iframe document has (or lacks) a <head>. rrweb throws
+        // synchronously when it rebuilds a full snapshot on a document without a head, which is the
+        // WebKit failure this recovery path guards against.
+        const fakeReplayer = (head: HTMLElement | null): any => {
+            const throwWhenHeadless = (): void => {
+                if (!head) {
+                    throw new TypeError("null is not an object (evaluating 'doc.head.appendChild')")
+                }
+            }
+            return {
+                iframe: { contentDocument: { head } },
+                play: jest.fn(throwWhenHeadless),
+                pause: jest.fn(throwWhenHeadless),
+                getCurrentTime: jest.fn(() => 0),
+                setConfig: jest.fn(),
+                on: jest.fn(),
+                destroy: jest.fn(),
+                service: { state: { context: { events: [] } } },
+            }
+        }
+
+        it('re-inits the replayer instead of reporting a playback failure when the iframe has no head', async () => {
+            seedRecording([fs(START), inc(START + 1000), inc(START + 11000)], [])
+            logic.actions.setPause()
+
+            const captureSpy = jest.spyOn(posthog, 'captureException')
+            const tryInitReplayerSpy = jest.spyOn(logic.actions, 'tryInitReplayer')
+            captureSpy.mockClear()
+            tryInitReplayerSpy.mockClear()
+
+            await expectLogic(logic, () => {
+                logic.actions.setPlayer({ replayer: fakeReplayer(null), windowId: 1 })
+            }).toFinishAllListeners()
+
+            expect(tryInitReplayerSpy).toHaveBeenCalled()
+            expect(captureSpy).not.toHaveBeenCalledWith(
+                expect.anything(),
+                expect.objectContaining({ feature: 'session-recording-replayer-playback' })
+            )
+            expect(logic.values.playerError).not.toBe('replayerPlaybackFailure')
+        })
     })
 
     describe('delete session recording', () => {

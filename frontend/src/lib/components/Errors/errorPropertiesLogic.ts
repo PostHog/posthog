@@ -17,6 +17,7 @@ import {
     getFingerprintRecords,
     getRecordingStatus,
     getSessionId,
+    isReleaseIdMissingFromSDK,
 } from 'lib/components/Errors/utils'
 import { dayjs } from 'lib/dayjs'
 import { preflightLogic } from 'lib/logic/preflightLogic'
@@ -51,6 +52,7 @@ export interface errorPropertiesLogicValues {
     properties: Record<string, any>
     recordingStatus: string | undefined
     release: ErrorTrackingRelease | null | undefined
+    releaseIdMissingFromSDK: boolean
     sessionId: string | undefined
     uuid: string
 }
@@ -92,6 +94,12 @@ export interface errorPropertiesLogicMeta {
             frames: ErrorTrackingStackFrame[],
             stackFrameRecords: KeyedStackFrameRecords
         ) => ErrorTrackingRelease | null | undefined
+        releaseIdMissingFromSDK: (
+            properties: Record<string, any>,
+            frames: ErrorTrackingStackFrame[],
+            stackFrameRecords: KeyedStackFrameRecords,
+            stackFrameRecordsLoading: boolean
+        ) => boolean
     }
 }
 
@@ -211,6 +219,20 @@ export const errorPropertiesLogic = kea<errorPropertiesLogicType>([
                     (a, b) => dayjs(b.created_at).unix() - dayjs(a.created_at).unix()
                 )
                 return sortedReleases[0]
+            },
+        ],
+        releaseIdMissingFromSDK: [
+            (s) => [s.properties, s.frames, s.stackFrameRecords, s.stackFrameRecordsLoading],
+            (
+                properties: ErrorEventProperties,
+                frames: ErrorTrackingStackFrame[],
+                stackFrameRecords: KeyedStackFrameRecords,
+                stackFrameRecordsLoading: boolean
+            ) => {
+                if (stackFrameRecordsLoading) {
+                    return false
+                }
+                return isReleaseIdMissingFromSDK(properties, frames, stackFrameRecords)
             },
         ],
     }),

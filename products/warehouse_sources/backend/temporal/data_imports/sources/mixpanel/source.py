@@ -23,6 +23,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     MixpanelSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.mixpanel.mixpanel import (
+    EXPORT_TRUNCATED_ERROR,
     MixpanelResumeConfig,
     mixpanel_source,
     validate_credentials as validate_mixpanel_credentials,
@@ -171,13 +172,20 @@ Authenticate with a [Mixpanel Service Account](https://developer.mixpanel.com/re
                 "The Mixpanel service account does not have access to this project or resource. Grant it "
                 "access to the project and reconnect."
             ),
+            # Mixpanel returns 402 when the project's plan does not include the data export API or the
+            # account is in a payment-overdue state. Retrying cannot resolve a billing issue.
+            "402 Client Error: Payment Required": (
+                "Mixpanel requires a paid plan that includes the data export API. Check your Mixpanel "
+                "plan and billing status, then try again."
+            ),
         }
 
     def get_retryable_errors(self) -> set[str]:
         # A 429 (rate limit) or 5xx is retried internally honoring Retry-After; if those retries
         # still exhaust, the failure is transient and self-recovering, so let Temporal retry the
-        # activity without surfacing it as tracked exception noise.
-        return {"Mixpanel API error (retryable)"}
+        # activity without surfacing it as tracked exception noise. An export Mixpanel aborts
+        # mid-body reaches us on the same contract, after `_stream_export_day` re-fetches the day.
+        return {"Mixpanel API error (retryable)", EXPORT_TRUNCATED_ERROR}
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[MixpanelResumeConfig]:
         return ResumableSourceManager[MixpanelResumeConfig](inputs, MixpanelResumeConfig)

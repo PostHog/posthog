@@ -15,6 +15,7 @@ export const manifest: ProductManifest = {
             projectBased: true,
             name: 'Stamphog',
             iconType: 'stamphog',
+            activityScope: 'StamphogRepoConfig',
         },
         StamphogRuns: {
             import: () => import('./frontend/scenes/StamphogRunsScene/StamphogRunsScene'),

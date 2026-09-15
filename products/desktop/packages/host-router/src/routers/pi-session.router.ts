@@ -3,7 +3,6 @@ import { PI_SESSION_SERVICE } from "@posthog/workspace-server/services/pi-sessio
 import type { PiSessionService } from "@posthog/workspace-server/services/pi-session/pi-session";
 import {
   piExtensionUIResponseInput,
-  piProjectTrustOutput,
   piQueueSnapshotOutput,
   piRpcResponseSchema,
   piSessionConfigInput,
@@ -14,7 +13,6 @@ import {
   piSessionTaskInput,
   respondMcpToolPermissionInput,
   resumePiSessionInput,
-  setPiProjectTrustInput,
   startPiSessionInput,
 } from "@posthog/workspace-server/services/pi-session/schemas";
 
@@ -96,19 +94,6 @@ export const piSessionRouter = router({
         }
       }
     }),
-
-  getProjectTrust: publicProcedure
-    .input(piSessionTaskInput)
-    .output(piProjectTrustOutput)
-    .query(({ ctx, input }) =>
-      getService(ctx.container).getProjectTrust(input.taskId),
-    ),
-
-  setProjectTrusted: publicProcedure
-    .input(setPiProjectTrustInput)
-    .mutation(({ ctx, input }) =>
-      getService(ctx.container).setProjectTrusted(input.taskId, input.trusted),
-    ),
 
   respondToExtensionUI: publicProcedure
     .input(piExtensionUIResponseInput)

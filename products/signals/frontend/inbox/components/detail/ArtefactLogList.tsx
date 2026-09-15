@@ -2,12 +2,13 @@ import { type ComponentType, useState } from 'react'
 
 import {
     IconActivity,
-    IconArchive,
+    IconHide,
     IconCode,
     IconComment,
     IconCommit,
     IconFlag,
     IconGitRepository,
+    IconCalendar,
     IconListCheck,
     IconListTreeConnected,
     IconPeople,
@@ -40,6 +41,7 @@ import {
     artefactAttributionLabel,
     artefactLocationLabel,
     artefactTypeLabel,
+    CheckResultContent,
     CodeReviewContent,
     CodeReferenceContent,
     CommitContent,
@@ -122,12 +124,13 @@ const ARTEFACT_MARKER: Record<string, ComponentType<{ className?: string }>> = {
     signal_finding: IconSearch,
     suggested_reviewers: IconPeople,
     repo_selection: IconGitRepository,
-    dismissal: IconArchive,
+    dismissal: IconHide,
     video_segment: IconVideoCamera,
     title_change: IconPencil,
     summary_change: IconPencil,
     related_to: IconListTreeConnected,
     code_review: IconListCheck,
+    check_result: IconCalendar,
 }
 
 function dismissReasonLabel(reason: string): string {
@@ -216,20 +219,39 @@ function ReviewersBody({ reviewers }: { reviewers: EnrichedReviewer[] }): JSX.El
     return (
         <div className="flex flex-wrap gap-1.5">
             {reviewers.map((reviewer) => {
-                const name = reviewer.user?.first_name || reviewer.github_name || reviewer.github_login
-                return (
+                const name =
+                    reviewer.user?.first_name ||
+                    reviewer.github_name ||
+                    reviewer.github_login ||
+                    reviewer.user?.email ||
+                    'Reviewer'
+                const body = (
+                    <>
+                        <ProfilePicture user={reviewer.user} name={name} size="xs" />
+                        <span className="text-default">{name}</span>
+                        {reviewer.github_login ? (
+                            <span className="font-mono text-tertiary">@{reviewer.github_login}</span>
+                        ) : null}
+                    </>
+                )
+                return reviewer.github_login ? (
                     <Link
-                        key={reviewer.github_login}
+                        key={reviewer.user?.uuid ?? reviewer.user_uuid ?? reviewer.github_login}
                         to={`https://github.com/${reviewer.github_login}`}
                         target="_blank"
                         disableClientSideRouting
                         className="inline-flex items-center gap-1.5 rounded px-1.5 py-1 text-xs no-underline hover:bg-fill-highlight-50"
                     >
-                        <ProfilePicture user={reviewer.user} name={name} size="xs" />
-                        <span className="text-default">{name}</span>
-                        <span className="font-mono text-tertiary">@{reviewer.github_login}</span>
+                        {body}
                         <IconExternal className="size-3 text-tertiary" />
                     </Link>
+                ) : (
+                    <div
+                        key={reviewer.user?.uuid ?? reviewer.user_uuid ?? name}
+                        className="inline-flex items-center gap-1.5 rounded px-1.5 py-1 text-xs"
+                    >
+                        {body}
+                    </div>
                 )
             })}
         </div>
@@ -270,6 +292,29 @@ const CODE_REVIEW_OUTCOME: Record<NonNullable<CodeReviewContent['outcome']>, { l
     published: { label: 'Published on GitHub', type: 'success' },
     stored: { label: 'Review saved', type: 'muted' },
     failed: { label: 'Review failed', type: 'danger' },
+}
+
+const CHECK_OUTCOME: Record<NonNullable<CheckResultContent['outcome']>, { label: string; type: LemonTagType }> = {
+    passed: { label: 'Still holds', type: 'success' },
+    failed: { label: 'No longer holds', type: 'danger' },
+    errored: { label: "Couldn't measure", type: 'warning' },
+}
+
+function CheckResultBody({ content }: { content: CheckResultContent }): JSX.Element | null {
+    if (!content.explanation?.trim()) {
+        return null
+    }
+    return (
+        <div className="flex w-full flex-col items-start gap-1">
+            <span className="text-xs text-default">{content.explanation}</span>
+            {content.threshold ? (
+                <span className="text-xs text-tertiary">
+                    Expected {content.threshold}
+                    {typeof content.baseline_value === 'number' ? `, was ${content.baseline_value} when set` : ''}
+                </span>
+            ) : null}
+        </div>
+    )
 }
 
 function CodeReviewBody({ content }: { content: CodeReviewContent }): JSX.Element | null {
@@ -384,6 +429,15 @@ function renderArtefactSummary(artefact: SignalReportArtefact): JSX.Element | nu
                 </LemonTag>
             ) : null
         }
+        case 'check_result': {
+            const outcome = (content as CheckResultContent).outcome
+            const meta = outcome ? CHECK_OUTCOME[outcome] : null
+            return meta ? (
+                <LemonTag size="small" type={meta.type}>
+                    {meta.label}
+                </LemonTag>
+            ) : null
+        }
         default:
             return null
     }
@@ -451,6 +505,8 @@ function renderArtefactBody({
             return <RelatedReportBody content={content as RelatedToContent} />
         case 'code_review':
             return <CodeReviewBody content={content as CodeReviewContent} />
+        case 'check_result':
+            return <CheckResultBody content={content as CheckResultContent} />
         case 'title_change': {
             const c = content as TitleChangeContent
             return <ContentChangeBody previous={c.old_title} current={c.new_title ?? ''} />

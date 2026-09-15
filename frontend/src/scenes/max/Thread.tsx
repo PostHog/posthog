@@ -75,19 +75,18 @@ import {
 } from 'products/posthog_ai/frontend/api/logics'
 import {
     AssistantFailureMessage,
-    ContextUsageBar,
+    ContextUsageChip,
     MarkdownMessage,
     MessageTemplate,
     ReasoningAnswer,
     RecordingsWidget,
-    ReplayVisionScanWidget,
-    ResourcesBar,
     ThreadView,
     TurnFeedbackActions,
     type TurnTrailer,
 } from 'products/posthog_ai/frontend/api/primitives'
 import { LogEntry } from 'products/posthog_ai/frontend/lib/parse-logs'
 import { isPiTaskRuntime } from 'products/posthog_ai/frontend/types/taskTypes'
+import { ReplayVisionScanWidget } from 'products/replay_vision/frontend/posthogAi/ReplayVisionScanWidget'
 
 import { LangGraphActivity, ShimmeringContent } from './components/Activity'
 import { FeedbackDisplay } from './components/FeedbackDisplay'
@@ -150,17 +149,22 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
         className
     )
 
+    // Feedback identity: always the task, matching `$ai_session_id` on other surfaces.
+    const feedbackTaskId = conversation?.task?.id
+    // Stable identity so the memoized trailer rows don't re-render on every streamed frame.
+    const feedbackRun = useMemo(() => ({ taskId: feedbackTaskId }), [feedbackTaskId])
     const renderTurnTrailer = useCallback(
         (trailer: TurnTrailer): JSX.Element | null =>
-            sandboxConversationKey ? (
+            feedbackTaskId ? (
                 <TurnFeedbackActions
-                    sessionId={sandboxConversationKey}
+                    sessionId={feedbackTaskId}
                     turnIndex={trailer.turnIndex}
-                    isLastTurn={trailer.isLastTurn}
+                    run={feedbackRun}
+                    traceId={trailer.traceId}
                     turnText={trailer.turnText}
                 />
             ) : null,
-        [sandboxConversationKey]
+        [feedbackTaskId, feedbackRun]
     )
 
     if (isPiTask) {
@@ -401,9 +405,8 @@ export function SandboxComposerSurfaces(): JSX.Element | null {
             logic={runStreamLogic}
             props={{ streamKey: sandboxConversationKey, conversationId: sandboxConversationKey }}
         >
-            <div className="w-full max-w-180 self-center mx-auto">
-                <ResourcesBar />
-                <ContextUsageBar />
+            <div className="w-full max-w-180 self-center mx-auto flex justify-end">
+                <ContextUsageChip />
             </div>
         </BindLogic>
     )

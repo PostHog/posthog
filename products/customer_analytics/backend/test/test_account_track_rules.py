@@ -6,10 +6,11 @@ from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, BaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from parameterized import parameterized
 from rest_framework import status
 from temporalio import activity
 from temporalio.client import ScheduleActionStartWorkflow, ScheduleOverlapPolicy, ScheduleState
@@ -34,6 +35,7 @@ from products.customer_analytics.backend.logic.account_track_rules import (
     update_account_track_rules,
 )
 from products.customer_analytics.backend.models import (
+    Account,
     AccountTrackRuleRun,
     AccountTrackRuleRunStatus,
     AccountTrackRuleRunTrigger,
@@ -121,7 +123,7 @@ async def test_workflow_marks_the_run_failed_when_cancelled() -> None:
     assert execute_activity.await_args_list[1].args[0] is account_track_rule_fail_run_activity
 
 
-@freeze_time("2026-08-20T12:00:00Z")
+@time_machine.travel("2026-08-20T12:00:00Z", tick=False)
 @pytest.mark.parametrize(
     ("enabled_at", "expected_overdue", "expected_age_seconds"),
     [
@@ -376,7 +378,7 @@ class AccountTrackRulesTestMixin:
         TeamCustomerAnalyticsConfig.objects.filter(team_id=self.team.id).update(account_track_rules=config)
 
 
-@freeze_time("2026-08-20T12:00:00Z")
+@time_machine.travel("2026-08-20T12:00:00Z", tick=False)
 class TestAccountTrackRuleLogic(AccountTrackRulesTestMixin, BaseTest):
     def test_config_defaults_to_a_disabled_empty_version(self) -> None:
         config = TeamCustomerAnalyticsConfig.objects.get(team_id=self.team.id).account_track_rules
@@ -445,6 +447,84 @@ class TestAccountTrackRuleLogic(AccountTrackRulesTestMixin, BaseTest):
         }
         churned.refresh_from_db()
         assert churned.ignored_at == datetime(2025, 1, 4, tzinfo=UTC)
+
+    @parameterized.expand([("past", "-30d", {"Recent"}), ("future", "14d", set())])
+    def test_preview_evaluates_relative_date_conditions(
+        self, _name: str, relative_value: str, expected_names: set[str]
+    ) -> None:
+        recent = create_account(team_id=self.team.id, name="Recent")
+        older = create_account(team_id=self.team.id, name="Older")
+        Account.objects.for_team(self.team.id).filter(id=recent.id).update(created_at=datetime(2026, 8, 1, tzinfo=UTC))
+        Account.objects.for_team(self.team.id).filter(id=older.id).update(created_at=datetime(2026, 7, 1, tzinfo=UTC))
+        self.save_config(
+            {
+                "schema_version": 1,
+                "version": 1,
+                "enabled": True,
+                "groups": [
+                    {
+                        "conditions": [
+                            {
+                                "field": {"kind": "account_field", "field": "created_at"},
+                                "operator": "is_date_after",
+                                "values": [relative_value],
+                            }
+                        ]
+                    }
+                ],
+            }
+        )
+
+        preview = preview_account_track_rules(self.team.id)
+
+        assert preview.tracked == len(expected_names)
+        assert preview.ignored == 2 - len(expected_names)
+        assert {sample.name for sample in preview.tracked_samples} == expected_names
+
+    def test_preview_evaluates_future_relative_date_custom_property_conditions(self) -> None:
+        definition = create_custom_property_definition(
+            team_id=self.team.id,
+            name="Renewal date",
+            display_type=DisplayType.DATETIME,
+        )
+        later = create_account(team_id=self.team.id, name="Later")
+        sooner = create_account(team_id=self.team.id, name="Sooner")
+        CustomPropertyValue.objects.unscoped().create(
+            team=self.team,
+            account=later,
+            definition=definition,
+            value_datetime=datetime(2026, 9, 1, tzinfo=UTC),
+        )
+        CustomPropertyValue.objects.unscoped().create(
+            team=self.team,
+            account=sooner,
+            definition=definition,
+            value_datetime=datetime(2026, 8, 25, tzinfo=UTC),
+        )
+        self.save_config(
+            {
+                "schema_version": 1,
+                "version": 1,
+                "enabled": True,
+                "groups": [
+                    {
+                        "conditions": [
+                            {
+                                "field": {"kind": "custom_property", "definition_id": str(definition.id)},
+                                "operator": "is_date_after",
+                                "values": ["+10d"],
+                            }
+                        ]
+                    }
+                ],
+            }
+        )
+
+        preview = preview_account_track_rules(self.team.id)
+
+        assert preview.tracked == 1
+        assert preview.ignored == 1
+        assert {sample.name for sample in preview.tracked_samples} == {"Later"}
 
     def test_apply_batches_preserve_ignored_timestamps_and_restore_matches(self) -> None:
         definition, paying, vip, unmatched, ignored, churned = self.create_rule_fixtures()
@@ -686,6 +766,28 @@ class TestAccountTrackRuleLogic(AccountTrackRulesTestMixin, BaseTest):
 
         for config in invalid_configs:
             with self.subTest(config=config):
+                self.save_config(config)
+                with pytest.raises(AccountTrackRuleValidationError):
+                    preview_account_track_rules(self.team.id)
+
+        for relative_value in ["d", "-d", "+d", "y", "mStart"]:
+            config = {
+                "schema_version": 1,
+                "version": 1,
+                "enabled": False,
+                "groups": [
+                    {
+                        "conditions": [
+                            {
+                                "field": {"kind": "account_field", "field": "created_at"},
+                                "operator": "is_date_after",
+                                "values": [relative_value],
+                            }
+                        ]
+                    }
+                ],
+            }
+            with self.subTest(relative_value=relative_value):
                 self.save_config(config)
                 with pytest.raises(AccountTrackRuleValidationError):
                     preview_account_track_rules(self.team.id)

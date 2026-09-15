@@ -38,6 +38,14 @@ class EntityConfig(TypedDict, total=False):
     filters: dict[str, Any]
 
 
+FEATURE_FLAG_SEARCH_CONFIG: EntityConfig = {
+    "klass": FeatureFlag,
+    "search_fields": {"key": "A", "name": "C"},
+    "extra_fields": ["key", "name"],
+    "filters": {"archived": False},
+}
+
+
 ENTITY_MAP: dict[str, EntityConfig] = {
     "insight": {
         "klass": Insight,
@@ -54,7 +62,7 @@ ENTITY_MAP: dict[str, EntityConfig] = {
         "search_fields": {"name": "A", "description": "C"},
         "extra_fields": ["name", "description"],
     },
-    "feature_flag": {"klass": FeatureFlag, "search_fields": {"key": "A", "name": "C"}, "extra_fields": ["key", "name"]},
+    "feature_flag": FEATURE_FLAG_SEARCH_CONFIG,
     "notebook": {
         "klass": Notebook,
         "search_fields": {"title": "A", "text_content": "C"},
@@ -124,9 +132,9 @@ class SearchViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     @extend_schema(
         parameters=[QuerySerializer],
         description=(
-            "Full-text search across project entities. Each result includes `user_access_level`, "
-            "the requesting user's resolved access level for that object (`none` means the user "
-            "cannot open it); `null` when access controls don't apply to the entity type."
+            "Full-text search across project entities. Objects the user cannot access are left out. "
+            "Each result includes `user_access_level`, the requesting user's resolved access level for "
+            "that object; `null` when access controls don't apply to the entity type."
         ),
     )
     def list(self, request: Request, **kw) -> HttpResponse:

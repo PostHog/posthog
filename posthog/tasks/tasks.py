@@ -24,7 +24,7 @@ from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded, limit_conc
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags, tag_queries
 from posthog.cloud_utils import is_cloud
 from posthog.errors import CH_TRANSIENT_ERRORS, CHQueryErrorUnknownTable
-from posthog.exceptions import ClickHouseAtCapacity
+from posthog.exceptions import ClickHouseAtCapacity, QueryRanConcurrently
 from posthog.exceptions_capture import capture_exception
 from posthog.metrics import pushed_metrics_registry
 from posthog.models.event.new_events_schema import events_read_table, use_new_events_schema
@@ -52,16 +52,6 @@ FEATURE_FLAG_LAST_CALLED_AT_SYNC_CHUNK_FAILURE_COUNTER = Counter(
     "ClickHouse chunk queries that failed during feature flag last_called_at sync",
 )
 
-
-COHORT_DELETION_MARK_FAILURE_COUNTER = Counter(
-    "posthog_cohort_deletion_mark_failure_total",
-    "Times cohort deletion mark failed",
-)
-
-COHORT_DELETION_RUN_FAILURE_COUNTER = Counter(
-    "posthog_cohort_deletion_run_failure_total",
-    "Times cohort deletion run failed",
-)
 
 STALE_QUEUED_TASK_RUN_SWEPT_COUNTER = Counter(
     "posthog_task_run_stale_queued_swept_total",
@@ -203,7 +193,7 @@ def kill_stale_queued_task_runs() -> None:
     status=QUEUED handles the race where a worker picks up the run between selection
     and update.
 
-    Staleness is keyed primarily on `updated_at`, not `created_at`. `prepare_for_cloud_handoff`
+    Staleness is keyed primarily on `updated_at`, not `created_at`. `prepare_for_cloud_resume`
     re-queues an existing run (status=QUEUED, completed_at=None) without resetting
     `created_at`; using `created_at` would cause the cleanup to kill freshly
     re-queued long-lived runs. `updated_at` (auto_now=True) advances on every save,
@@ -431,6 +421,7 @@ def _process_query_task_failure(
         # Important: Only retry for things that might be okay on the next try
         ClickHouseAtCapacity,
         ConcurrencyLimitExceeded,
+        QueryRanConcurrently,
     ),
     on_failure=_process_query_task_failure,
     retry_backoff=1,
@@ -760,27 +751,22 @@ def clickhouse_mutation_count() -> None:
 
 @shared_task(ignore_result=True)
 def clickhouse_clear_removed_data() -> None:
-    from posthog.models.async_deletion.delete_cohorts import AsyncCohortDeletion
+    from posthog.models.async_deletion.celery_fallback import CELERY_SWEEP_MAX_COHORTS, celery_sweeps_enabled
+    from posthog.models.async_deletion.delete_cohorts import sweep_cohort_deletions
 
-    cohort_runner = AsyncCohortDeletion()
-
-    try:
-        cohort_runner.mark_deletions_done()
-    except Exception as e:
-        logger.error("Failed to mark cohort deletions done", error=e, exc_info=True)
-        COHORT_DELETION_MARK_FAILURE_COUNTER.inc()
-
-    try:
-        cohort_runner.run()
-    except Exception as e:
-        logger.error("Failed to run cohort deletions", error=e, exc_info=True)
-        COHORT_DELETION_RUN_FAILURE_COUNTER.inc()
+    # Also guarded at registration; this covers a stale beat schedule or a hand-run task.
+    if not celery_sweeps_enabled():
+        return
+    sweep_cohort_deletions(max_cohorts=CELERY_SWEEP_MAX_COHORTS)
 
 
 @shared_task(ignore_result=True)
 def clear_clickhouse_deleted_person() -> None:
+    from posthog.models.async_deletion.celery_fallback import celery_sweeps_enabled
     from posthog.models.async_deletion.delete_person import remove_deleted_person_data
 
+    if not celery_sweeps_enabled():
+        return
     remove_deleted_person_data()
 
 

@@ -2,13 +2,13 @@ use core::str;
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use crate::values::HogMap;
 use base64::Engine as _;
 use chrono::{
     DateTime, Datelike, FixedOffset, LocalResult, NaiveDate, NaiveDateTime, TimeZone, Timelike,
 };
 use hmac::digest::KeyInit;
 use hmac::{Hmac, Mac};
-use indexmap::IndexMap;
 use md5::Md5;
 use once_cell::sync::Lazy;
 use rand::Rng;
@@ -60,7 +60,7 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
                 // Can't just use a ToString trait implementation, because ToString requires heap access to chase
                 // references in arrays and dicts
                 assert_argc(&args, 1, "toString")?;
-                to_string(&vm.heap, &args[0], 0).map(|s| HogLiteral::String(s).into())
+                to_string(&vm.heap, &args[0], 0).map(|s| HogLiteral::from(s).into())
             }),
         ),
         (
@@ -96,7 +96,7 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
                     HogLiteral::Callable(_) | HogLiteral::Closure(_) => "function",
                     HogLiteral::Null => "null",
                 };
-                Ok(HogLiteral::String(t.to_string()).into())
+                Ok(HogLiteral::from(t.to_string()).into())
             }),
         ),
         (
@@ -290,7 +290,7 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
                 for val in vals.iter() {
                     parts.push(to_string(&vm.heap, val, 0)?);
                 }
-                Ok(HogLiteral::String(parts.join(sep)).into())
+                Ok(HogLiteral::from(parts.join(sep)).into())
             }),
         ),
         (
@@ -379,11 +379,11 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
                 if matches!(args[0].deref(&vm.heap)?, HogLiteral::Null)
                     || matches!(args[1].deref(&vm.heap)?, HogLiteral::Null)
                 {
-                    return Ok(HogLiteral::String(String::new()).into());
+                    return Ok(HogLiteral::from(String::new()).into());
                 }
                 let haystack = args[0].deref(&vm.heap)?.try_as::<str>()?;
                 let pattern = args[1].deref(&vm.heap)?.try_as::<str>()?;
-                Ok(HogLiteral::String(regex_extract(haystack, pattern)?).into())
+                Ok(HogLiteral::from(regex_extract(haystack, pattern)?).into())
             })),
         ),
         (
@@ -470,7 +470,7 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
                         out.push_str(&print_hog_string_output(&vm.heap, arg)?);
                     }
                 }
-                Ok(HogLiteral::String(out).into())
+                Ok(HogLiteral::from(out).into())
             }),
         ),
         (
@@ -479,7 +479,7 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
                 assert_argc(&args, 1, "lower")?;
                 match args[0].deref(&vm.heap)? {
                     HogLiteral::Null => Ok(HogLiteral::Null.into()),
-                    HogLiteral::String(s) => Ok(HogLiteral::String(s.to_lowercase()).into()),
+                    HogLiteral::String(s) => Ok(HogLiteral::from(s.to_lowercase()).into()),
                     other => Err(VmError::NativeCallFailed(format!(
                         "lower() expects a string, got {}",
                         other.type_name()
@@ -492,7 +492,7 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
             native_func(|vm, args| {
                 assert_argc(&args, 1, "upper")?;
                 let s: &str = args[0].deref(&vm.heap)?.try_as()?;
-                Ok(HogLiteral::String(s.to_uppercase()).into())
+                Ok(HogLiteral::from(s.to_uppercase()).into())
             }),
         ),
         (
@@ -501,7 +501,7 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
                 assert_argc(&args, 1, "reverse")?;
                 match args[0].deref(&vm.heap)? {
                     HogLiteral::String(s) => {
-                        Ok(HogLiteral::String(s.chars().rev().collect()).into())
+                        Ok(HogLiteral::from(s.chars().rev().collect::<String>()).into())
                     }
                     HogLiteral::Array(arr) => {
                         let mut a = arr.clone();
@@ -550,7 +550,7 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
                     "jsonStringify requires at least one argument",
                 )?;
                 let s = json_stringify(&vm.heap, &args[0], &mut Vec::new(), 0)?;
-                Ok(HogLiteral::String(s).into())
+                Ok(HogLiteral::from(s).into())
             }),
         ),
         (
@@ -661,7 +661,7 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
                 assert_argc(&args, 1, "keys")?;
                 match args[0].deref(&vm.heap)? {
                     HogLiteral::Object(o) => Ok(HogLiteral::Array(
-                        o.keys().map(|k| HogLiteral::String(k.clone()).into()).collect(),
+                        o.keys().map(|k| HogLiteral::from(k.clone()).into()).collect(),
                     )
                     .into()),
                     // Arrays/tuples -> 0-based index list, matching the reference.
@@ -748,7 +748,7 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
                 }
                 let chars: Vec<char> = match args[0].deref(&vm.heap)? {
                     HogLiteral::String(s) => s.chars().collect(),
-                    _ => return Ok(HogLiteral::String(String::new()).into()),
+                    _ => return Ok(HogLiteral::from(String::new()).into()),
                 };
                 // start is 1-based.
                 let start_idx = args[1].deref(&vm.heap)?.try_as::<Num>()?.to_integer() - 1;
@@ -758,11 +758,11 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
                     chars.len() as i64 - start_idx
                 };
                 if start_idx < 0 || length < 0 || start_idx >= chars.len() as i64 {
-                    return Ok(HogLiteral::String(String::new()).into());
+                    return Ok(HogLiteral::from(String::new()).into());
                 }
                 let s_u = start_idx as usize;
                 let e_u = ((start_idx + length) as usize).min(chars.len());
-                Ok(HogLiteral::String(chars[s_u..e_u].iter().collect()).into())
+                Ok(HogLiteral::from(chars[s_u..e_u].iter().collect::<String>()).into())
             }),
         ),
         (
@@ -772,7 +772,7 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
                 let s: &str = args[0].deref(&vm.heap)?.try_as()?;
                 let from: &str = args[1].deref(&vm.heap)?.try_as()?;
                 let to: &str = args[2].deref(&vm.heap)?.try_as()?;
-                Ok(HogLiteral::String(s.replacen(from, to, 1)).into())
+                Ok(HogLiteral::from(s.replacen(from, to, 1)).into())
             }),
         ),
         (
@@ -782,7 +782,7 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
                 let s: &str = args[0].deref(&vm.heap)?.try_as()?;
                 let from: &str = args[1].deref(&vm.heap)?.try_as()?;
                 let to: &str = args[2].deref(&vm.heap)?.try_as()?;
-                Ok(HogLiteral::String(s.replace(from, to)).into())
+                Ok(HogLiteral::from(s.replace(from, to)).into())
             }),
         ),
         (
@@ -801,11 +801,11 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
                     let max = if max < 0 { 0 } else { max as usize };
                     s.split(sep)
                         .take(max)
-                        .map(|p| HogLiteral::String(p.to_string()).into())
+                        .map(|p| HogLiteral::from(p.to_string()).into())
                         .collect()
                 } else {
                     s.split(sep)
-                        .map(|p| HogLiteral::String(p.to_string()).into())
+                        .map(|p| HogLiteral::from(p.to_string()).into())
                         .collect()
                 };
                 Ok(HogLiteral::Array(parts).into())
@@ -863,12 +863,12 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
                 assert(!args.is_empty(), "JSONExtractString requires at least one argument")?;
                 let res = match json_path_value(vm, &args)? {
                     None | Some(JsonValue::Null) => HogLiteral::Null,
-                    Some(JsonValue::String(s)) => HogLiteral::String(s),
+                    Some(JsonValue::String(s)) => HogLiteral::from(s),
                     Some(JsonValue::Bool(b)) => {
-                        HogLiteral::String(if b { "True" } else { "False" }.to_string())
+                        HogLiteral::from(if b { "True" } else { "False" }.to_string())
                     }
-                    Some(JsonValue::Number(n)) => HogLiteral::String(n.to_string()),
-                    Some(other) => HogLiteral::String(other.to_string()),
+                    Some(JsonValue::Number(n)) => HogLiteral::from(n.to_string()),
+                    Some(other) => HogLiteral::from(other.to_string()),
                 };
                 Ok(res.into())
             }),
@@ -1150,7 +1150,7 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
             native_func(|vm, args| {
                 assert_argc(&args, 1, "sha256HmacChainHex")?;
                 let digest = hmac_chain::<HmacSha256>(vm, &args[0], "sha256HmacChain")?;
-                Ok(HogLiteral::String(to_hex(&digest)).into())
+                Ok(HogLiteral::from(to_hex(&digest)).into())
             }),
         ),
         (
@@ -1163,7 +1163,7 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
                 }
                 let digest = hmac_chain::<HmacSha256>(vm, &args[0], "sha256HmacChain")?;
                 let encoding = encoding_arg(vm, &args, 1)?;
-                Ok(HogLiteral::String(encode_digest(&digest, &encoding)?).into())
+                Ok(HogLiteral::from(encode_digest(&digest, &encoding)?).into())
             }),
         ),
         (
@@ -1171,7 +1171,7 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
             native_func(|vm, args| {
                 assert_argc(&args, 1, "sha1HmacChainHex")?;
                 let digest = hmac_chain::<HmacSha1>(vm, &args[0], "sha1HmacChain")?;
-                Ok(HogLiteral::String(to_hex(&digest)).into())
+                Ok(HogLiteral::from(to_hex(&digest)).into())
             }),
         ),
         (
@@ -1184,7 +1184,7 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
                 }
                 let digest = hmac_chain::<HmacSha1>(vm, &args[0], "sha1HmacChain")?;
                 let encoding = encoding_arg(vm, &args, 1)?;
-                Ok(HogLiteral::String(encode_digest(&digest, &encoding)?).into())
+                Ok(HogLiteral::from(encode_digest(&digest, &encoding)?).into())
             }),
         ),
         (
@@ -1193,7 +1193,7 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
                 assert_argc(&args, 1, "base64Encode")?;
                 let s: &str = args[0].deref(&vm.heap)?.try_as()?;
                 let out = base64::engine::general_purpose::STANDARD.encode(s.as_bytes());
-                Ok(HogLiteral::String(out).into())
+                Ok(HogLiteral::from(out).into())
             }),
         ),
         (
@@ -1201,7 +1201,7 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
             native_func(|vm, args| {
                 assert_argc(&args, 1, "base64Decode")?;
                 let s: &str = args[0].deref(&vm.heap)?.try_as()?;
-                Ok(HogLiteral::String(base64_decode_to_string(s)?).into())
+                Ok(HogLiteral::from(base64_decode_to_string(s)?).into())
             }),
         ),
         (
@@ -1210,7 +1210,7 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
                 assert_argc(&args, 1, "tryBase64Decode")?;
                 let s: &str = args[0].deref(&vm.heap)?.try_as()?;
                 // Reference returns "" on failure (Buffer.from never throws, but mirror the intent).
-                Ok(HogLiteral::String(base64_decode_to_string(s).unwrap_or_default()).into())
+                Ok(HogLiteral::from(base64_decode_to_string(s).unwrap_or_default()).into())
             }),
         ),
         (
@@ -1218,7 +1218,7 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
             native_func(|vm, args| {
                 assert_argc(&args, 1, "encodeURLComponent")?;
                 let s: &str = args[0].deref(&vm.heap)?.try_as()?;
-                Ok(HogLiteral::String(encode_uri_component(s)).into())
+                Ok(HogLiteral::from(encode_uri_component(s)).into())
             }),
         ),
         (
@@ -1226,7 +1226,7 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
             native_func(|vm, args| {
                 assert_argc(&args, 1, "decodeURLComponent")?;
                 let s: &str = args[0].deref(&vm.heap)?.try_as()?;
-                decode_uri_component(s).map(|d| HogLiteral::String(d).into())
+                decode_uri_component(s).map(|d| HogLiteral::from(d).into())
             }),
         ),
         (
@@ -1236,7 +1236,7 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
                 let s: &str = args[0].deref(&vm.heap)?.try_as()?;
                 // Reference returns null on malformed input rather than erroring.
                 Ok(match decode_uri_component(s) {
-                    Ok(d) => HogLiteral::String(d).into(),
+                    Ok(d) => HogLiteral::from(d).into(),
                     Err(_) => HogLiteral::Null.into(),
                 })
             }),
@@ -1246,14 +1246,14 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
             native_func(|vm, args| {
                 // Reference `toUUID` is just `toString`.
                 assert_argc(&args, 1, "toUUID")?;
-                to_string(&vm.heap, &args[0], 0).map(|s| HogLiteral::String(s).into())
+                to_string(&vm.heap, &args[0], 0).map(|s| HogLiteral::from(s).into())
             }),
         ),
         (
             "generateUUIDv4",
             native_func(|_vm, args| {
                 assert_argc(&args, 0, "generateUUIDv4")?;
-                Ok(HogLiteral::String(generate_uuid_v4()).into())
+                Ok(HogLiteral::from(generate_uuid_v4()).into())
             }),
         ),
         (
@@ -1267,7 +1267,7 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
                 }
                 let zone = match args.first() {
                     Some(v) => match v.deref(&vm.heap)? {
-                        HogLiteral::String(s) => s.clone(),
+                        HogLiteral::String(s) => s.to_string(),
                         _ => "UTC".to_string(),
                     },
                     None => "UTC".to_string(),
@@ -1487,7 +1487,7 @@ fn to_string(heap: &VmHeap, val: &HogValue, _depth: usize) -> Result<String, VmE
 
 // Render a Hog datetime as Luxon's `DateTime.fromSeconds(dt, {zone}).toISO()` does: millisecond
 // precision, `Z` for UTC and a `+HH:MM` offset otherwise.
-fn hog_datetime_to_iso(heap: &VmHeap, obj: &IndexMap<String, HogValue>) -> Result<String, VmError> {
+fn hog_datetime_to_iso(heap: &VmHeap, obj: &HogMap) -> Result<String, VmError> {
     let dt = obj_number(heap, obj, "dt")?.unwrap_or(0.0);
     let zone = obj_string(heap, obj, "zone")?.unwrap_or_else(|| "UTC".to_string());
     // Luxon keeps millisecond precision; round to whole millis first to avoid float drift turning
@@ -1511,18 +1511,14 @@ fn hog_datetime_to_iso(heap: &VmHeap, obj: &IndexMap<String, HogValue>) -> Resul
     Ok(formatted)
 }
 
-fn obj_marker(heap: &VmHeap, obj: &IndexMap<String, HogValue>, key: &str) -> Result<bool, VmError> {
+fn obj_marker(heap: &VmHeap, obj: &HogMap, key: &str) -> Result<bool, VmError> {
     match obj.get(key) {
         Some(v) => Ok(matches!(v.deref(heap)?, HogLiteral::Boolean(true))),
         None => Ok(false),
     }
 }
 
-fn obj_number(
-    heap: &VmHeap,
-    obj: &IndexMap<String, HogValue>,
-    key: &str,
-) -> Result<Option<f64>, VmError> {
+fn obj_number(heap: &VmHeap, obj: &HogMap, key: &str) -> Result<Option<f64>, VmError> {
     match obj.get(key) {
         Some(v) => Ok(match v.deref(heap)? {
             HogLiteral::Number(n) => Some(n.to_float()),
@@ -1532,14 +1528,10 @@ fn obj_number(
     }
 }
 
-fn obj_string(
-    heap: &VmHeap,
-    obj: &IndexMap<String, HogValue>,
-    key: &str,
-) -> Result<Option<String>, VmError> {
+fn obj_string(heap: &VmHeap, obj: &HogMap, key: &str) -> Result<Option<String>, VmError> {
     match obj.get(key) {
         Some(v) => Ok(match v.deref(heap)? {
-            HogLiteral::String(s) => Some(s.clone()),
+            HogLiteral::String(s) => Some(s.to_string()),
             _ => None,
         }),
         None => Ok(None),
@@ -1547,7 +1539,7 @@ fn obj_string(
 }
 
 // Whole days from the Unix epoch to a Hog date (reference: `day.diff(epoch, 'days').days` floored).
-fn hog_date_epoch_days(heap: &VmHeap, obj: &IndexMap<String, HogValue>) -> Result<i64, VmError> {
+fn hog_date_epoch_days(heap: &VmHeap, obj: &HogMap) -> Result<i64, VmError> {
     let year = obj_number(heap, obj, "year")?.unwrap_or(0.0) as i32;
     let month = obj_number(heap, obj, "month")?.unwrap_or(0.0) as u32;
     let day = obj_number(heap, obj, "day")?.unwrap_or(0.0) as u32;
@@ -1825,10 +1817,10 @@ impl<'de> Visitor<'de> for HogJsonVisitor {
         Ok(HogLiteral::Number(Num::Float(v)))
     }
     fn visit_str<E>(self, v: &str) -> Result<HogLiteral, E> {
-        Ok(HogLiteral::String(v.to_string()))
+        Ok(HogLiteral::from(v.to_string()))
     }
     fn visit_string<E>(self, v: String) -> Result<HogLiteral, E> {
-        Ok(HogLiteral::String(v))
+        Ok(HogLiteral::from(v))
     }
     fn visit_none<E>(self) -> Result<HogLiteral, E> {
         Ok(HogLiteral::Null)
@@ -1844,11 +1836,11 @@ impl<'de> Visitor<'de> for HogJsonVisitor {
         Ok(HogLiteral::Array(vals))
     }
     fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<HogLiteral, A::Error> {
-        let mut obj = IndexMap::new();
+        let mut obj = HogMap::default();
         while let Some((k, HogJson(v))) = map.next_entry::<String, HogJson>()? {
             obj.insert(k, v);
         }
-        Ok(HogLiteral::Object(obj))
+        Ok(HogLiteral::Object(Box::new(obj)))
     }
 }
 
@@ -1901,7 +1893,7 @@ fn json_stringify(
         }
         HogLiteral::Object(map) => {
             let mut parts = Vec::with_capacity(map.len());
-            for (k, v) in map {
+            for (k, v) in map.iter() {
                 parts.push(format!(
                     "{}: {}",
                     escape(k)?,
@@ -1984,7 +1976,7 @@ fn position_impl(
     ci: bool,
 ) -> Result<i64, VmError> {
     let s = match haystack.deref(&vm.heap)? {
-        HogLiteral::String(s) => s.clone(),
+        HogLiteral::String(s) => s.to_string(),
         _ => return Ok(0),
     };
     let n = to_string(&vm.heap, needle, 0)?; // str(needle)
@@ -2036,7 +2028,7 @@ fn trim_impl(vm: &HogVM, args: Vec<HogValue>, side: TrimSide) -> Result<HogValue
             TrimSide::Right => s.trim_end().to_string(),
         }
     };
-    Ok(HogLiteral::String(result).into())
+    Ok(HogLiteral::from(result).into())
 }
 
 fn make_hog_datetime(dt: f64, zone: &str) -> Result<HogValue, VmError> {
@@ -2087,7 +2079,7 @@ fn hog_datetime_parts(vm: &HogVM, value: &HogValue, name: &str) -> Result<(f64, 
         .ok_or_else(|| VmError::NativeCallFailed(format!("{name} expects a DateTime")))?;
     let zone = match lit {
         HogLiteral::Object(map) => match map.get("zone").map(|z| z.deref(&vm.heap)) {
-            Some(Ok(HogLiteral::String(s))) => s.clone(),
+            Some(Ok(HogLiteral::String(s))) => s.to_string(),
             _ => "UTC".to_string(),
         },
         _ => "UTC".to_string(),
@@ -2171,7 +2163,7 @@ fn zone_local_timestamp(zone: &str, naive: &NaiveDateTime) -> Result<f64, VmErro
 fn make_hog_interval(vm: &HogVM, args: &[HogValue], unit: &str) -> Result<HogValue, VmError> {
     assert_argc(args, 1, "toInterval")?;
     let n = args[0].deref(&vm.heap)?.try_as::<Num>()?.clone();
-    let mut map = IndexMap::new();
+    let mut map = HogMap::default();
     map.insert(
         "__hogInterval__".to_string(),
         HogLiteral::Boolean(true).into(),
@@ -2179,9 +2171,9 @@ fn make_hog_interval(vm: &HogVM, args: &[HogValue], unit: &str) -> Result<HogVal
     map.insert("value".to_string(), HogLiteral::Number(n).into());
     map.insert(
         "unit".to_string(),
-        HogLiteral::String(unit.to_string()).into(),
+        HogLiteral::from(unit.to_string()).into(),
     );
-    Ok(HogLiteral::Object(map).into())
+    Ok(HogLiteral::Object(Box::new(map)).into())
 }
 
 // Add an interval to a DateTime. day/hour/minute/second are absolute durations; month is wall-clock
@@ -2321,7 +2313,7 @@ fn format_datetime_impl(vm: &HogVM, args: &[HogValue]) -> Result<HogValue, VmErr
             ))
         }
     };
-    Ok(HogLiteral::String(dt.format(&translated).to_string()).into())
+    Ok(HogLiteral::from(dt.format(&translated).to_string()).into())
 }
 
 // Translate the reference's ClickHouse-style format tokens (% + token) to chrono strftime codes.
@@ -2509,7 +2501,7 @@ fn hash_with_encoding(
         HogLiteral::Null => Ok(HogLiteral::Null.into()),
         lit => {
             let data: &str = lit.try_as()?;
-            Ok(HogLiteral::String(encode_digest(&hasher(data.as_bytes()), encoding)?).into())
+            Ok(HogLiteral::from(encode_digest(&hasher(data.as_bytes()), encoding)?).into())
         }
     }
 }
@@ -2585,7 +2577,7 @@ fn encode_digest(digest: &[u8], encoding: &str) -> Result<String, VmError> {
 fn encoding_arg(vm: &HogVM, args: &[HogValue], idx: usize) -> Result<String, VmError> {
     match args.get(idx) {
         Some(v) => match v.deref(&vm.heap)? {
-            HogLiteral::String(s) => Ok(s.clone()),
+            HogLiteral::String(s) => Ok(s.to_string()),
             _ => Ok("hex".to_string()),
         },
         None => Ok("hex".to_string()),
@@ -2712,16 +2704,16 @@ fn new_hog_error(
     message: String,
     payload: Option<&HogValue>,
 ) -> Result<HogValue, VmError> {
-    let mut map = IndexMap::new();
+    let mut map = HogMap::default();
     map.insert("__hogError__".to_string(), HogLiteral::Boolean(true).into());
-    map.insert("type".to_string(), HogLiteral::String(type_str).into());
-    map.insert("message".to_string(), HogLiteral::String(message).into());
+    map.insert("type".to_string(), HogLiteral::from(type_str).into());
+    map.insert("message".to_string(), HogLiteral::from(message).into());
     if let Some(p) = payload {
         if !matches!(p.deref(&vm.heap)?, HogLiteral::Null) {
             map.insert("payload".to_string(), p.clone());
         }
     }
-    Ok(HogLiteral::Object(map).into())
+    Ok(HogLiteral::Object(Box::new(map)).into())
 }
 
 // Resolve a string arg with the reference's `value || default` falsiness: missing, null, or empty
@@ -2736,7 +2728,7 @@ fn arg_string_or(
         None => Ok(default.to_string()),
         Some(v) => match v.deref(&vm.heap)? {
             HogLiteral::String(s) if s.is_empty() => Ok(default.to_string()),
-            HogLiteral::String(s) => Ok(s.clone()),
+            HogLiteral::String(s) => Ok(s.to_string()),
             HogLiteral::Null => Ok(default.to_string()),
             _ => to_string(&vm.heap, v, 0),
         },
@@ -2758,6 +2750,8 @@ fn is_hog_empty(lit: &HogLiteral) -> bool {
 
 // `equals`/`notEquals` use strict equality (reference `a === b`): no cross-type coercion, so a
 // number and a numeric string are never equal. Differs from the coercing `==`/`!=` opcodes.
+// Strictness applies across types, not within them: the int and float variants of a number unify,
+// which matches the reference `===` where every number is f64.
 fn strict_equals(vm: &HogVM, a: &HogValue, b: &HogValue) -> Result<bool, VmError> {
     Ok(a.deref(&vm.heap)? == b.deref(&vm.heap)?)
 }

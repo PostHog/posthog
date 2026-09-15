@@ -8,6 +8,7 @@ import { Dayjs, dayjs } from 'lib/dayjs'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { componentsToDayJs, dateStringToComponents, dateStringToDayJs, isStringDateRegex } from 'lib/utils/dateFilters'
 import { Params } from 'scenes/sceneTypes'
+import { convertUniversalFiltersToRecordingsQuery } from 'scenes/session-recordings/filters/recordingsQueryConversions'
 
 import { DateRange, ErrorTrackingIssue } from '~/queries/schema/schema-general'
 import { escapeHogQLString } from '~/queries/utils'
@@ -18,6 +19,8 @@ import {
     PropertyFilterType,
     type UniversalFiltersGroup,
 } from '~/types'
+
+import type { ScannerHandoffIntent } from 'products/replay_vision/frontend/replay_scanners/scannerHandoffIntent'
 
 /** Reason error tracking write actions are disabled, or null when the user has editor access. */
 export function errorTrackingEditAccessDisabledReason(): string | null {
@@ -115,12 +118,18 @@ export function isThirdPartyScriptError(value: ErrorTrackingException['value']):
 // before the exception fired, and past last_seen so a single-occurrence issue isn't a zero-width window.
 // The selected event keeps the range valid when the user clicks before the last_seen query finishes.
 export function getIssueReplayDateRange(
-    firstSeen: string,
+    firstSeen: string | null | undefined,
     lastSeen: Dayjs | null,
     selectedEventTimestamp?: string | null
 ): DateRange {
-    const from = dayjs(firstSeen)
+    const firstSeenAt = dayjs(firstSeen)
     const selectedEventSeenAt = selectedEventTimestamp ? dayjs(selectedEventTimestamp) : null
+    // first_seen is annotated from fingerprint rows, so an issue with no ingested events
+    // (reachable via the metrics error-spike overlay) has none — anchor on another known
+    // timestamp instead of letting toISOString throw on an invalid date.
+    const from = firstSeenAt.isValid()
+        ? firstSeenAt
+        : ([lastSeen, selectedEventSeenAt].find((d): d is Dayjs => !!d?.isValid()) ?? dayjs())
     const latestKnownSeenAt =
         selectedEventSeenAt?.isValid() && (!lastSeen || selectedEventSeenAt.isAfter(lastSeen))
             ? selectedEventSeenAt
@@ -133,7 +142,16 @@ export function getIssueReplayDateRange(
     }
 }
 
-export function getIssueReplayFilterGroup(issueId: string): UniversalFiltersGroup {
+export function getIssueReplayFilterGroup(issueId: string, issueLabel?: string): UniversalFiltersGroup {
+    // A HogQL `-- comment` is stripped before the query runs, so it never changes matching, but the
+    // filter UI renders the condition by its comment. Pass the error name so a preview shows
+    // "$exception where <error>" instead of a raw, opaque `issue_id = '<uuid>'`.
+    //
+    // The name is attacker-influenced (an app can throw an exception with any name), and a HogQL line
+    // comment runs only to the next CR/LF. A line terminator in the name would end the comment and let
+    // the rest run as a live condition, widening the scanner past this issue, so strip line terminators
+    // before embedding. The label is display-only, so collapsing them to a space loses nothing.
+    const comment = issueLabel ? ` -- ${issueLabel.replace(/[\r\n]/g, ' ')}` : ''
     return {
         type: FilterLogicalOperator.And,
         values: [
@@ -146,7 +164,7 @@ export function getIssueReplayFilterGroup(issueId: string): UniversalFiltersGrou
                         type: 'events',
                         properties: [
                             {
-                                key: `issue_id = ${escapeHogQLString(issueId)}`,
+                                key: `issue_id = ${escapeHogQLString(issueId)}${comment}`,
                                 type: PropertyFilterType.HogQL,
                             },
                         ],
@@ -154,6 +172,50 @@ export function getIssueReplayFilterGroup(issueId: string): UniversalFiltersGrou
                 ],
             },
         ],
+    }
+}
+
+function issueVisionScannerPrompt(issueName: string): string {
+    return [
+        `Watch each recording to understand what the user experienced around the error "${issueName}". For each session, describe:`,
+        '- What the user was trying to do right before the error',
+        '- What they saw when it happened: a broken screen, an error message, or nothing visible',
+        '- How they reacted: retried, refreshed, rage-clicked, or left',
+        '- Whether they recovered and finished, or gave up',
+    ].join('\n')
+}
+
+/** The "scan this error's recordings" cross-sell: a Replay vision scanner prefilled to watch
+ * sessions that hit this issue and summarize what users experienced around the error. */
+export function issueVisionScannerHandoff(
+    issueId: string,
+    issueName: string,
+    dateRange: DateRange
+): ScannerHandoffIntent {
+    return {
+        source: 'error_tracking',
+        scanner: {
+            name: `Error tracking: ${issueName}`,
+            description: 'Summarizes what users experienced in sessions that hit this error.',
+            scanner_type: 'summarizer',
+            scanner_config: { prompt: issueVisionScannerPrompt(issueName), length: 'medium' },
+            // The date range rides along like the replay filters entry point's does; the backend
+            // drops it on save because the scanner's schedule owns time. The error name is passed as
+            // the issue filter's label so the scanner's eligible-recordings preview reads
+            // "$exception where <error>" instead of matching every exception session.
+            query: convertUniversalFiltersToRecordingsQuery({
+                ...dateRange,
+                duration: [],
+                filter_group: getIssueReplayFilterGroup(issueId, issueName),
+            }),
+            // Error-scoped queries match few sessions, so scan them all rather than starting at
+            // the wizard's narrow default rate.
+            sampling_rate: 1.0,
+            sampling_mode: 'balanced',
+            // 5,000 credits is $50 (1 credit = $0.01), the anchor the goal-based flow suggests.
+            credit_limit: 5000,
+            credit_limit_enabled: true,
+        },
     }
 }
 

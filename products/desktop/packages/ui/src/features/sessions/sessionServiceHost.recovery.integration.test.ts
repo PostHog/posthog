@@ -50,15 +50,6 @@ const mockTrpcFs = vi.hoisted(() => ({
   readFileAsBase64: { query: vi.fn() },
 }));
 
-const mockTrpcHandoff = vi.hoisted(() => ({
-  preflightToCloud: { query: vi.fn() },
-  executeToCloud: { mutate: vi.fn() },
-}));
-
-const mockTrpcOs = vi.hoisted(() => ({
-  openExternal: { mutate: vi.fn() },
-}));
-
 const mockAuthenticatedClient = vi.hoisted(() => ({
   createTaskRun: vi.fn(),
   appendTaskRunLog: vi.fn(),
@@ -174,8 +165,6 @@ vi.mock("@posthog/di/container", () => ({
         logs: mockTrpcLogs,
         cloudTask: mockTrpcCloudTask,
         fs: mockTrpcFs,
-        handoff: mockTrpcHandoff,
-        os: mockTrpcOs,
       };
     }
     if (token === Symbol.for("posthog.ui.ImperativeQueryClient")) {
@@ -301,7 +290,6 @@ vi.mock("@posthog/core/sessions/sessionEvents", async () => {
     extractPromptText: vi.fn((p) => (typeof p === "string" ? p : "text")),
     getUserShellExecutesSinceLastPrompt: vi.fn(() => []),
     isFatalSessionError: actual.isFatalSessionError,
-    isRateLimitError: actual.isRateLimitError,
     normalizePromptToBlocks: vi.fn((p) =>
       typeof p === "string" ? [{ type: "text", text: p }] : p,
     ),

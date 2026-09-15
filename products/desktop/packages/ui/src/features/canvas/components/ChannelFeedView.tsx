@@ -16,6 +16,7 @@ import { buildThreadTimeline } from "@posthog/core/canvas/threadTimeline";
 import type { PrCheck } from "@posthog/core/git/router-schemas";
 import { parsePrNumber } from "@posthog/core/git-interaction/prStatus";
 import { xmlToPlainText } from "@posthog/core/message-editor/content";
+import type { TaskData } from "@posthog/core/sidebar/sidebarData.types";
 import { isTaskActivelyRunning } from "@posthog/core/sidebar/taskRunning";
 import {
   AvatarGroup,
@@ -28,7 +29,6 @@ import {
   PopoverContent,
   PopoverTrigger,
   Skeleton,
-  Spinner,
   Tabs,
   TabsList,
   TabsTrigger,
@@ -89,6 +89,7 @@ import {
 import { useRenameTask } from "@posthog/ui/features/tasks/useTaskMutations";
 import { FileIcon } from "@posthog/ui/primitives/FileIcon";
 import { useInView } from "@posthog/ui/primitives/hooks/useInView";
+import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { toast } from "@posthog/ui/primitives/toast";
 import { openExternalUrl } from "@posthog/ui/shell/openExternal";
 import { parseHttpsUrl } from "@posthog/ui/utils/posthogLinks";
@@ -127,7 +128,7 @@ const PR_STATE_LABELS: Record<
 function statusBadge(status: TaskRunStatus) {
   return (
     <Badge variant={runStatusVariant(status)}>
-      {status === "in_progress" && <Spinner className="size-2.5" />}
+      {status === "in_progress" && <Spinner size="xs" />}
       {RUN_STATUS_LABELS[status]}
     </Badge>
   );
@@ -152,16 +153,29 @@ interface TaskStatusDisplay {
 // shipped task never reads "Ready + Merged" or a stale "In progress + PR
 // ready". A failed/cancelled run suppresses the PR badge instead — that is a
 // deliberate end state we should not soften with a PR.
-function useTaskStatusDisplay(task: Task): TaskStatusDisplay {
-  const data = useChannelTaskData(task);
+function useTaskStatusDisplay(
+  task: Task,
+  // Derived by the caller: `useChannelTaskData` mounts queries, mutations and
+  // store subscriptions, so a card that already holds the data must not mount
+  // a second copy of that graph here.
+  data: TaskData | undefined,
+  options?: {
+    resolvePrStatus?: boolean;
+  },
+): TaskStatusDisplay {
   const { prState } = useTaskPrStatus({
-    id: task.id,
+    id: options?.resolvePrStatus === false ? "" : task.id,
     cloudPrUrl: data?.cloudPrUrl ?? null,
     taskRunEnvironment: data?.taskRunEnvironment ?? null,
   });
   const status = data?.taskRunStatus ?? task.latest_run?.status;
   const environment = data?.taskRunEnvironment ?? task.latest_run?.environment;
-  const displayStatus = taskFeedRunStatus({ status, environment });
+  const displayStatus = taskFeedRunStatus({
+    status,
+    environment,
+    runMode: data?.runMode,
+    isGenerating: data?.isGenerating,
+  });
   // `prState` is resolved async from git/`gh` and is routinely null for cloud
   // tasks (the details fetch hasn't landed, or there's no cached row). But the
   // PR URL itself is a hard signal a PR exists — the card's "PR" link keys off
@@ -181,10 +195,14 @@ function useTaskStatusDisplay(task: Task): TaskStatusDisplay {
     // waiting on the user right now, which matters more than a PR existing.
     base = <Badge variant="warning">Needs input</Badge>;
   } else if (data?.isGenerating) {
+    const label =
+      status === "not_started" || status === "queued"
+        ? "Starting"
+        : "In progress";
     base = (
       <Badge variant="info">
-        <Spinner className="size-2.5" />
-        In progress
+        <Spinner size="xs" />
+        {label}
       </Badge>
     );
   } else if (showPrState) {
@@ -249,7 +267,7 @@ export function TaskSummaryRow({
   task: Task;
   channelId: string;
 }) {
-  const statusDisplay = useTaskStatusDisplay(task);
+  const statusDisplay = useTaskStatusDisplay(task, useChannelTaskData(task));
   return (
     <Link
       {...taskCardNavigation(channelId, task.id)}
@@ -290,7 +308,7 @@ export function TaskCard({
   inThread?: boolean;
   onOpen?: () => void;
 }) {
-  const statusDisplay = useTaskStatusDisplay(task);
+  const statusDisplay = useTaskStatusDisplay(task, useChannelTaskData(task));
   const prUrl =
     typeof task.latest_run?.output?.pr_url === "string"
       ? task.latest_run.output.pr_url
@@ -388,7 +406,13 @@ export function ExpandablePrompt({
   useEffect(() => {
     if (!measure || expanded) return;
 
+    let measuredWidth: number | null = null;
+    let frame: number | null = null;
     const compute = () => {
+      frame = null;
+      const width = measure.clientWidth;
+      if (width === 0 || width === measuredWidth) return;
+      measuredWidth = width;
       const lineHeight = parseFloat(getComputedStyle(measure).lineHeight);
       const maxHeight = lineHeight * lines;
       if (measure.scrollHeight <= maxHeight + 0.5) {
@@ -431,9 +455,14 @@ export function ExpandablePrompt({
     };
 
     compute();
-    const observer = new ResizeObserver(compute);
+    const observer = new ResizeObserver(() => {
+      if (frame === null) frame = requestAnimationFrame(compute);
+    });
     observer.observe(measure);
-    return () => observer.disconnect();
+    return () => {
+      observer.disconnect();
+      if (frame !== null) cancelAnimationFrame(frame);
+    };
   }, [children, expanded, lines, measure]);
 
   const truncated = cut !== null;
@@ -581,7 +610,7 @@ function PrCiLine({ url }: { url: string }) {
     if (!checks.isPending) return null;
     return (
       <div className="flex items-center gap-1.5 text-(--gray-9) text-xs">
-        <Spinner className="size-3" />
+        <Spinner size="sm" />
         Checking CI…
       </div>
     );
@@ -619,7 +648,7 @@ function PrPopoverContent({ url }: { url: string }) {
         // The title resolves via gh after open; hold its line so the card
         // doesn't jump when it lands.
         <div className="flex h-5 items-center">
-          <Spinner className="size-3" />
+          <Spinner size="sm" />
         </div>
       )}
       <PrCiLine url={url} />
@@ -659,7 +688,7 @@ function PrPopoverRow({ url }: { url: string }) {
           style={{ backgroundColor: ci.color }}
         />
       ) : (
-        checks.isPending && <Spinner className="size-3 shrink-0" />
+        checks.isPending && <Spinner size="sm" className="shrink-0" />
       )}
     </button>
   );
@@ -732,8 +761,10 @@ const FeedItem = memo(function FeedItem({
   onOpenThread: (task: Task, tab?: ThreadPanelTab) => void;
 }) {
   const { mutate: markTasksRead } = useMarkTaskActivityRead();
-  const statusDisplay = useTaskStatusDisplay(task);
   const taskData = useChannelTaskData(task);
+  const statusDisplay = useTaskStatusDisplay(task, taskData, {
+    resolvePrStatus: inView,
+  });
   const { togglePin } = usePinnedTasks();
   const { archiveTask } = useArchiveTask();
   const { renameTask } = useRenameTask();
@@ -747,8 +778,11 @@ const FeedItem = memo(function FeedItem({
   const canStop = taskData?.taskRunEnvironment === "cloud" && isActive;
   const starter = channelTaskStarter(task);
   const prompt = useMemo(
-    () => stripContextBlocks(xmlToPlainText(task.description ?? "")),
-    [task.description],
+    () =>
+      stripContextBlocks(
+        xmlToPlainText(task.description_preview ?? task.description ?? ""),
+      ),
+    [task.description_preview, task.description],
   );
   const prUrls = useMemo(
     () =>
@@ -1202,7 +1236,7 @@ function PendingFeedRow({ pending }: { pending: PendingKickoff }) {
             New task
           </span>
           <Badge variant="info">
-            <Spinner className="size-2.5" />
+            <Spinner size="xs" />
             Starting…
           </Badge>
         </div>
@@ -1480,7 +1514,7 @@ export function ChannelFeedView({
             <TabsTrigger
               key={value}
               value={value}
-              className="rounded-sm px-1 py-0.5 text-[13px]"
+              className="rounded-sm px-2 py-0.5 text-[13px]"
             >
               {label}
               {value === "reports" &&

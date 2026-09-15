@@ -68,6 +68,17 @@ STAMPHOG_OPTIONAL_POLICY_PATHS: tuple[str, ...] = (STAMPHOG_STEERING_PATH,)
 # Per-activity start-to-close timeouts.
 FETCH_CONTEXT_TIMEOUT = timedelta(minutes=5)
 RUN_REVIEW_TIMEOUT = timedelta(minutes=30)
+
+# Ceilings for the steps inside the review activity. They add up to more than RUN_REVIEW_TIMEOUT on
+# purpose: each one caps a step that should never take that long, while the shared deadline in
+# run_review_in_sandbox caps what the steps can spend between them. Granting each step its own
+# independent budget was the bug — the clone alone could hold the activity for twice its ceiling.
+CLONE_STEP_TIMEOUT_SECONDS = 5 * 60
+PREFETCH_BLAME_TIMEOUT_SECONDS = 3 * 60
+REVIEWER_TIMEOUT_SECONDS = 25 * 60
+# Held back from the deadline so a step that runs to its limit still leaves room for the sandbox
+# teardown and the terminal save that follow it.
+SANDBOX_PHASE_RESERVE_SECONDS = 2 * 60
 POST_VERDICT_TIMEOUT = timedelta(minutes=5)
 MARK_FAILED_TIMEOUT = timedelta(minutes=1)
 
@@ -80,7 +91,16 @@ ACTIVITY_RETRY_POLICY = RetryPolicy(
     maximum_interval=timedelta(minutes=1),
 )
 
-# The sandbox review provisions a box, clones the repo, and runs the reviewer agent —
-# expensive and side-effecting, so a transient failure fails the run rather than
-# silently paying for it twice. The workflow-level wrapper marks the run FAILED.
+
+class SandboxPhaseError(Exception):
+    """Marks the paid phase of the review activity: this attempt made a sandbox, or found the claim
+    of an earlier one. SANDBOX_RETRY_POLICY excludes this type, so no run pays for a review twice.
+    """
+
+
+# One attempt. The activity setup costs nothing and is safe to repeat, and the activity marks its
+# paid phase and records a claim. A higher count belongs in a later change, after this one is on
+# every worker: workflow and activity tasks share one unversioned queue, so a rolling deploy lets a
+# new workflow worker schedule against an old activity worker that writes no claim. A paid-phase
+# failure would then bill a second review.
 SANDBOX_RETRY_POLICY = RetryPolicy(maximum_attempts=1)

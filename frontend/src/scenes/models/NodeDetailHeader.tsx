@@ -1,73 +1,45 @@
 import { useActions, useValues } from 'kea'
-import { useMemo } from 'react'
 
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 
-import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { SceneActivityIndicator } from 'lib/components/Scenes/SceneUpdateActivityInfo'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
-import { sqlEditorLogic } from 'scenes/data-warehouse/editor/sqlEditorLogic'
-import { SQLEditorMode } from 'scenes/data-warehouse/editor/sqlEditorModes'
-import { dataWarehouseViewsLogic } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
+import { materializationJobsLogic } from 'scenes/data-warehouse/saved_queries/materializationJobsLogic'
 
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { NodeKind } from '~/queries/schema/schema-general'
-import { AccessControlLevel, AccessControlResourceType, DataWarehouseSavedQuery } from '~/types'
+import { ScenePanel, ScenePanelInfoSection } from '~/layout/scenes/SceneLayout'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
+
+import { NODE_TYPE_TAG_SETTINGS } from 'products/data_modeling/frontend/lineage/nodeStyles'
+import { NodeDetailActions } from 'products/data_modeling/frontend/nodeDetail/NodeDetailActions'
 
 import { nodeDetailSceneLogic } from './nodeDetailSceneLogic'
 
-function SaveDiscardActions({
-    id,
-    savedQuery,
-}: {
-    id: string
-    savedQuery: DataWarehouseSavedQuery
-}): JSX.Element | null {
-    const sqlEditorTabId = useMemo(() => `node-detail-query-${id}`, [id])
-    const { queryInput } = useValues(sqlEditorLogic({ tabId: sqlEditorTabId, mode: SQLEditorMode.Embedded }))
-    const { setQueryInput, updateView } = useActions(
-        sqlEditorLogic({ tabId: sqlEditorTabId, mode: SQLEditorMode.Embedded })
-    )
-    const { updatingDataWarehouseSavedQuery } = useValues(dataWarehouseViewsLogic)
-
-    const queryString = savedQuery?.query?.query ?? ''
-    const hasChanges = !!queryInput && queryInput !== queryString
-
-    if (!hasChanges) {
-        return null
-    }
-
-    const handleSave = (): void => {
-        if (queryInput) {
-            updateView({
-                id: savedQuery.id,
-                query: { kind: NodeKind.HogQLQuery, query: queryInput },
-                types: [],
-            })
-        }
-    }
-
-    return (
-        <>
-            <LemonButton type="secondary" onClick={() => setQueryInput(queryString)} size="small">
-                Discard
-            </LemonButton>
-            <AccessControlAction
-                resourceType={AccessControlResourceType.WarehouseObjects}
-                minAccessLevel={AccessControlLevel.Editor}
-                userAccessLevel={savedQuery.user_access_level}
-            >
-                <LemonButton type="primary" onClick={handleSave} loading={updatingDataWarehouseSavedQuery} size="small">
-                    Save
-                </LemonButton>
-            </AccessControlAction>
-        </>
-    )
-}
-
 export function NodeDetailHeader({ id }: { id: string }): JSX.Element {
-    const { node, nodeLoading, savedQuery } = useValues(nodeDetailSceneLogic({ id }))
+    const {
+        node,
+        nodeLoading,
+        savedQuery: initialSavedQuery,
+        savedQueryError,
+    } = useValues(nodeDetailSceneLogic({ id }))
     const { updateNodeDescription } = useActions(nodeDetailSceneLogic({ id }))
 
+    const { savedQuery: currentSavedQuery } = useValues(
+        materializationJobsLogic({
+            viewId: node?.saved_query_id ?? '',
+            kind: node?.type === 'endpoint' ? 'endpoint' : 'view',
+        })
+    )
+    const savedQuery = currentSavedQuery ?? initialSavedQuery
+    const nodeType =
+        node?.type === 'view' || node?.type === 'matview'
+            ? savedQuery
+                ? savedQuery.is_materialized
+                    ? 'matview'
+                    : 'view'
+                : node.type
+            : node?.type
+    const typeTag = nodeType ? NODE_TYPE_TAG_SETTINGS[nodeType] : null
     const canEdit = userHasAccess(
         AccessControlResourceType.WarehouseObjects,
         AccessControlLevel.Editor,
@@ -75,20 +47,40 @@ export function NodeDetailHeader({ id }: { id: string }): JSX.Element {
     )
 
     return (
-        <SceneTitleSection
-            name={node?.name}
-            description={node?.description}
-            resourceType={{ type: 'sql_editor' }}
-            canEdit={canEdit}
-            onDescriptionChange={canEdit ? (description) => updateNodeDescription(description) : undefined}
-            isLoading={nodeLoading && !node}
-            renameDebounceMs={500}
-            saveOnBlur
-            actions={
-                savedQuery && node?.type !== 'table' ? (
-                    <SaveDiscardActions id={id} savedQuery={savedQuery} />
-                ) : undefined
-            }
-        />
+        <>
+            <SceneTitleSection
+                name={node?.name}
+                nameSuffix={typeTag && <LemonTag type={typeTag.type}>{typeTag.label}</LemonTag>}
+                actions={
+                    // A failed saved query never resolves on its own, so the placeholder must not
+                    // outlive it. The Materialization and Query tabs carry the retry.
+                    node && savedQuery ? (
+                        <NodeDetailActions node={node} savedQuery={savedQuery} />
+                    ) : node?.saved_query_id && !savedQueryError ? (
+                        <LemonSkeleton className="h-8 w-56" />
+                    ) : undefined
+                }
+                description={node?.description}
+                resourceType={{ type: 'sql_editor' }}
+                canEdit={canEdit}
+                onDescriptionChange={canEdit ? (description) => updateNodeDescription(description) : undefined}
+                isLoading={nodeLoading && !node}
+                renameDebounceMs={500}
+                saveOnBlur
+            />
+            <ScenePanel>
+                <ScenePanelInfoSection>
+                    {/* Take the date from the saved query, because the author next to it comes from
+                        there too. A node backfilled from an existing saved query holds the date of
+                        the backfill, so the two would describe different events. The node's own
+                        date stands in only where there is no saved query. */}
+                    <SceneActivityIndicator
+                        prefix="Created"
+                        at={node?.saved_query_id ? savedQuery?.created_at : node?.created_at}
+                        by={savedQuery?.created_by}
+                    />
+                </ScenePanelInfoSection>
+            </ScenePanel>
+        </>
     )
 }

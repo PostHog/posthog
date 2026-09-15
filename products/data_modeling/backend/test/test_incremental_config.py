@@ -215,6 +215,27 @@ class TestIncrementalConfig(BaseTest):
                 0,
                 datetime(2026, 8, 2, tzinfo=UTC),
             ),
+            (
+                "date_shifts_back_whole_days",
+                date(2026, 8, 10),
+                "date",
+                60 * 60 * 24 * 5,
+                date(2026, 8, 5),
+            ),
+            (
+                "date_rounds_partial_day_lookback_up_to_whole_days",
+                date(2026, 8, 10),
+                "date",
+                60 * 60 * 24 + 3600,
+                date(2026, 8, 8),
+            ),
+            (
+                "date_sub_day_lookback_reaches_previous_bucket",
+                date(2026, 8, 10),
+                "date",
+                3600,
+                date(2026, 8, 9),
+            ),
             ("integer_key_ignores_lookback", 42, "int", 3600, 42),
             ("string_key_ignores_lookback", "2026-08-02", "string", 3600, "2026-08-02"),
         ]

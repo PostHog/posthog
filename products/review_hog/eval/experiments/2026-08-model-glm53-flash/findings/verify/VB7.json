@@ -1,0 +1,6 @@
+{
+    "id": "VB7",
+    "real": true,
+    "source": "fresh",
+    "reasoning": "StamphogRepoConfig inherits ProductTeamModel whose save() rewrites team_id to the canonical parent (posthog/models/scoping/product_mixin.py:86-95), while Task/TaskRun are plain models.Model with raw Team FKs (products/tasks/backend/models.py:112,1063,1079) created with the emitting child environment's id (signals grouping.py:738, auto_start.py:243). The facade rejects on raw inequality (products/tasks/backend/facade/api.py:505) and the caller repeats it (tasks.py:199), so the carve-out resolves empty and later pushes hit the bot_author skip (tasks.py:229). The initial receiver-leg review works because for_team() canonicalizes (tasks.py:1141, manager.py:117-130), confirming the asymmetry. Child environments are live in this tree (stamphog views.py:107, test_api.py:93). Reachable defect; should_fix stands."
+}

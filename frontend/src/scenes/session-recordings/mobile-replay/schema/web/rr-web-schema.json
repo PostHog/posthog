@@ -1,185 +1,6 @@
 {
+    "$ref": "#/definitions/WithJsonLdUrl%3CeventWithTime%241%3E",
     "$schema": "http://json-schema.org/draft-07/schema#",
-    "anyOf": [
-        {
-            "additionalProperties": false,
-            "properties": {
-                "data": {},
-                "delay": {
-                    "type": "number"
-                },
-                "timestamp": {
-                    "type": "number"
-                },
-                "type": {
-                    "$ref": "#/definitions/EventType.DomContentLoaded"
-                }
-            },
-            "required": ["data", "timestamp", "type"],
-            "type": "object"
-        },
-        {
-            "additionalProperties": false,
-            "properties": {
-                "data": {},
-                "delay": {
-                    "type": "number"
-                },
-                "timestamp": {
-                    "type": "number"
-                },
-                "type": {
-                    "$ref": "#/definitions/EventType.Load"
-                }
-            },
-            "required": ["data", "timestamp", "type"],
-            "type": "object"
-        },
-        {
-            "additionalProperties": false,
-            "properties": {
-                "data": {
-                    "additionalProperties": false,
-                    "properties": {
-                        "initialOffset": {
-                            "additionalProperties": false,
-                            "properties": {
-                                "left": {
-                                    "type": "number"
-                                },
-                                "top": {
-                                    "type": "number"
-                                }
-                            },
-                            "required": ["top", "left"],
-                            "type": "object"
-                        },
-                        "node": {
-                            "$ref": "#/definitions/serializedNodeWithId"
-                        }
-                    },
-                    "required": ["node", "initialOffset"],
-                    "type": "object"
-                },
-                "delay": {
-                    "type": "number"
-                },
-                "timestamp": {
-                    "type": "number"
-                },
-                "type": {
-                    "$ref": "#/definitions/EventType.FullSnapshot"
-                }
-            },
-            "required": ["data", "timestamp", "type"],
-            "type": "object"
-        },
-        {
-            "additionalProperties": false,
-            "properties": {
-                "data": {
-                    "$ref": "#/definitions/incrementalData"
-                },
-                "delay": {
-                    "type": "number"
-                },
-                "timestamp": {
-                    "type": "number"
-                },
-                "type": {
-                    "$ref": "#/definitions/EventType.IncrementalSnapshot"
-                }
-            },
-            "required": ["data", "timestamp", "type"],
-            "type": "object"
-        },
-        {
-            "additionalProperties": false,
-            "properties": {
-                "data": {
-                    "additionalProperties": false,
-                    "properties": {
-                        "height": {
-                            "type": "number"
-                        },
-                        "href": {
-                            "type": "string"
-                        },
-                        "width": {
-                            "type": "number"
-                        }
-                    },
-                    "required": ["href", "width", "height"],
-                    "type": "object"
-                },
-                "delay": {
-                    "type": "number"
-                },
-                "timestamp": {
-                    "type": "number"
-                },
-                "type": {
-                    "$ref": "#/definitions/EventType.Meta"
-                }
-            },
-            "required": ["data", "timestamp", "type"],
-            "type": "object"
-        },
-        {
-            "additionalProperties": false,
-            "properties": {
-                "data": {
-                    "additionalProperties": false,
-                    "properties": {
-                        "payload": {},
-                        "tag": {
-                            "type": "string"
-                        }
-                    },
-                    "required": ["tag", "payload"],
-                    "type": "object"
-                },
-                "delay": {
-                    "type": "number"
-                },
-                "timestamp": {
-                    "type": "number"
-                },
-                "type": {
-                    "$ref": "#/definitions/EventType.Custom"
-                }
-            },
-            "required": ["data", "timestamp", "type"],
-            "type": "object"
-        },
-        {
-            "additionalProperties": false,
-            "properties": {
-                "data": {
-                    "additionalProperties": false,
-                    "properties": {
-                        "payload": {},
-                        "plugin": {
-                            "type": "string"
-                        }
-                    },
-                    "required": ["plugin", "payload"],
-                    "type": "object"
-                },
-                "delay": {
-                    "type": "number"
-                },
-                "timestamp": {
-                    "type": "number"
-                },
-                "type": {
-                    "$ref": "#/definitions/EventType.Plugin"
-                }
-            },
-            "required": ["data", "timestamp", "type"],
-            "type": "object"
-        }
-    ],
     "definitions": {
         "CanvasContext": {
             "enum": [0, 1, 2],
@@ -371,6 +192,188 @@
             },
             "required": ["start", "startOffset", "end", "endOffset"],
             "type": "object"
+        },
+        "WithJsonLdUrl<eventWithTime$1>": {
+            "anyOf": [
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "data": {
+                            "additionalProperties": false,
+                            "properties": {
+                                "payload": {},
+                                "tag": {
+                                    "type": "string"
+                                }
+                            },
+                            "required": ["tag", "payload"],
+                            "type": "object"
+                        },
+                        "delay": {
+                            "type": "number"
+                        },
+                        "timestamp": {
+                            "type": "number"
+                        },
+                        "type": {
+                            "$ref": "#/definitions/EventType.Custom"
+                        }
+                    },
+                    "required": ["data", "timestamp", "type"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "data": {},
+                        "delay": {
+                            "type": "number"
+                        },
+                        "timestamp": {
+                            "type": "number"
+                        },
+                        "type": {
+                            "$ref": "#/definitions/EventType.DomContentLoaded"
+                        }
+                    },
+                    "required": ["data", "timestamp", "type"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "data": {},
+                        "delay": {
+                            "type": "number"
+                        },
+                        "timestamp": {
+                            "type": "number"
+                        },
+                        "type": {
+                            "$ref": "#/definitions/EventType.Load"
+                        }
+                    },
+                    "required": ["data", "timestamp", "type"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "data": {
+                            "additionalProperties": false,
+                            "properties": {
+                                "initialOffset": {
+                                    "additionalProperties": false,
+                                    "properties": {
+                                        "left": {
+                                            "type": "number"
+                                        },
+                                        "top": {
+                                            "type": "number"
+                                        }
+                                    },
+                                    "required": ["top", "left"],
+                                    "type": "object"
+                                },
+                                "node": {
+                                    "$ref": "#/definitions/serializedNodeWithId"
+                                }
+                            },
+                            "required": ["node", "initialOffset"],
+                            "type": "object"
+                        },
+                        "delay": {
+                            "type": "number"
+                        },
+                        "timestamp": {
+                            "type": "number"
+                        },
+                        "type": {
+                            "$ref": "#/definitions/EventType.FullSnapshot"
+                        }
+                    },
+                    "required": ["data", "timestamp", "type"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "data": {
+                            "$ref": "#/definitions/incrementalData"
+                        },
+                        "delay": {
+                            "type": "number"
+                        },
+                        "timestamp": {
+                            "type": "number"
+                        },
+                        "type": {
+                            "$ref": "#/definitions/EventType.IncrementalSnapshot"
+                        }
+                    },
+                    "required": ["data", "timestamp", "type"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "data": {
+                            "additionalProperties": false,
+                            "properties": {
+                                "height": {
+                                    "type": "number"
+                                },
+                                "href": {
+                                    "type": "string"
+                                },
+                                "width": {
+                                    "type": "number"
+                                }
+                            },
+                            "required": ["href", "width", "height"],
+                            "type": "object"
+                        },
+                        "delay": {
+                            "type": "number"
+                        },
+                        "timestamp": {
+                            "type": "number"
+                        },
+                        "type": {
+                            "$ref": "#/definitions/EventType.Meta"
+                        }
+                    },
+                    "required": ["data", "timestamp", "type"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "data": {
+                            "additionalProperties": false,
+                            "properties": {
+                                "payload": {},
+                                "plugin": {
+                                    "type": "string"
+                                }
+                            },
+                            "required": ["plugin", "payload"],
+                            "type": "object"
+                        },
+                        "delay": {
+                            "type": "number"
+                        },
+                        "timestamp": {
+                            "type": "number"
+                        },
+                        "type": {
+                            "$ref": "#/definitions/EventType.Plugin"
+                        }
+                    },
+                    "required": ["data", "timestamp", "type"],
+                    "type": "object"
+                }
+            ]
         },
         "addedNodeMutation": {
             "additionalProperties": false,
@@ -972,6 +975,7 @@
                         },
                         "isStyle": {
                             "const": true,
+                            "deprecated": "styles are now always snapshotted against parent <style> element\nstyle mutations can still happen via an added textNode, but they don't need this attribute for correct replay",
                             "type": "boolean"
                         },
                         "rootId": {

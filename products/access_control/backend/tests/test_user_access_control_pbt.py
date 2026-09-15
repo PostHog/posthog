@@ -155,11 +155,37 @@ def _build_ticket(team: Team, user: User, model_cls: type[models.Model]) -> mode
     )
 
 
+def _build_vision_alert(team: Team, user: User, model_cls: type[models.Model]) -> models.Model:
+    # kind drives cross-field CHECK constraints (a metric alert needs a threshold, a
+    # match alert must stay stateless) and is a 10-char choices column, so the generic
+    # field-filler can neither pick a valid kind nor satisfy the constraints.
+    from products.replay_vision.backend.models.replay_scanner import ReplayScanner
+
+    scanner = ReplayScanner.objects.create(
+        team=team,
+        name=f"pbt-scanner-{next(_unique_counter)}",
+        scanner_type="monitor",
+        scanner_config={},
+        model="gemini-3.8-flash",
+    )
+    manager: Any = model_cls._default_manager
+    if hasattr(manager, "for_team"):
+        manager = manager.for_team(team.id)
+    return manager.create(
+        team=team,
+        scanner=scanner,
+        name=f"pbt-vision-alert-{next(_unique_counter)}",
+        kind="match",
+        created_by=user,
+    )
+
+
 # resource -> factory for models whose validation the generic build_instance can't
 # satisfy. Preferred over EXCLUSIONS so the resource keeps coverage.
 FACTORY_OVERRIDES: dict[APIScopeObject, Callable[[Team, User, type[models.Model]], models.Model]] = {
     "evaluation": _build_evaluation,
     "ticket": _build_ticket,
+    "vision_alert": _build_vision_alert,
 }
 
 
@@ -216,7 +242,11 @@ def build_instance(model_cls: type[models.Model], team: Team, user: User, _depth
         elif isinstance(field, models.IntegerField | models.FloatField | models.DecimalField):
             kwargs[field.name] = 0
         elif isinstance(field, models.CharField | models.TextField):
-            kwargs[field.name] = f"pbt-{field.name}-{next(_unique_counter)}"
+            if field.choices:
+                kwargs[field.name] = field.choices[0][0]
+            else:
+                value = f"pbt-{field.name}-{next(_unique_counter)}"
+                kwargs[field.name] = value[: field.max_length] if field.max_length else value
         else:
             raise ValueError(f"Cannot generically fill {model_cls.__name__}.{field.name} ({type(field).__name__})")
 
@@ -322,22 +352,27 @@ membership_levels_st = st.one_of(st.just(OrganizationMembership.Level.MEMBER), s
 
 
 def oracle_explicit_level(specs: list[RowSpec], order: list[AccessControlLevel]) -> Optional[AccessControlLevel]:
-    # Mirrors get_user_access_level(obj, explicit=True): member/role rows on the
-    # object win over resource-level rows, which win over object rows including
-    # team defaults. Note the shadowing this implies: a self_member "none" row
-    # beats a team_default "admin" row even though it is lower.
+    # Mirrors get_user_access_level: member/role rows on the object win first. With no such
+    # row, an object-level default of "none" is final, because a broader resource-level
+    # grant must not widen a private object (the list filter blocks the same object).
+    # Otherwise resource-level rows win over the object's remaining default rows. Note the
+    # shadowing this implies: a self_member "none" row beats a team_default "admin" row even
+    # though it is lower.
     matching = [s for s in specs if s.target in MATCHING]
     specific: list[AccessControlLevel] = [
         s.level for s in matching if s.scope == "object" and s.target != "team_default"
     ]
     if specific:
         return _max_level(specific, order)
+    object_rows: list[AccessControlLevel] = [s.level for s in matching if s.scope == "object"]
+    object_default = _max_level(object_rows, order)
+    if object_rows and object_default == NO_ACCESS_LEVEL:
+        return NO_ACCESS_LEVEL
     resource_rows: list[AccessControlLevel] = [s.level for s in matching if s.scope == "resource"]
     if resource_rows:
         return _max_level(resource_rows, order)
-    object_rows: list[AccessControlLevel] = [s.level for s in matching if s.scope == "object"]
     if object_rows:
-        return _max_level(object_rows, order)
+        return object_default
     return None
 
 
@@ -466,7 +501,7 @@ def oracle_visible_object_ids(
     has_resource_access = oracle_resource_access_level(resource, resource_specs, is_org_admin) != NO_ACCESS_LEVEL
     creators = creator_ids if model_has_creator else set()
 
-    if not has_resource_access and allowed:
+    if not has_resource_access:
         return (allowed | creators) & all_ids
     if blocked:
         return all_ids - (blocked - creators)
@@ -502,6 +537,8 @@ class BaseAccessControlPropertyTest(HypothesisDjangoTestCase, BaseTest):
     @classmethod
     def setUpTestData(cls):
         super().setUpTestData()
+        # The oracles in this suite model the legacy resolution, so the org must stay on it
+        cls.organization.uses_most_specific_access_resolution = False
         cls.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
             {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
@@ -515,7 +552,9 @@ class BaseAccessControlPropertyTest(HypothesisDjangoTestCase, BaseTest):
         RoleMembership.objects.create(user=cls.other_user, role=cls.role_b)
 
         # A second organization self.user also belongs to, holding a role there
-        cls.other_organization = Organization.objects.create(name="PBT other organization")
+        cls.other_organization = Organization.objects.create(
+            name="PBT other organization", uses_most_specific_access_resolution=False
+        )
         cls.other_organization_membership = OrganizationMembership.objects.create(
             organization=cls.other_organization, user=cls.user, level=OrganizationMembership.Level.MEMBER
         )
@@ -619,6 +658,23 @@ class TestUserAccessControlProperties(BaseAccessControlPropertyTest):
             is_creator=own and model_has_created_by(model_cls),
             is_org_admin=membership_level >= OrganizationMembership.Level.ADMIN,
         )
+        assert self._fresh_uac().get_user_access_level(obj) == expected
+
+    def test_object_default_deny_is_final_over_resource_grant(self):
+        # The random strategy does not reliably draw an object default rule and a resource rule
+        # together, so the security interaction is pinned here: a private object (object default
+        # "none") stays denied even when the org grants a broader resource-level level.
+        resource: APIScopeObject = "dashboard"
+        model_cls = next(model for r, model in OBJECT_MODELS if r == resource)
+        obj = build_instance(model_cls, self.team, self.other_user)
+        specs = [
+            RowSpec(target="team_default", scope="object", level="none"),
+            RowSpec(target="team_default", scope="resource", level="editor"),
+        ]
+        self._materialize(specs, resource, obj)
+
+        expected = oracle_object_access_level(resource, specs, is_creator=False, is_org_admin=False)
+        assert expected == NO_ACCESS_LEVEL
         assert self._fresh_uac().get_user_access_level(obj) == expected
 
     @given(data=resource_level_rows(), membership_level=membership_levels_st)
@@ -741,8 +797,13 @@ class TestUserAccessControlProperties(BaseAccessControlPropertyTest):
         allowlisted = uac.allowlisted_resource_ids_by_scope.get(resource)
         blocked = uac.blocked_resource_ids_by_scope.get(resource, frozenset())
         model_has_creator = model_has_created_by(model_cls)
+        has_resource_access = uac.has_resource_access(resource)
 
         def guard_admits(object_id: str) -> bool:
+            # No resource access and no allowlist: Database.create_for drops the table, so
+            # nothing is readable.
+            if not has_resource_access and not allowlisted:
+                return False
             if model_has_creator and object_id in creator_ids:
                 return True
             if allowlisted:
@@ -750,7 +811,7 @@ class TestUserAccessControlProperties(BaseAccessControlPropertyTest):
             return object_id not in blocked
 
         visible = {object_id for object_id in object_specs_by_id if guard_admits(object_id)}
-        assert visible == oracle_visible_object_ids(
+        expected = oracle_visible_object_ids(
             resource,
             resource_specs,
             object_specs_by_id,
@@ -758,6 +819,12 @@ class TestUserAccessControlProperties(BaseAccessControlPropertyTest):
             model_has_creator=model_has_creator,
             is_org_admin=False,
         )
+        if has_resource_access or allowlisted:
+            assert visible == expected
+        else:
+            # REST still shows the user's own rows here. HogQL has no table to show them from.
+            assert visible == set()
+            assert expected <= creator_ids
 
     @given(
         data=object_resource_and_rows(),

@@ -6,7 +6,7 @@ import collections.abc
 from types import SimpleNamespace
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from unittest import mock
 
 from django.core.cache import cache
@@ -325,6 +325,33 @@ class TestGoogleAdsNonRetryableErrors:
         assert "admin" in friendly.lower()
 
 
+class TestGoogleAdsRetryableErrors:
+    def setup_method(self):
+        self.source = GoogleAdsSource()
+        self.retryable = self.source.get_retryable_errors()
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            # str(google.api_core.exceptions.ResourceExhausted) as it propagates once
+            # `_call_with_transient_retry`'s in-process retry budget (see google_ads.py) is
+            # exhausted on a quota/rate-limit RESOURCE_EXHAUSTED.
+            "Resource has been exhausted (e.g. check quota).",
+        ],
+    )
+    def test_quota_exhausted_is_retryable(self, error_msg):
+        # If this pattern drops out of get_retryable_errors(), a quota window that outlasts the
+        # in-process retry budget starts polluting error tracking even though Temporal's activity
+        # retry still recovers once the quota clears.
+        assert any(pattern in error_msg for pattern in self.retryable)
+
+    def test_receive_limit_exhausted_is_not_retryable(self):
+        # The client-side "Received message larger than max" abort is deterministic (see
+        # `_is_transient_grpc_error`) — it must not be swallowed as benign noise here.
+        error_msg = "Received message larger than max (90000000 vs. 67108864)"
+        assert not any(pattern in error_msg for pattern in self.retryable)
+
+
 class TestGoogleAdsLookbackDefault:
     _SCHEMAS_PATH = "products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.google_ads.get_schemas"
 
@@ -555,6 +582,20 @@ def _single_row_table() -> GoogleAdsTable:
         parents=None,
         requires_filter=False,
         primary_key=[],
+        should_sync_default=True,
+        description=None,
+    )
+
+
+def _stats_table() -> GoogleAdsTable:
+    # A report table (requires_filter=True) whose only incremental field is ever segments.date.
+    return GoogleAdsTable(
+        name="campaign_stats",
+        alias="campaign_stats",
+        columns=[_string_column("campaign.id"), _string_column("segments.date")],
+        parents=None,
+        requires_filter=True,
+        primary_key=["campaign.id", "segments.date"],
         should_sync_default=True,
         description=None,
     )
@@ -1512,7 +1553,7 @@ class TestGoogleAdsQueryConstruction:
     def test_established_cursor_drains_in_bounded_windows(self):
         # An established cursor on a report table is drained in bounded date windows, not the
         # open-ended `< 2100` scan that re-extracted the whole backlog every run and OOM-spiralled.
-        with freeze_time("2026-07-17"):
+        with time_machine.travel("2026-07-17", tick=False):
             response, queries = self._run_source(
                 self._stats_table(),
                 should_use_incremental_field=True,
@@ -1532,7 +1573,7 @@ class TestGoogleAdsQueryConstruction:
     def test_lookback_overlap_cannot_consume_a_whole_run(self):
         # Spending the whole budget on lookback overlap leaves the cursor unmoved, so the next run
         # repeats it and a schema behind by more than its lookback never advances.
-        with freeze_time("2026-07-17"):
+        with time_machine.travel("2026-07-17", tick=False):
             # A budget of zero: the overlap alone would end the run before any new ground.
             with mock.patch(f"{self._MODULE}.GOOGLE_ADS_MAX_DRAIN_SECONDS", 0):
                 _response, queries = self._run_source(
@@ -1574,7 +1615,7 @@ class TestGoogleAdsQueryConstruction:
         data_past_gap = cursor + dt.timedelta(days=w * 22)  # 2026-06-04, after a run of empty windows
         # One second per window drained against a two-second budget: it is spent long before the
         # walk reaches the data, so only refusing to arm on the straddle keeps the run going.
-        with freeze_time("2026-12-31"):
+        with time_machine.travel("2026-12-31", tick=False):
             with mock.patch(f"{self._MODULE}.GOOGLE_ADS_MAX_DRAIN_SECONDS", 2):
                 _response, queries = self._run_source(
                     self._stats_table(),
@@ -1597,7 +1638,7 @@ class TestGoogleAdsQueryConstruction:
         ],
     )
     def test_drain_starts_at_the_schema_history_start(self, history_start, expected_start: str) -> None:
-        with freeze_time("2026-07-17"):
+        with time_machine.travel("2026-07-17", tick=False):
             _response, queries = self._run_source(
                 self._stats_table(),
                 should_use_incremental_field=True,
@@ -1632,7 +1673,7 @@ class TestGoogleAdsQueryConstruction:
     def test_a_stated_start_date_is_clamped_to_the_span_that_holds_rows(
         self, requested: str, earliest_date: str | None, expected: str
     ) -> None:
-        with freeze_time("2026-07-17"):
+        with time_machine.travel("2026-07-17", tick=False):
             _response, queries = self._run_source(
                 self._stats_table(),
                 should_use_incremental_field=True,
@@ -1653,7 +1694,7 @@ class TestGoogleAdsQueryConstruction:
         # Validation rejects these at setup, so reaching the sync means a value stored before that
         # check existed. Failing the sync over it is worse than importing the range this source
         # would have had without the field.
-        with freeze_time("2026-07-17"):
+        with time_machine.travel("2026-07-17", tick=False):
             _response, queries = self._run_source(
                 self._stats_table(),
                 should_use_incremental_field=True,
@@ -1674,7 +1715,7 @@ class TestGoogleAdsQueryConstruction:
     ) -> None:
         # A schema that predates the recorded range reads unbounded: one request locates the start,
         # and an account holding nothing has no range to walk.
-        with freeze_time("2026-07-17"):
+        with time_machine.travel("2026-07-17", tick=False):
             _response, queries = self._run_source(
                 self._stats_table(),
                 should_use_incremental_field=True,
@@ -1698,7 +1739,7 @@ class TestGoogleAdsQueryConstruction:
         table = self._stats_table()
         table.extra_where = "metrics.impressions > 0"
 
-        with freeze_time("2026-07-17"):
+        with time_machine.travel("2026-07-17", tick=False):
             _response, queries = self._run_source(
                 table,
                 should_use_incremental_field=True,
@@ -1719,7 +1760,7 @@ class TestGoogleAdsQueryConstruction:
         # A full-refresh pipeline persists no cursor, so a budgeted windowed drain restarts from
         # the same backfill date every run and the refresh replaces the whole table with that same
         # first slice of history. The run must stay a single open-ended scan over the full range.
-        with freeze_time("2026-07-17"):
+        with time_machine.travel("2026-07-17", tick=False):
             _response, queries = self._run_source(
                 self._stats_table(),
                 should_use_incremental_field=False,
@@ -1741,7 +1782,7 @@ class TestGoogleAdsQueryConstruction:
             (cursor + dt.timedelta(days=GOOGLE_ADS_INCREMENTAL_WINDOW_DAYS * i)).isoformat(): 1 for i in range(40)
         }
         # One second of drain per window, so an N-second budget buys N windows.
-        with freeze_time("2026-07-17"):
+        with time_machine.travel("2026-07-17", tick=False):
             with mock.patch(f"{self._MODULE}.GOOGLE_ADS_MAX_DRAIN_SECONDS", budget):
                 _response, queries = self._run_source(
                     self._stats_table(),
@@ -1763,7 +1804,7 @@ class TestGoogleAdsQueryConstruction:
         data_window_start = cursor + dt.timedelta(days=GOOGLE_ADS_INCREMENTAL_WINDOW_DAYS * 3)
         window_rows = {data_window_start.isoformat(): 1}
 
-        with freeze_time("2026-07-17"):
+        with time_machine.travel("2026-07-17", tick=False):
             _response, queries = self._run_source(
                 self._stats_table(),
                 window_rows=window_rows,
@@ -1818,6 +1859,37 @@ class TestVersionDeclaration:
         # A present pin is honored verbatim so an existing v23/v24 source is never silently moved; an
         # empty/missing pin falls back to the new v25 default that new sources are stamped with.
         assert GoogleAdsSource().resolve_api_version(pin) == expected
+
+
+class TestReportTableMissingIncrementalField:
+    def test_incremental_report_table_without_incremental_field_defaults_to_segments_date(self):
+        # A report table's schema can arrive flagged incremental but with no incremental field
+        # (a config inconsistency). Its only valid field is always segments.date, so the sync must
+        # default to it and run rather than crashing with "incremental_field ... can't be None".
+        table = _stats_table()
+        assert table.alias is not None
+        config = GoogleAdsSourceConfig(customer_id="1234567890", google_ads_integration_id=1)
+        with (
+            mock.patch(f"{_GOOGLE_ADS_MODULE}.get_schemas", return_value={table.alias: table}),
+            mock.patch(f"{_GOOGLE_ADS_MODULE}.google_ads_client", return_value=mock.Mock()),
+            mock.patch(f"{_GOOGLE_ADS_MODULE}._search_as_arrow_tables", return_value=iter([])) as search,
+        ):
+            response = google_ads_source(
+                config,
+                table.alias,
+                team_id=1,
+                resumable_source_manager=mock.Mock(),
+                api_version="v25",
+                should_use_incremental_field=True,
+                incremental_field=None,
+                incremental_field_type=None,
+                db_incremental_field_last_value=dt.date.today(),
+            )
+            list(typing.cast(collections.abc.Iterable, response.items()))
+
+        # The windowed drain ran (no crash) and queried on the defaulted segments.date field.
+        assert search.call_count >= 1
+        assert "segments.date" in search.call_args_list[0].args[2]
 
 
 class TestApiVersionDispatch:

@@ -10,7 +10,7 @@ from sshtunnel import BaseSSHTunnelForwarderError
 
 from posthog.hogql.constants import HogQLDialect
 from posthog.hogql.direct_query_metrics import DIRECT_QUERY_ROW_CAP_EXCEEDED_TOTAL, observe_direct_query
-from posthog.hogql.direct_sql.adapter import DirectQueryRequest, DirectQueryResult
+from posthog.hogql.direct_sql.adapter import DirectQueryRequest, DirectQueryResult, parse_direct_source_config
 from posthog.hogql.direct_sql.capability import is_direct_capable
 from posthog.hogql.direct_sql.raw_sql import ensure_single_direct_statement
 from posthog.hogql.errors import ExposedHogQLError
@@ -259,7 +259,7 @@ class ClickHouseAdapter:
             else ExternalDataSourceType.CLICKHOUSE
         )
         clickhouse_source = cast("ClickHouseSource", SourceRegistry.get_source(source_type))
-        config = clickhouse_source.parse_config(source.job_inputs or {})
+        config = parse_direct_source_config(clickhouse_source, source)
 
         is_ssh_valid, ssh_valid_errors = clickhouse_source.ssh_tunnel_is_valid(config, team.pk)
         if not is_ssh_valid:
@@ -279,7 +279,11 @@ class ClickHouseAdapter:
     def execute(self, request: DirectQueryRequest) -> DirectQueryResult:
         from clickhouse_connect.driver.exceptions import ClickHouseError
 
-        from products.warehouse_sources.backend.facade.source_management import ClickHouseConnectionError
+        from products.warehouse_sources.backend.facade.source_management import (
+            ClickHouseConnectionError,
+            HostNotAllowedError,
+            TemporaryHostResolutionError,
+        )
 
         source = request.source
         clickhouse_source, config = self.validate_source_config(source, request.team)
@@ -319,6 +323,8 @@ class ClickHouseAdapter:
             OSError,
             BaseSSHTunnelForwarderError,
             ExposedHogQLError,
+            HostNotAllowedError,
+            TemporaryHostResolutionError,
         ) as error:
             span.set_attribute("error_type", error.__class__.__name__)
             if request.debug:

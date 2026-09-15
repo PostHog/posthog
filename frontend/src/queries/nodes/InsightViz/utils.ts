@@ -14,18 +14,9 @@ import {
     NodeKind,
 } from '~/queries/schema/schema-general'
 import { isInsightQueryWithSeries, setLatestVersionsOnQuery } from '~/queries/utils'
-import {
-    ActionType,
-    DashboardTile,
-    DashboardType,
-    FilterType,
-    InsightModel,
-    InsightType,
-    QueryBasedInsightModel,
-} from '~/types'
+import { ActionType, DashboardTile, DashboardType, InsightModel, InsightType, QueryBasedInsightModel } from '~/types'
 
 import { ProductAnalyticsInsightNodeKind, getNodeKindToDefaultQuery } from '../InsightQuery/defaults'
-import { filtersToQueryNode } from '../InsightQuery/utils/filtersToQueryNode'
 
 export const getAllEventNames = (query: InsightQueryNode, allActions: ActionType[]): string[] => {
     if (!isInsightQueryWithSeries(query)) {
@@ -87,7 +78,7 @@ type ReturnInsightModel<T> = T extends InsightModel
       ? Partial<QueryBasedInsightModel>
       : never
 
-/** Get an insight with `query` only. Eventual `filters` will be converted.  */
+/** Get an insight with `query` only. */
 export function getQueryBasedInsightModel<T extends InputInsightModel>(insight: T): ReturnInsightModel<T> {
     const { filters, ...baseInsight } = insight
     // The API is phasing out the deprecated `dashboards` field (already omitted for token
@@ -98,28 +89,8 @@ export function getQueryBasedInsightModel<T extends InputInsightModel>(insight: 
     return {
         ...baseInsight,
         ...(dashboards ? { dashboards } : {}),
-        query: getQueryFromInsightLike(insight),
+        query: insight.query ?? null,
     } as unknown as ReturnInsightModel<T>
-}
-
-/** Get a `query` from an object that potentially has `filters` instead of a `query`.  */
-export function getQueryFromInsightLike(insight: {
-    query?: Node<Record<string, any>> | null
-    filters?: Partial<FilterType>
-}): Node<Record<string, any>> | null {
-    let query
-    if (insight.query) {
-        query = insight.query
-    } else if (insight.filters && Object.keys(insight.filters).filter((k) => k != 'filter_test_accounts').length > 0) {
-        query = {
-            kind: NodeKind.InsightVizNode,
-            source: filtersToQueryNode(insight.filters, { source: 'insight_viz_get_query_from_insight_like' }),
-        } as InsightVizNode
-    } else {
-        query = null
-    }
-
-    return query
 }
 
 export const queryFromKind = (
@@ -173,7 +144,7 @@ export const getDefaultQuery = (
     throw new Error('encountered unexpected type for view')
 }
 
-/** Get a dashboard where eventual `filters` based tiles are converted to `query` based ones. */
+/** Get a dashboard whose tiles carry `query` only. */
 export const getQueryBasedDashboard = (
     dashboard: DashboardType<InsightModel> | DashboardType<QueryBasedInsightModel> | null
 ): DashboardType<QueryBasedInsightModel> | null => {

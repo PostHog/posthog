@@ -31,7 +31,7 @@ from posthog.redis import get_client
 from posthog.storage import object_storage
 
 from products.context_layer.backend import repo_lint
-from products.context_layer.backend.models import ContextLayerConfig
+from products.context_layer.backend.models import ContextLayerConfig, WikiPageProposal
 from products.context_layer.backend.repo_lint import lint_repo
 from products.context_layer.backend.scaffold import generate_index, generate_project_indexes, write_default_structure
 
@@ -58,6 +58,12 @@ COMMITTER_EMAIL = "context-layer@posthog.com"
 
 class ContextLayerStoreError(Exception):
     pass
+
+
+class DependencyUnavailableError(ContextLayerStoreError):
+    """A binary the store shells out to (git) is missing from the host, so no
+    read or write can run. Maps to HTTP 503 so the API fails cleanly instead of
+    an unhandled 500."""
 
 
 class RepoNotFoundError(ContextLayerStoreError):
@@ -194,23 +200,26 @@ def repo_writer_lock(organization_id: uuid.UUID | str) -> Iterator[None]:
 
 
 def _run_git(args: list[str], cwd: Path, stdin_text: str | None = None) -> str:
-    result = subprocess.run(
-        [
-            "git",
-            "-c",
-            f"user.name={COMMITTER_NAME}",
-            "-c",
-            f"user.email={COMMITTER_EMAIL}",
-            "-c",
-            "commit.gpgsign=false",
-            *args,
-        ],
-        cwd=cwd,
-        input=stdin_text,
-        capture_output=True,
-        text=True,
-        timeout=GIT_TIMEOUT_SECONDS,
-    )
+    try:
+        result = subprocess.run(
+            [
+                "git",
+                "-c",
+                f"user.name={COMMITTER_NAME}",
+                "-c",
+                f"user.email={COMMITTER_EMAIL}",
+                "-c",
+                "commit.gpgsign=false",
+                *args,
+            ],
+            cwd=cwd,
+            input=stdin_text,
+            capture_output=True,
+            text=True,
+            timeout=GIT_TIMEOUT_SECONDS,
+        )
+    except FileNotFoundError as err:
+        raise DependencyUnavailableError("git binary is not available") from err
     if result.returncode != 0:
         raise ContextLayerStoreError(f"git {args[0]} failed: {result.stderr.strip()}")
     return result.stdout.strip()
@@ -658,7 +667,11 @@ def _assert_dream_paths(workdir: Path, base: str, tip: str) -> None:
 
 def _dream_may_edit(path: str, *, status: str = "M") -> bool:
     parts = Path(path).parts
-    if not path.endswith(".md") or not parts or Path(path).name == "index.md":
+    if (
+        not path.endswith(".md")
+        or not parts
+        or any(part.lower() in {"agents.md", "claude.md", "index.md"} for part in parts)
+    ):
         return False
     if parts[0] in {"org", "areas", "decisions"}:
         return True
@@ -779,6 +792,7 @@ def purge_repo_history(organization_id: uuid.UUID | str, *, message: str = "Purg
     with repo_writer_lock(organization_id):
         head_sha = get_config(organization_id).head_sha
         try:
+            WikiPageProposal.objects.unscoped().filter(team__organization_id=organization_id).delete()
             _prune_bundles_except(organization_id, head_sha)
         except Exception:
             # The rewrite landed but old bundles with the purged content are

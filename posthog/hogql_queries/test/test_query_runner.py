@@ -5,8 +5,8 @@ from typing import Any, Literal, Optional
 from zoneinfo import ZoneInfo
 
 import pytest
-from freezegun import freeze_time
-from posthog.test.base import BaseTest
+import time_machine
+from posthog.test.base import APIBaseTest, BaseTest, ClickhouseTestMixin, cleanup_materialized_columns
 from unittest import mock
 
 from django.conf import settings
@@ -15,17 +15,24 @@ from django.db import OperationalError, connection
 from django.test import override_settings
 from django.test.utils import CaptureQueriesContext
 
+from clickhouse_driver.errors import ServerException
 from parameterized import parameterized
 from pydantic import BaseModel
 from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
+    ActorsQuery,
+    ActorsQueryResponse,
     BounceRatePageViewMode,
     CacheMissResponse,
     CurrencyCode,
     DataTableNode,
     DataVisualizationNode,
+    DateRange,
     EventsNode,
+    EventsQuery,
+    GroupsQuery,
+    HogQLFilters,
     HogQLQuery,
     HogQLQueryModifiers,
     InCohortVia,
@@ -35,7 +42,11 @@ from posthog.schema import (
     MaterializationMode,
     PersonsArgMaxVersion,
     PersonsOnEventsMode,
+    PropertyType,
+    PropertyValuesQuery,
     QueryLogTags,
+    SessionsQuery,
+    SessionsTimelineQuery,
     SessionsV2JoinMode,
     SessionTableVersion,
     TestBasicQueryResponse as TheTestBasicQueryResponse,
@@ -48,13 +59,20 @@ from posthog.hogql.constants import LimitContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.errors import QueryError, ResolutionError
 
+from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
+from posthog.clickhouse.query_tagging import reset_query_tags, tag_queries
 from posthog.constants import AvailableFeature
-from posthog.errors import ExposedCHQueryError
-from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded, ClickHouseQuerySizeExceeded, ClickHouseQueryTimeOut
+from posthog.errors import ExposedCHQueryError, wrap_clickhouse_query_error
+from posthog.exceptions import (
+    ClickHouseQueryMemoryLimitExceeded,
+    ClickHouseQuerySizeExceeded,
+    ClickHouseQueryTimeOut,
+    QueryRanConcurrently,
+)
+from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
 from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
-from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
-from posthog.hogql_queries.query_failure_handling import classify_failure
+from posthog.hogql_queries.query_failure_handling import budget_for_limit_context, classify_failure
 from posthog.hogql_queries.query_runner import (
     SHARED_FORCE_BLOCKING_STALENESS_WINDOW,
     AnalyticsQueryRunner,
@@ -62,6 +80,7 @@ from posthog.hogql_queries.query_runner import (
     QueryRunner,
     QueryRunnerWithHogQLContext,
     get_query_runner,
+    get_query_runner_or_none,
     shared_insights_execution_mode,
 )
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
@@ -70,6 +89,11 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.team.team import Team, WeekStartDay
 from posthog.models.team.team_revenue_analytics_config import TeamRevenueAnalyticsConfig
+from posthog.models.user import User
+from posthog.query_cache import (
+    QueryCache,
+    storage as qc_storage,
+)
 from posthog.query_cache.failures import (
     BASE_BACKOFF,
     BUDGET_EXTENDED,
@@ -78,12 +102,15 @@ from posthog.query_cache.failures import (
     QUERY_FAILURE_CACHING_FLAG,
     QueryFailureCache,
 )
+from posthog.query_cache.single_flight import QUERY_SINGLE_FLIGHT_FLAG, FlightWait, QuerySingleFlight, SharedFailure
+from posthog.query_cache.storage import entry_redis_key
 from posthog.shared_link_user import SharedLinkUser
 from posthog.slo.types import SloOutcome
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl, UserAccessControlError
 from products.access_control.backend.models.access_control import AccessControl
 from products.customer_analytics.backend.facade.constants import DEFAULT_ACTIVITY_EVENT
+from products.product_analytics.backend.facade.queries import TrendsQueryRunner
 from products.revenue_analytics.backend.views.test.data.structure import REVENUE_ANALYTICS_CONFIG_SAMPLE_EVENT
 
 MARKETING_ANALYTICS_SOURCES_MAP_SAMPLE = {
@@ -135,6 +162,11 @@ def setup_test_query_runner_class(base: type[QueryRunner] = QueryRunner):
     TestQueryRunner.__abstractmethods__ = frozenset()
 
     return TestQueryRunner
+
+
+def _chain(exc: Exception, cause: Exception) -> Exception:
+    exc.__cause__ = cause
+    return exc
 
 
 class TestQueryRunner(BaseTest):
@@ -252,6 +284,38 @@ class TestQueryRunner(BaseTest):
         timing_keys = [key for key in runner.timings.to_dict() if "build_shared_database" in key]
         assert timing_keys == ["./build_shared_database"]
 
+    def test_shared_database_reuses_runner_access_control_snapshot(self):
+        runner = HogQLQueryRunner(query=HogQLQuery(query="select 1"), team=self.team, user=self.user)
+        snapshot = runner.user_access_control
+        assert snapshot is not None
+        assert runner.shared_database.user_access_control is snapshot
+
+    def test_actors_run_rebuilds_shared_state_on_user_change(self):
+        other_user = User.objects.create_and_join(self.organization, "other-user@example.com", None)
+        preloaded_snapshot = UserAccessControl(user=self.user, team=self.team)
+        runner = get_query_runner_or_none(
+            query=ActorsQuery(select=["properties.email"]),
+            team=self.team,
+            user=self.user,
+            user_access_control=preloaded_snapshot,
+        )
+        assert isinstance(runner, ActorsQueryRunner)
+        seen: list[tuple[Any, Any]] = []
+
+        def capture(self_runner: ActorsQueryRunner) -> ActorsQueryResponse:
+            seen.append((self_runner.shared_database, self_runner.user_access_control))
+            return ActorsQueryResponse(results=[], columns=[], hogql="", limit=100, offset=0)
+
+        with mock.patch.object(ActorsQueryRunner, "_calculate", autospec=True, side_effect=capture):
+            runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS, user=self.user)
+            runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS, user=other_user)
+
+        (first_database, first_snapshot), (second_database, second_snapshot) = seen
+        assert first_database is not second_database
+        assert first_snapshot is preloaded_snapshot
+        assert first_snapshot is not second_snapshot
+        assert second_database.user_access_control is second_snapshot
+
     def test_shared_database_kill_switch_disables_sharing(self):
         TestQueryRunner = self.setup_test_query_runner_class()
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
@@ -361,6 +425,7 @@ class TestQueryRunner(BaseTest):
                     "custom_source_mappings": {},
                     "campaign_field_preferences": {},
                     "costs_dedup_v2": False,
+                    "filter_test_accounts": False,
                     "sources_map": {
                         "01977f7b-7f29-0000-a028-7275d1a767a4": {
                             "cost": "cost",
@@ -446,7 +511,7 @@ class TestQueryRunner(BaseTest):
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=team)
 
         cache_key = runner.get_cache_key()
-        assert cache_key == "cache_42_c034c5f92d23cb2399f6c087694175b7e6950739ea60b0ec7cf2665d2ae82d50"
+        assert cache_key == "cache_42_13361de10d0c3c79451b288eb57ca1147331e86a8b8e63a0a815adf5a2d7bcbb"
 
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_cache_key_runner_subclass(self):
@@ -461,7 +526,7 @@ class TestQueryRunner(BaseTest):
         runner = TestSubclassQueryRunner(query={"some_attr": "bla"}, team=team)
 
         cache_key = runner.get_cache_key()
-        assert cache_key == "cache_42_916dab3186430d61979f436fca08d88c23559c270894cf8c96a19e2c18a8ae4f"
+        assert cache_key == "cache_42_9dcfced89edfbfcd1e0fd380380c7a5e4a9957386fc22172c1b83548a9af6d02"
 
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_cache_key_different_timezone(self):
@@ -473,7 +538,7 @@ class TestQueryRunner(BaseTest):
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=team)
 
         cache_key = runner.get_cache_key()
-        assert cache_key == "cache_42_032f9a7be3ea1fc4451f1e5a77841bb79f9b9ef65ad949f251ee0e68e8ee5fb0"
+        assert cache_key == "cache_42_580a20072d3930f66666356574843255ba9418ff58cc0fc92d019bf8bf1cf972"
 
     def test_cache_payload_omits_object_restrictions_when_unrestricted(self):
         TestQueryRunner = self.setup_test_query_runner_class()
@@ -487,7 +552,7 @@ class TestQueryRunner(BaseTest):
 
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
 
-        with freeze_time(datetime(2023, 2, 4, 13, 37, 42)):
+        with time_machine.travel(datetime(2023, 2, 4, 13, 37, 42), tick=False):
             # in cache-only mode, returns cache miss response if uncached
             response = runner.run(execution_mode=ExecutionMode.CACHE_ONLY_NEVER_CALCULATE)
             self.assertIsInstance(response, CacheMissResponse)
@@ -509,28 +574,28 @@ class TestQueryRunner(BaseTest):
             self.assertIsInstance(response, TheTestCachedBasicQueryResponse)
             self.assertEqual(response.is_cached, False)
 
-        with freeze_time(datetime(2023, 2, 4, 13, 37 + 11, 42)):
+        with time_machine.travel(datetime(2023, 2, 4, 13, 37 + 11, 42), tick=False):
             # returns fresh response if stale
             response = runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
             self.assertIsInstance(response, TheTestCachedBasicQueryResponse)
             self.assertEqual(response.is_cached, False)
             mock_on_commit.assert_not_called()
 
-        with freeze_time(datetime(2023, 2, 4, 13, 37 + 11 + 5, 42)):
+        with time_machine.travel(datetime(2023, 2, 4, 13, 37 + 11 + 5, 42), tick=False):
             # returns cached response - does not kick off calculation in the background
             response = runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE)
             self.assertIsInstance(response, TheTestCachedBasicQueryResponse)
             self.assertEqual(response.is_cached, True)
             mock_on_commit.assert_not_called()
 
-        with freeze_time(datetime(2023, 2, 4, 13, 37 + 11 + 11, 42)):
+        with time_machine.travel(datetime(2023, 2, 4, 13, 37 + 11 + 11, 42), tick=False):
             # returns cached response but kicks off calculation in the background
             response = runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE)
             self.assertIsInstance(response, TheTestCachedBasicQueryResponse)
             self.assertEqual(response.is_cached, True)
             mock_on_commit.assert_called_once()
 
-        with freeze_time(datetime(2023, 2, 4, 23, 55, 42)):
+        with time_machine.travel(datetime(2023, 2, 4, 23, 55, 42), tick=False):
             # returns cached response for extended time
             response = runner.run(execution_mode=ExecutionMode.EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE)
             self.assertIsInstance(response, TheTestCachedBasicQueryResponse)
@@ -538,7 +603,7 @@ class TestQueryRunner(BaseTest):
             mock_on_commit.assert_called_once()  # still once
 
         mock_on_commit.reset_mock()
-        with freeze_time(datetime(2023, 2, 5, 23, 55, 42)):
+        with time_machine.travel(datetime(2023, 2, 5, 23, 55, 42), tick=False):
             # returns cached response for extended time but finally kicks off calculation in the background
             response = runner.run(execution_mode=ExecutionMode.EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE)
             self.assertIsInstance(response, TheTestCachedBasicQueryResponse)
@@ -551,7 +616,7 @@ class TestQueryRunner(BaseTest):
 
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
 
-        with freeze_time(datetime(2023, 2, 4, 13, 37, 42)):
+        with time_machine.travel(datetime(2023, 2, 4, 13, 37, 42), tick=False):
             # in cache-only mode, returns cache miss response if uncached
             response = runner.run(execution_mode=ExecutionMode.CACHE_ONLY_NEVER_CALCULATE)
             self.assertIsInstance(response, CacheMissResponse)
@@ -571,7 +636,7 @@ class TestQueryRunner(BaseTest):
             self.assertIsInstance(response, TheTestCachedBasicQueryResponse)
             self.assertEqual(response.is_cached, True)
 
-        with freeze_time(datetime(2023, 2, 4, 13, 37 + 11, 42)):
+        with time_machine.travel(datetime(2023, 2, 4, 13, 37 + 11, 42), tick=False):
             # returns fresh response if stale
             response = runner.run(
                 execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS
@@ -608,12 +673,12 @@ class TestQueryRunner(BaseTest):
                 return last_refresh + timedelta(hours=24) if last_refresh else None
 
         start = datetime(2023, 2, 4, 13, 37, 42, tzinfo=UTC)
-        with freeze_time(start):
+        with time_machine.travel(start, tick=False):
             OpinionatedQueryRunner(query={"some_attr": "bla"}, team=self.team).run(
                 execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
             )
 
-        with freeze_time(start + cache_age):
+        with time_machine.travel(start + cache_age, tick=False):
             response = OpinionatedQueryRunner(query={"some_attr": "bla"}, team=self.team).run(
                 execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
                 cache_age_seconds=1800,
@@ -624,7 +689,7 @@ class TestQueryRunner(BaseTest):
         TestQueryRunner = self.setup_test_query_runner_class()
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
 
-        with freeze_time(datetime(2023, 2, 4, 13, 37, 42, tzinfo=UTC)):
+        with time_machine.travel(datetime(2023, 2, 4, 13, 37, 42, tzinfo=UTC), tick=False):
             response = runner.run(
                 execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
                 cache_age_seconds=999,
@@ -642,6 +707,9 @@ class TestQueryRunner(BaseTest):
 
             from ee.clickhouse.materialized_columns.analyze import materialize
 
+            # The column outlives this test otherwise, and every later test on the shard that
+            # filters on $browser then snapshots the materialized form
+            self.addCleanup(cleanup_materialized_columns)
             materialize("events", "$browser")
         except ModuleNotFoundError:
             # EE not available? Assume we're good
@@ -687,7 +755,7 @@ class TestQueryRunner(BaseTest):
         mock_query_cache_cls.return_value = mock_cache_manager
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
 
-        with freeze_time(datetime(2023, 2, 4, 13, 37, 42)):
+        with time_machine.travel(datetime(2023, 2, 4, 13, 37, 42), tick=False):
             response = runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
 
             self.assertIsInstance(response, TheTestCachedBasicQueryResponse)
@@ -842,6 +910,37 @@ class TestQueryRunner(BaseTest):
                 "error",
                 True,
             ),
+            (
+                # Runner-raised user-facing validation (e.g. an experiment metric with no
+                # exposures for the control variant yet) — rendered as a 400, must not
+                # reach error tracking.
+                "drf_validation_error",
+                lambda: ValidationError("No exposures for the 'control' variant yet.", code="no_data"),
+                SloOutcome.SUCCESS,
+                "user_error",
+                False,
+            ),
+            (
+                # A technical error a runner converted to a ValidationError for display
+                # (chained via `raise ... from`) — must keep failing the SLO and stay captured.
+                "validation_error_wrapping_technical_error",
+                lambda: _chain(
+                    ValidationError("This experiment query is using too much memory.", code="memory_limit_exceeded"),
+                    ClickHouseQueryMemoryLimitExceeded(),
+                ),
+                SloOutcome.FAILURE,
+                "query_performance_error",
+                True,
+            ),
+            (
+                # A follower whose leader left nothing to serve fails the SLO; the leader's capture and
+                # the flight metrics already account for it.
+                "query_ran_concurrently",
+                QueryRanConcurrently,
+                SloOutcome.FAILURE,
+                "error",
+                False,
+            ),
             ("unclassified_value_error", ValueError, SloOutcome.FAILURE, "error", True),
         ]
     )
@@ -884,7 +983,7 @@ class TestQueryRunner(BaseTest):
         TestQueryRunner = self.setup_test_query_runner_class()
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
 
-        with freeze_time(datetime(2023, 2, 4, 13, 37, 42)):
+        with time_machine.travel(datetime(2023, 2, 4, 13, 37, 42), tick=False):
             runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
 
         before_success = QUERY_EXECUTION_TOTAL.labels(
@@ -896,7 +995,7 @@ class TestQueryRunner(BaseTest):
         before_duration_sum = QUERY_EXECUTION_DURATION.labels(query_type="TestQuery")._sum.get()
 
         # Cache is fresh (< 10 min old), so this hits the cache without recalculating
-        with freeze_time(datetime(2023, 2, 4, 13, 38, 0)):
+        with time_machine.travel(datetime(2023, 2, 4, 13, 38, 0), tick=False):
             runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
 
         assert (
@@ -1133,155 +1232,6 @@ class TestApplySeriesCustomNames(BaseTest):
         patched_response, was_modified = runner.apply_series_custom_names(cached_response)
 
         self.assertEqual(patched_response.results, expected_results)
-
-    @parameterized.expand(
-        [
-            (
-                "patches_funnel_steps_without_breakdown",
-                [
-                    {"order": 0, "custom_name": "Old Step 1", "count": 100},
-                    {"order": 1, "custom_name": "Old Step 2", "count": 50},
-                ],
-                [
-                    {"order": 0, "custom_name": "Step 1 Renamed", "count": 100},
-                    {"order": 1, "custom_name": "Step 2 Renamed", "count": 50},
-                ],
-                True,
-            ),
-            (
-                "patches_funnel_steps_with_breakdown",
-                [
-                    [
-                        {"order": 0, "custom_name": None, "count": 100, "breakdown": "Chrome"},
-                        {"order": 1, "custom_name": None, "count": 50, "breakdown": "Chrome"},
-                    ],
-                    [
-                        {"order": 0, "custom_name": None, "count": 80, "breakdown": "Firefox"},
-                        {"order": 1, "custom_name": None, "count": 40, "breakdown": "Firefox"},
-                    ],
-                ],
-                [
-                    [
-                        {"order": 0, "custom_name": "Step 1 Renamed", "count": 100, "breakdown": "Chrome"},
-                        {"order": 1, "custom_name": "Step 2 Renamed", "count": 50, "breakdown": "Chrome"},
-                    ],
-                    [
-                        {"order": 0, "custom_name": "Step 1 Renamed", "count": 80, "breakdown": "Firefox"},
-                        {"order": 1, "custom_name": "Step 2 Renamed", "count": 40, "breakdown": "Firefox"},
-                    ],
-                ],
-                True,
-            ),
-            (
-                "not_modified_when_names_match",
-                [
-                    {"order": 0, "custom_name": "Step 1 Renamed", "count": 100},
-                    {"order": 1, "custom_name": "Step 2 Renamed", "count": 50},
-                ],
-                [
-                    {"order": 0, "custom_name": "Step 1 Renamed", "count": 100},
-                    {"order": 1, "custom_name": "Step 2 Renamed", "count": 50},
-                ],
-                False,
-            ),
-        ]
-    )
-    def test_apply_funnels_custom_names(
-        self,
-        _name: str,
-        cached_results: list,
-        expected_results: list,
-        expect_modified: bool,
-    ):
-        from posthog.schema import CachedFunnelsQueryResponse, FunnelsQuery
-
-        from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
-
-        query = FunnelsQuery(
-            series=[
-                EventsNode(event="step1", custom_name="Step 1 Renamed"),
-                EventsNode(event="step2", custom_name="Step 2 Renamed"),
-            ]
-        )
-
-        runner = FunnelsQueryRunner(query=query, team=self.team)
-
-        cached_response = CachedFunnelsQueryResponse(
-            results=cached_results,
-            is_cached=True,
-            last_refresh=datetime.now(UTC),
-            next_allowed_client_refresh=datetime.now(UTC),
-            cache_key="test_key",
-            timezone="UTC",
-        )
-
-        patched_response, was_modified = runner.apply_series_custom_names(cached_response)
-
-        self.assertEqual(patched_response.results, expected_results)
-        self.assertEqual(was_modified, expect_modified)
-
-    @parameterized.expand(
-        [
-            (
-                "patches_all_lifecycle_statuses",
-                [
-                    {"action": {"order": 0, "custom_name": None}, "status": "new", "data": [1]},
-                    {"action": {"order": 0, "custom_name": None}, "status": "returning", "data": [2]},
-                    {"action": {"order": 0, "custom_name": None}, "status": "resurrecting", "data": [3]},
-                    {"action": {"order": 0, "custom_name": None}, "status": "dormant", "data": [4]},
-                ],
-                [
-                    {"action": {"order": 0, "custom_name": "My Lifecycle"}, "status": "new", "data": [1]},
-                    {"action": {"order": 0, "custom_name": "My Lifecycle"}, "status": "returning", "data": [2]},
-                    {"action": {"order": 0, "custom_name": "My Lifecycle"}, "status": "resurrecting", "data": [3]},
-                    {"action": {"order": 0, "custom_name": "My Lifecycle"}, "status": "dormant", "data": [4]},
-                ],
-                True,
-            ),
-            (
-                "not_modified_when_lifecycle_names_match",
-                [
-                    {"action": {"order": 0, "custom_name": "My Lifecycle"}, "status": "new", "data": [1]},
-                ],
-                [
-                    {"action": {"order": 0, "custom_name": "My Lifecycle"}, "status": "new", "data": [1]},
-                ],
-                False,
-            ),
-        ]
-    )
-    def test_apply_lifecycle_custom_names(
-        self,
-        _name: str,
-        cached_results: list,
-        expected_results: list,
-        expect_modified: bool,
-    ):
-        from posthog.schema import CachedLifecycleQueryResponse, LifecycleQuery
-
-        from posthog.hogql_queries.insights.lifecycle.lifecycle_query_runner import LifecycleQueryRunner
-
-        query = LifecycleQuery(
-            series=[
-                EventsNode(event="$pageview", custom_name="My Lifecycle"),
-            ]
-        )
-
-        runner = LifecycleQueryRunner(query=query, team=self.team)
-
-        cached_response = CachedLifecycleQueryResponse(
-            results=cached_results,
-            is_cached=True,
-            last_refresh=datetime.now(UTC),
-            next_allowed_client_refresh=datetime.now(UTC),
-            cache_key="test_key",
-            timezone="UTC",
-        )
-
-        patched_response, was_modified = runner.apply_series_custom_names(cached_response)
-
-        self.assertEqual(patched_response.results, expected_results)
-        self.assertEqual(was_modified, expect_modified)
 
     @parameterized.expand(
         [
@@ -1634,6 +1584,28 @@ class TestQueryRunnerAccessControlFingerprint(BaseTest):
         payload = HogQLQueryRunner(query=query, team=self.team, user=self.user).get_cache_payload()
         assert "restricted_objects" not in payload  # notebook object deny doesn't touch a surveys query
 
+    def test_canvas_object_deny_partitions_an_activity_logs_query(self):
+        # `system.activity_logs` limits Canvas rows to the canvases in `system.canvases`, so two users
+        # with identical activity-log access but different canvas grants must land in different cache
+        # entries - otherwise the restricted one replays the other's Canvas activity rows on a hit.
+        other_user = self._create_user("other@posthog.com")
+        other_membership = other_user.organization_memberships.get(organization=self.organization)
+        canvas_id = "018f0000-0000-0000-0000-0000000000ca"
+        self._ac(
+            resource="canvas",
+            resource_id=canvas_id,
+            access_level="none",
+            organization_member=other_membership,
+        )
+
+        query = {"kind": "HogQLQuery", "query": "select * from system.activity_logs"}
+        unrestricted = HogQLQueryRunner(query=query, team=self.team, user=self.user)
+        restricted = HogQLQueryRunner(query=query, team=self.team, user=other_user)
+
+        assert "restricted_objects" not in unrestricted.get_cache_payload()
+        assert restricted.get_cache_payload()["restricted_objects"] == {"canvas": [canvas_id]}
+        assert restricted.get_cache_key() != unrestricted.get_cache_key()
+
     def test_object_grants_under_a_denied_resource_partition_cache(self):
         # Both users are denied notebooks at the resource level and see only what they were granted,
         # so neither has a deny set to partition on - without the allowlist in the fingerprint they
@@ -1819,8 +1791,10 @@ def _failure_caching_flag(key: str, *args: Any, **kwargs: Any) -> bool:
 
 
 def _per_query_memory_error() -> ClickHouseQueryMemoryLimitExceeded:
-    error = ClickHouseQueryMemoryLimitExceeded()
-    error.is_per_query_limit = True
+    server_error = ServerException("Memory limit (for query) exceeded: would use 30.1 GiB", code=241)
+    error = wrap_clickhouse_query_error(server_error)
+    error.__cause__ = server_error  # as the ClickHouse client raises it
+    assert isinstance(error, ClickHouseQueryMemoryLimitExceeded)
     return error
 
 
@@ -1860,9 +1834,9 @@ class TestQueryFailureCaching(BaseTest):
         runner_class = setup_test_query_runner_class()
         runner = runner_class(query={"some_attr": "bla"}, team=self.team)
         with mock.patch("posthoganalytics.feature_enabled", side_effect=_failure_caching_flag):
-            with freeze_time("2026-01-01T00:00:00Z") as frozen:
+            with time_machine.travel("2026-01-01T00:00:00Z", tick=False) as frozen:
                 runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)  # seed the cache
-                frozen.tick(timedelta(minutes=15))  # past the harness's 10-minute staleness window
+                frozen.shift(timedelta(minutes=15))  # past the harness's 10-minute staleness window
 
                 mock_calculate = self._open_breaker(runner_class, runner)
                 with self.assertRaises(ClickHouseQueryTimeOut) as ctx:
@@ -1916,7 +1890,7 @@ class TestQueryFailureCaching(BaseTest):
         runner_class = setup_test_query_runner_class()
         runner = runner_class(query={"some_attr": "bla"}, team=self.team)
         with mock.patch("posthoganalytics.feature_enabled", side_effect=_failure_caching_flag):
-            with freeze_time("2026-01-01T00:00:00Z") as frozen:
+            with time_machine.travel("2026-01-01T00:00:00Z", tick=False) as frozen:
                 with mock.patch.object(
                     runner_class, "_calculate", autospec=True, side_effect=ClickHouseQueryTimeOut()
                 ) as mock_calculate:
@@ -1932,7 +1906,7 @@ class TestQueryFailureCaching(BaseTest):
 
                 # once the backoff elapses, the next run executes (the real harness _calculate),
                 # succeeds, and closes the breaker
-                frozen.tick(BASE_BACKOFF + timedelta(seconds=1))
+                frozen.shift(BASE_BACKOFF + timedelta(seconds=1))
                 runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
                 assert QueryFailureCache(runner.get_cache_key()).get_open() is None
 
@@ -2004,3 +1978,262 @@ class TestQueryFailureCaching(BaseTest):
                     runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE)
             mock_enqueue.assert_not_called()
             assert getattr(ctx.exception, "served_from_query_failure_cache", False)
+
+
+def _single_flight_flag(key: str, *args: Any, **kwargs: Any) -> bool:
+    return key == QUERY_SINGLE_FLIGHT_FLAG
+
+
+def _single_flight_and_failure_caching_flags(key: str, *args: Any, **kwargs: Any) -> bool:
+    return key in (QUERY_FAILURE_CACHING_FLAG, QUERY_SINGLE_FLIGHT_FLAG)
+
+
+class _LeaderInterrupted(BaseException):
+    pass
+
+
+class TestQuerySingleFlightRunner(BaseTest):
+    def tearDown(self):
+        super().tearDown()
+        cache.clear()
+
+    def _become_follower(self, wait_result: Any = None) -> None:
+        if wait_result is None:
+            wait_result = FlightWait(outcome="released")
+        wait_kwargs = {"side_effect": wait_result} if callable(wait_result) else {"return_value": wait_result}
+        for name, kwargs in (("acquire", {"return_value": False}), ("wait", wait_kwargs)):
+            patcher = mock.patch.object(QuerySingleFlight, name, autospec=True, **kwargs)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    @staticmethod
+    def _flight_of(runner: Any) -> QuerySingleFlight:
+        return QuerySingleFlight(
+            runner.get_cache_key(), budget_for_limit_context(runner.limit_context), runner.single_flight_variant()
+        )
+
+    @parameterized.expand([("success", None), ("failure", ClickHouseQueryTimeOut), ("interrupted", _LeaderInterrupted)])
+    def test_leader_releases_the_flight(self, _name, error_class):
+        runner_class = setup_test_query_runner_class()
+        runner = runner_class(query={"some_attr": "bla"}, team=self.team)
+        with mock.patch("posthoganalytics.feature_enabled", side_effect=_single_flight_flag):
+            if error_class is None:
+                runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+            else:
+                with mock.patch.object(runner_class, "_calculate", autospec=True, side_effect=error_class()):
+                    with self.assertRaises(error_class):
+                        runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+
+        probe = self._flight_of(runner)
+        self.addCleanup(probe.release)
+        assert probe.acquire() is True  # the leader released its lock
+
+    def test_leader_records_its_failure_before_releasing_the_flight(self):
+        runner_class = setup_test_query_runner_class()
+        runner = runner_class(query={"some_attr": "bla"}, team=self.team)
+        recorded_at_release: list[bool] = []
+        published: list[Any] = []
+
+        def note_failure(flight: QuerySingleFlight, failure: Any) -> None:
+            recorded_at_release.append(QueryFailureCache(runner.get_cache_key()).get_open() is not None)
+            published.append(failure)
+
+        with mock.patch("posthoganalytics.feature_enabled", side_effect=_single_flight_and_failure_caching_flags):
+            with mock.patch.object(runner_class, "_calculate", autospec=True, side_effect=_per_query_memory_error()):
+                with mock.patch.object(QuerySingleFlight, "fail", autospec=True, side_effect=note_failure):
+                    with self.assertRaises(ClickHouseQueryMemoryLimitExceeded):
+                        runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+        assert recorded_at_release == [True]
+        assert published == [SharedFailure(message="Memory limit (for query) exceeded: would use 30.1 GiB", code=241)]
+
+    def test_leader_that_stores_nothing_publishes_nothing(self):
+        runner_class = setup_test_query_runner_class()
+        runner = runner_class(query={"some_attr": "bla"}, team=self.team)
+        with mock.patch("posthoganalytics.feature_enabled", side_effect=_single_flight_flag):
+            with mock.patch.object(QueryCache, "store_result", autospec=True, return_value=False):
+                runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+        assert self._flight_of(runner).wait(timeout_seconds=0) == FlightWait(outcome="released")
+
+    @parameterized.expand(
+        [
+            (
+                "clickhouse_error",
+                SharedFailure(message="Memory limit (for query) exceeded", code=241),
+                ClickHouseQueryMemoryLimitExceeded,
+            ),
+            (
+                "hogql_error",
+                SharedFailure(message="Unknown field: nope", class_name="QueryError", start=7, end=11),
+                QueryError,
+            ),
+        ]
+    )
+    def test_follower_fails_the_way_the_leader_published(self, _name, failure, error_class):
+        runner_class = setup_test_query_runner_class()
+        runner = runner_class(query={"some_attr": "bla"}, team=self.team)
+        self._become_follower(FlightWait(outcome="failed", failure=failure))
+        with mock.patch("posthoganalytics.feature_enabled", side_effect=_single_flight_flag):
+            with mock.patch.object(runner_class, "_calculate", autospec=True) as mock_calculate:
+                with self.assertRaises(error_class) as ctx:
+                    runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+        mock_calculate.assert_not_called()
+        assert getattr(ctx.exception, "served_from_query_single_flight", False)
+
+    @parameterized.expand(
+        [
+            ("leader_failed_without_a_shareable_failure", FlightWait(outcome="failed")),
+            (
+                "published_failure_unknown_to_this_version",
+                FlightWait(outcome="failed", failure=SharedFailure(message="x", class_name="RenamedInANewerDeploy")),
+            ),
+            ("leader_vanished", FlightWait(outcome="released")),
+            ("wait_timed_out", FlightWait(outcome="timeout")),
+            ("published_entry_never_landed", FlightWait(outcome="done", last_refresh=datetime(2026, 1, 1, tzinfo=UTC))),
+        ]
+    )
+    def test_follower_fails_instead_of_running_when_the_leader_leaves_nothing_to_serve(self, _name, wait_result):
+        runner_class = setup_test_query_runner_class()
+        runner_class(query={"some_attr": "bla"}, team=self.team).run(
+            execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS
+        )  # fresh for this request, but not written by the leader
+
+        runner = runner_class(query={"some_attr": "bla"}, team=self.team)
+        self._become_follower(wait_result)
+        with mock.patch("posthoganalytics.feature_enabled", side_effect=_single_flight_flag):
+            with mock.patch.object(runner_class, "_calculate", autospec=True) as mock_calculate:
+                with self.assertRaises(QueryRanConcurrently):
+                    runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+        mock_calculate.assert_not_called()
+
+    def test_follower_runs_alone_when_the_flight_is_unavailable(self):
+        runner_class = setup_test_query_runner_class()
+        runner = runner_class(query={"some_attr": "bla"}, team=self.team)
+        self._become_follower(FlightWait(outcome="unavailable"))
+        with mock.patch("posthoganalytics.feature_enabled", side_effect=_single_flight_flag):
+            response = runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+        assert response.is_cached is False
+
+    @parameterized.expand(
+        [
+            ("budget", {"limit_context": LimitContext.QUERY_ASYNC}),
+            ("workload", {"workload": Workload.OFFLINE}),
+        ]
+    )
+    def test_runs_that_differ_in_limits_do_not_share_a_flight(self, _name, other_kwargs):
+        runner_class = setup_test_query_runner_class()
+        runner = runner_class(query={"some_attr": "bla"}, team=self.team)
+        other = runner_class(query={"some_attr": "bla"}, team=self.team, **other_kwargs)
+        assert other.get_cache_key() == runner.get_cache_key()  # the cache key cannot tell them apart
+        other_leader = self._flight_of(other)
+        self.addCleanup(other_leader.release)
+        assert other_leader.acquire() is True
+        with mock.patch.object(QuerySingleFlight, "wait", autospec=True) as mock_wait:
+            with mock.patch("posthoganalytics.feature_enabled", side_effect=_single_flight_flag):
+                response = runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+        mock_wait.assert_not_called()
+        assert response.is_cached is False  # it led a flight of its own
+
+    def test_follower_serves_the_entry_the_leader_wrote(self):
+        runner_class = setup_test_query_runner_class()
+        with time_machine.travel("2026-01-01T00:00:00Z", tick=False) as frozen:
+            runner_class(query={"some_attr": "bla"}, team=self.team).run(
+                execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS
+            )  # an earlier entry, still fresh for this request
+
+            def leader_writes_while_we_wait(*args: Any, **kwargs: Any) -> FlightWait:
+                frozen.shift(timedelta(seconds=1))
+                with mock.patch("posthoganalytics.feature_enabled", return_value=False):
+                    leader_response = runner_class(query={"some_attr": "bla"}, team=self.team).run(
+                        execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS
+                    )
+                return FlightWait(outcome="done", last_refresh=leader_response.last_refresh)
+
+            runner = runner_class(query={"some_attr": "bla"}, team=self.team)
+            self._become_follower(leader_writes_while_we_wait)
+            with mock.patch("posthoganalytics.feature_enabled", side_effect=_single_flight_flag):
+                with mock.patch("posthog.hogql_queries.query_runner.report_user_or_team_action") as report:
+                    response = runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+        assert response.is_cached is True
+        assert response.last_refresh == datetime(2026, 1, 1, 0, 0, 1, tzinfo=UTC)  # the leader's, not the earlier entry
+        assert report.call_args.args[0] == "query executed"
+        assert report.call_args.args[1]["cache_hit"] is True
+
+    def test_follower_serves_the_published_entry_whatever_cache_age_was_requested(self):
+        runner_class = setup_test_query_runner_class()
+        runner = runner_class(query={"some_attr": "bla"}, team=self.team)
+
+        def leader_writes_while_we_wait(*args: Any, **kwargs: Any) -> FlightWait:
+            with mock.patch("posthoganalytics.feature_enabled", return_value=False):
+                leader_response = runner_class(query={"some_attr": "bla"}, team=self.team).run(
+                    execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS
+                )
+            return FlightWait(outcome="done", last_refresh=leader_response.last_refresh)
+
+        self._become_follower(leader_writes_while_we_wait)
+        with mock.patch("posthoganalytics.feature_enabled", side_effect=_single_flight_flag):
+            response = runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS, cache_age_seconds=0)
+        assert response.is_cached is True  # a zero cache age window must not reject the leader's own write
+
+    @parameterized.expand([("flag_off", False, None), ("export", True, LimitContext.EXPORT)])
+    def test_runs_that_cannot_share_a_result_never_touch_the_flight(self, _name, flag_on, limit_context):
+        runner_class = setup_test_query_runner_class()
+        runner = runner_class(query={"some_attr": "bla"}, team=self.team, limit_context=limit_context)
+        flags = _single_flight_flag if flag_on else (lambda *args, **kwargs: False)
+        with mock.patch.object(QuerySingleFlight, "acquire", autospec=True) as mock_acquire:
+            with mock.patch("posthoganalytics.feature_enabled", side_effect=flags):
+                runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+        mock_acquire.assert_not_called()
+
+
+class TestRunnersBuildDatabaseOnce(ClickhouseTestMixin, APIBaseTest):
+    # Guards the context threading in each runner's _calculate: the one Database build
+    # must go through shared_database (visible as the build_shared_database timing),
+    # so every execute_hogql_query call in the same run reuses it instead of the
+    # executor building its own.
+    @parameterized.expand(
+        [
+            ("hogql", HogQLQuery(query="select count() from events")),
+            (
+                "hogql_filtered",
+                HogQLQuery(
+                    query="select count() from events where {filters}",
+                    filters=HogQLFilters(dateRange=DateRange(date_from="-7d")),
+                ),
+            ),
+            ("events", EventsQuery(select=["event"])),
+            ("sessions", SessionsQuery(select=["session_id"])),
+            ("actors", ActorsQuery(select=["person"])),
+            ("sessions_timeline", SessionsTimelineQuery()),
+            ("groups", GroupsQuery(group_type_index=0)),
+            ("property_values", PropertyValuesQuery(property_key="email", property_type=PropertyType.PERSON)),
+        ]
+    )
+    def test_calculate_builds_database_once_via_shared_path(self, _name: str, query: BaseModel) -> None:
+        runner = get_query_runner(query=query, team=self.team, user=self.user)
+        with mock.patch.object(Database, "create_for", wraps=Database.create_for) as create_for:
+            runner.calculate()
+        assert create_for.call_count == 1
+        assert any("build_shared_database" in key for key in runner.timings.to_dict())
+
+
+class TestQueryRunnerRetentionTtl(BaseTest):
+    def tearDown(self) -> None:
+        super().tearDown()
+        cache.clear()
+
+    def test_run_applies_programmatic_retention_ttl(self) -> None:
+        TestQueryRunner = setup_test_query_runner_class()
+        runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
+        redis_key = entry_redis_key(runner.get_cache_key())
+
+        try:
+            tag_queries(access_method="personal_api_key")
+            runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+        finally:
+            reset_query_tags()
+
+        assert 0 < qc_storage.query_cache_raw_client().ttl(redis_key) <= settings.CACHED_RESULTS_PROGRAMMATIC_TTL
+
+        runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS, insight_id=1)
+
+        assert qc_storage.query_cache_raw_client().ttl(redis_key) > settings.CACHED_RESULTS_PROGRAMMATIC_TTL

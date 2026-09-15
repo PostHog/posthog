@@ -36,6 +36,10 @@ LOOP_RUN_IDLE_TIMEOUT_SECONDS = 2 * 60  # 2 minutes
 # a human-driven resume run omits it and keeps the normal come-and-go window.
 WORKFLOW_RUN_IDLE_TIMEOUT_SECONDS = 2 * 60  # 2 minutes
 
+# A single model call over a large context can run a few minutes without emitting an event,
+# so a short idle window only applies once the agent's turn has ended.
+IN_FLIGHT_TURN_IDLE_TIMEOUT_SECONDS = 10 * 60  # 10 minutes
+
 # When a loop run's workflow dies without terminalizing (sandbox killed, worker crash),
 # the run row is stuck non-terminal and would block every future fire under SKIP forever.
 # A live run keeps bumping `updated_at` within its inactivity window, so a non-terminal

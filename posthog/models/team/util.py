@@ -11,7 +11,9 @@ from posthog.cache_utils import cache_for
 from posthog.models.async_migration import is_async_migration_complete
 from posthog.temporal.common.client import sync_connect
 
+from products.ai_training.backend.facade.api import queue_training_deletion
 from products.batch_exports.backend.service import BatchExportServiceScheduleNotFound, batch_export_delete_schedule
+from products.dashboards.backend.models.dashboard_tile import DashboardTile
 
 logger = structlog.get_logger(__name__)
 
@@ -37,17 +39,8 @@ TEAM_DELETE_BATCH_SIZE = 2000
 # activity bound.
 TEAM_DELETE_RPC_TIMEOUT_SECONDS = 30 * 60
 
-# The retired session-summary tables. products/replay/backend/migrations/0002_remove_session_summary_models.py
-# dropped their models from Django state only, so both the tables and their foreign keys on
-# posthog_team still exist in Postgres. Django's cascade cannot see them any more, and the
-# constraints are DEFERRABLE INITIALLY DEFERRED, so a leftover row fails the team delete at COMMIT
-# with an IntegrityError instead of at the DELETE statement. All three tables are dead: no Django
-# model reads or writes them. This list goes away with the migration that drops them.
-RETIRED_SESSION_SUMMARY_TABLES = (
-    "ee_group_session_summary",
-    "ee_single_session_summary",
-    "ee_teamsessionsummariesconfig",
-)
+# Out of Django state since replay/0002, so the Team cascade cannot reach it. Delete with the table.
+RETIRED_SESSION_SUMMARY_TABLES = ("ee_single_session_summary",)
 
 actions_that_require_current_team = [
     "rotate_secret_token",
@@ -59,6 +52,7 @@ actions_that_require_current_team = [
     "default_evaluation_contexts",
     "evaluation_context_suggestions",
     "logs_config",
+    "tracing_config",
 ]
 
 
@@ -93,6 +87,9 @@ def _delete_misc_small_tables_for_teams(team_ids: list[int]) -> None:
     # DataWarehouseSavedQuery, which has PROTECT on delete.
     _raw_delete_batch(Edge.objects.filter(team_id__in=team_ids))
     _raw_delete_batch(Node.objects.filter(team_id__in=team_ids))
+    # DashboardTile has PROTECT on its widget, which the Team cascade deletes, so tiles go first.
+    # _base_manager because the default manager hides soft-deleted tiles, which protect it too.
+    _raw_delete_batch(DashboardTile._base_manager.filter(team_id__in=team_ids, widget__isnull=False))
     _raw_delete_batch(FileSystemViewLog.objects.filter(team_id__in=team_ids))
     _raw_delete_batch(EarlyAccessFeature.objects.filter(team_id__in=team_ids))
     _raw_delete_batch(error_tracking_fingerprint.objects.filter(team_id__in=team_ids))
@@ -346,7 +343,10 @@ def delete_team_records(team_ids: list[int]) -> None:
     from posthog.models.team import Team
 
     with transaction.atomic():
-        list(Team.objects.select_for_update().filter(id__in=team_ids))
+        # nosemgrep: hot-parent-row-select-for-update -- Team deletion must block concurrent child inserts.
+        teams = list(Team.objects.select_for_update().filter(id__in=team_ids))
+        for team in teams:
+            queue_training_deletion(team.pk, "team")
         Team.objects.filter(id__in=team_ids).delete()
 
 

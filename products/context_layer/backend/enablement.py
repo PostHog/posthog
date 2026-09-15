@@ -20,7 +20,7 @@ from posthog.models.scoping import team_scope
 from posthog.models.team.team import Team
 
 from products.access_control.backend.models.access_control import AccessControl
-from products.context_layer.backend import store
+from products.context_layer.backend import repo_lint, store
 from products.context_layer.backend.models import ContextLayerConfig
 from products.context_layer.backend.scaffold import AGENTS_MD
 from products.tasks.backend.facade import api as tasks_facade
@@ -205,5 +205,37 @@ def _channel_page(team_id: int, channel_id: str, channel_name: str, content: str
     else:
         summary = f"Context imported from {title}."
         source = "channel-instructions-import"
-        body = f"\n{content.strip()}\n"
+        sanitized_content, repaired = _sanitize_imported_context(content.strip())
+        repair_note = (
+            "\n> **Import note:** Some wiki-link brackets in this imported context were encoded because they were "
+            "malformed. Review and repair the links.\n"
+            if repaired
+            else ""
+        )
+        body = f"{repair_note}\n{sanitized_content}\n"
     return f"---\nteam_id: {team_id}\nchannel_id: {channel_id}\nsummary: {summary}\nstatus: active\nsources: {source}\n---\n\n# {title} (project {team_id}, Space {channel_id[:8]})\n{body}"
+
+
+def _sanitize_imported_context(content: str) -> tuple[str, bool]:
+    parts: list[str] = []
+    cursor = 0
+    repaired = False
+    for match in repo_lint.WIKILINK_RE.finditer(content):
+        prefix, changed = _encode_wikilink_brackets(content[cursor : match.start()])
+        parts.append(prefix)
+        repaired |= changed
+        if repo_lint._wikilink_target(match.group(1)) is None:
+            encoded, _ = _encode_wikilink_brackets(match.group(0))
+            parts.append(encoded)
+            repaired = True
+        else:
+            parts.append(match.group(0))
+        cursor = match.end()
+    suffix, changed = _encode_wikilink_brackets(content[cursor:])
+    parts.append(suffix)
+    return "".join(parts), repaired or changed
+
+
+def _encode_wikilink_brackets(content: str) -> tuple[str, bool]:
+    encoded = content.replace("[[", "&#91;&#91;").replace("]]", "&#93;&#93;")
+    return encoded, encoded != content

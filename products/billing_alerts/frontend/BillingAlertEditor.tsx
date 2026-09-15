@@ -4,11 +4,12 @@ import { Form } from 'kea-forms'
 import { IconPlay } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonSelect, LemonTextArea } from '@posthog/lemon-ui'
 
+import { NextScheduledRun } from 'lib/components/ScheduledRunStatus'
 import { dayjs } from 'lib/dayjs'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
 import { AlertAdvancedOptions } from 'products/alerts/frontend/components/AlertAdvancedOptions'
-import { AlertDefinitionRow, AlertNextEvaluationStatus } from 'products/alerts/frontend/components/AlertDefinition'
+import { AlertDefinitionRow } from 'products/alerts/frontend/components/AlertDefinition'
 import {
     AlertEditor,
     AlertEditorFormDetails,
@@ -132,11 +133,11 @@ function BillingAlertEditorContent(props: BillingAlertFormLogicProps): JSX.Eleme
                                     ? 'Projected period spend estimates what this billing period will cost by its end, after discounts.'
                                     : 'Current period spend is what this billing period has cost so far, after discounts.'}
                             </div>
-                            <AlertNextEvaluationStatus loading={false}>
+                            <NextScheduledRun label="Next planned evaluation:" loading={false}>
                                 {props.alert?.next_check_at
                                     ? dayjs.utc(props.alert.next_check_at).format('MMM D, HH:mm [UTC]')
                                     : 'after the alert is created'}
-                            </AlertNextEvaluationStatus>
+                            </NextScheduledRun>
                         </div>
                     </AlertEditorSection>
 

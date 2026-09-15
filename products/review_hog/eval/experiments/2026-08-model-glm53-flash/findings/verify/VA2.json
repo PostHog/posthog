@@ -1,0 +1,6 @@
+{
+    "id": "VA2",
+    "real": true,
+    "source": "fresh",
+    "reasoning": "Confirmed. facade/api.py:149-155 only calls process_inbox_pr_review.delay() — no DB intent row; run/PR rows are created inside the Celery task (tasks/tasks.py:1123). receivers.py:225-236 wraps the call in try/except that only logger.exception()s, so a sustained Redis outage past producer retries silently drops the publish. No reconciliation job exists. The webhook leg cannot recover it: _inbox_rereview_carve_out (tasks/tasks.py:167-168) is scoped to synchronize/reopen/retarget only, and opened deliveries for bot drafts are refused by draft/bot_author pre-filters (tasks/tasks.py:227-232). Receiver refires need a later output-touching TaskRun save, which is not guaranteed. tasks.py:1157-1159 even retries GitHub blips because the leg has no redelivery — the publish step lacks that same durability."
+}

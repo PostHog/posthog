@@ -98,8 +98,7 @@ class IntercomSource(SimpleSource[IntercomSourceConfig], OAuthMixin):
                     ),
                 ],
             ),
-            featureFlag="dwh_intercom",
-            releaseStatus=ReleaseStatus.BETA,
+            releaseStatus=ReleaseStatus.GA,
         )
 
     def get_schemas(
@@ -133,8 +132,10 @@ class IntercomSource(SimpleSource[IntercomSourceConfig], OAuthMixin):
     ) -> tuple[bool, str | None]:
         try:
             integration = self.get_oauth_integration(config.intercom_integration_id, team_id)
-        except ValueError as e:
-            return False, str(e)
+        except ValueError:
+            # get_oauth_integration raises ValueError("Integration not found: <id>") for an
+            # integration that was deleted or disconnected while the source still references it.
+            return False, "Intercom integration not found. Please reconnect your Intercom integration."
 
         if not integration.access_token:
             return False, "Intercom integration has no access token. Please reconnect."

@@ -18,9 +18,7 @@ import {
 
 import api from 'lib/api'
 import { TZLabel } from 'lib/components/TZLabel'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -55,6 +53,7 @@ import { ColumnSelectionPicker } from '../SourceScene/tabs/ColumnSelectionModal'
 import { RowFilterEditor } from '../SourceScene/tabs/RowFilterEditor'
 import { validateRowFilters } from '../SourceScene/tabs/rowFilterUtils'
 import { columnAnnotationsLogic } from './columnAnnotationsLogic'
+import { DestinationsSection } from './DestinationsSection'
 import { SchemaConfigurationSection, schemaSceneLogic } from './schemaSceneLogic'
 
 // null means "all columns" on either side, so switching to null after a partial list flags
@@ -99,7 +98,6 @@ export function ConfigurationTab({
     const { isProjectTime, refreshingSchemas, resyncingSchema, supportsRowFilters } = useValues(logic)
     const { setIsProjectTime, updateSchema, reloadSchema, resyncSchema, cancelSchema, deleteTable, refreshSchemas } =
         useActions(logic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     switch (section) {
         case 'details':
@@ -120,6 +118,8 @@ export function ConfigurationTab({
                     <ApiVersionSection sourceId={sourceId} source={source} schema={schema} />
                 </div>
             )
+        case 'destinations':
+            return <DestinationsSection schemaId={schema.id} />
         case 'columns':
             return (
                 <ColumnsAndRowFiltersSection
@@ -142,12 +142,7 @@ export function ConfigurationTab({
                 />
             )
         case 'descriptions':
-            // Deep-link guard: the section nav already hides this when the flag is off.
-            return featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE_SEMANTIC_ENRICHMENT] ? (
-                <DescriptionsSection schema={schema} />
-            ) : (
-                <></>
-            )
+            return <DescriptionsSection schema={schema} />
         case 'danger-zone':
             return (
                 <DangerZoneSection
@@ -274,7 +269,7 @@ function DetailsSection({
                     )}
                 </div>
                 <div className="flex items-center justify-between">
-                    <span className="text-muted">Rows synced</span>
+                    <span className="text-muted">Row count</span>
                     <span>{schema.table?.row_count?.toLocaleString() ?? '—'}</span>
                 </div>
                 <div className="flex items-center justify-between">
@@ -658,7 +653,7 @@ function ColumnsAndRowFiltersSection({
     refreshingSchemas,
     supportsRowFilters,
 }: {
-    source: ExternalDataSource | null
+    source: SchemaSceneSource | null
     schema: ExternalDataSourceSchema
     updateSchema: (schema: ExternalDataSourceSchema) => void
     resyncSchema: (schema: ExternalDataSourceSchema) => void
@@ -668,6 +663,8 @@ function ColumnsAndRowFiltersSection({
 }): JSX.Element {
     const available = schema.available_columns ?? []
     const hasAvailableColumns = available.length > 0
+    const columnSelectionNeedsRefresh =
+        !!source?.requires_exact_column_metadata && schema.source_column_metadata_available === false
 
     // Plain value, not the render-prop form of SchemaEditorAction: a fresh inline render-prop on
     // every edit would remount the editors and wipe their drafts. See useSchemaEditorAccess's docstring.
@@ -766,12 +763,14 @@ function ColumnsAndRowFiltersSection({
                     description="Choose which columns from this table get synced. Primary keys and the active incremental field are always synced."
                 />
                 <div className="border rounded p-4 bg-surface-primary flex flex-col gap-3">
-                    {!hasAvailableColumns ? (
+                    {!hasAvailableColumns || columnSelectionNeedsRefresh ? (
                         <div className="flex flex-col items-center gap-2 text-center text-muted-alt py-6">
                             <span className="text-sm">
-                                {!schema.last_synced_at
-                                    ? 'No columns discovered yet for this schema — they will appear after the first successful sync.'
-                                    : 'No columns discovered yet for this schema.'}
+                                {columnSelectionNeedsRefresh
+                                    ? 'Pull the latest source schema before changing columns. Existing synced columns remain available under Descriptions.'
+                                    : !schema.last_synced_at
+                                      ? 'No columns discovered yet for this schema — they will appear after the first successful sync.'
+                                      : 'No columns discovered yet for this schema.'}
                             </span>
                             <SchemaEditorAction schema={schema}>
                                 <LemonButton
@@ -802,7 +801,7 @@ function ColumnsAndRowFiltersSection({
                         description="Sync only rows that match these conditions. Filters are ANDed together and applied on the next sync — they don't remove rows already synced."
                     />
                     <div className="border rounded p-4 bg-surface-primary flex flex-col gap-3">
-                        {!hasAvailableColumns ? (
+                        {!hasAvailableColumns || columnSelectionNeedsRefresh ? (
                             <div className="text-sm text-muted-alt py-2 text-center">
                                 No columns discovered yet — pull schemas from the Columns section above to add row
                                 filters.

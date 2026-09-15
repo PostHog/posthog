@@ -8,6 +8,7 @@ to us, or get a personal API token to programmatically access our API.
 """
 
 import uuid
+from dataclasses import field
 from datetime import UTC, datetime, timedelta
 from typing import Any, TypedDict, cast
 
@@ -21,7 +22,8 @@ from oauth2_provider.utils import jwk_from_pem
 from rest_framework import status
 
 from posthog.constants import AvailableFeature
-from posthog.models.organization_domain import OrganizationDomain
+from posthog.dataclasses import frozen
+from posthog.models.identity_provider_config import IdentityProviderConfig
 from posthog.models.user import User
 from posthog.scopes import get_oauth_scopes_supported
 from posthog.security.url_validation import is_url_allowed
@@ -110,6 +112,20 @@ class IdJagClaims(TypedDict, total=False):
     iat: int
     nbf: int
     exp: int
+
+
+@frozen
+class _VerifiedIdJag:
+    claims: IdJagClaims
+    provider_name: str
+    identity_provider_config: IdentityProviderConfig
+
+
+@frozen
+class IssuedAccessToken:
+    access_token: str = field(repr=False)
+    granted_scopes: list[str]
+    expires_in_seconds: int
 
 
 def _get_site_url() -> str:
@@ -233,12 +249,11 @@ def _get_scopes(id_jag_scopes: list[str], requested_scopes: list[str] | None) ->
     return intersected
 
 
-def _verify_and_extract_id_jag_token(assertion: str) -> tuple[IdJagClaims, str, "OrganizationDomain"]:
+def _verify_and_extract_id_jag_token(assertion: str) -> _VerifiedIdJag:
     """
     Verifies the provided ID-JAG token against the IdP's JWKS and returns the
     claims, the provider name we stamp into the issued access token's `sub`,
-    and the `OrganizationDomain` row that owns the trusted IdP config (used to
-    bind the issued access token to a single organization).
+    and the IdP configuration that binds the token to one organization.
 
     Raises `IdJagError` (with the right RFC 6749 error code) on every documented
     failure mode at https://xaa.dev/docs/error-codes
@@ -269,7 +284,7 @@ def _verify_and_extract_id_jag_token(assertion: str) -> tuple[IdJagClaims, str, 
 
     id_jag_email = unverified_claims.get("email") or unverified_claims.get("sub") or ""
 
-    resolution = OrganizationDomain.objects.get_verified_for_email_address_and_issuer(id_jag_email, issuer)
+    resolution = IdentityProviderConfig.objects.get_id_jag_for_request(id_jag_email, issuer)
     if resolution.organization_domain is None or resolution.identity_provider_config is None or resolution.error:
         # Do not echo the specific reason — see GENERIC_ID_JAG_REJECTION.
         logger.info(
@@ -280,10 +295,10 @@ def _verify_and_extract_id_jag_token(assertion: str) -> tuple[IdJagClaims, str, 
         )
         raise InvalidGrantError(GENERIC_ID_JAG_REJECTION)
 
-    org_domain = resolution.organization_domain
     idp_config = resolution.identity_provider_config
+    organization_domain = resolution.organization_domain
     expected_issuer = (idp_config.id_jag_issuer_url or "").rstrip("/")
-    provider_name = org_domain.domain
+    provider_name = organization_domain.domain
 
     try:
         jwks_client = _get_jwks_client(expected_issuer, jwks_url=idp_config.id_jag_jwks_url or None)
@@ -385,22 +400,22 @@ def _verify_and_extract_id_jag_token(assertion: str) -> tuple[IdJagClaims, str, 
 
     verified_email = claims.get("email") or claims.get("sub") or ""
 
-    # The user must be an active member of the *specific* organization whose
-    # OrganizationDomain pinned this IdP — not merely a member of any org that
-    # also verified this domain. The issued access token is scoped to
-    # `org_domain.organization_id` downstream, so membership must be enforced
-    # on that exact org.
+    # Membership must match the configuration's organization because the access token is scoped to it.
     is_member = User.objects.filter(
         is_active=True,
         email__iexact=verified_email,
-        organization_membership__organization_id=org_domain.organization.pk,
+        organization_membership__organization_id=idp_config.organization_id,
     ).exists()
     if not is_member:
         raise InvalidGrantError(
             "ID-JAG sub is not an active member of the organization that owns this IdP configuration"
         )
 
-    return claims, provider_name, org_domain
+    return _VerifiedIdJag(
+        claims=claims,
+        provider_name=provider_name,
+        identity_provider_config=idp_config,
+    )
 
 
 def _construct_access_token_payload(
@@ -471,32 +486,40 @@ def _parse_scope_list(value: str | list[str] | None) -> list[str]:
 
 def issue_access_token(
     assertion: str, requested_scope: str | list[str] | None, request_client_id: str | None
-) -> tuple[str, list[str], int]:
+) -> IssuedAccessToken:
     """
     Validate an ID-JAG `assertion` and mint an access token. Pulled out of the
     view so the same path is exercised by tests, batch tools, and the HTTP
-    handler. Returns `(access_token, granted_scopes, expires_in_seconds)`.
+    handler.
     """
 
-    claims, provider_name, org_domain = _verify_and_extract_id_jag_token(assertion)
+    verified_id_jag = _verify_and_extract_id_jag_token(assertion)
 
-    organization = org_domain.organization
+    organization = verified_id_jag.identity_provider_config.organization
     if not organization.is_feature_available(AvailableFeature.XAA_AUTHENTICATION):
         raise AccessDeniedError("ID-JAG (XAA) is not enabled for this organization")
 
-    if request_client_id and request_client_id != claims.get("client_id"):
+    if request_client_id and request_client_id != verified_id_jag.claims.get("client_id"):
         raise InvalidGrantError("ID-JAG client_id doesn't match the authenticating client")
 
-    id_jag_scopes = _parse_scope_list(claims.get("scope"))
+    id_jag_scopes = _parse_scope_list(verified_id_jag.claims.get("scope"))
     parsed_requested = _parse_scope_list(requested_scope) if requested_scope is not None else None
 
     known_scopes = set(get_oauth_scopes_supported())
     sanitized_id_jag_scopes = [s for s in id_jag_scopes if s in known_scopes]
 
     granted = _get_scopes(sanitized_id_jag_scopes, parsed_requested)
-    verified_email = claims.get("email") or claims.get("sub") or ""
+    verified_email = verified_id_jag.claims.get("email") or verified_id_jag.claims.get("sub") or ""
     payload = _construct_access_token_payload(
-        claims, provider_name, granted, organization.pk, cast(str, verified_email)
+        verified_id_jag.claims,
+        verified_id_jag.provider_name,
+        granted,
+        organization.pk,
+        cast(str, verified_email),
     )
     token = _construct_access_token(payload)
-    return token, granted, settings.ID_JAG_ACCESS_TOKEN_TTL_SECONDS
+    return IssuedAccessToken(
+        access_token=token,
+        granted_scopes=granted,
+        expires_in_seconds=settings.ID_JAG_ACCESS_TOKEN_TTL_SECONDS,
+    )

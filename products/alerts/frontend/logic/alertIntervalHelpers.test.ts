@@ -7,9 +7,13 @@ import { initKeaTests } from '~/test/init'
 import { AvailableFeature } from '~/types'
 
 import {
+    canSetAlertScheduleStartTime,
+    getAlertScheduleStartMinute,
     getDefaultSimulationRange,
     isSubDailyAlertInterval,
     selectAlertCalculationInterval,
+    scheduleStartTimeForInterval,
+    scheduleStartTimeForMinute,
 } from './alertIntervalHelpers'
 
 describe('alertIntervalHelpers', () => {
@@ -131,6 +135,64 @@ describe('alertIntervalHelpers', () => {
             [AlertCalculationInterval.MONTHLY, false],
         ])('%s → %s', (interval, expected) => {
             expect(isSubDailyAlertInterval(interval)).toBe(expected)
+        })
+    })
+
+    describe('canSetAlertScheduleStartTime', () => {
+        it.each([
+            [AlertCalculationInterval.REAL_TIME, false],
+            [AlertCalculationInterval.EVERY_15_MINUTES, false],
+            [AlertCalculationInterval.HOURLY, true],
+            [AlertCalculationInterval.DAILY, false],
+            [AlertCalculationInterval.WEEKLY, false],
+            [AlertCalculationInterval.MONTHLY, false],
+        ])('%s → %s', (interval, expected) => {
+            expect(canSetAlertScheduleStartTime(interval)).toBe(expected)
+        })
+    })
+
+    describe('schedule start time for interval', () => {
+        it.each([
+            [AlertCalculationInterval.EVERY_15_MINUTES, null],
+            [AlertCalculationInterval.HOURLY, '00:55'],
+            [AlertCalculationInterval.REAL_TIME, null],
+            [AlertCalculationInterval.DAILY, null],
+            [AlertCalculationInterval.WEEKLY, null],
+            [AlertCalculationInterval.MONTHLY, null],
+        ])('uses %s → %s', (interval, expected) => {
+            expect(scheduleStartTimeForInterval(interval, '00:55')).toBe(expected)
+        })
+
+        it.each([[AlertCalculationInterval.HOURLY, null]])(
+            'preserves an unanchored %s schedule',
+            (interval, expected) => {
+                expect(scheduleStartTimeForInterval(interval, null)).toBe(expected)
+            }
+        )
+    })
+
+    describe('alert schedule start minute', () => {
+        it.each([
+            [undefined, undefined],
+            [null, undefined],
+            ['08:57', 57],
+            ['00:03', 3],
+        ])('reads %s as %s', (scheduleStartTime, expected) => {
+            expect(getAlertScheduleStartMinute(scheduleStartTime)).toBe(expected)
+        })
+
+        it.each([
+            [undefined, null],
+            [Number.NaN, null],
+            [1.5, null],
+            [-1, null],
+            [60, null],
+            [0, '00:00'],
+            [12, '00:12'],
+            [55, '00:55'],
+            [57, '00:57'],
+        ])('writes %s as %s', (minute, expected) => {
+            expect(scheduleStartTimeForMinute(minute)).toBe(expected)
         })
     })
 })

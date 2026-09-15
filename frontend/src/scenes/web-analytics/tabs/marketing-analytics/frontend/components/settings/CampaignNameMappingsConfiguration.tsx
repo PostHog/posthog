@@ -14,7 +14,7 @@ import {
     getGlobalCampaignMapping,
     parseCommaSeparatedValues,
     removeCampaignFromMappings,
-} from '../NonIntegratedConversionsTable/mappingUtils'
+} from '../CampaignMapping/mappingUtils'
 import { CampaignSuggestion, findCampaignSuggestions } from './stringSimilarity'
 
 export interface CampaignNameMappingsConfigurationProps {

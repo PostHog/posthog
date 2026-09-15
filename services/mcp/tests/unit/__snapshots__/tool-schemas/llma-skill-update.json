@@ -2,7 +2,7 @@
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
         "allowed_tools": {
-            "description": "List of pre-approved tools the skill may use. Tool names cannot contain whitespace.",
+            "description": "Tools the skill asks to use. Tool names cannot contain whitespace. A harness that reads the skill from a file (zip export, git marketplace, a content=full bundle) treats the list as pre-approved. A harness that loads the skill over MCP, including the default content=stub bundle, ignores the list until the user approves that grant.",
             "items": {
                 "type": "string"
             },
@@ -24,7 +24,7 @@
         },
         "description": {
             "description": "Updated description for the new version.",
-            "maxLength": 4096,
+            "maxLength": 1024,
             "type": "string"
         },
         "edits": {

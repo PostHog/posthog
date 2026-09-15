@@ -6,6 +6,15 @@
 // The per-kind shaping is kept here (pure, unit-tested) so the client method
 // stays a thin "fetch by kind, shape result" dispatch.
 
+import type { SignalReport } from "@posthog/shared/domain-types";
+import {
+  type FlagAudience,
+  type FlagCondition,
+  flagReachLabel,
+  type ResolvedPerson,
+  shapeFlagAudience,
+  targetedDistinctIds,
+} from "./flag-audience";
 import type { Schemas } from "./generated";
 
 export interface EvidenceDetailField {
@@ -16,6 +25,57 @@ export interface EvidenceDetailField {
 export interface EvidenceDetailSection {
   title: string;
   fields: EvidenceDetailField[];
+}
+
+export type ExperimentResultState =
+  | "ready"
+  | "draft"
+  | "error"
+  | "insufficient_data";
+
+export interface ExperimentVariantResultPresentation {
+  key: string;
+  isControl: boolean;
+  outcome: string;
+  sampleContext: string;
+  uplift: string | null;
+  upliftValue: number | null;
+  intervalBounds: [number, number] | null;
+  upliftDirection: "positive" | "negative" | null;
+  isImprovement: boolean | null;
+  interval: string | null;
+  pValue: string | null;
+  chanceToWin: string | null;
+  significance: "significant" | "not_significant" | "insufficient_data" | null;
+}
+
+export interface ExperimentMetricResultPresentation {
+  id: string;
+  name: string;
+  metricType: "primary" | "secondary";
+  state: "ready" | "error" | "insufficient_data";
+  error: string | null;
+  outcomeLabel: string;
+  axisRange: number | null;
+  bestVariant: {
+    key: string;
+    uplift: string;
+    significance: ExperimentVariantResultPresentation["significance"];
+    isImprovement: boolean | null;
+  } | null;
+  variants: ExperimentVariantResultPresentation[];
+}
+
+export interface ExperimentResultsPresentation {
+  state: ExperimentResultState;
+  stale: boolean;
+  lastRefresh: string | null;
+  primaryMetrics: ExperimentMetricResultPresentation[];
+  secondaryMetrics: ExperimentMetricResultPresentation[];
+}
+
+export interface ExperimentMetricQueryResult {
+  response: Schemas.ExperimentQueryResponse | null;
 }
 
 export interface EvidencePreview {
@@ -55,6 +115,11 @@ export interface EvidencePreview {
     render: "line" | "bar";
   };
   sections?: EvidenceDetailSection[];
+  experimentResults?: ExperimentResultsPresentation;
+  /** Who a feature flag reaches, as a readable rules table. */
+  flagAudience?: FlagAudience;
+  /** Conditions every check must meet before the rules apply, such as a survey's URL. */
+  displayConditions?: FlagCondition[];
   /**
    * A dashboard's tiles, each resolvable to a live insight chart, so a full
    * page can render the metrics themselves rather than describe them.
@@ -216,8 +281,12 @@ function surveyQuestionSummary(question: unknown): string | null {
   return type ? `${prompt} (${humanizeStatus(type)})` : prompt;
 }
 
-export function shapeFlagPreview(flag: Schemas.FeatureFlag): EvidencePreview {
+export function shapeFlagPreview(
+  flag: Schemas.FeatureFlag,
+  people: Map<string, ResolvedPerson> = new Map(),
+): EvidencePreview {
   const name = flag.name?.trim();
+  const audience = shapeFlagAudience(flag, people);
 
   const facts: string[] = [];
   const filters = isRecord(flag.filters) ? flag.filters : {};
@@ -245,19 +314,12 @@ export function shapeFlagPreview(flag: Schemas.FeatureFlag): EvidencePreview {
     : isMultivariate
       ? "Multivariate"
       : "Boolean";
-  const singleRollout =
-    groups.length === 1 && isRecord(groups[0])
-      ? groups[0].rollout_percentage
-      : null;
   const stats: Array<{ label: string; value: string }> = [
-    ...(typeof singleRollout === "number"
-      ? [{ label: "Rollout", value: `${singleRollout}%` }]
-      : groups.length > 1
-        ? [{ label: "Release conditions", value: String(groups.length) }]
-        : []),
+    { label: "Reach", value: flagReachLabel(audience) },
     ...(variants > 0 ? [{ label: "Variants", value: String(variants) }] : []),
     { label: "Type", value: flagType },
   ];
+  const distinctIds = targetedDistinctIds(flag, true);
   return {
     title: flag.key,
     detail: name || undefined,
@@ -266,13 +328,10 @@ export function shapeFlagPreview(flag: Schemas.FeatureFlag): EvidencePreview {
       : { label: "Disabled", tone: "neutral" },
     facts,
     stats,
+    flagAudience: audience,
     sections: [
       ...detailSection("Configuration", [
         ["Type", flagType],
-        [
-          "Release conditions",
-          groups.length ? count(groups.length, "condition") : "All users",
-        ],
         [
           "Evaluation runtime",
           flag.evaluation_runtime === "all"
@@ -291,17 +350,22 @@ export function shapeFlagPreview(flag: Schemas.FeatureFlag): EvidencePreview {
               : "Disabled",
         ],
         [
+          "Used by",
+          flag.experiment_set?.length
+            ? count(flag.experiment_set.length, "experiment")
+            : null,
+        ],
+        [
           "Last called",
           flag.last_called_at ? formatDay(flag.last_called_at) : null,
         ],
+        [
+          distinctIds.length === 1
+            ? "Targeted distinct ID"
+            : "Targeted distinct IDs",
+          distinctIds.length > 0 ? distinctIds.join(", ") : null,
+        ],
       ]),
-      ...detailSection(
-        "Release conditions",
-        groups.map((group, index) => [
-          `Set ${index + 1}`,
-          flagConditionSummary(group),
-        ]),
-      ),
     ],
     resolvedId: String(flag.id),
   };
@@ -440,6 +504,438 @@ export function shapeExperimentPreview(
         ]),
       ),
     ],
+  };
+}
+
+interface ExperimentMetricDefinition {
+  query: unknown;
+  id: string;
+  name: string;
+  metricType: "primary" | "secondary";
+  valueType: string | null;
+  goal: string | null;
+}
+
+function metricName(metric: QueryRecord, index: number): string {
+  const directName = conciseValue(metric.name);
+  if (directName) return directName;
+  for (const field of [
+    "source",
+    "completion_event",
+    "start_event",
+    "numerator",
+  ]) {
+    const source = metric[field];
+    if (isRecord(source)) {
+      const eventName = conciseValue(source.event) ?? conciseValue(source.name);
+      if (eventName) return eventName;
+    }
+  }
+  return `Metric ${index + 1}`;
+}
+
+function metricUuid(metric: QueryRecord, fallback: string): string {
+  return conciseValue(metric.uuid) ?? fallback;
+}
+
+function orderedMetricDefinitions(
+  experiment: Schemas.Experiment,
+  metricType: "primary" | "secondary",
+): ExperimentMetricDefinition[] {
+  const inlineMetrics = ((metricType === "primary"
+    ? experiment.metrics
+    : experiment.metrics_secondary) ?? []) as unknown[];
+  const definitions: ExperimentMetricDefinition[] = inlineMetrics.flatMap(
+    (metric, index) =>
+      isRecord(metric)
+        ? [
+            {
+              query: metric,
+              id: metricUuid(metric, `${metricType}-${index}`),
+              name: metricName(metric, index),
+              metricType,
+              valueType: conciseValue(metric.metric_type),
+              goal: conciseValue(metric.goal),
+            },
+          ]
+        : [],
+  );
+
+  for (const savedMetric of experiment.saved_metrics ?? []) {
+    const metadata = isRecord(savedMetric.metadata) ? savedMetric.metadata : {};
+    if (metadata.type !== metricType || !isRecord(savedMetric.query)) continue;
+    definitions.push({
+      query: savedMetric.query,
+      id: metricUuid(
+        savedMetric.query,
+        `${metricType}-saved-${savedMetric.saved_metric}`,
+      ),
+      name:
+        savedMetric.name || metricName(savedMetric.query, definitions.length),
+      metricType,
+      valueType: conciseValue(savedMetric.query.metric_type),
+      goal: conciseValue(savedMetric.query.goal),
+    });
+  }
+
+  const experimentRecord = experiment as unknown as QueryRecord;
+  const orderKey =
+    metricType === "primary"
+      ? "primary_metrics_ordered_uuids"
+      : "secondary_metrics_ordered_uuids";
+  const orderedUuids = Array.isArray(experimentRecord[orderKey])
+    ? (experimentRecord[orderKey] as unknown[]).filter(
+        (uuid): uuid is string => typeof uuid === "string",
+      )
+    : [];
+  if (orderedUuids.length === 0) return definitions;
+  const position = new Map(orderedUuids.map((uuid, index) => [uuid, index]));
+  return definitions
+    .map((definition, index) => ({ definition, index }))
+    .sort(
+      (left, right) =>
+        (position.get(left.definition.id) ?? orderedUuids.length + left.index) -
+        (position.get(right.definition.id) ??
+          orderedUuids.length + right.index),
+    )
+    .map(({ definition }) => definition);
+}
+
+export function experimentMetricQueries(
+  experiment: Schemas.Experiment,
+  metricType: "primary" | "secondary",
+): unknown[] {
+  return orderedMetricDefinitions(experiment, metricType).map(
+    (definition) => definition.query,
+  );
+}
+
+function formatPercent(value: number, includeSign = false): string {
+  const percentage = value * 100;
+  const sign = includeSign && percentage > 0 ? "+" : "";
+  return `${sign}${Math.abs(percentage) >= 10 ? percentage.toFixed(1) : percentage.toFixed(2)}%`;
+}
+
+function formatPValue(value: number): string {
+  return value < 0.001 ? "< 0.001" : value.toFixed(3);
+}
+
+function validInterval(value: unknown): [number, number] | null {
+  if (!Array.isArray(value) || value.length !== 2) return null;
+  const lower = cellNumber(value[0]);
+  const upper = cellNumber(value[1]);
+  return lower === null || upper === null ? null : [lower, upper];
+}
+
+function outcomeValue(
+  stats: Schemas.ExperimentStatsBaseValidated,
+  valueType: string | null,
+): { label: string; comparable: number | null; display: string } {
+  const samples = stats.number_of_samples;
+  const mean = samples > 0 ? stats.sum / samples : null;
+  if (valueType === "funnel" || valueType === "retention") {
+    return {
+      label: valueType === "retention" ? "Retained" : "Conversions",
+      comparable: mean,
+      display: `${compactCount(stats.sum)} · ${mean === null ? "No rate" : formatPercent(mean)}`,
+    };
+  }
+  if (valueType === "ratio") {
+    const denominator = cellNumber(stats.denominator_sum);
+    const ratio =
+      denominator && denominator !== 0 ? stats.sum / denominator : null;
+    return {
+      label: "Ratio",
+      comparable: ratio,
+      display: `${compactCount(stats.sum)} numerator · ${ratio === null ? "No ratio" : ratio.toFixed(2)}`,
+    };
+  }
+  return {
+    label: "Outcome",
+    comparable: mean,
+    display: `${compactCount(stats.sum)} total · ${mean === null ? "No mean" : `${compactCount(mean)} per sample`}`,
+  };
+}
+
+function hasInsufficientData(
+  response: Schemas.ExperimentQueryResponse,
+  stats: Schemas.ExperimentStatsBaseValidated[],
+): boolean {
+  if (response.significance_code === "not_enough_exposure") return true;
+  return stats.some((entry) =>
+    (entry.validation_failures ?? []).some(
+      (failure) =>
+        failure === "not-enough-exposures" ||
+        failure === "not-enough-metric-data",
+    ),
+  );
+}
+
+const MIN_AXIS_RANGE = 0.05;
+const MAX_AXIS_RANGE = 1.5;
+
+function deltaAxisRange(
+  rows: ExperimentVariantResultPresentation[],
+): number | null {
+  const bounds = rows.flatMap((row) =>
+    row.intervalBounds ? row.intervalBounds.map(Math.abs) : [],
+  );
+  if (bounds.length === 0) return null;
+  return Math.min(MAX_AXIS_RANGE, Math.max(MIN_AXIS_RANGE, ...bounds));
+}
+
+function shapeMetricResult(
+  definition: ExperimentMetricDefinition,
+  queryResult: ExperimentMetricQueryResult | undefined,
+  exposures: Record<string, number>,
+  experimentStarted: boolean,
+): ExperimentMetricResultPresentation {
+  const response = queryResult?.response;
+  if (!experimentStarted) {
+    return {
+      id: definition.id,
+      name: definition.name,
+      metricType: definition.metricType,
+      state: "insufficient_data",
+      error: null,
+      outcomeLabel: "Outcome",
+      axisRange: null,
+      bestVariant: null,
+      variants: [],
+    };
+  }
+  if (!response) {
+    return {
+      id: definition.id,
+      name: definition.name,
+      metricType: definition.metricType,
+      state: "error",
+      error: "Couldn't calculate this metric.",
+      outcomeLabel: "Outcome",
+      axisRange: null,
+      bestVariant: null,
+      variants: [],
+    };
+  }
+
+  const baseline = response.baseline;
+  const variants = response.variant_results ?? [];
+  if (!baseline || variants.length === 0) {
+    return {
+      id: definition.id,
+      name: definition.name,
+      metricType: definition.metricType,
+      state: "insufficient_data",
+      error: null,
+      outcomeLabel: "Outcome",
+      axisRange: null,
+      bestVariant: null,
+      variants: [],
+    };
+  }
+
+  const baselineOutcome = outcomeValue(baseline, definition.valueType);
+  const allStats = [baseline, ...variants];
+  const insufficient = hasInsufficientData(response, allStats);
+  const upliftedRows: Array<{
+    row: ExperimentVariantResultPresentation;
+    value: number;
+  }> = [];
+  const rows = allStats.map((stats, index) => {
+    const outcome = outcomeValue(stats, definition.valueType);
+    const isControl = index === 0;
+    const statsRecord = stats as unknown as QueryRecord;
+    const interval = validInterval(
+      statsRecord.confidence_interval ??
+        statsRecord.credible_interval ??
+        response.credible_intervals?.[stats.key],
+    );
+    const pValue = cellNumber(
+      statsRecord.p_value ?? (variants.length === 1 ? response.p_value : null),
+    );
+    const chanceToWin = cellNumber(
+      statsRecord.chance_to_win ?? response.probability?.[stats.key],
+    );
+    const significantValue =
+      typeof statsRecord.significant === "boolean"
+        ? statsRecord.significant
+        : variants.length === 1 && typeof response.significant === "boolean"
+          ? response.significant
+          : null;
+    const uplift =
+      !isControl &&
+      outcome.comparable !== null &&
+      baselineOutcome.comparable !== null &&
+      baselineOutcome.comparable !== 0
+        ? outcome.comparable / baselineOutcome.comparable - 1
+        : null;
+    const builtRow: ExperimentVariantResultPresentation = {
+      key: stats.key,
+      isControl,
+      outcome: outcome.display,
+      sampleContext: [
+        `${compactCount(stats.number_of_samples)} samples`,
+        typeof exposures[stats.key] === "number"
+          ? `${compactCount(exposures[stats.key])} exposed`
+          : null,
+      ]
+        .filter(Boolean)
+        .join(" · "),
+      uplift: isControl || uplift === null ? null : formatPercent(uplift, true),
+      upliftValue: isControl ? null : uplift,
+      intervalBounds:
+        isControl || !interval ? null : [interval[0], interval[1]],
+      upliftDirection:
+        uplift === null || uplift === 0
+          ? null
+          : uplift > 0
+            ? ("positive" as const)
+            : ("negative" as const),
+      isImprovement:
+        uplift === null || uplift === 0
+          ? null
+          : definition.goal === "decrease"
+            ? uplift < 0
+            : uplift > 0,
+      interval:
+        isControl || !interval
+          ? null
+          : `${formatPercent(interval[0], true)} to ${formatPercent(interval[1], true)}`,
+      pValue: isControl || pValue === null ? null : formatPValue(pValue),
+      chanceToWin:
+        isControl || chanceToWin === null ? null : formatPercent(chanceToWin),
+      significance: isControl
+        ? null
+        : insufficient
+          ? ("insufficient_data" as const)
+          : significantValue === null
+            ? null
+            : significantValue
+              ? ("significant" as const)
+              : ("not_significant" as const),
+    };
+    if (uplift !== null) {
+      upliftedRows.push({ row: builtRow, value: uplift });
+    }
+    return builtRow;
+  });
+  const best = upliftedRows.reduce<{
+    row: ExperimentVariantResultPresentation;
+    value: number;
+  } | null>((leader, entry) => {
+    if (!leader) return entry;
+    const isBetter =
+      definition.goal === "decrease"
+        ? entry.value < leader.value
+        : entry.value > leader.value;
+    return isBetter ? entry : leader;
+  }, null);
+
+  return {
+    id: definition.id,
+    name: definition.name,
+    metricType: definition.metricType,
+    state: insufficient ? "insufficient_data" : "ready",
+    error: null,
+    outcomeLabel: baselineOutcome.label,
+    axisRange: deltaAxisRange(rows),
+    bestVariant: best
+      ? {
+          key: best.row.key,
+          uplift: formatPercent(best.value, true),
+          significance: best.row.significance,
+          isImprovement: best.row.isImprovement,
+        }
+      : null,
+    variants: rows,
+  };
+}
+
+export function shapeExperimentExposureChart(
+  response: Schemas.ExperimentExposureQueryResponse | null,
+): EvidencePreview["chart"] {
+  if (!response) return undefined;
+  const rows = response.timeseries.flatMap((series) =>
+    series.days.map((day, index) => [
+      day,
+      series.variant,
+      series.exposure_counts[index] ?? 0,
+    ]),
+  );
+  const pivot = pivotDailyGroups(rows);
+  if (!pivot) return undefined;
+  return {
+    title:
+      pivot.omittedGroups > 0
+        ? `Daily exposures by variant (top ${pivot.series.length} of ${pivot.series.length + pivot.omittedGroups})`
+        : "Daily exposures by variant",
+    labels: pivot.labels,
+    series: pivot.series,
+    render: "bar",
+  };
+}
+
+export function shapeExperimentResults(
+  experiment: Schemas.Experiment,
+  exposuresResponse: Schemas.ExperimentExposureQueryResponse | null,
+  primaryResults: ExperimentMetricQueryResult[],
+  secondaryResults: ExperimentMetricQueryResult[],
+): ExperimentResultsPresentation {
+  const primaryMetrics = orderedMetricDefinitions(experiment, "primary").map(
+    (definition, index) =>
+      shapeMetricResult(
+        definition,
+        primaryResults[index],
+        exposuresResponse?.total_exposures ?? {},
+        !!experiment.start_date,
+      ),
+  );
+  const secondaryMetrics = orderedMetricDefinitions(
+    experiment,
+    "secondary",
+  ).map((definition, index) =>
+    shapeMetricResult(
+      definition,
+      secondaryResults[index],
+      exposuresResponse?.total_exposures ?? {},
+      !!experiment.start_date,
+    ),
+  );
+  const metrics = [...primaryMetrics, ...secondaryMetrics];
+  const responses = [...primaryResults, ...secondaryResults]
+    .map((result) => result.response as unknown as QueryRecord | null)
+    .filter((response): response is QueryRecord => response !== null);
+  const refreshTimes = responses.flatMap((response) => {
+    const lastRefresh = conciseValue(response.last_refresh);
+    return lastRefresh ? [lastRefresh] : [];
+  });
+  const staleRefreshTimes = experiment.end_date
+    ? []
+    : responses.flatMap((response) => {
+        const lastRefresh = conciseValue(response.last_refresh);
+        if (response.is_cached !== true || !lastRefresh) return [];
+        const refreshedAt = new Date(lastRefresh).getTime();
+        return Number.isFinite(refreshedAt) &&
+          Date.now() - refreshedAt > 24 * 60 * 60 * 1000
+          ? [lastRefresh]
+          : [];
+      });
+  const state: ExperimentResultState = !experiment.start_date
+    ? "draft"
+    : metrics.some((metric) => metric.state === "error")
+      ? "error"
+      : metrics.length === 0 ||
+          metrics.every((metric) => metric.state === "insufficient_data")
+        ? "insufficient_data"
+        : "ready";
+
+  return {
+    state,
+    stale: staleRefreshTimes.length > 0,
+    lastRefresh:
+      staleRefreshTimes.sort()[0] ?? refreshTimes.sort().at(-1) ?? null,
+    primaryMetrics,
+    secondaryMetrics,
   };
 }
 
@@ -670,9 +1166,11 @@ export function decorateSurveyPreview(
 }
 
 export function shapeErrorIssuePreview(
-  issue: Schemas.ErrorTrackingIssueFull,
+  issue: Schemas.ErrorTrackingIssueRead,
 ): EvidencePreview {
-  const firstSeen = `First seen ${formatDay(issue.first_seen)}`;
+  const firstSeen = issue.first_seen
+    ? `First seen ${formatDay(issue.first_seen)}`
+    : undefined;
   const assignee = issue.assignee
     ? `${issue.assignee.type} (${issue.assignee.id})`
     : null;
@@ -687,7 +1185,7 @@ export function shapeErrorIssuePreview(
       : undefined,
     sections: detailSection("Issue", [
       ["Status", issue.status ? humanizeStatus(issue.status) : null],
-      ["First seen", formatDay(issue.first_seen)],
+      ["First seen", issue.first_seen ? formatDay(issue.first_seen) : null],
       ["Assignee", assignee],
       [
         "Linked issues",
@@ -936,12 +1434,42 @@ function asCount(value: unknown): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-function describeCohortCriterion(criterion: QueryRecord): string | null {
+/** Cohort ids referenced by a cohort's criteria, so the caller can resolve their names. */
+export function referencedCohortIds(filters: unknown): string[] {
+  const ids = new Set<string>();
+  for (const group of criteriaGroups(filters)) {
+    for (const criterion of asRecords(group.values)) {
+      const id =
+        criterion.type === "cohort" ? conciseValue(criterion.value) : null;
+      if (id) ids.add(id);
+    }
+  }
+  return [...ids];
+}
+
+function asRecords(value: unknown): QueryRecord[] {
+  return (Array.isArray(value) ? value : []).filter(isRecord);
+}
+
+function criteriaGroups(filters: unknown): QueryRecord[] {
+  const properties =
+    isRecord(filters) && isRecord(filters.properties)
+      ? filters.properties
+      : null;
+  return asRecords(properties?.values);
+}
+
+function describeCohortCriterion(
+  criterion: QueryRecord,
+  cohortNames: ReadonlyMap<string, string>,
+): string | null {
   const type = String(criterion.type ?? "");
   if (type === "behavioral") return describeBehavioralCriterion(criterion);
   const negated = criterion.negation === true;
-  if (type === "cohort")
-    return `Is ${negated ? "not " : ""}in cohort ${conciseValue(criterion.value) ?? "?"}`;
+  if (type === "cohort") {
+    const id = conciseValue(criterion.value) ?? "?";
+    return `Is ${negated ? "not " : ""}in cohort ${cohortNames.get(id) ?? id}`;
+  }
   if (type === "static-cohort")
     return `Is ${negated ? "not " : ""}in a static cohort`;
   if (type === "person" || type === "event" || type === "group") {
@@ -972,19 +1500,16 @@ function describeCohortCriterion(criterion: QueryRecord): string | null {
  */
 export function cohortCriteriaSection(
   filters: unknown,
+  cohortNames: ReadonlyMap<string, string> = new Map(),
 ): EvidenceDetailSection[] {
-  const properties =
+  const groups = criteriaGroups(filters);
+  const outerAny =
     isRecord(filters) && isRecord(filters.properties)
-      ? filters.properties
-      : null;
-  const groups = (
-    Array.isArray(properties?.values) ? properties.values : []
-  ).filter(isRecord);
-  const outerAny = properties?.type === "OR";
+      ? filters.properties.type === "OR"
+      : false;
   const fields = groups.flatMap((group, index) => {
-    const criteria = (Array.isArray(group.values) ? group.values : [])
-      .filter(isRecord)
-      .map(describeCohortCriterion)
+    const criteria = asRecords(group.values)
+      .map((criterion) => describeCohortCriterion(criterion, cohortNames))
       .filter((line): line is string => line !== null);
     if (criteria.length === 0) return [];
     const joiner = group.type === "OR" ? " or " : " and ";
@@ -997,7 +1522,10 @@ export function cohortCriteriaSection(
   return detailSection("Membership criteria", fields);
 }
 
-export function shapeCohortPreview(cohort: Schemas.Cohort): EvidencePreview {
+export function shapeCohortPreview(
+  cohort: Schemas.Cohort,
+  cohortNames: ReadonlyMap<string, string> = new Map(),
+): EvidencePreview {
   const detail =
     typeof cohort.count === "number"
       ? count(cohort.count, "person", "people")
@@ -1047,7 +1575,7 @@ export function shapeCohortPreview(cohort: Schemas.Cohort): EvidencePreview {
         ],
         ["Created", cohort.created_at ? formatDay(cohort.created_at) : null],
       ]),
-      ...cohortCriteriaSection(cohort.filters),
+      ...cohortCriteriaSection(cohort.filters, cohortNames),
     ],
   };
 }
@@ -1145,6 +1673,45 @@ export function shapeTicketPreview(ticket: Schemas.Ticket): EvidencePreview {
   };
 }
 
+export function shapeInboxReportPreview(report: SignalReport): EvidencePreview {
+  const status = humanizeStatus(report.status);
+  const sources = report.source_products?.map(humanizeStatus).join(", ");
+  const summary = report.summary?.replace(/\s+/g, " ").trim();
+  const detail = summary
+    ? summary.length > 160
+      ? `${summary.slice(0, 160)}…`
+      : summary
+    : undefined;
+  const facts = [
+    report.priority ?? null,
+    count(report.signal_count, "signal"),
+    sources || null,
+  ].filter((value): value is string => Boolean(value));
+  const statusTone: NonNullable<EvidencePreview["status"]>["tone"] =
+    report.status === "failed"
+      ? "critical"
+      : report.status === "pending_input"
+        ? "caution"
+        : report.status === "ready" || report.status === "resolved"
+          ? "positive"
+          : "neutral";
+
+  return {
+    title: report.title?.trim() || "Inbox report",
+    detail,
+    status: { label: status, tone: statusTone },
+    facts,
+    sections: detailSection("Report", [
+      ["Status", status],
+      ["Priority", report.priority ?? null],
+      ["Signals", count(report.signal_count, "signal")],
+      ["Sources", sources || null],
+      ["Created", report.created_at ? formatDay(report.created_at) : null],
+      ["Updated", report.updated_at ? formatDay(report.updated_at) : null],
+    ]),
+  };
+}
+
 export function shapePersonPreview(
   person: Schemas.PersonRecord,
 ): EvidencePreview {
@@ -1228,6 +1795,89 @@ export function shapeEventDefinitionPreview(
   };
 }
 
+const SURVEY_WORDING = { on: "Shown to", off: "Not shown to anyone." };
+
+const URL_MATCH_LABELS: Record<string, string> = {
+  exact: "is",
+  is_not: "is not",
+  icontains: "contains",
+  not_icontains: "does not contain",
+  regex: "matches",
+  not_regex: "does not match",
+};
+
+function surveyAudience(
+  survey: Schemas.Survey,
+  running: boolean,
+): FlagAudience {
+  const flag = isRecord(survey.targeting_flag) ? survey.targeting_flag : null;
+  const filters = isRecord(flag?.filters) ? flag.filters : null;
+  // Without a targeting flag the survey shows to everyone who meets the
+  // display conditions, which the evaluator models as one 100% rule.
+  return shapeFlagAudience(
+    {
+      key: survey.name,
+      filters: filters ?? { groups: [{ rollout_percentage: 100 }] },
+      active: running,
+    },
+    new Map(),
+    SURVEY_WORDING,
+  );
+}
+
+function surveyDisplayConditions(survey: Schemas.Survey): FlagCondition[] {
+  const conditions = isRecord(survey.conditions) ? survey.conditions : {};
+  const out: FlagCondition[] = [];
+  const url = conciseValue(conditions.url);
+  if (url) {
+    out.push({
+      subject: "URL",
+      operator: URL_MATCH_LABELS[String(conditions.urlMatchType)] ?? "contains",
+      values: [{ label: url }],
+    });
+  }
+  const selector = conciseValue(conditions.selector);
+  if (selector) {
+    out.push({
+      subject: "Element",
+      operator: "matches",
+      values: [{ label: selector }],
+    });
+  }
+  const devices = Array.isArray(conditions.deviceTypes)
+    ? conditions.deviceTypes.map(String)
+    : [];
+  if (devices.length > 0) {
+    out.push({
+      subject: "Device",
+      operator: conditions.deviceTypesMatchType === "is_not" ? "is not" : "is",
+      values: devices.map((label) => ({ label })),
+    });
+  }
+  const linkedFlag = isRecord(survey.linked_flag)
+    ? conciseValue(survey.linked_flag.key)
+    : null;
+  if (linkedFlag) {
+    out.push({
+      subject: "Flag",
+      operator: "evaluates to",
+      values: [
+        { label: linkedFlag },
+        { label: conciseValue(conditions.linkedFlagVariant) ?? "true" },
+      ],
+    });
+  }
+  const wait = conditions.seenSurveyWaitPeriodInDays;
+  if (typeof wait === "number" && wait > 0) {
+    out.push({
+      subject: "Last survey seen",
+      operator: "more than",
+      values: [{ label: `${wait} days ago` }],
+    });
+  }
+  return out;
+}
+
 export function shapeSurveyPreview(survey: Schemas.Survey): EvidencePreview {
   let detail: string | undefined;
   let status: EvidencePreview["status"];
@@ -1247,6 +1897,8 @@ export function shapeSurveyPreview(survey: Schemas.Survey): EvidencePreview {
     title: survey.name,
     detail,
     status,
+    flagAudience: surveyAudience(survey, status.label === "Running"),
+    displayConditions: surveyDisplayConditions(survey),
     sections: [
       ...detailSection("Survey", [
         ["State", survey.archived ? "Archived" : null],

@@ -5,9 +5,6 @@ import { z } from "zod";
 // canvas is an arbitrary client-side browser application: its write format is
 // a small multi-file source project, compiled by a build service into an
 // immutable HTML/CSS/JS artifact that runs in the sandboxed canvas host.
-
-export const CANVAS_SOURCE_SCHEMA_VERSION = 1;
-export const CANVAS_ENTRY_HTML = "index.html";
 // The single agent-editable file of a legacy (pre-build-service) canvas: the
 // React component the runtime mounts. Mirrors the server's synthetic-project
 // compatibility adapter.
@@ -44,14 +41,21 @@ export const canvasCapabilitiesSchema = z.object({
       origins: z.array(z.string().url().max(2_048)).max(20).default([]),
     })
     .default({ origins: [] }),
+  // Third-party providers the canvas reads through ph.connectors, each with
+  // the tools it may call. Every call runs with the viewer's own connection.
+  connectors: z
+    .array(
+      z.object({
+        provider: z.string().min(1).max(300),
+        tools: z.array(z.string().min(1).max(200)).min(1).max(64),
+      }),
+    )
+    .max(20)
+    .default([]),
 });
 export type CanvasCapabilities = z.infer<typeof canvasCapabilitiesSchema>;
 
-export const canvasDiagnosticSeveritySchema = z.enum(["error", "warning"]);
-export type CanvasDiagnosticSeverity = z.infer<
-  typeof canvasDiagnosticSeveritySchema
->;
-
+const canvasDiagnosticSeveritySchema = z.enum(["error", "warning"]);
 /** One structured validation/build diagnostic for a canvas source project. */
 export const canvasDiagnosticSchema = z.object({
   /** "error" blocks publishing; "warning" is advisory. */
@@ -72,16 +76,12 @@ export const canvasBuildStatusSchema = z.enum([
   "ready",
   "failed",
 ]);
-export type CanvasBuildStatus = z.infer<typeof canvasBuildStatusSchema>;
-
 /** One emitted asset of a built artifact. */
-export const canvasArtifactAssetSchema = z.object({
+const canvasArtifactAssetSchema = z.object({
   path: z.string(),
   contentHash: z.string(),
   sizeBytes: z.number().int().nonnegative(),
 });
-export type CanvasArtifactAsset = z.infer<typeof canvasArtifactAssetSchema>;
-
 /** Manifest frozen into a build: entry, assets, versions, and capabilities. */
 export const canvasArtifactManifestSchema = z.object({
   entryHtml: z.string(),
@@ -90,6 +90,3 @@ export const canvasArtifactManifestSchema = z.object({
   canvasSdkVersion: z.string(),
   capabilities: canvasCapabilitiesSchema,
 });
-export type CanvasArtifactManifest = z.infer<
-  typeof canvasArtifactManifestSchema
->;

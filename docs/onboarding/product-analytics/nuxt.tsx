@@ -36,6 +36,13 @@ export const getNuxtClientSteps = (ctx: OnboardingComponentsContext): StepDefini
                                     pnpm add posthog-js
                                 `,
                             },
+                            {
+                                language: 'bash',
+                                file: 'bun',
+                                code: dedent`
+                                    bun add posthog-js
+                                `,
+                            },
                         ]}
                     />
                     <CalloutBox type="fyi" title="Nuxt version">
@@ -152,6 +159,13 @@ export const getNuxtServerSteps = (ctx: OnboardingComponentsContext): StepDefini
                                 file: 'pnpm',
                                 code: dedent`
                                     pnpm add posthog-node
+                                `,
+                            },
+                            {
+                                language: 'bash',
+                                file: 'bun',
+                                code: dedent`
+                                    bun add posthog-node
                                 `,
                             },
                         ]}

@@ -5,7 +5,7 @@ import { DateTime } from 'luxon'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { PostgresUse } from '~/common/utils/db/postgres'
 import { forSnapshot } from '~/tests/helpers/snapshots'
-import { createTestTeamFixture } from '~/tests/helpers/sql'
+import { createTestTeamFixture, uniqueTestId } from '~/tests/helpers/sql'
 
 import { Hub, Team } from '../../types'
 import { createExampleInvocation, createHogExecutionGlobals, createHogFunction } from '../_tests/fixtures'
@@ -54,8 +54,7 @@ describe('LegacyPluginExecutorService', () => {
         const fixedTime = DateTime.fromObject({ year: 2025, month: 1, day: 1 }, { zone: 'UTC' })
         jest.spyOn(Date, 'now').mockReturnValue(fixedTime.toMillis())
 
-        // Generate a unique plugin ID to avoid conflicts
-        uniquePluginId = 50000 + Math.floor(Math.random() * 100000)
+        uniquePluginId = uniqueTestId()
 
         // Create a plugin in the database
         await hub.postgres.query(
@@ -138,7 +137,6 @@ describe('LegacyPluginExecutorService', () => {
                 customerioSiteId: '1234567890',
                 customerioToken: 'cio-token',
                 email: 'test@posthog.com',
-                legacy_plugin_config_id: pluginConfigId,
             },
         }
     })
@@ -263,7 +261,7 @@ describe('LegacyPluginExecutorService', () => {
                   [
                     "https://track.customer.io/api/v1/customers/distinct_id",
                     {
-                      "body": "{"_update":false,"identifier":"distinct_id"}",
+                      "body": "{"_update":true,"identifier":"distinct_id","email":"test@posthog.com"}",
                       "headers": {
                         "Authorization": "Basic MTIzNDU2Nzg5MDpjaW8tdG9rZW4=",
                         "Content-Type": "application/json",
@@ -291,8 +289,8 @@ describe('LegacyPluginExecutorService', () => {
             expect(getLogMessages(res.logs)).toMatchInlineSnapshot(`
                 [
                   "Successfully authenticated with Customer.io. Completing setupPlugin.",
-                  "Detected email, null",
-                  "{"status":{},"existsAlready":false,"email":null}",
+                  "Detected email, test@posthog.com",
+                  "{"status":{},"email":"test@posthog.com"}",
                   "true",
                   "Function completed in REPLACED-TIME-ms.",
                 ]
@@ -319,8 +317,8 @@ describe('LegacyPluginExecutorService', () => {
             expect(forSnapshot(getLogMessages(res.logs))).toMatchInlineSnapshot(`
                 [
                   "Successfully authenticated with Customer.io. Completing setupPlugin.",
-                  "Detected email, null",
-                  "{"status":{},"existsAlready":false,"email":null}",
+                  "Detected email, test@posthog.com",
+                  "{"status":{},"email":"test@posthog.com"}",
                   "true",
                   "Fetch called but mocked due to test function, {"url":"https://track.customer.io/api/v1/customers/distinct_id","method":"PUT"}",
                   "Fetch called but mocked due to test function, {"url":"https://track.customer.io/api/v1/customers/distinct_id/events","method":"POST"}",
@@ -369,8 +367,8 @@ describe('LegacyPluginExecutorService', () => {
             expect(forSnapshot(getLogMessages(res.logs))).toMatchInlineSnapshot(`
                 [
                   "Successfully authenticated with Customer.io. Completing setupPlugin.",
-                  "Detected email, null",
-                  "{"status":{},"existsAlready":false,"email":null}",
+                  "Detected email, test@posthog.com",
+                  "{"status":{},"email":"test@posthog.com"}",
                   "true",
                   "Plugin execution failed: Received a potentially intermittent error from the Customer.io API. Response 500: {}",
                 ]
@@ -529,10 +527,6 @@ describe('LegacyPluginExecutorService', () => {
             const invocation = buildInvocation(plugin)
             invocation.hogFunction.name = name
             invocation.state.globals.event.event = '$identify' // Many plugins filter for this
-
-            if (plugin.template.id === 'plugin-customerio-plugin') {
-                invocation.state.globals.inputs.legacy_plugin_config_id = pluginConfigId
-            }
             const res = await service.execute(invocation)
             expect(getLogMessages(res.logs)).toMatchSnapshot()
         })

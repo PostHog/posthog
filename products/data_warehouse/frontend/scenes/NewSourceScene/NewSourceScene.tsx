@@ -31,7 +31,7 @@ import { ExternalDataSourceType, SourceConfig } from '~/queries/schema/schema-ge
 import { AccessControlLevel, AccessControlResourceType, Breadcrumb } from '~/types'
 
 import SchemaForm from '../../shared/components/forms/SchemaForm'
-import { supportsDirectQuery } from '../../shared/components/forms/schemaGroupingUtils'
+import { splitQualifiedTableName, supportsDirectQuery } from '../../shared/components/forms/schemaGroupingUtils'
 import SourceForm, { SourceAccessMethodSelector, getSourceQueryMode } from '../../shared/components/forms/SourceForm'
 import { SyncProgressStep } from '../../shared/components/forms/SyncProgressStep'
 import { WebhookSetupForm } from '../../shared/components/forms/WebhookSetupForm'
@@ -39,12 +39,13 @@ import { FreeHistoricalSyncsBanner } from '../../shared/components/FreeHistorica
 import { SourceIcon } from '../../shared/components/SourceIcon'
 import { availableSourcesLogic } from './availableSourcesLogic'
 import { BillingLimitNotice } from './components/BillingLimitNotice'
+import { DestinationStep } from './components/DestinationStep'
 import { FileUploadSourceForm } from './components/FileUploadSourceForm'
 import { SelfManagedSourceForm } from './components/SelfManagedSourceForm'
 import { FILE_UPLOAD_SOURCE_NAME } from './fileUploadSource'
 import { selfManagedSourceLogic } from './selfManagedSourceLogic'
 import { SourceCatalog } from './SourceCatalog'
-import { type SourceWizardLogicProps, sourceWizardLogic } from './sourceWizardLogic'
+import { WIZARD_DESTINATION_STEP, type SourceWizardLogicProps, sourceWizardLogic } from './sourceWizardLogic'
 
 export const getEffectiveAccessMethod = (
     currentStep: number,
@@ -377,6 +378,8 @@ function InternalSourcesWizard(props: NewSourcesWizardProps): JSX.Element {
                     <WebhookSetupStep sourceWizardLogicProps={props.sourceWizardLogicProps} />
                 ) : currentStep === 5 ? (
                     <ProgressStep />
+                ) : currentStep === WIZARD_DESTINATION_STEP ? (
+                    <DestinationStep />
                 ) : (
                     <UnknownWizardStepFallback currentStep={currentStep} onRestart={onClear} />
                 )}
@@ -414,17 +417,21 @@ function CDCSelfManagedSetupDialog(): JSX.Element | null {
     const pubName = (payload.cdc_publication_name as string) || 'posthog_pub'
     const dbUser = (sourceConnectionDetails?.payload?.user as string) || '<your_user>'
 
-    const tableList =
+    // Discovery names a table `schema.table` when the source reads every schema, so each name has
+    // to be split before it goes into SQL. A source pinned to one schema lists bare names.
+    const qualifiedTables =
         cdcTableNames.length > 0
-            ? cdcTableNames.map((t) => `"${schema}"."${t}"`).join(', ')
-            : `"${schema}"."your_table"`
+            ? cdcTableNames.map((t) => splitQualifiedTableName(t, schema))
+            : [{ schemaName: schema, tableName: 'your_table' }]
+    const tableList = qualifiedTables.map(({ schemaName, tableName }) => `"${schemaName}"."${tableName}"`).join(', ')
+    const usageSchemas = [...new Set(qualifiedTables.map(({ schemaName }) => schemaName))]
 
     const sql = `-- 1. Grants for the PostHog user
 --    Reading a replication slot requires REPLICATION (or rds_replication on RDS).
 --    Run ONE of the lines below, depending on your environment:
 ALTER USER "${dbUser}" WITH REPLICATION;             -- self-hosted / most clouds
 -- GRANT rds_replication TO "${dbUser}";             -- AWS RDS
-GRANT USAGE ON SCHEMA "${schema}" TO "${dbUser}";
+${usageSchemas.map((schemaName) => `GRANT USAGE ON SCHEMA "${schemaName}" TO "${dbUser}";`).join('\n')}
 GRANT SELECT ON ${tableList} TO "${dbUser}";
 
 -- 2. Publication covering the ${cdcTableNames.length} selected table${cdcTableNames.length === 1 ? '' : 's'}
@@ -434,7 +441,7 @@ CREATE PUBLICATION "${pubName}" FOR TABLE ${tableList}
   WITH (publish_via_partition_root = true);
 
 -- Later, to add a new table to the publication:
--- ALTER PUBLICATION "${pubName}" ADD TABLE "${schema}"."new_table";`
+-- ALTER PUBLICATION "${pubName}" ADD TABLE "${usageSchemas[0]}"."new_table";`
 
     const handleCopy = async (): Promise<void> => {
         await copyToClipboard(sql, 'Setup SQL')
@@ -515,6 +522,11 @@ function FirstStep({ allowedSources }: NewSourcesWizardProps): JSX.Element {
     return <SourceCatalog allowedSources={allowedSources} />
 }
 
+// Connectors in the "Databases" category that PostHog reaches over the provider's public HTTPS API
+// with a key the provider issues. The customer has no network path in front of them, so the
+// firewall hint would name a setup step that does not exist.
+const SOURCES_WITHOUT_NETWORK_ALLOWLIST: ExternalDataSourceType[] = ['BigQuery', 'DynamoDB', 'Firebase']
+
 // Firewall allowlisting only applies to self-hosted databases PostHog dials out to, so the hint is
 // scoped to that category rather than shown for OAuth/API connectors.
 function DatabaseFirewallHint(): JSX.Element | null {
@@ -576,7 +588,8 @@ function SecondStep({ sourceWizardLogicProps }: { sourceWizardLogicProps?: Sourc
                 )}
             </div>
 
-            {selectedConnector.category === 'Databases' && <DatabaseFirewallHint />}
+            {selectedConnector.category === 'Databases' &&
+                !SOURCES_WITHOUT_NETWORK_ALLOWLIST.includes(selectedConnector.name) && <DatabaseFirewallHint />}
 
             <LemonDivider />
 
@@ -658,6 +671,7 @@ function WebhookSetupStep({
             onCreateWebhook={createWebhook}
             formLogic={sourceWizardLogicProps ? sourceWizardLogic(sourceWizardLogicProps) : sourceWizardLogic}
             formKey="webhookFieldInputs"
+            isWizardStep
         />
     )
 }

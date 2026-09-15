@@ -72,6 +72,7 @@ def _ensure_tables(conn: psycopg.Connection[Any]) -> None:
             is_resume BOOLEAN NOT NULL DEFAULT FALSE,
             is_first_ever_sync BOOLEAN NOT NULL DEFAULT FALSE,
             metadata JSONB NOT NULL DEFAULT '{{}}'::jsonb,
+            destination_ids JSONB NOT NULL DEFAULT '[]'::jsonb,
             latest_state VARCHAR(32) NOT NULL DEFAULT 'pending',
             latest_attempt SMALLINT NOT NULL DEFAULT 0,
             state_changed_at TIMESTAMPTZ,
@@ -85,7 +86,8 @@ def _ensure_tables(conn: psycopg.Connection[Any]) -> None:
             ADD COLUMN IF NOT EXISTS latest_state VARCHAR(32) NOT NULL DEFAULT 'pending',
             ADD COLUMN IF NOT EXISTS latest_attempt SMALLINT NOT NULL DEFAULT 0,
             ADD COLUMN IF NOT EXISTS state_changed_at TIMESTAMPTZ,
-            ADD COLUMN IF NOT EXISTS superseded BOOLEAN NOT NULL DEFAULT FALSE
+            ADD COLUMN IF NOT EXISTS superseded BOOLEAN NOT NULL DEFAULT FALSE,
+            ADD COLUMN IF NOT EXISTS destination_ids JSONB NOT NULL DEFAULT '[]'::jsonb
     """)
     conn.execute(f"""
         CREATE INDEX IF NOT EXISTS sb_claimable_idx ON {BATCH_TABLE} (team_id, created_at, batch_index)
@@ -1027,6 +1029,23 @@ class TestGetStaleStrandedRuns:
         await BatchQueue.update_status(conn, batch_id=done, job_state="succeeded", attempt=1)
 
         assert await self._run(conn) == []
+
+    @pytest.mark.parametrize(
+        "head_state, queued_schema_id, expect_stranded",
+        [("succeeded", "schema-1", False), ("succeeded", "schema-2", True), ("failed", "schema-1", True)],
+    )
+    @pytest.mark.asyncio
+    async def test_progress_anywhere_in_group_spares_runs_queued_behind_it(
+        self, conn, head_state: str, queued_schema_id: str, expect_stranded: bool
+    ):
+        await self._stale_pending(conn, batch_index=0, run_uuid="head", job_id="job-head")
+        done = await self._stale_pending(conn, batch_index=1, run_uuid="head", job_id="job-head")
+        await BatchQueue.update_status(conn, batch_id=done, job_state=head_state, attempt=1)
+        await self._stale_pending(conn, run_uuid="queued", job_id="job-queued", schema_id=queued_schema_id)
+
+        refs = await self._run(conn)
+
+        assert [ref.run_uuid for ref in refs] == (["queued"] if expect_stranded else [])
 
     @pytest.mark.asyncio
     async def test_excludes_run_with_failed_batch(self, conn):

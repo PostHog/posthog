@@ -282,6 +282,14 @@ def provision(
             "ducklake": {"enabled": True},
             "metadata_store": {"type": "cnpg-shard"},
             "data_store": {"type": "s3bucket"},
+            # Onboarding also enrolls the org in the shared Trino cell, so Trino is
+            # available as a compute engine over the same DuckLake catalog the duckgres
+            # server reads. The control plane writes the opt-in row inside the provision
+            # transaction and its provisioner claims the org into a cell on the next
+            # reconcile. Idempotent, so re-provisioning is safe; omitting the key (the
+            # behavior before this) means PG-only, which is not the same as sending
+            # enabled=false — that is also a no-op, never a disable.
+            "trino": {"enabled": True},
         },
         require_enabled=require_enabled,
     )

@@ -35,6 +35,19 @@ E2E-test:
 
 Rule: if Electron is not required, write a unit test.
 
+## Comment Input Focus
+
+In the right-panel comment input, click an empty area below the placeholder or
+beside the send button. The editor must receive focus so you can type. Clicking
+existing text must keep the selected caret position. Send and cancel buttons must
+keep their own actions.
+
+Run the focus and submission checks with:
+
+```bash
+pnpm --filter @posthog/ui test src/features/sessions/components/CommentComposer.integration.test.tsx
+```
+
 ## File Location
 
 - Unit tests colocate with source as `.test.ts` or `.test.tsx`.

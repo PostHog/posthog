@@ -42,6 +42,23 @@ describe('getToolRecoveryHint', () => {
     it('fires when status is unknown but the URL is a logs query endpoint', () => {
         expect(getToolRecoveryHint({ url: LOGS_QUERY_URL })).not.toBeUndefined()
     })
+
+    it.each([
+        'https://us.posthog.com/api/projects/2/surveys/',
+        'https://us.posthog.com/api/projects/2/surveys/018f-abc/',
+    ])('returns the structured-param hint for a 5xx on the survey write endpoint %s', (url: string) => {
+        const hint = getToolRecoveryHint({ url, status: 500 })
+
+        expect(hint).not.toBeUndefined()
+        expect(hint).toContain('JSON-encoded string')
+        expect(hint).toContain('targeting_flag_filters')
+    })
+
+    it('does not fire for a survey sub-action endpoint — its 5xx is a query problem', () => {
+        expect(
+            getToolRecoveryHint({ url: 'https://us.posthog.com/api/projects/2/surveys/018f-abc/stats/', status: 500 })
+        ).toBeUndefined()
+    })
 })
 
 describe('handleToolError recovery hints', () => {
@@ -60,6 +77,22 @@ describe('handleToolError recovery hints', () => {
         expect(content?.text).toContain('[query-logs]')
         expect(content?.text).toContain('Status Code: 500')
         expect(content?.text).toContain('Narrow the query and retry')
+    })
+
+    it('reports the request path without the upstream host', () => {
+        const error = new PostHogApiError({
+            status: 404,
+            statusText: 'Not Found',
+            body: '{"detail":"Not found."}',
+            url: 'https://internal.example.com/api/projects/2/insights/?limit=1',
+            method: 'GET',
+        })
+
+        const result = handleToolError(error, 'insight-get')
+        const [content] = result.content as Array<{ type: string; text: string }>
+
+        expect(content?.text).toContain('Path: GET /api/projects/2/insights/?limit=1')
+        expect(content?.text).not.toContain('internal.example.com')
     })
 
     it('appends the hint even when the typed error is hidden behind Error.cause', () => {

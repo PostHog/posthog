@@ -1,8 +1,10 @@
+from ipaddress import IPv4Address, IPv6Address
+
 import pytest
 from unittest.mock import MagicMock, patch
 
 from posthog.clickhouse.client.connection import ClickHouseUser, Workload
-from posthog.clickhouse.client.execute import sync_execute
+from posthog.clickhouse.client.execute import query_with_columns, sync_execute
 from posthog.clickhouse.client.limit import ConcurrencySlot, RateLimit, get_llm_analytics_rate_limiter
 from posthog.clickhouse.query_tagging import AccessMethod, Product, tags_context
 
@@ -105,3 +107,32 @@ def test_llm_analytics_queries_take_a_concurrency_slot(client_from_pool, llm_ana
         sync_execute("SELECT 1", flush=False)
 
     assert llm_analytics_slots.call_count == expected_slots
+
+
+@pytest.mark.parametrize(
+    "types,row,expected",
+    [
+        # `system.query_log` grew `connection_address` on top of the two IP columns the
+        # callers used to name, and one unserializable value fails the whole API response.
+        (
+            [("duration", "Float64"), ("connection_address", "IPv6"), ("address", "IPv6")],
+            (1.0, IPv6Address("::1"), IPv6Address("::1")),
+            {"duration": 1.0},
+        ),
+        (
+            [("duration", "Float64"), ("client", "Nullable(IPv4)")],
+            (1.0, IPv4Address("127.0.0.1")),
+            {"duration": 1.0},
+        ),
+        (
+            [("duration", "Float64"), ("query", "String")],
+            (1.0, "SELECT 1"),
+            {"duration": 1.0, "query": "SELECT 1"},
+        ),
+    ],
+)
+def test_query_with_columns_removes_columns_by_type(types, row, expected):
+    with patch("posthog.clickhouse.client.execute.sync_execute", return_value=([row], types)):
+        rows = query_with_columns("SELECT *", column_types_to_remove=("IPv4", "IPv6"))
+
+    assert rows == [expected]

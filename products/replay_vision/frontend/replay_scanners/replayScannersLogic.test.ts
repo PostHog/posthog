@@ -1,19 +1,29 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
+import { addProductIntent } from 'lib/utils/product-intents'
+import { urls } from 'scenes/urls'
+
 import { useMocks } from '~/mocks/jest'
 import { tagsModel } from '~/models/tagsModel'
+import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
 import { visionQuotaLogic } from '../logics/visionQuotaLogic'
 import { makeQuota as makeQuotaFixture } from '../utils/quotaTestUtils'
 import {
+    REPLAY_VISION_INTENT_DWELL_MS,
     buildScannerListParams,
     replayScannersLogic,
     resolveScannerOrderByKey,
     type ScannerOrderKey,
 } from './replayScannersLogic'
 import { ScannerConfig, ScannerType, ReplayScanner } from './types'
+
+jest.mock('lib/utils/product-intents', () => ({
+    addProductIntent: jest.fn().mockResolvedValue(null),
+}))
 
 const quotaFixture = makeQuotaFixture({
     credit_limit: 1000,
@@ -46,7 +56,7 @@ function makeScanner(overrides: Partial<ReplayScanner> = {}): ReplayScanner {
         sampling_rate: 0.1,
         query: null,
         provider: 'google',
-        model: 'gemini-3.7-flash',
+        model: 'gemini-3.8-flash',
         emits_signals: false,
         scanner_version: 1,
         last_swept_at: '2026-05-12T00:00:00Z',
@@ -346,6 +356,51 @@ describe('replayScannersLogic', () => {
             })
         })
 
+        it('a persisted toggle completes without a success toast', async () => {
+            const successToast = jest.spyOn(lemonToast, 'success')
+            logic.actions.loadScannersSuccess(scanners, scanners.length)
+
+            await expectLogic(logic, () => logic.actions.toggleScannerEnabled('a')).toDispatchActions([
+                'toggleScannerEnabledDone',
+            ])
+
+            expect(successToast).not.toHaveBeenCalled()
+            expect(logic.values.togglingIds).toEqual([])
+        })
+
+        it('ignores a second toggle of the same scanner while one is in flight', async () => {
+            logic.actions.loadScannersSuccess(scanners, scanners.length)
+
+            await expectLogic(logic, () => {
+                logic.actions.toggleScannerEnabled('a')
+                logic.actions.toggleScannerEnabled('a')
+            })
+                .toMatchValues({
+                    scanners: expect.arrayContaining([expect.objectContaining({ id: 'a', enabled: false })]),
+                    togglingIds: ['a'],
+                })
+                .toFinishAllListeners()
+
+            expect(logic.values.scanners.find((s) => s.id === 'a')?.enabled).toBe(false)
+            expect(logic.values.togglingIds).toEqual([])
+        })
+
+        it('a failed toggle reverts the row and shows an error toast', async () => {
+            useMocks({
+                patch: { '/api/projects/:team/vision/scanners/:id/': () => [500, {}] },
+            })
+            const errorToast = jest.spyOn(lemonToast, 'error')
+            logic.actions.loadScannersSuccess(scanners, scanners.length)
+
+            await expectLogic(logic, () => logic.actions.toggleScannerEnabled('a')).toDispatchActions([
+                'revertScannerEnabled',
+            ])
+
+            expect(logic.values.scanners.find((s) => s.id === 'a')?.enabled).toBe(true)
+            expect(logic.values.togglingIds).toEqual([])
+            expect(errorToast).toHaveBeenCalledWith(expect.stringContaining('Failed to disable scanner'))
+        })
+
         it('revertScannerEnabled flips the row back and clears the in-flight id', async () => {
             await expectLogic(logic, () => {
                 logic.actions.loadScannersSuccess(scanners, scanners.length)
@@ -413,6 +468,56 @@ describe('replayScannersLogic', () => {
         })
     })
 
+    describe('duplicateScanner', () => {
+        it('calls the duplicate endpoint and routes to the configure page of the copy', async () => {
+            const duplicated: string[] = []
+            useMocks({
+                post: {
+                    '/api/projects/:team/vision/scanners/:id/duplicate/': ({ params }: { params: any }) => {
+                        duplicated.push(String(params.id))
+                        return [201, makeScanner({ id: 'new-id', name: 'Confused checkout (copy)', enabled: false })]
+                    },
+                },
+            })
+            logic.actions.loadScannersSuccess(scanners, scanners.length)
+
+            await expectLogic(logic, () => logic.actions.duplicateScanner('a')).toFinishAllListeners()
+
+            expect(duplicated).toEqual(['a'])
+            expect(router.values.location.pathname).toContain('/replay-vision/new-id/configure')
+            expect(logic.values.duplicatingIds).toEqual([])
+        })
+
+        it.each([
+            {
+                case: 'a validation failure with a detail',
+                response: [400, { type: 'validation_error', code: 'invalid', detail: 'Bad config' }],
+                expectedMessage: 'Failed to duplicate scanner: Bad config',
+            },
+            {
+                case: 'a failure with no error body',
+                response: [500, null],
+                expectedMessage: 'Failed to duplicate scanner',
+            },
+        ])(
+            'shows an error, stays put, and releases the in-flight guard on $case',
+            async ({ response, expectedMessage }) => {
+                useMocks({
+                    post: { '/api/projects/:team/vision/scanners/:id/duplicate/': () => response },
+                })
+                const errorToast = jest.spyOn(lemonToast, 'error')
+                logic.actions.loadScannersSuccess(scanners, scanners.length)
+                const pathBefore = router.values.location.pathname
+
+                await expectLogic(logic, () => logic.actions.duplicateScanner('a')).toFinishAllListeners()
+
+                expect(errorToast).toHaveBeenCalledWith(expectedMessage)
+                expect(router.values.location.pathname).toBe(pathBefore)
+                expect(logic.values.duplicatingIds).toEqual([])
+            }
+        )
+    })
+
     it('setChartDateRange updates the chart date range', async () => {
         await expectLogic(logic, () => logic.actions.setChartDateRange('-90d', null)).toMatchValues({
             chartDateFrom: '-90d',
@@ -437,5 +542,56 @@ describe('replayScannersLogic', () => {
 
         expect(logic.values.filters.page).toBe(1)
         expect(logic.values.scanners).toHaveLength(1)
+    })
+
+    describe('shallow product intent', () => {
+        // The dwell gate is the whole point of this signal: there is one ProductIntent row per team
+        // and its created_at starts the 30-day activation clock, so a mount-and-bounce must not
+        // register. This is the bug that read Surveys' activation down from 10.5% to 2.8%.
+        beforeEach(() => {
+            jest.useFakeTimers()
+            ;(addProductIntent as jest.Mock).mockClear()
+        })
+
+        afterEach(() => {
+            jest.useRealTimers()
+        })
+
+        it('does not register on mount alone', () => {
+            router.actions.push(urls.replayVision())
+            jest.advanceTimersByTime(REPLAY_VISION_INTENT_DWELL_MS - 1)
+
+            expect(addProductIntent).not.toHaveBeenCalled()
+        })
+
+        it('registers once the dwell threshold passes', () => {
+            router.actions.push(urls.replayVision())
+            jest.advanceTimersByTime(REPLAY_VISION_INTENT_DWELL_MS)
+
+            expect(addProductIntent).toHaveBeenCalledTimes(1)
+            expect(addProductIntent).toHaveBeenCalledWith({
+                product_type: ProductKey.REPLAY_VISION,
+                intent_context: ProductIntentContext.REPLAY_VISION_VIEWED,
+            })
+        })
+
+        it('registers once, not once per filter change', () => {
+            // urlToAction re-fires on every filter change, and each re-arm would be another write.
+            router.actions.push(urls.replayVision())
+            router.actions.push(`${urls.replayVision()}?search=checkout`)
+            router.actions.push(`${urls.replayVision()}?search=refund`)
+            jest.advanceTimersByTime(REPLAY_VISION_INTENT_DWELL_MS * 3)
+
+            expect(addProductIntent).toHaveBeenCalledTimes(1)
+        })
+
+        it('does not register after unmount', () => {
+            router.actions.push(urls.replayVision())
+            logic.unmount()
+            jest.advanceTimersByTime(REPLAY_VISION_INTENT_DWELL_MS * 2)
+
+            expect(addProductIntent).not.toHaveBeenCalled()
+            logic.mount()
+        })
     })
 })

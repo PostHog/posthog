@@ -1,6 +1,8 @@
+from types import SimpleNamespace
+from typing import TYPE_CHECKING, cast
 from uuid import uuid4
 
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.core.cache import cache
@@ -12,19 +14,471 @@ from rest_framework import status
 from rest_framework.test import APIRequestFactory
 
 from posthog.constants import AvailableFeature
+from posthog.models.activity_logging.activity_log import ActivityLog, Detail, log_activity
 
 from products.access_control.backend.models.access_control import AccessControl
+from products.data_catalog.backend.facade.models import Metric
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
+from products.data_quality.backend.facade import api
 from products.data_quality.backend.facade.enums import CheckRunStatus, CheckSeverity, CheckType, SubjectType
 from products.data_quality.backend.logic import checks as checks_logic
+from products.data_quality.backend.logic.metric_schedules import MetricScheduleKey, MetricSchedules
+from products.data_quality.backend.logic.runner import run_check
 from products.data_quality.backend.models import DataQualityCheck, DataQualityCheckRun, DataQualitySuiteRun
 from products.data_quality.backend.presentation.serializers import DataQualitySuiteRunSerializer
 from products.data_quality.backend.presentation.views import SavedQueryCheckViewSet
 from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
+if TYPE_CHECKING:
+    from posthog.models.team import Team
+
+from .schedule_helpers import schedule_client
+
 START_SUITE = "products.data_quality.backend.logic.checks.sync_connect"
 FLAG = "products.data_quality.backend.presentation.views.is_data_quality_checks_enabled"
+
+
+class TestMetricCheckAPI(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.metric = Metric.objects.for_team(self.team.id).create(
+            team=self.team,
+            name="signups",
+            definition={"kind": "HogQLQuery", "query": "SELECT 10 AS signups"},
+            referenced_table_names=[],
+        )
+        self.temporal = schedule_client()
+        self.connect = AsyncMock(return_value=self.temporal)
+        self.enterContext(patch("products.data_quality.backend.logic.schedules.async_connect", self.connect))
+        self.url = f"/api/projects/{self.team.id}/data_catalog/metrics/{self.metric.id}/checks"
+        self.suites_url = f"/api/projects/{self.team.id}/data_catalog/metrics/{self.metric.id}/check_suite_runs"
+        flag = patch(FLAG, return_value=True)
+        flag.start()
+        self.addCleanup(flag.stop)
+
+    def _create(self) -> dict:
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.post(
+                f"{self.url}/",
+                {"check_type": "custom_sql", "config": {"query": "SELECT * FROM {metric} WHERE signups < 100"}},
+            )
+        assert response.status_code == 201, response.content
+        return response.json()
+
+    @parameterized.expand(
+        [
+            ("checks_list", "get", "checks/"),
+            ("checks_schedule", "get", "checks/schedule/"),
+            ("checks_health", "get", "checks/health/"),
+            ("checks_run_all", "post", "checks/run_all/"),
+            ("suite_runs_list", "get", "check_suite_runs/"),
+        ]
+    )
+    def test_metric_name_in_the_id_segment_is_not_found(self, _name: str, method: str, suffix: str) -> None:
+        # Metrics have their own routes that address them by name, so a caller can land a name in a
+        # segment these routes read as a uuid.
+        url = f"/api/projects/{self.team.id}/data_catalog/metrics/{self.metric.name}/{suffix}"
+
+        response = getattr(self.client, method)(url)
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND, response.content
+
+    def test_metric_children_do_not_expose_access_control_actions(self) -> None:
+        check = self._create()
+        suite = DataQualitySuiteRun.objects.for_team(self.team.id).create(
+            team=self.team,
+            trigger="manual",
+            subject_type=SubjectType.METRIC,
+            subject_uuid=self.metric.id,
+        )
+        for parent, identifier in ((self.url, check["id"]), (self.suites_url, suite.id)):
+            for action in (
+                "access_controls",
+                "resource_access_controls",
+                "global_access_controls",
+                "users_with_access",
+            ):
+                response = self.client.get(f"{parent}/{identifier}/{action}/")
+                assert response.status_code == 404, response.content
+
+    def test_schedule_change_refuses_queries_the_editor_cannot_run(self) -> None:
+        check = self._create()
+        denied = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="restricted_orders",
+            query={"kind": "HogQLQuery", "query": "SELECT 1 AS id"},
+        )
+        DataQualityCheck.objects.for_team(self.team.id).filter(id=check["id"]).update(
+            config={"query": "SELECT * FROM {metric} WHERE EXISTS (SELECT 1 FROM restricted_orders)"},
+        )
+        self.organization.available_product_features = [{"key": AvailableFeature.ACCESS_CONTROL}]
+        self.organization.save(update_fields=["available_product_features"])
+        AccessControl.objects.create(
+            team=self.team,
+            resource="warehouse_view",
+            resource_id=str(denied.id),
+            organization_member=self.organization_membership,
+            access_level="none",
+        )
+        cache.clear()
+        with patch(
+            "posthog.hogql.database.database.feature_enabled_or_false",
+            side_effect=lambda name, *a, **k: name == "hogql-warehouse-access-control",
+        ):
+            response = self.client.patch(f"{self.url}/schedule/", {"interval": "6hour"})
+        assert response.status_code == 403, response.content
+        schedule = api.get_schedule(self.team.id, "metric", self.metric.id)
+        assert schedule is not None
+        assert schedule.interval == "24hour"
+
+    def test_metric_check_authoring_schedule_and_overview(self) -> None:
+        assert self.client.get(f"{self.url}/schedule/").status_code == 404
+        assert self.client.patch(f"{self.url}/schedule/", {"enabled": False}).status_code == 404
+        check = self._create()
+        assert [entry["check_type"] for entry in self.client.get(f"{self.url}/check_types/").json()] == ["custom_sql"]
+        assert self.client.get(f"{self.url}/").json()["results"][0]["id"] == check["id"]
+        schedule = self.client.get(f"{self.url}/schedule/").json()
+        assert schedule["interval"] == "24hour"
+        patched = self.client.patch(f"{self.url}/schedule/", {"interval": "6hour", "enabled": False})
+        assert patched.status_code == 200
+        assert patched.json()["interval"] == "6hour"
+        assert patched.json()["enabled"] is False
+        edited = self.client.patch(
+            f"{self.url}/{check['id']}/", {"config": {"query": "SELECT * FROM {metric} WHERE signups < 50"}}
+        )
+        assert edited.status_code == 200
+        assert edited.json()["fingerprint"] != check["fingerprint"]
+        self.metric.name = "registrations"
+        self.metric.save(update_fields=["name"])
+        row = self.client.get(f"/api/projects/{self.team.id}/data_quality_checks/").json()["results"][0]
+        assert row["subject_metric_name"] == "registrations"
+        assert "definition" not in row and "values" not in row
+        assert self.client.delete(f"{self.url}/{check['id']}/").status_code == 204
+        assert self.client.get(f"{self.url}/schedule/").status_code == 200
+
+    def test_schedule_patch_reuses_one_connection_and_records_snapshots(self) -> None:
+        self._create()
+        self.connect.reset_mock()
+
+        response = self.client.patch(f"{self.url}/schedule/", {"interval": "6hour", "enabled": False})
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert response.json()["interval"] == "6hour"
+        assert response.json()["enabled"] is False
+        assert self.connect.await_count == 1
+        entry = ActivityLog.objects.get(
+            team_id=self.team.id,
+            scope="DataQualityCheckSchedule",
+            activity="updated",
+        )
+        assert entry.detail is not None
+        assert entry.detail["changes"] == [
+            {
+                "type": "DataQualityCheckSchedule",
+                "field": "interval",
+                "action": "changed",
+                "before": "24hour",
+                "after": "6hour",
+            },
+            {
+                "type": "DataQualityCheckSchedule",
+                "field": "enabled",
+                "action": "changed",
+                "before": True,
+                "after": False,
+            },
+        ]
+
+    @parameterized.expand([("connection",), ("initial_read",), ("update",), ("read_after",)])
+    def test_schedule_service_failure_is_retryable(self, phase: str) -> None:
+        self._create()
+        if phase == "connection":
+            failure = patch(
+                "products.data_quality.backend.logic.schedules.async_connect", AsyncMock(side_effect=TimeoutError)
+            )
+        elif phase == "initial_read":
+            failure = patch.object(MetricSchedules, "describe", AsyncMock(side_effect=TimeoutError))
+        elif phase == "update":
+            failure = patch.object(MetricSchedules, "update", AsyncMock(side_effect=TimeoutError))
+        else:
+            original_describe = MetricSchedules.describe
+            calls = 0
+
+            async def missing_after_update(schedules: MetricSchedules, key: MetricScheduleKey) -> object:
+                nonlocal calls
+                calls += 1
+                if calls == 1:
+                    return await original_describe(schedules, key)
+                return None
+
+            failure = patch.object(MetricSchedules, "describe", cast(AsyncMock, missing_after_update))
+        with failure:
+            response = self.client.patch(f"{self.url}/schedule/", {"enabled": False})
+        assert response.status_code == 503
+        assert self.client.get(f"{self.url}/schedule/").json()["enabled"] is (phase != "read_after")
+
+    def test_schedule_history_excludes_manual_suites(self) -> None:
+        self._create()
+        scheduled = DataQualitySuiteRun.objects.for_team(self.team.id).create(
+            team=self.team, trigger="scheduled", subject_type=SubjectType.METRIC, subject_uuid=self.metric.id
+        )
+        DataQualitySuiteRun.objects.for_team(self.team.id).create(
+            team=self.team, trigger="manual", subject_type=SubjectType.METRIC, subject_uuid=self.metric.id
+        )
+        schedule = self.client.patch(f"{self.url}/schedule/", {"interval": "6hour"}).json()
+        assert schedule["last_suite_run"] == str(scheduled.id)
+
+    def test_schedule_history_hides_a_suite_with_revoked_reference_access(self) -> None:
+        check = self._create()
+        view = DataWarehouseSavedQuery.objects.create(
+            team=self.team, name="restricted_orders", query={"kind": "HogQLQuery", "query": "SELECT 1 AS id"}
+        )
+        suite = DataQualitySuiteRun.objects.for_team(self.team.id).create(
+            team=self.team, trigger="scheduled", subject_type=SubjectType.METRIC, subject_uuid=self.metric.id
+        )
+        DataQualityCheckRun.objects.for_team(self.team.id).create(
+            team=self.team,
+            suite_run=suite,
+            quality_check_id=check["id"],
+            subject_type=SubjectType.METRIC,
+            subject_uuid=self.metric.id,
+            check_type=CheckType.CUSTOM_SQL,
+            status=CheckRunStatus.PASSED,
+            referenced_subjects=[{"subject_type": "view", "subject_uuid": str(view.id)}],
+        )
+        self.organization.available_product_features = [{"key": AvailableFeature.ACCESS_CONTROL}]
+        self.organization.save(update_fields=["available_product_features"])
+        assert self.client.get(f"{self.url}/schedule/").json()["last_suite_run"] == str(suite.id)
+        AccessControl.objects.create(
+            team=self.team,
+            resource="warehouse_view",
+            resource_id=str(view.id),
+            organization_member=self.organization_membership,
+            access_level="none",
+        )
+        cache.clear()
+        schedule = self.client.patch(f"{self.url}/schedule/", {"interval": "6hour"}).json()
+        assert schedule["last_suite_run"] is None
+        assert schedule["last_run_at"] is None
+
+    def test_a_metric_that_leaves_hogql_still_takes_presentation_edits(self) -> None:
+        check = self._create()
+        self.metric.definition = {"kind": "MarkdownDefinition", "content": "Signups per day"}
+        self.metric.save(update_fields=["definition"])
+
+        paused = self.client.patch(f"{self.url}/{check['id']}/", {"enabled": False, "description": "paused"})
+
+        assert paused.status_code == status.HTTP_200_OK, paused.content
+        assert paused.json()["enabled"] is False
+        assert paused.json()["description"] == "paused"
+        # The assertion itself still cannot be rewritten against a definition that is no longer there.
+        rewritten = self.client.patch(
+            f"{self.url}/{check['id']}/", {"config": {"query": "SELECT * FROM {metric} WHERE signups < 10"}}
+        )
+        assert rewritten.status_code == status.HTTP_400_BAD_REQUEST, rewritten.content
+        assert rewritten.json()["detail"] == "Metric checks require a live HogQL definition."
+
+    def test_overview_subject_picker_lists_only_live_hogql_metrics(self) -> None:
+        Metric.objects.for_team(self.team.id).create(
+            team=self.team,
+            name="metric_without_definition",
+            definition=None,
+            referenced_table_names=[],
+        )
+        deleted = Metric.objects.for_team(self.team.id).create(
+            team=self.team,
+            name="deleted_metric",
+            definition={"kind": "HogQLQuery", "query": "SELECT 1 AS value"},
+            referenced_table_names=[],
+        )
+        deleted.deleted = True
+        deleted.save(update_fields=["deleted"])
+
+        response = self.client.get(f"/api/projects/{self.team.id}/data_quality_checks/metric_subjects/")
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert response.json() == [
+            {
+                "id": str(self.metric.id),
+                "name": "signups",
+                "display_name": "",
+            }
+        ]
+
+    def test_metric_manual_run_and_nested_history(self) -> None:
+        check = self._create()
+        with patch(START_SUITE, return_value=MagicMock(start_workflow=AsyncMock())):
+            response = self.client.post(f"{self.url}/{check['id']}/run/")
+        assert response.status_code == 200, response.content
+        suite = response.json()
+        assert suite["subject_uuid"] == str(self.metric.id)
+        assert self.client.get(f"{self.suites_url}/{suite['id']}/").status_code == 200
+        assert self.client.get(f"{self.suites_url}/{suite['id']}/check_runs/").json() == []
+        assert self.client.get(f"{self.url}/{check['id']}/runs/").json() == []
+
+    def test_catalog_denial_hides_metric_checks_across_surfaces(self) -> None:
+        self._create()
+        self.organization.available_product_features = [{"key": AvailableFeature.ACCESS_CONTROL}]
+        self.organization.save(update_fields=["available_product_features"])
+        AccessControl.objects.create(
+            team=self.team,
+            resource="data_catalog",
+            organization_member=self.organization_membership,
+            access_level="none",
+        )
+        cache.clear()
+        assert self.client.get(f"{self.url}/").status_code == 403
+        assert self.client.get(f"{self.url}/schedule/").status_code == 403
+        assert self.client.get(f"{self.suites_url}/").status_code == 403
+        assert self.client.get(f"/api/projects/{self.team.id}/data_quality_checks/").json()["results"] == []
+
+    @parameterized.expand([("check_assertion", False), ("metric_definition", True)])
+    def test_saved_expandable_sources_are_hidden_and_cannot_be_edited_or_run(
+        self, _name: str, in_metric_definition: bool
+    ) -> None:
+        created = self._create()
+        source = DataWarehouseSavedQuery.objects.create(
+            team=self.team, name="orders", query={"kind": "HogQLQuery", "query": "SELECT 1 AS total"}
+        )
+        expandable_source = "<HogQLQuery query='SELECT * FROM orders' />"
+        if in_metric_definition:
+            self.metric.definition = {"kind": "HogQLQuery", "query": f"SELECT * FROM {expandable_source}"}
+            self.metric.save(update_fields=["definition"])
+        else:
+            DataQualityCheck.objects.for_team(self.team.id).filter(id=created["id"]).update(
+                config={"query": f"SELECT * FROM {{metric}} JOIN {expandable_source} ON 1 = 1"}
+            )
+        check = DataQualityCheck.objects.for_team(self.team.id).get(id=created["id"])
+        original_config = check.config
+        original_fingerprint = check.fingerprint
+        self.organization.available_product_features = [{"key": AvailableFeature.ACCESS_CONTROL}]
+        self.organization.save(update_fields=["available_product_features"])
+        AccessControl.objects.create(
+            team=self.team,
+            resource="warehouse_view",
+            resource_id=str(source.id),
+            organization_member=self.organization_membership,
+            access_level="none",
+        )
+        cache.clear()
+
+        for url in (f"{self.url}/", f"/api/projects/{self.team.id}/data_quality_checks/"):
+            listed = self.client.get(url)
+            assert listed.status_code == status.HTTP_200_OK, listed.content
+            assert listed.json()["results"] == []
+            assert listed.json()["count"] == 0
+
+        assert self.client.get(f"{self.url}/{check.id}/").status_code == status.HTTP_403_FORBIDDEN
+        edited = self.client.patch(f"{self.url}/{check.id}/", {"enabled": False})
+        assert edited.status_code == status.HTTP_403_FORBIDDEN, edited.content
+        with patch(START_SUITE, return_value=MagicMock(start_workflow=AsyncMock())):
+            nested_run = self.client.post(f"{self.url}/{check.id}/run/")
+            project_run = self.client.post(
+                f"/api/projects/{self.team.id}/data_quality_runs/", {"check_ids": [str(check.id)]}
+            )
+        assert nested_run.status_code == status.HTTP_403_FORBIDDEN, nested_run.content
+        assert project_run.status_code == status.HTTP_403_FORBIDDEN, project_run.content
+        assert not DataQualitySuiteRun.objects.for_team(self.team.id).exists()
+        check.refresh_from_db()
+        assert check.config == original_config
+        assert check.fingerprint == original_fingerprint
+        assert check.enabled
+
+    def test_nested_cte_cannot_expose_history_after_metric_source_changes(self) -> None:
+        source = DataWarehouseSavedQuery.objects.create(
+            team=self.team, name="orders", query={"kind": "HogQLQuery", "query": "SELECT 1 AS total"}
+        )
+        self.metric.definition = {
+            "kind": "HogQLQuery",
+            "query": "SELECT * FROM orders UNION ALL "
+            "SELECT * FROM (WITH orders AS (SELECT 123 AS total) SELECT * FROM orders)",
+        }
+        self.metric.referenced_table_names = ["orders"]
+        self.metric.save(update_fields=["definition", "referenced_table_names"])
+        response = self.client.post(
+            f"{self.url}/",
+            {
+                "check_type": "custom_sql",
+                "config": {"query": "SELECT * FROM {metric}"},
+            },
+        )
+        assert response.status_code == 201, response.content
+        check = DataQualityCheck.objects.for_team(self.team.id).get(id=response.json()["id"])
+        suite = DataQualitySuiteRun.objects.for_team(self.team.id).create(
+            team=self.team,
+            trigger="manual",
+            created_by=self.user,
+            subject_type=SubjectType.METRIC,
+            subject_uuid=self.metric.id,
+        )
+        with patch(
+            "products.data_quality.backend.logic.runner.execute_hogql_query",
+            return_value=SimpleNamespace(columns=["failure_count", "observed_value"], results=[[2, 2]]),
+        ):
+            assert run_check(check, suite, self.team).status == CheckRunStatus.FAILED
+        self.metric.definition = {"kind": "HogQLQuery", "query": "SELECT 1 AS total"}
+        self.metric.referenced_table_names = []
+        self.metric.save(update_fields=["definition", "referenced_table_names"])
+        self.organization.available_product_features = [{"key": AvailableFeature.ACCESS_CONTROL}]
+        self.organization.save(update_fields=["available_product_features"])
+        AccessControl.objects.create(
+            team=self.team,
+            resource="warehouse_view",
+            resource_id=str(source.id),
+            organization_member=self.organization_membership,
+            access_level="none",
+        )
+        cache.clear()
+
+        with patch(
+            "posthog.hogql.database.database.feature_enabled_or_false",
+            side_effect=lambda name, *args, **kwargs: name == "hogql-warehouse-access-control",
+        ):
+            for url in (f"{self.url}/{check.id}/runs/", f"{self.suites_url}/{suite.id}/check_runs/"):
+                history = self.client.get(url)
+                assert history.status_code == 200, history.content
+                assert history.json() == []
+
+    @parameterized.expand(
+        [
+            ("run", "POST", False),
+            ("runs", "GET", False),
+            ("run_all", "POST", False),
+            ("run", "POST", True),
+            ("runs", "GET", True),
+            ("run_all", "POST", True),
+        ]
+    )
+    def test_restricted_member_can_run_and_read_metric_checks(self, action: str, method: str, denied: bool) -> None:
+        check = self._create()
+        self.organization.available_product_features = [{"key": AvailableFeature.ACCESS_CONTROL}]
+        self.organization.save(update_fields=["available_product_features"])
+        if denied:
+            source = DataWarehouseSavedQuery.objects.create(
+                team=self.team, name="restricted_source", query={"kind": "HogQLQuery", "query": "SELECT 1 AS id"}
+            )
+            DataQualityCheck.objects.for_team(self.team.id).filter(id=check["id"]).update(
+                config={"query": "SELECT * FROM {metric} JOIN restricted_source ON 1 = 1"}
+            )
+            AccessControl.objects.create(
+                team=self.team,
+                resource="warehouse_view",
+                resource_id=str(source.id),
+                organization_member=self.organization_membership,
+                access_level="none",
+            )
+            warehouse_ac = patch(
+                "posthog.hogql.database.database.feature_enabled_or_false",
+                side_effect=lambda name, *a, **k: name == "hogql-warehouse-access-control",
+            )
+            warehouse_ac.start()
+            self.addCleanup(warehouse_ac.stop)
+        cache.clear()
+        suffix = action if action == "run_all" else f"{check['id']}/{action}"
+        with patch(START_SUITE, return_value=MagicMock(start_workflow=AsyncMock())):
+            response = getattr(self.client, method.lower())(f"{self.url}/{suffix}/")
+        assert response.status_code == (403 if denied else 200), response.content
 
 
 class TestCheckViewSetScopes(SimpleTestCase):
@@ -44,6 +498,36 @@ class TestCheckViewSetScopes(SimpleTestCase):
         assert view.dangerously_get_required_scopes(APIRequestFactory().generic(method, "/"), view) == expected
 
 
+class TestMetricOutputSchemaAPI(ClickhouseTestMixin, APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.metric = Metric.objects.for_team(self.team.id).create(
+            team=self.team,
+            name="daily_signups",
+            definition={
+                "kind": "HogQLQuery",
+                "query": "SELECT toDate('2026-09-08') AS day, count() AS signups FROM events",
+            },
+            referenced_table_names=["events"],
+        )
+        flag = patch(FLAG, return_value=True)
+        flag.start()
+        self.addCleanup(flag.stop)
+
+    def test_returns_the_saved_metrics_output_columns_and_types(self) -> None:
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/data_catalog/metrics/{self.metric.id}/checks/output_schema/"
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert response.json() == {
+            "columns": [
+                {"name": "day", "type": "Nullable(Date)"},
+                {"name": "signups", "type": "UInt64"},
+            ]
+        }
+
+
 class TestDataQualityCheckAPI(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
@@ -55,11 +539,67 @@ class TestDataQualityCheckAPI(APIBaseTest):
         flag.start()
         self.addCleanup(flag.stop)
 
+    def test_model_history_includes_deleted_checks_without_other_models(self) -> None:
+        check = self._create_check()
+        other_view = DataWarehouseSavedQuery.objects.create(
+            team=self.team, name="other_orders", query={"kind": "HogQLQuery", "query": "SELECT 1"}
+        )
+        other_check = self._create_check(url=self._checks_url(other_view.id))
+        for item_id, scope in [
+            (self.view.id, "DataWarehouseSavedQuery"),
+            (check.id, "DataQualityCheck"),
+            (other_check.id, "DataQualityCheck"),
+        ]:
+            log_activity(
+                organization_id=self.organization.id,
+                was_impersonated=False,
+                team_id=self.team.id,
+                user=self.user,
+                item_id=str(item_id),
+                scope=scope,
+                activity="created",
+                detail=Detail(name="Example"),
+            )
+        deleted = self.client.delete(f"{self.url}/{check.id}/")
+        assert deleted.status_code == 204
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/activity_log/",
+            {
+                "scopes": "DataWarehouseSavedQuery,DataQualityCheck",
+                "item_id": str(self.view.id),
+            },
+        )
+        assert response.status_code == 200, response.content
+        item_ids = {entry["item_id"] for entry in response.json()["results"]}
+        assert str(self.view.id) in item_ids
+        assert str(check.id) in item_ids
+        assert str(other_check.id) not in item_ids
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/activity_log/",
+            {"scopes": "DataWarehouseSavedQuery,DataQualityCheck", "item_id": str(check.id)},
+        )
+        assert response.status_code == 200, response.content
+        assert {entry["item_id"] for entry in response.json()["results"]} == {str(check.id)}
+
+    def test_deleting_a_check_is_logged_as_a_deletion_not_an_update(self) -> None:
+        check = self._create_check()
+        assert self.client.delete(f"{self.url}/{check.id}/").status_code == 204
+
+        entry = (
+            ActivityLog.objects.filter(team_id=self.team.id, scope="DataQualityCheck", item_id=str(check.id))
+            .order_by("-created_at")
+            .first()
+        )
+        assert entry is not None
+        assert entry.activity == "deleted"
+
     def _checks_url(self, saved_query_id) -> str:
         return f"/api/projects/{self.team.id}/warehouse_saved_queries/{saved_query_id}/checks"
 
-    def _suite_runs_url(self) -> str:
-        return f"/api/projects/{self.team.id}/warehouse_saved_queries/{self.view.id}/check_suite_runs"
+    def _suite_runs_url(self, saved_query_id=None) -> str:
+        parent = saved_query_id or self.view.id
+        return f"/api/projects/{self.team.id}/warehouse_saved_queries/{parent}/check_suite_runs"
 
     def _gate_url(self) -> str:
         return f"/api/projects/{self.team.id}/data_warehouse/data_quality_gate/"
@@ -92,6 +632,9 @@ class TestDataQualityCheckAPI(APIBaseTest):
         return DataWarehouseSavedQuery.objects.create(
             team=self.team, name=name, query={"kind": "HogQLQuery", "query": "SELECT 1 AS id"}
         )
+
+    def _pinned(self, *views: DataWarehouseSavedQuery) -> list[dict[str, str]]:
+        return [{"subject_type": str(SubjectType.VIEW), "subject_uuid": str(view.id)} for view in views]
 
     def test_the_whole_surface_is_gated_on_the_feature_flag(self) -> None:
         with patch(FLAG, return_value=False):
@@ -264,6 +807,52 @@ class TestDataQualityCheckAPI(APIBaseTest):
         check.refresh_from_db()
         assert check.name == ""
 
+    @parameterized.expand([("transient_contention", 1, True), ("sustained_contention", 5, False)])
+    def test_an_edit_retries_a_definition_that_keeps_moving_only_so_often(
+        self, _name: str, moves: int, saved: bool
+    ) -> None:
+        check = self._create_check(column_name="total")
+        build_candidate = checks_logic._candidate_definition
+        remaining = moves
+
+        def move_the_definition(
+            team: "Team", current: DataQualityCheck, requested: dict[str, object]
+        ) -> checks_logic._CandidateDefinition:
+            nonlocal remaining
+            if remaining:
+                remaining -= 1
+                DataQualityCheck.objects.for_team(team.id).filter(id=current.id).update(fingerprint=uuid4().hex)
+            return build_candidate(team, current, requested)
+
+        with patch.object(checks_logic, "_candidate_definition", side_effect=move_the_definition) as candidate:
+            response = self.client.patch(f"{self.url}/{check.id}/", {"description": "why this matters"})
+
+        check.refresh_from_db()
+        if saved:
+            assert response.status_code == status.HTTP_200_OK, response.json()
+            assert check.description == "why this matters"
+            return
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["code"] == "concurrent_edit"
+        assert response.json()["attr"] is None
+        assert response.json()["detail"]
+        assert candidate.call_count == checks_logic._MAX_EDIT_ATTEMPTS
+        assert check.description == ""
+
+    def test_an_edit_the_compiler_could_never_run_is_a_config_field_error(self) -> None:
+        check = self._create_check()
+
+        response = self.client.patch(
+            f"{self.url}/{check.id}/",
+            {"check_type": CheckType.CUSTOM_SQL, "column_name": "", "config": {"query": "SELECT ("}},
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["attr"] == "config"
+        check.refresh_from_db()
+        assert check.check_type == CheckType.NOT_NULL
+        assert check.column_name == "customer_id"
+
     def test_a_definition_freed_by_deletion_becomes_a_new_check(self) -> None:
         # The old check keeps its own id and history; reusing the definition must not resurrect it.
         first = self._create_check()
@@ -389,7 +978,15 @@ class TestDataQualityCheckAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK
         by_type = {row["check_type"]: row for row in response.json()}
-        assert set(by_type) == {t.value for t in CheckType}
+        assert set(by_type) == {
+            "not_null",
+            "unique",
+            "accepted_values",
+            "relationships",
+            "row_count",
+            "freshness",
+            "custom_sql",
+        }
         assert by_type["accepted_values"]["config_schema"]["required"] == ["values"]
         assert by_type["row_count"]["requires_column"] is False
 
@@ -515,10 +1112,78 @@ class TestDataQualityCheckAPI(APIBaseTest):
         check_runs = self.client.get(f"{base}/{mine.id}/check_runs/")
         assert [row["subject_name"] for row in check_runs.json()] == ["orders"]
 
-    def test_editing_a_check_does_not_unlock_the_history_it_used_to_read(self) -> None:
+    def test_check_runs_name_the_check_each_row_ran(self) -> None:
+        named = self._create_check(name="orders_customer_id_not_null")
+        suite = DataQualitySuiteRun.objects.for_team(self.team.id).create(
+            team=self.team, trigger="manual", subject_type=SubjectType.VIEW, subject_uuid=self.view.id
+        )
+        for quality_check in (named, None):
+            DataQualityCheckRun.objects.for_team(self.team.id).create(
+                team=self.team,
+                suite_run=suite,
+                quality_check=quality_check,
+                subject_type=SubjectType.VIEW,
+                subject_uuid=self.view.id,
+                subject_name="orders",
+                check_type=CheckType.NOT_NULL,
+                check_fingerprint=uuid4().hex,
+                status=CheckRunStatus.PASSED,
+            )
+
+        response = self.client.get(f"{self._suite_runs_url()}/{suite.id}/check_runs/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert {row["check_name"] for row in response.json()} == {"orders_customer_id_not_null", None}
+
+    def test_listing_a_subjects_checks_leaves_out_the_ones_reading_a_denied_subject(self) -> None:
+        # The parent gate cleared "customers", but a check under it names the denied "orders" in its
+        # config, which the routes that address one check already refuse to serve.
+        allowed = self._make_view("customers")
+        DataQualityCheck.objects.for_team(self.team.id).create(
+            team=self.team,
+            subject_type=SubjectType.VIEW,
+            saved_query_id=allowed.id,
+            subject_name="customers",
+            check_type=CheckType.CUSTOM_SQL,
+            config={"query": "SELECT 1 FROM orders"},
+            fingerprint=uuid4().hex,
+        )
+        self._deny_the_view()
+
+        listed = self.client.get(f"{self._checks_url(allowed.id)}/")
+
+        assert listed.status_code == status.HTTP_200_OK, listed.json()
+        assert listed.json()["results"] == []
+
+    def test_a_subjects_health_leaves_out_the_checks_reading_a_denied_subject(self) -> None:
+        # The rollup counts the same checks the list serves, so one the list withholds must not be
+        # counted back in here: checks_failing answers the same question one step removed.
+        allowed = self._make_view("customers")
+        DataQualityCheck.objects.for_team(self.team.id).create(
+            team=self.team,
+            subject_type=SubjectType.VIEW,
+            saved_query_id=allowed.id,
+            subject_name="customers",
+            check_type=CheckType.CUSTOM_SQL,
+            config={"query": "SELECT 1 FROM orders"},
+            fingerprint=uuid4().hex,
+            last_status=CheckRunStatus.FAILED,
+        )
+        self._deny_the_view()
+
+        health = self.client.get(f"{self._checks_url(allowed.id)}/health/")
+
+        assert health.status_code == status.HTTP_200_OK, health.json()
+        assert health.json()["checks_total"] == 0
+        assert health.json()["checks_failing"] == 0
+        assert health.json()["health"] == "unknown"
+
+    @parameterized.expand([("pinned", True), ("recorded before pinning", False)])
+    def test_editing_a_check_does_not_unlock_the_history_it_used_to_read(self, _name: str, pinned: bool) -> None:
         # Authorizing history against the definition the check carries *now* lets a member point a
         # check that reads the denied "orders" at something harmless and then read what it recorded:
-        # the compiled query, the failed-row count and the observed value.
+        # the compiled query, the failed-row count and the observed value. A run that pinned no
+        # references is judged by its type rather than by the edited check.
         allowed = self._make_view("customers")
         reads_orders = {"query": "SELECT 1 FROM orders"}
         check = DataQualityCheck.objects.for_team(self.team.id).create(
@@ -530,8 +1195,8 @@ class TestDataQualityCheckAPI(APIBaseTest):
             config=reads_orders,
             fingerprint=uuid4().hex,
         )
-        DataQualityCheckRun.objects.for_team(self.team.id).create(
-            team=self.team,
+        api.record_check_run(
+            self.team.id,
             suite_run=DataQualitySuiteRun.objects.for_team(self.team.id).create(team=self.team, trigger="manual"),
             quality_check=check,
             subject_type=SubjectType.VIEW,
@@ -539,20 +1204,98 @@ class TestDataQualityCheckAPI(APIBaseTest):
             subject_name="customers",
             check_type=CheckType.CUSTOM_SQL,
             check_config=reads_orders,
+            referenced_subjects=self._pinned(self.view) if pinned else None,
             check_fingerprint=check.fingerprint,
             status=CheckRunStatus.FAILED,
             failed_row_count=3,
             compiled_query="SELECT * FROM orders",
         )
+        ran_at = now()
+        DataQualityCheck.objects.for_team(self.team.id).filter(id=check.id).update(
+            last_status=CheckRunStatus.FAILED,
+            last_run_at=ran_at,
+            last_succeeded_at=ran_at,
+            failing_since=ran_at,
+        )
+        url = f"{self._checks_url(allowed.id)}/{check.id}"
+        authorized_edit = self.client.patch(url + "/", {"config": {"query": "SELECT 1 FROM customers"}})
+        assert authorized_edit.status_code == status.HTTP_200_OK, authorized_edit.json()
         self._deny_the_view()
 
-        url = f"{self._checks_url(allowed.id)}/{check.id}"
         edited = self.client.patch(url + "/", {"check_type": CheckType.NOT_NULL, "column_name": "id", "config": {}})
         history = self.client.get(f"{url}/runs/")
 
         assert edited.status_code == status.HTTP_200_OK, edited.json()
+        assert edited.json()["last_status"] is None
+        assert edited.json()["last_run_at"] is None
+        assert edited.json()["last_succeeded_at"] is None
+        assert edited.json()["failing_since"] is None
         assert history.status_code == status.HTTP_200_OK
         assert history.json() == []
+        check.refresh_from_db()
+        assert check.last_status == CheckRunStatus.FAILED
+        assert check.last_run_at == ran_at
+        assert check.last_succeeded_at == ran_at
+        assert check.failing_since == ran_at
+
+    def test_re_creating_a_check_does_not_unlock_the_history_it_used_to_read(self) -> None:
+        # A create lands on the existing row when the definition fingerprints the same, so posting a
+        # harmless definition is a second way to ask for a check whose last run read the denied
+        # "orders" -- one that list hides, retrieve 403s, runs/ empties and patch redacts.
+        allowed = self._make_view("customers")
+        safe = {"check_type": CheckType.NOT_NULL, "column_name": "id", "config": {}}
+        created = self.client.post(f"{self._checks_url(allowed.id)}/", safe)
+        assert created.status_code == status.HTTP_201_CREATED, created.json()
+        check = DataQualityCheck.objects.for_team(self.team.id).get(id=created.json()["id"])
+        api.record_check_run(
+            self.team.id,
+            suite_run=DataQualitySuiteRun.objects.for_team(self.team.id).create(team=self.team, trigger="manual"),
+            quality_check=check,
+            subject_type=SubjectType.VIEW,
+            subject_uuid=allowed.id,
+            subject_name="customers",
+            check_type=CheckType.CUSTOM_SQL,
+            check_config={"query": "SELECT 1 FROM orders"},
+            referenced_subjects=self._pinned(self.view),
+            check_fingerprint=check.fingerprint,
+            status=CheckRunStatus.FAILED,
+            failed_row_count=3,
+            compiled_query="SELECT * FROM orders",
+        )
+        ran_at = now()
+        DataQualityCheck.objects.for_team(self.team.id).filter(id=check.id).update(
+            last_status=CheckRunStatus.FAILED,
+            last_run_at=ran_at,
+            last_succeeded_at=ran_at,
+            failing_since=ran_at,
+        )
+        self._deny_the_view()
+
+        recreated = self.client.post(f"{self._checks_url(allowed.id)}/", safe)
+
+        assert recreated.status_code == status.HTTP_200_OK, recreated.json()
+        assert recreated.json()["last_status"] is None
+        assert recreated.json()["last_run_at"] is None
+        assert recreated.json()["last_succeeded_at"] is None
+        assert recreated.json()["failing_since"] is None
+        check.refresh_from_db()
+        assert check.last_status == CheckRunStatus.FAILED
+        assert check.failing_since == ran_at
+
+    def test_accepted_values_are_stored_as_the_column_holds_them(self) -> None:
+        # The editor can only send strings. Whether the coercion is wired into the create path at all
+        # is what this covers; the type matrix itself is unit-tested against the spec.
+        view = self._make_view("payments")
+        DataWarehouseSavedQuery.objects.filter(id=view.id).update(columns={"amount": "Nullable(Int64)"})
+
+        response = self.client.post(
+            f"{self._checks_url(view.id)}/",
+            {"check_type": CheckType.ACCEPTED_VALUES, "column_name": "amount", "config": {"values": ["1", "2"]}},
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        check = DataQualityCheck.objects.for_team(self.team.id).get(id=response.json()["id"])
+        assert check.config["values"] == [1.0, 2.0]
 
     def _deny_the_view(self) -> None:
         # Deny the default member object-level access to the "orders" view, the way the HogQL
@@ -647,14 +1390,15 @@ class TestDataQualityCheckAPI(APIBaseTest):
         assert response.status_code == status.HTTP_403_FORBIDDEN
         assert DataQualityCheck.objects.for_team(self.team.id).count() == 0
 
-    def test_editing_a_check_to_read_a_denied_subject_writes_nothing(self) -> None:
+    @parameterized.expand([("patch",), ("put",)])
+    def test_editing_a_check_to_read_a_denied_subject_writes_nothing(self, method: str) -> None:
         # The stored definition cleared the denial; the candidate one has to clear it too, or an edit
         # is the way to point a visible check at a table the member cannot read.
         allowed = self._make_view("customers")
         check = self._create_check(url=self._checks_url(allowed.id), column_name="id")
         self._deny_the_view()
 
-        response = self.client.patch(
+        response = getattr(self.client, method)(
             f"{self._checks_url(allowed.id)}/{check.id}/",
             {"check_type": CheckType.CUSTOM_SQL, "column_name": "", "config": {"query": "SELECT 1 FROM orders"}},
         )
@@ -662,6 +1406,392 @@ class TestDataQualityCheckAPI(APIBaseTest):
         assert response.status_code == status.HTTP_403_FORBIDDEN
         check.refresh_from_db()
         assert check.check_type == CheckType.NOT_NULL
+
+    @parameterized.expand([("patch",), ("put",), ("presentation",)])
+    def test_editing_a_check_with_an_unreadable_stored_definition_writes_nothing(self, method: str) -> None:
+        allowed = self._make_view("customers")
+        check = self._create_check(
+            url=self._checks_url(allowed.id),
+            check_type=CheckType.CUSTOM_SQL,
+            column_name="",
+            config={"query": "SELECT 1 FROM orders"},
+        )
+        original_fingerprint = check.fingerprint
+        self._deny_the_view()
+        changes = (
+            {"enabled": False}
+            if method == "presentation"
+            else {"check_type": CheckType.CUSTOM_SQL, "column_name": "", "config": {"query": "SELECT 1"}}
+        )
+
+        response = getattr(self.client, "patch" if method == "presentation" else method)(
+            f"{self._checks_url(allowed.id)}/{check.id}/", changes
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+        check.refresh_from_db()
+        assert check.config == {"query": "SELECT 1 FROM orders"}
+        assert check.fingerprint == original_fingerprint
+        assert check.enabled
+
+    def test_editing_rechecks_access_when_the_stored_definition_changes_before_locking(self) -> None:
+        allowed = self._make_view("customers")
+        check = self._create_check(
+            url=self._checks_url(allowed.id),
+            check_type=CheckType.CUSTOM_SQL,
+            column_name="",
+            config={"query": "SELECT 1 FROM customers"},
+        )
+        concurrent_config = {"query": "SELECT 1 FROM orders"}
+        concurrent_fingerprint = api.compute_fingerprint(
+            subject_type=check.subject_type,
+            subject_uuid=str(check.subject_uuid),
+            check_type=check.check_type,
+            column_name=check.column_name,
+            config=concurrent_config,
+        )
+        self._deny_the_view()
+        build_candidate = checks_logic._candidate_definition
+        definition_changed = False
+
+        def replace_definition_before_lock(
+            team: "Team", current: DataQualityCheck, requested: dict[str, object]
+        ) -> checks_logic._CandidateDefinition:
+            nonlocal definition_changed
+            if not definition_changed:
+                DataQualityCheck.objects.for_team(team.id).filter(id=current.id).update(
+                    config=concurrent_config, fingerprint=concurrent_fingerprint
+                )
+                definition_changed = True
+            return build_candidate(team, current, requested)
+
+        with patch.object(checks_logic, "_candidate_definition", side_effect=replace_definition_before_lock):
+            response = self.client.patch(
+                f"{self._checks_url(allowed.id)}/{check.id}/",
+                {"config": {"query": "SELECT 1"}, "description": "proposed change"},
+            )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+        check.refresh_from_db()
+        assert check.config == concurrent_config
+        assert check.fingerprint == concurrent_fingerprint
+        assert check.description == ""
+        assert check.definition_author is None
+
+    def _suite_with_two_runs(self, allowed: DataWarehouseSavedQuery) -> DataQualitySuiteRun:
+        suite = DataQualitySuiteRun.objects.for_team(self.team.id).create(
+            team=self.team, trigger="manual", subject_type=SubjectType.VIEW, subject_uuid=allowed.id
+        )
+        for check_type, config, name, referenced in (
+            (CheckType.NOT_NULL, {}, "reads_only_the_parent", []),
+            (CheckType.CUSTOM_SQL, {"query": "SELECT 1 FROM orders"}, "reads_the_denied_view", self._pinned(self.view)),
+        ):
+            check = DataQualityCheck.objects.for_team(self.team.id).create(
+                team=self.team,
+                name=name,
+                subject_type=SubjectType.VIEW,
+                saved_query_id=allowed.id,
+                subject_name="customers",
+                check_type=check_type,
+                column_name="total" if check_type == CheckType.NOT_NULL else "",
+                config=config,
+                fingerprint=uuid4().hex,
+            )
+            api.record_check_run(
+                self.team.id,
+                suite_run=suite,
+                quality_check=check,
+                subject_type=SubjectType.VIEW,
+                subject_uuid=allowed.id,
+                subject_name="customers",
+                check_type=check_type,
+                check_config=config,
+                referenced_subjects=referenced,
+                check_fingerprint=check.fingerprint,
+                status=CheckRunStatus.FAILED,
+                failed_row_count=3,
+                compiled_query="SELECT * FROM orders",
+            )
+        return suite
+
+    @parameterized.expand(
+        [
+            ("denied_member", True, [CheckType.NOT_NULL]),
+            ("allowed_member", False, [CheckType.CUSTOM_SQL, CheckType.NOT_NULL]),
+        ]
+    )
+    def test_suite_check_runs_withhold_a_run_that_read_a_denied_subject(
+        self, _name: str, deny: bool, expected_types: list[str]
+    ) -> None:
+        # A run carries its compiled query, failed-row count and observed value. A check on an allowed
+        # parent whose custom_sql reads the denied "orders" would disclose all three here, which is
+        # what the check-level routes refuse. The rest of the suite stays readable.
+        allowed = self._make_view("customers")
+        suite = self._suite_with_two_runs(allowed)
+        if deny:
+            self._deny_the_view()
+
+        response = self.client.get(f"{self._suite_runs_url(allowed.id)}/{suite.id}/check_runs/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert sorted(row["check_type"] for row in response.json()) == sorted(expected_types)
+
+    def test_a_suite_whose_run_read_a_denied_subject_is_withheld(self) -> None:
+        # The suite row carries passed/failed/errored/skipped over every check it ran, while
+        # check_runs hands back only the readable ones. Serving both names the withheld check's
+        # outcome by subtraction, so the row with the counters is the one to hold back.
+        allowed = self._make_view("customers")
+        suite = self._suite_with_two_runs(allowed)
+        self._deny_the_view()
+
+        base = self._suite_runs_url(allowed.id)
+        listed = self.client.get(f"{base}/")
+        retrieved = self.client.get(f"{base}/{suite.id}/")
+
+        assert listed.status_code == status.HTTP_200_OK, listed.json()
+        assert listed.json()["results"] == []
+        assert retrieved.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_a_run_whose_definition_is_unknown_is_judged_by_its_type(self) -> None:
+        # Predating the pinned references, so there is nothing recorded to judge. A type that cannot
+        # reach past its own subject read only the parent this surface already authorized; one that
+        # can is withheld, since the current definition is not evidence of what the run executed.
+        allowed = self._make_view("customers")
+        suite = self._suite_with_two_runs(allowed)
+        DataQualityCheckRun.objects.for_team(self.team.id).filter(suite_run=suite).update(
+            check_config=None, referenced_subjects=None, quality_check=None
+        )
+        self._deny_the_view()
+
+        response = self.client.get(f"{self._suite_runs_url(allowed.id)}/{suite.id}/check_runs/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert [row["check_type"] for row in response.json()] == [CheckType.NOT_NULL]
+
+    @parameterized.expand([("relationships",), ("custom_sql",)])
+    def test_deleting_a_referenced_subject_does_not_hand_its_history_over(self, check_type: str) -> None:
+        # Deletion takes the denial with it: the denial set is rebuilt from the objects that still
+        # exist, so a deleted subject stops looking denied. The run pinned what it read, and an
+        # identity that no longer resolves is no proof the caller was allowed it.
+        allowed = self._make_view("customers")
+        config: dict = (
+            {"query": "SELECT 1 FROM orders"}
+            if check_type == CheckType.CUSTOM_SQL
+            else {"to_subject_type": SubjectType.VIEW, "to_subject_uuid": str(self.view.id), "to_column": "id"}
+        )
+        check = DataQualityCheck.objects.for_team(self.team.id).create(
+            team=self.team,
+            subject_type=SubjectType.VIEW,
+            saved_query_id=allowed.id,
+            subject_name="customers",
+            check_type=check_type,
+            column_name="" if check_type == CheckType.CUSTOM_SQL else "customer_id",
+            config=config,
+            fingerprint=uuid4().hex,
+        )
+        suite = DataQualitySuiteRun.objects.for_team(self.team.id).create(
+            team=self.team, trigger="manual", subject_type=SubjectType.VIEW, subject_uuid=allowed.id
+        )
+        api.record_check_run(
+            self.team.id,
+            suite_run=suite,
+            quality_check=check,
+            subject_type=SubjectType.VIEW,
+            subject_uuid=allowed.id,
+            subject_name="customers",
+            check_type=check_type,
+            check_config=config,
+            referenced_subjects=self._pinned(self.view),
+            check_fingerprint=check.fingerprint,
+            status=CheckRunStatus.FAILED,
+            failed_row_count=3,
+            compiled_query="SELECT * FROM orders",
+        )
+        self._deny_the_view()
+        self.view.delete()
+
+        suite_runs = self.client.get(f"{self._suite_runs_url(allowed.id)}/{suite.id}/check_runs/")
+        history = self.client.get(f"{self._checks_url(allowed.id)}/{check.id}/runs/")
+
+        # The suite route filters, since it serves runs from many checks. The per-check route refuses,
+        # since the one definition it serves is the one that cannot be established.
+        assert suite_runs.status_code == status.HTTP_200_OK
+        assert suite_runs.json() == []
+        assert history.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_reusing_a_deleted_subjects_name_does_not_hand_its_history_over(self) -> None:
+        # Deleting a view frees its name, so a member can create their own "orders" and make the name
+        # resolve for them again. Judged by name, the run that read the denied "orders" would then
+        # read as harmless and hand over its compiled query and failed-row count.
+        allowed = self._make_view("customers")
+        reads_orders = {"query": "SELECT 1 FROM orders"}
+        suite = DataQualitySuiteRun.objects.for_team(self.team.id).create(
+            team=self.team, trigger="manual", subject_type=SubjectType.VIEW, subject_uuid=allowed.id
+        )
+        api.record_check_run(
+            self.team.id,
+            suite_run=suite,
+            subject_type=SubjectType.VIEW,
+            subject_uuid=allowed.id,
+            subject_name="customers",
+            check_type=CheckType.CUSTOM_SQL,
+            check_config=reads_orders,
+            referenced_subjects=self._pinned(self.view),
+            check_fingerprint=uuid4().hex,
+            status=CheckRunStatus.FAILED,
+            failed_row_count=3,
+            compiled_query="SELECT * FROM orders",
+        )
+        self._deny_the_view()
+        self.view.delete()
+        self._make_view("orders")
+
+        response = self.client.get(f"{self._suite_runs_url(allowed.id)}/{suite.id}/check_runs/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == []
+
+    def test_a_run_that_read_an_allowed_subject_stays_visible_to_a_restricted_member(self) -> None:
+        # Failing closed on identity must not swallow the history a restricted member may read: the
+        # run pinned a view they are allowed, so being denied a different one changes nothing here.
+        allowed = self._make_view("customers")
+        suite = DataQualitySuiteRun.objects.for_team(self.team.id).create(
+            team=self.team, trigger="manual", subject_type=SubjectType.VIEW, subject_uuid=allowed.id
+        )
+        api.record_check_run(
+            self.team.id,
+            suite_run=suite,
+            subject_type=SubjectType.VIEW,
+            subject_uuid=allowed.id,
+            subject_name="customers",
+            check_type=CheckType.CUSTOM_SQL,
+            check_config={"query": "SELECT 1 FROM customers"},
+            referenced_subjects=self._pinned(allowed),
+            check_fingerprint=uuid4().hex,
+            status=CheckRunStatus.FAILED,
+            failed_row_count=3,
+        )
+        self._deny_the_view()
+
+        response = self.client.get(f"{self._suite_runs_url(allowed.id)}/{suite.id}/check_runs/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert [row["check_type"] for row in response.json()] == [CheckType.CUSTOM_SQL]
+
+    def test_a_readable_run_does_not_name_a_check_the_member_may_no_longer_see(self) -> None:
+        # The run pinned an allowed view, so its history stays readable -- but the name on its check
+        # is present tense, and the check now reads the denied "orders". Serving the name hands over
+        # what a teammate called a check this member is no longer shown.
+        allowed = self._make_view("customers")
+        check = DataQualityCheck.objects.for_team(self.team.id).create(
+            team=self.team,
+            name="nightly_customers_audit",
+            subject_type=SubjectType.VIEW,
+            saved_query_id=allowed.id,
+            subject_name="customers",
+            check_type=CheckType.CUSTOM_SQL,
+            config={"query": "SELECT 1 FROM customers"},
+            fingerprint=uuid4().hex,
+        )
+        suite = DataQualitySuiteRun.objects.for_team(self.team.id).create(
+            team=self.team, trigger="manual", subject_type=SubjectType.VIEW, subject_uuid=allowed.id
+        )
+        api.record_check_run(
+            self.team.id,
+            suite_run=suite,
+            quality_check=check,
+            subject_type=SubjectType.VIEW,
+            subject_uuid=allowed.id,
+            subject_name="customers",
+            check_type=CheckType.CUSTOM_SQL,
+            check_config={"query": "SELECT 1 FROM customers"},
+            referenced_subjects=self._pinned(allowed),
+            check_fingerprint=check.fingerprint,
+            status=CheckRunStatus.FAILED,
+            failed_row_count=3,
+        )
+        DataQualityCheck.objects.for_team(self.team.id).filter(id=check.id).update(
+            config={"query": "SELECT 1 FROM orders"}
+        )
+        self._deny_the_view()
+
+        response = self.client.get(f"{self._suite_runs_url(allowed.id)}/{suite.id}/check_runs/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert [row["check_type"] for row in response.json()] == [CheckType.CUSTOM_SQL]
+        assert [row["check_name"] for row in response.json()] == [None]
+
+    def test_a_deleted_declared_subject_withholds_its_history_from_a_restricted_member(self) -> None:
+        # Deleting a subject takes its denial with it, so nothing left can show the caller was
+        # allowed it. The run, its suite, and the check all fall out until retention deletes them.
+        temp = self._make_view("temp_orders")
+        check = DataQualityCheck.objects.for_team(self.team.id).create(
+            team=self.team,
+            subject_type=SubjectType.VIEW,
+            saved_query_id=temp.id,
+            subject_name="temp_orders",
+            check_type=CheckType.NOT_NULL,
+            column_name="id",
+            fingerprint=uuid4().hex,
+        )
+        suite = DataQualitySuiteRun.objects.for_team(self.team.id).create(
+            team=self.team, trigger="manual", subject_type=SubjectType.VIEW, subject_uuid=temp.id
+        )
+        api.record_check_run(
+            self.team.id,
+            suite_run=suite,
+            quality_check=check,
+            subject_type=SubjectType.VIEW,
+            subject_uuid=temp.id,
+            subject_name="temp_orders",
+            check_type=CheckType.NOT_NULL,
+            check_config={},
+            referenced_subjects=[],
+            check_fingerprint=check.fingerprint,
+            status=CheckRunStatus.FAILED,
+            failed_row_count=3,
+        )
+        self._deny_the_view()
+        temp.delete()
+
+        assert self.client.get(f"{self._checks_url(temp.id)}/").status_code == status.HTTP_403_FORBIDDEN
+        assert self.client.get(f"{self._suite_runs_url(temp.id)}/").status_code == status.HTTP_403_FORBIDDEN
+
+    def test_a_restricted_member_loses_an_orphaned_checks_row_from_the_project_list(self) -> None:
+        # An orphan has no subject left to prove access against, so it fails closed for a member who
+        # can be object-denied -- even when nothing is currently denied to them.
+        temp = self._make_view("temp_orders")
+        DataQualityCheck.objects.for_team(self.team.id).create(
+            team=self.team,
+            subject_type=SubjectType.VIEW,
+            saved_query_id=temp.id,
+            subject_name="temp_orders",
+            check_type=CheckType.NOT_NULL,
+            column_name="id",
+            fingerprint=uuid4().hex,
+        )
+        self._deny_the_view()
+        self.view.delete()
+        temp.delete()
+
+        listed = self.client.get(f"/api/projects/{self.team.id}/data_quality_checks/")
+
+        assert listed.status_code == status.HTTP_200_OK, listed.json()
+        assert listed.json()["results"] == []
+
+    def test_a_failure_building_the_readable_set_refuses_rather_than_leaks(self) -> None:
+        # The snapshot walks every saved query; one malformed definition must not 500 the surface,
+        # and must not fall through to serving rows it could not authorize.
+        self._create_check()
+        self._deny_the_view()
+
+        with patch(
+            "products.data_quality.backend.logic.subject_access.readable_subjects",
+            side_effect=RuntimeError("boom"),
+        ):
+            response = self.client.get(f"{self.url}/")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
 
     @parameterized.expand(
         [
@@ -687,6 +1817,30 @@ class TestDataQualityCheckAPI(APIBaseTest):
         self._deny_the_view()
 
         assert call(self, self._checks_url(allowed.id), check).status_code == status.HTTP_403_FORBIDDEN
+
+    @parameterized.expand(
+        [
+            ("retrieve", lambda self, url, check: self.client.get(f"{url}/{check.id}/")),
+            ("destroy", lambda self, url, check: self.client.delete(f"{url}/{check.id}/")),
+        ]
+    )
+    def test_a_denied_referenced_subject_blocks_direct_detail_actions(self, _name, call) -> None:
+        allowed = self._make_view("customers")
+        check = DataQualityCheck.objects.for_team(self.team.id).create(
+            team=self.team,
+            subject_type=SubjectType.VIEW,
+            saved_query_id=allowed.id,
+            subject_name="customers",
+            check_type=CheckType.CUSTOM_SQL,
+            config={"query": "SELECT 1 FROM orders"},
+            fingerprint=uuid4().hex,
+        )
+        self._deny_the_view()
+
+        response = call(self, self._checks_url(allowed.id), check)
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert DataQualityCheck.objects.for_team(self.team.id).filter(id=check.id, deleted=False).exists()
 
     @parameterized.expand(
         [

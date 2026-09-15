@@ -5,22 +5,27 @@ from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
-from django.test import Client
+from django.test import Client, RequestFactory, SimpleTestCase
 
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 from parameterized import parameterized
 from rest_framework import status
+from rest_framework.request import Request
 from structlog.testing import capture_logs
 
 from posthog.models.integration import Integration
 from posthog.models.team.team import Team
 from posthog.models.team.team_caching import set_team_in_cache
 
+from products.messaging.backend.api import push_subscriptions
 from products.messaging.backend.api.push_identity_tokens import sign_push_identity_token, sign_push_identity_token_es256
 from products.messaging.backend.api.push_subscriptions import (
     PUSH_SUBSCRIPTION_DISCARD_COUNTER,
     PUSH_SUBSCRIPTION_REJECTION_COUNTER,
+    _api_key_fingerprint,
+    _parse_user_agent_sdk,
+    _SdkIdentity,
 )
 
 
@@ -65,6 +70,7 @@ class TestPushSubscriptionsAPI(BaseTest):
         # every test in the process shares. Tests here reuse one team id, so without this a test that
         # logged a discard would suppress the line another test asserts on.
         cache.clear()
+        push_subscriptions._invalid_token_cache.clear()
 
     def _post(self, data: dict, api_key: str | None = None):
         payload = {**data, "api_key": api_key or self.team.api_token}
@@ -106,7 +112,6 @@ class TestPushSubscriptionsAPI(BaseTest):
         assert response.status_code == status.HTTP_200_OK
         data = response.json()
         assert data["distinct_id"] == "user-1"
-        assert data["platform"] == "android"
 
         mock_capture.assert_called_once()
         call_kwargs = mock_capture.call_args.kwargs
@@ -132,7 +137,6 @@ class TestPushSubscriptionsAPI(BaseTest):
         assert response.status_code == status.HTTP_200_OK
         data = response.json()
         assert data["distinct_id"] == "user-1"
-        assert data["platform"] == "ios"
 
         mock_capture.assert_called_once()
         call_kwargs = mock_capture.call_args.kwargs
@@ -196,7 +200,6 @@ class TestPushSubscriptionsAPI(BaseTest):
         assert response.status_code == status.HTTP_200_OK
         data = response.json()
         assert data["distinct_id"] == "user-1"
-        assert data["platform"] == "android"
 
         mock_capture.assert_called_once()
         call_kwargs = mock_capture.call_args.kwargs
@@ -258,26 +261,74 @@ class TestPushSubscriptionsAPI(BaseTest):
 
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
+    def test_repeated_invalid_token_is_rejected_without_a_second_team_lookup(self):
+        payload = {"distinct_id": "user-1", "device_token": "t", "platform": "android", "app_id": "proj"}
+
+        with patch.object(
+            Team.objects, "get_team_from_cache_or_token", wraps=Team.objects.get_team_from_cache_or_token
+        ) as lookup:
+            first = self._post(payload, api_key="phc_invalid_token")
+            second = self._post(payload, api_key="phc_invalid_token")
+
+        assert first.status_code == status.HTTP_401_UNAUTHORIZED
+        assert second.status_code == status.HTTP_401_UNAUTHORIZED
+        assert lookup.call_count == 1
+
     def test_missing_required_fields(self):
         response = self._post({"distinct_id": "user-1"})
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "device_token" in response.json()["detail"]
-        assert "platform" in response.json()["detail"]
+        assert "platform" not in response.json()["detail"]
         assert "app_id" in response.json()["detail"]
 
-    def test_invalid_platform(self):
-        response = self._post(
-            {
-                "distinct_id": "user-1",
-                "device_token": "device-token",
-                "platform": "windows_phone",
-                "app_id": "proj",
-            }
-        )
+    @parameterized.expand(
+        [
+            ("absent_no_user_agent", {}, None),
+            ("absent_android_sdk", {}, "posthog-android/3.58.0"),
+            ("absent_platform_ambiguous_sdk", {}, "posthog-flutter/5.6.0"),
+            ("empty_string", {"platform": ""}, None),
+        ]
+    )
+    def test_registration_without_a_platform_is_accepted_and_stored(
+        self, _name: str, extra: dict, user_agent: str | None
+    ):
+        payload = {
+            "distinct_id": "user-1",
+            "device_token": "device-token",
+            "app_id": "my-firebase-project",
+            "api_key": self.team.api_token,
+            **extra,
+        }
+        headers = {"User-Agent": user_agent} if user_agent else None
 
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "Invalid platform" in response.json()["detail"]
+        with patch("products.messaging.backend.api.push_subscriptions.capture_internal") as capture:
+            response = self.client.post(
+                "/api/push_subscriptions/",
+                data=json.dumps(payload),
+                content_type="application/json",
+                headers=headers,
+            )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert "platform" not in response.json()
+        assert capture.call_count == 1
+        assert "$device_push_subscription_my-firebase-project" in capture.call_args.kwargs["properties"]["$set"]
+
+    def test_platform_sent_by_older_sdks_is_ignored(self):
+        with patch("products.messaging.backend.api.push_subscriptions.capture_internal") as capture:
+            response = self._post(
+                {
+                    "distinct_id": "user-1",
+                    "device_token": "device-token",
+                    "platform": "windows_phone",
+                    "app_id": "my-firebase-project",
+                }
+            )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert "platform" not in response.json()
+        assert capture.call_count == 1
 
     @patch("products.messaging.backend.api.push_subscriptions.capture_internal")
     def test_register_without_integration_returns_200_and_discards(self, mock_capture: MagicMock):
@@ -535,16 +586,6 @@ class TestPushSubscriptionsAPI(BaseTest):
     @parameterized.expand(
         [
             (
-                "invalid_platform",
-                status.HTTP_400_BAD_REQUEST,
-                {
-                    "distinct_id": "user-1",
-                    "device_token": "fcm-device-token-abc",
-                    "platform": "windows_phone",
-                    "app_id": "my-firebase-project",
-                },
-            ),
-            (
                 "missing_fields",
                 status.HTTP_400_BAD_REQUEST,
                 {
@@ -581,6 +622,56 @@ class TestPushSubscriptionsAPI(BaseTest):
         rejected = [entry for entry in logs if entry["event"] == "push_subscription_rejected"]
         assert len(rejected) == 1
         assert rejected[0]["detail"] == expected_detail
+
+    @parameterized.expand(
+        [
+            ("string", "my-firebase-project", "my-firebase-project"),
+            ("non_string_is_dropped", ["x" * 64] * 64, None),
+        ]
+    )
+    def test_invalid_token_rejection_logs_the_app_id(self, _name: str, app_id: object, logged: str | None):
+        payload = {"distinct_id": "user-1", "device_token": "device-token", "app_id": app_id}
+
+        with capture_logs() as logs:
+            # The second post is served by the negative cache, a separate rejection site.
+            first = self._post(payload, api_key="phc_not_a_real_token")
+            second = self._post(payload, api_key="phc_not_a_real_token")
+
+        assert first.status_code == status.HTTP_401_UNAUTHORIZED
+        assert second.status_code == status.HTTP_401_UNAUTHORIZED
+        rejected = [entry for entry in logs if entry["event"] == "push_subscription_rejected"]
+        assert len(rejected) == 2
+        assert all(entry["app_id"] == logged for entry in rejected)
+
+    def test_invalid_token_rejection_attributes_the_sdk_and_never_logs_the_raw_token(self):
+        bad_token = "phc_invalid_bad_token_value"
+
+        with capture_logs() as logs:
+            response = self.client.post(
+                "/api/push_subscriptions/",
+                data=json.dumps(
+                    {
+                        "api_key": bad_token,
+                        "distinct_id": "user-1",
+                        "device_token": "t",
+                        "platform": "android",
+                        "app_id": "proj",
+                    }
+                ),
+                content_type="application/json",
+                HTTP_USER_AGENT="posthog-android/3.59.0",
+            )
+
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
+        rejected = [entry for entry in logs if entry["event"] == "push_subscription_rejected"]
+        assert len(rejected) == 1
+        entry = rejected[0]
+        assert entry["code"] == "invalid_api_key"
+        assert entry["sdk_name"] == "posthog-android"
+        assert entry["sdk_version"] == "3.59.0"
+        assert entry["api_key_fingerprint"] and entry["api_key_fingerprint"] != bad_token
+        # The raw token is a credential, so it must never reach the log, in any field.
+        assert bad_token not in json.dumps(entry)
 
     def test_unsupported_method_collapses_counter_label(self):
         counter = PUSH_SUBSCRIPTION_REJECTION_COUNTER.labels(code="method_not_allowed", method="other")
@@ -668,3 +759,32 @@ class TestPushSubscriptionsAPI(BaseTest):
 
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
         mock_capture.assert_not_called()
+
+
+class TestPushSubscriptionRejectionHelpers(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("android", "posthog-android/3.59.0", _SdkIdentity(name="posthog-android", version="3.59.0")),
+            (
+                "wrapper_with_suffix",
+                "posthog-flutter/1.2.3 (Dart 3.0)",
+                _SdkIdentity(name="posthog-flutter", version="1.2.3"),
+            ),
+            ("non_posthog", "okhttp/4.9.0", _SdkIdentity()),
+            ("no_version", "posthog-android", _SdkIdentity()),
+            ("empty", "", _SdkIdentity()),
+        ]
+    )
+    def test_parse_user_agent_sdk(self, _name: str, user_agent: str, expected: _SdkIdentity):
+        request = Request(RequestFactory().post("/api/push_subscriptions/", HTTP_USER_AGENT=user_agent))
+        assert _parse_user_agent_sdk(request) == expected
+
+    def test_api_key_fingerprint_is_stable_and_hides_the_token(self):
+        token = "phc_some_project_token"
+
+        fingerprint = _api_key_fingerprint(token)
+
+        assert fingerprint == _api_key_fingerprint(token)
+        assert fingerprint != token
+        assert len(fingerprint) == 16
+        assert _api_key_fingerprint("phc_other_token") != fingerprint
