@@ -114,10 +114,9 @@ class Batcher:
         self._team_id = team_id
         self._schema_name = schema_name
         # Off by default because coalescing delays when a yielded table becomes a durable batch:
-        # sources that checkpoint resume state or delete upstream staging right after yielding
-        # (ResumableSource implementations, the webhook S3 path) rely on yield => persisted and
-        # would lose data across a crash if their tables sat in this buffer. Only enable for
-        # sources with no such dependency.
+        # the webhook S3 path deletes its staged files right after yielding, and a resumable source
+        # that commits its own cursor with nothing buffered (Stripe's sparse nested sweep) assumes
+        # no yielded table is still waiting here. Only enable for sources with no such dependency.
         self._coalesce_tables = coalesce_tables
 
         self._buffer = []

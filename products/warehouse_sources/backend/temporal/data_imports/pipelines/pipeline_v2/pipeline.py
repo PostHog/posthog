@@ -1,5 +1,6 @@
 import sys
 import time
+import asyncio
 from typing import TYPE_CHECKING, Any, Generic, Literal
 
 import pyarrow as pa
@@ -162,6 +163,10 @@ class PipelineNonDLT(Generic[ResumableData]):
         self._uses_delta_write_column_selection = source_uses_delta_write_column_selection(models.source.source_type)
         self._observed_columns: dict[str, dict[str, Any]] = {}
 
+    async def _commit_resume_state(self) -> None:
+        if self._resumable_source_manager is not None:
+            await asyncio.to_thread(self._resumable_source_manager.commit)
+
     async def run(self) -> PipelineResult:
         pa_memory_pool = pa.default_memory_pool()
 
@@ -236,6 +241,7 @@ class PipelineNonDLT(Generic[ResumableData]):
 
                 # A single batched table may be split into several when a string/binary/list
                 # column would otherwise overflow a 32-bit offset, so drain every ready chunk.
+                wrote_chunk = False
                 while self._batcher.should_yield():
                     py_table = self._batcher.get_table()
 
@@ -248,11 +254,17 @@ class PipelineNonDLT(Generic[ResumableData]):
                         row_count=row_count,
                         is_first_ever_sync=is_first_ever_sync,
                     )
+                    wrote_chunk = True
 
                     chunk_index += 1
 
                     cleanup_memory(pa_memory_pool, py_table)
                     py_table = None
+
+                # A write is what makes the staged cursor safe to persist: after a buffered-only item
+                # it would skip rows that never landed, and after the shutdown check it would never land.
+                if wrote_chunk:
+                    await self._commit_resume_state()
 
                 if should_check_shutdown(self._schema, self._resource, self._reset_pipeline, source_is_resumable):
                     self._shutdown_monitor.raise_if_is_worker_shutdown()
@@ -268,6 +280,8 @@ class PipelineNonDLT(Generic[ResumableData]):
                     is_first_ever_sync=is_first_ever_sync,
                 )
                 chunk_index += 1
+            # Every yielded row is written now, so whatever the source staged last is safe.
+            await self._commit_resume_state()
 
             await self._persist_observed_columns()
 
