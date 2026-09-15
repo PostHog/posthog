@@ -3,6 +3,7 @@ import posthog from 'posthog-js'
 
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { addProductIntent } from 'lib/utils/product-intents'
+import { isExternalLink } from 'lib/utils/url'
 
 import { getTreeItemsProducts } from '~/products'
 import { FileSystemImport, ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
@@ -144,7 +145,9 @@ export const navPanelProductPushAdLogic = kea<navPanelProductPushAdLogicType>([
                         intent_context: ProductIntentContext.NAV_PANEL_ADVERTISEMENT_CLICKED,
                         metadata: { campaign_id: props.campaign.id },
                     })
-                    if (values.label) {
+                    // An external destination opens in a new tab and leaves this one where it is, so a
+                    // welcome queued for it could only ever surface on some later, unrelated arrival.
+                    if (values.label && !isExternalLink(values.destination)) {
                         actions.setPendingWelcome({
                             campaignId: props.campaign.id,
                             productKey,
