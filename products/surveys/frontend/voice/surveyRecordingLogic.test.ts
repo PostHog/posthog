@@ -18,6 +18,7 @@ describe('surveyRecordingLogic', () => {
     }
     let onTranscript: jest.Mock
     let transcribe: jest.Mock
+    let onStatusChange: jest.Mock
 
     beforeEach(() => {
         initKeaTests()
@@ -51,7 +52,8 @@ describe('surveyRecordingLogic', () => {
         URL.revokeObjectURL = jest.fn()
         onTranscript = jest.fn()
         transcribe = jest.fn().mockResolvedValue('I found what I needed.')
-        logic = surveyRecordingLogic({ id: 'example-submission', onTranscript, transcribe })
+        onStatusChange = jest.fn()
+        logic = surveyRecordingLogic({ id: 'example-submission', onTranscript, transcribe, onStatusChange })
         unmount = logic.mount()
     })
 
@@ -139,6 +141,7 @@ describe('surveyRecordingLogic', () => {
         unmount()
         unmount = () => {}
         expect(signal?.aborted).toBe(true)
+        expect(onStatusChange).toHaveBeenLastCalledWith('idle')
         finish('Late transcript')
         await expectLogic(logic).toFinishAllListeners()
         expect(onTranscript).not.toHaveBeenCalled()

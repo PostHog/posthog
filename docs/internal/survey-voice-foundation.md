@@ -22,7 +22,8 @@ Recording stops after one minute and rejects empty blobs or blobs larger than 5 
 These client limits improve the recording experience; they are not server enforcement.
 Microphone tracks, timers, and object URLs are released on discard or unmount.
 Text input remains the caller's fallback when recording is unavailable.
-The caller must disable response submission while recording or transcription is in progress if its form requires that behavior.
+The optional `onStatusChange(status)` callback reports recording and transcription state, including `idle` on discard or unmount.
+Callers can use it to disable response submission while a recording or transcription is in progress.
 
 ## Stories
 

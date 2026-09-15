@@ -1,10 +1,23 @@
-import { LogicWrapper, MakeLogicType, actions, getContext, kea, key, listeners, path, props, reducers } from 'kea'
+import {
+    LogicWrapper,
+    MakeLogicType,
+    actions,
+    beforeUnmount,
+    getContext,
+    kea,
+    key,
+    listeners,
+    path,
+    props,
+    reducers,
+} from 'kea'
 
 export type RecordingStatus = 'idle' | 'requesting' | 'recording' | 'ready' | 'transcribing'
 
 export interface SurveyRecordingProps {
     id: string
     onTranscript: (text: string) => void
+    onStatusChange?: (status: RecordingStatus) => void
     transcribe: (audio: Blob, signal: AbortSignal) => Promise<string>
 }
 
@@ -49,6 +62,7 @@ export const surveyRecordingLogic: LogicWrapper<surveyRecordingLogicType> = kea<
         audioUrl: ['', { setAudioUrl: (_, { audioUrl }) => audioUrl }],
     }),
     listeners(({ actions, values, props, cache }) => ({
+        setStatus: ({ status }) => props.onStatusChange?.(status),
         startRecording: async () => {
             if (values.status !== 'idle') {
                 return
@@ -193,4 +207,5 @@ export const surveyRecordingLogic: LogicWrapper<surveyRecordingLogicType> = kea<
             }
         },
     })),
+    beforeUnmount(({ props }) => props.onStatusChange?.('idle')),
 ])
