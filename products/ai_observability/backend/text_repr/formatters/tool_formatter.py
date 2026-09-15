@@ -10,6 +10,8 @@ import json
 import base64
 from typing import TYPE_CHECKING, Any, TypedDict
 
+from posthog.dataclasses import frozen
+
 from .constants import DEFAULT_TOOLS_COLLAPSE_THRESHOLD
 
 if TYPE_CHECKING:
@@ -29,6 +31,74 @@ class Tool(TypedDict, total=False):
     parameters: dict[str, Any]  # Google/Gemini format (unwrapped)
 
 
+@frozen
+class _ToolDefinition:
+    """A tool reduced to the fields a signature needs, whatever provider format it came in."""
+
+    name: str
+    description: str
+    parameter_schema: Any
+
+
+def _unwrap_declarations(tool: dict[str, Any]) -> list[Any]:
+    """Unwrap the Google/Gemini format: {functionDeclarations: [{name, description, parameters}]}."""
+    declarations = tool.get("functionDeclarations")
+    if isinstance(declarations, list):
+        return declarations
+    return [tool]
+
+
+def _read_tool(tool: dict[str, Any]) -> _ToolDefinition:
+    """Read name, description and parameter schema out of any supported provider format."""
+    if "function" in tool and isinstance(tool["function"], dict):
+        # OpenAI format: {type: 'function', function: {name, description, parameters}}
+        function = tool["function"]
+        return _ToolDefinition(
+            name=function.get("name", "unknown"),
+            description=function.get("description", "N/A"),
+            parameter_schema=function.get("parameters"),
+        )
+
+    if "name" in tool:
+        # Multiple formats:
+        # - Anthropic: {name, description, input_schema} (snake_case)
+        # - OpenAI: {name, description, inputSchema} (camelCase)
+        # - Google/Gemini unwrapped: {name, description, parameters}
+        return _ToolDefinition(
+            name=tool["name"],
+            description=tool.get("description", "N/A"),
+            parameter_schema=tool.get("input_schema") or tool.get("inputSchema") or tool.get("parameters"),
+        )
+
+    # Unknown format
+    return _ToolDefinition(name=tool.get("type", "UNKNOWN"), description=json.dumps(tool)[:100], parameter_schema=None)
+
+
+def _format_signature(name: str, schema: Any) -> str:
+    """Build a function signature such as `read_file(path: string, lines?: string)`."""
+    # SDKs record non-object `properties`, which crashes `.items()` below.
+    if not isinstance(schema, dict) or not isinstance(schema.get("properties"), dict):
+        return f"{name}()"
+
+    required = schema.get("required", [])
+    params: list[str] = []
+    for param_name, param_info in schema["properties"].items():
+        if not isinstance(param_info, dict):
+            continue
+        param_type = param_info.get("type", "any")
+        optional_marker = "" if param_name in required else "?"
+        params.append(f"{param_name}{optional_marker}: {param_type}")
+
+    return f"{name}({', '.join(params)})"
+
+
+def _format_description(description: str) -> str:
+    """Keep only the first line of the description, and end it with a period."""
+    first_line = description.split("\n")[0]
+    first_sentence = first_line.split(". ")[0]
+    return first_sentence if first_sentence.endswith(".") else f"{first_sentence}."
+
+
 def _format_tools_list(tools_list: list[Any]) -> str:
     """
     Format a list of tools into text representation.
@@ -41,72 +111,17 @@ def _format_tools_list(tools_list: list[Any]) -> str:
         if not isinstance(tool, dict):
             continue
 
-        # Handle Google/Gemini format: {functionDeclarations: [{name, description, parameters}]}
-        tools_to_process: list[Any] = []
-        if "functionDeclarations" in tool and isinstance(tool["functionDeclarations"], list):
-            tools_to_process = tool["functionDeclarations"]
-        else:
-            tools_to_process = [tool]
-
-        for t in tools_to_process:
-            # Skip non-dict entries in tools_to_process
-            if not isinstance(t, dict):
+        for declaration in _unwrap_declarations(tool):
+            if not isinstance(declaration, dict):
                 continue
-            name: str
-            desc: str
-            schema: dict[str, Any] | None = None
 
-            # Handle different tool formats
-            if "function" in t and isinstance(t["function"], dict):
-                # OpenAI format: {type: 'function', function: {name, description, parameters}}
-                name = t["function"].get("name", "unknown")
-                desc = t["function"].get("description", "N/A")
-                schema = t["function"].get("parameters")
-            elif "name" in t:
-                # Multiple formats:
-                # - Anthropic: {name, description, input_schema} (snake_case)
-                # - OpenAI: {name, description, inputSchema} (camelCase)
-                # - Google/Gemini unwrapped: {name, description, parameters}
-                name = t["name"]
-                desc = t.get("description", "N/A")
-                schema = t.get("input_schema") or t.get("inputSchema") or t.get("parameters")
-            else:
-                # Unknown format
-                name = t.get("type", "UNKNOWN")
-                desc = json.dumps(t)[:100]
-                schema = None
+            definition = _read_tool(declaration)
 
-            # Build function signature from schema
-            signature = f"{name}("
-            # SDKs record non-object `properties`, which crashes `.items()` below.
-            if isinstance(schema, dict) and isinstance(schema.get("properties"), dict):
-                properties = schema["properties"]
-                required = schema.get("required", [])
-                params: list[str] = []
-
-                for param_name, param_info in properties.items():
-                    if not isinstance(param_info, dict):
-                        continue
-                    param_type = param_info.get("type", "any")
-                    if param_name in required:
-                        params.append(f"{param_name}: {param_type}")
-                    else:
-                        params.append(f"{param_name}?: {param_type}")
-
-                signature += ", ".join(params)
-            signature += ")"
-
-            # Show signature
             lines.append("")
-            lines.append(f"  {signature}")
+            lines.append(f"  {_format_signature(definition.name, definition.parameter_schema)}")
 
-            # Show only first line of description (up to first newline or sentence)
-            if desc and desc != "N/A":
-                # Split by newline first, then by sentence
-                first_line = desc.split("\n")[0]
-                first_sentence = first_line.split(". ")[0]
-                final_sentence = first_sentence if first_sentence.endswith(".") else f"{first_sentence}."
-                lines.append(f"    {final_sentence}")
+            if definition.description and definition.description != "N/A":
+                lines.append(f"    {_format_description(definition.description)}")
 
     return "\n".join(lines)
 

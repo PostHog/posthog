@@ -171,7 +171,7 @@ class TestFormatTools:
         assert "third line" not in result
 
     def test_google_gemini_format(self):
-        """Should handle Google/Gemini functionDeclarations format."""
+        """Should handle Google/Gemini functionDeclarations format, and skip malformed declarations."""
         tools = [
             {
                 "functionDeclarations": [
@@ -185,14 +185,21 @@ class TestFormatTools:
                             },
                             "required": ["query"],
                         },
-                    }
+                    },
+                    "not a declaration",
+                    None,
                 ]
             }
         ]
         lines = format_tools(tools)
-        result = "\n".join(lines)
-        assert "AVAILABLE TOOLS: 1" in result
-        assert "search(query: string)" in result
+
+        assert "\n".join(lines).split("\n") == [
+            "",
+            "AVAILABLE TOOLS: 1",
+            "",
+            "  search(query: string)",
+            "    Search the web.",
+        ]
 
     def test_invalid_tool_format(self):
         """Should skip invalid tool entries."""
@@ -324,13 +331,14 @@ class TestEdgeCases:
 
     @parameterized.expand(
         [
-            ("list", ["query", "limit"]),
-            ("string", "query"),
+            ("list", ["query", "limit"], "search()"),
+            ("string", "query", "search()"),
+            ("non-dict property value", {"query": "string", "limit": {"type": "integer"}}, "search(limit?: integer)"),
         ]
     )
-    def test_unusable_properties_schema_still_renders_the_tool(self, _name, properties):
+    def test_unusable_properties_schema_still_renders_the_tool(self, _name, properties, expected_signature):
         tools = [{"name": "search", "description": "Search things.", "input_schema": {"properties": properties}}]
 
         result = "\n".join(format_tools(tools))
 
-        assert "search()" in result
+        assert expected_signature in result
