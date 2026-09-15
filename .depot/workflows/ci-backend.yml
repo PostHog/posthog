@@ -10,6 +10,9 @@
 # Intentional deltas vs canonical (everything else is kept apples-to-apples):
 # - The `sample` job routes each event to one engine with .github/scripts/ci_backend_route.py
 #   and exposes `sampled` and `side_effects`, both true only when this engine runs the tests.
+#   Canonical's `changes` job runs the same script, waits for this run's `changes` check
+#   to leave `queued`, and its `Django Tests Pass` gate relays this workflow's gate verdict.
+#   Neither the handshake nor the relay has a counterpart here.
 # - runs-on: depot-* labels instead of ubuntu-latest
 # - action paths: ./.depot/actions/... instead of ./.github/actions/... (pnpm-install,
 #   setup-sqlx-cli, setup-python-cached, setup-uv, setup-turbo, and paths-filter mirror
