@@ -55,8 +55,18 @@ def connect_task_run_assignment_sync() -> None:
 
 
 def schedule_implementation_handover(sender: type, instance: Any, created: bool, **kwargs: Any) -> None:
+    # Fires on every TaskRun save (a hot model), so the in-memory checks run before the first query.
+    if created:
+        # A run is created before the agent does anything, and a handover only acts on a finished
+        # run, so the save that matters is a later one.
+        return
     update_fields = kwargs.get("update_fields")
     if update_fields is not None and not {"status", "output"}.intersection(update_fields):
+        return
+    # Only the self-driving implementation run can carry a replacement. Report research and repo
+    # selection share the report and the internal flag with it, so `ai_stage` is what separates
+    # them, and the pipeline stamps it once at run creation (see `pipeline_identity`).
+    if (instance.state or {}).get("ai_stage") != "implementation":
         return
     from products.signals.backend.tasks import reconcile_implementation_replacement
 

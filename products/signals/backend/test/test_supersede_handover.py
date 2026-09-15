@@ -412,6 +412,29 @@ class TestSupersedeHandover(BaseTest):
         assert get_active_claim(team_id=self.team.id, report_id=self.report.id) is None
         self.github.close_pull_request.assert_not_called()
 
+    def test_only_the_implementation_run_wakes_the_handover(self) -> None:
+        replacement = self.start_replacement()
+        content = ImplementationReplacement.model_validate_json(replacement.content)
+        run = TaskRun.objects.get(id=content.run_id)
+        with patch("products.signals.backend.tasks.reconcile_implementation_replacement.delay") as enqueue:
+            with self.captureOnCommitCallbacks(execute=True):
+                run.status = "completed"
+                run.save(update_fields=["status"])
+            assert enqueue.called
+            enqueue.reset_mock()
+            unrelated = TaskRun.objects.create(
+                team=self.team,
+                task_id=run.task_id,
+                status="in_progress",
+                environment="cloud",
+                state={},
+                output={},
+            )
+            with self.captureOnCommitCallbacks(execute=True):
+                unrelated.status = "completed"
+                unrelated.save(update_fields=["status"])
+            assert not enqueue.called
+
     def test_worker_lease_blocks_duplicates_then_recovers_after_expiry(self) -> None:
         replacement = self.start_replacement()
         self.complete(replacement)
