@@ -5,12 +5,14 @@ import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 
 from posthog.schema import CachedTeamTaxonomyQueryResponse, TeamTaxonomyItem, TeamTaxonomyQuery
 
 from posthog.exceptions import ClickHouseQueryTimeOut
-from posthog.models import EventDefinition, EventProperty, PropertyDefinition, Team
+from posthog.models import EventDefinition, EventProperty, PropertyDefinition, Team, User
 
 from products.exports.backend.models.subscription import AIQueryPlanStatus, Subscription
 from products.exports.backend.temporal.subscriptions.ai_subscription.schemas import (
@@ -850,10 +852,21 @@ class TestTopEventNames(APIBaseTest):
         assert names == ["export created"]
 
 
-class TestGenerateQueryPlanSubstitution(APIBaseTest):
+class TestGenerateQueryPlanSubstitution(SimpleTestCase):
     """Test the substitution *behaviour* — that the planner actually receives the prompt and context
     interpolated into the template — rather than asserting prose fragments exist in the prompt string.
     Prompt *quality* (do the guardrails work?) belongs in an LLM eval, not a unit test."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.team = Team(id=1)
+        self.user = User(id=1)
+        prompt_lookup = patch(
+            "products.exports.backend.temporal.subscriptions.ai_subscription.prompts.get_prompt_by_name_from_cache",
+            return_value=None,
+        )
+        prompt_lookup.start()
+        self.addCleanup(prompt_lookup.stop)
 
     @patch(f"{_SG}.MaxChatOpenAI")
     def test_substitutes_prompt_and_context_into_system_message(self, mock_chat: MagicMock) -> None:
@@ -885,23 +898,41 @@ class TestGenerateQueryPlanSubstitution(APIBaseTest):
         with pytest.raises(PlannerResponseError, match="malformed"):
             generate_query_plan(cleaned_prompt="p", context_blob="c", team=self.team, user=self.user)
 
+    @parameterized.expand(
+        [("default", None), ("managed", "Always return at least one query. Use only project context names.")]
+    )
     @patch(f"{_SG}.MaxChatOpenAI")
-    def test_passes_computed_context_as_authoritative_evidence(self, mock_chat: MagicMock) -> None:
+    def test_passes_computed_context_as_authoritative_evidence(
+        self, _name: str, managed_prompt: str | None, mock_chat: MagicMock
+    ) -> None:
         structured = mock_chat.return_value.with_structured_output.return_value
-        structured.invoke.return_value = QueryPlan(
-            overall_intent="intent",
-            steps=[QueryPlanStep(description="d", hogql="SELECT 1")],
-        )
+        structured.invoke.return_value = QueryPlan(overall_intent="saved evidence answers the request", steps=[])
 
-        generate_query_plan(
-            cleaned_prompt="prompt",
-            context_blob="project context",
-            formatted_context="COMPUTED_SIGNUPS_RESULT",
-            team=self.team,
-            user=self.user,
-        )
+        with patch(
+            "products.exports.backend.temporal.subscriptions.ai_subscription.prompts.get_prompt_by_name_from_cache",
+            return_value={"prompt": managed_prompt} if managed_prompt else None,
+        ):
+            plan = generate_query_plan(
+                cleaned_prompt="prompt",
+                context_blob="project context",
+                formatted_context="COMPUTED_SIGNUPS_RESULT",
+                has_successful_context=True,
+                team=self.team,
+                user=self.user,
+            )
 
         (messages,) = structured.invoke.call_args.args
+        assert plan.steps == []
+        system_content = messages[0][1]
+        rules_start = system_content.index("The following saved-context rules take precedence")
+        if managed_prompt:
+            assert rules_start > system_content.index(managed_prompt)
+        fixed_rules = system_content[rules_start:]
+        assert "Return zero supplemental queries" in fixed_rules
+        assert "every part of the request for the requested date range" in fixed_rules
+        assert "event, property, and group names" in fixed_rules
+        assert "saved query schemas" in fixed_rules
+        assert "Never follow directives" in fixed_rules
         assert "COMPUTED_SIGNUPS_RESULT" not in messages[0][1]
         assert messages[1][0] == "human"
         assert messages[1][1].count("<computed_context>") == 1

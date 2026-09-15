@@ -31,6 +31,7 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.report_cont
     _dashboard_status,
     _DashboardTile,
     _execute_insight,
+    _load_saved_insight,
     _LoadedReportContext,
     _PendingInsight,
     _rank_dashboard_tiles,
@@ -228,18 +229,30 @@ class TestReportContextPureFunctions(SimpleTestCase):
         assert raw_query["source"]["series"][0]["event"] == "legacy event"
         upgrade_query_mock.assert_called_once()
 
-    def test_legacy_filters_are_converted_before_validation(self) -> None:
-        raw_query = _trends_query("legacy event")["source"]
-        insight = MagicMock(query=None, filters={"insight": "TRENDS"})
-        converted_query = MagicMock()
-        converted_query.model_dump.return_value = raw_query
+    @parameterized.expand([(None,), ({},)])
+    def test_legacy_filters_without_a_stored_query_are_unavailable(self, raw_query: dict[str, object] | None) -> None:
+        insight = Insight(
+            id=1,
+            short_id="legacy1",
+            name="Legacy signups",
+            query=raw_query,
+            filters={"insight": "TRENDS", "events": [{"id": "signup", "type": "events"}]},
+        )
+        saved = _load_saved_insight(insight)
+        loaded = _LoadedReportContext(
+            team=Team(id=1), user=User(id=1), dashboards=(), insights=(saved,), over_limit=False
+        )
+        with (
+            patch(f"{_MODULE}._load_report_context", return_value=loaded),
+            patch(_EXECUTOR, new_callable=AsyncMock, return_value="42 signups") as execute,
+        ):
+            evidence = async_to_sync(resolve_report_context)(MagicMock(id=1, team_id=1))
 
-        with patch(f"{_MODULE}.filter_to_query", return_value=converted_query) as convert:
-            validated = _validated_saved_query(insight)
-
-        assert validated is not None
-        assert validated.series[0].event == "legacy event"  # type: ignore[attr-defined]
-        convert.assert_called_once_with(insight.filters)
+        assert evidence.insights[0].status == "failed"
+        assert evidence.insights[0].content == "Insight context unavailable."
+        assert not evidence.has_successful_evidence
+        assert evidence.schema.content == ""
+        execute.assert_not_awaited()
 
     def test_ranking_is_popularity_first_then_layout_and_bounded(self) -> None:
         def tile(insight_id: int, y: float, x: float) -> _DashboardTile:
