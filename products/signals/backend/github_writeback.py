@@ -14,6 +14,7 @@ from django.utils import timezone
 
 import structlog
 
+from posthog.egress.limiter.policies import Priority
 from posthog.models import Team
 from posthog.models.github_integration_base import GitHubIntegrationBase, PullRequestRef
 from posthog.models.integration import GitHubIntegration
@@ -95,8 +96,10 @@ def _post_to_issue(
 
     try:
         if repository not in integrations:
+            # BATCH, so the limiter sheds this errand before an interactive GitHub call on the same
+            # installation. A shed raises, and the except below releases the claim for a later settle.
             integrations[repository] = GitHubIntegration.first_for_team_repository(
-                team_id, repository, source=EGRESS_SOURCE
+                team_id, repository, source=EGRESS_SOURCE, priority=Priority.BATCH
             )
         github = integrations[repository]
         outcome = (

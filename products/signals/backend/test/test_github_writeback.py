@@ -4,6 +4,8 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 
+from posthog.egress.limiter.policies import Priority
+
 from products.signals.backend.github_writeback import post_report_link_to_github_issues
 from products.signals.backend.models import SignalReport, SignalReportGithubComment, SignalTeamConfig
 
@@ -113,6 +115,13 @@ class TestPostReportLinkToGithubIssues(BaseTest):
         assert posted == 2
         # Resolving an integration costs an authenticated GitHub call per integration the team has.
         assert integration.first_for_team_repository.call_count == 1
+
+    def test_asks_for_the_lane_the_limiter_sheds_first(self):
+        with patch(f"{WRITEBACK_MODULE_PATH}.GitHubIntegration") as integration:
+            integration.first_for_team_repository.return_value.comment_on_issue.return_value = {"success": True}
+            post_report_link_to_github_issues(self.team, str(self.report.id), [self.signal])
+
+        assert integration.first_for_team_repository.call_args.kwargs["priority"] == Priority.BATCH
 
     def test_comments_once_when_two_signals_name_the_same_issue(self):
         posted, comment = self._post([self.signal, _signal()])
