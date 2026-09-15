@@ -482,15 +482,14 @@ Run the Trino printer, semantic expansion, and parameter-helper tests. Run the e
 
 Compilation success is not proof of target schema compatibility or equivalent results. Validate printed SQL separately against the intended Trino schema and compare results only where the source and target data are comparable.
 
-## Shared HogQL compatibility changes
+## Dialect isolation
 
-`arrayReverseSort` now sorts in descending order on ClickHouse as its name specifies; it previously mapped to ascending `arraySort`.
-Existing queries that relied on ascending results must use `arraySort` explicitly.
-`DATE`, `Date`, and `date` all resolve to the existing date conversion in every dialect.
-`medianExactWeighted` takes a value and weight, and its `If` form also takes a condition.
-`quantiles` and `quantilesIf` take percentile parameters separately from value arguments.
-`ifNotFinite` takes the value and its replacement.
-The shared type inference rules describe these functions for every dialect.
+The expanded function signatures, date aliases, lambda resolution, and return-type inference apply only to Trino.
+ClickHouse and the other dialects retain their existing function registry, validation, sorting behavior, and type inference.
+`DATE`, `Date`, and `date` resolve to the date conversion in Trino.
+Trino's weighted median takes a value and weight, and its `If` form also takes a condition.
+Trino's `quantiles` and `quantilesIf` take percentile parameters separately from value arguments.
+Trino's `ifNotFinite` takes the value and its replacement.
 Saved-query table metadata is captured eagerly only for Trino's detached compilation; other dialects retain lazy lookup and explicit missing-database errors.
 
 Trino set operations use a common type for each output position and can coerce mixed strings and numbers to strings.

@@ -152,7 +152,6 @@ DATE_CONVERSION_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
             "toDateOrNull",
             1,
             1,
-            case_sensitive=name != "date",
             signatures=[
                 ((StringType(),), DateType()),
                 ((DateTimeType(),), DateType()),
@@ -161,7 +160,7 @@ DATE_CONVERSION_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
             # Float with code 43. Integer covers `date - date`, Float `timestamp - timestamp`.
             overloads=[((ast.DateTimeType, ast.DateType, ast.IntegerType, ast.FloatType), "toDate")],
         )
-        for name in ["toDate", "to_date", "date"]
+        for name in ["toDate", "to_date"]
     },
     "toDateTime": HogQLFunctionMeta(
         "parseDateTime64BestEffortOrNull",

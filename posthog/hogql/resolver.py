@@ -144,8 +144,6 @@ _HIGHER_ORDER_ARRAY_FUNCTIONS = frozenset(
     {
         "arrayall",
         "arraycount",
-        "arraycumsum",
-        "arraycumsumnonnegative",
         "arrayexists",
         "arrayfill",
         "arrayfilter",
@@ -326,7 +324,7 @@ def _by_name_column_mismatch_error(canonical: list[str], names: list[str]) -> Qu
     )
 
 
-def _remap_positional_ordinals(leaf: ast.SelectQuery, new_index_by_old: dict[int, int]) -> None:
+def _remap_positional_ordinals(leaf: ast.SelectQuery, new_index_by_old: dict[int, int], dialect: HogQLDialect) -> None:
     # ClickHouse resolves bare integer literals in these clauses positionally (enable_positional_arguments
     # defaults to on), so a reordered select list must carry the ordinals along or `ORDER BY 2` silently
     # comes to mean a different column.
@@ -335,7 +333,7 @@ def _remap_positional_ordinals(leaf: ast.SelectQuery, new_index_by_old: dict[int
     if leaf.limit_by:
         referencing.extend(leaf.limit_by.exprs)
     for expr in referencing:
-        if isinstance(expr, ast.PositionalRef):
+        if dialect == "trino" and isinstance(expr, ast.PositionalRef):
             new_index = new_index_by_old.get(expr.index - 1)
             if new_index is not None:
                 expr.index = new_index + 1
@@ -345,13 +343,15 @@ def _remap_positional_ordinals(leaf: ast.SelectQuery, new_index_by_old: dict[int
                 expr.value = new_index + 1
 
 
-def _permute_set_operand(branch: ast.SelectQuery | ast.SelectSetQuery, permutation: list[int]) -> None:
+def _permute_set_operand(
+    branch: ast.SelectQuery | ast.SelectSetQuery, permutation: list[int], dialect: HogQLDialect
+) -> None:
     """Apply one positional permutation (new position -> old position) to every SELECT leaf of a set
     operand. Each leaf is validated on the way down, so a nested branch whose select list does not line
     up with the operand's columns raises instead of being silently truncated."""
     if isinstance(branch, ast.SelectSetQuery):
         for sub in branch.select_queries():
-            _permute_set_operand(sub, permutation)
+            _permute_set_operand(sub, permutation, dialect)
         branch_type = branch.type
         if isinstance(branch_type, ast.SelectSetQueryType) and branch_type.columns:
             names = list(branch_type.columns.keys())
@@ -365,7 +365,7 @@ def _permute_set_operand(branch: ast.SelectQuery | ast.SelectSetQuery, permutati
     leaf_type = branch.type
     if not isinstance(leaf_type, ast.SelectQueryType) or len(leaf_type.columns) != len(branch.select):
         raise QueryError("BY NAME requires uniquely named columns in every branch of the set operation")
-    _remap_positional_ordinals(branch, {old: new for new, old in enumerate(permutation)})
+    _remap_positional_ordinals(branch, {old: new for new, old in enumerate(permutation)}, dialect)
     branch.select = [branch.select[old] for old in permutation]
     names = list(leaf_type.columns.keys())
     leaf_type.columns = {names[old]: leaf_type.columns[names[old]] for old in permutation}
@@ -518,7 +518,7 @@ class Resolver(CloningVisitor):
             if set(names) != set(index_by_name):
                 raise _by_name_column_mismatch_error(canonical, names)
             branch_index_by_name = {name: index for index, name in enumerate(names)}
-            _permute_set_operand(branch, [branch_index_by_name[name] for name in canonical])
+            _permute_set_operand(branch, [branch_index_by_name[name] for name in canonical], self.dialect)
             sub.set_operator = cast(ast.SetOperator, sub.set_operator[: -len(_BY_NAME_SUFFIX)])
 
     def visit_values_query(self, node: ast.ValuesQuery):
@@ -1047,7 +1047,14 @@ class Resolver(CloningVisitor):
             elif isinstance(new_expr.type, ast.CallType):
                 from posthog.hogql.printer import print_prepared_ast
 
-                alias = safe_identifier(print_prepared_ast(node=new_expr, context=self.context, dialect="hogql"))
+                if self.dialect == "trino":
+                    from posthog.hogql.printer.trino_hogql import (  # noqa: PLC0415 -- breaks printer/resolver import cycle
+                        TrinoHogQLPrinter,
+                    )
+
+                    alias = safe_identifier(TrinoHogQLPrinter(context=self.context).visit(new_expr))
+                else:
+                    alias = safe_identifier(print_prepared_ast(node=new_expr, context=self.context, dialect="hogql"))
             else:
                 alias = None
 
@@ -1955,6 +1962,10 @@ class Resolver(CloningVisitor):
     def visit_call(self, node: ast.Call):
         """Visit function calls."""
 
+        if self.dialect == "trino" and node.name.lower() == "date":
+            node = clone_expr(node, clear_types=False)
+            node.name = "toDate"
+
         # Expand *COLUMNS(...) in function arguments
         expanded_args: list[ast.Expr] = []
         has_spread = False
@@ -2101,10 +2112,13 @@ class Resolver(CloningVisitor):
         )
         return node
 
-    @staticmethod
-    def _is_higher_order_array_call(node: ast.Call) -> bool:
+    def _is_higher_order_array_call(self, node: ast.Call) -> bool:
         return (
-            node.name.lower() in _HIGHER_ORDER_ARRAY_FUNCTIONS
+            (
+                node.name.lower() in _HIGHER_ORDER_ARRAY_FUNCTIONS
+                or self.dialect == "trino"
+                and node.name.lower() in {"arraycumsum", "arraycumsumnonnegative"}
+            )
             and bool(node.args)
             and isinstance(node.args[0], ast.Lambda)
         )

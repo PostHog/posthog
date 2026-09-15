@@ -840,13 +840,16 @@ def test_rejects_numbers_above_the_trino_sequence_limit(count: int) -> None:
 
 
 @pytest.mark.parametrize("name", ["date", "Date", "DATE"])
-@pytest.mark.parametrize("dialect", ["clickhouse", "trino"])
+@pytest.mark.parametrize("dialect", ["clickhouse", "hogql", "trino"])
 def test_date_alias_is_case_insensitive(name: str, dialect: HogQLDialect) -> None:
     context = _context_with_trino_table()
     context.team_id = 1
-    sql = print_prepared_ast(
-        resolve_types(parse_select(f"SELECT {name}('2026-01-01') AS day"), context, dialect), context, dialect
-    )
+    query = resolve_types(parse_select(f"SELECT {name}('2026-01-01') AS day"), context, dialect)
+    if dialect != "trino":
+        with pytest.raises(QueryError, match="Unsupported function call"):
+            print_prepared_ast(query, context, dialect)
+        return
+    sql = print_prepared_ast(query, context, dialect)
     expected_context = _context_with_trino_table()
     expected_context.team_id = 1
     expected = print_prepared_ast(
@@ -1933,7 +1936,14 @@ def test_prints_live_parity_regressions(expression: str, expected: str) -> None:
 
 
 def test_preserves_array_reverse_sort_for_clickhouse() -> None:
-    assert HOGQL_CLICKHOUSE_FUNCTIONS["arrayReverseSort"].clickhouse_name == "arrayReverseSort"
+    context = _context_with_trino_table()
+    context.team_id = 1
+    sql = print_prepared_ast(
+        resolve_types(parse_select("SELECT arrayReverseSort([3, 1, 2]) AS values"), context, "clickhouse"),
+        context,
+        "clickhouse",
+    )
+    assert "arraySort([3, 1, 2])" in sql
 
 
 @pytest.mark.parametrize(
@@ -2722,3 +2732,25 @@ def test_union_keeps_common_ctes_in_scope_for_every_branch() -> None:
     assert sql.startswith('WITH "source" AS (')
     assert sql.count('FROM "source"') == 2
     assert ") UNION ALL (" in sql
+
+
+@pytest.mark.parametrize(
+    "expression",
+    [
+        "ifNotFinite(1.0, 0.0)",
+        "medianExactWeighted(3, 2)",
+        "medianExactWeightedIf(3, 2, true)",
+        "quantilesIf(0.25, 0.75)(3, true)",
+    ],
+)
+@pytest.mark.parametrize("dialect", ["clickhouse", "hogql", "trino"])
+def test_trino_signatures_do_not_change_other_dialect_validation(expression: str, dialect: HogQLDialect) -> None:
+    context = _context_with_trino_table()
+    context.team_id = 1
+    query = parse_select(f"SELECT {expression}")
+    if dialect == "trino":
+        sql, _ = prepare_and_print_ast(query, context, dialect)
+        assert sql
+    else:
+        with pytest.raises(QueryError, match="expects"):
+            print_prepared_ast(resolve_types(query, context, dialect), context, dialect)
