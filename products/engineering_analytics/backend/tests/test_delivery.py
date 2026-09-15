@@ -23,6 +23,7 @@ from products.engineering_analytics.backend.logic.pr_timeline import (
 )
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
 from products.engineering_analytics.backend.logic.queries.delivery_summary import (
+    CI_LOOKBACK,
     DeliverySummaryAggregator,
     MergedPRFacts,
     query_delivery_summary,
@@ -280,6 +281,7 @@ class TestDeliveryReadsOnWarehouse(_WarehouseMixin):
                 _pr_row(22, "bob", "closed", 0, _ago(4), merged_at=_ago(1)),
                 _pr_row(23, "alice", "open", 0, _ago(2)),
                 _pr_row(24, "alice", "open", 1, _ago(1)),
+                _pr_row(26, "alice", "open", 0, _ago(60)),
                 # A bot's one-hour merge would drag the repo median down if bots counted.
                 _pr_row(
                     25,
@@ -349,7 +351,7 @@ class TestDeliveryReadsOnWarehouse(_WarehouseMixin):
         assert (summary.opened_pr_count, summary.merged_pr_count, summary.open_pr_count, summary.draft_pr_count) == (
             3,
             1,
-            1,
+            2,
             1,
         )
         assert (summary.jobs_available, summary.review_data_available, summary.ready_data_available) == (
@@ -367,8 +369,8 @@ class TestDeliveryReadsOnWarehouse(_WarehouseMixin):
 
     @parameterized.expand(
         [
-            ("author", _ALICE, {21, 23, 24}),
-            ("github_team", _ALICES_TEAM, {21, 23, 24}),
+            ("author", _ALICE, {21, 23, 24, 26}),
+            ("github_team", _ALICES_TEAM, {21, 23, 24, 26}),
             (
                 "one_pull_request",
                 DeliveryScope(
@@ -381,10 +383,9 @@ class TestDeliveryReadsOnWarehouse(_WarehouseMixin):
     def test_timelines_replay_each_pr_in_scope(self, _name: str, scope: DeliveryScope, expected: set[int]) -> None:
         self._seed()
         curated = CuratedGitHubSource.for_team(self.team)
+        date_from = datetime.now(tz=UTC) - timedelta(days=7)
 
-        timelines = query_pull_request_timelines(
-            curated=curated, scope=scope, date_from=datetime.now(tz=UTC) - timedelta(days=7), date_to=None
-        )
+        timelines = query_pull_request_timelines(curated=curated, scope=scope, date_from=date_from, date_to=None)
 
         kinds = {item.number: [segment.kind for segment in item.segments] for item in timelines.items}
         assert set(kinds) == expected
@@ -402,6 +403,8 @@ class TestDeliveryReadsOnWarehouse(_WarehouseMixin):
         assert merged.pushes == 2
         assert merged.segments[-1].ended_at == merged.merged_at
         assert merged.started_at == _dt(_ago(2))
+        old_open = next((item for item in timelines.items if item.number == 26), None)
+        assert old_open is None or old_open.started_at == date_from - CI_LOOKBACK
 
 
 class TestDeliveryEndpoints(APIBaseTest):

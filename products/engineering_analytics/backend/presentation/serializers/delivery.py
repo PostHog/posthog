@@ -206,7 +206,7 @@ class PRTimelineSerializer(DataclassSerializer):
             "is_draft": {"help_text": "True when the PR is a draft right now."},
             "created_at": {"help_text": "When the PR was opened."},
             "started_at": {
-                "help_text": "Where the timeline starts: the last ready_for_review before the end, else created_at."
+                "help_text": "Where the timeline starts: the last ready_for_review before the end, else created_at. A PR listed for an author or a team starts no earlier than 30 days before the window, because older CI is not read."
             },
             "merged_at": {"help_text": "Merge time; null when not merged.", "allow_null": True},
             "pushes": {"help_text": "Distinct head commits that triggered CI, merge-queue gate runs excluded."},

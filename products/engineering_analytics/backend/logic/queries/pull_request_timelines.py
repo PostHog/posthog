@@ -40,6 +40,7 @@ from products.engineering_analytics.backend.logic.queries._workflow_filters impo
     run_started_floor_constant,
     run_windowed_job_created_floor_constant,
 )
+from products.engineering_analytics.backend.logic.queries.delivery_summary import CI_LOOKBACK
 from products.engineering_analytics.backend.logic.queries.pr_cost import query_pr_costs_since
 from products.engineering_analytics.backend.logic.views import issue_events
 
@@ -174,6 +175,10 @@ class PullRequestTimelinesQuery:
         pr_numbers = sorted({int(row[0]) for row in prs})
         # A day of slack below the oldest listed PR keeps its first CI run inside the scan.
         run_from = min(row[6] for row in prs) - timedelta(days=1)
+        if self._scope.kind != DeliveryScopeKind.PULL_REQUEST:
+            # An open PR is listed whatever its age, and one old PR would stretch every scan back months.
+            # A listed PR's CI is read from the same lookback the summary uses, and its timeline starts there.
+            run_from = max(run_from, self._date_from - CI_LOOKBACK)
         ready_at = self._query_ready_at(pr_numbers)
         reviews = self._query_reviews(pr_numbers)
         attempts, gates = self._query_attempts(pr_numbers, run_from)
@@ -203,8 +208,11 @@ class PullRequestTimelinesQuery:
             number = int(number)
             is_open = state == PRState.OPEN
             ended_at = merged_at or (closed_at if not is_open else None) or self._now
-            started_at = (
-                created_at if is_open and is_draft else self._started_at(ready_at.get(number, []), created_at, ended_at)
+            started_at = max(
+                created_at
+                if is_open and is_draft
+                else self._started_at(ready_at.get(number, []), created_at, ended_at),
+                run_from,
             )
             pr_attempts = [attempt for attempt in attempts.get(number, []) if attempt.started_at <= ended_at]
             builder = PRTimelineBuilder(

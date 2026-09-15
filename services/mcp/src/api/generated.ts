@@ -56353,7 +56353,7 @@ export namespace Schemas {
       is_draft: boolean;
       /** When the PR was opened. */
       created_at: string;
-      /** Where the timeline starts: the last ready_for_review before the end, else created_at. */
+      /** Where the timeline starts: the last ready_for_review before the end, else created_at. A PR listed for an author or a team starts no earlier than 30 days before the window, because older CI is not read. */
       started_at: string;
       /**
          * Merge time; null when not merged.
