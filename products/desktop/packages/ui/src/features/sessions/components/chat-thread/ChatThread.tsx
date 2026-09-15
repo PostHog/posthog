@@ -796,18 +796,15 @@ const ThreadRow = memo(function ThreadRow({
       <ChatMessageScrollerItem
         messageId={item.id}
         scrollAnchor={false}
-        className="group mx-auto w-full empty:hidden"
+        className="group mx-auto w-full [content-visibility:visible] empty:hidden"
         style={{ maxWidth: CHAT_CONTENT_MAX_WIDTH }}
         {...rowProps}
       >
         <FooterRevealContext.Provider value={footerRevealed}>
           <div className="flex flex-col gap-4 empty:hidden">
             {item.items.map((sub, i) => (
-              // The scroller item's own content-visibility works at whole-turn granularity — a
-              // large turn (diffs, charts, dozens of tools) would render wholesale as soon as the
-              // card nears the viewport. Nesting content-visibility per sub-item keeps layout +
-              // paint bounded to the viewport-sized slice while scrolling; `auto` remembers each
-              // row's real size after first render so the scrollbar stays stable.
+              // The turn wrapper must stay measurable so a collapsed tool group releases its old
+              // height. Per-item containment still bounds layout and paint inside a large turn.
               <div
                 key={sub.id}
                 className="[contain-intrinsic-size:auto_2rem] [content-visibility:auto] empty:hidden"

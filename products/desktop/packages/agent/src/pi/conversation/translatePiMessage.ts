@@ -15,6 +15,8 @@ import {
   type AgentToolCallStatus,
   boundPersistedMcpResult,
   createPiToolCallRecord,
+  getFileName,
+  isAbsolutePath,
   isPiToolName,
   mcpToolKey,
   type PiToolName,
@@ -31,6 +33,9 @@ import { writeTranslator } from "./tools/writeTranslator";
 import type { PiToolTranslator } from "./toolTranslator";
 
 const HIDDEN_PI_TOOL_NAMES = new Set(["set_current_work"]);
+const PI_ATTACHMENT_LIST_PATTERN =
+  /(?:^|\n\n)Attached files:\n((?:- [^\n]+\n?)+)$/;
+const ARTIFACT_ID_PREFIX_PATTERN = /^[0-9a-f]{32}-/i;
 
 const TRANSLATOR_BY_NAME: Record<PiToolName, PiToolTranslator> = {
   read: readTranslator,
@@ -44,6 +49,43 @@ const TRANSLATOR_BY_NAME: Record<PiToolName, PiToolTranslator> = {
 
 function isHiddenPiTool(toolName: string): boolean {
   return HIDDEN_PI_TOOL_NAMES.has(toolName);
+}
+
+function piAttachmentUri(filePath: string, label: string): string {
+  return `attachment://pi?label=${encodeURIComponent(label)}&path=${encodeURIComponent(filePath)}`;
+}
+
+function splitPiAttachmentList(content: string): {
+  text: string;
+  attachments: AgentContent[];
+} {
+  const match = content.match(PI_ATTACHMENT_LIST_PATTERN);
+  if (!match || match.index === undefined) {
+    return { text: content, attachments: [] };
+  }
+
+  const filePaths = match[1]
+    .trimEnd()
+    .split("\n")
+    .map((line) => line.slice(2));
+  if (filePaths.length === 0 || !filePaths.every(isAbsolutePath)) {
+    return { text: content, attachments: [] };
+  }
+
+  return {
+    text: content.slice(0, match.index).trimEnd(),
+    attachments: filePaths.map((filePath) => {
+      const label = getFileName(filePath).replace(
+        ARTIFACT_ID_PREFIX_PATTERN,
+        "",
+      );
+      return {
+        type: "resource_link",
+        uri: piAttachmentUri(filePath, label),
+        name: label,
+      };
+    }),
+  };
 }
 
 interface PendingToolCall {
@@ -163,7 +205,15 @@ export function createPiMessageTranslator(): PiMessageTranslator {
   function translateUser(message: UserMessage): AgentConversationEvent[] {
     const content =
       typeof message.content === "string"
-        ? [{ type: "text" as const, text: message.content }]
+        ? (() => {
+            const { text, attachments } = splitPiAttachmentList(
+              message.content,
+            );
+            return [
+              ...(text ? [{ type: "text" as const, text }] : []),
+              ...attachments,
+            ];
+          })()
         : message.content.flatMap((block) => {
             const translated = toContent(block);
             return translated ? [translated] : [];
