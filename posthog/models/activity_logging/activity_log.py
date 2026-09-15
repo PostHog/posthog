@@ -57,6 +57,8 @@ ActivityScope = Literal[
     "Survey",
     "EarlyAccessFeature",
     "SessionRecordingPlaylist",
+    "ReplayScanner",
+    "VisionAlertConfiguration",
     "Comment",
     "Team",
     "Project",
@@ -400,6 +402,45 @@ field_name_overrides: dict[AuditableScope, dict[str, str]] = {
     },
 }
 
+# Machine-written; mirrors `ReplayScanner._MACHINE_OWNED_FIELDS`, which a test holds this list to.
+replay_scanner_machine_fields = [
+    "scanner_version",
+    "origin",
+    "inline_key",
+    "primed_at",
+    "last_swept_at",
+    "last_seen_session_id",
+    "deep_swept_through",
+    "deep_seen_session_id",
+    "deep_attempted_at",
+    "sweep_read_bytes_by_hour",
+    "fast_read_bytes_by_hour",
+    "deep_read_bytes_by_hour",
+    "feedback_themes",
+    "estimated_monthly_observations",
+    "estimated_at",
+    "estimate_attempted_at",
+    "search_suggestions",
+    "search_suggestions_watermark",
+    "search_suggestions_generated_at",
+    "search_last_viewed_at",
+    "limit_notified_period_start",
+    "admission_budget_used",
+    "admission_budget_refreshed_at",
+    "admission_budget_period_start",
+    "admission_credits_since_refresh",
+]
+
+# Rewritten on every check; an alert's firing history is read from its own event log instead.
+vision_alert_machine_fields = [
+    "state",
+    "consecutive_failures",
+    "last_checked_at",
+    "last_notified_at",
+    "next_check_at",
+    "first_enabled_at",
+]
+
 # Fields that prevent activity signal triggering entirely when only these fields change
 signal_exclusions: dict[ActivityScope, list[str]] = {
     "DataQualityCheckSchedule": ["next_run_at", "last_run_at", "last_suite_run", "updated_at"],
@@ -411,6 +452,8 @@ signal_exclusions: dict[ActivityScope, list[str]] = {
         "last_error_at",
     ],
     "Dashboard": ["last_accessed_at"],
+    "ReplayScanner": replay_scanner_machine_fields,
+    "VisionAlertConfiguration": vision_alert_machine_fields,
     "LogsAlertConfiguration": [
         "next_check_at",
         "last_notified_at",
@@ -524,6 +567,8 @@ activity_visibility_restrictions: list[dict[str, Any]] = [
 ]
 
 field_exclusions: dict[AuditableScope, list[str]] = {
+    "ReplayScanner": replay_scanner_machine_fields,
+    "VisionAlertConfiguration": vision_alert_machine_fields,
     "DataQualityCheckSchedule": ["subject_type", "subject_uuid", "next_run_at", "last_run_at", "last_suite_run"],
     "StamphogRepoConfig": [
         # Reverse relation to the repo's review history. The diff would read every pull request row
