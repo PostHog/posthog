@@ -1,7 +1,12 @@
-import { JSONContent, getSchema } from '@tiptap/core'
+import { Editor, JSONContent, getSchema } from '@tiptap/core'
 import { Node as ProseMirrorNode } from '@tiptap/pm/model'
 
-import { SUPPORT_PREVIEW_EXTENSIONS, serializeToMarkdown } from './SupportEditor'
+import {
+    SUPPORT_EXTENSIONS,
+    SUPPORT_PREVIEW_EXTENSIONS,
+    SubmitOnEnterExtension,
+    serializeToMarkdown,
+} from './SupportEditor'
 
 // jest.setup.ts stubs this module out, which would make schema construction meaningless here
 jest.unmock('@tiptap/extension-code-block-lowlight')
@@ -102,5 +107,62 @@ describe('SupportEditor serialization and preview schema', () => {
         const doc: JSONContent = { type: 'doc', content: [{ type: 'table', content: [] }] }
         const schema = getSchema([...SUPPORT_PREVIEW_EXTENSIONS])
         expect(() => ProseMirrorNode.fromJSON(schema, doc)).toThrow('Unknown node type: table')
+    })
+})
+
+describe('SupportEditor Enter-to-send binding', () => {
+    function buildEditor(enabled: boolean, onSubmit: () => void, content: JSONContent): Editor {
+        return new Editor({
+            element: document.createElement('div'),
+            extensions: [
+                ...SUPPORT_EXTENSIONS,
+                SubmitOnEnterExtension.configure({ isEnabled: () => enabled, onSubmit }),
+            ],
+            content,
+        })
+    }
+
+    function pressEnter(editor: Editor, shiftKey = false): void {
+        editor.commands.setTextSelection(editor.state.doc.content.size - 1)
+        editor.view.someProp('handleKeyDown', (handler) =>
+            handler(editor.view, new KeyboardEvent('keydown', { key: 'Enter', shiftKey }))
+        )
+    }
+
+    const codeBlock: JSONContent = {
+        type: 'doc',
+        content: [{ type: 'codeBlock', content: [{ type: 'text', text: 'print(1)' }] }],
+    }
+    const list: JSONContent = {
+        type: 'doc',
+        content: [{ type: 'bulletList', content: [listItem(paragraph('one'))] }],
+    }
+    const reply: JSONContent = { type: 'doc', content: [paragraph('Thanks, that is fixed now')] }
+
+    // Enter only sends where it has no other job. Everywhere else it stays an editing key,
+    // so the agent never loses a keystroke to an unintended send or to a swallowed Enter.
+    it.each<[string, boolean, JSONContent, boolean, boolean]>([
+        ['sends a reply when the preference is on', true, reply, false, true],
+        ['leaves a reply alone when the preference is off', false, reply, false, false],
+        ['leaves a reply alone when Shift is held', true, reply, true, false],
+        ['does not send an empty composer', true, { type: 'doc', content: [paragraph('')] }, false, false],
+        ['does not send from a list item', true, list, false, false],
+        ['does not send from a code block', true, codeBlock, false, false],
+    ])('%s', (_name, enabled, content, shiftKey, expectedToSend) => {
+        const onSubmit = jest.fn()
+        const editor = buildEditor(enabled, onSubmit, content)
+        const docBefore = editor.state.doc.toJSON()
+
+        pressEnter(editor, shiftKey)
+
+        expect(onSubmit).toHaveBeenCalledTimes(expectedToSend ? 1 : 0)
+        // A send leaves the draft in place for the composer to clear; anything else must
+        // have done its usual edit rather than nothing at all.
+        if (expectedToSend) {
+            expect(editor.state.doc.toJSON()).toEqual(docBefore)
+        } else {
+            expect(editor.state.doc.toJSON()).not.toEqual(docBefore)
+        }
+        editor.destroy()
     })
 })
