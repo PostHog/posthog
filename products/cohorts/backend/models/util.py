@@ -146,7 +146,9 @@ COHORT_STATS_COLLECTION_DELAY_SECONDS = 60  # Short delay to allow query_log to 
 logger = structlog.get_logger(__name__)
 
 
-def save_recovery_bookkeeping(save_fn: Callable[[], None], *, cohort_id: int, team_id: int | None = None) -> None:
+def save_recovery_bookkeeping(
+    save_fn: Callable[[], object], *, cohort_id: int, team_id: int | None = None, reraise: bool = False
+) -> None:
     """Persist post-calculation bookkeeping, surviving a Postgres connection dropped mid-recalculation.
 
     A long recalculation can outlive its connection (the server closes it unexpectedly); the first
@@ -155,6 +157,12 @@ def save_recovery_bookkeeping(save_fn: Callable[[], None], *, cohort_id: int, te
     leaving the cohort stuck with is_calculating=True. Reconnect and retry once so the bookkeeping
     still lands and the original error is what propagates; if the retry fails too, swallow it (a
     recovery write must never mask the failure it is recording).
+
+    Args:
+        reraise: Let a failed retry propagate instead of swallowing it. Set it on the success path,
+            where there is no earlier failure to mask: swallowing the version bump would report a
+            completed recalculation whose new ClickHouse rows sit under a version Postgres never
+            recorded, so the cohort keeps serving its old membership. Propagating lets the task retry.
     """
     try:
         save_fn()
@@ -167,6 +175,8 @@ def save_recovery_bookkeeping(save_fn: Callable[[], None], *, cohort_id: int, te
             # recorded. Surface it to error tracking, matching how other swallowed cohort-calculation
             # errors are captured, so it alerts rather than only living in structured logs.
             logger.warning("cohort_recalc_recovery_save_failed", cohort_id=cohort_id, team_id=team_id, exc_info=True)
+            if reraise:
+                raise
             capture_exception(retry_error, additional_properties={"cohort_id": cohort_id, "team_id": team_id})
 
 

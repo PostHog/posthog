@@ -705,8 +705,19 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             version_update_fields: dict[str, Any] = {"version": pending_version, "count": count}
             if cohort_type_cleared:
                 version_update_fields["cohort_type"] = None
-            Cohort.objects.filter(pk=self.pk).filter(Q(version__lt=pending_version) | Q(version__isnull=True)).update(
-                **version_update_fields
+            # This write publishes the finished recalculation, on a connection the long ClickHouse
+            # query may have outlived. Reconnect and replay it, so a dropped connection does not
+            # discard work ClickHouse already holds. Unlike the bookkeeping saves below it must
+            # reraise, because a lost version bump leaves the cohort serving its old membership.
+            save_recovery_bookkeeping(
+                lambda: (
+                    Cohort.objects.filter(pk=self.pk)
+                    .filter(Q(version__lt=pending_version) | Q(version__isnull=True))
+                    .update(**version_update_fields)
+                ),
+                cohort_id=self.pk,
+                team_id=self.team_id,
+                reraise=True,
             )
 
             self.last_calculation = timezone.now()
