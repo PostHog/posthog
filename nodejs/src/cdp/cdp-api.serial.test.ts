@@ -1597,6 +1597,31 @@ describe('CDP API', () => {
             expect(mockQueueInvocations).toHaveBeenCalledTimes(1)
         })
 
+        it('stamps the run start into the state before the invocation is queued', async () => {
+            // Snapshot at call time, so a stamp applied after queueInvocations does not count.
+            let stateWhenQueued: string | undefined
+            mockQueueInvocations.mockImplementation((invocations: any[]) => {
+                stateWhenQueued = JSON.stringify(invocations[0].state)
+                return Promise.resolve()
+            })
+            // `hub` is shared across this file, so the flag is restored rather than left on.
+            const resultsEnabled = hub.HOG_INVOCATION_RESULTS_ENABLED
+            hub.HOG_INVOCATION_RESULTS_ENABLED = true
+
+            try {
+                const res = await supertest(app)
+                    .post(
+                        `/api/projects/${scheduleHogFlow.team_id}/hog_flows/${scheduleHogFlow.id}/scheduled_invocations`
+                    )
+                    .send({})
+
+                expect(res.status).toEqual(200)
+                expect(parseJSON(stateWhenQueued!).firstScheduledAt).toEqual(expect.any(String))
+            } finally {
+                hub.HOG_INVOCATION_RESULTS_ENABLED = resultsEnabled
+            }
+        })
+
         it('queues invocation with empty variables when none provided', async () => {
             const res = await supertest(app)
                 .post(`/api/projects/${scheduleHogFlow.team_id}/hog_flows/${scheduleHogFlow.id}/scheduled_invocations`)

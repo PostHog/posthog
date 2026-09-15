@@ -920,7 +920,12 @@ export class CdpApi {
 
             const invocation = createHogFlowInvocation(triggerGlobals, hogFlow, filterGlobals)
 
+            // Queued before queueInvocations serializes the invocation, so the
+            // `state.firstScheduledAt` stamp reaches cyclotron.
+            this.invocationResultsService.invocationResultsRowsService.queueLifecycleRow(invocation, 'running')
+
             await this.hogflowQueue.queueInvocations([invocation])
+            await this.invocationResultsService.flush()
 
             res.json({ status: 'queued', invocation_id: invocation.id })
         } catch (e) {

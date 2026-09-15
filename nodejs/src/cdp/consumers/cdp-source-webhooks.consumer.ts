@@ -299,6 +299,14 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
                     count: 1,
                 })
 
+                // Queued before queueInvocations serializes the invocation, because
+                // queueLifecycleRow stamps `state.firstScheduledAt` and only a stamp set before
+                // serialization reaches cyclotron.
+                this.invocationResultsService.invocationResultsRowsService.queueLifecycleRow(
+                    hogFlowInvocation,
+                    'running'
+                )
+
                 await this.hogflowQueue.queueInvocations([hogFlowInvocation])
             } else {
                 addMetric({
