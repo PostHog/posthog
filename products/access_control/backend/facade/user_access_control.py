@@ -1549,10 +1549,13 @@ class UserAccessControl:
         explicit: bool = False,
         fallback_parent_id: Optional[str] = None,
     ) -> Optional[ResolvedAccess]:
-        """Row-based object access resolution, most specific rule first: explicit (role/member) object
-        rows, then the fallback parent's object rows, then resource-level rows, then the parent's
-        resource-level rows, then default object rows, then the resource default. Shared by
-        `get_user_access_level` and `bulk_object_access_levels`, which read only `.access_level`.
+        """Row-based object access resolution. Explicit (role/member) object rows decide first. After
+        that, an object-level default of "none" is final and cannot be widened by a broader
+        resource-level grant, matching the list filter (`_blocked_and_allowed_object_ids`). Then
+        the fallback parent's object rows, then resource-level rows, then the parent's
+        resource-level rows, then the remaining object default rows, then the resource default.
+        Shared by `get_user_access_level` and `bulk_object_access_levels`, which read only
+        `.access_level`.
         """
         parent = RESOURCE_FALLBACK_MAP.get(resource) if fallback_parent_id else None
 
@@ -1568,6 +1571,21 @@ class UserAccessControl:
                 source_resource=resource,
                 source_resource_id=row.resource_id,
             )
+
+        # A private object (an object-level default of "none") must not be widened by a broader
+        # resource-level grant. Decide on the object's own rows before the resource rung, so the
+        # retrieve path agrees with the list filter (`_blocked_and_allowed_object_ids`), which
+        # already treats the object default as a hard block.
+        if object_access_controls:
+            object_row = self._object_rows_decision(resource, object_access_controls)
+            if object_row.access_level == NO_ACCESS_LEVEL:
+                return ResolvedAccess(
+                    access_level=NO_ACCESS_LEVEL,
+                    source="object",
+                    source_subject=self._row_subject(object_row),
+                    source_resource=resource,
+                    source_resource_id=object_row.resource_id,
+                )
 
         if parent:
             parent_rows = self._get_access_controls(
