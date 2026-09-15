@@ -16,12 +16,14 @@ import type {
     CISignalsConfigApi,
     CISignalsConfigUpdateApi,
     CurrentBranchHealthApi,
+    DeliverySummaryApi,
     DoraOverviewApi,
     EngineeringAnalyticsAuthorWorkflowCostsParams,
     EngineeringAnalyticsBrokenTestsParams,
     EngineeringAnalyticsCiCardsParams,
     EngineeringAnalyticsCiFailureLogsParams,
     EngineeringAnalyticsCurrentBranchHealthParams,
+    EngineeringAnalyticsDeliverySummaryParams,
     EngineeringAnalyticsDoraParams,
     EngineeringAnalyticsFlakyTestsParams,
     EngineeringAnalyticsJobAggregatesParams,
@@ -29,6 +31,7 @@ import type {
     EngineeringAnalyticsPrCostParams,
     EngineeringAnalyticsPrLifecycleParams,
     EngineeringAnalyticsPrRunsParams,
+    EngineeringAnalyticsPullRequestTimelinesParams,
     EngineeringAnalyticsPullRequestsParams,
     EngineeringAnalyticsQuarantineParams,
     EngineeringAnalyticsRepoOverviewParams,
@@ -51,6 +54,7 @@ import type {
     PRCostSummaryApi,
     PRLifecycleApi,
     PullRequestListApi,
+    PullRequestTimelinesApi,
     QuarantineFileApi,
     QuarantineRequestApi,
     QuarantineRequestResultApi,
@@ -263,6 +267,39 @@ export const engineeringAnalyticsCurrentBranchHealth = async (
     options?: RequestInit
 ): Promise<CurrentBranchHealthApi> => {
     return apiMutator<CurrentBranchHealthApi>(getEngineeringAnalyticsCurrentBranchHealthUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getEngineeringAnalyticsDeliverySummaryUrl = (
+    projectId: string,
+    params?: EngineeringAnalyticsDeliverySummaryParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/engineering_analytics/delivery_summary/?${stringifiedParams}`
+        : `/api/projects/${projectId}/engineering_analytics/delivery_summary/`
+}
+
+/**
+ * Delivery and CI friction for one author or one GitHub team over a window (date_from default -30d), each figure next to the same figure over the whole repository: CI spend per merged PR, ready to merged split at the first approval, pushes after approval, merge-queue attempts, and lead time to deploy. Bots and drafts are excluded. Figures whose optional source isn't synced are null and flagged.
+ */
+export const engineeringAnalyticsDeliverySummary = async (
+    projectId: string,
+    params?: EngineeringAnalyticsDeliverySummaryParams,
+    options?: RequestInit
+): Promise<DeliverySummaryApi> => {
+    return apiMutator<DeliverySummaryApi>(getEngineeringAnalyticsDeliverySummaryUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
@@ -494,6 +531,39 @@ export const engineeringAnalyticsPrRuns = async (
     options?: RequestInit
 ): Promise<WorkflowRunDetailApi[]> => {
     return apiMutator<WorkflowRunDetailApi[]>(getEngineeringAnalyticsPrRunsUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getEngineeringAnalyticsPullRequestTimelinesUrl = (
+    projectId: string,
+    params?: EngineeringAnalyticsPullRequestTimelinesParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/engineering_analytics/pull_request_timelines/?${stringifiedParams}`
+        : `/api/projects/${projectId}/engineering_analytics/pull_request_timelines/`
+}
+
+/**
+ * Pull requests as timelines of what each waited on from ready for review to merge or now: review, CI, red checks by what turned them green, and the merge queue. Scope to one author or one GitHub team (open PRs plus PRs merged in the window, date_from default -30d), or to one pull request with pr_number and repo.
+ */
+export const engineeringAnalyticsPullRequestTimelines = async (
+    projectId: string,
+    params?: EngineeringAnalyticsPullRequestTimelinesParams,
+    options?: RequestInit
+): Promise<PullRequestTimelinesApi> => {
+    return apiMutator<PullRequestTimelinesApi>(getEngineeringAnalyticsPullRequestTimelinesUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
