@@ -1,6 +1,6 @@
 import re
 import dataclasses
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from itertools import islice
 from typing import Any
 from urllib.parse import parse_qs, quote, urlencode, urlparse, urlunparse
@@ -318,6 +318,129 @@ def _project_span_group_ids(
     return [group["id"] for group in groups]
 
 
+def _release_stage_parents(
+    session: requests.Session,
+    headers: dict[str, str],
+    config: BugsnagEndpointConfig,
+    project: dict[str, Any],
+    inject: dict[str, str],
+    logger: FilteringBoundLogger,
+) -> list[_FanOutParent]:
+    # A project reports the stages it has seen events for; one with none has no release
+    # groups to list, and the endpoint rejects a request without a stage.
+    project_id = project["id"]
+    return [
+        _FanOutParent(
+            resume_id=f"{project_id}:{stage}",
+            path_kwargs={"project_id": project_id},
+            inject=inject,
+            params={"release_stage_name": stage},
+        )
+        for stage in project.get("release_stages") or []
+    ]
+
+
+def _pivot_parents(
+    session: requests.Session,
+    headers: dict[str, str],
+    config: BugsnagEndpointConfig,
+    project: dict[str, Any],
+    inject: dict[str, str],
+    logger: FilteringBoundLogger,
+) -> list[_FanOutParent]:
+    project_id = project["id"]
+    return [
+        _FanOutParent(
+            resume_id=f"{project_id}:{display_id}",
+            path_kwargs={"project_id": project_id, "event_field_display_id": display_id},
+            inject={**inject, "event_field_display_id": display_id},
+        )
+        for display_id in _project_pivot_display_ids(session, headers, project_id, logger)
+    ]
+
+
+def _error_parents(
+    session: requests.Session,
+    headers: dict[str, str],
+    config: BugsnagEndpointConfig,
+    project: dict[str, Any],
+    inject: dict[str, str],
+    logger: FilteringBoundLogger,
+) -> list[_FanOutParent]:
+    project_id = project["id"]
+    return [
+        _FanOutParent(
+            resume_id=f"{project_id}:{error_id}",
+            path_kwargs={"project_id": project_id, "error_id": error_id},
+            inject={**inject, "error_id": error_id},
+        )
+        for error_id in _project_error_ids(session, headers, config, project_id, logger)
+    ]
+
+
+def _error_pivot_parents(
+    session: requests.Session,
+    headers: dict[str, str],
+    config: BugsnagEndpointConfig,
+    project: dict[str, Any],
+    inject: dict[str, str],
+    logger: FilteringBoundLogger,
+) -> list[_FanOutParent]:
+    project_id = project["id"]
+    display_ids = _project_pivot_display_ids(session, headers, project_id, logger)
+    return [
+        _FanOutParent(
+            resume_id=f"{project_id}:{error_id}:{display_id}",
+            path_kwargs={
+                "project_id": project_id,
+                "error_id": error_id,
+                "event_field_display_id": display_id,
+            },
+            inject={**inject, "error_id": error_id, "event_field_display_id": display_id},
+        )
+        for error_id in _project_error_ids(session, headers, config, project_id, logger)
+        for display_id in display_ids
+    ]
+
+
+def _span_group_parents(
+    session: requests.Session,
+    headers: dict[str, str],
+    config: BugsnagEndpointConfig,
+    project: dict[str, Any],
+    inject: dict[str, str],
+    logger: FilteringBoundLogger,
+) -> list[_FanOutParent]:
+    project_id = project["id"]
+    return [
+        _FanOutParent(
+            resume_id=f"{project_id}:{span_group_id}",
+            # A span group id is `{version}.{category}.{name}`, and the name can carry slashes
+            # (`AppStart/Cold`), so it has to be escaped into the path.
+            path_kwargs={"project_id": project_id, "span_group_id": quote(span_group_id, safe="")},
+            inject={**inject, "span_group_id": span_group_id},
+        )
+        for span_group_id in _project_span_group_ids(session, headers, config, project_id, logger)
+    ]
+
+
+# Builders for the scopes that turn one project into several fan-out parents. Every builder takes
+# the same arguments so the scope can be dispatched rather than branched on.
+_PROJECT_PARENT_BUILDERS: dict[
+    BugsnagScope,
+    Callable[
+        [requests.Session, dict[str, str], BugsnagEndpointConfig, dict[str, Any], dict[str, str], FilteringBoundLogger],
+        list[_FanOutParent],
+    ],
+] = {
+    BugsnagScope.PER_PROJECT_RELEASE_STAGE: _release_stage_parents,
+    BugsnagScope.PER_PROJECT_PIVOT: _pivot_parents,
+    BugsnagScope.PER_PROJECT_ERROR: _error_parents,
+    BugsnagScope.PER_PROJECT_ERROR_PIVOT: _error_pivot_parents,
+    BugsnagScope.PER_PROJECT_SPAN_GROUP: _span_group_parents,
+}
+
+
 def _resolve_parents(
     session: requests.Session, headers: dict[str, str], config: BugsnagEndpointConfig, logger: FilteringBoundLogger
 ) -> list[_FanOutParent]:
@@ -341,63 +464,8 @@ def _resolve_parents(
             parents.append(_FanOutParent(resume_id=project_id, path_kwargs={"project_id": project_id}, inject=inject))
             continue
 
-        project_parents: list[_FanOutParent] = []
-        if config.scope == BugsnagScope.PER_PROJECT_RELEASE_STAGE:
-            # A project reports the stages it has seen events for; one with none has no release
-            # groups to list, and the endpoint rejects a request without a stage.
-            for stage in project.get("release_stages") or []:
-                project_parents.append(
-                    _FanOutParent(
-                        resume_id=f"{project_id}:{stage}",
-                        path_kwargs={"project_id": project_id},
-                        inject=inject,
-                        params={"release_stage_name": stage},
-                    )
-                )
-        elif config.scope == BugsnagScope.PER_PROJECT_PIVOT:
-            for display_id in _project_pivot_display_ids(session, headers, project_id, logger):
-                project_parents.append(
-                    _FanOutParent(
-                        resume_id=f"{project_id}:{display_id}",
-                        path_kwargs={"project_id": project_id, "event_field_display_id": display_id},
-                        inject={**inject, "event_field_display_id": display_id},
-                    )
-                )
-        elif config.scope == BugsnagScope.PER_PROJECT_ERROR:
-            for error_id in _project_error_ids(session, headers, config, project_id, logger):
-                project_parents.append(
-                    _FanOutParent(
-                        resume_id=f"{project_id}:{error_id}",
-                        path_kwargs={"project_id": project_id, "error_id": error_id},
-                        inject={**inject, "error_id": error_id},
-                    )
-                )
-        elif config.scope == BugsnagScope.PER_PROJECT_ERROR_PIVOT:
-            display_ids = _project_pivot_display_ids(session, headers, project_id, logger)
-            for error_id in _project_error_ids(session, headers, config, project_id, logger):
-                for display_id in display_ids:
-                    project_parents.append(
-                        _FanOutParent(
-                            resume_id=f"{project_id}:{error_id}:{display_id}",
-                            path_kwargs={
-                                "project_id": project_id,
-                                "error_id": error_id,
-                                "event_field_display_id": display_id,
-                            },
-                            inject={**inject, "error_id": error_id, "event_field_display_id": display_id},
-                        )
-                    )
-        elif config.scope == BugsnagScope.PER_PROJECT_SPAN_GROUP:
-            for span_group_id in _project_span_group_ids(session, headers, config, project_id, logger):
-                project_parents.append(
-                    _FanOutParent(
-                        resume_id=f"{project_id}:{span_group_id}",
-                        # A span group id is `{version}.{category}.{name}`, and the name can carry
-                        # slashes (`AppStart/Cold`), so it has to be escaped into the path.
-                        path_kwargs={"project_id": project_id, "span_group_id": quote(span_group_id, safe="")},
-                        inject={**inject, "span_group_id": span_group_id},
-                    )
-                )
+        build_parents = _PROJECT_PARENT_BUILDERS[config.scope]
+        project_parents = build_parents(session, headers, config, project, inject, logger)
 
         cap = config.max_parents_per_project
         if cap is not None and len(project_parents) > cap:
