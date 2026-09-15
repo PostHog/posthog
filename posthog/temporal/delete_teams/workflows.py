@@ -187,7 +187,9 @@ class DeleteProjectDataWorkflow(PostHogWorkflow):
 
     @temporalio.workflow.run
     async def run(self, inputs: DeleteProjectDataWorkflowInputs) -> None:
-        if inputs.project_id is not None:
+        # Gated with `patched` so in-flight deletions from before this deploy don't fail replay on a
+        # changed command sequence.
+        if inputs.project_id is not None and temporalio.workflow.patched("check-project-pending-deletion"):
             project_is_pending_deletion = await temporalio.workflow.execute_activity(
                 check_project_pending_deletion_activity,
                 ProjectRecordInputs(project_id=inputs.project_id),

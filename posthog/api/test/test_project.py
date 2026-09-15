@@ -632,6 +632,35 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         mock_cancel_delete_task.assert_not_called()
         self.assertEqual(mock_start_delete_task.call_count, scheduling_calls)
 
+    @patch("posthog.temporal.delete_teams.dispatch.cancel_delete_project_data_workflow")
+    @patch("posthog.temporal.delete_teams.dispatch.start_delete_project_data_workflow")
+    def test_project_deletion_now_fallback_keeps_original_schedule(
+        self, mock_start_delete_task, mock_cancel_delete_task
+    ):
+        from posthog.temporal.delete_teams.dispatch import PROJECT_DELETION_DELAY
+
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        self.client.delete(f"/api/projects/{self.project.id}")
+        # Shorten the remaining delay so the fallback restart is distinguishable from
+        # a fresh 48-hour schedule.
+        Project.objects.filter(id=self.project.id).update(deletion_scheduled_at=timezone.now() + timedelta(hours=2))
+
+        def fake_start(*args, **kwargs):
+            if kwargs.get("start_delay") is None:
+                raise Exception("temporal unavailable")
+
+        mock_start_delete_task.side_effect = fake_start
+
+        response = self.client.post(f"/api/projects/{self.project.id}/delete-now/")
+
+        self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        fallback_delay = mock_start_delete_task.call_args_list[-1].kwargs["start_delay"]
+        self.assertIsInstance(fallback_delay, timedelta)
+        self.assertGreater(fallback_delay, timedelta(0))
+        self.assertLess(fallback_delay, PROJECT_DELETION_DELAY)
+
     @patch("posthog.temporal.delete_teams.dispatch.start_delete_project_data_workflow")
     def test_project_deletion_returns_pending_deletion_in_api(self, mock_delete_task):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN

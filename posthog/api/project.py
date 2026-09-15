@@ -1674,6 +1674,8 @@ class ProjectViewSet(
         project = cast(Project, self.get_object())
         if not project.is_pending_deletion:
             raise exceptions.ValidationError("This project is not pending deletion.")
+        if not project.deletion_scheduled_at or project.deletion_scheduled_at <= timezone.now():
+            raise exceptions.ValidationError("This project deletion has already started.")
 
         from posthog.temporal.delete_teams.dispatch import cancel_delete_project_data_workflow
 
@@ -1709,6 +1711,9 @@ class ProjectViewSet(
         user = cast(User, request.user)
         project_name = project.name
         team_ids = list(project.teams.values_list("id", flat=True))
+        # Read the remaining delay before cancelling, so the fallback restart keeps the
+        # original schedule instead of pushing the deletion back a fresh 48 hours.
+        remaining_delay = project.deletion_scheduled_at - timezone.now()
 
         # The scheduled run has not started yet (its date is still in the future), so cancel it
         # and start a replacement that runs immediately.
@@ -1725,7 +1730,11 @@ class ProjectViewSet(
             # The delayed run is gone, so restart it on the original schedule to keep the
             # deletion on track before surfacing the failure.
             start_delete_project_data_workflow(
-                team_ids=team_ids, project_id=project.pk, user_id=user.id, project_name=project_name
+                team_ids=team_ids,
+                project_id=project.pk,
+                user_id=user.id,
+                project_name=project_name,
+                start_delay=remaining_delay,
             )
             raise
 
