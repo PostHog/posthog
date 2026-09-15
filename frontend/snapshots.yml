@@ -10289,9 +10289,9 @@ snapshots:
     scenes-other-billing--billing-with-discount--light:
         hash: v1.k794b7964.6d1058bd7ddf59f4bb84f272fea12d0a87ffd6f43e0a04af2cb7de4f6b1a0f4e.2CjzOhnQzMoaR543DMOLH2ly8arbSUQkAIw1yjG9Xjg
     scenes-other-billing--billing-with-limit-and-100-percent-discount--dark:
-        hash: v1.k794b7964.f0be5b884be1e57d2b5d428ecdf24a01c320a3c98b6160a2de07d9d9fe740e59.jQtOLeRJ9zjI5cxCzkQ3AshIXLTsiHslk-eeyec3GY8
+        hash: v1.k794b7964.e80deafc55a4e0198200075faaaab104e6533bcf23aea959b3759018a85956a2.A-Noz9o2BmphWmZWW0ODp44yeUMFg9i6ej_-b3DX43I
     scenes-other-billing--billing-with-limit-and-100-percent-discount--light:
-        hash: v1.k794b7964.5cb33cfd2d2143e6ec48e2753670db481b44c23cbd61b8af407f087296ca7bf8.0fn_Cwu4jW6lsn7ElUrtgVWYnvNGtTcKMQUiABn8l90
+        hash: v1.k794b7964.efb1fcbcc3c1202b191bf89dfaf9cf432d2220f9b6eaa61ab08be587c7ee9050.f7FI59SQ1jwcKfThizNUwzVNcaTMjRvFwW-aSiNiVCA
     scenes-other-billing--billing-without-icon-keys--dark:
         hash: v1.k794b7964.aabe99692a6a19e22aacc0cad741a2b20cc97e4a6561b9ff6813d8e51f4f77aa.qIcBPh1akofg3x6zWnlFcCCeKTUDIGR4WKYPL0aMvaM
     scenes-other-billing--billing-without-icon-keys--light:
@@ -10341,17 +10341,17 @@ snapshots:
     scenes-other-billing-product--billing-product-platform-addons-trial-used--light:
         hash: v1.k794b7964.a3610366ad2be64f9b6ff77176950ce1ff726937f39b0270c50bff9f0c3b9c55.83KQE3ww4YX5WW-n9BfxNXj4nF3BAEnJJtBETXTJjFI
     scenes-other-billing-product--billing-product-post-hog-code-limit--dark:
-        hash: v1.k794b7964.71b6991b563cc6e523d11505904f2dc8c47ecd440ac90a44ef8723d542c2536d.xpHMqbA3QTxdp-s4gMuFNUITYO4gPYfCkSxwePrtmC4
+        hash: v1.k794b7964.8a0fb3f55a9893b8f3265dd1772886c7e881edfe5d248acf632b89db7de0997e.TgBZV_E3gwDPxT8otycge9-b_qd8jN2abbTPE02j9TI
     scenes-other-billing-product--billing-product-post-hog-code-limit--light:
-        hash: v1.k794b7964.7f06398ca3af8c04da343f86f2881b6e21e5cdc1adc420ee3d22a1ef80fa305f.si6dTzyx3NP27K1R01iACHqzbJHvAZuLIXvI7e4_ojw
+        hash: v1.k794b7964.0e65ac37dbd7412336377f1448beff5a28a7f629878a35e5229260c6db36dc1d.992tlJBIAejmO8f6raB-V6eAFC6-vKk5D7e1mV6qob4
     scenes-other-billing-product--billing-product-post-hog-code-limit-editing--dark:
-        hash: v1.k794b7964.b1fba1deb35b5ccac0cb927f89f41fa071436cbb9339b3861695c9b851706cc6.9-QG129uzgxxO5irq-jeMxufbidewPdXdMAyIpEhGEs
+        hash: v1.k794b7964.d8a6dc2f09973751d244c936fff9d299ba26a8baba3c60e04b3161c0871f5194.GRg22vHOerXiLRXMsbjWQXUdHYURTKq4VQZe_RZbH0k
     scenes-other-billing-product--billing-product-post-hog-code-limit-editing--light:
-        hash: v1.k794b7964.a3bbef49716d1ea6fa9b92b79005af056f34f2040c224961d804f85596acc784.JGw5-GTbeq_p8KyjdiTeoX1jkN190GqFI9xV9JzgdmE
+        hash: v1.k794b7964.0a678ddb6b97ece2cc03ae2e1b227428761ebdf1e48f0546e0a555461b9d92f6.NFR-ZQZHAUsHxa_6oHyHFSrXSnD3w_COPhDqkw-p3I4
     scenes-other-billing-product--billing-product-post-hog-code-limit-next-period-capped--dark:
-        hash: v1.k794b7964.f8583bd447708da6fa012fe9313d71600433bed0d03e5d41848cedecf5ab9d21.ZAHv0DJs7KHJ2Zdcp2-liP6z5Ubb22aqd1F91FZSXow
+        hash: v1.k794b7964.19ba3dc33fa886862596283bb34c594acd3219ba0097efe1f14637c1cf50a6b4.JrdnBy0YUeOLdzvdFsAZTCGUUf8J66Q-UL7omJiSqSg
     scenes-other-billing-product--billing-product-post-hog-code-limit-next-period-capped--light:
-        hash: v1.k794b7964.c6c64e9653af75c621864353c2cdb6596fc3c016b0ffbecfac348ea78d567826.BbDTCv01DzFXPbewlxtb5wsW5YECFnZ2E4KgCgniHBU
+        hash: v1.k794b7964.261a670e896a34542d2515a639c207f97ae2b8ca831c3cecf11bd764c4aeea96.liUtMhTGXXXsQb2ErgWnKVvd2Iw02hYKeidHFZzhvnk
     scenes-other-billing-product--billing-product-temporarily-free--dark:
         hash: v1.k794b7964.17457ea2e809235689317d9e0feb224c18f8d5a81c8adf04b314e4d0c7b6f7d4.l_BpJhV7_FHvsDrKy34afdUPZvjK2sjH2OizL4u6SnI
     scenes-other-billing-product--billing-product-temporarily-free--light:
@@ -10368,6 +10368,14 @@ snapshots:
         hash: v1.k794b7964.f347e4ff8f76a746a240161e8323fde6febf434555caecefad6f5e0cd2264ee6.UkoGJ7GaxDEB3dtD8EAWEStRL9WgDIxMLi31doNFR_4
     scenes-other-billing-product--billing-product-without-addons--light:
         hash: v1.k794b7964.04856a286b0b3933aa364d7f73c56420e890f19d7f490a5aa12ae5616bf3258b.xQP5mvdnr6fC8UHtO4XZU4e-_cG8ZLzhKbnq_Ezmv10
+    scenes-other-billing-usagereductionhint--product-with-its-own-lever--dark:
+        hash: v1.k794b7964.3403df7f347e181344e899f7a712d3f2d4e60e341852fd41cedb726e1883d4d7.rJ6jtl1vMwbzFLsJ3XvEKNTnoBiWwbMus8J-vdGZ1ZI
+    scenes-other-billing-usagereductionhint--product-with-its-own-lever--light:
+        hash: v1.k794b7964.a01b7dc0302f782d52973f9d35d3123ab560825471a883b36056c838a2d31aa0.5mu9QnAoSQngpmfGSIBctVBo19X-Sn-9G7zKhwmQ_rs
+    scenes-other-billing-usagereductionhint--product-without-one--dark:
+        hash: v1.k794b7964.acf00f455a2fcceb40658d9c81d1f1e21ca39b33ffc303143db03bfab96efbca.9tmLkAuMgaRyXZeqMT5v58vJYo1-jdnabKkgEzlNKoI
+    scenes-other-billing-usagereductionhint--product-without-one--light:
+        hash: v1.k794b7964.32ea64569f89147fb8b5d74a3d083ae7be580229a71d982afe0cec083909612c.YPH3dSXlAh1i7Cev6V91UnZAOSVc-VYY7Q8xfG6XwCs
     scenes-other-credential-review--all-credential-types--dark:
         hash: v1.k794b7964.734ead38dd025fbae5ab9b1ec621481f47803d6bac27e6c1921da06801971da7.i4a3jfG-6h4K8JwQc7PA1pT9CgfPqPxzOrGDqIS2JKA
     scenes-other-credential-review--all-credential-types--light:

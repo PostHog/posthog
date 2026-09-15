@@ -10,6 +10,7 @@ import { compactNumber } from 'lib/utils/numbers'
 import { membershipLevelToName } from 'lib/utils/permissioning'
 import { wordPluralize } from 'lib/utils/strings'
 import { Params } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
 
 import { BillingPeriod, BillingProductV2AddonType, BillingProductV2Type, BillingTierType, BillingType } from '~/types'
 
@@ -675,6 +676,44 @@ export function getUsageLimitConsequence(productName: string): string {
         return 'self-driving agents will be paused'
     }
     return 'data loss may occur'
+}
+
+export interface UsageReductionOption {
+    /** What the person changes to use less of the product. */
+    text: string
+    /** Where that change is made. */
+    to: string
+}
+
+const USAGE_REDUCTION_DOCS: UsageReductionOption = {
+    text: 'read how to reduce your usage',
+    to: 'https://posthog.com/docs/billing/estimating-usage-costs#how-to-reduce-your-posthog-costs',
+}
+
+const USAGE_REDUCTION_OPTIONS: Record<string, UsageReductionOption> = {
+    session_replay: {
+        text: 'record fewer sessions with sampling and a minimum duration',
+        to: urls.settings('project-replay', 'replay-triggers'),
+    },
+    product_analytics: {
+        text: 'capture fewer events with your autocapture settings',
+        to: urls.settings('environment-autocapture'),
+    },
+}
+
+/**
+ * The ways to use less of each product, so a person on a fixed budget has somewhere to go other
+ * than a bigger bill. Products without their own lever fall back to the cost docs.
+ */
+export function buildUsageReductionOptions(products: Array<{ type?: string | null }>): UsageReductionOption[] {
+    const options = new Map<string, UsageReductionOption>()
+    for (const product of products) {
+        const option = product.type ? USAGE_REDUCTION_OPTIONS[product.type] : undefined
+        if (option) {
+            options.set(option.to, option)
+        }
+    }
+    return options.size > 0 ? [...options.values()] : [USAGE_REDUCTION_DOCS]
 }
 
 /**
