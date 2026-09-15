@@ -60,13 +60,14 @@ def _attempt(
     succeeded: bool | None = None,
     attempt: int = 1,
     jobs: tuple[str, ...] = (),
+    pushed: float | None = None,
 ) -> RunAttempt:
     return RunAttempt(
         run_id=hash(sha) % 1000,
         workflow_name="CI",
         head_sha=sha,
         attempt=attempt,
-        pushed_at=_at(start),
+        pushed_at=_at(start if pushed is None else pushed),
         started_at=_at(start),
         completed_at=_at(end) if end is not None else None,
         failed=failed,
@@ -128,6 +129,16 @@ class TestPRTimelineBuilder(SimpleTestCase):
                     (Kind.CI_RUNNING, 3, 4),
                     (Kind.REVIEW_STATE_UNKNOWN, 4, 5),
                 ],
+            ),
+            (
+                "queued_check_counts_as_ci",
+                _pr(
+                    4,
+                    [_attempt("a", 1, 2, pushed=0)],
+                    reviews=[ReviewVerdict(reviewer="ada", state="APPROVED", submitted_at=_at(0))],
+                ),
+                [],
+                [(Kind.CI_RUNNING, 0, 2), (Kind.APPROVED_NOT_ENQUEUED, 2, 4)],
             ),
             (
                 "later_push_ends_red",
