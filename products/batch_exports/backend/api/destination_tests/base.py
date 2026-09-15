@@ -63,6 +63,14 @@ class DestinationTestStep:
         """
         raise NotImplementedError
 
+    def _missing_configuration(self) -> list[str]:
+        """Names of the configuration values this step needs but doesn't have.
+
+        Subclasses can override this so a failed `_is_configured` check tells the user
+        which field to fill in, instead of a generic "not configured" message.
+        """
+        return []
+
     @abc.abstractmethod
     async def _run_step(self) -> DestinationTestStepResult:
         """Internal method to run this test step.
@@ -75,9 +83,14 @@ class DestinationTestStep:
     async def run(self) -> DestinationTestStepResult:
         """Run this test step."""
         if not self._is_configured():
+            missing = self._missing_configuration()
+            if missing:
+                message = f"The test step cannot run because these fields are missing: {', '.join(missing)}."
+            else:
+                message = "The test step cannot run as it's not configured."
             return DestinationTestStepResult(
                 status=Status.FAILED,
-                message="The test step cannot run as it's not configured.",
+                message=message,
             )
 
         try:
