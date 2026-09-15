@@ -21,7 +21,7 @@ import { MlKeyEncryption } from './crypto'
 import { DynamoItem, MlPrivacyDynamoDB, encodeKey } from './dynamodb'
 import { MlSessionKeyStore } from './key-store'
 import { MlKeyReader } from './reader'
-import { MlSessionIdentity, imageKeyId, monthBlockId, monthKeyIndexId, sessionKeyId, tableKeyString } from './schema'
+import { MlSessionIdentity, imageKeyId, monthKeyIndexId, sessionKeyId, tableKeyString, teamBlockId } from './schema'
 import { MlKafkaEncryption, encryptedKafkaValue } from './transport'
 
 const session: MlSessionIdentity = {
@@ -218,7 +218,7 @@ describe('ML session key batches', () => {
         expect(remaining).toBeGreaterThan(0)
     })
 
-    it('indexes monthly keys atomically and blocks a month during a competing batch', async () => {
+    it('indexes monthly keys atomically, ignores a month marker, and blocks on a team marker', async () => {
         const october = { ...session, sessionId: '0199a13b-c000-7000-8000-000000000007' }
         const first = await store.prepare([session, october])
         await first.commit()
@@ -234,21 +234,31 @@ describe('ML session key batches', () => {
                 key_sk: { S: location.sk },
             })
         }
-        const inFlight = await store.prepare([session])
-        const blocked = monthBlockId('2025-09')
-        boundary.items.set(tableKeyString(blocked), { ...encodeKey(blocked), deleted: { BOOL: true } })
-        jest.useFakeTimers()
-        const committing = inFlight.commit()
-        await jest.runAllTimersAsync()
-        await committing
-        expect(inFlight.get(session.teamId, session.sessionId)).toBeUndefined()
         const locations = [
             sessionKeyId(session.teamId, session.sessionId),
             imageKeyId(session.teamId, '2025-09'),
             sessionKeyId(october.teamId, october.sessionId),
             imageKeyId(session.teamId, '2025-10'),
         ]
-        expect([...(await reader.read(locations))].map(([id]) => id)).toEqual(locations.slice(2).map(tableKeyString))
+        const monthMarker = { pk: 'month:2025-09', sk: 'deleted' }
+        boundary.items.set(tableKeyString(monthMarker), { ...encodeKey(monthMarker), deleted: { BOOL: true } })
+        const ignoringMonth = await store.prepare([session])
+        jest.useFakeTimers()
+        const committingDespiteMonth = ignoringMonth.commit()
+        await jest.runAllTimersAsync()
+        await committingDespiteMonth
+        expect(ignoringMonth.get(session.teamId, session.sessionId)).not.toBeUndefined()
+        expect((await reader.read(locations)).size).toBe(4)
+        jest.useRealTimers()
+        const inFlight = await store.prepare([session])
+        const blocked = teamBlockId(session.teamId)
+        boundary.items.set(tableKeyString(blocked), { ...encodeKey(blocked), deleted: { BOOL: true } })
+        jest.useFakeTimers()
+        const committing = inFlight.commit()
+        await jest.runAllTimersAsync()
+        await committing
+        expect(inFlight.get(session.teamId, session.sessionId)).toBeUndefined()
+        expect((await reader.read(locations)).size).toBe(0)
     })
 
     it('adopts a competing writer key', async () => {
