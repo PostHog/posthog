@@ -72,6 +72,9 @@ activity IDs, the series, all prompt fields, the model, and the prompt revision.
 after the check advances the schedule, but changed model inputs require a new verdict.
 AI evaluations use a dedicated thread pool. The routing decision and evaluation use the same
 alert configuration snapshot.
+Before saving, evaluation compares that snapshot with the current alert under a row lock.
+If the alert changed or was deleted, it discards the result without sending a notification.
+The next scheduler tick handles an edited alert at its current due time.
 
 ## Gating
 

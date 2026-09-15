@@ -488,7 +488,20 @@ class TestEvaluateAlert:
 
         assert thread_names[0].startswith("insight-alert-llm-evaluate") is uses_llm_detector
 
-    async def test_executor_and_evaluation_use_the_same_config_snapshot(self, alert, ateam) -> None:
+    @pytest.mark.parametrize(
+        "changes,evaluation_error",
+        [
+            ({"detector_config": {"type": "llm"}}, None),
+            ({"enabled": False}, None),
+            ({"calculation_interval": "monthly"}, None),
+            ({"detector_config": {"type": "llm"}}, ValueError("query failed")),
+            ({"detector_config": {"type": "llm"}}, LLMDetectorMisconfiguredError("invalid configuration")),
+            (None, None),
+        ],
+    )
+    async def test_executor_and_evaluation_use_the_same_config_snapshot(
+        self, alert, ateam, changes, evaluation_error
+    ) -> None:
         await sync_to_async(AlertConfiguration.objects.filter(team=ateam, id=alert.id).update)(
             detector_config={"type": "zscore"}
         )
@@ -497,12 +510,17 @@ class TestEvaluateAlert:
 
         async def _load_then_convert(inputs):
             snapshot = await _load_alert_for_evaluation(inputs)
-            await sync_to_async(AlertConfiguration.objects.filter(id=alert.id).update)(detector_config={"type": "llm"})
+            if changes is None:
+                await sync_to_async(AlertConfiguration.objects.filter(id=alert.id).delete)()
+            else:
+                await sync_to_async(AlertConfiguration.objects.filter(id=alert.id).update)(**changes)
             return snapshot
 
         def _record_thread(_alert, *, evaluation_id):
             thread_names.append(threading.current_thread().name)
             detector_types.append(_alert.detector_config["type"])
+            if evaluation_error:
+                raise evaluation_error
             return AlertEvaluationResult(value=5.0, breaches=None)
 
         with (
@@ -510,13 +528,20 @@ class TestEvaluateAlert:
             patch("posthog.temporal.alerts.activities.check_alert_for_insight", side_effect=_record_thread),
         ):
             env = ActivityEnvironment()
-            await env.run(
+            result = await env.run(
                 evaluate_alert,
                 EvaluateAlertActivityInputs(alert_id=str(alert.id), uses_llm_detector=False, team_id=ateam.id),
             )
 
         assert not thread_names[0].startswith("insight-alert-llm-evaluate")
         assert detector_types == ["zscore"]
+        assert result.alert_check_id is None
+        assert result.should_notify is False
+        assert not await sync_to_async(AlertCheck.objects.filter(alert_configuration_id=alert.id).exists)()
+        if changes is not None:
+            saved = await sync_to_async(AlertConfiguration.objects.get)(id=alert.id)
+            assert saved.state == alert.state
+            assert saved.next_check_at == alert.next_check_at
 
     async def test_retry_keeps_evaluation_id_after_the_schedule_advances(self, alert) -> None:
         evaluation_ids: list[str] = []

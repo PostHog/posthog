@@ -33,6 +33,7 @@ from posthog.temporal.alerts.types import (
     PrepareAlertActivityInputs,
     RecordFailedEvaluationActivityInputs,
     ScheduleDueAlertChecksWorkflowInputs,
+    SkipReason,
 )
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.errors import MAX_ERROR_MESSAGE_CHARS, truncate_for_temporal_payload, unwrap_temporal_cause
@@ -180,6 +181,9 @@ class CheckAlertWorkflow(PostHogWorkflow):
                         "alerts.record_failed_evaluation_failed", extra={"alert_id": inputs.alert_id}
                     )
                 raise
+            if evaluation.alert_check_id is None:
+                skip_reason = SkipReason.CHANGED_DURING_EVALUATION
+                return
             new_state = evaluation.new_state
 
             # Phase 3 — notify (optional)

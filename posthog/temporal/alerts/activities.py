@@ -21,6 +21,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.query_creator_access import creator_access_revoked, report_creator_access_revoked
 from posthog.schema_migrations.upgrade_manager import upgrade_insight
 from posthog.sync import database_sync_to_async
+from posthog.tasks.alerts import utils as alert_utils
 from posthog.tasks.alerts.detectors.llm.detector import MAX_CONCURRENT_MODEL_CALLS
 from posthog.tasks.alerts.detectors.llm.errors import LLMDetectorMisconfiguredError, LLMDetectorUnavailableError
 from posthog.tasks.alerts.investigation_notifications import run_investigation_notification_safety_net
@@ -281,6 +282,7 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
     evaluation_id = f"{info.workflow_run_id}:{info.activity_id}"
 
     def _evaluate(alert: AlertConfiguration) -> EvaluateAlertResult:
+        evaluated_alert = alert
         # CH workload management keys off these tags to isolate alert queries from other tenants.
         # calculation_interval / config_type also let query_log cost be grouped by alert cadence
         # (real_time vs every_15_minutes vs ...) and query shape (trends vs HogQL) without a join.
@@ -294,6 +296,7 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
 
         breaches: list[str] | None = None
         error: dict | None = None
+        invalid_configuration: str | None = None
         alert_evaluation_result = None
 
         try:
@@ -312,12 +315,7 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
             # deliberate fail-loud outcome, not a bug. Auto-disable and email the owner via the
             # existing path instead of capturing it as an exception, which would pollute error
             # tracking with a config problem that recurs on every check until fixed.
-            alert_check = disable_invalid_alert(alert, str(err))
-            return EvaluateAlertResult(
-                alert_check_id=str(alert_check.id),
-                should_notify=False,  # disable_invalid_alert already emailed subscribers
-                new_state=AlertState.ERRORED,
-            )
+            invalid_configuration = str(err)
         except TableAccessDeniedError as err:
             logger.exception("Alert failed to evaluate", alert_id=alert.id, exc_info=err)
             # A revoked creator's access-denied error is a known limitation - report it as an event
@@ -353,32 +351,43 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
             )
             error = {"message": str(err), "traceback": traceback.format_exc()}
 
-        # A non-transient failure: write the errored check and return. Transient errors were
-        # re-raised above for the retry policy, and the investigation gating below only fires on a
-        # FIRING check, so the errored path skips it.
-        if error is not None:
-            with transaction.atomic():
-                alert = (
-                    AlertConfiguration.objects.select_for_update(of=("self",))
-                    .select_related("insight", "team", "threshold")
-                    .get(id=inputs.alert_id)
-                )
-                alert_check, should_notify = _write_errored_alert_check(alert, error)
-            return EvaluateAlertResult(
-                alert_check_id=str(alert_check.id),
-                should_notify=should_notify,
-                new_state=AlertState.ERRORED,
-            )
-
         should_start_investigation = False
         should_gate_notification = False
         should_run_metrics_investigation = False
         with transaction.atomic():
-            alert = (
+            current_alert = (
                 AlertConfiguration.objects.select_for_update(of=("self",))
                 .select_related("insight", "team", "threshold")
-                .get(id=inputs.alert_id)
+                .filter(id=inputs.alert_id, team_id=evaluated_alert.team_id)
+                .first()
             )
+            if current_alert is None or not _evaluation_inputs_match(evaluated_alert, current_alert):
+                # Leave the current state and due time intact. The next scheduler tick can
+                # evaluate the edited alert; a disabled or deleted alert needs no further work.
+                return EvaluateAlertResult(
+                    alert_check_id=None,
+                    should_notify=False,
+                    new_state=AlertState(current_alert.state if current_alert else evaluated_alert.state),
+                )
+            alert = current_alert
+            if invalid_configuration is not None:
+                alert_check = disable_invalid_alert(alert, invalid_configuration, notify_subscribers=False)
+
+                def _notify_disabled() -> None:
+                    targets = alert.get_subscribed_users_emails()
+                    if targets:
+                        deliveries = alert_utils.send_notifications_for_disabled(alert, invalid_configuration, targets)
+                        record_alert_delivery(alert, alert_check, deliveries)
+
+                transaction.on_commit(_notify_disabled)
+                return EvaluateAlertResult(
+                    alert_check_id=str(alert_check.id), should_notify=False, new_state=AlertState.ERRORED
+                )
+            if error is not None:
+                alert_check, should_notify = _write_errored_alert_check(alert, error)
+                return EvaluateAlertResult(
+                    alert_check_id=str(alert_check.id), should_notify=should_notify, new_state=AlertState.ERRORED
+                )
             previous_state = alert.state
             alert_check, should_notify = add_alert_check(alert, alert_evaluation_result, error)
 
@@ -418,6 +427,32 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
         alert = await _load_alert_for_evaluation(inputs)
         executor = _LLM_EVALUATE_EXECUTOR if is_llm_detector_config(alert.detector_config) else None
         return await database_sync_to_async(_evaluate, thread_sensitive=False, executor=executor)(alert)
+
+
+def _evaluation_inputs_match(evaluated: AlertConfiguration, current: AlertConfiguration) -> bool:
+    fields = (
+        "enabled",
+        "insight_id",
+        "created_by_id",
+        "condition",
+        "config",
+        "detector_config",
+        "threshold_id",
+        "calculation_interval",
+        "next_check_at",
+        "skip_weekend",
+        "schedule_start_time",
+        "schedule_restriction",
+        "snoozed_until",
+    )
+    return (
+        all(getattr(evaluated, field) == getattr(current, field) for field in fields)
+        and evaluated.insight.name == current.insight.name
+        and evaluated.insight.query == current.insight.query
+        and evaluated.insight.deleted == current.insight.deleted
+        and (evaluated.threshold.configuration if evaluated.threshold else None)
+        == (current.threshold.configuration if current.threshold else None)
+    )
 
 
 @database_sync_to_async(thread_sensitive=False)

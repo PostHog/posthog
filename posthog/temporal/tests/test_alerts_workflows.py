@@ -369,12 +369,17 @@ async def test_check_alert_workflow_firing_drives_full_chain_with_slo(
             SkipReason.DISABLED,
             id="disabled",
         ),
+        pytest.param(
+            lambda ateam: _create_alert(ateam),
+            SkipReason.CHANGED_DURING_EVALUATION,
+            id="disabled_during_evaluation",
+        ),
     ],
 )
 @patch("posthog.slo.events.posthoganalytics")
 @pytest.mark.asyncio
 @pytest.mark.django_db(transaction=True)
-async def test_check_alert_workflow_skip_short_circuits_before_evaluate(
+async def test_check_alert_workflow_skip_does_not_notify(
     mock_slo_analytics: MagicMock,
     ateam,
     setup,
@@ -382,8 +387,14 @@ async def test_check_alert_workflow_skip_short_circuits_before_evaluate(
 ) -> None:
     alert = await setup(ateam)
 
+    def _disable_during_evaluation(_alert, *, evaluation_id):
+        AlertConfiguration.objects.filter(id=alert.id).update(enabled=False)
+        return AlertEvaluationResult(value=100.0, breaches=["value above threshold"])
+
     with (
-        patch("posthog.temporal.alerts.activities.check_alert_for_insight") as mock_ch_query,
+        patch(
+            "posthog.temporal.alerts.activities.check_alert_for_insight", side_effect=_disable_during_evaluation
+        ) as mock_ch_query,
         patch("posthog.tasks.alerts.utils.send_notifications_for_breaches") as mock_send_breaches,
     ):
         await _run_check_alert_workflow(
@@ -395,7 +406,7 @@ async def test_check_alert_workflow_skip_short_circuits_before_evaluate(
 
     check_count = await sync_to_async(AlertCheck.objects.filter(alert_configuration=alert).count)()
     assert check_count == 0
-    mock_ch_query.assert_not_called()
+    assert mock_ch_query.call_count == int(expected_reason == SkipReason.CHANGED_DURING_EVALUATION)
     mock_send_breaches.assert_not_called()
 
     completed_props = _completed_slo_props(mock_slo_analytics)
