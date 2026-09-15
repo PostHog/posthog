@@ -23,7 +23,7 @@ def parse_pr_number(pr_url: str) -> int | None:
 
 
 def pull_request_state(*, team_id: int, repository: str, number: int) -> PullRequestState:
-    github = GitHubIntegration.first_for_team_repository(team_id, repository)
+    github = GitHubIntegration.first_for_team_repository(team_id, repository, source=_SOURCE, priority=Priority.BATCH)
     if github is None:
         raise RuntimeError(f"No GitHub App installation on team {team_id} can access {repository}")
     owner, _, repo = repository.partition("/")
