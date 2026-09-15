@@ -169,10 +169,28 @@ Paste the same signing key into the field below so PostHog can verify deliveries
         schema_name: Optional[str] = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
-        if validate_calendly_credentials(config.personal_access_token):
+        is_valid, status = validate_calendly_credentials(config.personal_access_token)
+        if is_valid:
             return True, None
 
-        return False, "Invalid Calendly personal access token"
+        if status == 401:
+            return (
+                False,
+                "Calendly rejected your personal access token. Create a new token under "
+                "Integrations → API & Webhooks, then reconnect.",
+            )
+        if status == 403 and schema_name is None:
+            # A token Calendly accepts but scopes narrowly is still a real token — the per-table
+            # check and the sync-time 403 report what it can't read, so don't block creation on it.
+            return True, None
+        if status == 403:
+            return (
+                False,
+                "Your Calendly personal access token cannot read this data. Create a token with "
+                "access to it, then reconnect.",
+            )
+
+        return False, "PostHog couldn't reach Calendly to check your token. Try connecting again in a few minutes."
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
