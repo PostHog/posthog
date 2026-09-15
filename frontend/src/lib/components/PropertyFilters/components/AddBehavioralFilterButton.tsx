@@ -29,7 +29,7 @@ export function AddBehavioralFilterButton({
                 )
             }
             placeholder="Performed"
-            tooltip="Filter for users who performed an event or action, with optional count and time window"
+            tooltip="Filter for users who performed an event or action"
             placeholderClass=""
             icon={<IconPlusSmall />}
             sideIcon={null}
