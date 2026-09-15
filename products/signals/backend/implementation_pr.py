@@ -3,9 +3,10 @@
 import re
 from dataclasses import replace
 from datetime import datetime
-from typing import TYPE_CHECKING, Literal, cast
+from typing import TYPE_CHECKING, Literal
 from uuid import NAMESPACE_URL, uuid5
 
+from django.conf import settings
 from django.db.models import Q
 
 import structlog
@@ -14,14 +15,21 @@ from posthog.dataclasses import frozen
 from posthog.models.github_integration_base import GitHubIntegrationBase
 from posthog.models.integration import GitHubIntegration
 
+from products.signals.backend.github_actor import github_mention_for_user
 from products.signals.backend.models import (
     SignalActorKind,
     SignalReport,
     SignalReportArtefact,
     SignalReportAssignment,
     SignalReportPullRequest,
+    SignalReportTask,
 )
-from products.signals.backend.task_run_artefacts import NON_PR_BEARING_TASK_RUN_TYPES, SIGNALS_PRODUCT
+from products.signals.backend.task_run_artefacts import (
+    NON_PR_BEARING_TASK_RUN_TYPES,
+    SIGNALS_PRODUCT,
+    TASK_RUN_TYPE_DISCUSSION,
+    TASK_RUN_TYPE_IMPLEMENTATION,
+)
 from products.tasks.backend.facade import api as tasks_facade
 
 logger = structlog.get_logger(__name__)
@@ -34,6 +42,68 @@ if TYPE_CHECKING:
 _FINISHED_REPORT_STATUSES = frozenset(
     {SignalReport.Status.RESOLVED, SignalReport.Status.SUPPRESSED, SignalReport.Status.DELETED}
 )
+
+_PULL_REQUEST_URL_BODY = (
+    r"[A-Za-z][A-Za-z0-9+.-]*://(www\.)?github\.com/+[^/?#]+/+[^/?#]+/+pull/+[+-]?[ \t\r\n\f\v]*[0-9]+"
+)
+_PULL_REQUEST_URL_PATTERN = rf"^{_PULL_REQUEST_URL_BODY}([/?#].*)?$"
+_PULL_REQUEST_URL_ARRAY_PATTERN = rf'"{_PULL_REQUEST_URL_BODY}([/?#][^"]*)?"'
+_PR_BEARING_LEGACY_TASK_RELATIONSHIPS = (TASK_RUN_TYPE_IMPLEMENTATION, TASK_RUN_TYPE_DISCUSSION)
+
+
+def implementation_pr_report_filter(*, team_id: int, active_only: bool = False) -> Q:
+    assignment_pr = Q(assignment__team_id=team_id, assignment__pr_url__regex=_PULL_REQUEST_URL_PATTERN)
+    pull_request_links = SignalReportArtefact.objects.filter(
+        team_id=team_id,
+        type=SignalReportArtefact.ArtefactType.PULL_REQUEST,
+        pull_request__team_id=team_id,
+        pull_request__url__regex=_PULL_REQUEST_URL_PATTERN,
+    )
+    task_ids = tasks_facade.task_ids_with_pr_url_subquery(
+        team_id,
+        pr_bearing_task_run_filter(),
+        Q(output__pr_url__regex=_PULL_REQUEST_URL_PATTERN) | Q(output__pr_urls__regex=_PULL_REQUEST_URL_ARRAY_PATTERN),
+    )
+    task_run_artefacts = (
+        SignalReportArtefact.objects.filter(
+            team_id=team_id,
+            type=SignalReportArtefact.ArtefactType.TASK_RUN,
+            task_id__in=task_ids,
+            content__regex=rf'"product"\s*:\s*"{SIGNALS_PRODUCT}"',
+        )
+        .exclude(content__regex=rf'"type"\s*:\s*"({"|".join(sorted(NON_PR_BEARING_TASK_RUN_TYPES))})"')
+        .values("report_id")
+    )
+    legacy_tasks = SignalReportTask.objects.filter(
+        team_id=team_id,
+        task_id__in=task_ids,
+        relationship__in=_PR_BEARING_LEGACY_TASK_RELATIONSHIPS,
+    ).values("report_id")
+    assignment_tasks = SignalReportAssignment.all_teams.filter(
+        team_id=team_id,
+        actor_task_id__in=task_ids,
+    ).values("report_id")
+
+    if active_only:
+        active_states = [
+            SignalReportAssignment.PrState.UNKNOWN,
+            SignalReportAssignment.PrState.DRAFT,
+            SignalReportAssignment.PrState.OPEN,
+        ]
+        assignment_pr &= Q(assignment__pr_merged=False) & (
+            Q(assignment__pr_state__isnull=True)
+            | Q(assignment__pr_state="")
+            | Q(assignment__pr_state__in=active_states)
+        )
+        pull_request_links = pull_request_links.filter(pull_request__state__in=active_states)
+
+    return (
+        assignment_pr
+        | Q(id__in=pull_request_links.values("report_id"))
+        | Q(id__in=task_run_artefacts)
+        | Q(id__in=legacy_tasks)
+        | Q(id__in=assignment_tasks)
+    )
 
 
 @frozen
@@ -228,20 +298,28 @@ def report_ids_for_implementation_pr(*, team_id: int, repository: str, pr_number
 
 PrCloseReason = Literal["suppressed", "snoozed", "resolved"]
 
-# Left on the PR before it's closed, so anyone looking at the PR sees why it was closed and how to undo it.
-_PR_CLOSE_COMMENT_TEMPLATE = (
-    "🔕 Closing this PR because the linked PostHog report was {action}.\n\n"
-    "If that wasn't intended, restore the report in PostHog and reopen this PR."
-)
-_PR_CLOSE_COMMENTS: dict[PrCloseReason, str] = {
-    reason: _PR_CLOSE_COMMENT_TEMPLATE.format(action=reason)
-    for reason in cast(tuple[PrCloseReason, ...], ("suppressed", "snoozed"))
-}
-# A resolved report never reopens, so the undo advice above does not apply to it.
-_PR_CLOSE_COMMENTS["resolved"] = (
-    "🔕 Closing this PR because the linked PostHog report was resolved without it.\n\n"
-    "If that wasn't intended, reopen this PR."
-)
+
+def _pr_close_comment(reason: PrCloseReason, *, report_link: str, actor_mention: str | None) -> str:
+    """What the PR says about its own close.
+
+    Left on the PR before it closes, so anyone reading the PR sees why it closed, who decided it,
+    and how to undo it. The close itself goes out under the team's GitHub App, so this comment is
+    the only place the person behind it can appear.
+    """
+    if reason == "resolved":
+        opening = (
+            f"🔕 Closing this PR because {actor_mention} resolved the {report_link} without it."
+            if actor_mention
+            else f"🔕 Closing this PR because the {report_link} was resolved without it."
+        )
+        # A resolved report never reopens, so the restore advice below does not apply to it.
+        return f"{opening}\n\nIf that wasn't intended, reopen this PR."
+    opening = (
+        f"🔕 Closing this PR because {actor_mention} {reason} the {report_link}."
+        if actor_mention
+        else f"🔕 Closing this PR because the {report_link} was {reason}."
+    )
+    return f"{opening}\n\nIf that wasn't intended, restore the report in PostHog and reopen this PR."
 
 
 def _close_implementation_pr(
@@ -250,6 +328,7 @@ def _close_implementation_pr(
     *,
     reason: PrCloseReason = "suppressed",
     pr: ImplementationPr,
+    actor_user_id: int | None = None,
 ) -> bool:
     """Best-effort: comment on and close the GitHub PR attached to this report.
 
@@ -340,7 +419,15 @@ def _close_implementation_pr(
             return False
 
         # Explain first, close second. A failed comment should not stop the close.
-        comment_outcome = github.comment_on_pull_request(parsed.repository, parsed.number, _PR_CLOSE_COMMENTS[reason])
+        comment_outcome = github.comment_on_pull_request(
+            parsed.repository,
+            parsed.number,
+            _pr_close_comment(
+                reason,
+                report_link=f"[linked PostHog report]({settings.SITE_URL}/project/{team_id}/inbox/reports/{report_id})",
+                actor_mention=github_mention_for_user(actor_user_id),
+            ),
+        )
         if not comment_outcome.get("success"):
             logger.warning(
                 "close_implementation_pr_comment_failed",
@@ -375,13 +462,18 @@ def _close_implementation_pr(
         return False
 
 
-def close_implementation_pr_for_report(team_id: int, report_id: str, *, reason: PrCloseReason = "suppressed") -> bool:
+def close_implementation_pr_for_report(
+    team_id: int, report_id: str, *, reason: PrCloseReason = "suppressed", actor_user_id: int | None = None
+) -> bool:
     try:
         if not SignalReport.objects.filter(team_id=team_id, id=report_id).exists():
             return False
         closed = False
         for pr in fetch_implementation_prs_for_reports([str(report_id)], team_id=team_id).get(str(report_id), []):
-            closed = _close_implementation_pr(team_id, report_id, reason=reason, pr=pr) or closed
+            closed = (
+                _close_implementation_pr(team_id, report_id, reason=reason, pr=pr, actor_user_id=actor_user_id)
+                or closed
+            )
         return closed
     except Exception:
         logger.exception("close_implementation_pr_lookup_failed", report_id=str(report_id))

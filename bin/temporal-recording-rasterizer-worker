@@ -1,6 +1,7 @@
 #!/bin/bash
 
 set -e
+set -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -75,20 +76,24 @@ fi
 # the linux/amd64 emulation Docker uses on macOS. Local dev script only — prod
 # runs from the Helm chart, not this script.
 echo "Starting recording-rasterizer container..."
+video_storage_endpoint="${VIDEO_EXPORT_OBJECT_STORAGE_ENDPOINT:-http://posthog-objectstorage-1:19000}"
+if [[ "$video_storage_endpoint" =~ ^http://(127\.0\.0\.1|localhost)([:/?#].*)?$ ]]; then
+    video_storage_endpoint="http://host.docker.internal${BASH_REMATCH[2]}"
+fi
 # nosemgrep: trailofbits.generic.container-privileged.container-privileged
-docker run --rm \
+docker run --rm --security-opt seccomp=unconfined --security-opt apparmor=unconfined \
     --name "$CONTAINER_NAME" \
     --network posthog_default \
     --platform linux/amd64 \
     --add-host localhost:host-gateway \
-    --security-opt seccomp=unconfined \
-    --security-opt apparmor=unconfined \
+    --add-host host.docker.internal:host-gateway \
+    -e NODE_ENV=development \
     -e TEMPORAL_HOST="${TEMPORAL_HOST:-posthog-temporal-1}" \
     -e TEMPORAL_PORT="${TEMPORAL_PORT:-7233}" \
     -e RECORDING_API_BASE_URL="${RECORDING_API_BASE_URL:-http://host.docker.internal:6741}" \
     -e INTERNAL_API_SECRET="${INTERNAL_API_SECRET:-posthog123}" \
     -e SITE_URL="${SITE_URL:-http://host.docker.internal:8000}" \
-    -e VIDEO_EXPORT_OBJECT_STORAGE_ENDPOINT="${VIDEO_EXPORT_OBJECT_STORAGE_ENDPOINT:-http://posthog-objectstorage-1:19000}" \
+    -e VIDEO_EXPORT_OBJECT_STORAGE_ENDPOINT="$video_storage_endpoint" \
     -e AWS_ACCESS_KEY_ID=object_storage_root_user \
     -e AWS_SECRET_ACCESS_KEY=object_storage_root_password \
     -e DISABLE_BROWSER_SECURITY="${DISABLE_BROWSER_SECURITY:-1}" \

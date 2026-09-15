@@ -249,6 +249,7 @@ export function ViewsTab({ getViewUrl, suspensionByViewId }: ViewsTabProps = {})
                                     minAccessLevel={AccessControlLevel.Editor}
                                 >
                                     <LemonButton
+                                        fullWidth
                                         onClick={() => runMaterialization(view.id)}
                                         disabledReason={
                                             view.status === 'Running' ? 'Materialization is already running' : undefined
@@ -259,7 +260,9 @@ export function ViewsTab({ getViewUrl, suspensionByViewId }: ViewsTabProps = {})
                                 </AccessControlAction>
                             )}
                             {warehouseAccessControlEnabled && view.managed_viewset_kind === null && (
-                                <LemonButton onClick={() => openAccessControlModal(view)}>Access control</LemonButton>
+                                <LemonButton fullWidth onClick={() => openAccessControlModal(view)}>
+                                    Access control
+                                </LemonButton>
                             )}
                             <AccessControlAction
                                 resourceType={AccessControlResourceType.WarehouseObjects}
@@ -267,6 +270,7 @@ export function ViewsTab({ getViewUrl, suspensionByViewId }: ViewsTabProps = {})
                                 userAccessLevel={view.user_access_level}
                             >
                                 <LemonButton
+                                    fullWidth
                                     status="danger"
                                     onClick={() => deleteView(view.id)}
                                     disabledReason={getDisabledReason(view)}

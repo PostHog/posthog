@@ -388,6 +388,7 @@ def _finish_without_knowledge(
         "pii": "rejected_pii",
         "already_known": "rejected_already_known",
         "low_confidence": "rejected_not_useful",
+        "learned_cap_reached": "rejected_learned_cap",
     }.get(rejection_code, "rejected_not_useful")
     _increment_counter(metric_outcome)
     logger.info(
@@ -431,6 +432,8 @@ def _publish_candidate(
                 result="knowledge_created",
                 knowledge_document_id=published.id,
             )
+    except logic.LearnedSourceCapReached:
+        return _finish_without_knowledge(run, rejection_code="learned_cap_reached")
     except Exception:
         raise LearningAnalysisError("knowledge_publication_failed") from None
     _increment_counter("published")
@@ -460,6 +463,16 @@ def _analyze(run: KnowledgeLearningRun, input: AnalyzeLearningEvidenceInput) -> 
             result="ineligible",
             rejection_code="ineligible",
         )
+
+    source_id = logic.learned_source_id_for(
+        team_id=run.team_id,
+        provider=input.evidence.provider,
+        ticket_id=input.evidence.ticket_id,
+        resolution_comment_id=input.evidence.resolution_comment_id,
+        analysis_version=ANALYSIS_VERSION,
+    )
+    if not logic.can_publish_learned_source(team_id=run.team_id, source_id=source_id):
+        return _finish_without_knowledge(run, rejection_code="learned_cap_reached")
 
     provider = get_learning_provider(input.evidence.provider)
     if provider is None:

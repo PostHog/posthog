@@ -2670,6 +2670,8 @@ class ExternalDataSourceType(StrEnum):
     SKIO = "Skio"
     SMARTLEAD = "Smartlead"
     SUBSTACK = "Substack"
+    ELECTRICITY_MAPS = "ElectricityMaps"
+    AMPLEMARKET = "Amplemarket"
 
 
 class ExternalQueryErrorCode(StrEnum):
@@ -3346,6 +3348,10 @@ class MetricsDisplayType(StrEnum):
     AREA = "area"
     BAR = "bar"
     STAT = "stat"
+    GAUGE = "gauge"
+    BARGAUGE = "bargauge"
+    TABLE = "table"
+    HEATMAP = "heatmap"
 
 
 class MetricsFilterOp(StrEnum):
@@ -3355,12 +3361,27 @@ class MetricsFilterOp(StrEnum):
     NOT_REGEX = "not_regex"
 
 
+class MetricsNullMode(StrEnum):
+    GAP = "gap"
+    ZERO = "zero"
+    CONNECT = "connect"
+
+
 class MetricsOtelType(StrEnum):
     GAUGE = "gauge"
     SUM = "sum"
     HISTOGRAM = "histogram"
     EXPONENTIAL_HISTOGRAM = "exponential_histogram"
     SUMMARY = "summary"
+
+
+class MetricsReducer(StrEnum):
+    LAST = "last"
+    MEAN = "mean"
+    MIN = "min"
+    MAX = "max"
+    SUM = "sum"
+    DELTA = "delta"
 
 
 class MetricsStatSummary(StrEnum):
@@ -3603,6 +3624,7 @@ class ProductIntentContext(StrEnum):
     ERROR_TRACKING_ISSUE_SORTING = "error_tracking_issue_sorting"
     ERROR_TRACKING_DOCS_VIEWED = "error_tracking_docs_viewed"
     ERROR_TRACKING_ISSUE_EXPLAINED = "error_tracking_issue_explained"
+    ERROR_TRACKING_SCAN_WITH_VISION = "error_tracking_scan_with_vision"
     LLM_ANALYTICS_VIEWED = "llm_analytics_viewed"
     LLM_ANALYTICS_TRACE_VIEWED = "llm_analytics_trace_viewed"
     LLM_ANALYTICS_DOCS_VIEWED = "llm_analytics_docs_viewed"

@@ -13,10 +13,12 @@ from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import report_user_action
+from posthog.exceptions import as_drf_validation_error
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.permissions import OrganizationAdminReadPermissions, PostHogFeatureFlagPermission
 
+from products.alerts.backend.facade.contracts import AlertDestinationValidationError
 from products.billing_alerts.backend.facade import api as billing_alerts_api
 from products.billing_alerts.backend.facade.api import BillingAlertConfiguration
 from products.billing_alerts.backend.presentation.serializers import (
@@ -159,7 +161,10 @@ class BillingAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
 
-        hog_function_ids = billing_alerts_api.create_destination(alert, request=self.request, data=data)
+        try:
+            hog_function_ids = billing_alerts_api.create_destination(alert, request=self.request, data=data)
+        except AlertDestinationValidationError as error:
+            raise as_drf_validation_error(error)
 
         report_user_action(
             request.user,
@@ -182,7 +187,10 @@ class BillingAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         serializer.is_valid(raise_exception=True)
         hog_function_ids = serializer.validated_data["hog_function_ids"]
 
-        billing_alerts_api.delete_destination(alert, hog_function_ids)
+        try:
+            billing_alerts_api.delete_destination(alert, hog_function_ids)
+        except AlertDestinationValidationError as error:
+            raise as_drf_validation_error(error)
 
         report_user_action(
             request.user,

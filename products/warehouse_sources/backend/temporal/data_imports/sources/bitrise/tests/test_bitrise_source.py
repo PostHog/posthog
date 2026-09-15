@@ -44,9 +44,9 @@ class TestBitriseSource:
 
         assert {schema.name for schema in schemas} == set(ENDPOINTS)
         incremental = {schema.name for schema in schemas if schema.supports_incremental}
-        # Only builds (and artifacts, through their parent build fan-out) can be filtered
-        # server-side via the `after` Unix-timestamp param.
-        assert incremental == {"builds", "artifacts"}
+        # Only builds (and artifacts, through their parent build fan-out) and pipelines can be
+        # filtered server-side via the `after` param.
+        assert incremental == {"builds", "artifacts", "pipelines"}
 
     def test_incremental_schemas_advertise_their_fields(self):
         schemas = {schema.name: schema for schema in self.source.get_schemas(self.config, self.team_id)}
@@ -54,6 +54,7 @@ class TestBitriseSource:
         assert schemas["builds"].incremental_fields == INCREMENTAL_FIELDS["builds"]
         assert [f["field"] for f in schemas["builds"].incremental_fields] == ["triggered_at"]
         assert [f["field"] for f in schemas["artifacts"].incremental_fields] == ["build_triggered_at"]
+        assert [f["field"] for f in schemas["pipelines"].incremental_fields] == ["triggered_at"]
         assert schemas["apps"].incremental_fields == []
         # Builds mutate after creation, so append mode is never offered.
         assert all(schema.supports_append is False for schema in schemas.values())
