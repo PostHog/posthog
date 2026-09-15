@@ -5,10 +5,12 @@ import pytest
 
 from products.signals.backend.report_charts import ReportChart
 from products.signals.backend.report_generation.research import (
+    FixVerificationOutput,
     ReportPresentationOutput,
     SignalFinding,
     _render_previous_metrics_context,
     _render_signal_for_research,
+    build_fix_verification_prompt,
     build_initial_research_prompt,
     build_report_presentation_prompt,
     build_signal_investigation_prompt,
@@ -152,6 +154,46 @@ class TestBuildInitialResearchPrompt:
         if not has_previous_finding:
             assert "There is no previous finding for this signal" in initial_prompt
             assert "There is no previous finding for this signal" in followup_prompt
+
+
+class TestBuildFixVerificationPrompt:
+    def test_is_a_final_step_based_on_completed_research(self):
+        prompt = build_fix_verification_prompt()
+
+        assert "As the final step" in prompt
+        assert "Do not do more research in this turn" in prompt
+        assert "Do not prescribe a resolution" in prompt
+        assert "In `current_state`" in prompt
+        assert "In `outcome`" in prompt
+        assert "query, test, log search, replay, code review, or manual check" in prompt
+        assert "What evidence to collect" in prompt
+        assert "What result supports the conclusion" in prompt
+        assert "What result is inconclusive" in prompt
+        assert "Missing data, insufficient traffic, and failed checks are inconclusive" in prompt
+        assert "Do not invent tool arguments, IDs, events, baselines, or numerical thresholds" in prompt
+        assert '"current_state"' in prompt
+        assert '"outcome"' in prompt
+
+    def test_formats_plan_as_a_note_with_the_expected_headings(self):
+        current_state = (
+            'Run query-trends with {"kind":"TrendsQuery","dateRange":{"date_from":"-1h"},'
+            '"interval":"hour","series":[{"kind":"EventsNode","event":"upload_failed","math":"total"},'
+            '{"kind":"EventsNode","event":"upload_completed","math":"total"}]}. '
+            "Any upload_failed events confirm that uploads still fail. No upload events is inconclusive."
+        )
+        outcome = (
+            "Repeat the same query after the chosen resolution, once an hour of traffic is available. Use a window "
+            "that excludes earlier data. Zero upload_failed events alongside "
+            "upload_completed events supports recovery; any failure means the issue still occurs. "
+            "No upload events or a failed query is inconclusive."
+        )
+        result = FixVerificationOutput(current_state=f" {current_state} ", outcome=f" {outcome} ")
+
+        assert result.to_note().note == (
+            f"## Verification plan\n\n"
+            f"### Confirm the current state\n\n{current_state}\n\n"
+            f"### Confirm the outcome\n\n{outcome}"
+        )
 
 
 def _make_chart() -> ReportChart:

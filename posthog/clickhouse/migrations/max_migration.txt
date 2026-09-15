@@ -1,1 +1,1 @@
-0321_drop_metrics1_materialized_views
+0322_add_snapshot_mode_v2_to_session_replay_events
