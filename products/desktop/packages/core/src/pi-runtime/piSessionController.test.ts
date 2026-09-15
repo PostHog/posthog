@@ -900,6 +900,77 @@ describe("PiSessionController", () => {
     expect(unsubscribe).toHaveBeenCalledOnce();
   });
 
+  it.each([false, true])(
+    "releases an aborted pending turn with completion event: %s",
+    async (receivesCompletion) => {
+      const staleSession = {
+        ...createSession(),
+        resumeRequired: true,
+        taskRunId: "run-1",
+        sendUserMessage: vi.fn(async () => {}),
+      };
+      const session = {
+        ...createSession(),
+        sendUserMessage: vi.fn(async () => {}),
+      };
+      let onEvent: (event: AgentConversationEvent) => void = () => {};
+      const unsubscribe = vi.fn();
+      vi.mocked(session.onConversationEvent).mockImplementation((handler) => {
+        onEvent = handler;
+        return unsubscribe;
+      });
+      const provider = {
+        get: vi
+          .fn()
+          .mockResolvedValueOnce(staleSession)
+          .mockResolvedValue(session),
+      };
+      const taskService = {
+        resumeCloudPiRun: vi.fn(async () => ({ id: "run-2" })),
+        prepareCloudPiMessage: vi.fn(async () => ({
+          content: "continue",
+          artifactIds: [],
+        })),
+      } as unknown as TaskService;
+      const notifier = { notify: vi.fn() };
+      const controller = new PiSessionController(
+        provider,
+        taskService,
+        undefined,
+        notifier,
+      );
+      controller.setNotificationContext("task-1", { taskTitle: "Continue" });
+
+      await controller.connect("task-1");
+      await controller.submit("task-1", "continue", false, "steer");
+      vi.mocked(session.client.abort).mockRejectedValueOnce(
+        new Error("Unable to stop"),
+      );
+      await expect(controller.abort("task-1")).rejects.toThrow(
+        PiOperationError,
+      );
+      expect(
+        controller.store.getState().sessions["task-1"].status?.isStreaming,
+      ).toBe(true);
+
+      await controller.abort("task-1");
+      expect(
+        controller.store.getState().sessions["task-1"].status?.isStreaming,
+      ).toBe(false);
+      if (receivesCompletion) {
+        onEvent({ type: "turn_completed", timestamp: Date.now() });
+        expect(notifier.notify).toHaveBeenCalledWith(
+          expect.objectContaining({ stopReason: "cancelled" }),
+        );
+      } else {
+        expect(notifier.notify).not.toHaveBeenCalled();
+      }
+      controller.release("task-1");
+      expect(unsubscribe).toHaveBeenCalledOnce();
+      expect(controller.store.getState().sessions["task-1"].events).toEqual([]);
+    },
+  );
+
   it("keeps a background cloud session until the run ends", async () => {
     const session: PiSession = {
       ...createSession(),

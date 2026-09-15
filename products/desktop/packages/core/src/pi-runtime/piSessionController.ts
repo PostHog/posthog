@@ -706,6 +706,15 @@ export class PiSessionController {
     try {
       const session = await this.getPiSession(taskId);
       await session.client.abort();
+      const currentTurn = this.turnStates.get(taskId);
+      if (currentTurn?.phase === "pending" || currentTurn?.phase === "active") {
+        this.turnStates.set(taskId, {
+          phase: "active",
+          startedAt: currentTurn.startedAt,
+          stopReason: "cancelled",
+        });
+      }
+      this.setTurnStreaming(taskId, false);
       await this.refreshStatus(taskId);
     } catch (error) {
       throw this.recordOperationFailure(taskId, "cancel", error);
