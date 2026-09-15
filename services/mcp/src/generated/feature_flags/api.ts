@@ -1018,8 +1018,9 @@ export const FeatureFlagsRollOutToEveryoneCreateBody = () => zod.object({
     version: zod
         .number()
         .min(featureFlagsRollOutToEveryoneCreateBodyVersionMin)
+        .nullable()
         .describe(
-            'The `version` from your most recent read of this flag. The change is refused with 409 if anyone else changed the flag after that version.'
+            'The `version` from your most recent read of this flag. The change is refused with 409 if anyone else changed the flag after that version. A flag written before versioning reads as `null`; send that back unchanged and it is read as 0, so the value a read returns is always one this accepts.'
         ),
     variant_key: zod
         .string()
@@ -1076,8 +1077,9 @@ export const FeatureFlagsSetReleaseConditionRolloutCreateBody = () => zod.object
     version: zod
         .number()
         .min(featureFlagsSetReleaseConditionRolloutCreateBodyVersionMin)
+        .nullable()
         .describe(
-            'The `version` from your most recent read of this flag. The change is refused with 409 if anyone else changed the flag after that version.'
+            'The `version` from your most recent read of this flag. The change is refused with 409 if anyone else changed the flag after that version. A flag written before versioning reads as `null`; send that back unchanged and it is read as 0, so the value a read returns is always one this accepts.'
         ),
 })
 
