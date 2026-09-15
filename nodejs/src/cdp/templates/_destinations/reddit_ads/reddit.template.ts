@@ -137,14 +137,14 @@ if (res.status >= 400) {
             key: 'userProperties',
             type: 'dictionary',
             description:
-                'Map of Reddit user parameters and their values. Check out this page for more details: https://business.reddithelp.com/s/article/manual-conversion-events-with-the-reddit-pixel',
+                'Map of Reddit user parameters and their values. Reddit expects email and ip_address as lowercase SHA-256 hex digests. The default entries hash them for you. If you point either one at a different property, keep the sha256Hex call. Without it, the value is sent in clear text and Reddit cannot match it. Other parameters, such as user_agent and screen_dimensions, are sent unchanged. Check out this page for more details: https://business.reddithelp.com/s/article/manual-conversion-events-with-the-reddit-pixel',
             label: 'User parameters',
             default: {
-                email: '{person.properties.email}',
+                email: "{typeof(person.properties.email) == 'string' and not empty(person.properties.email) ? sha256Hex(lower(person.properties.email)) : null}",
                 screen_dimensions:
                     "{{'width': person.properties.$screen_width, 'height': person.properties.$screen_height}}",
                 user_agent: '{person.properties.$raw_user_agent}',
-                ip: '{sha256Hex(event.properties.$ip)}', // use event properties here, as $ip is not a person property
+                ip_address: '{sha256Hex(event.properties.$ip)}', // use event properties here, as $ip is not a person property
             },
             secret: false,
             required: false,
