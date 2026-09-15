@@ -11,6 +11,7 @@ from uuid import UUID
 from django.db import transaction
 from django.utils import timezone
 
+from posthog.dataclasses import frozen
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
@@ -49,6 +50,16 @@ class AssigneeValidationError(Exception):
 
 class InvalidIssueStatusError(Exception):
     pass
+
+
+class MergeTargetsStaleError(Exception):
+    """No issue of the merge request exists any more, so there is nothing to merge."""
+
+
+@frozen
+class MergeIssuesOutcome:
+    result: ErrorTrackingIssueMergeResult
+    target_issue_id: UUID
 
 
 _CLICKHOUSE_VISIBLE_ISSUE_STATE_FIELDS = ("status", "severity", "name", "description")
@@ -166,12 +177,33 @@ def update_issue(
     return issue
 
 
+def _resolve_merge_target(team_id: int, requested_ids: list[str]) -> ErrorTrackingIssue:
+    """Return the first requested issue that still exists, which the merge writes into.
+
+    The issue list reads from ClickHouse, so a row outlives the delete of its Postgres issue.
+    A user who merges that row again asks for a target that cannot exist. The merge then falls
+    back to another issue of the same request, instead of failing on every retry.
+    """
+    issues = {
+        str(issue.id): issue
+        for issue in ErrorTrackingIssue.objects.filter(team_id=team_id, id__in=requested_ids).select_related(
+            "team__organization"
+        )
+    }
+    for requested_id in requested_ids:
+        issue = issues.get(requested_id)
+        if issue is not None:
+            return issue
+    raise MergeTargetsStaleError
+
+
 def merge_issues(
     team_id: int, issue_id: UUID, source_ids: list[str], *, user: User, was_impersonated: bool
-) -> ErrorTrackingIssueMergeResult:
-    issue = _get_issue(team_id, issue_id, select_related=("team__organization",))
+) -> MergeIssuesOutcome:
+    requested_ids = [str(issue_id), *source_ids]
+    issue = _resolve_merge_target(team_id, requested_ids)
     # Make sure we don't delete the issue being merged into (defensive of frontend bugs)
-    ids = [x for x in source_ids if x != str(issue.id)]
+    ids = [x for x in requested_ids if x != str(issue.id)]
     result, merged_issue_ids = issue.merge(issue_ids=ids)
 
     if result == ErrorTrackingIssueMergeResult.MERGED:
@@ -200,7 +232,7 @@ def merge_issues(
             extra_properties={"merged_issue_ids": merged_id_strings},
         )
 
-    return result
+    return MergeIssuesOutcome(result=result, target_issue_id=issue.id)
 
 
 def split_issue(

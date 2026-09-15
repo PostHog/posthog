@@ -1325,10 +1325,6 @@ export class ApiRequest {
         return this.errorTrackingIssues(teamId).addPathComponent(id)
     }
 
-    public errorTrackingIssueMerge(into: ErrorTrackingIssue['id']): ApiRequest {
-        return this.errorTrackingIssue(into).addPathComponent('merge')
-    }
-
     public errorTrackingIssueSplit(into: ErrorTrackingIssue['id']): ApiRequest {
         return this.errorTrackingIssue(into).addPathComponent('split')
     }
@@ -4216,15 +4212,6 @@ const api = {
             assignee: ErrorTrackingIssue['assignee']
         ): Promise<{ content: string }> {
             return await new ApiRequest().errorTrackingIssueBulk().create({ data: { action: 'assign', ids, assignee } })
-        },
-
-        async mergeInto(
-            primaryIssueId: ErrorTrackingIssue['id'],
-            mergingIssueIds: ErrorTrackingIssue['id'][]
-        ): Promise<{ content: string }> {
-            return await new ApiRequest()
-                .errorTrackingIssueMerge(primaryIssueId)
-                .create({ data: { ids: mergingIssueIds } })
         },
 
         async split(

@@ -94,6 +94,15 @@ export interface issuesDataNodeLogicActions {
     mergeIssues: (ids: string[]) => {
         ids: string[]
     } // issueActionsLogic
+    mergeIssuesSuccess: (
+        primaryId: string,
+        targetId: string,
+        merged: boolean
+    ) => {
+        merged: boolean
+        primaryId: string
+        targetId: string
+    } // issueActionsLogic
     mutationFailure: (
         mutationName: string,
         error: unknown
@@ -284,6 +293,7 @@ export const issuesDataNodeLogic = kea<issuesDataNodeLogicType>([
                 issueActionsLogic,
                 [
                     'mergeIssues',
+                    'mergeIssuesSuccess',
                     'resolveIssues',
                     'suppressIssues',
                     'activateIssues',
@@ -466,6 +476,14 @@ export const issuesDataNodeLogic = kea<issuesDataNodeLogicType>([
                         results: results.map((issue) => (issue.id === id ? { ...issue, severity } : issue)),
                     })
                 }
+            }
+        },
+
+        mergeIssuesSuccess: ({ primaryId, targetId, merged }) => {
+            // The optimistic collapse keeps the first selected row. Reload when the merge wrote into
+            // another issue, or when it moved nothing, because that row is gone in both cases.
+            if (!merged || primaryId !== targetId) {
+                actions.reloadData()
             }
         },
 
