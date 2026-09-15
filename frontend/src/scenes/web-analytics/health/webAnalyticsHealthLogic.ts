@@ -92,6 +92,20 @@ const WEB_HEALTH_CHECKS: WebHealthCheckConfig[] = [
         docsUrl: 'https://posthog.com/docs/web-analytics/scroll-depth',
     },
     {
+        id: HealthCheckId.MISSING_SESSION_ID,
+        kind: 'missing_session_id',
+        category: 'events',
+        title: 'Session IDs',
+        passingDescription: 'Pageviews carry a session ID that web analytics can use.',
+        failingDescription:
+            'Some pageviews arrive without a session ID that web analytics can use. Web analytics needs a UUIDv7, and leaves out any pageview without one, so your visitor and session counts come in low. This usually means events are sent server-side or through a pipeline that omits the session ID.',
+        failingAction: {
+            label: 'Set up session IDs',
+            to: 'https://posthog.com/docs/data/sessions#custom-session-ids',
+        },
+        docsUrl: 'https://posthog.com/docs/data/sessions#custom-session-ids',
+    },
+    {
         id: HealthCheckId.AUTHORIZED_URLS,
         kind: 'authorized_urls',
         category: 'configuration',
