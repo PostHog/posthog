@@ -2,6 +2,7 @@ import uuid
 import asyncio
 import datetime as dt
 import contextlib
+from http.client import IncompleteRead
 
 import pytest
 from unittest.mock import MagicMock, patch
@@ -631,6 +632,7 @@ async def test_astream_query_as_arrow_reports_why_the_query_stopped(
                 pass
 
     assert expected_fragment in str(exc_info.value)
+    assert EVENT_PAYLOAD_MARKER not in str(exc_info.value)
     # Waiting out a flush interval for an answer already in hand would be wasted latency.
     assert bool(log_reads) is reads_log
 
@@ -688,8 +690,13 @@ class _FakeRawStream:
         self.closed = True
 
 
+# An export streams event properties and distinct IDs. A recovered error is stored on the
+# run, logged, and emitted as an event, so none of these bytes may reach it.
+EVENT_PAYLOAD_MARKER = "properties-of-a-person@example.com"
+
+
 def _arrow_stream_bytes() -> bytes:
-    batch = pa.record_batch([pa.array([1, 2, 3])], names=["id"])
+    batch = pa.record_batch([pa.array([EVENT_PAYLOAD_MARKER] * 512)], names=["properties"])
     sink = pa.BufferOutputStream()
     with pa.ipc.new_stream(sink, batch.schema) as writer:
         writer.write_batch(batch)
@@ -717,8 +724,21 @@ def _arrow_stream_bytes() -> bytes:
             "IncompleteRead",
             True,
         ),
+        (
+            _arrow_stream_bytes(),
+            urllib3.exceptions.ProtocolError("Connection broken", IncompleteRead(CLICKHOUSE_TRAILER)),
+            None,
+            ClickHouseMemoryLimitExceededError,
+            "241",
+            False,
+        ),
     ],
-    ids=["trailer_names_the_error", "cut_first_log_answers", "cut_first_log_silent"],
+    ids=[
+        "trailer_names_the_error",
+        "cut_first_log_answers",
+        "cut_first_log_silent",
+        "cut_keeps_the_trailer_in_the_failed_read",
+    ],
 )
 async def test_stream_query_as_arrow_reports_why_the_query_stopped(
     clickhouse_client, payload, raw_error, recorded, expected_type, expected_fragment, reads_log

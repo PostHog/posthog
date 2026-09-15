@@ -19,6 +19,8 @@ from django.conf import settings
 
 import aiohttp
 import pyarrow as pa
+import requests
+import urllib3.connection
 from structlog import get_logger
 from temporalio import activity
 
@@ -107,10 +109,61 @@ class ClickHouseQueryStatus(enum.StrEnum):
 # watched fail moments ago.
 QUERY_LOG_FLUSH_WAIT_SECONDS = 10.0
 
-# Without a read timeout a half-open socket blocks the calling thread until TCP gives up.
-# The read bound must clear the silence before ClickHouse sends an export's first block.
 STREAM_CONNECT_TIMEOUT_SECONDS = 30.0
-STREAM_READ_TIMEOUT_SECONDS = 600.0
+
+# ClickHouse can stay silent for as long as the query runs before it sends the first block,
+# and that allowance is a day, so no read timeout can tell a slow query from a dead peer.
+# Keepalive probes answer instead, the same way the async client's socket factory does.
+KEEPALIVE_SOCKET_OPTIONS: list[tuple[int, int, int]] = [
+    *(urllib3.connection.HTTPConnection.default_socket_options or []),
+    (socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1),
+]
+if sys.platform == "linux":
+    KEEPALIVE_SOCKET_OPTIONS += [
+        (socket.IPPROTO_TCP, socket.TCP_KEEPIDLE, 60),
+        (socket.IPPROTO_TCP, socket.TCP_KEEPINTVL, 10),
+        (socket.IPPROTO_TCP, socket.TCP_KEEPCNT, 5),
+    ]
+
+# The error ClickHouse writes into a response it has already started sending. The bytes
+# around it are the last Arrow record batch, so match the line rather than keeping the window.
+CLICKHOUSE_EXCEPTION_PATTERN = re.compile(rb"Code: \d+\. DB::Exception:")
+
+
+class KeepaliveHTTPAdapter(requests.adapters.HTTPAdapter):
+    """Adapter whose connections send TCP keepalive probes."""
+
+    def init_poolmanager(self, *args: typing.Any, **kwargs: typing.Any) -> None:
+        kwargs["socket_options"] = KEEPALIVE_SOCKET_OPTIONS
+        super().init_poolmanager(*args, **kwargs)
+
+
+def extract_clickhouse_exception(trailer: bytes) -> str | None:
+    """Return the error ClickHouse wrote at the end of a response body, if it wrote one.
+
+    Takes the error line only. What precedes it is tenant event data, and the exception
+    built from it is stored on the batch export run, logged, and emitted as an event.
+    """
+    matches = list(CLICKHOUSE_EXCEPTION_PATTERN.finditer(trailer))
+    if not matches:
+        return None
+
+    return trailer[matches[-1].start() :].decode("utf-8", errors="replace")
+
+
+def read_partial_bytes(error: BaseException) -> bytes:
+    """Return the bytes a truncated read had already accumulated, if it kept them.
+
+    urllib3 raises `ProtocolError` holding an `IncompleteRead` with the partial body. The
+    Arrow parser asks for a huge read once it misreads the error text as a message length,
+    so the trailer usually lands inside the read that fails rather than in the tail.
+    """
+    for candidate in (error, *error.args):
+        partial = getattr(candidate, "partial", None)
+        if isinstance(partial, bytes):
+            return partial
+
+    return b""
 
 
 class TailCapturingStream(io.RawIOBase):
@@ -132,8 +185,12 @@ class TailCapturingStream(io.RawIOBase):
 
     def read(self, size: int = -1) -> bytes:
         data = self._stream.read(size)
-        self._tail.extend(data)
-        if len(self._tail) > self._limit:
+        # pyarrow asks for a whole record batch in one read, so copying `data` before
+        # trimming would duplicate every block to retain a few kilobytes of it.
+        if len(data) >= self._limit:
+            self._tail[:] = data[-self._limit :]
+        else:
+            self._tail.extend(data)
             del self._tail[: len(self._tail) - self._limit]
         return data
 
@@ -604,7 +661,7 @@ class ClickHouseClient:
         *data,
         query_parameters,
         query_id,
-        timeout: float | tuple[float, float] | None = None,
+        timeout: float | tuple[float, float] | tuple[float, None] | None = None,
     ) -> collections.abc.Iterator:
         """POST a query to the ClickHouse HTTP interface.
 
@@ -620,8 +677,8 @@ class ClickHouseClient:
             query_id: A query ID to pass to ClickHouse.
             timeout: Optional requests-style timeout — a (connect, read) tuple or a single
                 float for both. The read timeout applies to every blocking socket read,
-                including body reads while streaming the response, so a half-open connection
-                raises instead of blocking the calling thread until TCP gives up. None (the
+                including body reads while streaming the response, so it must clear the
+                silence before ClickHouse sends the first block of a result. None (the
                 default) preserves the historical unbounded behavior.
 
         Returns:
@@ -649,6 +706,8 @@ class ClickHouseClient:
         add_log_comment_param(params)
 
         with internal_requests_session() as s:
+            s.mount("http://", KeepaliveHTTPAdapter())
+            s.mount("https://", KeepaliveHTTPAdapter())
             response = s.post(
                 url=self.url,
                 params=params,
@@ -917,11 +976,11 @@ class ClickHouseClient:
     ) -> typing.NoReturn:
         """Sync counterpart of `araise_error_behind_broken_stream`.
 
-        `trailer` holds the bytes the Arrow parser last read, which is where the error text
-        lands when it wins the race with the cut. The query log answers when it does not.
+        `trailer` holds the bytes the Arrow parser last read. The error text lands there, or
+        in the read that failed, when it wins the race with the cut. The query log answers
+        when it does not.
         """
-        if trailer:
-            self.raise_error_in_trailer(trailer, query_id, stream_error)
+        self.raise_error_in_trailer(trailer + read_partial_bytes(stream_error), query_id, stream_error)
 
         if query_id is not None:
             # Blocks the calling thread, and the event loop reading it, but only on a failed export.
@@ -941,12 +1000,12 @@ class ClickHouseClient:
         The tail is whatever the Arrow parser choked on, so it is an error message only
         when the query died mid-stream. Anything else is left to the caller to explain.
         """
-        text = trailer.decode("utf-8", errors="replace")
-        if "DB::Exception" not in text:
+        error_message = extract_clickhouse_exception(trailer)
+        if error_message is None:
             return
 
         try:
-            self.raise_clickhouse_error(text, query_id=query_id)
+            self.raise_clickhouse_error(error_message, query_id=query_id)
         except ClickHouseError as recorded:
             raise recorded from stream_error
 
@@ -1068,7 +1127,7 @@ class ClickHouseClient:
         *data,
         query_parameters=None,
         query_id: str | None = None,
-        timeout: float | tuple[float, float] | None = (STREAM_CONNECT_TIMEOUT_SECONDS, STREAM_READ_TIMEOUT_SECONDS),
+        timeout: float | tuple[float, float] | tuple[float, None] | None = (STREAM_CONNECT_TIMEOUT_SECONDS, None),
     ) -> typing.Generator[pa.RecordBatch]:
         """Execute the given query in ClickHouse and stream back the response as Arrow record batches.
 
