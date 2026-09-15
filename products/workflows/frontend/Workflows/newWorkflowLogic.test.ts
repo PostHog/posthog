@@ -19,8 +19,11 @@ const AI_FIRST_FLAGS = [
 ]
 
 describe('newWorkflowLogic', () => {
-    const setFlags = (flags: string[]): void => {
-        featureFlagLogic.actions.setFeatureFlags(flags, Object.fromEntries(flags.map((flag) => [flag, true])))
+    const setFlags = (flags: string[], variants: Record<string, string | boolean> = {}): void => {
+        featureFlagLogic.actions.setFeatureFlags(flags, {
+            ...Object.fromEntries(flags.map((flag) => [flag, true])),
+            ...variants,
+        })
     }
 
     beforeEach(() => {

@@ -92,10 +92,13 @@ export const newWorkflowLogic = kea<newWorkflowLogicType>([
     }),
     selectors({
         // The composer is the side panel's runner, so it needs the same gate as the scene integration.
+        // The flag is an experiment: only the `test` variant (or a plain boolean rollout) qualifies.
         aiFirstNewEnabled: [
             (s) => [s.featureFlags, s.sceneIntegrationEnabled],
-            (featureFlags: FeatureFlagsSet, sceneIntegrationEnabled: boolean): boolean =>
-                !!featureFlags[FEATURE_FLAGS.WORKFLOWS_AI_FIRST_NEW] && sceneIntegrationEnabled,
+            (featureFlags: FeatureFlagsSet, sceneIntegrationEnabled: boolean): boolean => {
+                const variant = featureFlags[FEATURE_FLAGS.WORKFLOWS_AI_FIRST_NEW]
+                return (variant === true || variant === 'test') && sceneIntegrationEnabled
+            },
         ],
         // Template, template-edit and trigger-prefill deep links already carry a starting point, and the
         // escape hatch marks its own route, so all of those land in the editor as before.
@@ -111,6 +114,8 @@ export const newWorkflowLogic = kea<newWorkflowLogicType>([
     }),
     listeners(({ actions, values }) => ({
         startNewWorkflow: () => {
+            // Records the experiment exposure at the decision point rather than on app load.
+            posthog.getFeatureFlag(FEATURE_FLAGS.WORKFLOWS_AI_FIRST_NEW)
             if (values.aiFirstNewEnabled) {
                 router.actions.push(urls.workflowNew())
             } else {
