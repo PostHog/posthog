@@ -37,12 +37,14 @@ import dagster
 import psycopg2
 import pydantic
 import psycopg2.extensions
+from prometheus_client import Gauge
 
 from posthog.clickhouse.cluster import ClickhouseCluster
 from posthog.clickhouse.custom_metrics import MetricsClient
-from posthog.dags.clickhouse_cleanup import PG_CLEANUP_QUEUE_TABLE
+from posthog.dags.clickhouse_cleanup import PG_CLEANUP_QUEUE_TABLE, PublishedGauge
 from posthog.dags.common import JobOwners
 from posthog.dataclasses import frozen
+from posthog.metrics import pushed_metrics_registry
 from posthog.personhog_client.client import PersonHogClient, personhog_call, require_personhog_client
 from posthog.personhog_client.proto import DeleteTombstonedPersonsRequest, DeleteTombstonedPersonsResponse
 
@@ -50,6 +52,8 @@ logger = dagster.get_dagster_logger(__name__)
 
 PERSONHOG_CALLER_TAG = "clickhouse_cleanup/person-pg-drain"
 PG_APPLICATION_NAME = "person_pg_cleanup_drain"
+# Pushing replaces every gauge stored under this name, so one push carries the whole set.
+DRAIN_METRICS_JOB = "person_pg_cleanup_drain"
 
 # Server-side cap on DeleteTombstonedPersonsRequest.person_uuids.
 RPC_MAX_UUIDS = 1000
@@ -206,6 +210,7 @@ class Chunk:
 
 @frozen(frozen=False)
 class DrainTotals:
+    dry_run: bool = False
     rows_read: int = 0
     pages: int = 0
     chunks: int = 0
@@ -451,7 +456,7 @@ class _Drain:
         self.client = client
         self.persons_database_url = persons_database_url
         self.connection: psycopg2.extensions.connection | None = None
-        self.totals = DrainTotals()
+        self.totals = DrainTotals(dry_run=config.dry_run)
         self.step_rows = min(STEP_START_ROWS, config.max_rows_per_request)
         self.totals.step_rows_min = self.totals.step_rows_max = self.step_rows
         self.successes_at_step = 0
@@ -787,6 +792,82 @@ def drain_person_pg_cleanup_queue(
     return totals
 
 
+def _drain_gauges(totals: DrainTotals, completed_at: float) -> list[PublishedGauge]:
+    prefix = "posthog_person_pg_cleanup_drain_"
+    return [
+        PublishedGauge(
+            name=f"{prefix}last_success_timestamp_seconds",
+            help_text="Unix time when the drain last finished a live run",
+            value=completed_at,
+        ),
+        PublishedGauge(
+            name=f"{prefix}queue_rows_estimate_at_start",
+            help_text="Queue rows the planner estimated when the run started",
+            value=totals.queue_rows_estimate_at_start,
+        ),
+        PublishedGauge(name=f"{prefix}rows_read", help_text="Queue rows the run read", value=totals.rows_read),
+        PublishedGauge(
+            name=f"{prefix}persons_deleted", help_text="Persons the run hard-deleted", value=totals.persons_deleted
+        ),
+        PublishedGauge(
+            name=f"{prefix}persons_blocked",
+            help_text="Tombstoned persons personhog reported as still owning a live distinct id",
+            value=totals.persons_blocked,
+        ),
+        PublishedGauge(
+            name=f"{prefix}rows_deleted", help_text="Dependent rows the run deleted", value=totals.rows_deleted
+        ),
+        PublishedGauge(
+            name=f"{prefix}rows_stamped_blocked",
+            help_text="Queue rows the run stamped blocked_at",
+            value=totals.rows_stamped_blocked,
+        ),
+        PublishedGauge(
+            name=f"{prefix}requests_pending_resent",
+            help_text="Requests sent again for persons personhog returned as pending",
+            value=totals.requests_pending_resent,
+        ),
+        PublishedGauge(
+            name=f"{prefix}step_rows_min",
+            help_text="Smallest row budget a request used; it halves after timeouts",
+            value=totals.step_rows_min,
+        ),
+        PublishedGauge(
+            name=f"{prefix}rpc_errors", help_text="Failed personhog attempts, all retried", value=totals.rpc_errors
+        ),
+        PublishedGauge(
+            name=f"{prefix}pg_reconnects",
+            help_text="Times the persons Postgres connection was reopened",
+            value=totals.pg_reconnects,
+        ),
+        PublishedGauge(
+            name=f"{prefix}rpc_seconds_max",
+            help_text="Slowest successful personhog request",
+            value=max(totals.rpc_seconds, default=0.0),
+        ),
+    ]
+
+
+@dagster.op
+def publish_drain_metrics(context: dagster.OpExecutionContext, totals: DrainTotals) -> DrainTotals:
+    """Publish what the run measured, so alerting and dashboards can read it.
+
+    A dry run publishes nothing. It deletes nothing, so moving the last-success gauge would let an
+    ad-hoc run from the Dagster UI mask a drain that has stopped working.
+    """
+    if totals.dry_run:
+        context.log.info("dry run: publishing no metrics")
+        return totals
+
+    gauges = _drain_gauges(totals, time.time())
+    with pushed_metrics_registry(DRAIN_METRICS_JOB) as registry:
+        for gauge in gauges:
+            Gauge(gauge.name, gauge.help_text, registry=registry).set(gauge.value)
+
+    context.add_output_metadata({gauge.name: dagster.MetadataValue.float(gauge.value) for gauge in gauges})
+    return totals
+
+
 @dagster.job(
     tags={
         "owner": JobOwners.TEAM_INGESTION.value,
@@ -798,4 +879,4 @@ def drain_person_pg_cleanup_queue(
 )
 def person_pg_cleanup_drain_job():
     """Hard-delete the Postgres rows of persons the ClickHouse sweep has already removed."""
-    drain_person_pg_cleanup_queue()
+    publish_drain_metrics(drain_person_pg_cleanup_queue())
