@@ -44,7 +44,11 @@ import type {
     PaginatedFeatureRequestListApi,
     FeatureRequestPriorityEnumApi,
 } from '../../generated/api.schemas'
-import { getFeatureRequestBackLabel, getFeatureRequestBackUrl } from './featureRequestNavigation'
+import {
+    getFeatureRequestBackLabel,
+    getFeatureRequestBackUrl,
+    getFeatureRequestDetailUrl,
+} from './featureRequestNavigation'
 import {
     FEATURE_REQUEST_ORDERING_OPTIONS,
     FEATURE_REQUEST_PRIORITY_FILTER_OPTIONS,
@@ -62,6 +66,16 @@ export interface FeatureRequestImage {
     imageId: string
     account: FeatureRequestAccountApi
     evidence: FeatureRequestEvidenceApi
+}
+
+/** Values another surface passes when it opens the create modal on the customer's behalf. */
+export interface FeatureRequestCreatePrefill {
+    /** Analytics group key of the customer, matched against the accounts' external IDs. */
+    accountExternalId?: string | null
+    evidenceSource?: string
+    evidenceSourceUrl?: string
+    /** Internal path the created request links back to, such as the ticket the request came from. */
+    origin?: string
 }
 
 export function featureRequestAccountElementId(accountId: string): string {
@@ -232,6 +246,7 @@ export interface featureRequestsLogicValues {
         key: string
         label: string
     }[]
+    accountPrefillUnresolved: boolean
     accountSearch: string
     accounts: AccountApi[]
     accountsError: string | null
@@ -253,6 +268,7 @@ export interface featureRequestsLogicValues {
     addingAccount: boolean
     archiveState: FeatureRequestArchiveState
     createRequestOpen: boolean
+    createRequestOrigin: string | null
     createdByFilter: number[]
     creatorById: Record<number, UserBasicType>
     currentTeamId: string
@@ -299,6 +315,7 @@ export interface featureRequestsLogicValues {
     listSearchParams: Record<string, string>
     loadedAccountsById: Record<string, AccountApi>
     mutatingArchive: boolean
+    pendingAccountExternalId: string | null
     priorityFilter: FeatureRequestPriorityFilter[]
     productAreaActive: boolean
     productAreaDisplayOrder: number
@@ -342,6 +359,9 @@ export interface featureRequestsLogicActions {
     ensureAllMembersLoaded: () => {
         value: true
     } // membersLogic
+    accountPrefillResolved: (matched: boolean) => {
+        matched: boolean
+    }
     archiveActiveRequest: () => {
         value: true
     }
@@ -447,8 +467,8 @@ export interface featureRequestsLogicActions {
     openAddAccount: () => {
         value: true
     }
-    openCreateRequest: () => {
-        value: true
+    openCreateRequest: (prefill?: FeatureRequestCreatePrefill) => {
+        prefill: FeatureRequestCreatePrefill | undefined
     }
     openEditEvidence: (
         accountLink: FeatureRequestAccountLinkApi,
@@ -780,7 +800,8 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
         setRequestOrdering: (requestOrdering: FeatureRequestOrdering) => ({ requestOrdering }),
         setTableSorting: (sorting: Sorting | null) => ({ sorting }),
         clearFilters: true,
-        openCreateRequest: true,
+        openCreateRequest: (prefill?: FeatureRequestCreatePrefill) => ({ prefill }),
+        accountPrefillResolved: (matched: boolean) => ({ matched }),
         closeCreateRequest: true,
         setTitle: (title: string) => ({ title }),
         setDescription: (description: string) => ({ description }),
@@ -1077,11 +1098,38 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
             },
         ],
         createRequestOpen: [false, { openCreateRequest: () => true, closeCreateRequest: () => false }],
+        createRequestOrigin: [
+            null as string | null,
+            {
+                openCreateRequest: (_, { prefill }) => prefill?.origin ?? null,
+                closeCreateRequest: () => null,
+            },
+        ],
+        pendingAccountExternalId: [
+            null as string | null,
+            {
+                openCreateRequest: (_, { prefill }) => prefill?.accountExternalId?.trim() || null,
+                accountPrefillResolved: () => null,
+                closeCreateRequest: () => null,
+            },
+        ],
+        accountPrefillUnresolved: [
+            false,
+            {
+                openCreateRequest: () => false,
+                accountPrefillResolved: (_, { matched }) => !matched,
+                closeCreateRequest: () => false,
+            },
+        ],
         title: ['', { setTitle: (_, { title }) => title, closeCreateRequest: () => '' }],
         description: ['', { setDescription: (_, { description }) => description, closeCreateRequest: () => '' }],
         accountId: [
             null as string | null,
-            { setAccountId: (_, { accountId }) => accountId, closeCreateRequest: () => null },
+            {
+                setAccountId: (_, { accountId }) => accountId,
+                openCreateRequest: () => null,
+                closeCreateRequest: () => null,
+            },
         ],
         productAreaIds: [
             [] as string[],
@@ -1295,7 +1343,7 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
         evidenceSource: [
             'conversation',
             {
-                openCreateRequest: () => 'conversation',
+                openCreateRequest: (_, { prefill }) => prefill?.evidenceSource ?? 'conversation',
                 closeCreateRequest: () => 'conversation',
                 openAddAccount: () => 'conversation',
                 openNewEvidence: () => 'conversation',
@@ -1306,7 +1354,7 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
         evidenceUrl: [
             '',
             {
-                openCreateRequest: () => '',
+                openCreateRequest: (_, { prefill }) => prefill?.evidenceSourceUrl ?? '',
                 closeCreateRequest: () => '',
                 openAddAccount: () => '',
                 openNewEvidence: () => '',
@@ -1739,10 +1787,29 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
             }
         },
         clearFilters: () => actions.loadFeatureRequests(),
-        openCreateRequest: () => {
+        openCreateRequest: ({ prefill }) => {
             actions.setIdempotencyKey(newIdempotencyKey())
-            actions.loadAccounts('')
+            // The prefilled account arrives as a group key, so search for it to get the account
+            // itself into the picker's options.
+            actions.loadAccounts(prefill?.accountExternalId?.trim() || '')
             actions.loadProductAreas()
+        },
+        loadAccountsSuccess: ({ accounts, payload }) => {
+            const externalId = values.pendingAccountExternalId
+            // A response to another search, such as the list's own load on mount, says nothing
+            // about the prefilled account.
+            if (!externalId || payload !== externalId) {
+                return
+            }
+            const matchedAccount = accounts.find((account) => account.external_id === externalId)
+            if (matchedAccount) {
+                actions.setAccountId(matchedAccount.id)
+            } else {
+                // No account holds that key, so put every account back in the picker for the
+                // editor to choose from.
+                actions.loadAccounts('')
+            }
+            actions.accountPrefillResolved(Boolean(matchedAccount))
         },
         openAddAccount: () => actions.loadAccounts(''),
         showHistoryTarget: ({ accountId, evidenceId }) => {
@@ -1813,6 +1880,7 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
                     image_ids: values.evidenceImageIds,
                 }
                 const hasEvidence = hasFeatureRequestEvidence(evidence)
+                const origin = values.createRequestOrigin
                 const created = await featureRequestsCreate(values.currentTeamId, {
                     title: values.title.trim(),
                     description: values.description.trim(),
@@ -1822,7 +1890,13 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
                     evidence: hasEvidence ? evidence : undefined,
                 })
                 actions.closeCreateRequest()
-                router.actions.push(urls.customerAnalyticsFeatureRequests(created.id), values.listSearchParams)
+                router.actions.push(
+                    getFeatureRequestDetailUrl({
+                        requestId: created.id,
+                        origin: origin ?? undefined,
+                        searchParams: values.listSearchParams,
+                    })
+                )
             } catch {
                 lemonToast.error("Couldn't save the request. Check the fields and try again.")
             } finally {

@@ -648,6 +648,68 @@ describe('featureRequestsLogic', () => {
         expect(router.values.searchParams.evidence_account).toBeUndefined()
     })
 
+    it('prefills the account, evidence source, and source URL from another surface', async () => {
+        const ticketUrl = 'https://app.example.com/project/997/support/tickets/ticket-1'
+        jest.spyOn(generatedApi, 'accountsList').mockResolvedValue({
+            count: 1,
+            next: null,
+            previous: null,
+            results: [account],
+        })
+
+        await expectLogic(logic, () =>
+            logic.actions.openCreateRequest({
+                accountExternalId: account.external_id,
+                evidenceSource: 'conversation',
+                evidenceSourceUrl: ticketUrl,
+            })
+        ).toFinishAllListeners()
+
+        expect(logic.values.accountId).toBe(account.id)
+        expect(logic.values.accountOptions).toEqual([{ key: account.id, label: account.name }])
+        expect(logic.values.evidenceSource).toBe('conversation')
+        expect(logic.values.evidenceUrl).toBe(ticketUrl)
+        expect(logic.values.accountPrefillUnresolved).toBe(false)
+
+        logic.actions.loadAccountsSuccess([], '')
+        expect(logic.values.accountId).toBe(account.id)
+    })
+
+    it('asks for an account when no account matches the prefilled key', async () => {
+        jest.spyOn(generatedApi, 'accountsList').mockResolvedValue({
+            count: 1,
+            next: null,
+            previous: null,
+            results: [account],
+        })
+
+        await expectLogic(logic, () =>
+            logic.actions.openCreateRequest({ accountExternalId: 'cust_globex_001' })
+        ).toFinishAllListeners()
+        logic.actions.setTitle(createdRequest.title)
+        logic.actions.setProductAreaIds(['area-1'])
+
+        expect(logic.values.accountId).toBeNull()
+        expect(logic.values.accountPrefillUnresolved).toBe(true)
+        expect(logic.values.submitDisabledReason).toBe('Select an account')
+    })
+
+    it('keeps a link back to the surface the request was filed from', async () => {
+        jest.spyOn(generatedApi, 'featureRequestsCreate').mockResolvedValue(createdRequest)
+        logic.actions.openCreateRequest({ origin: '/support/tickets/ticket-1' })
+        logic.actions.setTitle(createdRequest.title)
+        logic.actions.setAccountId(createdRequest.account.id)
+        logic.actions.setProductAreaIds(['area-1'])
+
+        await expectLogic(logic, () => logic.actions.submitRequest()).toFinishAllListeners()
+
+        expect(router.values.location.pathname).toBe(
+            `/project/${MOCK_DEFAULT_TEAM.id}${urls.customerAnalyticsFeatureRequests(createdRequest.id)}`
+        )
+        expect(router.values.searchParams.origin).toBe('/support/tickets/ticket-1')
+        expect(logic.values.featureRequestBackUrl).toBe('/support/tickets/ticket-1')
+    })
+
     it('ignores a second submit while the first request is in flight', async () => {
         let resolveCreate: (request: FeatureRequestApi) => void = () => undefined
         const createPromise = new Promise<FeatureRequestApi>((resolve) => {

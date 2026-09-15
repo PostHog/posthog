@@ -12,6 +12,7 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
 import { LemonCalendarSelectInput } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
 import { getAccessControlDisabledReason, accessLevelSatisfied } from 'lib/utils/accessControlUtils'
+import { addProjectIdIfMissing } from 'lib/utils/kea-router'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -21,8 +22,10 @@ import { userLogic } from 'scenes/userLogic'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
-import { AccessControlLevel, AccessControlResourceType, Breadcrumb } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, Breadcrumb, TeamType } from '~/types'
 
+import { FEATURE_REQUEST_EVIDENCE_SOURCE_CONVERSATION } from 'products/customer_analytics/frontend/components/FeatureRequests/featureRequestEvidenceOptions'
+import { FileFeatureRequestButton } from 'products/customer_analytics/frontend/components/FeatureRequests/FileFeatureRequestButton'
 import { PersonDisplay } from 'products/persons/frontend/components/PersonDisplay'
 
 import { AssigneeIconDisplay, AssigneeLabelDisplay, AssigneeSelect } from '../../components/Assignee'
@@ -55,6 +58,12 @@ export function ticketListBackTo(searchParams: Record<string, any>): Breadcrumb 
         path: combineUrl(urls.supportTickets(), searchParams).url,
         key: 'supportTickets',
     }
+}
+
+// Feature request evidence keeps an absolute link, so build the ticket's URL with the project in
+// the path. A reader can then open it from any project, or from outside the app.
+export function ticketEvidenceUrl(ticketId: string, teamId?: TeamType['id']): string {
+    return window.location.origin + addProjectIdIfMissing(urls.supportTicketDetail(ticketId), teamId)
 }
 
 export const scene: SceneExport<{ ticketId: string; id: string }> = {
@@ -233,6 +242,18 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                 description=""
                 resourceType={{ type: 'conversation' }}
                 forceBackTo={ticketListBackTo(searchParams)}
+                actions={
+                    ticket ? (
+                        <FileFeatureRequestButton
+                            prefill={{
+                                accountExternalId: ticket.organization_id,
+                                evidenceSource: FEATURE_REQUEST_EVIDENCE_SOURCE_CONVERSATION,
+                                evidenceSourceUrl: ticketEvidenceUrl(ticket.id, currentTeam?.id),
+                                origin: urls.supportTicketDetail(ticket.id),
+                            }}
+                        />
+                    ) : undefined
+                }
             />
             <LemonModal title="Full email" isOpen={fullEmailMessageId !== null} onClose={closeFullEmail}>
                 {fullEmailContentLoading ? (

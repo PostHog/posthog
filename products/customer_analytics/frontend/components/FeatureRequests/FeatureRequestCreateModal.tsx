@@ -29,6 +29,7 @@ export function FeatureRequestCreateModal(): JSX.Element {
         productAreaOptions,
         accountsLoading,
         accountsError,
+        accountPrefillUnresolved,
         productAreasLoading,
         productAreasError,
         submittingRequest,
@@ -97,6 +98,11 @@ export function FeatureRequestCreateModal(): JSX.Element {
                 {productAreasError && (
                     <LemonBanner type="error" action={{ children: 'Try again', onClick: loadProductAreas }}>
                         {productAreasError}
+                    </LemonBanner>
+                )}
+                {accountPrefillUnresolved && (
+                    <LemonBanner type="info">
+                        Couldn't match this customer to an account. Select the account that asked for this.
                     </LemonBanner>
                 )}
                 <div className="flex flex-col gap-1">

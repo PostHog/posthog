@@ -1,5 +1,7 @@
+export const FEATURE_REQUEST_EVIDENCE_SOURCE_CONVERSATION = 'conversation'
+
 export const FEATURE_REQUEST_EVIDENCE_SOURCE_OPTIONS: { value: string; label: string }[] = [
-    { value: 'conversation', label: 'Customer conversation' },
+    { value: FEATURE_REQUEST_EVIDENCE_SOURCE_CONVERSATION, label: 'Customer conversation' },
     { value: 'slack', label: 'Slack' },
     { value: 'zendesk', label: 'Zendesk' },
     { value: 'email', label: 'Email' },

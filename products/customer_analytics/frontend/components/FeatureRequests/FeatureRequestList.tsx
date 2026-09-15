@@ -172,7 +172,7 @@ export function FeatureRequestList(): JSX.Element {
                     <LemonButton
                         type="primary"
                         size="small"
-                        onClick={openCreateRequest}
+                        onClick={() => openCreateRequest()}
                         disabledReason={editorDisabledReason}
                         data-attr="new-feature-request"
                     >
