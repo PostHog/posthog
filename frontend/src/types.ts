@@ -7468,6 +7468,7 @@ export type HogFunctionConfigurationContextId =
     | 'logs-alerting'
     | 'health-alerts'
     | 'batch-export-alerts'
+    | 'warehouse-source-alerts'
 
 export type HogFunctionSubTemplateIdType =
     | 'early-access-feature-enrollment'
@@ -7489,6 +7490,7 @@ export type HogFunctionSubTemplateIdType =
     | 'health-check-firing'
     | 'health-check-resolved'
     | 'batch-export-run-failed'
+    | 'warehouse-source-sync-failed'
 
 export type HogFunctionConfigurationType = Omit<
     HogFunctionType,
