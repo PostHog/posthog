@@ -13,6 +13,7 @@ from django.db import connection, connections
 from django.db.utils import OperationalError
 
 from posthog.migration_helpers import DropForeignKey
+from posthog.migration_helpers.drop_foreign_key import _MAX_LOCK_BUDGET_MS
 
 
 @pytest.fixture
@@ -112,12 +113,17 @@ def test_needs_a_column_or_a_parent():
         DropForeignKey("test_dropfk_child")
 
 
+# The raised value is the one an operator sets on a loaded server. Half of it is a ten second
+# wait, which the op's own ceiling has to cut back.
+@pytest.mark.parametrize("server_deadlock_timeout", [None, "20s"])
 @pytest.mark.django_db(transaction=True)
-def test_a_contended_parent_fails_fast(temp_tables):
+def test_a_contended_parent_fails_fast(temp_tables, server_deadlock_timeout):
     child, parent_a, _ = temp_tables
     blocker = connections.create_connection("default")
     blocker.set_autocommit(False)
     with connection.cursor() as cursor:
+        if server_deadlock_timeout is not None:
+            cursor.execute(f"SET deadlock_timeout = '{server_deadlock_timeout}'")
         cursor.execute("SELECT setting::int FROM pg_settings WHERE name = 'deadlock_timeout'")
         deadlock_seconds = cursor.fetchone()[0] / 1000
         # Far longer than the op allows itself, so an unbounded drop stalls this test the way
@@ -138,8 +144,10 @@ def test_a_contended_parent_fails_fast(temp_tables):
         blocker.close()
         with connection.cursor() as cursor:
             cursor.execute("RESET lock_timeout")
+            cursor.execute("RESET deadlock_timeout")
 
     # Under deadlock_timeout, so the op abandons the wait before its own deadlock detector
-    # runs.
+    # runs. Under the ceiling too, so a server that allows a longer wait does not get one.
     assert waited < deadlock_seconds
+    assert waited < _MAX_LOCK_BUDGET_MS / 1000 + 1
     assert _fk_columns(child) == {"owner_id", "other_id"}
