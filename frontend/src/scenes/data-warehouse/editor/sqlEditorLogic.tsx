@@ -578,9 +578,9 @@ export interface sqlEditorLogicValues {
     editorSource: SqlEditorSource
     error: string | null
     exportContext: ExportContext
+    filtersPlaceholderBindings: string[] | null
     finishedLoading: boolean
     fixErrorsError: string | null
-    filtersPlaceholderBindings: string[] | null
     hasFiltersPlaceholder: boolean
     hasQueryInput: boolean
     hoveredNode: string | null
@@ -1156,8 +1156,8 @@ export interface sqlEditorLogicMeta {
             sourceQuery: DataVisualizationNode,
             splitQueryRanges: QueryRange[]
         ) => boolean
-        filtersPlaceholderBindings: (queryInput: string | null) => string[] | null
         hasFiltersPlaceholder: (queryInput: string | null) => boolean
+        filtersPlaceholderBindings: (queryInput: string | null) => string[] | null
         hasQueryInput: (queryInput: string | null) => boolean
         isEmbeddedMode: (arg: SQLEditorMode | undefined) => boolean
         dataLogicKey: (tabId: string) => string

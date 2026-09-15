@@ -1,5 +1,5 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
-import { useState } from 'react'
+import { memo, useState } from 'react'
 
 import { IconFilter, IconWarning } from '@posthog/icons'
 import { LemonButton, LemonMenu, LemonMenuItems, Link } from '@posthog/lemon-ui'
@@ -47,8 +47,9 @@ const filtersTooltip = ({
     return undefined
 }
 
-export function QueryFiltersMenu(): JSX.Element | null {
-    // Read the query text through selectors so the menu does not re-render on every keystroke.
+// QueryWindow subscribes to queryInput, so it renders on every keystroke. memo stops that render from
+// reaching this menu, and the selectors below keep the menu's own subscriptions off the keystroke path.
+export const QueryFiltersMenu = memo(function QueryFiltersMenu(): JSX.Element | null {
     const { sourceQuery, hasFiltersPlaceholder, filtersPlaceholderBindings } = useValues(sqlEditorLogic)
     const { setSourceQuery, runQuery, insertTextAtCursor } = useActions(sqlEditorLogic)
     const logic = useMountedLogic(sqlEditorLogic)
@@ -200,4 +201,4 @@ export function QueryFiltersMenu(): JSX.Element | null {
             </LemonButton>
         </LemonMenu>
     )
-}
+})
