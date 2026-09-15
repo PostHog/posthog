@@ -15,7 +15,7 @@ from .priors import GaussianPrior
 from .tests import BayesianGaussianTest, BayesianMeanTest, BayesianProportionTest, BayesianResult, BayesianTest
 
 
-@dataclass
+@dataclass(frozen=True)
 class BayesianConfig:
     """Configuration for Bayesian testing."""
 

@@ -125,9 +125,6 @@
 1 products/error_tracking/backend/temporal/weekly_digest/test/test_weekly_digest_temporal.py
 1 products/experiments/backend/hogql_queries/metric_source.py
 1 products/experiments/backend/running_time_calculator.py
-1 products/experiments/stats/bayesian/method.py
-1 products/experiments/stats/bayesian/priors.py
-1 products/experiments/stats/bayesian/tests.py
 1 products/experiments/stats/frequentist/method.py
 1 products/experiments/stats/frequentist/tests.py
 1 products/exports/backend/models/subscription.py

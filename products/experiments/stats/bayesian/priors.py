@@ -8,7 +8,7 @@ focusing on Gaussian priors for effect sizes.
 from dataclasses import dataclass
 
 
-@dataclass
+@dataclass(frozen=True)
 class GaussianPrior:
     """
     Gaussian prior distribution for effect sizes.

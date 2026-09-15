@@ -22,7 +22,7 @@ from .utils import (
 )
 
 
-@dataclass
+@dataclass(frozen=False)  # BayesianMeanTest and BayesianProportionTest rewrite difference_type
 class BayesianResult:
     """
     Result of a Bayesian statistical test.
