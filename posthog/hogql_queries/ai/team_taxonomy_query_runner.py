@@ -87,6 +87,15 @@ class TeamTaxonomyQueryRunner(TaxonomyCacheMixin, AnalyticsQueryRunner[TeamTaxon
             **self.paginator.response_params(),
         )
 
+    def get_cache_payload(self) -> dict:
+        return {
+            **super().get_cache_payload(),
+            # When the shape of the results changes, increment this version to invalidate the cache.
+            # A cached response outlives the deploy that changed how it is built, so without this a
+            # caller keeps reading the old shape until the entry goes stale.
+            "schema_version": 2,
+        }
+
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         query = parse_select(
             """
