@@ -181,3 +181,15 @@ BLOCKED_GEOIP_REGIONS = get_list(os.getenv("BLOCKED_GEOIP_REGIONS", ""))
 # development can reach localhost services. Set this to run the production validation path in dev —
 # e.g. to reproduce or test SSRF fixes — without flipping DEBUG globally.
 FORCE_URL_VALIDATION: bool = get_from_env("POSTHOG_FORCE_URL_VALIDATION", False, type_cast=str_to_bool)
+
+# ReaperHog schedule. When REAPER_HOG_SCOPES is set, the Temporal schedule runs a scan, verification and
+# harvest per scope on the configured team, as the configured user, against a checkout at REAPER_HOG_REPO_PATH.
+REAPER_HOG_TEAM_ID: int | None = get_from_env("REAPER_HOG_TEAM_ID", optional=True, type_cast=int)
+REAPER_HOG_USER_ID: int | None = get_from_env("REAPER_HOG_USER_ID", optional=True, type_cast=int)
+REAPER_HOG_REPOSITORY: str = os.getenv("REAPER_HOG_REPOSITORY", "PostHog/posthog")
+REAPER_HOG_REPO_PATH: str | None = os.getenv("REAPER_HOG_REPO_PATH") or None
+REAPER_HOG_SCOPES: list[str] = get_from_env(
+    "REAPER_HOG_SCOPES",
+    default=[],
+    type_cast=lambda raw: [part.strip() for part in str(raw).split(",") if part.strip()],
+)
