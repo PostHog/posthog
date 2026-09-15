@@ -893,19 +893,16 @@ def test_build_signal_thread_blocks_renders_header_content_and_github_details() 
 @pytest.mark.parametrize(
     ("source_product", "extra", "expected_detail"),
     [
-        # Zendesk: a safe ticket URL becomes a link alongside the priority and status.
         (
             "zendesk",
             {"priority": "urgent", "status": "pending", "url": "https://support.example.com/tickets/7"},
             "Priority: urgent  ·  Status: pending  ·  <https://support.example.com/tickets/7|Open ticket>",
         ),
-        # AI observability: model, provider, and a trace id clipped to 12 characters.
         (
             "llm_analytics",
             {"model": "claude-opus-5", "provider": "anthropic", "trace_id": "0123456789abcdefghij"},
             "Model: claude-opus-5  ·  Provider: anthropic  ·  Trace: `0123456789ab…`",
         ),
-        # Session replay: the problem type reads as words, not as a snake_case key.
         ("session_replay", {"problem_type": "rage_click_loop"}, "Problem: rage click loop"),
     ],
 )
@@ -920,11 +917,9 @@ def test_build_signal_thread_blocks_renders_source_specific_details(
 @pytest.mark.parametrize(
     ("source_product", "extra"),
     [
-        # An empty payload leaves nothing to say, so no detail block is added.
         ("zendesk", {}),
         ("llm_analytics", {}),
         ("session_replay", {}),
-        # A source with no detail renderer at all.
         ("logs", {"service": "ingestion"}),
     ],
 )
@@ -946,7 +941,9 @@ def test_build_signal_thread_blocks_escapes_mrkdwn_in_source_specific_details() 
     detail = blocks[2]["elements"][0]["text"]
     assert "<@U42>" not in detail
     assert "<!channel>" not in detail
-    assert "&lt;@U42&gt;" in detail
+    # Both values must survive as escaped text, so dropping a field outright also fails.
+    assert "Model: &lt;@U42&gt;" in detail
+    assert "Provider: &lt;!channel&gt;" in detail
 
 
 def test_build_signal_thread_blocks_escapes_content_to_block_mention_injection() -> None:
