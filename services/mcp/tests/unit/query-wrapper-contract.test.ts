@@ -56,17 +56,6 @@ describe('tools whose payload sits under a required `query` object', () => {
         expect(tools.length).toBeGreaterThan(10)
     })
 
-    it('keeps exact rolling boundaries on query-trends', () => {
-        const tool = GENERATED_TOOL_MAP['query-trends']!()
-        const parsed = tool.schema.parse({
-            kind: 'TrendsQuery',
-            series: [{ kind: 'EventsNode', event: '$pageview', math: 'dau' }],
-            dateRange: { date_from: '-7d', explicitDate: true },
-        })
-
-        expect(parsed.dateRange).toEqual({ date_from: '-7d', explicitDate: true })
-    })
-
     describe.each(tools)('%s', (name, tool) => {
         const description = getToolDefinition(name).description
         const example = leadExample(description)

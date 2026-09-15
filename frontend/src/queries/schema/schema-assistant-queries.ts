@@ -48,10 +48,6 @@ export interface AssistantDateRange {
      * ISO8601 date string.
      */
     date_to?: string | null
-    /**
-     * Use the date range exactly as provided, without rounding to interval boundaries.
-     */
-    explicitDate?: boolean | null
 }
 
 /**
@@ -63,10 +59,6 @@ export interface AssistantDurationRange {
      * Examples: `-1d` last day from now, `-180d` last 180 days from now, `mStart` this month start, `-1dStart` yesterday's start.
      */
     date_from: string
-    /**
-     * Use the rolling duration exactly as provided, without rounding to interval boundaries.
-     */
-    explicitDate?: boolean | null
 }
 
 export type AssistantDateRangeFilter = AssistantDateRange | AssistantDurationRange

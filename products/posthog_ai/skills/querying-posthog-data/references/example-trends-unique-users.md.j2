@@ -8,7 +8,7 @@ First, check the event with `posthog:read-data-schema`. Then call `posthog:query
 {
   "kind": "TrendsQuery",
   "series": [{ "kind": "EventsNode", "event": "chat with ai", "math": "dau" }],
-  "dateRange": { "date_from": "-30d", "explicitDate": true },
+  "dateRange": { "date_from": "-30d" },
   "interval": "day"
 }
 ```
@@ -22,7 +22,7 @@ Use the native insight controls for breakdowns or period comparisons. Do not gen
 This build-time SQL represents the same aggregation and time range. It cannot inherit the project's test-account setting. Before running or adapting it, apply the project's test-account filters when "Filter out internal and test users" is enabled.
 
 ```sql
-{{ render_hogql_example({"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "chat with ai", "math": "dau"}], "dateRange": {"date_from": "-30d", "explicitDate": true}, "interval": "day"}) }}
+{{ render_hogql_example({"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "chat with ai", "math": "dau"}], "dateRange": {"date_from": "-30d"}, "interval": "day"}) }}
 ```
 
 ## Simple aggregate: prefer a typed query when both fit
@@ -30,7 +30,7 @@ This build-time SQL represents the same aggregation and time range. It cannot in
 For "Count `chat with ai` events in the last seven days", either a typed total or SQL can answer the question.
 Prefer the typed query for a new analysis when both methods preserve the requested calculation and output.
 Use `posthog:query-trends` with `math: "total"`, `trendsFilter.display: "BoldNumber"`, and the requested time bounds.
-Set `dateRange.explicitDate` to `true` to prevent date rounding when matching the SQL window below.
+Resolve both rolling bounds to ISO 8601 timestamps and pass them as `date_from` and `date_to` when matching the SQL window below.
 
 The SQL form remains valid when the user requests SQL or an existing SQL query already fits:
 

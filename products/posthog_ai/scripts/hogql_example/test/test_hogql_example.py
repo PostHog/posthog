@@ -46,18 +46,18 @@ class TestRenderHogQLExample(BaseTest):
         hogql_example_module._cached_team = None
 
     @patch("django.conf.settings.DEBUG", True)
-    def test_trends_rolling_range_uses_exact_frozen_time(self) -> None:
+    def test_trends_relative_range_pins_to_frozen_time(self) -> None:
+        # FROZEN_TIME = 2025-12-10. -7d should anchor to 2025-12-03.
         result = render_hogql_example(
             {
                 "kind": "TrendsQuery",
                 "series": [{"kind": "EventsNode", "event": "$pageview"}],
-                "dateRange": {"date_from": "-7d", "explicitDate": True},
+                "dateRange": {"date_from": "-7d"},
             }
         )
 
         assert "2025-12-10" in result
         assert "2025-12-03" in result
-        assert "23:59:59" not in result
 
     def test_pins_context_now_as_well_as_the_date_range(self) -> None:
         # Some runners resolve sub-ranges off `context.now` rather than off query_date_range, so
