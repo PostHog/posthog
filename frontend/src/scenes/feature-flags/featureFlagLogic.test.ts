@@ -463,6 +463,81 @@ describe('featureFlagLogic', () => {
         })
     })
 
+    describe('while a save is in flight', () => {
+        it('stops the unsaved-changes prompt and a second submit', async () => {
+            // The save is already persisting the edit, so a navigation started during it used to
+            // prompt the user about losing changes that were on their way to the server.
+            let releaseSave: (() => void) | undefined
+            const updateSpy = jest.spyOn(api, 'update').mockImplementation(
+                () =>
+                    new Promise((resolve) => {
+                        releaseSave = () => resolve(MOCK_FEATURE_FLAG)
+                    })
+            )
+            const confirmSpy = jest.spyOn(window, 'confirm').mockReturnValue(false)
+            try {
+                logic.actions.setFeatureFlagValue('name', 'Edited name')
+                expect(logic.values.isFormDirty).toBe(true)
+
+                router.actions.push(urls.featureFlags())
+                expect(confirmSpy).toHaveBeenCalledTimes(1)
+
+                confirmSpy.mockClear()
+                logic.actions.saveFeatureFlag(logic.values.featureFlag)
+                expect(logic.values.isSavingFeatureFlag).toBe(true)
+
+                router.actions.push(urls.featureFlags())
+                expect(confirmSpy).not.toHaveBeenCalled()
+
+                // A tab close or reload cancels the request, unlike an in-app route change, so
+                // the browser has to keep its own leave-site prompt for the same in-flight save.
+                const unload = new Event('beforeunload', { cancelable: true })
+                window.dispatchEvent(unload)
+                expect(unload.defaultPrevented).toBe(true)
+
+                // Pressing Enter in a field still submits the form, so the in-flight guard has to
+                // sit on the submit handler too, not only on the disabled button.
+                await expectLogic(logic, () => {
+                    logic.actions.submitFeatureFlag()
+                }).toNotHaveDispatchedActions(['submitFeatureFlagWithValidation'])
+                expect(updateSpy).toHaveBeenCalledTimes(1)
+
+                releaseSave?.()
+                await expectLogic(logic).toDispatchActions(['saveFeatureFlagSuccess'])
+                expect(logic.values.isSavingFeatureFlag).toBe(false)
+            } finally {
+                confirmSpy.mockRestore()
+                updateSpy.mockRestore()
+            }
+        })
+
+        it('stops a second submit while the pre-save checks still run', async () => {
+            // The checks can wait on a confirmation dialog or on the dependent flags before the
+            // request starts. The request-level guard is false for that whole wait, so a second
+            // submit used to start a second check run and a second write.
+            const dialogOpenSpy = jest.spyOn(LemonDialog, 'open').mockImplementation(() => {})
+            const updateSpy = jest.spyOn(api, 'update').mockResolvedValue(MOCK_FEATURE_FLAG)
+            try {
+                logic.actions.setFeatureFlagValue('key', 'renamed-flag')
+
+                await expectLogic(logic, () => {
+                    logic.actions.submitFeatureFlag()
+                }).toDispatchActions(['submitFeatureFlagWithValidation'])
+                expect(logic.values.isSaveInProgress).toBe(true)
+                expect(logic.values.isSavingFeatureFlag).toBe(false)
+
+                await expectLogic(logic, () => {
+                    logic.actions.submitFeatureFlag()
+                }).toNotHaveDispatchedActions(['submitFeatureFlagWithValidation'])
+                expect(dialogOpenSpy).toHaveBeenCalledTimes(1)
+                expect(updateSpy).not.toHaveBeenCalled()
+            } finally {
+                dialogOpenSpy.mockRestore()
+                updateSpy.mockRestore()
+            }
+        })
+    })
+
     describe('setMultivariateEnabled functionality', () => {
         it('adds default variants when enabling multivariate', async () => {
             await expectLogic(logic).toMatchValues({
