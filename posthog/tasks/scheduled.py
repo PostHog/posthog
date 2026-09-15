@@ -1003,7 +1003,8 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         name="deactivate stale endpoint materializations",
     )
 
-    sender.add_periodic_task(
+    add_periodic_task_with_expiry(
+        sender,
         crontab(minute="*/5"),
         flush_model_demand.s(),
         name="flush data modeling demand",
