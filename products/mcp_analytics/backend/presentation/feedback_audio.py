@@ -4,7 +4,7 @@ from django.conf import settings
 from django.core.files.uploadedfile import UploadedFile
 
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import extend_schema_field
+from drf_spectacular.utils import OpenApiResponse, extend_schema_field
 from openai import OpenAIError
 from rest_framework import serializers, viewsets
 from rest_framework.exceptions import PermissionDenied
@@ -59,9 +59,9 @@ class MCPFeedbackAudioViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @validated_request(
         request_serializer=FeedbackAudioRequestSerializer,
         responses={
-            200: FeedbackAudioResponseSerializer,
-            422: FeedbackAudioErrorSerializer,
-            503: FeedbackAudioErrorSerializer,
+            200: OpenApiResponse(response=FeedbackAudioResponseSerializer),
+            422: OpenApiResponse(response=FeedbackAudioErrorSerializer),
+            503: OpenApiResponse(response=FeedbackAudioErrorSerializer),
         },
         operation_id="mcp_analytics_feedback_audio_create",
         description="Transcribe a short feedback recording without storing the audio or submitting a survey response.",

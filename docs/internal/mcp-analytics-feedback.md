@@ -61,7 +61,7 @@ An unsupported question count, type, or behavior suppresses the prompt.
 | ------------------ | -------------------------------------------- | ---------------------------------------------------------------------------- |
 | `survey shown`     | The inline question becomes visible          | Survey ID, name, and submission ID                                           |
 | `survey sent`      | The first choice is selected                 | Question-ID response, question text snapshot, submission ID, completed false |
-| `survey sent`      | Send feedback is selected                    | Same submission ID and first answer, follow-up answers, completed true       |
+| `survey sent`      | Done or Send feedback is selected            | Same submission ID and first answer, optional text, completed true           |
 | `survey dismissed` | The question or optional follow-up is closed | Same submission ID and whether the first answer was recorded                 |
 
 The rating uses the native survey values as strings: `"1"` for thumbs up and `"2"` for thumbs down.
@@ -79,7 +79,7 @@ All inline events carry `feedback_surface: mcp_analytics` and these placement pr
 | `mcp_analytics_tab`          | Tab that contains the prompt, such as `sessions`             |
 | `feedback_question_version`  | Copy version for that placement                              |
 | `feedback_question`          | Exact thumbs question shown                                  |
-| `feedback_followup_question` | Exact first follow-up question shown                         |
+| `feedback_followup_question` | Configured optional follow-up text                           |
 
 `$survey_questions` pairs those displayed texts with the API survey's stable question IDs on all lifecycle events.
 The API survey's configured title remains the heading in the standard results table.
@@ -119,8 +119,6 @@ A failed transcription keeps the recording available for retry; typing remains a
 The authenticated `POST /api/projects/{project_id}/mcp_analytics/feedback_audio/` endpoint accepts a multipart `audio` file in WebM, MP4, or Ogg format, capped at 5 MiB.
 It requires project access, the `mcp-analytics-feedback-voice` flag, and the organization's AI data processing approval.
 The endpoint allows five requests per user per minute and uses the configured OpenAI endpoint with `gpt-4o-mini-transcribe`, a 30-second timeout, and no automatic retries.
-Audio transcription is a documented [Go gateway parity gap](../../services/llm-gateway/PARITY.md).
-This pilot uses the provider client until the Go gateway supports transcription; it adds no Python gateway features.
 PostHog does not persist audio, the unreviewed transcript, or provider error details.
 The model provider's data handling follows the deployment's provider agreement.
 The reviewed text is sent only through the normal survey response event.

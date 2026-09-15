@@ -64,7 +64,7 @@ class TestFeedbackAudioAPI(APIBaseTest):
         transcribe.return_value = "I found the failing call."
         response = self.upload()
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json(), {"text": "I found the failing call."})
+        self.assertEqual(response.data, {"text": "I found the failing call."})
         self.assertEqual(self.upload("text/html").status_code, 400)
         transcribe.assert_called_once()
 
@@ -94,7 +94,7 @@ class TestFeedbackAudioAPI(APIBaseTest):
     ) -> None:
         response = self.upload()
         self.assertEqual(response.status_code, 503)
-        self.assertNotIn("provider failure", response.json()["detail"])
+        self.assertNotIn("provider failure", response.data["detail"])
 
     @patch("posthoganalytics.feature_enabled", return_value=True)
     @patch("products.mcp_analytics.backend.feedback_audio.FeedbackTranscriber.transcribe")
