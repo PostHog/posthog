@@ -112,6 +112,11 @@ class TestUnexpectedPropertyValidation(BaseTest):
         [
             ("event id field", "$session_id = 'abc'", "session_id"),
             ("events table field", "event = '$pageview'", "event"),
+            (
+                "table qualified field",
+                "raw_session_replay_events.console_error_count > 0",
+                "raw_session_replay_events",
+            ),
         ]
     )
     def test_filter_that_cannot_resolve_on_replay_is_rejected(
@@ -127,7 +132,13 @@ class TestUnexpectedPropertyValidation(BaseTest):
         assert unknown_field in detail
         assert e.value.get_codes() == {"properties": ["hogql_query_error"]}
 
-    def test_filter_that_resolves_on_replay_still_builds(self) -> None:
-        query = RecordingsQuery(properties=[HogQLPropertyFilter(key="console_error_count > 0")])
+    @parameterized.expand(
+        [
+            ("bare field", "console_error_count > 0"),
+            ("alias qualified field", "s.console_error_count > 0"),
+        ]
+    )
+    def test_filter_that_resolves_on_replay_still_builds(self, _name: str, expression: str) -> None:
+        query = RecordingsQuery(properties=[HogQLPropertyFilter(key=expression)])
 
         assert SessionRecordingListFromQuery(team=self.team, query=query).get_query() is not None

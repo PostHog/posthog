@@ -197,7 +197,10 @@ def validate_replay_scope_expr(
     )
 
     try:
-        resolve_types_from_table(expr, ["raw_session_replay_events"], context, "clickhouse")
+        # The filter lands in the listing query's WHERE, which aliases the recordings table as `s`
+        # (see BASE_QUERY). The resolver keys a qualified field on that alias, so without it the
+        # check rejects `s.<column>` and accepts a table-qualified field the query cannot resolve.
+        resolve_types_from_table(expr, ["raw_session_replay_events"], context, "clickhouse", alias="s")
     except QueryError as e:
         # Keep the HogQL code on the response, like the two handlers that already render a HogQL
         # failure on this path, so a client can still tell one query error from another.
