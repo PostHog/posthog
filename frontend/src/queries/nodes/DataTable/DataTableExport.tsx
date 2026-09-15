@@ -118,18 +118,20 @@ interface DataTableExportProps {
     setQuery?: (query: DataTableNode) => void
     fileNameForExport?: string
     excludedColumns?: string[]
+    downloadQuery?: DataTableNode
 }
 
 export function DataTableExport({
     query,
     fileNameForExport,
     excludedColumns = [],
+    downloadQuery,
 }: DataTableExportProps): JSX.Element | null {
     const { dataTableRows, columnsInResponse, columnsInQuery, queryWithDefaults } = useValues(dataTableLogic)
     const { startExport, createStaticCohort } = useActions(exportsLogic)
     const responseColumns = columnsInResponse ?? columnsInQuery
     const exportColumns = responseColumns.filter((column) => !excludedColumns.includes(column))
-    const exportQuery = excludedColumns.length ? { ...query, columns: exportColumns } : query
+    const exportQuery = downloadQuery ?? (excludedColumns.length ? { ...query, columns: exportColumns } : query)
     const exportRows = excludedColumns.length
         ? projectExportRows(dataTableRows ?? [], responseColumns, exportColumns)
         : dataTableRows

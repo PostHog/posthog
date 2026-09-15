@@ -23,6 +23,7 @@ import {
     buildAggregateQuery,
     buildOpenEndedQuery,
     buildSurveyExampleInvocationGlobals,
+    buildSurveyResponsesExportQuery,
     buildSurveyOptionalBooleanPropertyFilter,
     buildSurveyTimestampFilter,
     calculateNpsBreakdown,
@@ -63,6 +64,57 @@ afterEach(() => {
 })
 
 describe('survey utils', () => {
+    it('exports readable answers without table-only payloads or link questions', () => {
+        const survey = {
+            id: 'export-survey',
+            questions: [
+                { type: SurveyQuestionType.Open, question: 'What worked?\nWhat could improve?' },
+                { type: SurveyQuestionType.MultipleChoice, question: 'Tools', choices: ['Brush', 'Pen'] },
+                { type: SurveyQuestionType.Rating, question: 'Helpful?', scale: 2, display: 'emoji' },
+                { type: SurveyQuestionType.Link, question: 'Visit the guide' },
+                { type: SurveyQuestionType.Open, question: 'Tools' },
+                { type: SurveyQuestionType.Open, question: '' },
+            ],
+        } as Survey
+        const query = buildSurveyResponsesExportQuery(survey, {
+            timestampFilter: 'AND timestamp >= now() - INTERVAL 7 DAY',
+            answerFilters: [],
+            archivedResponsesFilter: "AND uuid NOT IN ('archived-response')",
+        })
+
+        expect(query.columns).toEqual([
+            'Respondent ID',
+            'Submitted at (UTC)',
+            'Status',
+            'Q1: What worked? What could improve?',
+            'Q2: Tools',
+            'Q3: Helpful?',
+            'Q5: Tools',
+            'Q6',
+        ])
+        expect(query.source).toMatchObject({ kind: 'HogQLQuery' })
+        const sql = (query.source as { query: string }).query
+        expect(sql).toContain('arrayStringConcat(q1_answer')
+        expect(sql).toContain("'Thumbs up'")
+        expect(sql).toContain("'Thumbs down'")
+        expect(sql).toContain('GROUP BY submission_key')
+        expect(sql).toContain('AND timestamp >= now() - INTERVAL 7 DAY')
+        expect(sql).toContain("HAVING uuid NOT IN ('archived-response')")
+        expect(sql).not.toMatch(/AS response\b|AS actions\b|AS answer_\d|LIMIT 100/)
+        expect(sql.split(' FROM (')[0]).not.toMatch(/person_properties|event_properties/)
+    })
+
+    it.each([
+        ['Quotes " and ` ticks \\ path', '`Q1: Quotes " and `` ticks \\\\ path`'],
+        ['Estado\n¿Todo bien?', '"Q1: Estado ¿Todo bien?"'],
+    ])('escapes export heading %s as a HogQL identifier', (question, alias) => {
+        const query = buildSurveyResponsesExportQuery(
+            { id: 'export-survey', questions: [{ type: SurveyQuestionType.Open, question }] } as Survey,
+            { timestampFilter: '', answerFilters: [], archivedResponsesFilter: '' }
+        )
+        expect((query.source as { query: string }).query).toContain(`AS ${alias}`)
+    })
+
     it.each<{ counts: [number, number, number]; percentages: number[] }>([
         { counts: [2, 1, 2], percentages: [0.4, 0.2, 0.4] },
         { counts: [0, 1, 3], percentages: [0, 0.25, 0.75] },

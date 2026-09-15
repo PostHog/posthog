@@ -16,6 +16,8 @@ import { SurveyRatingResults } from 'scenes/surveys/surveyLogic'
 import { urls } from 'scenes/urls'
 
 import type { DataTableRow } from '~/queries/nodes/DataTable/dataTableLogic'
+import { DataTableNode, HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
+import { escapePropertyAsHogQLIdentifier } from '~/queries/utils'
 import {
     BasicSurveyQuestion,
     CyclotronJobInvocationGlobals,
@@ -910,6 +912,42 @@ export function buildSurveyResponsesQuery(survey: Survey, filters: SurveyQueryFi
         'uuid AS actions',
     ]
     return `SELECT ${columns.join(',\n')} FROM (${merged}) ORDER BY submitted_at DESC`
+}
+
+export function buildSurveyResponsesExportQuery(
+    survey: Survey,
+    filters: SurveyQueryFilters
+): DataTableNode & { source: HogQLQuery } {
+    const questions = getAnswerableQuestions(survey)
+    const merged = buildMergedSubmissionsSubquery(survey, filters, questions, { includeRespondentMetadata: true })
+    const columns = ['Respondent ID', 'Submitted at (UTC)', 'Status']
+    const expressions = [
+        'distinct_id',
+        "formatDateTime(submitted_at, '%Y-%m-%d %H:%i:%S', 'UTC')",
+        "multiIf(outcome = 'completed', 'Completed', outcome = 'dismissed', 'Dismissed', 'Abandoned')",
+    ]
+
+    for (const { question, index } of questions) {
+        const title = question.question.replace(/\s+/g, ' ').trim()
+        columns.push(`Q${index + 1}${title ? `: ${title}` : ''}`)
+        const answer = mergedAnswerAlias(index)
+        expressions.push(
+            question.type === SurveyQuestionType.MultipleChoice
+                ? `arrayStringConcat(${answer}, ', ')`
+                : isScaleTwoRating(question)
+                  ? `multiIf(${answer} = '1', 'Thumbs up', ${answer} = '2', 'Thumbs down', ${answer})`
+                  : answer
+        )
+    }
+
+    return {
+        kind: NodeKind.DataTableNode,
+        columns,
+        source: {
+            kind: NodeKind.HogQLQuery,
+            query: `SELECT ${expressions.map((expression, index) => `${expression} AS ${escapePropertyAsHogQLIdentifier(columns[index])}`).join(',\n')} FROM (${merged}) ORDER BY submitted_at DESC`,
+        },
+    }
 }
 
 export function buildSurveyResponseSQLQuery(
