@@ -259,9 +259,9 @@ def rank_watch_feed_candidates(rows: list[dict[str, Any]]) -> list[WatchFeedEntr
         else:
             reason = {"kind": "recent"}
         # The scan writes a notability_reason on every session (including "nothing stands out"), so only
-        # carry it when this row actually ranks on notability — otherwise it would override the signal,
-        # hit, or friction copy the row earned.
-        if candidate.notability_reason and notable:
+        # carry it when notability actually won the row — a signal or type hit can coexist with a high
+        # score, and gating on `notable` alone would attach the sentence over the copy that row earned.
+        if candidate.notability_reason and reason["kind"] == "notable":
             reason["notability_reason"] = candidate.notability_reason
         sort_key = (
             has_signal,

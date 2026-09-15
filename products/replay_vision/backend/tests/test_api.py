@@ -4397,6 +4397,8 @@ class TestWatchFeedAPI(_VisionAPITestCase):
                 "signals_count": 0,
             },
         )
+        # Notability above the notable threshold, so a candidate-level gate would wrongly attach the
+        # sentence; the signal still won the row, so its own copy must survive.
         self._succeeded_observation(
             scanner,
             "signal",
@@ -4407,8 +4409,8 @@ class TestWatchFeedAPI(_VisionAPITestCase):
                     "verdict": "no",
                     "reasoning": "r",
                     "confidence": 0.9,
-                    "notability": 0.1,
-                    "notability_reason": "Nothing stands out in this session.",
+                    "notability": 0.8,
+                    "notability_reason": "Tried the export three times.",
                 },
                 "signals_count": 2,
             },
