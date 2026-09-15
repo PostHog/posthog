@@ -34,7 +34,7 @@ import {
     formatIntervalPercent,
     formatMetricValue,
     formatPValue,
-    getIntervalLabel,
+    getExperimentIntervalTitle,
     isBayesianResult,
     isFrequentistResult,
 } from '../shared/utils'
@@ -167,9 +167,7 @@ export function ResultDetails({
         },
         {
             key: 'interval',
-            title: result.variant_results?.[0]
-                ? `${getIntervalLabel(result.variant_results[0])} (95%)`
-                : 'Confidence interval (95%)',
+            title: getExperimentIntervalTitle(result.variant_results?.[0], experiment),
             tooltip:
                 "The range that likely contains the true effect. When it doesn't cross 0%, the result is significant.",
             render: (_, item: ExperimentVariantResult & { key: string }) => {

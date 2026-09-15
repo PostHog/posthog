@@ -199,32 +199,38 @@ def are_results_significant_v2(
     return ExperimentSignificanceCode.LOW_WIN_PROBABILITY, 1.0
 
 
-def calculate_credible_intervals_v2(variants: list[ExperimentVariantFunnelsBaseStats]) -> dict[str, list[float]]:
+def calculate_credible_intervals_v2(
+    variants: list[ExperimentVariantFunnelsBaseStats], lower_bound: float = 0.025, upper_bound: float = 0.975
+) -> dict[str, list[float]]:
     """
     Calculate Bayesian credible intervals for conversion rates of each variant.
 
-    This function computes the 95% credible intervals for the true conversion rate
+    This function computes credible intervals for the true conversion rate
     of each variant using a Beta model. The interval represents the range where we
-    believe the true conversion rate lies with 95% probability.
+    believe the true conversion rate lies with the configured probability.
 
     Parameters:
     -----------
     variants : list[ExperimentVariantFunnelsBaseStats]
         List of all variants (including control), each containing success_count and failure_count
+    lower_bound : float, optional (default=0.025)
+        Lower percentile for the credible interval
+    upper_bound : float, optional (default=0.975)
+        Upper percentile for the credible interval
 
     Returns:
     --------
     dict[str, list[float]]
         Dictionary mapping variant keys to [lower, upper] credible intervals, where:
-        - lower is the 2.5th percentile of the Beta posterior distribution
-        - upper is the 97.5th percentile of the Beta posterior distribution
+        - lower is the lower percentile of the Beta posterior distribution
+        - upper is the upper percentile of the Beta posterior distribution
         - intervals represent conversion rates between 0 and 1
 
     Notes:
     ------
     - Uses Beta distribution as conjugate prior for binomial data
     - Uses Beta(1,1) as minimally informative prior (uniform over [0,1])
-    - Computes 95% credible intervals (2.5th to 97.5th percentiles)
+    - Computes credible intervals from the supplied percentiles
     - Intervals become narrower with more data (larger success_count + failure_count)
     - Returns empty dict if any calculations fail
 
@@ -246,8 +252,7 @@ def calculate_credible_intervals_v2(variants: list[ExperimentVariantFunnelsBaseS
         alpha = ALPHA_PRIOR + variant.success_count
         beta = BETA_PRIOR + variant.failure_count
 
-        # Calculate 95% credible interval
-        lower, upper = stats.beta.ppf([0.025, 0.975], alpha, beta)
+        lower, upper = stats.beta.ppf([lower_bound, upper_bound], alpha, beta)
 
         intervals[variant.key] = [float(lower), float(upper)]
 

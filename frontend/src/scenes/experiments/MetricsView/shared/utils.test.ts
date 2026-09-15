@@ -1,6 +1,12 @@
 import type { ExperimentFunnelsQuery, ExperimentMetric, ExperimentTrendsQuery } from '~/queries/schema/schema-general'
 import { ExperimentMetricType, NodeKind } from '~/queries/schema/schema-general'
-import { ExperimentMetricGoal, ExperimentMetricMathType, FunnelConversionWindowTimeUnit } from '~/types'
+import {
+    ExperimentMetricGoal,
+    ExperimentMetricMathType,
+    ExperimentStatsMethod,
+    FunnelConversionWindowTimeUnit,
+} from '~/types'
+import type { Experiment } from '~/types'
 
 import {
     type ExperimentVariantResult,
@@ -10,6 +16,8 @@ import {
     formatTickValue,
     getChanceToWin,
     getDefaultMetricTitle,
+    getExperimentIntervalLevelPercentage,
+    getExperimentIntervalTitle,
     getMetricColors,
     getMetricTag,
     isProportionMetric,
@@ -175,6 +183,115 @@ describe('getChanceToWin', () => {
         const result = createFrequentistResult()
         expect(getChanceToWin(result, ExperimentMetricGoal.Increase)).toBeUndefined()
         expect(getChanceToWin(result, ExperimentMetricGoal.Decrease)).toBeUndefined()
+    })
+})
+
+describe('getExperimentIntervalLevelPercentage', () => {
+    it.each([
+        {
+            label: 'Bayesian 90%',
+            stats_config: { method: ExperimentStatsMethod.Bayesian, bayesian: { ci_level: 0.9 } },
+            expected: '90%',
+        },
+        { label: 'Bayesian default', stats_config: { method: ExperimentStatsMethod.Bayesian }, expected: '95%' },
+        {
+            label: 'Bayesian 99%',
+            stats_config: { method: ExperimentStatsMethod.Bayesian, bayesian: { ci_level: 0.99 } },
+            expected: '99%',
+        },
+        {
+            label: 'Bayesian fractional',
+            stats_config: { method: ExperimentStatsMethod.Bayesian, bayesian: { ci_level: 0.925 } },
+            expected: '92.5%',
+        },
+        {
+            label: 'Bayesian zero endpoint',
+            stats_config: { method: ExperimentStatsMethod.Bayesian, bayesian: { ci_level: 0 } },
+            expected: '95%',
+        },
+        {
+            label: 'Bayesian one endpoint',
+            stats_config: { method: ExperimentStatsMethod.Bayesian, bayesian: { ci_level: 1 } },
+            expected: '95%',
+        },
+        {
+            label: 'Bayesian above range',
+            stats_config: { method: ExperimentStatsMethod.Bayesian, bayesian: { ci_level: 1.5 } },
+            expected: '95%',
+        },
+        {
+            label: 'Bayesian derived endpoint bounds',
+            stats_config: { method: ExperimentStatsMethod.Bayesian, bayesian: { ci_level: 0.9999999999999999 } },
+            expected: '95%',
+        },
+        {
+            label: 'Bayesian null config',
+            stats_config: {
+                method: ExperimentStatsMethod.Bayesian,
+                bayesian: null,
+            } as unknown as Experiment['stats_config'],
+            expected: '95%',
+        },
+        {
+            label: 'Bayesian array config',
+            stats_config: {
+                method: ExperimentStatsMethod.Bayesian,
+                bayesian: [],
+            } as unknown as Experiment['stats_config'],
+            expected: '95%',
+        },
+        {
+            label: 'Frequentist 90%',
+            stats_config: { method: ExperimentStatsMethod.Frequentist, frequentist: { alpha: 0.1 } },
+            expected: '90%',
+        },
+        { label: 'Frequentist default', stats_config: { method: ExperimentStatsMethod.Frequentist }, expected: '95%' },
+        {
+            label: 'Frequentist fractional',
+            stats_config: { method: ExperimentStatsMethod.Frequentist, frequentist: { alpha: 0.075 } },
+            expected: '92.5%',
+        },
+        {
+            label: 'Frequentist zero endpoint',
+            stats_config: { method: ExperimentStatsMethod.Frequentist, frequentist: { alpha: 0 } },
+            expected: '95%',
+        },
+        {
+            label: 'Frequentist one endpoint',
+            stats_config: { method: ExperimentStatsMethod.Frequentist, frequentist: { alpha: 1 } },
+            expected: '95%',
+        },
+        {
+            label: 'Frequentist array config',
+            stats_config: {
+                method: ExperimentStatsMethod.Frequentist,
+                frequentist: [],
+            } as unknown as Experiment['stats_config'],
+            expected: '95%',
+        },
+    ])('formats the configured interval level for $label', ({ stats_config, expected }) => {
+        expect(getExperimentIntervalLevelPercentage({ stats_config })).toBe(expected)
+    })
+})
+
+describe('getExperimentIntervalTitle', () => {
+    it('uses the configured Bayesian ci_level in the credible interval title', () => {
+        const result: ExperimentVariantResult = {
+            key: 'test',
+            sum: 100,
+            number_of_samples: 100,
+            sum_squares: 100,
+            significant: true,
+            method: 'bayesian',
+            credible_interval: [0.05, 0.15],
+            chance_to_win: 0.75,
+        }
+
+        expect(
+            getExperimentIntervalTitle(result, {
+                stats_config: { method: ExperimentStatsMethod.Bayesian, bayesian: { ci_level: 0.9 } },
+            })
+        ).toBe('Credible interval (90%)')
     })
 })
 
