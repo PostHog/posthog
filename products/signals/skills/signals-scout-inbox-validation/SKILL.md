@@ -13,6 +13,7 @@ compatibility: >
 allowed_tools:
   - emit_report
   - edit_report
+scout-role: operational
 metadata:
   owner_team: signals
   scope: inbox_validation

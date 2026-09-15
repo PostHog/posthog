@@ -6165,7 +6165,7 @@ snapshots:
     products-workflows-editor-graph--add-on-promotion-emails--light:
         hash: v1.k794b7964.0df096512fda16f0d1fa1ebfed25fd9df287e7cf273d7bd56a93b3d5a316b2eb.0Td6CXL_NV0F9bNlH2sKu6FEJ3bi-WFQMYYeSV3LBY8
     products-workflows-editor-graph--customer-onboarding-and-retention--dark:
-        hash: v1.k794b7964.3191c1984e08a93b2b41186d743c5a7488306da8caac823a858b8b3009e8e249.tarfXhWwpkEO50Lg4xl-tg04f2F4DdHi_urFckZ3mLE
+        hash: v1.k794b7964.9c165882088a94a60c3f278c5ac933e19deea0799e2f178773b9562a06d5b587.T17LeudaJGjY7lpzSaWm3Vstubn72J6YmRirV14ZZGQ
     products-workflows-editor-graph--customer-onboarding-and-retention--light:
         hash: v1.k794b7964.d1a0262e3ba550f69a2ab3d0bcda4327157eb1f947c5ad35cb2267ba70cbdec8.2bL0CCEt9WyVdRlAp8Lyr03y_DB6ERgysK-0eIDqO1E
     products-workflows-editor-graph--new-workflow--dark:
@@ -8121,9 +8121,9 @@ snapshots:
     scenes-app-inbox-scene--empty-control--light:
         hash: v1.k794b7964.40a8eaced770971fbe50173245db2b8f173948320a09b1f0a138ca90819e0c1a.FTwYK7wfCfCxR-YFKOLhK5ejxXe4qYDEjxWf2tG3vQo
     scenes-app-inbox-scene--empty-with-many-scouts--dark:
-        hash: v1.k794b7964.737eadc375ed0122478682812983b6139a399fe35c0b61b8212b5fdda1e15ebd.tcmc5t1Jpg2JjZ5l4ASoJTE8_U5E6HrOWsGghi-uoGI
+        hash: v1.k794b7964.912f58c1595c14260c58e5edfd74fe6429a05960ed05c3a93c38668f715f98b3.pCfUAofhEjo2TKaWOCbUnXghdlQqVcfHujJgROUT54w
     scenes-app-inbox-scene--empty-with-many-scouts--light:
-        hash: v1.k794b7964.e254ce785e328a8e47e53362026f920ddf77a2b7dd6402f6ad56c02e3590af4a.CiyEQnzqVrx-u3Q-nCE5ludmZMsIMXGJOa7TTxycB0E
+        hash: v1.k794b7964.606130d48b16c3688cb233bc286359045945967f6d05c9ab098f8aa795b17782.AJRxyRLHMGB9Oe3oASK6hq85ZTOwiRhwTb9GrjBEh_M
     scenes-app-inbox-scene--inbox--dark:
         hash: v1.k794b7964.e1e4ab0d21ba58926ab2d57e366734264122b146701a84fe3f442012ec64fc19.6sbEcCnUZmsj3KMtQMzsKHuyPxgs2UIKKF6xN7gufSA
     scenes-app-inbox-scene--inbox--light:
@@ -8245,29 +8245,29 @@ snapshots:
     scenes-app-inbox-scoutrepositoriespicker--scout-settings-variant--light:
         hash: v1.k794b7964.a11cdab2114ddd1b6bc8d929da0d0b2c4e9cbc292d60e1adef64f93227e5a324.rL3wPJRk_-nRwk5unPytYNbzIlxyYLEjIf2lPkh_0Oc
     scenes-app-inbox-scoutsroster--large-fleet--dark:
-        hash: v1.k794b7964.f5df414cdabc9f417423cd433df6ea5aa20cdbd4f73e059241daf0383271f512.iGDNfvCV-kotAtlPP6xgOXiZW5F55Mznu0BJos660fU
+        hash: v1.k794b7964.bc5496dd845ecda6f0ad12cfb26aef001eebb616144626a43170c8a67febd43b.OvZS68_NkWoY-DVfy1T244ykeLC7vL8vDumGQzNbnic
     scenes-app-inbox-scoutsroster--large-fleet--light:
-        hash: v1.k794b7964.07b35c338c0a3a2dade7da4f2257f71924a19b401fcd438bfeb534057a291692.5vFLPCDhQdgHmGZzuEawqMWEdGRRvWicCrnl-geo5x4
+        hash: v1.k794b7964.ed67ad70f3fa88f0a8ec479cb91870ad1d9baab13bb4be71428c960c391bf0db.o6Eahjl27mO8luIjeK97HT62W6KldZEJDcPJDMaCx4c
     scenes-app-inbox-scoutsroster--narrow--dark:
-        hash: v1.k794b7964.67106f2ee332cdefdd195f9ac461c76dd294415e4f6df9dbb4863436048b1bbd.VX98iv4ZBxPp6mZ11iJxeesn7i41Dk0Kmdrziawc5Qg
+        hash: v1.k794b7964.563269374213e79108bbb022152b0489ff74bebfc5346e9f963f998953304f1f.9FmxupASPfGYeA0dT5MMVMmpnpuenKbo9I0_j3EmGT8
     scenes-app-inbox-scoutsroster--narrow--light:
-        hash: v1.k794b7964.fcdccdc5587bd8c324e82fd7620713aa70d0fc11cc3fd60617cd8385960d34f0.BrMGAFw1-lBRxGrCK8c_Ga5SKdLaAzoSH1GJj6KwvPI
+        hash: v1.k794b7964.9146b5b058fe264dcf9e062d2a0d9b1dbe30b0a0cfec4e53cfe389a5920f9826.1-i3E_dsDeO6Q8b_UoIj7gJ_th7qgHeQ98oHLMuoA3Q
     scenes-app-inbox-scoutsroster--roster--dark:
         hash: v1.k794b7964.1fa499f9b82d53b5303ac9c1aad41ae71c3181773bfebff8484f9aac6a5d7ad5.c9CzmU_NYRff7RF85AjHkQMh2xHZSlQNuLU0fF3-Uto
     scenes-app-inbox-scoutsroster--roster--light:
         hash: v1.k794b7964.9641b33b8a0ebdb5f80a54278c0fb1328904398cf933ee06bfa4ccf58eb00415.2jp3o2jztnpwRlJ3x9o_KtVLLiGu42UoAmE71dud5go
     scenes-app-inbox-scoutsroster--roster-costs--dark:
-        hash: v1.k794b7964.7ddc61e8730affa52b9afb1598b078872ba14f37475bd359b957df22661a6a84.xEXuC3bwseJYnapypkcC88Xl2b98bn3tgTblsquCLv0
+        hash: v1.k794b7964.beeccb8195997c1c1877f549c6b6902b9b69cb1d9c720940ab7f5968f0335a71.1Jm1H94ElUbRIL-n5q9IJY-TmEDzSzxPqAms52-08F4
     scenes-app-inbox-scoutsroster--roster-costs--light:
-        hash: v1.k794b7964.8c09e07c4ea2df4d050c98b1b79d7e8d5c4923c6c78d9e597be01bf3e772f3ff.j4eAE4YSqltTOlD410S6sqyGrbS1VSOfezTnH5EuPKE
+        hash: v1.k794b7964.75d202bfe5d3ed9019278d4a9730bfd7e1c9ccda3b7358eb167472499b65445b.Hz5OA1f_5_lQmDuCNFUw-HWUbfnWNyN5qfnvGPevHcU
     scenes-app-inbox-scoutsroster--roster-costs-non-staff--dark:
-        hash: v1.k794b7964.f5df414cdabc9f417423cd433df6ea5aa20cdbd4f73e059241daf0383271f512.f49a8vTCcZp2dO9FCVQLCh6ijGDtP1wu-gE0zJ6nlgQ
+        hash: v1.k794b7964.bc5496dd845ecda6f0ad12cfb26aef001eebb616144626a43170c8a67febd43b.JldNfdDLfUnEixxUwEc-HN7yzxRYqQesLQWPuf0gLrk
     scenes-app-inbox-scoutsroster--roster-costs-non-staff--light:
-        hash: v1.k794b7964.07b35c338c0a3a2dade7da4f2257f71924a19b401fcd438bfeb534057a291692.KZr3sPuI2eJ3GqzaWRlLHGNQtUXPN5kemWId-Pcf6F4
+        hash: v1.k794b7964.ed67ad70f3fa88f0a8ec479cb91870ad1d9baab13bb4be71428c960c391bf0db.kS-qICwDGcauBM7y48IGpq2cxtE4M9qmalLa716nJN4
     scenes-app-inbox-scoutsroster--roster-costs-table--dark:
-        hash: v1.k794b7964.e413457fe157fc4119197fc4cf8155ffcd44a38f9ef89ffa928555bc796dc674.JPlNpamhAWxFX_aWQ5BBG7tCN5pTYK3wc8sqnHB6XWs
+        hash: v1.k794b7964.508b273094f6e08573ddd45fd3eb9eb0ad462d2b3834dcac401272a61eb6f1e7.RPEKTl6gEq0dtaS5iWq-6zYyPZeHWxRwXyU8UJNPA_o
     scenes-app-inbox-scoutsroster--roster-costs-table--light:
-        hash: v1.k794b7964.49b466a57f2d708dc7038ff2fa235a5d1f6070bfaf7587372dfded6d77bfccae.tgynCIm3V7nqUVNgHAcdLmdoQzXNZDyGQ0QnCGoIT7I
+        hash: v1.k794b7964.652892a536e1b8bbf01bf83291dcd7235882bc37623ac48f9f0722eebc287f4c.tDCNWTUu2RZ1wY30Q4P1KqzavMtnNKbj8TG5oPy6PN8
     scenes-app-inbox-scoutsroster--roster-legacy--dark:
         hash: v1.k794b7964.5339804f4cc136f9700b3329b0121ab62f3008197dcb4ff7c91d714e1fbdbbb5.peuyX_VFezfUR5E8LAdqk4e3GZWeYZ8qhq1Xp6HNLnc
     scenes-app-inbox-scoutsroster--roster-legacy--light:
