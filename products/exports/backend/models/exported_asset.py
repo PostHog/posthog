@@ -276,7 +276,7 @@ class ExportedAsset(models.Model):
             if not chunk:
                 break
             after_id = chunk[-1][0]
-            failed = set(object_storage.delete_objects([location for _, location in chunk]))
+            failed = set(object_storage.delete_objects([location for _, location in chunk if location]))
             if failed:
                 logger.warning("deleting_expired_assets_object_failures", count=len(failed))
             # A row whose object survived waits for the next run rather than stalling this one.
