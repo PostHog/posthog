@@ -565,8 +565,7 @@ class TestRunSQLOperations:
         assert "Unknown operation" not in risk.reason
 
     def test_safe_drop_table_helper_is_scored_like_the_raw_drop(self):
-        # Without migration context the analyzer cannot see the prior state removal, so the
-        # helper has to stay blocked exactly like a hand-written DROP TABLE IF EXISTS.
+        # Without migration context the helper stays blocked, like a raw DROP TABLE.
         op = SafeDropTable("posthog_mymodel")
 
         risk = self.analyzer.analyze_operation(op)

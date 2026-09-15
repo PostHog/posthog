@@ -66,8 +66,7 @@ class SafeDropTable(Operation):
     together, so a key between two of them needs no ordering at the call site.
     """
 
-    # The rows are gone, so nothing can put the table back. A no-op reverse would report
-    # success and leave the database without a table Django's state expects.
+    # A no-op reverse would report success and leave the table gone.
     reversible = False
     reduces_to_sql = True
 
@@ -80,13 +79,11 @@ class SafeDropTable(Operation):
         pass
 
     def database_forwards(self, app_label, schema_editor, from_state, to_state) -> None:
-        # A product app in products/db_routing.yaml migrates on its own database. Django
-        # still traverses this migration on the other aliases, and a raw catalog query
-        # cannot tell them apart, so a same-named table elsewhere would be dropped.
+        # Django traverses this migration on every alias, and a raw catalog query cannot
+        # tell a routed product database from the main one.
         if not router.allow_migrate(schema_editor.connection.alias, app_label):
             return
-        # SET LOCAL outside a transaction is a no-op that raises only a warning, which
-        # would leave the lock phase running under the deploy-wide lock_timeout.
+        # SET LOCAL outside a transaction only warns, leaving the lock phase unbounded.
         if not schema_editor.connection.in_atomic_block:
             raise RuntimeError("SafeDropTable needs an atomic migration; remove `atomic = False`")
 
@@ -108,18 +105,16 @@ class SafeDropTable(Operation):
         with schema_editor.connection.cursor() as cursor:
             cursor.execute("SELECT setting::int FROM pg_settings WHERE name = 'deadlock_timeout'")
             deadlock_ms = cursor.fetchone()[0]
-        # Half of deadlock_timeout, so the migration abandons its wait before any peer
-        # waiting on the migration can run the detector and be killed for it. The other
-        # half leaves room for the round trips around the LOCK statement itself.
+        # Half, so the migration abandons its wait before any peer waiting on the
+        # migration can run the detector and be killed for it.
         budget_ms = max(1, deadlock_ms // 2)
-        # lock_timeout bounds one acquisition attempt and statement_timeout bounds the
-        # whole sequence of them, so several contended tables cannot add up past the
-        # budget between them.
+        # lock_timeout bounds one attempt and statement_timeout bounds the sequence, so
+        # several contended tables cannot add up past the budget between them.
         schema_editor.execute(f"SET LOCAL lock_timeout = '{budget_ms}ms'")
         schema_editor.execute(f"SET LOCAL statement_timeout = '{budget_ms}ms'")
         schema_editor.execute(f"LOCK TABLE {self._quote(schema_editor, tables)} IN ACCESS EXCLUSIVE MODE")
-        # The drop itself needs no new lock, so hand the rest of the migration back to the
-        # deploy's own timeouts. DEFAULT is the session value bin/migrate connected with.
+        # The drop needs no new lock, so hand the rest of the migration back to the
+        # session values bin/migrate connected with.
         schema_editor.execute("SET LOCAL lock_timeout = DEFAULT")
         schema_editor.execute("SET LOCAL statement_timeout = DEFAULT")
 

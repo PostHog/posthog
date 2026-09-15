@@ -58,8 +58,6 @@ def _tables_exist(*tables):
 
 @pytest.mark.django_db
 def test_locks_the_referenced_parent_before_dropping(temp_tables):
-    # The deadlock this helper exists to stop comes from the parent lock DROP TABLE takes
-    # part-way through the statement. Locking only the dropped tables would bring it back.
     child_a, child_b, parent = temp_tables
 
     collected = _apply(collect=True, op=SafeDropTable(child_a, child_b))
@@ -73,9 +71,6 @@ def test_locks_the_referenced_parent_before_dropping(temp_tables):
 
 @pytest.mark.django_db
 def test_the_lock_phase_gives_up_before_any_deadlock_detector_runs(temp_tables):
-    # A waiting backend runs the deadlock detector after deadlock_timeout, and the backend
-    # that finds the cycle is the one Postgres kills. The migration has to abandon its wait
-    # first, or the application query waiting on it is killed instead.
     child_a, _, _ = temp_tables
     with connection.cursor() as cursor:
         cursor.execute("SELECT setting::int FROM pg_settings WHERE name = 'deadlock_timeout'")
@@ -111,8 +106,7 @@ def test_a_second_run_is_a_no_op(temp_tables):
 def test_the_drop_cannot_be_reversed():
     op = SafeDropTable("test_safedrop_child")
 
-    # Migration.unapply checks the flag first and never reaches database_backwards, so the
-    # top-level path needs its own assertion.
+    # Migration.unapply checks the flag and never reaches database_backwards.
     assert op.reversible is False
     with pytest.raises(NotImplementedError, match="irreversible"):
         op.database_backwards("posthog", None, None, None)
