@@ -44,7 +44,7 @@ const tempSchemaFile = path.join(tmpDir, 'openapi.json')
 const tempTargetFile = path.join(tmpDir, 'generated.ts')
 const tempSchemasFile = path.join(tmpDir, 'generated.schemas.ts')
 
-fs.writeFileSync(tempSchemaFile, JSON.stringify(schema, null, 2))
+fs.writeFileSync(tempSchemaFile, JSON.stringify(schema))
 
 const results = await runOrvalParallel([
     {
@@ -112,9 +112,9 @@ ${indented}
 
 fs.writeFileSync(targetFile, output)
 
-spawnSync(path.join(repoRoot, 'bin/hogli'), ['format:js', targetFile], {
+spawnSync('pnpm', ['exec', 'oxfmt', targetFile], {
     stdio: 'pipe',
-    cwd: repoRoot,
+    cwd: mcpRoot,
 })
 
 const schemaCount = Object.keys(schema.components?.schemas ?? {}).length
