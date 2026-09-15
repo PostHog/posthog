@@ -377,7 +377,7 @@ snapshots:
     components-currencydropdown--currency-dropdown-story--light:
         hash: v1.k794b7964.cf1bfb2ab4acaa1a053d7964d8bbc2a356fd3e927b47bbb80469230c7ae8b7d4.TUxSw7ch7Iwn8kEcWO0_Yi0XhOHosR5J4nbLixw2rpA
     components-cyclotron-job-inputs--slack-fully-scoped--dark:
-        hash: v1.k794b7964.61dc753c31647f3f395475ef8501a2ca1500e3c6a70fe1de1312d2064890da2a.iM1ocUV4T5IAN-0jQgS2E7bP2VDsevGb9lEuRwIUzrg
+        hash: v1.k794b7964.55c1db06e54d79bab683949aa65c59baf34af6245ef298f58b45ae4be046d859.Z-WF9OH9Y6YgYd-x5JbxwCtMwpitxkAUdeg58vFlegc
     components-cyclotron-job-inputs--slack-fully-scoped--light:
         hash: v1.k794b7964.91174bce75ee1fd6fe9a730d1b32a925c679d1efeab9730f4f532a0029b3b788.JMo9gAN9ujlnkzXv6f8jXXIPQCnuCATUIvmt3mKOz6Y
     components-cyclotron-job-inputs--slack-missing-optional-scope--dark:
@@ -6237,7 +6237,7 @@ snapshots:
     products-workflows-steps-customer-task-reference-input--account--light:
         hash: v1.k794b7964.360aadf7704195ebe1620ac71737c9954c4f0158a20e64cd79f95c2beff959f8.5OJ3uKSE3ak1E67pgaD8Bz1aldYzDuT921U8cp6scOc
     products-workflows-steps-customer-task-reference-input--assignee--dark:
-        hash: v1.k794b7964.6aba25e0cf13e9f0851aab52c7e13e4f849a386bae1e387c9931e5aeb2c1d445.vdRw1Brlx8435mOkTj6OS8IhQslGTaZ2BBExKMLnRNI
+        hash: v1.k794b7964.391012ada149bb513c48572a2dfec73ea53f0322c2f3444d2befa6ca6accf1ce.7x0dhBlkf53bXUnh4-2Y2PpcQxIoFJH5tgEMb6RrdCI
     products-workflows-steps-customer-task-reference-input--assignee--light:
         hash: v1.k794b7964.636b550779f4281c61e425a0c91ad7e9f58fd6dd1b2a6e70961ac8033b8ff78d.KfkxsuB-QaL4_Na5ZLLCWoN3Pa4cmWXs79McVX3-J-M
     products-workflows-steps-delay--date-not-chosen-yet--dark:
@@ -6273,11 +6273,11 @@ snapshots:
     products-workflows-template-card--blank--light:
         hash: v1.k794b7964.10249e46871b8b2f8382d2af9c62214098bf6a1a8f4baed3f2cdea8a43d45914.pDn78avyYvuB8i7MQotDOvokbWJUDneghYCfxxv7M0Q
     products-workflows-template-card--longest-description--dark:
-        hash: v1.k794b7964.11dc07a26fd819ad4c9c5b41131c626fe54262f12a0fe8b033fdbbb694bc9988.WdUl8hdamKaJUeScrYS9KGkYYv1r0sUApsJRzZBsZo4
+        hash: v1.k794b7964.368507d5cd6c6d2fbddd1fffe83295ee63654dcd8ede75d75bf331a103f911fd.BljY3koVZKTq5fusbIhCz4KhcWpcRjh8DkdssLi_jeU
     products-workflows-template-card--longest-description--light:
         hash: v1.k794b7964.8ca8ae54cf847387bcab9cdea9a3f313158da6f3cf091b551e42cf21dd13e2df._bJpmDR8Vk8OSIsYIzzDA0Ip_q9y1c5hwwcC06giQWA
     products-workflows-template-card--narrow--dark:
-        hash: v1.k794b7964.02cd68ad28118eef7360a8d93cdb71a3aa80b3bf23d71788bb4c1cd02b647a98.YodJ5IXVT3EoRbzZ0Zw52XiuRcb0hUV8BJbxi3gu3YY
+        hash: v1.k794b7964.0cfa698ec62120c8e073ac2d71adbf00503b5224cb015b220c277593e37125fb.rTGkvoXNJ4P1WnxXDjuUdJxDjbA5wRH-nA36DKxg4po
     products-workflows-template-card--narrow--light:
         hash: v1.k794b7964.f14ce1bd1533072e19f0dd4136807a43502ba958d1c01970552955bb0bd16505.BRimZEFm-Oh0wDZSnWuwP_gCiXgS6mV9DhkaUopQxFI
     products-workflows-template-card--picker--dark:
