@@ -3932,7 +3932,7 @@ jobs:
         runs-on: ubuntu-latest
         # Headroom for downloading every shard's JUnit for the failure rollup, or for
         # waiting out a full Depot run when this job only relays its verdict.
-        timeout-minutes: ${{ needs.changes.outputs.engine == 'depot' && 65 || 8 }}
+        timeout-minutes: ${{ needs.changes.outputs.engine == 'depot' && 95 || 8 }}
         # Intentional !cancelled(): the gate inspects failed dependencies and fails
         # closed on live runs; a superseded run records cancelled, not failure.
         # The deterministic-failure disjuncts cover this workflow cancelling its
@@ -3943,7 +3943,7 @@ jobs:
             || needs.repo-checks.outputs.deterministic_failure == 'true'
             || needs.check-openapi-types.outputs.deterministic_failure == 'true'
         steps:
-            # Relay mode polls the check-runs API for up to an hour; a dedicated App bucket
+            # Relay mode polls the check-runs API for up to 90 minutes; a dedicated App bucket
             # keeps that off the ambient token.
             - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               id: relay-token
@@ -4016,7 +4016,7 @@ jobs:
                   # including a cancelled or missing Depot run, fails closed. 304 responses are
                   # free, so the poll stays off the rate limit while nothing changes.
                   if [ "$ENGINE" = "depot" ]; then
-                      deadline=$((SECONDS + 3600))
+                      deadline=$((SECONDS + 5400))
                       etag=""
                       while :; do
                           headers=(-H "Authorization: Bearer $RELAY_TOKEN" -H "Accept: application/vnd.github+json")
@@ -4036,7 +4036,7 @@ jobs:
                               echo "::warning::check-runs API returned $code"
                           fi
                           if [ "$SECONDS" -ge "$deadline" ]; then
-                              echo "::error::No Depot verdict for $SHA within 60 minutes"
+                              echo "::error::No Depot verdict for $SHA within 90 minutes"
                               exit 1
                           fi
                           sleep 30
