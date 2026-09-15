@@ -56,11 +56,9 @@ Keep a valid existing query when it fits the task. Choose the method again when 
 
 ## Render query results
 
-Check the selected tool's declared UI resource. Check whether the client supports this resource. For example, `posthog:query-trends` declares `query-results`. If the client renders the result automatically, do not also call `posthog:render-ui` for that result.
+Use the UI resource returned by the selected query tool. For example, `posthog:query-trends` returns the `query-results` UI resource. Do not call `posthog:render-ui` for the same result.
 
-If the client uses `posthog:render-ui`, check that it supports the selected tool. After validating a trends query, use `posthog:render-ui({ "tool_name": "query-trends", "tool_input": { ...same input passed to query-trends... } })`.
-
-Pass the exact input used for the query. The UI app fetches its own data. Do not use rendering as a discovery step. Keep a written summary with the visualization.
+Keep a written summary with the visualization. If the query tool does not return a UI, follow the client's rendering instructions.
 
 ## When to use this skill
 
