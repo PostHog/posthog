@@ -17,6 +17,7 @@ import {
     ChartDisplayType,
     CohortPropertyFilter,
     CountPerActorMathType,
+    DataWarehousePropertyFilter,
     DataWarehouseViewLink,
     EventPropertyFilter,
     EventType,
@@ -33,6 +34,7 @@ import {
     FunnelsFilterType,
     GroupMathType,
     HogQLMathType,
+    HogQLPropertyFilter,
     InsightShortId,
     InsightType,
     IntegrationType,
@@ -5433,6 +5435,9 @@ export interface ExperimentEventExposureConfig extends Node {
 //    across every metric field (source, numerator, denominator, start/
 //    completion event) in every experiment tool, so widening it multiplies
 //    the expansion — not worth it until metrics need non-event filters.
+//  - The warehouse source pairs with DataWarehousePropertyFilter and
+//    HogQLPropertyFilter for the same reason: those are the two groups the
+//    metric editor offers on a warehouse row.
 
 /** Slim event/action source for experiment API payloads. */
 export interface ExperimentApiEventSource {
@@ -5456,6 +5461,35 @@ export interface ExperimentApiEventSource {
     properties?: EventPropertyFilter[]
 }
 
+/** Slim data warehouse table source for experiment API payloads. */
+export interface ExperimentApiDataWarehouseSource {
+    kind: 'ExperimentDataWarehouseNode'
+    /** Data warehouse table to read from, e.g. 'stripe_charges'. */
+    table_name: string
+    /** Table column that holds the row timestamp, e.g. 'created_at'. */
+    timestamp_field: string
+    /** Event-side column to join on, e.g. 'distinct_id'. */
+    events_join_key: string
+    /** Table-side column to join on, e.g. 'customer_id'. */
+    data_warehouse_join_key: string
+    /** Display name for the source. */
+    name?: string
+    /** Label shown instead of name, e.g. a renamed funnel step. */
+    custom_name?: string
+    /** How to aggregate this source. Defaults to 'total' (row count). Use 'sum' together with
+     *  math_property to aggregate a numeric column — e.g. revenue per charge. */
+    math?: ExperimentMetricMathType
+    /** Numeric table column to aggregate when math is 'sum', 'avg', 'min', or 'max'. */
+    math_property?: string
+    /** HogQL aggregation expression. Required when math is 'hogql'. */
+    math_hogql?: string
+    /** Filters on the table's own columns, or a HogQL expression over them. */
+    properties?: (DataWarehousePropertyFilter | HogQLPropertyFilter)[]
+}
+
+/** Slim metric source for experiment API payloads: an event, an action, or a warehouse table. */
+export type ExperimentApiMetricSource = ExperimentApiEventSource | ExperimentApiDataWarehouseSource
+
 /** Experiment metric for API create/update. All metric-type-specific
  *  fields are optional; discriminated by metric_type at runtime. */
 export interface ExperimentApiMetric {
@@ -5469,14 +5503,14 @@ export interface ExperimentApiMetric {
     goal?: ExperimentMetricGoal
     /** Conversion window duration. */
     conversion_window?: integer
-    /** For mean metrics: event source. */
-    source?: ExperimentApiEventSource
-    /** For funnel metrics: array of EventsNode/ActionsNode steps. */
-    series?: ExperimentApiEventSource[]
+    /** For mean metrics: metric source. */
+    source?: ExperimentApiMetricSource
+    /** For funnel metrics: array of EventsNode/ActionsNode/ExperimentDataWarehouseNode steps. */
+    series?: ExperimentApiMetricSource[]
     /** For ratio metrics: numerator source. */
-    numerator?: ExperimentApiEventSource
+    numerator?: ExperimentApiMetricSource
     /** For ratio metrics: denominator source. */
-    denominator?: ExperimentApiEventSource
+    denominator?: ExperimentApiMetricSource
     /** For mean metrics: winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01
      *  for the 1st percentile). Per-user values below this percentile are clamped to it before
      *  aggregation.
@@ -5501,9 +5535,9 @@ export interface ExperimentApiMetric {
      *  binomial-style denominator, which is never clamped. */
     denominator_outlier_handling?: ExperimentMetricOutlierHandling
     /** For retention metrics: start event. */
-    start_event?: ExperimentApiEventSource
+    start_event?: ExperimentApiMetricSource
     /** For retention metrics: completion event. */
-    completion_event?: ExperimentApiEventSource
+    completion_event?: ExperimentApiMetricSource
     retention_window_start?: integer
     retention_window_end?: integer
     retention_window_unit?: FunnelConversionWindowTimeUnit

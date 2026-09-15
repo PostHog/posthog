@@ -356,7 +356,12 @@ class ExperimentSerializer(ExperimentBaseSerializer):
             "'funnel' (set series to an array of EventsNode steps), "
             "'ratio' (set numerator and denominator EventsNode entries), or "
             "'retention' (set start_event and completion_event). "
-            "Use the read-data-schema tool with query kind 'events' to find available events in the project."
+            "Any metric source can instead read a data warehouse table: set kind='ExperimentDataWarehouseNode' "
+            "with table_name, timestamp_field, events_join_key and data_warehouse_join_key. "
+            "Use the read-data-schema tool with query kind 'events' to find available events in the project. "
+            "Use the external-data-schemas-list tool to find the synced warehouse tables, then "
+            "external-data-schemas-retrieve for one table's column names. Unknown table and column names "
+            "are accepted on write and only fail when the results are calculated."
         ),
     )
     metrics_secondary = ExperimentMetricsField(

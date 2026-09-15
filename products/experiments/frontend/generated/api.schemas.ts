@@ -1357,6 +1357,30 @@ export interface ExperimentApiEventSourceApi {
     properties?: EventPropertyFilterApi[] | null
 }
 
+export interface ExperimentApiDataWarehouseSourceApi {
+    /** Label shown instead of name, e.g. a renamed funnel step. */
+    custom_name?: string | null
+    /** Table-side column to join on, e.g. 'customer_id'. */
+    data_warehouse_join_key: string
+    /** Event-side column to join on, e.g. 'distinct_id'. */
+    events_join_key: string
+    kind?: 'ExperimentDataWarehouseNode'
+    /** How to aggregate this source. Defaults to 'total' (row count). Use 'sum' together with math_property to aggregate a numeric column — e.g. revenue per charge. */
+    math?: ExperimentMetricMathTypeApi | null
+    /** HogQL aggregation expression. Required when math is 'hogql'. */
+    math_hogql?: string | null
+    /** Numeric table column to aggregate when math is 'sum', 'avg', 'min', or 'max'. */
+    math_property?: string | null
+    /** Display name for the source. */
+    name?: string | null
+    /** Filters on the table's own columns, or a HogQL expression over them. */
+    properties?: (DataWarehousePropertyFilterApi | HogQLPropertyFilterApi)[] | null
+    /** Data warehouse table to read from, e.g. 'stripe_charges'. */
+    table_name: string
+    /** Table column that holds the row timestamp, e.g. 'created_at'. */
+    timestamp_field: string
+}
+
 export interface ExperimentMetricOutlierHandlingApi {
     ignore_zeros?: boolean | null
     /** Winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile). */
@@ -1402,11 +1426,11 @@ export const StartHandlingApi = {
 
 export interface ExperimentApiMetricApi {
     /** For retention metrics: completion event. */
-    completion_event?: ExperimentApiEventSourceApi | null
+    completion_event?: ExperimentApiEventSourceApi | ExperimentApiDataWarehouseSourceApi | null
     /** Conversion window duration. */
     conversion_window?: number | null
     /** For ratio metrics: denominator source. */
-    denominator?: ExperimentApiEventSourceApi | null
+    denominator?: ExperimentApiEventSourceApi | ExperimentApiDataWarehouseSourceApi | null
     /** For ratio metrics: winsorization applied to the denominator aggregate. Leave unset for a binomial-style denominator, which is never clamped. */
     denominator_outlier_handling?: ExperimentMetricOutlierHandlingApi | null
     /** Whether higher or lower values indicate success. */
@@ -1420,18 +1444,18 @@ export interface ExperimentApiMetricApi {
     /** Human-readable metric name. */
     name?: string | null
     /** For ratio metrics: numerator source. */
-    numerator?: ExperimentApiEventSourceApi | null
+    numerator?: ExperimentApiEventSourceApi | ExperimentApiDataWarehouseSourceApi | null
     /** For ratio metrics: winsorization applied to the numerator aggregate, independently of the denominator and each with its own percentile thresholds. */
     numerator_outlier_handling?: ExperimentMetricOutlierHandlingApi | null
     retention_window_end?: number | null
     retention_window_start?: number | null
     retention_window_unit?: FunnelConversionWindowTimeUnitApi | null
-    /** For funnel metrics: array of EventsNode/ActionsNode steps. */
-    series?: ExperimentApiEventSourceApi[] | null
-    /** For mean metrics: event source. */
-    source?: ExperimentApiEventSourceApi | null
+    /** For funnel metrics: array of EventsNode/ActionsNode/ExperimentDataWarehouseNode steps. */
+    series?: (ExperimentApiEventSourceApi | ExperimentApiDataWarehouseSourceApi)[] | null
+    /** For mean metrics: metric source. */
+    source?: ExperimentApiEventSourceApi | ExperimentApiDataWarehouseSourceApi | null
     /** For retention metrics: start event. */
-    start_event?: ExperimentApiEventSourceApi | null
+    start_event?: ExperimentApiEventSourceApi | ExperimentApiDataWarehouseSourceApi | null
     start_handling?: StartHandlingApi | null
     /** For mean metrics: when set, reports the percentage of users whose per-user summed/counted value reaches or exceeds this threshold. Only meaningful for sum/count math types. */
     threshold?: number | null
@@ -1509,7 +1533,7 @@ export interface ExperimentWriteApi {
     type?: ExperimentTypeEnumApi | null
     /** Exposure configuration including filter test accounts and custom exposure events. */
     exposure_criteria?: ExperimentApiExposureCriteriaApi | null
-    /** Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event). Use the read-data-schema tool with query kind 'events' to find available events in the project. */
+    /** Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event). Any metric source can instead read a data warehouse table: set kind='ExperimentDataWarehouseNode' with table_name, timestamp_field, events_join_key and data_warehouse_join_key. Use the read-data-schema tool with query kind 'events' to find available events in the project. Use the external-data-schemas-list tool to find the synced warehouse tables, then external-data-schemas-retrieve for one table's column names. Unknown table and column names are accepted on write and only fail when the results are calculated. */
     metrics?: _ExperimentApiMetricsListApi | null
     /** Secondary metrics for additional measurements. Same format as primary metrics. */
     metrics_secondary?: _ExperimentApiMetricsListApi | null
@@ -1646,7 +1670,7 @@ export interface ExperimentApi {
     type?: ExperimentTypeEnumApi | null
     /** Exposure configuration including filter test accounts and custom exposure events. */
     exposure_criteria?: ExperimentApiExposureCriteriaApi | null
-    /** Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event). Use the read-data-schema tool with query kind 'events' to find available events in the project. */
+    /** Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event). Any metric source can instead read a data warehouse table: set kind='ExperimentDataWarehouseNode' with table_name, timestamp_field, events_join_key and data_warehouse_join_key. Use the read-data-schema tool with query kind 'events' to find available events in the project. Use the external-data-schemas-list tool to find the synced warehouse tables, then external-data-schemas-retrieve for one table's column names. Unknown table and column names are accepted on write and only fail when the results are calculated. */
     metrics?: _ExperimentApiMetricsListApi | null
     /** Secondary metrics for additional measurements. Same format as primary metrics. */
     metrics_secondary?: _ExperimentApiMetricsListApi | null
@@ -1779,7 +1803,7 @@ export interface PatchedExperimentWriteApi {
     type?: ExperimentTypeEnumApi | null
     /** Exposure configuration including filter test accounts and custom exposure events. */
     exposure_criteria?: ExperimentApiExposureCriteriaApi | null
-    /** Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event). Use the read-data-schema tool with query kind 'events' to find available events in the project. */
+    /** Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event). Any metric source can instead read a data warehouse table: set kind='ExperimentDataWarehouseNode' with table_name, timestamp_field, events_join_key and data_warehouse_join_key. Use the read-data-schema tool with query kind 'events' to find available events in the project. Use the external-data-schemas-list tool to find the synced warehouse tables, then external-data-schemas-retrieve for one table's column names. Unknown table and column names are accepted on write and only fail when the results are calculated. */
     metrics?: _ExperimentApiMetricsListApi | null
     /** Secondary metrics for additional measurements. Same format as primary metrics. */
     metrics_secondary?: _ExperimentApiMetricsListApi | null
