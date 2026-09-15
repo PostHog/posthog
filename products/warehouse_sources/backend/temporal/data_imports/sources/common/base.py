@@ -452,6 +452,14 @@ class _BaseSource(ABC, Generic[ConfigType]):
         redirect the row's injected token. Default: no row-backed credentials."""
         return False
 
+    def get_server_metadata(self, config: ConfigType, team_id: int) -> dict[str, Any]:
+        """Version facts probed from the upstream server, which the schema-discovery pass merges
+        onto the source's ``connection_metadata``. Distinct from ``get_connection_metadata``, which
+        the API calls for direct-query sources only and which returns that mode's connection
+        config, so a source that implements one does not implement the other by accident. The keys
+        vary per source, so the shape is a dict and not a fixed contract. No-op by default."""
+        return {}
+
     def on_source_created(self, source_model: "ExternalDataSource", team_id: int) -> None:
         """Post-create hook. Custom claims its OAuth2 integration row here. No-op by default."""
         return None

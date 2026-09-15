@@ -19,7 +19,7 @@ hogli devbox:doctor              # read-only health check: tailnet access, reach
 hogli devbox:exec -- bash -lc 'gh auth status'   # run one command on the box and get its exit code
 ```
 
-`devbox:doctor` is the first thing to run when a devbox command misbehaves — it names the likely cause (most often the Tailscale ACL grant) instead of failing cryptically.
+`devbox:doctor` is the first thing to run when a devbox command misbehaves. It names the likely cause, most often the wrong tailnet, instead of failing cryptically.
 
 ## Common scenarios
 

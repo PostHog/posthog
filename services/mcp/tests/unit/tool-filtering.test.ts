@@ -960,6 +960,7 @@ describe('Tool Filtering - Feature Flags', () => {
                 'customer-analytics-feature-requests',
                 'customer-analytics-customer-tasks',
                 'notebooks-collaboration',
+                'notebook-generated-widgets',
                 'revamped-py-notebooks',
                 'notebook-generated-widgets',
                 'tasks',

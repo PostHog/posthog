@@ -8,7 +8,7 @@ from collections.abc import Iterator
 from typing import Any, Literal, TypeVar
 
 from django.core.cache import cache
-from django.db.models import F, Func, IntegerField, Max, Q, QuerySet, TextField
+from django.db.models import F, Func, IntegerField, Q, QuerySet, TextField
 from django.db.models.functions import Cast
 
 import structlog
@@ -16,7 +16,7 @@ import structlog
 from posthog.dataclasses import frozen
 from posthog.models import Team, User
 
-from ..api.skill_services import compute_spec_problems, skill_names_owned_by
+from ..api.skill_services import compute_spec_problems, skill_names_owned_by, team_skills_version
 from ..models.skills import LLMSkill, LLMSkillFile
 from .git_smart_http import FileTree, SynthesizedRepo, synthesize_repo
 from .packaging import (
@@ -29,7 +29,6 @@ from .packaging import (
     build_skill_stub_tree,
     build_skill_tree,
     build_skills_bundle_zip,
-    compute_plugin_version,
     file_tree_bytes,
 )
 
@@ -45,12 +44,6 @@ _MARKETPLACE_COMMIT_MESSAGE = "PostHog skills marketplace"
 # The cache key already embeds the content-derived plugin version, so a hit is only ever
 # the current content. The TTL just bounds memory for superseded versions.
 _MARKETPLACE_REPO_CACHE_TTL_SECONDS = 300
-# The plugin version is Max(updated_at) over a team's skill rows — cheap, but it runs on every
-# info/refs, every upload-pack, and every auto-update poll. Briefly cache it so a clone + a burst of
-# polls collapse to one query per window instead of one per request. Auto-update detection lags by
-# at most this TTL (content is never stale — only the version label that triggers a re-pull).
-_MARKETPLACE_VERSION_CACHE_TTL_SECONDS = 15
-
 # Bound the in-memory/cached footprint of a team's marketplace so an outlier team with very many
 # (or very large) skills can't OOM the web worker on clone. Past this cumulative content size we
 # skip the remaining skills (logged) rather than synthesize an unbounded tree.
@@ -93,10 +86,10 @@ def synthesize_team_marketplace_repo(team: Team) -> SynthesizedRepo:
 
     A normal ``git clone`` hits ``info/refs`` then ``git-upload-pack``, and auto-update polls
     repeatedly — synthesizing the whole repo (loading every skill + file, hashing every blob)
-    each time would be wasteful. The cache key embeds ``_team_plugin_version`` (which changes
+    each time would be wasteful. The cache key embeds ``team_skills_version`` (which changes
     exactly when content changes), so a hit is always current and any change invalidates it.
     """
-    version = _team_plugin_version_cached(team)
+    version = team_skills_version(team)
     cache_key = f"skills_marketplace_repo:{team.id}:{version}"
     cached = cache.get(cache_key)
     if cached is not None:
@@ -112,7 +105,7 @@ def synthesize_team_marketplace_repo(team: Team) -> SynthesizedRepo:
 def build_team_marketplace_tree(team: Team, version: str | None = None) -> FileTree:
     """Synthesize the full plugin-marketplace file tree for a team's latest skills."""
     if version is None:
-        version = _team_plugin_version(team)
+        version = team_skills_version(team)
 
     # Lean query: the marketplace only needs the latest live skills, not the version-history
     # annotations / created_by join that get_latest_skills_queryset adds.
@@ -177,27 +170,6 @@ def _files_by_skill_id(skills: list[LLMSkill]) -> dict[Any, list[LLMSkillFile]]:
     for skill_file in LLMSkillFile.objects.filter(skill__in=skills).order_by("path"):
         grouped.setdefault(skill_file.skill_id, []).append(skill_file)
     return grouped
-
-
-def _team_plugin_version_cached(team: Team) -> str:
-    """``_team_plugin_version`` behind a short TTL so the Max() query runs ~once per window per team
-    instead of on every clone / upload-pack / auto-update poll."""
-    cache_key = f"skills_marketplace_version:{team.id}"
-    version = cache.get(cache_key)
-    if version is None:
-        version = _team_plugin_version(team)
-        cache.set(cache_key, version, timeout=_MARKETPLACE_VERSION_CACHE_TTL_SECONDS)
-    return version
-
-
-def _team_plugin_version(team: Team) -> str:
-    # Max over ALL of the team's skill rows, including archived ones. Publishes add a row with a
-    # fresh updated_at and archive_skill bumps updated_at on the rows it soft-deletes, so this is
-    # monotonic and reflects archives. Deriving it from only live skills would regress the version
-    # when the most-recently-updated skill is archived. Milliseconds (not seconds) so two edits
-    # within the same second still produce distinct versions and clients don't miss an update.
-    latest = LLMSkill.objects.filter(team=team).aggregate(latest=Max("updated_at"))["latest"]
-    return compute_plugin_version(int(latest.timestamp() * 1000)) if latest is not None else "1.0.0"
 
 
 @frozen

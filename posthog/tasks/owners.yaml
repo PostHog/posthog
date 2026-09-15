@@ -4,7 +4,7 @@ rules:
     - match: '/ai_observability_usage_report.py'
       owners: team-ai-observability
     - match: '/alerts/'
-      owners: team-analytics-platform
+      owners: team-product-analytics
     - match: ['/calculate_cohort.py', '/early_access_feature.py']
       owners: team-feature-flags
     - match: ['/email.py', '/email_utils.py']

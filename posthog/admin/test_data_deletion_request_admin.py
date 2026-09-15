@@ -71,6 +71,15 @@ class TestDataDeletionRequestAdminApprovalFlow(BaseTest):
         self.assertTrue(context["supports_deferred"])
         self.assertEqual(context["default_execution_mode"], ExecutionMode.DEFERRED)
 
+    def test_approve_view_rejects_query_backed_request_until_execution_is_available(self):
+        request = self._pending_request(request_type=RequestType.HOGQL_EVENT_REMOVAL)
+
+        response = self._call_approve("POST", request)
+
+        self.assertEqual(response.status_code, 302)
+        request.refresh_from_db()
+        self.assertEqual(request.status, RequestStatus.PENDING)
+
     def test_approve_view_get_hides_picker_for_property_removal(self):
         request = self._pending_request(request_type=RequestType.PROPERTY_REMOVAL, properties=["$ip"])
         response = self._call_approve("GET", request)
@@ -184,6 +193,17 @@ class TestDataDeletionRequestAdminRetry(BaseTest):
         self.assertEqual(request.approved_at, original_approved_at)
         self.assertTrue(request.approved)
         self.assertEqual(request.attempt_count, 2)
+
+    def test_retry_view_rejects_query_backed_request(self):
+        request = self._failed_request()
+        request.request_type = RequestType.HOGQL_EVENT_REMOVAL
+        request.save(update_fields=["request_type"])
+
+        response = self._call_retry("POST", request)
+
+        self.assertEqual(response.status_code, 302)
+        request.refresh_from_db()
+        self.assertEqual(request.status, RequestStatus.FAILED)
 
     def test_retry_view_get_does_not_change_status(self):
         request = self._failed_request()
@@ -876,9 +896,15 @@ class TestDataDeletionRequestAdminVerify(BaseTest):
         request.refresh_from_db()
         self.assertEqual(request.status, RequestStatus.COMPLETED)
 
-    def test_verify_view_reports_person_removal_unsupported(self):
+    @parameterized.expand(
+        [
+            ("person_removal", RequestType.PERSON_REMOVAL),
+            ("query_backed_event_removal", RequestType.HOGQL_EVENT_REMOVAL),
+        ]
+    )
+    def test_verify_view_reports_unsupported_request_type(self, _name, request_type):
         request = self._queued_request()
-        request.request_type = RequestType.PERSON_REMOVAL
+        request.request_type = request_type
         request.status = RequestStatus.FAILED
         request.save(update_fields=["request_type", "status"])
         with patch("posthog.admin.admins.data_deletion_request_admin.count_remaining_for_request") as counted:
@@ -951,6 +977,22 @@ class TestDataDeletionRequestAdminDuplicate(BaseTest):
             # No original notes — the copy note stands alone, no trailing separator.
             self.assertFalse(copy.notes.endswith("\n"))
 
+    def test_duplicate_preserves_query_snapshot(self):
+        original = DataDeletionRequest.objects.create(
+            team_id=self.team.id,
+            request_type=RequestType.HOGQL_EVENT_REMOVAL,
+            hogql_query="SELECT uuid FROM events WHERE event = {event}",
+            hogql_variables={"event": "$pageview"},
+            execution_mode=ExecutionMode.DEFERRED,
+        )
+
+        self._call_duplicate(DataDeletionRequest.objects.filter(pk=original.pk))
+
+        copy = DataDeletionRequest.objects.exclude(pk=original.pk).get()
+        self.assertEqual(copy.hogql_query, original.hogql_query)
+        self.assertEqual(copy.hogql_variables, original.hogql_variables)
+        self.assertEqual(copy.execution_mode, ExecutionMode.DEFERRED)
+
 
 class TestDagsterRunLink(SimpleTestCase):
     RUN_ID = "f5f3a611-4be8-48bc-9b29-ff8b06d01189"
@@ -1007,7 +1049,13 @@ class TestDataDeletionRequestFormHidesUnsupportedTypes(SimpleTestCase):
         for field in PERSON_REMOVAL_FIELDS:
             self.assertNotIn(field, form.fields)
 
-    @parameterized.expand([(RequestType.PROPERTY_REMOVAL,), (RequestType.PERSON_REMOVAL,)])
+    @parameterized.expand(
+        [
+            (RequestType.HOGQL_EVENT_REMOVAL,),
+            (RequestType.PROPERTY_REMOVAL,),
+            (RequestType.PERSON_REMOVAL,),
+        ]
+    )
     def test_existing_request_keeps_its_own_type_selectable(self, request_type):
         from posthog.admin.admins.data_deletion_request_admin import DataDeletionRequestForm
 
