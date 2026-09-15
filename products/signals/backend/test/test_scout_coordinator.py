@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import random
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -23,6 +24,7 @@ from posthog.models.scoping import team_scope
 from posthog.sync import database_sync_to_async
 
 from products.signals.backend.models import SignalScoutConfig
+from products.signals.backend.scout_harness import lazy_seed
 from products.signals.backend.scout_harness.config_registry import register_missing_configs
 from products.signals.backend.scout_harness.lazy_seed import HARNESS_SEEDED_BY, sync_canonical_skills
 from products.signals.backend.scout_harness.limits import (
@@ -33,6 +35,7 @@ from products.signals.backend.scout_harness.limits import (
 
 # The flag-payload read + per-team cap resolution live in `scout_harness/team_limits.py`; helpers
 # defined there are imported and patched there (see `_PAYLOAD_PATH` / `_IS_CLOUD_PATH`).
+from products.signals.backend.scout_harness.serializers import SignalScoutConfigUpdateSerializer
 from products.signals.backend.scout_harness.team_limits import (
     DEFAULT_ENROLLED_TEAM_IDS,
     SIGNALS_SCOUT_DISCOVERY_DISTINCT_ID,
@@ -1621,6 +1624,51 @@ def test_reconcile_resumes_an_operational_scout_seeded_disabled():
         assert config.enabled is True
         assert config.status == SignalScoutConfig.Status.ACTIVE
         assert config.auto_pause_exempt is True
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("explicit_exemption", [None, False, True])
+def test_role_change_preserves_only_user_exemptions(tmp_path: Path, explicit_exemption: bool | None) -> None:
+    org = Organization.objects.create(name="role-change-org", is_ai_data_processing_approved=True)
+    team = Team.objects.create(organization=org, name="role-change-team")
+    skill_dir = tmp_path / _OPERATIONAL_SCOUT
+    skill_dir.mkdir()
+    skill_file = skill_dir / "SKILL.md"
+    frontmatter = f"---\nname: {_OPERATIONAL_SCOUT}\ndescription: test scout\nscout-role: {{role}}\n---\nBody\n"
+    caches = (
+        lazy_seed.canonical_skill_names,
+        lazy_seed._canonical_config_tags,
+        lazy_seed._canonical_operational_scouts,
+    )
+    try:
+        with team_scope(team.id, canonical=True), patch.object(lazy_seed, "_SKILLS_DIR", tmp_path):
+            for cache in caches:
+                cache.cache_clear()
+            skill_file.write_text(frontmatter.format(role="operational"))
+            sync_canonical_skills(team)
+            register_missing_configs(team.id)
+            config = SignalScoutConfig.objects.get(team=team, skill_name=_OPERATIONAL_SCOUT)
+            assert config.auto_pause_exempt is True
+
+            if explicit_exemption is not None:
+                serializer = SignalScoutConfigUpdateSerializer(
+                    config, data={"auto_pause_exempt": explicit_exemption}, partial=True
+                )
+                assert serializer.is_valid(), serializer.errors
+                serializer.save()
+
+            skill_file.write_text(frontmatter.format(role="specialist"))
+            for cache in caches:
+                cache.cache_clear()
+            sync_canonical_skills(team)
+            register_missing_configs(team.id)
+
+            config.refresh_from_db()
+            assert config.auto_pause_exempt is (explicit_exemption is True)
+            assert config.enabled is True
+    finally:
+        for cache in caches:
+            cache.cache_clear()
 
 
 @pytest.mark.django_db

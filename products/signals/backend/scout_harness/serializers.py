@@ -3180,6 +3180,8 @@ class SignalScoutConfigUpdateSerializer(_ScoutConfigCapabilityFieldsMixin, seria
         return _validate_output_destinations(value, self.context)
 
     def update(self, instance: SignalScoutConfig, validated_data: dict) -> SignalScoutConfig:
+        if "auto_pause_exempt" in validated_data:
+            validated_data["auto_pause_exempt_by_role"] = False
         output_destinations = validated_data.get("output_destinations")
         current_slack = instance.output_destinations.get("slack") if instance.output_destinations else None
         incoming_slack = output_destinations.get("slack") if output_destinations else None

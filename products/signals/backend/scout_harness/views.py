@@ -2091,18 +2091,18 @@ def _skill_info_for(team_id: int, skill_names: list[str]) -> dict[str, _ScoutSki
 
     One query for the whole config list — feeds the serializer's `description`, `scout_origin` and
     `scout_role` fields so callers get a quick steer on each scout (and on whether the roster may
-    offer to delete it) without loading the full skill body. Skills the team no longer has simply
-    drop out of the map (serializer falls back to "" / "custom" / "specialist").
+    offer to delete it) without loading the full skill body. Archived skills retain their origin
+    and role so archival cannot bypass deletion protection. Their descriptions stay empty.
     """
     names = list(set(skill_names))
     if not names:
         return {}
-    rows = LLMSkill.objects.filter(team_id=team_id, name__in=names, is_latest=True, deleted=False).values_list(
-        "name", "description", "metadata"
+    rows = LLMSkill.objects.filter(team_id=team_id, name__in=names, is_latest=True).values_list(
+        "name", "description", "metadata", "deleted"
     )
     return {
         name: _ScoutSkillInfo(
-            description=description or "",
+            description="" if deleted else (description or ""),
             origin=(origin := scout_skill_origin(name, metadata)),
             # The role is only the harness's to claim on a scout the harness owns: a team's own
             # skill sharing a canonical name is custom, and reads as a specialist like any other.
@@ -2110,7 +2110,7 @@ def _skill_info_for(team_id: int, skill_names: list[str]) -> dict[str, _ScoutSki
             if origin == ScoutOrigin.CANONICAL.value and is_operational_scout(name)
             else SCOUT_ROLE_SPECIALIST,
         )
-        for name, description, metadata in rows
+        for name, description, metadata, deleted in rows
     }
 
 

@@ -15,6 +15,8 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
+from django.db import transaction
+from django.db.models import Q
 from django.utils import timezone
 
 import structlog
@@ -281,6 +283,7 @@ def register_missing_configs(
             # The sweep reads the column, not the role, and writing memory hourly while filing a
             # report rarely is exactly the `no_output` shape it warns on.
             defaults["auto_pause_exempt"] = True
+            defaults["auto_pause_exempt_by_role"] = True
         # A canonical scout can claim a product surface's tag in its SKILL.md frontmatter
         # (`scout-tags`) — that's what lands it in that product's own scout list. Seeded at
         # creation like the rest of the posture, so a person who later removes the tag keeps it
@@ -310,7 +313,7 @@ def register_missing_configs(
                 cap=MAX_ENABLED_SCOUTS_PER_TEAM,
             )
 
-    reconcile_operational_configs(team_id, operational_names & skill_names)
+    reconcile_operational_configs(team_id, operational_names & skill_names, withheld_skill_names)
 
     # Keep the skills UI's Scouts tab in sync: stamp `category="scout"` on any scout skill rows
     # not yet categorized (custom scouts authored via the skills API). Runs every reconcile tick,
@@ -319,7 +322,12 @@ def register_missing_configs(
     return skill_names | live_scout_skill_names(team_id, withheld_skill_names)
 
 
-def reconcile_operational_configs(team_id: int, skill_names: set[str]) -> None:
+@transaction.atomic
+def reconcile_operational_configs(
+    team_id: int,
+    skill_names: set[str],
+    withheld_skill_names: frozenset[str] | set[str] | None = None,
+) -> None:
     """Put already-seeded operational scouts back on the posture their role asks for.
 
     The rest of the seed posture is forward-only on purpose: an existing row is the team's to
@@ -339,18 +347,28 @@ def reconcile_operational_configs(team_id: int, skill_names: set[str]) -> None:
     whose runs keep failing has its own half-open probe, and resuming it here would spend runs on
     a scout that cannot finish one.
     """
-    if not skill_names:
-        return
-    for config in SignalScoutConfig.objects.for_team(team_id).filter(skill_name__in=skill_names):
+    configs = (
+        SignalScoutConfig.objects.for_team(team_id)
+        .select_for_update()
+        .filter(Q(skill_name__in=skill_names) | Q(auto_pause_exempt_by_role=True))
+        .exclude(skill_name__in=withheld_skill_names or ())
+    )
+    for config in configs:
         trigger = Trigger(
             job_type=_OPERATIONAL_RECONCILE_JOB_TYPE,
             job_id=str(config.id),
             payload={"skill_name": config.skill_name},
         )
         with ActivityTriggerContext(trigger):
+            if config.skill_name not in skill_names:
+                config.auto_pause_exempt = False
+                config.auto_pause_exempt_by_role = False
+                config.save(update_fields=["auto_pause_exempt", "auto_pause_exempt_by_role", "updated_at"])
+                continue
             if not config.auto_pause_exempt:
                 config.auto_pause_exempt = True
-                config.save(update_fields=["auto_pause_exempt", "updated_at"])
+                config.auto_pause_exempt_by_role = True
+                config.save(update_fields=["auto_pause_exempt", "auto_pause_exempt_by_role", "updated_at"])
                 logger.info(
                     "signals_scout: operational scout exempted from the inactivity sweep",
                     team_id=team_id,

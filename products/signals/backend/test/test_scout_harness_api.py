@@ -3177,8 +3177,8 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         assert response.status_code == status.HTTP_204_NO_CONTENT
         assert not SignalScoutConfig.all_teams.filter(id=config.id).exists()
 
-    def test_destroy_refuses_an_operational_scout(self) -> None:
-        # The roster hides delete for it, but the API is what makes that a rule.
+    @parameterized.expand([(False,), (True,)])
+    def test_destroy_refuses_an_operational_scout(self, archived: bool) -> None:
         config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-inbox-validation")
         LLMSkill.objects.create(
             team=self.team,
@@ -3186,6 +3186,7 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
             description="d",
             body="...",
             metadata={"seeded_by": HARNESS_SEEDED_BY},
+            deleted=archived,
         )
 
         response = self.client.delete(self._detail_url(str(config.id)))
