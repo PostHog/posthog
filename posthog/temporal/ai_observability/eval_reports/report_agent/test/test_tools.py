@@ -41,6 +41,7 @@ from posthog.temporal.ai_observability.eval_reports.report_agent.tools import (
     _execute_ch_query_with_retry,
     _is_retriable_ch_error,
     _label_generation_evals,
+    _run_ref,
     _widened_ts_window,
     add_citation,
     add_section,
@@ -715,6 +716,9 @@ class TestAddSection(SimpleTestCase):
         result = _add_section_fn(state=state, title=title.format(id=dead_id), content=content.format(id=dead_id))
         self.assertIn("Error", result)
         self.assertIn(dead_id, result)
+        # The eval that grades these reports reads the whole session transcript, so a
+        # rejection that re-emits the ID in backticks reads as the defect it just blocked.
+        self.assertNotIn(f"`{dead_id}`", result)
         self.assertEqual(state["report"].sections, [])
 
     def test_allows_section_when_backticked_id_is_cited(self):
@@ -733,6 +737,7 @@ class TestAddSection(SimpleTestCase):
 
         self.assertIn("Error", result)
         self.assertIn(_VALID_GEN_ID, result)
+        self.assertNotIn(f"`{_VALID_GEN_ID}`", result)
         self.assertEqual(state["report"].sections, [])
 
 
@@ -1049,7 +1054,7 @@ class TestListAndGetReportRun(BaseTest):
         self.assertEqual(result[0]["pass_rate"], 94.2)
         self.assertEqual(result[0]["total_runs"], 53)
         self.assertNotIn("result_rates", result[0])
-        self.assertIn("run_id", result[0])
+        self.assertIn("run_ref", result[0])
         # Full content intentionally omitted
         self.assertNotIn("content", result[0])
 
@@ -1064,7 +1069,7 @@ class TestListAndGetReportRun(BaseTest):
         self.assertEqual(len(result), 1)
 
     def test_get_returns_full_content(self):
-        result = json.loads(_get_report_run_fn(state=self.state, run_id=str(self.recent_run.id)))
+        result = json.loads(_get_report_run_fn(state=self.state, run_ref=_run_ref(self.recent_run.id)))
         self.assertEqual(result["content"]["title"], "Recent report")
         self.assertEqual(len(result["content"]["sections"]), 1)
         self.assertEqual(result["metadata"]["pass_rate"], 94.2)
@@ -1085,11 +1090,11 @@ class TestListAndGetReportRun(BaseTest):
         trace_state = {**self.state, "evaluation_target": "trace"}
         trace_runs = json.loads(_list_recent_report_runs_fn(state=trace_state))
 
-        self.assertNotIn(str(trace_run.id), {run["run_id"] for run in generation_runs})
-        self.assertEqual([run["run_id"] for run in trace_runs], [str(trace_run.id)])
-        self.assertIn("error", json.loads(_get_report_run_fn(state=self.state, run_id=str(trace_run.id))))
+        self.assertNotIn(_run_ref(trace_run.id), {run["run_ref"] for run in generation_runs})
+        self.assertEqual([run["run_ref"] for run in trace_runs], [_run_ref(trace_run.id)])
+        self.assertIn("error", json.loads(_get_report_run_fn(state=self.state, run_ref=_run_ref(trace_run.id))))
         self.assertEqual(
-            json.loads(_get_report_run_fn(state=trace_state, run_id=str(trace_run.id)))["content"]["title"],
+            json.loads(_get_report_run_fn(state=trace_state, run_ref=_run_ref(trace_run.id)))["content"]["title"],
             "Trace report",
         )
 
@@ -1108,7 +1113,7 @@ class TestListAndGetReportRun(BaseTest):
         result = json.loads(_list_recent_report_runs_fn(state=self.state))
         titles = [r["title"] for r in result]
         self.assertIn("Back-to-back report", titles)
-        boundary_entry = next(r for r in result if r["run_id"] == str(boundary_run.id))
+        boundary_entry = next(r for r in result if r["run_ref"] == _run_ref(boundary_run.id))
         self.assertEqual(boundary_entry["pass_rate"], 77.7)
         self.assertEqual(boundary_entry["total_runs"], 11)
 
@@ -1132,7 +1137,7 @@ class TestListAndGetReportRun(BaseTest):
             period_end=now - dt.timedelta(hours=1),
         )
         result = json.loads(_list_recent_report_runs_fn(state=self.state))
-        entry = next(r for r in result if r["run_id"] == str(content_only_run.id))
+        entry = next(r for r in result if r["run_ref"] == _run_ref(content_only_run.id))
         self.assertEqual(entry["pass_rate"], 75.0)
         self.assertEqual(entry["result_rates"], {"pass": 75.0, "fail": 25.0, "na": 0.0})
         self.assertEqual(entry["total_runs"], 8)
@@ -1152,14 +1157,40 @@ class TestListAndGetReportRun(BaseTest):
             period_end=now - dt.timedelta(hours=1),
         )
 
-        listed_run_ids = {run["run_id"] for run in json.loads(_list_recent_report_runs_fn(state=self.state))}
-        fetched = json.loads(_get_report_run_fn(state=self.state, run_id=str(unavailable_run.id)))
+        listed_run_refs = {run["run_ref"] for run in json.loads(_list_recent_report_runs_fn(state=self.state))}
+        fetched = json.loads(_get_report_run_fn(state=self.state, run_ref=_run_ref(unavailable_run.id)))
 
-        self.assertNotIn(str(unavailable_run.id), listed_run_ids)
+        self.assertNotIn(_run_ref(unavailable_run.id), listed_run_refs)
         self.assertIn("error", fetched)
 
+    def test_run_ref_is_not_read_as_a_citable_id(self):
+        # A run can never be cited, so a backticked run_ref must read as prose. A bare
+        # run UUID would trip the dead-ID guard and get the whole section rejected.
+        run_ref = json.loads(_list_recent_report_runs_fn(state=self.state))[0]["run_ref"]
+        self.assertEqual(_dead_backticked_ids(f"Steady since `{run_ref}`.", [], set()), [])
+
+    def test_get_returns_a_prior_reports_ids_without_backticks(self):
+        # A prior report backticks the IDs it cited, in its bodies and its References list.
+        # Returned wrapped, they invite the agent to copy an ID it cannot cite for this period.
+        cited_id = "0195f0a1-2b3c-7d4e-8f90-1a2b3c4d5e6f"
+        self.recent_run.content = {
+            "title": "Recent report",
+            "sections": [
+                {"title": "Summary", "content": f"Cost spike in `{cited_id}`."},
+                {"title": "References", "content": f"1. `{cited_id}` — high_cost"},
+            ],
+        }
+        self.recent_run.save()
+
+        payload = _get_report_run_fn(state=self.state, run_ref=_run_ref(self.recent_run.id))
+        sections = json.loads(payload)["content"]["sections"]
+
+        self.assertNotIn(f"`{cited_id}`", payload)
+        self.assertIn(cited_id, sections[0]["content"])
+        self.assertIn(cited_id, sections[1]["content"])
+
     def test_get_rejects_non_uuid(self):
-        result = json.loads(_get_report_run_fn(state=self.state, run_id="not-a-uuid"))
+        result = json.loads(_get_report_run_fn(state=self.state, run_ref="run-not-a-uuid"))
         self.assertIn("error", result)
 
     def test_get_rejects_run_from_other_evaluation(self):
@@ -1195,7 +1226,7 @@ class TestListAndGetReportRun(BaseTest):
             period_end=timezone.now(),
         )
         # Agent state is scoped to self.evaluation — other_run must not be visible
-        result = json.loads(_get_report_run_fn(state=self.state, run_id=str(other_run.id)))
+        result = json.loads(_get_report_run_fn(state=self.state, run_ref=_run_ref(other_run.id)))
         self.assertIn("error", result)
 
 

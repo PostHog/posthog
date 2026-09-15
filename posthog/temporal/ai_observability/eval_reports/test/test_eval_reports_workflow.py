@@ -1,5 +1,4 @@
 import asyncio
-from uuid import UUID
 
 import pytest
 from unittest.mock import patch
@@ -27,8 +26,6 @@ from posthog.temporal.ai_observability.eval_reports.workflow import (
 
 @pytest.mark.asyncio
 async def test_generate_workflow_forwards_sentiment_output_type() -> None:
-    trace_uuid = UUID("11111111-1111-4111-8111-111111111111")
-    session_uuid = UUID("22222222-2222-4222-8222-222222222222")
     activity_inputs: list[object] = []
     responses = iter(
         [
@@ -69,10 +66,6 @@ async def test_generate_workflow_forwards_sentiment_output_type() -> None:
             "posthog.temporal.ai_observability.eval_reports.workflow.temporalio.workflow.patched",
             return_value=False,
         ),
-        patch(
-            "posthog.temporal.ai_observability.eval_reports.workflow.temporalio.workflow.uuid4",
-            side_effect=[trace_uuid, session_uuid],
-        ),
     ):
         await GenerateAndDeliverEvalReportWorkflow().run(
             GenerateAndDeliverEvalReportWorkflowInput(report_id="report-id", manual=True)
@@ -81,8 +74,6 @@ async def test_generate_workflow_forwards_sentiment_output_type() -> None:
     agent_input = activity_inputs[1]
     assert isinstance(agent_input, RunEvalReportAgentInput)
     assert agent_input.output_type == "sentiment"
-    assert agent_input.trace_id == str(trace_uuid)
-    assert agent_input.session_id == str(session_uuid)
 
 
 @pytest.mark.parametrize(
@@ -160,10 +151,6 @@ async def test_generate_workflow_forwards_generation_status_to_schedule(
         patch(
             "posthog.temporal.ai_observability.eval_reports.workflow.temporalio.workflow.patched",
             side_effect=is_patch_enabled,
-        ),
-        patch(
-            "posthog.temporal.ai_observability.eval_reports.workflow.temporalio.workflow.uuid4",
-            return_value=UUID(int=0),
         ),
     ):
         await GenerateAndDeliverEvalReportWorkflow().run(
@@ -246,10 +233,6 @@ async def test_automatic_run_records_attempt_before_delivery_failure(generation_
                 }
             ),
         ),
-        patch(
-            "posthog.temporal.ai_observability.eval_reports.workflow.temporalio.workflow.uuid4",
-            return_value=UUID(int=0),
-        ),
         pytest.raises(RuntimeError, match="delivery unavailable"),
     ):
         await GenerateAndDeliverEvalReportWorkflow().run(
@@ -309,10 +292,6 @@ async def test_generate_workflow_does_not_emit_signal_without_metrics() -> None:
         patch(
             "posthog.temporal.ai_observability.eval_reports.workflow.temporalio.workflow.start_child_workflow"
         ) as start_child_workflow,
-        patch(
-            "posthog.temporal.ai_observability.eval_reports.workflow.temporalio.workflow.uuid4",
-            return_value=UUID(int=0),
-        ),
     ):
         await GenerateAndDeliverEvalReportWorkflow().run(
             GenerateAndDeliverEvalReportWorkflowInput(report_id="report-id", manual=True)

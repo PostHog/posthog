@@ -24,6 +24,7 @@ from posthog.temporal.ai_observability.eval_reports.report_agent.state import Ev
 from posthog.temporal.ai_observability.eval_reports.report_agent.tools import (
     _ch_ts,
     _dead_backticked_ids_in_report,
+    _dead_id_preview,
     _fetch_period_summary,
     _handled_ids,
     _is_retriable_ch_error,
@@ -217,7 +218,7 @@ def _validate_agent_output(content: EvalReportContent, handled_ids: set[str] | N
     bodies = [section.content for section in content.sections]
     dead = _dead_backticked_ids_in_report(titles, bodies, content.citations, handled_ids or set())
     if dead:
-        return f"backticked IDs will not render as citation links: {', '.join(dead[:3])}"
+        return f"backticked IDs will not render as citation links: {_dead_id_preview(dead)}"
     return None
 
 
@@ -265,8 +266,10 @@ def run_eval_report_agent(
         )
         return _metrics_unavailable_content(evaluation_target)
 
-    resolved_trace_id = inputs.trace_id or str(uuid.uuid4())
-    resolved_session_id = inputs.session_id or resolved_trace_id
+    # One fresh ID per attempt, not one per workflow: the agent activity retries, and a
+    # session shared across attempts makes an eval that grades the whole session transcript
+    # read a failed first attempt and the clean report that shipped as one session.
+    attempt_id = str(uuid.uuid4())
     resolved_distinct_id = team_distinct_id(inputs.team_id)
     observability_properties = {
         "team_id": str(inputs.team_id),
@@ -277,8 +280,8 @@ def run_eval_report_agent(
         EVAL_REPORT_AGENT_MODEL,
         EVAL_REPORT_AGENT_TIMEOUT,
         ai_product="aio_eval_reports",
-        trace_id=resolved_trace_id,
-        session_id=resolved_session_id,
+        trace_id=attempt_id,
+        session_id=attempt_id,
         properties=observability_properties,
         distinct_id=resolved_distinct_id,
     )
@@ -329,8 +332,8 @@ def run_eval_report_agent(
 
     callbacks = build_langchain_callbacks(
         distinct_id=resolved_distinct_id,
-        trace_id=resolved_trace_id,
-        session_id=resolved_session_id,
+        trace_id=attempt_id,
+        session_id=attempt_id,
         ai_product="aio_eval_reports",
         properties=observability_properties,
     )
@@ -362,8 +365,8 @@ def run_eval_report_agent(
                 reason=validation_error,
                 title=content.title,
                 section_count=len(content.sections),
-                trace_id=resolved_trace_id,
-                session_id=resolved_session_id,
+                trace_id=attempt_id,
+                session_id=attempt_id,
             )
             return _fallback_content(inputs.evaluation_name, metrics, validation_error, evaluation_target)
 
@@ -379,8 +382,8 @@ def run_eval_report_agent(
             section_count=len(content.sections),
             citation_count=len(content.citations),
             metrics=metrics.to_dict(),
-            trace_id=resolved_trace_id,
-            session_id=resolved_session_id,
+            trace_id=attempt_id,
+            session_id=attempt_id,
         )
         return content
 
@@ -394,8 +397,8 @@ def run_eval_report_agent(
             error_type=type(e).__name__,
             team_id=inputs.team_id,
             evaluation_id=inputs.evaluation_id,
-            trace_id=resolved_trace_id,
-            session_id=resolved_session_id,
+            trace_id=attempt_id,
+            session_id=attempt_id,
         )
         return _fallback_content(
             inputs.evaluation_name,
