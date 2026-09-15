@@ -80,19 +80,28 @@ class TestRelaySlackMessage(TestCase):
 
     @parameterized.expand(
         [
-            ("no_reaction_emoji", "relay-1", "Which license should I use?", None),
-            ("explicit_reaction_emoji", "relay-2", "Could not deliver follow-up", "x"),
+            ("no_reaction_emoji", "relay-1", "Which license should I use?", None, "Which license should I use?"),
+            ("only_objects", "relay-only-objects", '<hogql title="Hidden">SELECT 1</hogql>', None, ""),
+            ("explicit_reaction_emoji", "relay-2", "Could not deliver follow-up", "x", "Could not deliver follow-up"),
+            (
+                "object_elements",
+                "relay-objects",
+                'Before <insight id="1">hidden label</insight><hogql display="block" title="Hidden title">SELECT 123</hogql> after.',
+                None,
+                "Before  after.",
+            ),
         ]
     )
     @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.update_reaction")
     @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.post_thread_message")
     @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.delete_progress")
-    def test_relay_posts_message_and_marks_sent(
+    def test_relay_delivers_reply_and_marks_sent(
         self,
         _name,
         relay_id,
         text,
         reaction_emoji,
+        expected_text,
         mock_delete_progress,
         mock_post,
         mock_update,
@@ -108,8 +117,14 @@ class TestRelaySlackMessage(TestCase):
         )
 
         mock_delete_progress.assert_called_once()
-        mock_post.assert_called_once()
-        assert text in mock_post.call_args.args[0]
+        if expected_text:
+            mock_post.assert_called_once()
+            assert expected_text in mock_post.call_args.args[0]
+            assert "hidden label" not in mock_post.call_args.args[0]
+            assert "Hidden title" not in mock_post.call_args.args[0]
+            assert "SELECT 123" not in mock_post.call_args.args[0]
+        else:
+            mock_post.assert_not_called()
         if reaction_emoji is None:
             mock_update.assert_not_called()
         else:

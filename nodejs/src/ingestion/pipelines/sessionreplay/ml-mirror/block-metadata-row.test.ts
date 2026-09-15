@@ -50,7 +50,7 @@ describe('ml-mirror block-metadata-row', () => {
             const row = toBlockMetadataRow(block(), SECRET)!
             expect(row.team_id).toBe(pseudonymize(SECRET, PSEUDONYM_TEAM, '7'))
             expect(row.session_id).toBe(pseudonymize(SECRET, PSEUDONYM_SESSION, 'sess-1'))
-            expect(row.distinct_id).not.toContain('user@example.com')
+            expect(row).not.toHaveProperty('distinct_id')
             expect(row.session_id).not.toBe('sess-1')
         })
 
