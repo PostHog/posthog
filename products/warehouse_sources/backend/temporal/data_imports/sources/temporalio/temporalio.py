@@ -15,6 +15,7 @@ from temporalio.service import RPCError, RPCStatusCode
 from posthog.dataclasses import frozen
 from posthog.temporal.common.client import connect
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import check_connect_host
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.temporalio import (
@@ -263,7 +264,11 @@ class FakeSettings:
     DEBUG: bool = False
 
 
-async def _get_temporal_client(config: TemporalIOSourceConfig) -> Client:
+async def _get_temporal_client(config: TemporalIOSourceConfig, team_id: int | None) -> Client:
+    # The Temporal core dials `host:port` over gRPC from Rust, which reads no proxy environment,
+    # so the egress proxy is not in this path and the host check has to happen here.
+    check_connect_host(config.host, team_id)
+
     if config.fallback_decryption_keys:
         fallback_keys = [k.strip() for k in config.fallback_decryption_keys.split(",") if k.strip()]
     else:
@@ -298,6 +303,7 @@ async def _get_workflows(
     should_use_incremental_field: bool,
     resumable_source_manager: ResumableSourceManager[TemporalIOResumeConfig],
     logger: FilteringBoundLogger,
+    team_id: int,
 ):
     query: str | None = None
     if should_use_incremental_field and db_incremental_field_last_value:
@@ -314,7 +320,7 @@ async def _get_workflows(
         next_page_token = _decode_page_token(resume_config.next_page_token)
         logger.debug("TemporalIO: resuming from next_page_token")
 
-    client = await _get_temporal_client(config)
+    client = await _get_temporal_client(config, team_id)
     workflows = client.list_workflows(query=query, next_page_token=next_page_token, page_size=100)
 
     page_count = 0
@@ -349,6 +355,7 @@ async def _get_workflow_histories(
     should_use_incremental_field: bool,
     resumable_source_manager: ResumableSourceManager[TemporalIOResumeConfig],
     logger: FilteringBoundLogger,
+    team_id: int,
 ):
     query: str | None = None
     if should_use_incremental_field and db_incremental_field_last_value:
@@ -365,7 +372,7 @@ async def _get_workflow_histories(
         next_page_token = _decode_page_token(resume_config.next_page_token)
         logger.debug("TemporalIO: resuming workflow histories from next_page_token")
 
-    client = await _get_temporal_client(config)
+    client = await _get_temporal_client(config, team_id)
     workflows = client.list_workflows(query=query, next_page_token=next_page_token, page_size=100)
 
     page_count = 0
@@ -421,13 +428,19 @@ def temporalio_source(
     db_incremental_field_last_value: Optional[Any],
     resumable_source_manager: ResumableSourceManager[TemporalIOResumeConfig],
     logger: FilteringBoundLogger,
+    team_id: int,
     should_use_incremental_field: bool = False,
 ) -> SourceResponse:
     if resource == TemporalIOResource.Workflows:
 
         async def get_workflows_iterator():
             return _get_workflows(
-                config, db_incremental_field_last_value, should_use_incremental_field, resumable_source_manager, logger
+                config,
+                db_incremental_field_last_value,
+                should_use_incremental_field,
+                resumable_source_manager,
+                logger,
+                team_id,
             )
 
         workflows = _async_iter_to_sync(asyncio.run(get_workflows_iterator()))
@@ -447,7 +460,12 @@ def temporalio_source(
 
         async def get_histories_iterator():
             return _get_workflow_histories(
-                config, db_incremental_field_last_value, should_use_incremental_field, resumable_source_manager, logger
+                config,
+                db_incremental_field_last_value,
+                should_use_incremental_field,
+                resumable_source_manager,
+                logger,
+                team_id,
             )
 
         workflows = _async_iter_to_sync(asyncio.run(get_histories_iterator()))

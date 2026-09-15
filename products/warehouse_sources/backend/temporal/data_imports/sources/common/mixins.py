@@ -478,6 +478,23 @@ def _pinned_ssh_host(ssh_config, team_id: int | None) -> str:
     return resolution.connect_host
 
 
+def check_connect_host(host: str, team_id: int | None) -> None:
+    """Refuse a connection to a host that resolves somewhere internal.
+
+    For a source whose client dials the host on a raw socket, which no egress proxy sees. The
+    validation layer checks the host when a source is created or updated, and the sync path then
+    goes from the stored config straight to the connection, so this is the only check a later
+    scheduled run passes through.
+
+    It checks without pinning, because the caller hands the hostname to a client that needs it
+    for TLS. A short-TTL record can therefore still answer public here and private on the dial;
+    see `resolve_safe_host`. This closes the standing exposure, not that race.
+    """
+    resolution = resolve_safe_host(host, team_id)
+    if resolution.connect_host is None:
+        raise HostNotAllowedError(f"{DATABASE_HOST_NOT_ALLOWED_ERROR}: {resolution.error or _INTERNAL_IP_ERROR}")
+
+
 def _check_direct_host(config, team_id: int | None) -> None:
     """Refuse a direct database connection to a host that resolves somewhere internal.
 
@@ -506,9 +523,7 @@ def _check_direct_host(config, team_id: int | None) -> None:
     activity until Temporal's `start_to_close_timeout` rather than failing fast and retryably.
     Bounding this one is the follow-up.
     """
-    resolution = resolve_safe_host(config.host, team_id)
-    if resolution.connect_host is None:
-        raise HostNotAllowedError(f"{DATABASE_HOST_NOT_ALLOWED_ERROR}: {resolution.error or _INTERNAL_IP_ERROR}")
+    check_connect_host(config.host, team_id)
 
 
 @contextmanager
