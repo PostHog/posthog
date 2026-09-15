@@ -43,8 +43,8 @@ from products.canvas.backend.facade.api import (
     canvas_is_shareable,
     connector_listings,
     default_layout,
-    filter_canvases_by_access_level_for_user_id,
     native_connector_listings,
+    readable_canvas_ids,
     seed_home_canvas,
     subtract_preexisting_diagnostics,
     validate_layout,
@@ -257,12 +257,13 @@ def _component_lifecycles(
     component_ids = {component_id for component_id, _ in wanted}
     pinned_version_ids = {version_id for _, version_id in wanted if version_id}
     with team_scope(team_id):
-        readable_components = filter_canvases_by_access_level_for_user_id(
-            canvases.filter(id__in=component_ids, kind=Canvas.KIND_COMPONENT),
-            team_id,
-            user_id,
-        )
-        components = {str(canvas.id): canvas for canvas in readable_components.select_related("published_build")}
+        readable_ids = readable_canvas_ids(component_ids, team_id, user_id)
+        components = {
+            str(canvas.id): canvas
+            for canvas in canvases.filter(id__in=readable_ids, kind=Canvas.KIND_COMPONENT).select_related(
+                "published_build"
+            )
+        }
         pinned_builds: dict[str, CanvasBuild] = {}
         if pinned_version_ids:
             # One row per version (its newest ready build) instead of loading a
@@ -1682,7 +1683,7 @@ class CanvasViewSet(CanvasAccessMixin, AccessControlViewSetMixin, viewsets.Model
         if (
             share is None
             or shared_canvas is None
-            or not canvas_is_shareable(shared_canvas)
+            or not canvas_is_shareable(kind=shared_canvas.kind, deleted=shared_canvas.deleted)
             or organization_disallows_public_sharing(share)
         ):
             return Response({"detail": "This link doesn't point at a shared canvas."}, status=status.HTTP_404_NOT_FOUND)

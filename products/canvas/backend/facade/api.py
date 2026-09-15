@@ -1,7 +1,4 @@
-from products.canvas.backend.access_control import (
-    filter_canvases_by_access_level as filter_canvases_by_access_level,
-    filter_canvases_by_access_level_for_user_id as filter_canvases_by_access_level_for_user_id,
-)
+from products.canvas.backend.access_control import readable_canvas_ids as readable_canvas_ids
 from products.canvas.backend.connectors import (
     ConnectorCallStatus as ConnectorCallStatus,
     ConnectorKind as ConnectorKind,

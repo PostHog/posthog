@@ -12,6 +12,7 @@ turned on again.
 """
 
 from typing import Any
+from uuid import UUID
 
 from products.canvas.backend.artifacts import create_canvas_artifact_url
 from products.canvas.backend.build_service import CanvasNotPublished
@@ -32,13 +33,13 @@ def user_can_access_canvas(*, team_id: int, user_id: int | None, canvas_id: Any)
     )
 
 
-def canvas_is_shareable(canvas: Canvas) -> bool:
-    return not canvas.deleted and canvas.kind in SHAREABLE_KINDS
+def canvas_is_shareable(*, kind: str, deleted: bool) -> bool:
+    return not deleted and kind in SHAREABLE_KINDS
 
 
-def canvas_app_path(canvas: Canvas) -> str:
+def canvas_app_path(*, channel_id: UUID | str, canvas_id: UUID | str) -> str:
     """The web route that deep-links the canvas into PostHog Desktop (the `CodeCanvasLink` scene)."""
-    return f"/desktop/canvas/{canvas.channel_id}/{canvas.id}"
+    return f"/desktop/canvas/{channel_id}/{canvas_id}"
 
 
 def _ready_build(build: CanvasBuild | None) -> CanvasBuild | None:

@@ -40,7 +40,7 @@ _CANVAS_URL_HELP_TEXT = (
 def canvas_url(canvas: Canvas) -> str:
     # The same shape the thread-message announcements use; the route deep-links
     # into the desktop app and renders in the web app.
-    return f"{settings.SITE_URL}{canvas_app_path(canvas)}"
+    return f"{settings.SITE_URL}{canvas_app_path(channel_id=canvas.channel_id, canvas_id=canvas.id)}"
 
 
 class CanvasComponentSizeSerializer(serializers.Serializer):

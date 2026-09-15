@@ -5704,7 +5704,7 @@ def _readable_search_documents(
     disclose its name, its channel, or its kind through search while the API refuses to open it.
     """
     from products.canvas.backend.access_control import (  # noqa: PLC0415 — keeps the access-control deps off this module's import path
-        filter_canvases_by_access_level_for_user_id,
+        readable_canvas_ids,
     )
 
     canvas_ids = []
@@ -5717,12 +5717,7 @@ def _readable_search_documents(
             continue
     if not canvas_ids:
         return documents
-    readable = {
-        str(canvas_id)
-        for canvas_id in filter_canvases_by_access_level_for_user_id(
-            Canvas.objects.for_team(team_id).filter(id__in=canvas_ids), team_id, user_id
-        ).values_list("id", flat=True)
-    }
+    readable = readable_canvas_ids(canvas_ids, team_id, user_id)
     return [
         document
         for document in documents
