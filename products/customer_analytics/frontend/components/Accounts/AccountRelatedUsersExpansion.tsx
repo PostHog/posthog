@@ -1,10 +1,12 @@
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 
+import { IconCopy } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonTable, LemonTableColumns, Link } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { OrganizationMembershipLevel } from 'lib/constants'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { membershipLevelToName } from 'lib/utils/permissioning'
 import { capitalizeFirstLetter, fullName } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
@@ -122,6 +124,7 @@ export function AccountRelatedUsersExpansion({
                 data-attr="customer-analytics-account-users-search"
             />
             <LemonTable<AccountOrganizationMember>
+                key={externalId}
                 size="small"
                 embedded={embedded}
                 dataSource={membersResponse?.results ?? []}
@@ -139,6 +142,37 @@ export function AccountRelatedUsersExpansion({
                     entryCount: membersResponse?.count ?? 0,
                     onForward: () => setPage(page + 1),
                     onBackward: () => setPage(page - 1),
+                }}
+                bulkSelection={{
+                    getKey: (member) => member.user.email,
+                    isRowSelectable: (member) =>
+                        member.user.email ? true : { disabledReason: 'This user has no email address' },
+                    noun: ['user', 'users'],
+                    rowAriaLabel: (member) =>
+                        `Select user ${fullName(member.user) || member.user.email || 'without an email address'}`,
+                    headerAriaLabel: 'Select all users on this page',
+                    renderActions: (context) => (
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            icon={<IconCopy />}
+                            data-attr="customer-analytics-account-users-copy-emails"
+                            onClick={() => {
+                                void copyToClipboard(
+                                    context.selectedKeys.join('\n'),
+                                    context.selectedCount === 1 ? 'email address' : 'email addresses'
+                                ).then((copied) => {
+                                    if (copied) {
+                                        posthog.capture(AccountsEvents.RelatedUserEmailsCopied, {
+                                            user_count: context.selectedCount,
+                                        })
+                                    }
+                                })
+                            }}
+                        >
+                            Copy email addresses
+                        </LemonButton>
+                    ),
                 }}
                 emptyState={
                     !externalId
