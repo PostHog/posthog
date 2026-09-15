@@ -17,14 +17,15 @@ import { dirname, join } from 'path'
 // both against the same input under jsdom — identical output.
 //
 // So the patch being dropped is caught by asserting the <base href> assignment is absent. That is
-// the construct the policy rejects, and it is the only thing observable in dist/, whose resolver is
-// internal to the bundle. pnpm fails loudly when a patch cannot apply, but not when someone removes
-// the entry to unblock an upgrade, which is the path this guards. The check is deliberately
-// negative: it says nothing about how the replacement resolves, so an equivalent refactor survives.
+// the construct the policy rejects. pnpm fails loudly when a patch cannot apply, but not when
+// someone removes the entry to unblock an upgrade, which is the path this guards. The check is
+// deliberately negative: it says nothing about how the replacement resolves, so an equivalent
+// refactor survives.
 //
-// All three builds are guarded because the package ships three and they are reached differently:
-// esbuild takes `module` (es/), Jest and Node take `main` (lib/), and `unpkg` serves dist/. Patching
-// only one of them looks fine locally and ships unpatched code to the browser.
+// Both builds this repo loads are guarded, because they are reached differently: esbuild takes
+// `module` (es/) and Jest and Node take `main` (lib/). Patching only one of them looks fine locally
+// and ships unpatched code to the browser. The package also ships dist/, which only `unpkg` serves,
+// so nothing in this repo loads it.
 describe('html-to-image patch', () => {
     const packageRoot = dirname(dirname(require.resolve('html-to-image')))
     const STYLESHEET = 'https://app-static-prod.posthog.com/static/index-46THL72U.css'
@@ -44,12 +45,9 @@ describe('html-to-image patch', () => {
         expect(resolveUrl(url, STYLESHEET)).toBe(expected)
     })
 
-    it.each(['es/util.js', 'lib/util.js', 'dist/html-to-image.js'])(
-        'does not assign <base href> on a detached document in %s',
-        (file) => {
-            const source = readFileSync(join(packageRoot, file), 'utf-8')
+    it.each(['es/util.js', 'lib/util.js'])('does not assign <base href> on a detached document in %s', (file) => {
+        const source = readFileSync(join(packageRoot, file), 'utf-8')
 
-            expect(source).not.toMatch(/createElement\(['"]base['"]\)/)
-        }
-    )
+        expect(source).not.toMatch(/createElement\(['"]base['"]\)/)
+    })
 })
