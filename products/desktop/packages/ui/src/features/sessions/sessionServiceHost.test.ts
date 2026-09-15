@@ -221,6 +221,36 @@ vi.mock(
   () => mockSessionAdapterStore,
 );
 
+const mockBillingState = vi.hoisted(
+  () => ({ billingByRunId: {} }) as { billingByRunId: Record<string, unknown> },
+);
+
+const mockBillingFns = vi.hoisted(() => ({
+  setBilling: vi.fn((taskRunId: string, billing: unknown) => {
+    mockBillingState.billingByRunId[taskRunId] = billing;
+  }),
+  getBilling: vi.fn(
+    (taskRunId: string) => mockBillingState.billingByRunId[taskRunId],
+  ),
+  removeBilling: vi.fn((taskRunId: string) => {
+    delete mockBillingState.billingByRunId[taskRunId];
+  }),
+}));
+
+const mockSessionBillingStore = vi.hoisted(() => ({
+  useSessionBillingStore: {
+    getState: vi.fn(() => ({
+      ...mockBillingState,
+      ...mockBillingFns,
+    })),
+  },
+}));
+
+vi.mock(
+  "@posthog/ui/features/sessions/sessionBillingStore",
+  () => mockSessionBillingStore,
+);
+
 const mockGetIsOnline = vi.hoisted(() => vi.fn(() => true));
 
 vi.mock("@posthog/core/connectivity/connectivityStore", () => ({
@@ -507,6 +537,7 @@ describe("SessionService", () => {
     mockBuildAuthenticatedClient.mockReturnValue(mockAuthenticatedClient);
     mockSessionConfigStore.getPersistedConfigOptions.mockReturnValue(undefined);
     mockAdapterFns.getAdapter.mockReturnValue(undefined);
+    mockBillingState.billingByRunId = {};
     mockAuthenticatedClient.getTaskRunSessionLogsResult.mockResolvedValue({
       entries: [],
       complete: true,
@@ -7500,6 +7531,74 @@ describe("SessionService", () => {
         sessionId: "run-123",
         prompt: [{ type: "text", text: "Hello" }],
       });
+    });
+
+    it("restarts a local run to apply a mid-conversation billing switch", async () => {
+      const service = getSessionService();
+
+      let session: AgentSession | undefined;
+      mockSessionStoreSetters.getSessionByTaskId.mockImplementation(
+        () => session,
+      );
+      mockSessionStoreSetters.getSessions.mockImplementation(() =>
+        session ? { "run-123": session } : {},
+      );
+      mockSessionStoreSetters.updateSession.mockImplementation(
+        (_taskRunId, updates) => {
+          if (session)
+            session = { ...session, ...(updates as Partial<AgentSession>) };
+        },
+      );
+      mockSessionStoreSetters.setSession.mockImplementation((next) => {
+        session = next as AgentSession;
+      });
+
+      mockSettingsState.claudeModelAccess = "own-subscription";
+      mockBuildAuthenticatedClient.mockReturnValue({
+        ...mockAuthenticatedClient,
+        createTaskRun: vi.fn().mockResolvedValue({ id: "run-123" }),
+        appendTaskRunLog: vi.fn(),
+      });
+      mockTrpcAgent.start.mutate.mockResolvedValue({
+        channel: "agent-event:run-123",
+        configOptions: [],
+      });
+      mockTrpcWorkspace.verify.query.mockResolvedValue({ exists: true });
+      mockTrpcLogs.readLocalLogs.query.mockResolvedValue("");
+      mockTrpcAgent.reconnect.mutate.mockResolvedValue({
+        sessionId: "run-123",
+        channel: "agent-event:run-123",
+        configOptions: [],
+      });
+      mockTrpcAgent.prompt.mutate.mockResolvedValue({ stopReason: "end_turn" });
+
+      await service.connectToTask({
+        task: createMockTask(),
+        repoPath: "/repo",
+        adapter: "claude",
+        claudeModelAccess: "own-subscription",
+      });
+
+      // Changing the global default does not touch a conversation that is
+      // already running: billing is scoped per conversation.
+      mockSettingsState.claudeModelAccess = "posthog-gateway";
+      await service.sendPrompt("task-123", "keep going");
+      expect(mockTrpcAgent.reconnect.mutate).not.toHaveBeenCalled();
+      expect(session?.claudeModelAccess).toBe("own-subscription");
+
+      // Switching this run's billing respawns it under the new credentials.
+      service.setSessionModelAccess("task-123", "claude", "posthog-gateway");
+      await service.sendPrompt("task-123", "keep going");
+      expect(mockTrpcAgent.reconnect.mutate).toHaveBeenCalledTimes(1);
+      expect(mockTrpcAgent.reconnect.mutate).toHaveBeenCalledWith(
+        expect.objectContaining({ claudeModelAccess: "posthog-gateway" }),
+      );
+      expect(session?.claudeModelAccess).toBe("posthog-gateway");
+
+      // The respawn records the new billing, so a later send under the same
+      // run billing does not restart the run again.
+      await service.sendPrompt("task-123", "and again");
+      expect(mockTrpcAgent.reconnect.mutate).toHaveBeenCalledTimes(1);
     });
 
     it("reuses attachments uploaded before sending cloud follow-ups", async () => {

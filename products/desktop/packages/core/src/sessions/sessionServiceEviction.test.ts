@@ -70,6 +70,11 @@ function createHarness(seedSessions: AgentSession[]) {
       setAdapter: vi.fn(),
       removeAdapter,
     },
+    billingStore: {
+      getBilling: () => undefined,
+      setBilling: vi.fn(),
+      removeBilling: vi.fn(),
+    },
     trpc: {
       agent: {
         cancel: { mutate: cancelMutate },

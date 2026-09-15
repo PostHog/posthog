@@ -509,6 +509,16 @@ export interface SessionServiceDeps {
     setAdapter(taskRunId: string, adapter: Adapter): void;
     removeAdapter(taskRunId: string): void;
   };
+  billingStore: {
+    getBilling(
+      taskRunId: string,
+    ): Partial<Record<Adapter, ModelAccess>> | undefined;
+    setBilling(
+      taskRunId: string,
+      billing: Partial<Record<Adapter, ModelAccess>>,
+    ): void;
+    removeBilling(taskRunId: string): void;
+  };
   readonly settings: {
     customInstructions?: string | null;
     rtkEnabledLocal?: boolean;
@@ -681,6 +691,27 @@ type DerivedPermissionRequest = Pick<
   CloudTaskPermissionRequestUpdate,
   "requestId" | "toolCall" | "options"
 >;
+
+/**
+ * Whether the running local agent's billing (model access) no longer matches
+ * the conversation's chosen billing, so the next send must respawn to apply it.
+ * Billing is a spawn-time credential choice. Cloud runs always bill PostHog. A
+ * run whose adapter has no chosen billing is left on what it spawned with.
+ */
+export function billingRespawnNeeded(
+  run: Pick<
+    AgentSession,
+    "isCloud" | "adapter" | "codexModelAccess" | "claudeModelAccess"
+  >,
+  desired: Partial<Record<Adapter, ModelAccess>> | undefined,
+): boolean {
+  if (run.isCloud || !run.adapter) return false;
+  const want = desired?.[run.adapter];
+  if (want === undefined) return false;
+  const live =
+    run.adapter === "codex" ? run.codexModelAccess : run.claudeModelAccess;
+  return want !== live;
+}
 
 function getEntryTaskRunMarker(entry: StoredLogEntry): string | undefined {
   const method = entry.notification?.method;
@@ -2330,16 +2361,21 @@ export class SessionService {
         rtkEnabledLocal,
         spokenNarrationEnabled,
         bedrockGatewayVariant,
-        codexModelAccess,
+        codexModelAccess: settingsCodexModelAccess,
         claudeModelAccess: settingsClaudeModelAccess,
       } = this.d.settings;
+      // Billing is per conversation: resume under this run's own choice, and
+      // fall back to the global default only for a run that predates it.
+      const runBilling = this.d.billingStore.getBilling(taskRunId);
+      const codexModelAccess = runBilling?.codex ?? settingsCodexModelAccess;
+      const claudeModelAccess = runBilling?.claude ?? settingsClaudeModelAccess;
       const result = await this.d.trpc.agent.reconnect.mutate({
         taskId,
         taskRunId,
         repoPath,
         rtkEnabled: rtkEnabledLocal,
         codexModelAccess,
-        claudeModelAccess: settingsClaudeModelAccess,
+        claudeModelAccess,
         spokenNarration: spokenNarrationEnabled === true,
         bedrockGatewayVariant,
         apiHost: auth.apiHost,
@@ -2353,6 +2389,18 @@ export class SessionService {
         contextWindow: persistedContextWindow,
         fastMode: persistedFastMode,
         customInstructions: customInstructions || undefined,
+      });
+
+      // Record the billing this respawn ran under, both on the session (the
+      // live value) and back in the store (normalized), so the next send only
+      // respawns again when the run's billing actually changes.
+      this.d.store.updateSession(taskRunId, {
+        codexModelAccess,
+        claudeModelAccess,
+      });
+      this.d.billingStore.setBilling(taskRunId, {
+        codex: codexModelAccess,
+        claude: claudeModelAccess,
       });
 
       if (result) {
@@ -2481,9 +2529,11 @@ export class SessionService {
       this.sessionLastUsedAt.delete(session.taskId);
     }
     if (!opts?.preserveResumeState) {
-      // Reconnect restores the model and permission mode from these; only a
-      // permanent disconnect (archive, delete, fresh session) may drop them.
+      // Reconnect restores the model, billing and permission mode from these;
+      // only a permanent disconnect (archive, delete, fresh session) may drop
+      // them.
       this.d.adapterStore.removeAdapter(taskRunId);
+      this.d.billingStore.removeBilling(taskRunId);
       this.d.removePersistedConfigOptions(taskRunId);
     }
   }
@@ -2791,6 +2841,10 @@ export class SessionService {
     if (adapter) {
       this.d.adapterStore.setAdapter(taskRun.id, adapter);
     }
+
+    // Persist this run's billing so reconnects resume under it, and a switch
+    // in another conversation cannot change it.
+    this.d.billingStore.setBilling(taskRun.id, resolvedModelAccess);
 
     // Store the initial prompt on the session so retry/reset flows can
     // re-send it if the session errors after this point (e.g. subscription
@@ -4142,6 +4196,38 @@ export class SessionService {
     return upload;
   }
 
+  private localBillingRespawnNeeded(session: AgentSession): boolean {
+    return billingRespawnNeeded(
+      session,
+      this.d.billingStore.getBilling(session.taskRunId),
+    );
+  }
+
+  /**
+   * Set this conversation's billing (model access) for the run. The running
+   * agent keeps its old credentials until the next send respawns it (see
+   * localBillingRespawnNeeded), and the session's own fields still hold the live
+   * value. A per-run choice, so it never changes another conversation or the
+   * default for new tasks.
+   */
+  setSessionModelAccess(
+    taskId: string,
+    adapter: Adapter,
+    access: ModelAccess,
+  ): void {
+    const session = this.d.store.getSessionByTaskId(taskId);
+    if (!session) return;
+    const taskRunId = session.taskRunId;
+    const current = this.d.billingStore.getBilling(taskRunId) ?? {
+      codex: session.codexModelAccess,
+      claude: session.claudeModelAccess,
+    };
+    this.d.billingStore.setBilling(taskRunId, {
+      ...current,
+      [adapter]: access,
+    });
+  }
+
   /**
    * Send a prompt to the agent.
    * Queues if a prompt is already pending.
@@ -4265,7 +4351,16 @@ export class SessionService {
     // Show the user's message in the chat immediately, before any respawn
     this.applyOptimisticPrompt(session.taskRunId, blocks, promptText);
 
-    if (promptReferencesAbsoluteFolder(prompt)) {
+    // Additional-directory access and billing are both fixed at agent spawn, so
+    // applying either mid-conversation needs a respawn. One covers both, since
+    // reconnectInPlace re-reads the folders and this run's billing when it
+    // respawns.
+    const respawnReason = promptReferencesAbsoluteFolder(prompt)
+      ? "folder"
+      : this.localBillingRespawnNeeded(session)
+        ? "billing"
+        : null;
+    if (respawnReason) {
       const repoPath = this.localRepoPaths.get(taskId);
       if (repoPath) {
         try {
@@ -4273,6 +4368,7 @@ export class SessionService {
         } catch (err) {
           this.d.log.error("Respawn failed; aborting prompt send", {
             taskId,
+            respawnReason,
             err,
           });
           this.d.store.clearOptimisticItems(session.taskRunId);
@@ -4280,13 +4376,20 @@ export class SessionService {
             isPromptPending: false,
             promptStartedAt: null,
           });
-          this.d.toast.error("Couldn't grant the new folder access", {
-            description:
-              "The session needs to restart to pick up the added folder. Try sending again, or remove the folder reference.",
-          });
+          if (respawnReason === "folder") {
+            this.d.toast.error("Couldn't grant the new folder access", {
+              description:
+                "The session needs to restart to pick up the added folder. Try sending again, or remove the folder reference.",
+            });
+          } else {
+            this.d.toast.error("Couldn't switch billing", {
+              description:
+                "The session needs to restart to apply it. Try sending again.",
+            });
+          }
           throw err instanceof Error
             ? err
-            : new Error("Failed to apply additional directories");
+            : new Error("Failed to restart the session");
         }
         const refreshed = this.d.store.getSessionByTaskId(taskId);
         if (refreshed) {

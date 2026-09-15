@@ -203,6 +203,11 @@ function createHarness(isTaskAuthor = true, initialPrompt?: string) {
       setAdapter: vi.fn(),
       removeAdapter: vi.fn(),
     },
+    billingStore: {
+      getBilling: () => undefined,
+      setBilling: vi.fn(),
+      removeBilling: vi.fn(),
+    },
     trpc: {
       agent: {
         onSessionIdleKilled: {

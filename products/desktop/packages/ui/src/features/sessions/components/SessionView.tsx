@@ -11,7 +11,11 @@ import {
   FAST_MODE_OPTION_CATEGORY,
 } from "@posthog/core/task-detail/previewConfig";
 import { useService } from "@posthog/di/react";
-import { type AcpMessage, FAST_MODE_FLAG } from "@posthog/shared";
+import {
+  type AcpMessage,
+  FAST_MODE_FLAG,
+  type ModelAccess,
+} from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
 import {
   spendStopMessage,
@@ -60,6 +64,7 @@ import { useContextUsage } from "@posthog/ui/features/sessions/hooks/useContextU
 import { useCancelQueuedMessageEdit } from "@posthog/ui/features/sessions/hooks/useEditQueuedMessage";
 import { useSessionEventsResidency } from "@posthog/ui/features/sessions/hooks/useSessionEventsResidency";
 import { useToggleMessagingMode } from "@posthog/ui/features/sessions/hooks/useToggleMessagingMode";
+import { useSessionBillingStore } from "@posthog/ui/features/sessions/sessionBillingStore";
 import {
   useAdapterForTask,
   useConfigOptionForTask,
@@ -298,6 +303,25 @@ export function SessionView({
   ]);
 
   const isCloudRun = useIsWorkspaceCloudRun(taskId);
+
+  const runBilling = useSessionBillingStore((s) =>
+    activeTaskRunId ? s.billingByRunId[activeTaskRunId] : undefined,
+  );
+  const liveModelAccess = useSessionSelector(taskId, (s) =>
+    adapter === "codex" ? s?.codexModelAccess : s?.claudeModelAccess,
+  );
+  const billingScopedValue =
+    adapter && !isCloudRun
+      ? (runBilling?.[adapter] ?? liveModelAccess)
+      : undefined;
+  const handleBillingChange = useCallback(
+    (access: ModelAccess) => {
+      if (!taskId || !adapter) return;
+      sessionService.setSessionModelAccess(taskId, adapter, access);
+    },
+    [taskId, adapter, sessionService],
+  );
+
   const editorRef = useRef<PromptInputHandle>(null);
   const isCompacting = useSessionSelector(
     taskId,
@@ -819,6 +843,14 @@ export function SessionView({
                               fastModeOption={fastModeOption}
                               onChange={handleThoughtChange}
                               onConfigOptionChange={handleConfigOptionChange}
+                              showBillingMenu={!isCloudRun}
+                              billingScopedValue={billingScopedValue}
+                              onBillingScopedChange={
+                                adapter && !isCloudRun
+                                  ? handleBillingChange
+                                  : undefined
+                              }
+                              workspaceMode={isCloudRun ? "cloud" : "local"}
                               disabled={!isRunning}
                             />
                           ) : null
