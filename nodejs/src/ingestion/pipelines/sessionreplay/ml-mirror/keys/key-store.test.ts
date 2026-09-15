@@ -1,4 +1,9 @@
-import { BatchGetItemCommand, DynamoDBClient, TransactWriteItemsCommand } from '@aws-sdk/client-dynamodb'
+import {
+    BatchGetItemCommand,
+    DynamoDBClient,
+    TransactWriteItemsCommand,
+    TransactionCanceledException,
+} from '@aws-sdk/client-dynamodb'
 import { GenerateDataKeyCommand, KMSClient } from '@aws-sdk/client-kms'
 import { S3Client } from '@aws-sdk/client-s3'
 import { Message } from 'node-rdkafka'
@@ -151,6 +156,66 @@ describe('ML session key batches', () => {
         const keys = await reader.read(identities.map((identity) => sessionKeyId(identity.teamId, identity.sessionId)))
         expect(keys.size).toBe(identities.length)
         expect(boundary.transactionConflicts).toBe(0)
+    })
+
+    it.each([
+        ['survives', 7, true],
+        ['gives up after', 10, false],
+    ])('%s %i consecutive transaction conflicts on commit', async (_label, conflicts, succeeds) => {
+        const send = boundary.send.bind(boundary)
+        let remaining = conflicts
+        jest.spyOn(boundary, 'send').mockImplementation((command) => {
+            if (command instanceof TransactWriteItemsCommand && remaining > 0) {
+                remaining -= 1
+                return Promise.reject(
+                    new TransactionCanceledException({
+                        $metadata: {},
+                        message: 'Transaction cancelled',
+                        CancellationReasons: [{ Code: 'TransactionConflict' }],
+                    })
+                )
+            }
+            return send(command)
+        })
+        const batch = await store.prepare([session])
+        jest.useFakeTimers()
+        const settled = batch.commit().then(
+            () => 'committed',
+            () => 'failed'
+        )
+        await jest.runAllTimersAsync()
+        expect(await settled).toBe(succeeds ? 'committed' : 'failed')
+        expect(boundary.items.has(tableKeyString(sessionKeyId(session.teamId, session.sessionId)))).toBe(succeeds)
+    })
+
+    it('gives up when the commit budget is spent before the attempts are', async () => {
+        const send = boundary.send.bind(boundary)
+        let remaining = 7
+        let slowReads = false
+        jest.spyOn(boundary, 'send').mockImplementation(async (command) => {
+            if (command instanceof TransactWriteItemsCommand && remaining > 0) {
+                remaining -= 1
+                throw new TransactionCanceledException({
+                    $metadata: {},
+                    message: 'Transaction cancelled',
+                    CancellationReasons: [{ Code: 'TransactionConflict' }],
+                })
+            }
+            if (command instanceof BatchGetItemCommand && slowReads) {
+                await new Promise((resolve) => setTimeout(resolve, 20_000))
+            }
+            return send(command)
+        })
+        const batch = await store.prepare([session])
+        slowReads = true
+        jest.useFakeTimers()
+        const settled = batch.commit().then(
+            () => 'committed',
+            () => 'failed'
+        )
+        await jest.runAllTimersAsync()
+        expect(await settled).toBe('failed')
+        expect(remaining).toBeGreaterThan(0)
     })
 
     it('indexes monthly keys atomically and blocks a month during a competing batch', async () => {
