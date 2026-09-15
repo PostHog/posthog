@@ -3,10 +3,11 @@ import { InputField } from '@segment/actions-core'
 /**
  * Segment validates a mapped payload against the action's field schema before it calls `perform`,
  * and that step coerces each value into the type the field declares. `getFieldType` renders a field
- * declared as a number or an integer as a string input, so hog templating works on it, and this is
- * the pass that turns the rendered string back into what the destination declared. Without it a
- * destination that branches on the runtime type drops the value, and a field declared as an array
- * throws when it is handed a scalar.
+ * declared as a number or an integer as a string input, so hog templating works on it, and a
+ * templated boolean arrives as the word `concat` printed. This is the pass that turns the rendered
+ * string back into what the destination declared. Without it a destination that branches on the
+ * runtime type drops the value, and a field declared as an array throws when it is handed a
+ * scalar.
  */
 
 export type SegmentInputField = Partial<Pick<InputField, 'type' | 'multiple'>> & {
@@ -14,7 +15,23 @@ export type SegmentInputField = Partial<Pick<InputField, 'type' | 'multiple'>> &
 }
 
 const coerceScalar = (value: unknown, type: string | undefined): unknown => {
-    if (typeof value !== 'string' || value === '' || (type !== 'number' && type !== 'integer')) {
+    if (typeof value !== 'string' || value === '') {
+        return value
+    }
+
+    if (type === 'boolean') {
+        // Hog prints a boolean as the exact lowercase word. Any other string is a value we cannot
+        // read as a boolean without guessing, so it reaches the destination as the customer wrote it.
+        if (value === 'true') {
+            return true
+        }
+        if (value === 'false') {
+            return false
+        }
+        return value
+    }
+
+    if (type !== 'number' && type !== 'integer') {
         return value
     }
 
