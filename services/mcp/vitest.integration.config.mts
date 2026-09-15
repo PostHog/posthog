@@ -9,7 +9,10 @@ export default defineConfig({
         globals: true,
         environment: 'node',
         testTimeout: 30000,
-        retry: 1, // Retry failed tests once to handle flaky integration tests
+        // No built-in retry: ci-mcp.yml reruns failed files into a second JUnit report, so the
+        // first report keeps the raw flake signal for Trunk. A vitest retry would record a
+        // flaky test as a plain pass and hide it from that report.
+        retry: 0,
         setupFiles: ['tests/setup.ts'],
         // Builds `public/ui-apps/*` once per test session if missing — required for
         // the MCP-protocol integration tests that exercise UI app resources.

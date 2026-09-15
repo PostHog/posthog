@@ -735,6 +735,27 @@ jobs:
                   TEST_ORG_ID: ${{ env.TEST_ORG_ID }}
                   TEST_PROJECT_ID: ${{ env.TEST_PROJECT_ID }}
 
+            # Reruns only the test files that failed, once, in this job, into a separate
+            # report. Trunk still receives the first report, so the failure keeps counting as
+            # flake signal, while a pass on the rerun lets the job go green. The script exits
+            # non-zero when nothing can be retried, and the verdict then falls back to the
+            # first run's outcome.
+            - name: Retry failed integration test files
+              id: retry-integration-tests
+              if: ${{ !cancelled() && steps.run-integration-tests.outcome == 'failure' }}
+              continue-on-error: true
+              env:
+                  TEST_POSTHOG_API_BASE_URL: http://localhost:8000
+                  TEST_POSTHOG_PERSONAL_API_KEY: phx_e2e_demo_api_key
+                  TEST_ORG_ID: ${{ env.TEST_ORG_ID }}
+                  TEST_PROJECT_ID: ${{ env.TEST_PROJECT_ID }}
+              run: |
+                  # FAILED_TEST_FILES holds the suite names, which are paths relative to services/mcp,
+                  # the directory vitest runs in, and vitest takes them as file filters.
+                  bash .github/scripts/retry-failed-tests.sh \
+                      services/mcp/junit-integration.xml services/mcp/retry-junit-integration.xml -- \
+                      bash -c 'cd services/mcp && pnpm run test:integration --reporter=default --reporter=junit --outputFile.junit=retry-junit-integration.xml $FAILED_TEST_FILES'
+
             # Best-effort Trunk upload (continue-on-error); the "Fail on test failure" step below is
             # the verdict, so a Trunk outage can't red a passing job. Internal PRs only (needs the
             # secret).
@@ -748,15 +769,15 @@ jobs:
               if: ${{ !cancelled() && env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]' && vars.TRUNK_UPLOAD_ENABLED == 'true' }}
               uses: ./.github/actions/trunk-quarantine-gate
               with:
-                  junit-paths: services/mcp/junit-integration.xml
-                  previous-step-outcome: ${{ steps.run-integration-tests.outcome }}
+                  junit-paths: services/mcp/*junit-integration.xml
+                  previous-step-outcome: ${{ steps.retry-integration-tests.outcome == 'success' && 'success' || steps.run-integration-tests.outcome }}
                   token: ${{ secrets.TRUNK_API_TOKEN }}
 
             # Verdict: red a real failure the gate didn't clear as a quarantined flake. != 'success'
             # also covers the skipped gate on fork/Dependabot. Sits before the logs-on-failure steps
             # so a real failure still triggers them via failure().
             - name: Fail on test failure
-              if: ${{ !cancelled() && steps.run-integration-tests.outcome == 'failure' && (vars.TRUNK_QUARANTINE_ENABLED != 'true' || steps.quarantine_gate.outcome != 'success') }}
+              if: ${{ !cancelled() && steps.run-integration-tests.outcome == 'failure' && steps.retry-integration-tests.outcome != 'success' && (vars.TRUNK_QUARANTINE_ENABLED != 'true' || steps.quarantine_gate.outcome != 'success') }}
               shell: bash
               run: exit 1
 

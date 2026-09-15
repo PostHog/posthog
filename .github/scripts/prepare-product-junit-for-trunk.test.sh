@@ -21,7 +21,8 @@ run_case() {
     read -r -a exclusions <<<"$excluded_paths"
     mkdir -p "$root"
     create_product "$root" warehouse_sources @posthog/products-warehouse-sources "$warehouse_report"
-    create_product "$root" warehouse_sources_queue @posthog/products-warehouse-sources-queue '<testsuite tests="1" failures="0" />'
+    create_product "$root" warehouse_sources_queue @posthog/products-warehouse-sources-queue '<testsuite tests="1" failures="1" />'
+    printf '%s\n' '<testsuite tests="1" failures="0" />' >"$root/products/warehouse_sources_queue/retry-junit-product.xml"
     create_product "$root" other @posthog/products-other "$other_report"
 
     set +e
@@ -47,6 +48,10 @@ run_case() {
     fi
     if [ ! -e "$root/trunk-junit/junit-product-warehouse_sources_queue.xml" ]; then
         echo "FAIL: $name did not stage an included report"
+        exit 1
+    fi
+    if [ ! -e "$root/trunk-junit/retry-junit-product-warehouse_sources_queue.xml" ]; then
+        echo "FAIL: $name did not stage the retry report next to the first report"
         exit 1
     fi
     echo "ok: $name"
