@@ -1,3 +1,4 @@
+import * as chart from '@posthog/brand/hoggies/png/chart'
 import * as codeBubble from '@posthog/brand/hoggies/png/code-bubble'
 import * as cursor from '@posthog/brand/hoggies/png/cursor'
 import * as deskWizard from '@posthog/brand/hoggies/png/desk-wizard'
@@ -6,9 +7,7 @@ import * as experiment from '@posthog/brand/hoggies/png/experiment'
 import * as greek from '@posthog/brand/hoggies/png/greek'
 import * as judge from '@posthog/brand/hoggies/png/judge'
 import * as magnifyingGlass from '@posthog/brand/hoggies/png/magnifying-glass-1'
-import * as magnifyingGlass2 from '@posthog/brand/hoggies/png/magnifying-glass-2'
 import * as megaphone from '@posthog/brand/hoggies/png/megaphone'
-import * as noir5 from '@posthog/brand/hoggies/png/noir-5'
 import * as organized from '@posthog/brand/hoggies/png/organized'
 import * as panic from '@posthog/brand/hoggies/png/panic'
 import * as phoneCall from '@posthog/brand/hoggies/png/phone-call'
@@ -19,6 +18,7 @@ import * as scientist from '@posthog/brand/hoggies/png/scientist'
 import * as trafficController from '@posthog/brand/hoggies/png/traffic-controller'
 import * as transformer from '@posthog/brand/hoggies/png/transformer'
 import * as workflows from '@posthog/brand/hoggies/png/workflows'
+import * as xRay from '@posthog/brand/hoggies/png/x-ray'
 import { IconAI, IconGithub } from '@posthog/icons'
 
 import { Logomark } from 'lib/brand'
@@ -30,6 +30,7 @@ import { ProductKey } from '~/queries/schema/schema-general'
 
 import type { ProductPushDisplay } from './navPanelAdShared'
 
+const HedgehogChart = pngHoggie(chart)
 const HedgehogCodeBubble = pngHoggie(codeBubble)
 const HedgehogCursor = pngHoggie(cursor)
 const HedgehogDeskWizard = pngHoggie(deskWizard)
@@ -38,9 +39,7 @@ const HedgehogExperiment = pngHoggie(experiment)
 const HedgehogGreek = pngHoggie(greek)
 const HedgehogJudge = pngHoggie(judge)
 const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlass)
-const HedgehogMagnifyingGlass2 = pngHoggie(magnifyingGlass2)
 const HedgehogMegaphone = pngHoggie(megaphone)
-const HedgehogNoir5 = pngHoggie(noir5)
 const HedgehogOrganized = pngHoggie(organized)
 const HedgehogPanic = pngHoggie(panic)
 const HedgehogPhoneCall = pngHoggie(phoneCall)
@@ -51,6 +50,7 @@ const HedgehogScientist = pngHoggie(scientist)
 const HedgehogTrafficController = pngHoggie(trafficController)
 const HedgehogTransformer = pngHoggie(transformer)
 const HedgehogWorkflows = pngHoggie(workflows)
+const HedgehogXRay = pngHoggie(xRay)
 
 export const DEFAULT_PRODUCT_PUSH_DISPLAY: ProductPushDisplay = {
     Hoggie: HedgehogMegaphone,
@@ -71,7 +71,7 @@ const SURFACE_ICON_CLASS = 'text-[64px]'
 // have no empty-state hoggie to follow, and the toolbar has no empty state at all.
 export const PRODUCT_PUSH_DISPLAY: Partial<Record<ProductKey, ProductPushDisplay>> = {
     [ProductKey.PRODUCT_ANALYTICS]: {
-        Hoggie: HedgehogMagnifyingGlass2,
+        Hoggie: HedgehogChart,
         accentColor: 'var(--color-product-product-analytics-light)',
         tagline:
             'Insights, funnels, trends, and retention - understand exactly what users do in your product, with the events you already send.',
@@ -156,7 +156,7 @@ export const PRODUCT_PUSH_DISPLAY: Partial<Record<ProductKey, ProductPushDisplay
             'Ask users what they think inside your product, and read the answers next to the sessions behind them.',
     },
     [ProductKey.REPLAY_VISION]: {
-        Hoggie: HedgehogNoir5,
+        Hoggie: HedgehogXRay,
         accentColor: 'var(--color-product-session-replay-light)',
         tagline: 'AI watches your recordings and turns what happens in them into data you can query.',
     },
