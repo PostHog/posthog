@@ -78,12 +78,29 @@ This session runs unattended, so hold to these constraints throughout:
 
 ${publishInstructions}
 
-Structure the markdown with these sections:
-1. Overview — what "${channelName}" is and why it exists.
-2. Key files — the most important paths, each with a one-line purpose.
-3. Conventions & gotchas — non-obvious rules, patterns, and pitfalls.
-4. Related PostHog resources — relevant flags/experiments/surveys/notebooks/
-   insights with links.
+Structure the markdown exactly like this. The Context page of the space parses
+these sections, so agents and people read the same file:
+
+1. Free text first, under these headings:
+   ## What this is — what "${channelName}" is, who it is for, what good looks like.
+   ## How to work here — conventions, review rules, how to test.
+   ## Key files — the paths that matter, one line each.
+   ## Gotchas — what is not obvious from the code.
+2. ## Reading — one bullet per document or file agents should read:
+   \`- [Title](https://url or repo/path.md) — why it matters\`
+3. ## Watching — one bullet per PostHog object this space owns, with its app URL
+   and its kind as the prefix (dashboard, insight, flag, experiment, error, survey):
+   \`- flag: [checkout-retry-v2](https://us.posthog.com/project/123/feature_flags/42)\`
+   Include the dashboards and insights that hold this area's numbers, the flags
+   that gate its code, the experiments running on it, and its error issues.
+4. ## Goals — two or three numbers this space should move, grounded in events the
+   project actually receives. Each goal is:
+   \`### Goal name\`
+   one line on why it matters,
+   \`- Target: at least <number> by <YYYY-MM-DD>\` (or \`at most\`),
+   and a fenced \`\`\`sql block with one HogQL query that returns exactly one row
+   with one numeric cell: the current value. Run each query with the PostHog MCP
+   to confirm it returns a number before you write it down.
 
 Write the document in terse, high-signal language: drop articles and filler,
 prefer fragments and short phrases over full sentences, cut anything that does

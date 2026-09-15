@@ -322,6 +322,38 @@ def close_pr_when_report_dismissed(
 
 
 @receiver(post_save, sender=SignalReport)
+def route_surfaced_report_to_space(
+    sender: type[SignalReport],
+    instance: SignalReport,
+    created: bool,
+    update_fields: set[str] | None = None,
+    **kwargs: Any,
+) -> None:
+    """Hand a report that just surfaced to the space whose CONTEXT.md names what it is about.
+
+    Every path that makes a report visible ends in a save that sets a surfaced status, so hooking
+    the model routes scout-authored reports, pipeline reports, and re-opened ones alike. The router
+    is idempotent and never moves a report that already has an assignment, so a save that touches
+    other fields is a cheap no-op. Best effort: a routing failure must never fail the save.
+    """
+    if not created and update_fields is not None and "status" not in update_fields:
+        return
+    if instance.status not in (SignalReport.Status.READY, SignalReport.Status.PENDING_INPUT):
+        return
+    # Function-local: the router reaches the tasks facade, which the startup-import-budget test
+    # forbids at django.setup().
+    from products.signals.backend.space_routing import route_report_to_space  # noqa: PLC0415
+
+    def _route() -> None:
+        try:
+            route_report_to_space(instance.team_id, str(instance.id))
+        except Exception:
+            logger.warning("space_routing.failed", report_id=str(instance.id), exc_info=True)
+
+    transaction.on_commit(_route)
+
+
+@receiver(post_save, sender=SignalReport)
 def emit_report_embedding_on_document_change(
     sender: type[SignalReport],
     instance: SignalReport,
