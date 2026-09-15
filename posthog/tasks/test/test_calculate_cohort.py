@@ -45,8 +45,14 @@ from posthog.test.persons import create_person
 from products.cohorts.backend.backfill.runs import BackfillRefusalReason
 from products.cohorts.backend.backfill.sizing import PersonSeedEstimate
 from products.cohorts.backend.models.backfill import CohortBackfillKind, CohortBackfillRun
+from products.cohorts.backend.models.calculation_history import CohortCalculationHistory
 from products.cohorts.backend.models.cohort import Cohort, CohortType
-from products.cohorts.backend.models.util import count_cohort_members, insert_static_cohort, list_cohort_member_ids
+from products.cohorts.backend.models.util import (
+    CohortErrorCode,
+    count_cohort_members,
+    insert_static_cohort,
+    list_cohort_member_ids,
+)
 
 MISSING_COHORT_ID = 12345
 
@@ -1515,6 +1521,14 @@ class TestCohortCalculationTasks(APIBaseTest):
         self.assertFalse(cohort.is_calculating)
         self.assertIsNone(cohort.last_calculation)
 
+        # The history row is what the cohort API reads `last_error_message` from, so without it the
+        # failed population reads as a cohort that matched nobody.
+        history = CohortCalculationHistory.objects.get(cohort=cohort)
+        assert history.error is not None
+        self.assertIn("personhog unavailable", history.error)
+        self.assertEqual(history.error_code, CohortErrorCode.UNKNOWN)
+        self.assertIsNotNone(history.finished_at)
+
     @parameterized.expand(
         [
             (
@@ -1595,6 +1609,26 @@ class TestCohortCalculationTasks(APIBaseTest):
         self.assertEqual(cohort.errors_calculating, 0)
         self.assertIsNone(cohort.last_calculation)
         self.assertIsNotNone(cohort.last_error_at)
+
+    def test_static_population_closes_its_history_row_when_a_retry_is_scheduled(self) -> None:
+        cohort = Cohort.objects.create(team=self.team, name="static cohort", is_static=True, is_calculating=True)
+        insert_cohort_from_query.push_request(retries=0, called_directly=False, is_eager=True)
+        try:
+            with (
+                patch(QUERY_CH_INSERT_PATH),
+                patch(PG_SYNC_PATH, side_effect=OperationalError("server closed the connection unexpectedly")),
+                self.assertRaises(Retry),
+            ):
+                insert_cohort_from_query.run(cohort.id, self.team.pk)
+        finally:
+            insert_cohort_from_query.pop_request()
+
+        # One row records one attempt, so a queued retry must not leave this one open and reading
+        # as a population still in flight.
+        history = CohortCalculationHistory.objects.get(cohort=cohort)
+        self.assertIsNotNone(history.finished_at)
+        assert history.error is not None
+        self.assertIn("server closed the connection", history.error)
 
     @parameterized.expand(
         [

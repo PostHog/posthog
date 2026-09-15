@@ -1226,6 +1226,7 @@ class TestParseErrorCode(BaseTest):
             ("value_error", "ValueError", CohortErrorCode.UNKNOWN),
             ("clickhouse_regex", "ClickHouseRegexError", CohortErrorCode.INVALID_REGEX),
             ("clickhouse_memory", "ClickHouseMemoryError", CohortErrorCode.MEMORY_LIMIT),
+            ("clickhouse_too_many_bytes", "ClickHouseTooManyBytesError", CohortErrorCode.DATA_LIMIT),
             ("clickhouse_timeout", "ClickHouseTimeoutError", CohortErrorCode.TIMEOUT),
             ("clickhouse_type", "ClickHouseTypeError", CohortErrorCode.INCOMPATIBLE_TYPES),
             ("generic_exception", "Exception", CohortErrorCode.UNKNOWN),
@@ -1268,6 +1269,7 @@ class TestParseErrorCode(BaseTest):
         clickhouse_code_names = {
             "ClickHouseRegexError": "CANNOT_COMPILE_REGEXP",
             "ClickHouseMemoryError": "MEMORY_LIMIT_EXCEEDED",
+            "ClickHouseTooManyBytesError": "TOO_MANY_BYTES",
             "ClickHouseTimeoutError": "TIMEOUT_EXCEEDED",
             "ClickHouseTypeError": "NO_COMMON_TYPE",
         }
@@ -1287,6 +1289,7 @@ class TestGetFriendlyErrorMessage(BaseTest):
             (CohortErrorCode.INTERRUPTED, "interrupted"),
             (CohortErrorCode.TIMEOUT, "terminated for taking too long"),
             (CohortErrorCode.MEMORY_LIMIT, "terminated for using too much memory"),
+            (CohortErrorCode.DATA_LIMIT, "reading too much data"),
             (CohortErrorCode.QUERY_SIZE, "query that was too large"),
             (CohortErrorCode.VALIDATION_ERROR, "an error occurred"),
             (CohortErrorCode.INVALID_REGEX, "invalid regular expression"),

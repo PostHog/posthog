@@ -74,6 +74,7 @@ class CohortErrorCode(StrEnum):
     INTERRUPTED = "interrupted"
     TIMEOUT = "timeout"
     MEMORY_LIMIT = "memory_limit"
+    DATA_LIMIT = "data_limit"
     QUERY_SIZE = "query_size"
     VALIDATION_ERROR = "validation_error"
     INVALID_REGEX = "invalid_regex"
@@ -92,6 +93,7 @@ ERROR_CODE_MESSAGES: dict[str, str] = {
     CohortErrorCode.INTERRUPTED: "Calculation was interrupted. It will automatically retry.",
     CohortErrorCode.TIMEOUT: "Cohort calculation was terminated for taking too long.",
     CohortErrorCode.MEMORY_LIMIT: "Cohort calculation was terminated for using too much memory.",
+    CohortErrorCode.DATA_LIMIT: "Cohort calculation was terminated for reading too much data. Narrow the matching criteria, for example to a shorter date range.",
     CohortErrorCode.QUERY_SIZE: "The matching criteria produced a query that was too large.",
     CohortErrorCode.INVALID_REGEX: "This cohort contains an invalid regular expression. Please check your regex syntax in the matching criteria.",
     CohortErrorCode.NO_PROPERTIES: "This cohort has no matching criteria defined. Please add at least one.",
@@ -113,6 +115,7 @@ def get_friendly_error_message(error_code: str | None) -> str | None:
 _CLICKHOUSE_ERROR_MAPPING: dict[str, CohortErrorCode] = {
     "cannot_compile_regexp": CohortErrorCode.INVALID_REGEX,
     "memory_limit_exceeded": CohortErrorCode.MEMORY_LIMIT,
+    "too_many_bytes": CohortErrorCode.DATA_LIMIT,
     "timeout_exceeded": CohortErrorCode.TIMEOUT,
     "no_common_type": CohortErrorCode.INCOMPATIBLE_TYPES,
 }

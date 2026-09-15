@@ -422,6 +422,38 @@ describe('cohortEditLogic', () => {
             expect(screen.queryByText(/Calculation failed:/)).not.toBeInTheDocument()
         })
 
+        it('shows the failure banner without a retry for a static cohort whose population failed', async () => {
+            const cohortId = 7
+
+            useMocks({
+                get: {
+                    [`/api/projects/:team_id/cohorts/${cohortId}/`]: {
+                        id: cohortId,
+                        name: 'Test Cohort',
+                        // A static cohort that never populated reports count 0, so the only signal
+                        // that the population failed is this banner.
+                        is_static: true,
+                        filters: { properties: {} },
+                        query: { kind: 'HogQLQuery', query: 'SELECT person_id FROM events' },
+                        version: null,
+                        pending_version: null,
+                        is_calculating: false,
+                        errors_calculating: 1,
+                        last_calculation: null,
+                        last_error_message: 'Cohort calculation was terminated for reading too much data.',
+                    },
+                },
+            })
+
+            render(<CohortEdit id={cohortId} />)
+
+            await screen.findByText(/Calculation failed:/)
+            expect(screen.getByText(/reading too much data/)).toBeInTheDocument()
+            expect(screen.getByText('contact support')).toBeInTheDocument()
+            // The edit form does not resend the source query, so a Retry would not repopulate.
+            expect(screen.queryByText('Retry')).not.toBeInTheDocument()
+        })
+
         // Pins the selector contract the fix changed, including the errors_calculating=0 and
         // version=null boundaries the DOM tests above don't exercise.
         it.each([

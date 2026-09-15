@@ -44,9 +44,11 @@ from products.cohorts.backend.models.calculation_history import CohortCalculatio
 from products.cohorts.backend.models.cohort import Cohort, CohortOrEmpty, ImportResolution
 from products.cohorts.backend.models.util import (
     COHORT_STATS_COLLECTION_DELAY_SECONDS,
+    CohortErrorCode,
     get_all_cohort_dependencies,
     get_all_cohort_dependents,
     get_clickhouse_query_stats,
+    parse_error_code,
     save_recovery_bookkeeping,
     sort_cohorts_topologically,
 )
@@ -775,6 +777,29 @@ def calculate_cohort_from_list(
     )
 
 
+def _finalize_population_history(
+    history: CohortCalculationHistory, *, cohort: Cohort, processing_error: BaseException | None
+) -> None:
+    """Close out the history record for one static population attempt."""
+    history.finished_at = timezone.now()
+    if processing_error is None:
+        history.count = cohort.count
+    else:
+        history.error = str(processing_error)
+        # parse_error_code classifies exceptions. A BaseException that stopped the worker
+        # (shutdown, revoke) carries no cause worth showing, so it stays unknown.
+        history.error_code = (
+            parse_error_code(processing_error) if isinstance(processing_error, Exception) else CohortErrorCode.UNKNOWN
+        )
+    # A long population can outlive its Postgres connection, so record the outcome resiliently
+    # instead of raising "connection is closed" over the error this row exists to report.
+    save_recovery_bookkeeping(
+        lambda: history.save(update_fields=["finished_at", "count", "error", "error_code"]),
+        cohort_id=cohort.pk,
+        team_id=cohort.team_id,
+    )
+
+
 def _populate_static_cohort(
     task: Task,
     *,
@@ -794,6 +819,7 @@ def _populate_static_cohort(
     # The cohort this attempt marked is_calculating. Only that attempt finalizes the flag, so a
     # skipped or never-started attempt leaves whoever owns it (the API, a newer calculation) alone.
     claimed: Cohort | None = None
+    history: CohortCalculationHistory | None = None
     processing_error: BaseException | None = None
     retry: Retry | None = None
     try:
@@ -818,6 +844,14 @@ def _populate_static_cohort(
         cohort.save(update_fields=["is_calculating"])
         claimed = cohort
         cohort.refresh_from_db()
+
+        # A history record is the only way a population failure reaches the user: the cohort API
+        # reads `last_error_message` from the newest history row that carries an error. Without one,
+        # a population that died on a ClickHouse limit is indistinguishable from a cohort that
+        # matched nobody.
+        history = CohortCalculationHistory.objects.create(
+            team=team, cohort=cohort, filters=cohort.properties.to_dict() if cohort.properties.values else {}
+        )
 
         # The CH insert is idempotent: it excludes person_ids already in the cohort.
         # This handles both the retry-after-OOM case (no duplicates) and the
@@ -861,6 +895,10 @@ def _populate_static_cohort(
         processing_error = err
         raise
     finally:
+        # One history row records one attempt, so every exit closes it, including a scheduled
+        # retry. An open row left behind would read as a population still in flight.
+        if history is not None and claimed is not None:
+            _finalize_population_history(history, cohort=claimed, processing_error=processing_error)
         # Every exit but a scheduled retry finalizes state, so a retry whose broker publish failed
         # (Celery raises Reject in place of Retry) records the failure instead of stranding the
         # cohort in flight. A scheduled retry keeps is_calculating set for the next attempt.
