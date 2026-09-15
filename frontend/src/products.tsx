@@ -1213,8 +1213,8 @@ export const productUrls = {
         `/dashboard/${id}/subscriptions/${subscriptionId}`,
     sharedDashboard: (shareToken: string): string => `/shared_dashboard/${shareToken}`,
     dataCatalog: (tab?: string): string => `/data-catalog${tab ? `?tab=${tab}` : ''}`,
-    dataCatalogMetric: (name: string, tab?: 'definition' | 'tests'): string =>
-        `/data-catalog/metrics/${name}${tab === 'tests' ? '?tab=tests' : ''}`,
+    dataCatalogMetric: (name: string, tab?: 'definition' | 'tests' | 'lineage'): string =>
+        `/data-catalog/metrics/${name}${tab && tab !== 'definition' ? `?tab=${tab}` : ''}`,
     dataOps: (tab?: string): string => {
         const params = new URLSearchParams()
         if (tab) {

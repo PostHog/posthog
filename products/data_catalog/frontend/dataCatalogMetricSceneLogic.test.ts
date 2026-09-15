@@ -1,6 +1,6 @@
 import { router } from 'kea-router'
 
-import { ApiConfig, ApiError } from 'lib/api'
+import api, { ApiConfig, ApiError } from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -10,7 +10,11 @@ import { initKeaTests } from '~/test/init'
 import { expectLogic } from '~/test/keaTestUtils'
 
 import { dataCatalogAgentSyncLogic } from './dataCatalogAgentSyncLogic'
-import { dataCatalogMetricSceneLogic, MARKDOWN_DEFINITION_TEMPLATE } from './dataCatalogMetricSceneLogic'
+import {
+    dataCatalogMetricSceneLogic,
+    LINEAGE_RETRY_MS,
+    MARKDOWN_DEFINITION_TEMPLATE,
+} from './dataCatalogMetricSceneLogic'
 import {
     dataCatalogMetricsApproveCreate,
     dataCatalogMetricsPartialUpdate,
@@ -31,7 +35,7 @@ jest.mock('lib/api', () => {
     }
     return {
         __esModule: true,
-        default: {},
+        default: { dataModelingNodes: { lineage: jest.fn() } },
         ApiConfig: { getCurrentTeamId: jest.fn(() => 1) },
         ApiError,
     }
@@ -81,6 +85,87 @@ describe('dataCatalogMetricSceneLogic', () => {
 
     afterEach(() => {
         ;(ApiConfig.getCurrentTeamId as jest.Mock).mockReturnValue(1)
+    })
+
+    const lineageRequest = (): jest.Mock => api.dataModelingNodes.lineage as unknown as jest.Mock
+
+    it('loads lineage when the tab opens and keeps what it returned', async () => {
+        lineageRequest().mockResolvedValue({ nodes: [{ id: 'node-1' }], edges: [] })
+
+        logic.actions.setActiveTab('lineage')
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(lineageRequest()).toHaveBeenCalledWith({ metricId: 'metric-1' })
+        expect(logic.values.lineage?.nodes).toHaveLength(1)
+        expect(logic.values.lineageProblem).toBeNull()
+    })
+
+    it('reloads lineage when the metric is replaced under the open tab', async () => {
+        lineageRequest().mockResolvedValue({ nodes: [{ id: 'node-1' }], edges: [] })
+        logic.actions.setActiveTab('lineage')
+        await expectLogic(logic).toFinishAllListeners()
+        lineageRequest().mockClear()
+
+        logic.actions.setMetric(buildMetric({ definition: { kind: 'HogQLQuery', query: 'SELECT 2' } }))
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(lineageRequest()).toHaveBeenCalledTimes(1)
+    })
+
+    it('asks for lineage once when the tab opens and the metric reloads together', async () => {
+        lineageRequest().mockResolvedValue({ nodes: [], edges: [] })
+
+        logic.actions.setActiveTab('lineage')
+        logic.actions.loadMetric()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(lineageRequest()).toHaveBeenCalledTimes(1)
+    })
+
+    it('asks for no lineage for a metric that cannot have one', async () => {
+        const markdownMetric = buildMetric({ definition_kind: 'MarkdownDefinition' })
+        ;(dataCatalogMetricsRetrieve as jest.Mock).mockResolvedValue(markdownMetric)
+        logic.actions.setMetric(markdownMetric)
+        await expectLogic(logic).toFinishAllListeners()
+        lineageRequest().mockClear()
+
+        logic.actions.setActiveTab('lineage')
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(lineageRequest()).not.toHaveBeenCalled()
+    })
+
+    it('retries a not-ready lineage exactly once', async () => {
+        jest.useFakeTimers({ doNotFake: ['queueMicrotask', 'nextTick'] })
+        try {
+            lineageRequest().mockRejectedValue(new ApiError('nope', 404))
+            logic.actions.setActiveTab('lineage')
+            await jest.advanceTimersByTimeAsync(0)
+            expect(lineageRequest()).toHaveBeenCalledTimes(1)
+
+            await jest.advanceTimersByTimeAsync(LINEAGE_RETRY_MS)
+            expect(lineageRequest()).toHaveBeenCalledTimes(2)
+
+            await jest.advanceTimersByTimeAsync(LINEAGE_RETRY_MS * 3)
+            expect(lineageRequest()).toHaveBeenCalledTimes(2)
+            expect(logic.values.lineageProblem).toBe('not_ready')
+        } finally {
+            jest.useRealTimers()
+        }
+    })
+
+    it.each([
+        [404, 'not_ready'],
+        [403, 'no_warehouse_access'],
+        [500, 'failed'],
+    ])('turns a %s into the %s screen', async (status, expected) => {
+        lineageRequest().mockRejectedValue(new ApiError('nope', status))
+
+        logic.actions.setActiveTab('lineage')
+        await expectLogic(logic).toDispatchActions(['loadLineageFailure'])
+
+        expect(logic.values.lineageProblem).toBe(expected)
+        expect(logic.values.lineageRetried).toBe(expected === 'not_ready')
     })
 
     it('synchronizes the Tests tab with navigation and preserves it on rename', async () => {
