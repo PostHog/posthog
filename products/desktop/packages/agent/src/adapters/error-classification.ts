@@ -159,8 +159,8 @@ export function isUpstreamRateLimitFailure(
  * A provider's own "wait this long" hint, in milliseconds, or null when it sent
  * none. OpenAI puts it in the 429 body ("Please try again in 1.5s"); a
  * retry-after header survives when an adapter inlines it into the message. Only
- * the raw message carries this — sanitizeAgentErrorCause strips the body down to
- * the bare status, so callers must pass the unsanitized text.
+ * the raw message carries this, because sanitizeAgentErrorCause strips the body
+ * down to the bare status, so callers must pass the unsanitized text.
  */
 export function parseUpstreamRetryAfterMs(
   message: string | undefined,
