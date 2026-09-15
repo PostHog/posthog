@@ -11,9 +11,10 @@ from posthog.models.team import Team
 from posthog.models.user import User
 
 from products.experiments.backend.experiment_service import ExperimentService
+from products.experiments.backend.flag_cleanup import cleanup_plan, variant_keys
 from products.experiments.backend.models.experiment import Experiment as ExperimentModel
 
-from .contracts import CreateExperimentInput, Experiment
+from .contracts import ConcludedExperiment, CreateExperimentInput, Experiment, FlagCleanupPlan
 
 
 def create_experiment(*, team: Team, user: User, input_dto: CreateExperimentInput) -> Experiment:
@@ -103,3 +104,37 @@ def _experiment_model_to_dto(experiment: ExperimentModel) -> Experiment:
         created_at=experiment.created_at,
         updated_at=experiment.updated_at,
     )
+
+
+def list_concluded_experiments(team_id: int) -> list[ConcludedExperiment]:
+    """Every experiment on the team that ended with a recorded conclusion, with the flag cleanup it implies."""
+    experiments = (
+        ExperimentModel.objects.filter(team_id=team_id, end_date__isnull=False, conclusion__isnull=False)
+        .exclude(deleted=True)
+        .select_related("feature_flag")
+        .order_by("end_date")
+    )
+    result: list[ConcludedExperiment] = []
+    for experiment in experiments:
+        variants = experiment.feature_flag.variants or []
+        plan = cleanup_plan(experiment.conclusion, variants)
+        result.append(
+            ConcludedExperiment(
+                id=experiment.id,
+                name=experiment.name,
+                feature_flag_id=experiment.feature_flag_id,
+                feature_flag_key=experiment.feature_flag.key,
+                conclusion=experiment.conclusion,
+                end_date=experiment.end_date,
+                archived=experiment.archived,
+                flag_cleanup_task_id=experiment.flag_cleanup_task_id,
+                variant_keys=tuple(variant_keys(variants)),
+                cleanup=FlagCleanupPlan(
+                    keep_variant=plan.keep_variant,
+                    remove_variants=tuple(plan.remove_variants),
+                    rationale=plan.rationale,
+                    confident=plan.confident,
+                ),
+            )
+        )
+    return result
