@@ -11,8 +11,9 @@ live rows leaves a three-week window where a dormant account is invisible.
 """
 
 import uuid
+from collections.abc import Iterator
 
-from django.db.models import Q
+from django.db.models import Exists, OuterRef, Q
 from django.utils import timezone
 
 import structlog
@@ -26,7 +27,12 @@ from posthog.llm.wizard_blocklist import (
     record_blocklist_outcome,
     wizard_identity_blocked,
 )
-from posthog.models.oauth import OAuthAccessToken, oauth_scope_tokens_expression, revoke_oauth_session
+from posthog.models.oauth import (
+    OAuthAccessToken,
+    OAuthRefreshToken,
+    oauth_scope_tokens_expression,
+    revoke_oauth_session,
+)
 from posthog.scoping_audit import skip_team_scope_audit
 
 logger = structlog.get_logger(__name__)
@@ -54,19 +60,7 @@ def sweep_blocklisted_gateway_credentials() -> SweepResult:
     revoked_pairs: set[tuple[int, uuid.UUID]] = set()
     blocked_user_ids: set[int] = set()
 
-    candidates = (
-        OAuthAccessToken.objects.alias(scope_tokens=oauth_scope_tokens_expression())
-        .filter(scope_tokens__overlap=sorted(GATEWAY_BEARING_SCOPES), application_id__isnull=False)
-        .filter(user__isnull=False)
-        # An expired row is only worth reading for the refresh token hanging off it.
-        # Server-minted sandbox tokens carry this scope, expire in hours, have no
-        # refresh token and are kept 30 days, so admitting every expired row scans
-        # that backlog for credentials a ban cannot reach.
-        .filter(Q(expires__gt=timezone.now()) | Q(refresh_token__isnull=False))
-        .select_related("user", "application")
-        .iterator(chunk_size=_CHUNK_SIZE)
-    )
-    for token in candidates:
+    for token in _gateway_bearing_candidates():
         user = token.user
         if user is None or token.application_id is None:
             continue
@@ -106,6 +100,47 @@ def sweep_blocklisted_gateway_credentials() -> SweepResult:
             return SweepResult(blocked_users=len(blocked_user_ids), revoked_sessions=len(revoked_pairs), capped=True)
 
     return SweepResult(blocked_users=len(blocked_user_ids), revoked_sessions=len(revoked_pairs))
+
+
+def _gateway_bearing_candidates() -> Iterator[OAuthAccessToken]:
+    """Every gateway-bearing credential a ban still has to reach.
+
+    The reachability half of the question is asked as EXISTS rather than as
+    `refresh_token__isnull=False`. The latter reads as a reverse join, so the planner
+    joins every gateway-scoped row to the refresh table before the OR discards
+    anything, and a tick that revokes nothing still pays for the whole estate. EXISTS
+    answers the same question from the one-to-one's unique index, and only for the
+    rows that failed the cheaper `expires` test.
+
+    It stays one statement, so one snapshot covers both halves. Asked as two, a refresh
+    rotating between them would delete the expired row and insert a live replacement
+    that neither statement could see, and the ban would miss a tick.
+
+    Only the columns the loop reads are selected. `application` is loaded on demand by
+    the revoke path, which a tick that finds nobody never reaches.
+    """
+    return (
+        OAuthAccessToken.objects.alias(scope_tokens=oauth_scope_tokens_expression())
+        .filter(scope_tokens__overlap=sorted(GATEWAY_BEARING_SCOPES), application_id__isnull=False)
+        .filter(user__isnull=False)
+        # An expired row is only worth reading for the refresh token hanging off it.
+        # Server-minted sandbox tokens carry this scope, expire in hours, have no
+        # refresh token and are kept 30 days, so admitting every expired row scans
+        # that backlog for credentials a ban cannot reach.
+        .filter(
+            Q(expires__gt=timezone.now()) | Q(Exists(OAuthRefreshToken.objects.filter(access_token_id=OuterRef("pk"))))
+        )
+        .select_related("user")
+        .only(
+            "application_id",
+            "scoped_organizations",
+            "scoped_teams",
+            "user__distinct_id",
+            "user__email",
+            "user__uuid",
+        )
+        .iterator(chunk_size=_CHUNK_SIZE)
+    )
 
 
 def _organization_ids(token: OAuthAccessToken) -> tuple[str, ...]:
