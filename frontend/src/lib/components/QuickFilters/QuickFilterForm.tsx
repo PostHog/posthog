@@ -11,11 +11,23 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { QuickFilterContext } from '~/queries/schema/schema-general'
-import { PropertyFilterType, PropertyOperator, QuickFilterOption } from '~/types'
+import { PropertyFilterType, PropertyOperator, QuickFilterOption, QuickFilterPropertyType } from '~/types'
 
 import { allowedOperators, operatorsWithoutValues, quickFilterFormLogic } from './quickFilterFormLogic'
 import { quickFiltersLogic } from './quickFiltersLogic'
 import { quickFiltersModalLogic } from './quickFiltersModalLogic'
+
+function propertyTypeToTaxonomicGroupType(propertyType: QuickFilterPropertyType): TaxonomicFilterGroupType {
+    return propertyType === PropertyFilterType.Person
+        ? TaxonomicFilterGroupType.PersonProperties
+        : TaxonomicFilterGroupType.EventProperties
+}
+
+function taxonomicGroupTypeToPropertyType(groupType: TaxonomicFilterGroupType): QuickFilterPropertyType {
+    return groupType === TaxonomicFilterGroupType.PersonProperties
+        ? PropertyFilterType.Person
+        : PropertyFilterType.Event
+}
 
 interface QuickFilterFormProps {
     context: QuickFilterContext
@@ -27,8 +39,8 @@ export function QuickFilterForm({ context }: QuickFilterFormProps): JSX.Element 
     const formLogic = quickFilterFormLogic({ context, filter: editedFilter })
     const { handleFormBack } = useActions(modalLogic)
     const { quickFiltersLoading } = useValues(quickFiltersLogic({ context }))
-    const { name, propertyName, options, isQuickFilterSubmitting } = useValues(formLogic)
-    const { addOption } = useActions(formLogic)
+    const { name, propertyName, propertyType, options, isQuickFilterSubmitting } = useValues(formLogic)
+    const { addOption, setQuickFilterValue } = useActions(formLogic)
 
     return (
         <Form
@@ -50,13 +62,19 @@ export function QuickFilterForm({ context }: QuickFilterFormProps): JSX.Element 
                         </LemonField>
                     </div>
                     <div className="flex-1">
-                        <LemonField name="propertyName" label="Event property">
+                        <LemonField name="propertyName" label="Property">
                             {({ value, onChange }) => (
                                 <TaxonomicPopover
-                                    groupType={TaxonomicFilterGroupType.EventProperties}
+                                    groupType={propertyTypeToTaxonomicGroupType(propertyType)}
                                     value={value}
-                                    onChange={onChange}
-                                    groupTypes={[TaxonomicFilterGroupType.EventProperties]}
+                                    onChange={(newValue, groupType) => {
+                                        setQuickFilterValue('propertyType', taxonomicGroupTypeToPropertyType(groupType))
+                                        onChange(newValue)
+                                    }}
+                                    groupTypes={[
+                                        TaxonomicFilterGroupType.EventProperties,
+                                        TaxonomicFilterGroupType.PersonProperties,
+                                    ]}
                                     placeholder="Select property..."
                                     disabled={quickFiltersLoading}
                                     type="secondary"
@@ -142,13 +160,13 @@ function FilterOptionRow({
 }): JSX.Element {
     const { editedFilter } = useValues(quickFiltersModalLogic({ context }))
     const { quickFiltersLoading } = useValues(quickFiltersLogic({ context }))
-    const { propertyName, options, quickFilterErrors } = useValues(
+    const { propertyName, propertyType, options, quickFilterErrors } = useValues(
         quickFilterFormLogic({ context, filter: editedFilter })
     )
     const { updateOption, removeOption } = useActions(quickFilterFormLogic({ context, filter: editedFilter }))
     const { propertyDefinitionsByType } = useValues(propertyDefinitionsModel)
 
-    const propertyDefinitions = propertyDefinitionsByType(PropertyFilterType.Event)
+    const propertyDefinitions = propertyDefinitionsByType(propertyType)
 
     const optionErrors = quickFilterErrors?.options as Record<string, string>[] | undefined
     const rowErrors = optionErrors?.[index]
@@ -158,7 +176,7 @@ function FilterOptionRow({
             <div className="flex-1 flex gap-2 flex-col">
                 <div className="flex gap-2">
                     <OperatorValueSelect
-                        type={PropertyFilterType.Event}
+                        type={propertyType}
                         propertyKey={propertyName}
                         operator={option.operator || PropertyOperator.Exact}
                         value={option.value}
@@ -191,7 +209,7 @@ function FilterOptionRow({
                     value={option.label}
                     onChange={(value) => updateOption(index, { label: value })}
                     placeholder="Display name (e.g., Production)"
-                    disabledReason={!propertyName ? 'Select an event property first' : undefined}
+                    disabledReason={!propertyName ? 'Select a property first' : undefined}
                     data-attr={`quick-filter-option-label-${index}`}
                 />
                 {rowErrors?.label && <LemonField.Error error={rowErrors.label} />}

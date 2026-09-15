@@ -4,12 +4,23 @@ from posthog.models.utils import UUIDModel
 from posthog.schema_enums import QuickFilterType
 
 
+class QuickFilterPropertyType(models.TextChoices):
+    EVENT = "event", "Event"
+    PERSON = "person", "Person"
+
+
 class QuickFilter(UUIDModel):
     TYPE_CHOICES = [(t.value, t.value) for t in QuickFilterType]
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     name = models.CharField(max_length=200)
     property_name = models.CharField(max_length=500)
+    property_type = models.CharField(
+        max_length=20,
+        choices=QuickFilterPropertyType.choices,
+        default=QuickFilterPropertyType.EVENT.value,
+        db_default=QuickFilterPropertyType.EVENT.value,
+    )
     type = models.CharField(max_length=50, choices=TYPE_CHOICES, default=QuickFilterType.MANUAL_OPTIONS.value)
     options = models.JSONField(default=list, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)

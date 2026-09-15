@@ -2,7 +2,7 @@ import { quickFiltersSectionLogic } from 'lib/components/QuickFilters'
 
 import { QuickFilterContext } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { EventPropertyFilter, PropertyOperator, UniversalFiltersGroup } from '~/types'
+import { EventPropertyFilter, PropertyFilterType, PropertyOperator, UniversalFiltersGroup } from '~/types'
 
 import {
     DEFAULT_DATE_RANGE,
@@ -182,7 +182,7 @@ describe('issueFilterPreviewLogic', () => {
         preview.actions.applyPropertyFilter('$browser', 'Chrome')
         filters.actions.setFilterTestAccounts(true)
         filters.actions.setSearchQuery('checkout')
-        quickFilters.actions.setQuickFilterValue('environment', '$environment', {
+        quickFilters.actions.setQuickFilterValue('environment', '$environment', PropertyFilterType.Event, {
             id: 'production',
             label: 'Production',
             value: 'production',

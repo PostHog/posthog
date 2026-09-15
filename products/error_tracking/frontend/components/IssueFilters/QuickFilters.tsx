@@ -22,7 +22,7 @@ import {
 } from 'lib/ui/quill'
 
 import { QuickFilterContext } from '~/queries/schema/schema-general'
-import { QuickFilter, QuickFilterOption } from '~/types'
+import { PropertyFilterType, QuickFilter, QuickFilterOption } from '~/types'
 
 import { ERROR_TRACKING_SCENE_LOGIC_KEY } from '../../scenes/ErrorTrackingScene/errorTrackingSceneLogic'
 
@@ -62,7 +62,12 @@ const QuickFilterSelect = ({ filter }: { filter: QuickFilter }): JSX.Element => 
 
                 const selectedOption = filter.options.find((option: QuickFilterOption) => option.id === selectedId)
                 if (selectedOption) {
-                    setQuickFilterValue(filter.id, filter.property_name, selectedOption)
+                    setQuickFilterValue(
+                        filter.id,
+                        filter.property_name,
+                        filter.property_type ?? PropertyFilterType.Event,
+                        selectedOption
+                    )
                 }
             }}
         >

@@ -3,7 +3,7 @@ import { expectLogic } from 'kea-test-utils'
 import { useMocks } from '~/mocks/jest'
 import { QuickFilterContext } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { PropertyOperator, QuickFilter } from '~/types'
+import { PropertyFilterType, PropertyOperator, QuickFilter } from '~/types'
 
 import { quickFiltersLogic } from './quickFiltersLogic'
 import { ModalView, quickFiltersModalLogic } from './quickFiltersModalLogic'
@@ -13,6 +13,7 @@ const mockQuickFilters: QuickFilter[] = [
         id: 'filter-1',
         name: 'Environment',
         property_name: '$environment',
+        property_type: PropertyFilterType.Event,
         type: 'manual-options',
         options: [{ id: 'opt-1', value: 'prod', label: 'Production', operator: PropertyOperator.Exact }],
         contexts: [QuickFilterContext.ErrorTrackingIssueFilters],
@@ -23,6 +24,7 @@ const mockQuickFilters: QuickFilter[] = [
         id: 'filter-2',
         name: 'Browser',
         property_name: '$browser',
+        property_type: PropertyFilterType.Event,
         type: 'manual-options',
         options: [{ id: 'opt-chrome', value: 'Chrome', label: 'Chrome', operator: PropertyOperator.Exact }],
         contexts: [QuickFilterContext.ErrorTrackingIssueFilters],
@@ -33,6 +35,7 @@ const mockQuickFilters: QuickFilter[] = [
         id: 'filter-3',
         name: 'Country',
         property_name: '$geoip_country_code',
+        property_type: PropertyFilterType.Event,
         type: 'manual-options',
         options: [{ id: 'opt-us', value: 'US', label: 'United States', operator: PropertyOperator.Exact }],
         contexts: [QuickFilterContext.ErrorTrackingIssueFilters],
@@ -186,6 +189,7 @@ describe('quickFiltersModalLogic', () => {
                 id: 'filter-new',
                 name: 'New Filter',
                 property_name: '$new_prop',
+                property_type: PropertyFilterType.Event,
                 type: 'manual-options',
                 options: [{ id: 'opt-new', value: 'val', label: 'Val', operator: PropertyOperator.Exact }],
                 contexts: [QuickFilterContext.ErrorTrackingIssueFilters],

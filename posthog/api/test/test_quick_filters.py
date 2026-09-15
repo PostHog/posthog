@@ -2,6 +2,7 @@ from posthog.test.base import APIBaseTest
 
 from django.test import override_settings
 
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models.quick_filter import QuickFilter
@@ -16,12 +17,14 @@ class TestQuickFilters(APIBaseTest):
         name: str = "Environment",
         property_name: str = "$environment",
         contexts: list[str] | None = None,
+        property_type: str | None = None,
     ) -> tuple[dict, QuickFilter]:
         response = self.client.post(
             f"/api/environments/{self.team.id}/quick_filters/",
             {
                 "name": name,
                 "property_name": property_name,
+                **({"property_type": property_type} if property_type else {}),
                 "type": "manual-options",
                 "options": [
                     {"id": "prod", "value": "production", "label": "Production", "operator": "exact"},
@@ -41,6 +44,48 @@ class TestQuickFilters(APIBaseTest):
         self.assertEqual(data["property_name"], "$browser")
         self.assertEqual(len(data["options"]), 2)
         self.assertEqual(data["contexts"], ["dashboards"])
+
+    @parameterized.expand(
+        [
+            ("defaults to event", None, "event"),
+            ("keeps an event scope", "event", "event"),
+            ("keeps a person scope", "person", "person"),
+        ]
+    )
+    def test_property_type_round_trips(self, _name, sent_property_type, expected_property_type):
+        data, quick_filter = self._create_quick_filter("App version", "$app_version", property_type=sent_property_type)
+
+        self.assertEqual(data["property_type"], expected_property_type)
+        self.assertEqual(quick_filter.property_type, expected_property_type)
+
+    def test_rejects_unsupported_property_type(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/quick_filters/",
+            {
+                "name": "App version",
+                "property_name": "$app_version",
+                "property_type": "session",
+                "type": "manual-options",
+                "options": [{"id": "prod", "value": "production", "label": "Production", "operator": "exact"}],
+                "contexts": ["dashboards"],
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_update_changes_property_type(self):
+        _, quick_filter = self._create_quick_filter("App version", "$app_version")
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/quick_filters/{quick_filter.id}/",
+            {"property_type": "person"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["property_type"], "person")
+        quick_filter.refresh_from_db()
+        self.assertEqual(quick_filter.property_type, "person")
 
     def test_list_quick_filters(self):
         self._create_quick_filter("Filter 1", "$prop1")

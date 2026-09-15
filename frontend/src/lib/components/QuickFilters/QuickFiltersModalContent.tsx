@@ -130,7 +130,7 @@ export function QuickFiltersModalContent({
     return (
         <div className="space-y-4">
             <p className="text-muted">
-                Quick filters let you create reusable filter components for specific event properties.
+                Quick filters let you create reusable filter components for an event property or a person property.
                 {selectionColumnConfig && ' Select the filters you want to show.'}
             </p>
 
