@@ -12,9 +12,9 @@ type Node = {
 export const WindowTitlePlugin = (cb: (windowId: string, title: string) => void): ReplayPlugin => {
     const titleElementIds = new Set<number>()
 
-    const extractTitleTextEl = (node: Node): Node | undefined => {
+    const extractTitleTextEl = (node: Node | undefined): Node | undefined => {
         // Document node
-        if (node.type === 0) {
+        if (node?.type === 0) {
             const el = node.childNodes.find((n) => n.type === 2) // element node
 
             if (el) {
@@ -38,12 +38,12 @@ export const WindowTitlePlugin = (cb: (windowId: string, title: string) => void)
                 const windowId = e.windowId as string
                 if (e.type === EventType.FullSnapshot) {
                     titleElementIds.clear()
-                    const el = extractTitleTextEl(e.data.node as Node)
+                    const el = extractTitleTextEl(e.data?.node as Node | undefined)
                     if (windowId && el && el.textContent) {
                         titleElementIds.add(el.id)
                         cb(windowId, el.textContent)
                     }
-                } else if (e.type === EventType.IncrementalSnapshot && e.data.source === IncrementalSource.Mutation) {
+                } else if (e.type === EventType.IncrementalSnapshot && e.data?.source === IncrementalSource.Mutation) {
                     e.data.texts.forEach(({ id, value }) => {
                         if (titleElementIds.has(id) && value) {
                             cb(windowId, value)

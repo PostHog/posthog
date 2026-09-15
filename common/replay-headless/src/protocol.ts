@@ -37,6 +37,8 @@ export interface PlayerError {
     code: string
     message: string
     retryable: boolean
+    /** Stack of the original throw. The rasterizer logs it, because `code` and `message` cannot name the failing frame. */
+    stack?: string
 }
 
 export interface InactivityPeriod {
@@ -51,7 +53,7 @@ export type PlayerMessage =
     | { type: 'loading_progress'; loaded: number; total: number }
     | { type: 'started' }
     | { type: 'ended' }
-    | { type: 'error'; code: string; message: string; retryable: boolean }
+    | { type: 'error'; code: string; message: string; retryable: boolean; stack?: string }
     | { type: 'inactivity_periods'; periods: InactivityPeriod[] }
 
 export const PLAYER_EMIT_FN = '__posthog_player_emit__'

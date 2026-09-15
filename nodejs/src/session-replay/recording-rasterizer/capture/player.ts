@@ -84,6 +84,9 @@ export class PlayerController {
                 this.state.ended = true
                 break
             case 'error':
+                if (msg.stack) {
+                    this.log.error({ code: msg.code, stack: msg.stack }, 'player reported an error')
+                }
                 this.rejectWithError(msg)
                 break
             case 'inactivity_periods':
