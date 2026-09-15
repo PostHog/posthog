@@ -1,7 +1,3 @@
-mod client;
-mod event;
-mod stats;
-
 use std::num::NonZeroU32;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
@@ -17,9 +13,10 @@ use rand::rngs::StdRng;
 use rand::SeedableRng;
 use tokio::sync::Notify;
 
-use crate::client::CaptureClient;
-use crate::event::{BatchPayload, EventFactory};
-use crate::stats::Counters;
+use capture_load_gen::client::CaptureClient;
+use capture_load_gen::event::{BatchPayload, EventFactory};
+use capture_load_gen::stats::{self, Counters};
+use capture_load_gen::{reset, verify};
 
 type Limiter = RateLimiter<NotKeyed, InMemoryState, DefaultClock>;
 
@@ -108,6 +105,42 @@ struct Cli {
     /// Print one sample batch as JSON and exit without sending anything.
     #[arg(long)]
     dry_run: bool,
+
+    /// After the load, poll until the Postgres and personhog graphs agree on
+    /// the team's person graph, exiting nonzero on a mismatch that outlasts the
+    /// deadline. Only shard 0 verifies; --count 0 verifies without load.
+    #[arg(long)]
+    verify: bool,
+
+    /// Delete the team's person rows from both graphs and exit, so a run
+    /// starts clean. Requires --team-id and --database-url.
+    #[arg(long)]
+    reset_team: bool,
+
+    /// Persons database URL, required by --verify and --reset-team.
+    #[arg(long, env = "DATABASE_URL")]
+    database_url: Option<String>,
+
+    /// How long the graphs get to agree.
+    #[arg(long, value_parser = humantime::parse_duration, default_value = "5m")]
+    verify_timeout: Duration,
+
+    /// The personhog writer's person table.
+    #[arg(long, default_value = "personhog_person_tmp")]
+    tmp_person_table: String,
+
+    /// The personhog writer's distinct-id table.
+    #[arg(long, default_value = "personhog_persondistinctid_tmp")]
+    tmp_pdi_table: String,
+
+    /// The team whose person graph verify compares. Its rows are the run's
+    /// cohort; the workflow wipes them before the load.
+    #[arg(long)]
+    team_id: Option<i64>,
+
+    /// Port serving /metrics and /_liveness while verifying.
+    #[arg(long, default_value_t = 9090)]
+    metrics_port: u16,
 }
 
 /// Arcs shared by every worker.
@@ -161,6 +194,18 @@ fn resolve_shard(cli: &Cli) -> Result<(u64, u64)> {
         bail!("shard index {index} must be < shard total {total}");
     }
     Ok((index, total))
+}
+
+/// (sends load, verifies) for this shard. A zero-share shard still verifies
+/// when it is shard 0, so `--count 0 --verify` checks without sending.
+fn shard_plan(
+    rate_share: Option<u64>,
+    count_share: Option<u64>,
+    verify: bool,
+    index: u64,
+) -> (bool, bool) {
+    let has_load = rate_share.or(count_share).unwrap_or(0) > 0;
+    (has_load, verify && index == 0)
 }
 
 /// Claim up to `batch` events from the shared remaining counter (count mode).
@@ -242,6 +287,10 @@ async fn main() -> Result<()> {
         )
         .init();
 
+    if cli.reset_team {
+        return reset::reset_team(&reset_config(&cli)?).await;
+    }
+
     if cli.batch_size == 0 {
         bail!("--batch-size must be > 0");
     }
@@ -280,20 +329,6 @@ async fn main() -> Result<()> {
     }
 
     let (index, total) = resolve_shard(&cli)?;
-    let batch_n = NonZeroU32::new(cli.batch_size as u32).context("batch size too large")?;
-
-    let client = Arc::new(CaptureClient::new(
-        &cli.endpoint,
-        cli.token.clone(),
-        !cli.no_gzip,
-        Duration::from_secs(cli.timeout_secs),
-    )?);
-    let counters = Arc::new(Counters::default());
-    let shared = Shared {
-        client,
-        factory,
-        counters: counters.clone(),
-    };
 
     // Validate mode selection up front.
     let duration = match (cli.rate, cli.count) {
@@ -306,66 +341,131 @@ async fn main() -> Result<()> {
         (None, None) => bail!("specify either --rate (+ --duration) or --count"),
     };
 
-    // Shared mode state.
-    let limiter: Option<Arc<Limiter>> = cli.rate.map(|rate| {
-        let local_rate = split(u64::from(rate), total, index).max(1) as u32;
-        let burst = local_rate.max(cli.batch_size as u32);
-        let quota = Quota::per_second(NonZeroU32::new(local_rate).unwrap())
-            .allow_burst(NonZeroU32::new(burst).unwrap());
-        Arc::new(RateLimiter::direct(quota))
-    });
-    let remaining: Option<Arc<AtomicU64>> = cli
-        .count
-        .map(|count| Arc::new(AtomicU64::new(split(count, total, index))));
+    let rate_share = cli.rate.map(|rate| split(u64::from(rate), total, index));
+    let count_share = cli.count.map(|count| split(count, total, index));
+    let (has_load, should_verify) = shard_plan(rate_share, count_share, cli.verify, index);
 
-    // Nothing to do for this shard (e.g. rate < shard count).
-    if cli.rate.is_some() && split(u64::from(cli.rate.unwrap()), total, index) == 0 {
-        println!("[load] shard {index}/{total} has no work (rate too low to split)");
-        return Ok(());
-    }
-    if let Some(rem) = &remaining {
-        if rem.load(Ordering::Relaxed) == 0 {
-            println!("[load] shard {index}/{total} has no work (count too low to split)");
-            return Ok(());
-        }
-    }
+    // A missing verify prerequisite must fail here, not after the load.
+    let verify_cfg = if should_verify {
+        Some(verify_config(&cli)?)
+    } else {
+        None
+    };
 
-    let stop = Arc::new(Notify::new());
-    let reporter = tokio::spawn(stats::report_loop(counters.clone(), stop.clone()));
-
-    let started = Instant::now();
-    let deadline = duration.map(|d| tokio::time::Instant::now() + d);
-
-    let mut handles = Vec::with_capacity(cli.concurrency);
-    for _ in 0..cli.concurrency {
-        let mode = match (&limiter, &remaining) {
-            (Some(limiter), _) => Mode::Rate {
-                limiter: limiter.clone(),
-                batch_n,
-                deadline: deadline.expect("rate mode has deadline"),
-                batch_size: cli.batch_size,
-            },
-            (None, Some(remaining)) => Mode::Count {
-                remaining: remaining.clone(),
-                batch_size: cli.batch_size,
-            },
-            (None, None) => unreachable!("mode validated above"),
+    if has_load {
+        let batch_n = NonZeroU32::new(cli.batch_size as u32).context("batch size too large")?;
+        let client = Arc::new(CaptureClient::new(
+            &cli.endpoint,
+            cli.token.clone(),
+            !cli.no_gzip,
+            Duration::from_secs(cli.timeout_secs),
+        )?);
+        let counters = Arc::new(Counters::default());
+        let shared = Shared {
+            client,
+            factory,
+            counters: counters.clone(),
         };
-        handles.push(tokio::spawn(run_worker(shared.clone(), mode)));
+
+        let limiter: Option<Arc<Limiter>> = rate_share.map(|share| {
+            let local_rate = share as u32;
+            let burst = local_rate.max(cli.batch_size as u32);
+            let quota = Quota::per_second(NonZeroU32::new(local_rate).unwrap())
+                .allow_burst(NonZeroU32::new(burst).unwrap());
+            Arc::new(RateLimiter::direct(quota))
+        });
+        let remaining: Option<Arc<AtomicU64>> =
+            count_share.map(|share| Arc::new(AtomicU64::new(share)));
+
+        let stop = Arc::new(Notify::new());
+        let reporter = tokio::spawn(stats::report_loop(counters.clone(), stop.clone()));
+
+        let started = Instant::now();
+        let deadline = duration.map(|d| tokio::time::Instant::now() + d);
+
+        let mut handles = Vec::with_capacity(cli.concurrency);
+        for _ in 0..cli.concurrency {
+            let mode = match (&limiter, &remaining) {
+                (Some(limiter), _) => Mode::Rate {
+                    limiter: limiter.clone(),
+                    batch_n,
+                    deadline: deadline.expect("rate mode has deadline"),
+                    batch_size: cli.batch_size,
+                },
+                (None, Some(remaining)) => Mode::Count {
+                    remaining: remaining.clone(),
+                    batch_size: cli.batch_size,
+                },
+                (None, None) => unreachable!("mode validated above"),
+            };
+            handles.push(tokio::spawn(run_worker(shared.clone(), mode)));
+        }
+
+        let mut merged = stats::new_histogram();
+        for handle in handles {
+            if let Ok(hist) = handle.await {
+                merged.add(&hist).ok();
+            }
+        }
+
+        stop.notify_one();
+        reporter.await.ok();
+
+        stats::print_summary(&counters, &merged, started.elapsed());
+    } else {
+        println!("[load] shard {index}/{total} has no work");
     }
 
-    let mut merged = stats::new_histogram();
-    for handle in handles {
-        if let Ok(hist) = handle.await {
-            merged.add(&hist).ok();
+    if let Some(cfg) = verify_cfg {
+        spawn_metrics_server(cli.metrics_port);
+        let verifier = verify::Verifier::connect(&cfg).await?;
+        if !verifier.run(&cfg).await? {
+            bail!("shadow parity verification failed");
         }
     }
-
-    stop.notify_one();
-    reporter.await.ok();
-
-    stats::print_summary(&counters, &merged, started.elapsed());
     Ok(())
+}
+
+/// Serve /metrics and /_liveness so the verify gauges can be scraped.
+fn spawn_metrics_server(port: u16) {
+    let router = axum::Router::new().route("/_liveness", axum::routing::get(|| async { "ok" }));
+    let router = common_metrics::setup_metrics_routes(router);
+    let bind = format!("0.0.0.0:{port}");
+    tokio::spawn(async move {
+        if let Err(error) = common_metrics::serve(router, &bind).await {
+            tracing::error!(%error, "metrics server failed; verification continues without gauges");
+        }
+    });
+}
+
+/// The verify flags as a config, failing on the one without a default.
+fn verify_config(cli: &Cli) -> Result<verify::VerifyConfig> {
+    let database_url = cli
+        .database_url
+        .clone()
+        .context("--verify requires --database-url or DATABASE_URL")?;
+    let team_id = cli.team_id.context("--verify requires --team-id")?;
+    Ok(verify::VerifyConfig {
+        database_url,
+        team_id,
+        tmp_person_table: cli.tmp_person_table.clone(),
+        tmp_pdi_table: cli.tmp_pdi_table.clone(),
+        deadline: cli.verify_timeout,
+    })
+}
+
+fn reset_config(cli: &Cli) -> Result<reset::ResetConfig> {
+    let database_url = cli
+        .database_url
+        .clone()
+        .context("--reset-team requires --database-url or DATABASE_URL")?;
+    let team_id = cli.team_id.context("--reset-team requires --team-id")?;
+    Ok(reset::ResetConfig {
+        database_url,
+        team_id,
+        tmp_person_table: cli.tmp_person_table.clone(),
+        tmp_pdi_table: cli.tmp_pdi_table.clone(),
+    })
 }
 
 #[cfg(test)]
@@ -394,6 +494,45 @@ mod tests {
         let parts: Vec<u64> = (0..10).map(|i| split(5, 10, i)).collect();
         assert_eq!(parts.iter().sum::<u64>(), 5);
         assert_eq!(parts.iter().filter(|&&p| p == 0).count(), 5);
+    }
+
+    #[test]
+    fn verify_config_requires_a_team_id() {
+        let cli = Cli::parse_from([
+            "loadgen",
+            "--token",
+            "t",
+            "--database-url",
+            "d",
+            "--count",
+            "0",
+        ]);
+        assert!(verify_config(&cli).is_err());
+    }
+
+    #[test]
+    fn reset_config_requires_a_team_id() {
+        let cli = Cli::parse_from([
+            "loadgen",
+            "--token",
+            "t",
+            "--database-url",
+            "d",
+            "--reset-team",
+        ]);
+        assert!(reset_config(&cli).is_err());
+    }
+
+    #[test]
+    fn zero_share_shard_zero_still_verifies() {
+        assert_eq!(shard_plan(None, Some(0), true, 0), (false, true));
+        assert_eq!(shard_plan(Some(0), None, true, 0), (false, true));
+    }
+
+    #[test]
+    fn only_shard_zero_verifies() {
+        assert_eq!(shard_plan(None, Some(10), true, 3), (true, false));
+        assert_eq!(shard_plan(None, Some(10), false, 0), (true, false));
     }
 
     #[test]
