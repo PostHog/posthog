@@ -38,10 +38,11 @@ export { attachedContextItemKey } from '../types/contextTypes'
 export { welcomeOverrideLogic } from '../logics/welcomeOverrideLogic'
 export { useWelcomeOverride } from '../hooks/useWelcomeOverride'
 export type { UseWelcomeOverrideOptions } from '../hooks/useWelcomeOverride'
-// Contextual composer suggestions, the sibling of the welcome headline override above.
-export { suggestionsOverrideLogic } from '../logics/suggestionsOverrideLogic'
-export { useSuggestionsOverride } from '../hooks/useSuggestionsOverride'
-export type { UseSuggestionsOverrideOptions } from '../hooks/useSuggestionsOverride'
+// Contextual composer overrides (suggestions, repo picker), the sibling of the welcome headline override above.
+export { composerOverrideLogic } from '../logics/composerOverrideLogic'
+export type { ComposerOverride } from '../logics/composerOverrideLogic'
+export { useComposerOverride } from '../hooks/useComposerOverride'
+export type { UseComposerOverrideOptions } from '../hooks/useComposerOverride'
 // The standing "act via tool calls" instruction the sidebar surfaces attach while the user watches a
 // run — the prompt-side half of `useMcpToolApplyBack` (hidden from chips, deduped once per task).
 export { AGENT_TOOL_APPLY_BACK_CONTEXT_ITEM, wrapWithPosthogContext } from '../utils/posthogContextBlock'

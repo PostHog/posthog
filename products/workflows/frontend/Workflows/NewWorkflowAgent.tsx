@@ -2,26 +2,52 @@ import { useActions, useMountedLogic, useValues } from 'kea'
 
 import { LemonButton } from '@posthog/lemon-ui'
 
+import { cn } from 'lib/utils/css-classes'
 import { MAX_SIDE_PANEL_ID } from 'scenes/max/components/PhaiSidePanelChat'
+import { SuggestionCard } from 'scenes/max/components/SuggestionCard'
 
-import { runnerPanelLogic } from 'products/posthog_ai/frontend/api/logics'
+import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
+
+import { composerSeedLogic, runnerPanelLogic } from 'products/posthog_ai/frontend/api/logics'
 import { SidePanelRunner } from 'products/posthog_ai/frontend/api/runner'
 
 import { newWorkflowAgentLogic } from './newWorkflowAgentLogic'
 import { newWorkflowLogic } from './newWorkflowLogic'
 import { NewWorkflowModal } from './NewWorkflowModal'
+import { NEW_WORKFLOW_SUGGESTIONS } from './workflowAgentContext'
 
 /** The AI-first "New workflow" screen: the side panel's runner rendered full page, with a way back to the editor. */
 export function NewWorkflowAgent(): JSX.Element {
     useMountedLogic(newWorkflowAgentLogic)
     const { openEditorFromAiComposer } = useActions(newWorkflowLogic)
     const { activeCreation } = useValues(runnerPanelLogic({ panelId: MAX_SIDE_PANEL_ID }))
+    // The runner's composer consumes the seed as soon as it is set, so a card submits in one click.
+    const { setSeed } = useActions(composerSeedLogic({ panelId: MAX_SIDE_PANEL_ID }))
 
     return (
-        <div className="flex flex-col grow min-h-0" data-attr="new-workflow-agent">
-            <SidePanelRunner panelId={MAX_SIDE_PANEL_ID} />
+        // While drafting, the runner takes its natural height so the cards sit right under the composer;
+        // once a run starts it fills the page like the side panel.
+        <div
+            className={cn('flex flex-col grow min-h-0', !activeCreation && 'justify-center')}
+            data-attr="new-workflow-agent"
+        >
+            <div className={cn('flex flex-col', activeCreation ? 'grow min-h-0' : 'shrink-0')}>
+                <SidePanelRunner panelId={MAX_SIDE_PANEL_ID} />
+            </div>
             {!activeCreation && (
-                <div className="flex justify-center shrink-0 pb-4">
+                <div className="flex flex-col items-center gap-4 shrink-0 pb-6">
+                    <div className="grid grid-cols-1 @min-[40rem]/main-content:grid-cols-2 gap-1 w-full max-w-2xl px-4">
+                        {NEW_WORKFLOW_SUGGESTIONS.map((suggestion) => (
+                            <SuggestionCard
+                                key={suggestion.prompt}
+                                title={suggestion.title}
+                                description={suggestion.description}
+                                icon={iconForType('workflows')}
+                                onClick={() => setSeed({ prompt: suggestion.prompt, autoSubmit: true })}
+                                data-attr="new-workflow-agent-suggestion"
+                            />
+                        ))}
+                    </div>
                     <LemonButton
                         type="tertiary"
                         size="small"

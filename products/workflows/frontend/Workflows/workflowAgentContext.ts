@@ -1,9 +1,8 @@
 import { redactSecretHogFunctionInputs } from 'scenes/hog-functions/hog-function-utils'
 
-import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { CyclotronJobInputSchemaType, CyclotronJobInputType, HogFunctionTemplateType } from '~/types'
 
-import type { SuggestionGroup } from 'products/posthog_ai/frontend/api/primitives'
+import type { ComposerOverride } from 'products/posthog_ai/frontend/api/logics'
 import { AttachedContextItem } from 'products/posthog_ai/frontend/api/types'
 
 import { isEmailAction, isFunctionAction, isTriggerFunction } from './hogflows/steps/types'
@@ -63,17 +62,49 @@ export const NEW_WORKFLOW_AGENT_HEADLINES: string[] = [
     'Who do we want to message?',
 ]
 
-export const NEW_WORKFLOW_AGENT_SUGGESTIONS: readonly SuggestionGroup[] = [
+export const NEW_WORKFLOW_COMPOSER_OVERRIDE: ComposerOverride = {
+    hideRepositorySelector: true,
+    hideSuggestions: true,
+    hideRecentTasks: true,
+}
+
+export interface NewWorkflowSuggestion {
+    title: string
+    description: string
+    prompt: string
+}
+
+// The first is the data-driven ask; the rest follow the templates users pick most often.
+export const NEW_WORKFLOW_SUGGESTIONS: NewWorkflowSuggestion[] = [
     {
-        label: 'Workflows',
-        icon: iconForType('workflows'),
-        suggestions: [
-            { content: 'Look at my conversion funnel and draft a campaign to improve it' },
-            { content: 'Email users who signed up but never came back' },
-            { content: 'Send a Slack message when a customer hits a usage milestone' },
-            { content: 'Set up a weekly digest of new signups' },
-        ],
-        tooltip: 'Describe what should happen, and PostHog AI drafts the workflow for you to review.',
+        title: 'Improve my conversion',
+        description: 'Look at the funnel and draft a campaign for the biggest drop-off',
+        prompt: 'Look at my conversion funnel and draft a campaign to improve the biggest drop-off',
+    },
+    {
+        title: 'Welcome new signups',
+        description: 'A short email sequence over the first week',
+        prompt: 'Send a welcome email sequence to new signups over their first week',
+    },
+    {
+        title: 'Alert on new support tickets',
+        description: 'Post to Slack when a ticket comes in',
+        prompt: 'Notify the team in Slack when a new support ticket comes in',
+    },
+    {
+        title: 'Finish onboarding',
+        description: 'Nudge people who started but never completed it',
+        prompt: 'Remind users who started onboarding but never finished it',
+    },
+    {
+        title: 'Win back inactive users',
+        description: 'Reach out after 30 days of silence',
+        prompt: 'Re-engage users who have been inactive for 30 days',
+    },
+    {
+        title: 'Webhook on upgrade',
+        description: 'Call my endpoint when a customer upgrades',
+        prompt: 'Send a webhook when a user upgrades their plan',
     },
 ]
 
