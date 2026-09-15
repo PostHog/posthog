@@ -252,6 +252,7 @@ function EditSubscriptionForm({
         insightShortId,
         dashboardId,
         dashboardName: dashboard?.name,
+        dashboardShowsInsightSelector: !!dashboard?.tiles,
     }
     const logic = subscriptionLogic(logicProps)
     const subscriptionslogic = subscriptionsLogic({
@@ -450,7 +451,10 @@ function EditSubscriptionForm({
 
                         {isAiPrompt ? (
                             <>
-                                <AiPromptSubscriptionIntroduction />
+                                <AiPromptSubscriptionIntroduction
+                                    parentResource={dashboardId ? 'dashboard' : insightShortId ? 'insight' : undefined}
+                                    canSwitchToSnapshot={aiGate.showResourceTypeToggle}
+                                />
                                 <AiPromptFields
                                     prompt={subscription.prompt}
                                     targetType={subscription.target_type}

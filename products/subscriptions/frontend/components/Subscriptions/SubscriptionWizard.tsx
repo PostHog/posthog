@@ -103,6 +103,7 @@ export function SubscriptionWizard({
         insightShortId,
         dashboardId: dashboard?.id,
         dashboardName: dashboard?.name,
+        dashboardShowsInsightSelector: !!dashboard?.tiles,
         insightName,
         creationSource: 'wizard' as const,
     }
@@ -137,7 +138,7 @@ export function SubscriptionWizard({
         isDebug: Boolean(preflight?.is_debug),
         aiFlagEnabled: Boolean(aiSubscriptionsEnabled),
     })
-    const selectedInsightsReady = !dashboard || Boolean(subscription.dashboard_export_insights?.length)
+    const selectedInsightsReady = !dashboard?.tiles || Boolean(subscription.dashboard_export_insights?.length)
     const contentDetailReady = isAiPrompt ? Boolean(subscription.prompt?.trim()) : selectedInsightsReady
     const contentReady = Boolean(subscription.title?.trim()) && contentDetailReady
     let contentDisabledReason: string | undefined
@@ -451,7 +452,13 @@ function SubscriptionContentStep({
 
     return (
         <div className="flex flex-col gap-4">
-            {isAiPrompt ? <AiPromptSubscriptionIntroduction /> : null}
+            {isAiPrompt ? (
+                <AiPromptSubscriptionIntroduction
+                    parentResource={
+                        logicProps.dashboardId ? 'dashboard' : logicProps.insightShortId ? 'insight' : undefined
+                    }
+                />
+            ) : null}
             {isAiPrompt && aiSubscriptionBlocked ? (
                 <LemonBanner type="info">
                     Enable AI data processing in your Organization settings to create an AI prompt subscription.{' '}

@@ -304,3 +304,11 @@ export const InsightWithSubscriptions: Story = {
     parameters: AI_PROMPT_PARAMETERS,
     args: { subscriptionId: null, insightShortId: 'ins11' as InsightShortId },
 }
+
+export const DashboardAiPromptNew: Story = {
+    parameters: {
+        ...AI_PROMPT_PARAMETERS,
+        pageUrl: '/dashboard/1/subscriptions/new?resource_type=ai_prompt',
+    },
+    args: { isCreating: true, dashboard: DASHBOARD },
+}
