@@ -18,8 +18,8 @@ function validateHistoricalMigrationHeader(headers: EventHeaders): EventHeaders 
         return headers
     }
 
-    // Parse the timestamp header
-    const headerTimestampMs = Date.parse(headers.timestamp)
+    // The timestamp header is epoch milliseconds in a decimal string, not an ISO date.
+    const headerTimestampMs = Number(headers.timestamp)
     const nowMs = headers.now.getTime()
 
     // If either timestamp is invalid, accept the flag as-is (let other validation handle it)
