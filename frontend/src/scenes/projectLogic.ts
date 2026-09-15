@@ -312,6 +312,9 @@ export const projectLogic = kea<projectLogicType>([
         },
         createProjectSuccess: ({ currentProject }) => {
             if (currentProject) {
+                // Refresh currentOrganization (which lists its projects) so the project switcher
+                // shows the new project even if it's reopened before switchTeam's page navigation lands.
+                actions.loadCurrentOrganization()
                 actions.switchTeam(currentProject.id, urls.projectHomepage())
             }
         },
