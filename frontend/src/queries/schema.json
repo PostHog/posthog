@@ -29715,6 +29715,10 @@
                 "convertToProjectTimezone": {
                     "type": "boolean"
                 },
+                "cookielessTrafficIsRegular": {
+                    "description": "Do not treat a missing user agent as automation on cookieless events. Positive bot signals and custom project rules still apply. Resolved server-side; not intended to be set by clients.",
+                    "type": ["boolean", "null"]
+                },
                 "customBotDefinitions": {
                     "items": {
                         "$ref": "#/definitions/CustomBotRule"

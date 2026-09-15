@@ -5623,6 +5623,14 @@ class HogQLQueryModifiers(BaseModel):
     bounceRateDurationSeconds: float | None = None
     bounceRatePageViewMode: BounceRatePageViewMode | None = None
     convertToProjectTimezone: bool | None = None
+    cookielessTrafficIsRegular: bool | None = Field(
+        default=None,
+        description=(
+            "Do not treat a missing user agent as automation on cookieless events."
+            " Positive bot signals and custom project rules still apply. Resolved"
+            " server-side; not intended to be set by clients."
+        ),
+    )
     customBotDefinitions: list[CustomBotRule] | None = None
     customChannelTypeRules: list[CustomChannelRule] | None = None
     dataWarehouseEventsModifiers: list[DataWarehouseEventsModifier] | None = None
