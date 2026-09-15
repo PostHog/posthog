@@ -1910,7 +1910,7 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         # viewset is concerned; its results are read through the observations endpoint instead.
         return (
             queryset.filter(team_id=self.team_id)
-            .select_related("created_by")
+            .select_related("created_by", "team")
             # prefetched_tags feeds the tags in to_representation; without it list serialization is N+1.
             .prefetch_related(
                 Prefetch(
