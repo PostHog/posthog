@@ -1,12 +1,15 @@
 import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import posthog from 'posthog-js'
 
 import { isAbortError } from 'lib/api'
-import { ApiError, NetworkError, isTransientServerError } from 'lib/api-error'
+import { ApiError, NetworkError, isAccessDeniedError, isTransientServerError } from 'lib/api-error'
+import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { EnrichedTraceTreeNode } from '../aiObservabilityTraceDataLogic'
 import { llmAnalyticsSummarizationCreate } from '../generated/api'
@@ -109,6 +112,22 @@ const GENERIC_SUMMARY_ERROR = "Couldn't generate a summary. Try again, and if it
 
 const NETWORK_SUMMARY_ERROR = 'Lost the connection while generating this summary. Check your connection and try again.'
 
+const PERMISSION_SUMMARY_ERROR =
+    'Summarizing needs edit access to AI observability. Ask a project admin to give you access.'
+
+const SUMMARY_FAILED_EVENT = 'llma summarization failed'
+
+const SUMMARY_SKIPPED_EVENT = 'llma summarization skipped'
+
+/**
+ * Summarizing is a POST, so access control asks for the write level on `llm_analytics`, while
+ * reading the trace only asks for the read level. A user who can open the trace can still be
+ * refused here.
+ */
+function canSummarize(): boolean {
+    return userHasAccess(AccessControlResourceType.LlmAnalytics, AccessControlLevel.Editor)
+}
+
 /** Aborting with an `AbortError` keeps the cancellation out of toasts and error tracking. */
 const SUPERSEDED_SUMMARY_REQUEST = 'a newer summary request started'
 
@@ -125,6 +144,16 @@ function bodylessStatusMessage(error: ApiError): string {
     return GENERIC_SUMMARY_ERROR
 }
 
+function summaryFailureReason(errorObject: unknown): string {
+    if (errorObject instanceof NetworkError) {
+        return 'network'
+    }
+    if (errorObject instanceof ApiError) {
+        return isAccessDeniedError(errorObject) ? 'permission_denied' : 'api'
+    }
+    return 'other'
+}
+
 /**
  * Build the sentence the panel shows, rather than rewriting the rejected error into a new one.
  * The error object continues to error tracking, and a `NetworkError` carries its failure reason in
@@ -136,10 +165,18 @@ function summaryErrorMessage(errorObject: unknown, fallback: string | null): str
     if (errorObject instanceof NetworkError) {
         return NETWORK_SUMMARY_ERROR
     }
-    // `ApiError` falls back to `API request failed with status: 413` when the response carries no
-    // body. A response that does carry a `detail` says more than any status-keyed guess.
-    if (errorObject instanceof ApiError && !errorObject.detail) {
-        return bodylessStatusMessage(errorObject)
+    if (errorObject instanceof ApiError) {
+        // Access control raises the same DRF denial for the project and for the resource, and its
+        // `detail` names neither the product nor the level, so the panel reads as though the whole
+        // project were out of reach. The user's own access level is what the sentence needs.
+        if (isAccessDeniedError(errorObject) && !canSummarize()) {
+            return PERMISSION_SUMMARY_ERROR
+        }
+        // `ApiError` falls back to `API request failed with status: 413` when the response carries
+        // no body. A response that does carry a `detail` says more than any status-keyed guess.
+        if (!errorObject.detail) {
+            return bodylessStatusMessage(errorObject)
+        }
     }
     return fallback || GENERIC_SUMMARY_ERROR
 }
@@ -303,7 +340,21 @@ export const summaryViewLogic = kea<summaryViewLogicType>([
             },
         },
     })),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, props, values }) => ({
+        generateSummaryFailure: ({ errorObject }) => {
+            if (isAbortError(errorObject)) {
+                return
+            }
+            // `llma summarization generated` only fires on success, and the platform excuses a 403
+            // `permission_denied` from error tracking, so a refused summary leaves no record at all
+            // without this event.
+            posthog.capture(SUMMARY_FAILED_EVENT, {
+                reason: summaryFailureReason(errorObject),
+                status: errorObject instanceof ApiError ? errorObject.status : null,
+                summarize_type: props.trace ? 'trace' : 'event',
+                mode: values.summaryMode,
+            })
+        },
         loadCachedSummary: async () => {
             // Try to load cached summary - requires consent since we're hitting the summarization API
             // which will return cached data if available (forceRefresh: false)
@@ -331,10 +382,27 @@ export const summaryViewLogic = kea<summaryViewLogicType>([
         },
     })),
     afterMount(({ props, actions, values }) => {
-        if (props.autoGenerate && values.dataProcessingAccepted) {
+        if (!values.dataProcessingAccepted) {
+            return
+        }
+        // Asking for a cached summary posts to the summarize endpoint, so a read-only user gets a
+        // denial banner on a trace they opened to read. Leave the panel on its empty state, where
+        // the disabled button already says what access is missing.
+        if (!canSummarize()) {
+            // The guard sends no request, so `llma summarization failed` cannot fire for the users
+            // it exists for. Without this event, that population is the one unmeasured outcome.
+            posthog.capture(SUMMARY_SKIPPED_EVENT, {
+                reason: 'permission_denied',
+                summarize_type: props.trace ? 'trace' : 'event',
+                mode: values.summaryMode,
+                source: props.autoGenerate ? 'auto_generate' : 'cached_lookup',
+            })
+            return
+        }
+        if (props.autoGenerate) {
             // Auto-generate was requested (e.g., from URL param)
             actions.generateSummary({ mode: values.summaryMode, forceRefresh: false })
-        } else if (values.dataProcessingAccepted) {
+        } else {
             // Try to load cached summary on mount (will use cache if available)
             actions.loadCachedSummary()
         }
