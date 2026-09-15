@@ -20,7 +20,7 @@ The LLM's job is narrowed to tracing what a dead root drags with it and proving 
 
 - Never merges, never enqueues, never applies `stamphog`. Every PR is a draft with the `reaperhog` label.
 - Never opens a mega PR. One root per PR, capped in size, capped in count.
-- Never deletes on one signal. A deletion needs a scout hit plus a verifier verdict, and the verifier's rule is "on the fence means alive".
+- Never deletes on one signal. A deletion needs a strong candidate (two scouts on one root, or one recorded outcome) plus a verifier verdict, and the verifier's rule is "on the fence means alive".
 - Never touches migrations, `.github/`, CODEOWNERS, dependency manifests, generated files or public API contracts. These floors live in code, not in a skill.
 - Flags get archived after merge, never deleted. Evaluation history stays queryable.
 
