@@ -147,14 +147,21 @@ class TestFormatTools:
         result = "\n".join(lines)
         assert "create_user(username: string, email: string)" in result
 
-    def test_tool_with_no_description(self):
-        """Should handle tool with no description."""
-        tools = [{"name": "mystery_tool", "input_schema": {"type": "object", "properties": {}}}]
+    @parameterized.expand(
+        [
+            ("missing", {}),
+            ("a list", {"description": ["first", "second"]}),
+            ("an object", {"description": {"text": "Does things."}}),
+            ("a number", {"description": 42}),
+        ]
+    )
+    def test_tool_with_unusable_description(self, _name, description_field):
+        """Should render the signature alone when the description is not usable text."""
+        tools = [{"name": "mystery_tool", "input_schema": {"type": "object", "properties": {}}, **description_field}]
+
         lines = format_tools(tools)
-        result = "\n".join(lines)
-        assert "mystery_tool()" in result
-        # Should not have description line
-        assert "N/A" not in result
+
+        assert "\n".join(lines).split("\n") == ["", "AVAILABLE TOOLS: 1", "", "  mystery_tool()"]
 
     def test_tool_with_multiline_description(self):
         """Should show only first line of multiline description."""
@@ -171,7 +178,7 @@ class TestFormatTools:
         assert "third line" not in result
 
     def test_google_gemini_format(self):
-        """Should handle Google/Gemini functionDeclarations format."""
+        """Should handle Google/Gemini functionDeclarations format, and skip malformed declarations."""
         tools = [
             {
                 "functionDeclarations": [
@@ -185,17 +192,24 @@ class TestFormatTools:
                             },
                             "required": ["query"],
                         },
-                    }
+                    },
+                    "not a declaration",
+                    None,
                 ]
             }
         ]
         lines = format_tools(tools)
-        result = "\n".join(lines)
-        assert "AVAILABLE TOOLS: 1" in result
-        assert "search(query: string)" in result
+
+        assert "\n".join(lines).split("\n") == [
+            "",
+            "AVAILABLE TOOLS: 1",
+            "",
+            "  search(query: string)",
+            "    Search the web.",
+        ]
 
     def test_invalid_tool_format(self):
-        """Should skip invalid tool entries."""
+        """Should skip invalid tool entries, and count only the tools it can render."""
         tools = [
             "not a dict",
             {"name": "valid_tool", "description": "A valid tool."},
@@ -203,8 +217,18 @@ class TestFormatTools:
         ]
         lines = format_tools(tools)
         result = "\n".join(lines)
-        assert "AVAILABLE TOOLS: 3" in result
+        assert "AVAILABLE TOOLS: 1" in result
         assert "valid_tool()" in result
+
+    def test_malformed_declarations_do_not_collapse_a_short_list(self):
+        """Should keep a valid signature visible when malformed declarations sit beside it."""
+        tools = [{"functionDeclarations": [{"name": "search"}, *["junk"] * 5]}]
+
+        result = "\n".join(format_tools(tools, {"include_markers": False}))
+
+        assert "AVAILABLE TOOLS: 1" in result
+        assert "search()" in result
+        assert "[+]" not in result
 
     def test_tool_with_nested_schema(self):
         """Should handle tools with complex nested schemas."""
@@ -304,6 +328,22 @@ class TestEdgeCases:
         assert "AVAILABLE TOOLS: 5" in result
         assert "tool0()" in result
 
+    @parameterized.expand(
+        [
+            ("one bundle", 1, 6),
+            ("two bundles", 2, 3),
+        ]
+    )
+    def test_gemini_bundles_count_their_declarations(self, _name, bundle_count, per_bundle):
+        tools = [
+            {"functionDeclarations": [{"name": f"tool{bundle}_{i}"} for i in range(per_bundle)]}
+            for bundle in range(bundle_count)
+        ]
+
+        result = "\n".join(format_tools(tools, {"include_markers": False}))
+
+        assert f"[+] AVAILABLE TOOLS: {bundle_count * per_bundle}" in result
+
     def test_six_tools_collapsed(self):
         """Should collapse tool list with 6 tools (just over threshold)."""
         tools = [{"name": f"tool{i}", "description": f"Tool {i}."} for i in range(6)]
@@ -324,13 +364,34 @@ class TestEdgeCases:
 
     @parameterized.expand(
         [
-            ("list", ["query", "limit"]),
-            ("string", "query"),
+            ("list", ["query", "limit"], "search()"),
+            ("string", "query", "search()"),
+            ("non-dict property value", {"query": "string", "limit": {"type": "integer"}}, "search(limit?: integer)"),
         ]
     )
-    def test_unusable_properties_schema_still_renders_the_tool(self, _name, properties):
+    def test_unusable_properties_schema_still_renders_the_tool(self, _name, properties, expected_signature):
         tools = [{"name": "search", "description": "Search things.", "input_schema": {"properties": properties}}]
 
         result = "\n".join(format_tools(tools))
 
-        assert "search()" in result
+        assert expected_signature in result
+
+    @parameterized.expand(
+        [
+            ("null", None),
+            ("a number", 3),
+            ("a boolean", True),
+        ]
+    )
+    def test_unusable_required_list_marks_every_parameter_optional(self, _name, required):
+        tools = [
+            {
+                "name": "search",
+                "description": "Search things.",
+                "input_schema": {"properties": {"query": {"type": "string"}}, "required": required},
+            }
+        ]
+
+        result = "\n".join(format_tools(tools))
+
+        assert "search(query?: string)" in result
