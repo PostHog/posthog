@@ -9,6 +9,11 @@ from django.utils import timezone
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.constants import AvailableFeature
+from posthog.models import PropertyDefinition, Team
+
+from products.access_control.backend.facade.contracts import PropertyAccessLevel
+from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportCheck
 from products.signals.backend.report_check_execution import (
     CHECK_ERROR_RETRY_AFTER,
@@ -34,7 +39,7 @@ from products.signals.backend.report_checks import (
     parse_check_config,
 )
 from products.signals.backend.report_metric_refresh import MetricMeasurement
-from products.signals.backend.serializers import SignalReportCheckWriteSerializer
+from products.signals.backend.serializers import CHECK_RESULT_HIDDEN_EXPLANATION, SignalReportCheckWriteSerializer
 from products.signals.backend.test.report_metric_test_fixtures import trends_metric_query
 from products.signals.backend.views import SignalReportCheckViewSet
 
@@ -87,10 +92,6 @@ class TestCheckComparison(SimpleTestCase):
     @parameterized.expand(
         [
             ("neither_source", {"comparison": {"operator": "lte", "value": 1}}),
-            (
-                "both_sources",
-                {"query": _PAGEVIEWS, "metric_id": "errors", "comparison": {"operator": "lte", "value": 1}},
-            ),
             ("empty_metric_id", {"metric_id": "", "comparison": {"operator": "lte", "value": 1}}),
             (
                 "unknown_config_key",
@@ -163,9 +164,10 @@ class TestCheckScheduleValidation(SimpleTestCase):
                 {"run_interval_minutes": 30 * 24 * 60, "runs_remaining": 5},
                 "run_interval_minutes",
             ),
+            ("both_a_metric_and_a_query", {"config": _threshold_config(metric_id="errors")}, "config"),
         ]
     )
-    def test_impossible_schedule_is_refused(self, _name, overrides, field) -> None:
+    def test_an_impossible_request_is_refused(self, _name, overrides, field) -> None:
         serializer = SignalReportCheckWriteSerializer(
             data={"title": "Errors stay low", "kind": "metric_threshold", "config": _threshold_config(), **overrides}
         )
@@ -482,6 +484,7 @@ class TestReportCheckAPI(APIBaseTest):
 
         listed = self.client.get(self.url)
         assert [row["id"] for row in listed.json()["results"]] == [check_id]
+        assert listed.json()["results"][0]["config"]["query"] == _PAGEVIEWS
 
         cancelled = self.client.delete(f"{self.url}{check_id}/")
         assert cancelled.status_code == status.HTTP_200_OK
@@ -511,7 +514,7 @@ class TestReportCheckAPI(APIBaseTest):
             SignalReportCheck.objects.for_team(self.team.id).get(id=check_id).status == SignalReportCheck.Status.PASSED
         )
 
-    def test_a_check_naming_a_metric_the_report_does_not_have_is_refused(self) -> None:
+    def test_a_metric_reference_is_resolved_and_copied_when_the_check_is_created(self) -> None:
         payload = {
             "title": "Checkout errors stay low",
             "kind": "metric_threshold",
@@ -527,7 +530,107 @@ class TestReportCheckAPI(APIBaseTest):
             {"metric_id": "checkout-errors", "title": "Checkout errors", "kind": "occurrences", "query": _PAGEVIEWS}
         ]
         self.report.save(update_fields=["metrics"])
-        assert self.client.post(self.url, payload, format="json").status_code == status.HTTP_201_CREATED
+        created = self.client.post(self.url, payload, format="json")
+        assert created.status_code == status.HTTP_201_CREATED, created.json()
+        stored = SignalReportCheck.objects.for_team(self.team.id).get(id=created.json()["id"])
+        assert stored.config["metric_id"] == "checkout-errors"
+        assert stored.config["query"] == _PAGEVIEWS
+
+        # Rewriting the metric under the same id must not move the check's target.
+        rewritten = trends_metric_query(series=[{"kind": "EventsNode", "event": "$autocapture"}])
+        self.report.metrics = [{**self.report.metrics[0], "query": rewritten}]
+        self.report.save(update_fields=["metrics"])
+        SignalReportCheck.objects.for_team(self.team.id).filter(id=stored.id).update(
+            next_run_at=timezone.now() - timedelta(minutes=1)
+        )
+        with patch(
+            _MEASURE, return_value=MetricMeasurement(value=0.0, measured_at=timezone.now(), series=None)
+        ) as measure:
+            run_due_report_checks()
+        assert measure.call_args.args[0] == _PAGEVIEWS
+
+    def test_a_check_created_in_a_child_environment_stays_on_that_environment(self) -> None:
+        child = Team.objects.create(organization=self.organization, name="Child", parent_team=self.team)
+        report = SignalReport.objects.create(team=child, status=SignalReport.Status.RESOLVED, title="Fix")
+        url = f"/api/projects/{child.id}/signals/reports/{report.id}/checks/"
+
+        created = self.client.post(
+            url, {"title": "Errors stay low", "kind": "metric_threshold", "config": _threshold_config()}, format="json"
+        )
+        assert created.status_code == status.HTTP_201_CREATED, created.json()
+        check_id = created.json()["id"]
+
+        assert [row["id"] for row in self.client.get(url).json()["results"]] == [check_id]
+        assert SignalReportCheck.all_teams.get(id=check_id).team_id == child.id
+
+        SignalReportCheck.all_teams.filter(id=check_id).update(next_run_at=timezone.now() - timedelta(minutes=1))
+        with patch(_MEASURE, return_value=MetricMeasurement(value=0.0, measured_at=timezone.now(), series=None)):
+            run_due_report_checks()
+        result = SignalReportArtefact.objects.get(report=report, type=SignalReportArtefact.ArtefactType.CHECK_RESULT)
+        assert result.team_id == child.id
+
+    def test_a_property_restricted_member_cannot_read_a_checks_query_or_measured_values(self) -> None:
+        secret_pageviews = trends_metric_query(
+            series=[
+                {
+                    "kind": "EventsNode",
+                    "event": "$pageview",
+                    "properties": [
+                        {"key": "secret_plan", "value": ["enterprise"], "operator": "exact", "type": "event"}
+                    ],
+                }
+            ]
+        )
+        created = self.client.post(
+            self.url,
+            {
+                "title": "Enterprise pageviews stay low",
+                "kind": "metric_threshold",
+                "config": _threshold_config(query=secret_pageviews, baseline_value=3),
+            },
+            format="json",
+        )
+        assert created.status_code == status.HTTP_201_CREATED, created.json()
+        check_id = created.json()["id"]
+        SignalReportCheck.objects.for_team(self.team.id).filter(id=check_id).update(
+            next_run_at=timezone.now() - timedelta(minutes=1)
+        )
+        with patch(_MEASURE, return_value=MetricMeasurement(value=4.0, measured_at=timezone.now(), series=None)):
+            run_due_report_checks()
+        artefacts_url = f"/api/projects/{self.team.id}/signals/reports/{self.report.id}/artefacts/"
+
+        def check_result() -> dict:
+            return next(
+                row["content"]
+                for row in self.client.get(artefacts_url).json()["results"]
+                if row["type"] == "check_result"
+            )
+
+        assert check_result()["observed_value"] == 4.0
+
+        self.organization.available_product_features = [
+            {"name": AvailableFeature.PROPERTY_ACCESS_CONTROL, "key": AvailableFeature.PROPERTY_ACCESS_CONTROL}
+        ]
+        self.organization.save(update_fields=["available_product_features"])
+        PropertyAccessControl.objects.create(
+            team=self.team,
+            property_definition=PropertyDefinition.objects.create(
+                team=self.team, name="secret_plan", property_type="String", type=PropertyDefinition.Type.EVENT
+            ),
+            organization_member=self.organization_membership,
+            access_level=PropertyAccessLevel.NONE.value,
+        )
+
+        config = self.client.get(f"{self.url}{check_id}/").json()["config"]
+        assert config["query"] is None
+        assert config["baseline_value"] is None
+        assert config["comparison"] == {"operator": "lte", "value": 10}
+
+        hidden = check_result()
+        assert hidden["outcome"] == "passed"
+        assert hidden["observed_value"] is None
+        assert hidden["baseline_value"] is None
+        assert hidden["explanation"] == CHECK_RESULT_HIDDEN_EXPLANATION
 
     def test_an_invalid_config_is_rejected_by_the_endpoint(self) -> None:
         response = self.client.post(

@@ -346,11 +346,15 @@ export const SignalsReportChecksCreateBody = /* @__PURE__ */ zod
                 metric_id: zod
                     .union([zod.string(), zod.null()])
                     .optional()
-                    .describe('Identifier of a metric on the report whose query this check measures.'),
+                    .describe(
+                        "Identifier of a metric on the report whose query this check measures. The metric's query is copied into `query` when the check is created."
+                    ),
                 query: zod
                     .union([zod.record(zod.string(), zod.unknown()), zod.null()])
                     .optional()
-                    .describe('Live InsightVizNode wrapping one TrendsQuery, when the check carries its own query.'),
+                    .describe(
+                        'Live InsightVizNode wrapping one TrendsQuery: supplied by the caller, or copied from the named metric when the check is created.'
+                    ),
                 comparison: zod
                     .object({
                         operator: zod.enum(['lte', 'gte', 'between']).describe('`lte`, `gte`, or `between`.'),
@@ -376,7 +380,7 @@ export const SignalsReportChecksCreateBody = /* @__PURE__ */ zod
                     .describe('The value observed when the check was written, recorded on each result for context.'),
             })
             .describe(
-                'A deterministic check: measure one number, compare it, record the verdict.\n\nThe number comes either from a metric the report already shows (``metric_id``) or from a query\nthe author supplies. Both end up in the same runner, so a supplied query must satisfy the live\nmetric contract — the node allowlist, the bounded window, and the single-output-series rule.\n\nUnknown keys are refused rather than ignored, so a misspelled field name is reported instead of\nbeing dropped in silence and stored as it arrived.'
+                "A deterministic check: measure one number, compare it, record the verdict.\n\nThe number comes either from a metric the report already shows (``metric_id``) or from a query\nthe author supplies. Both end up in the same runner, so a supplied query must satisfy the live\nmetric contract — the node allowlist, the bounded window, and the single-output-series rule.\n\nA caller names one source. When it names a metric, the create path copies that metric's query\ninto ``query`` before the row is stored, so the check keeps measuring what its author saw even if\nthe report's metric is later rewritten under the same id; ``metric_id`` stays as provenance.\n\nUnknown keys are refused rather than ignored, so a misspelled field name is reported instead of\nbeing dropped in silence and stored as it arrived."
             )
             .describe('What the check measures and what the result must satisfy; the shape depends on `kind`.'),
         next_run_at: zod.iso

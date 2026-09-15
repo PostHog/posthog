@@ -4260,12 +4260,14 @@ class SignalReportCheckViewSet(
         write_serializer.is_valid(raise_exception=True)
         spec = write_serializer.validated_data
 
-        # Resolve the reference now rather than at the first run. The report is already loaded, and
-        # an unresolvable one would otherwise sit idle for the whole soak window before retiring.
-        config = parse_check_config(spec["kind"], spec["config"])
+        # Resolve a metric reference now and store the query it points at, rather than at each run.
+        # An unresolvable reference would otherwise sit idle for the whole soak window before
+        # retiring, and a reference resolved late would measure whatever the metric had become.
+        stored_config = spec["config"]
+        config = parse_check_config(spec["kind"], stored_config)
         if isinstance(config, MetricThresholdConfig) and config.metric_id is not None:
             try:
-                resolve_check_query(config, report)
+                stored_config = {**stored_config, "query": resolve_check_query(config, report)}
             except ValueError as error:
                 return Response(
                     {"error": f"This check cannot run: {error}."},
@@ -4293,13 +4295,15 @@ class SignalReportCheckViewSet(
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
-            check = SignalReportCheck.objects.for_team(self.team.id).create(
-                team_id=self.team.id,
+            check = SignalReportCheck.objects.for_team(locked_report.team_id).create(
+                # The report's own environment team, never a canonicalized one: the report's reads
+                # and its artefact log filter by it.
+                team_id=locked_report.team_id,
                 report_id=locked_report.id,
                 title=spec["title"],
                 rationale=spec.get("rationale", ""),
                 kind=spec["kind"],
-                config=spec["config"],
+                config=stored_config,
                 next_run_at=spec["next_run_at"],
                 run_interval_minutes=spec.get("run_interval_minutes"),
                 runs_remaining=spec["runs_remaining"],
@@ -4309,7 +4313,7 @@ class SignalReportCheckViewSet(
                 created_by_id=attribution.user_id,
                 task_id=attribution.task_id,
             )
-        return Response(SignalReportCheckSerializer(check).data, status=status.HTTP_201_CREATED)
+        return Response(self.get_serializer(check).data, status=status.HTTP_201_CREATED)
 
     def destroy(self, request: Request, *args, **kwargs) -> Response:
         check = cast(SignalReportCheck, self.get_object())
@@ -4327,7 +4331,7 @@ class SignalReportCheckViewSet(
                 {"error": f"This check already finished as '{check.status}' and cannot be cancelled."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        return Response(SignalReportCheckSerializer(check).data)
+        return Response(self.get_serializer(check).data)
 
 
 @extend_schema_view(

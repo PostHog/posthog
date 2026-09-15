@@ -108,6 +108,10 @@ class MetricThresholdConfig(BaseModel):
     the author supplies. Both end up in the same runner, so a supplied query must satisfy the live
     metric contract — the node allowlist, the bounded window, and the single-output-series rule.
 
+    A caller names one source. When it names a metric, the create path copies that metric's query
+    into ``query`` before the row is stored, so the check keeps measuring what its author saw even if
+    the report's metric is later rewritten under the same id; ``metric_id`` stays as provenance.
+
     Unknown keys are refused rather than ignored, so a misspelled field name is reported instead of
     being dropped in silence and stored as it arrived.
     """
@@ -116,11 +120,17 @@ class MetricThresholdConfig(BaseModel):
 
     metric_id: str | None = Field(
         default=None,
-        description="Identifier of a metric on the report whose query this check measures.",
+        description=(
+            "Identifier of a metric on the report whose query this check measures. The metric's query is "
+            "copied into `query` when the check is created."
+        ),
     )
     query: dict[str, Any] | None = Field(
         default=None,
-        description="Live InsightVizNode wrapping one TrendsQuery, when the check carries its own query.",
+        description=(
+            "Live InsightVizNode wrapping one TrendsQuery: supplied by the caller, or copied from the named "
+            "metric when the check is created."
+        ),
     )
     comparison: CheckComparison = Field(description="What the measured value must satisfy to pass.")
     baseline_value: float | None = Field(
@@ -146,9 +156,9 @@ class MetricThresholdConfig(BaseModel):
         return None if value is None else validate_live_metric_query(value)
 
     @model_validator(mode="after")
-    def source_must_be_exactly_one_of_metric_or_query(self) -> MetricThresholdConfig:
-        if (self.metric_id is None) == (self.query is None):
-            raise ValueError("provide exactly one of metric_id or query")
+    def source_must_name_a_metric_or_carry_a_query(self) -> MetricThresholdConfig:
+        if self.metric_id is None and self.query is None:
+            raise ValueError("provide a metric_id or a query")
         return self
 
 

@@ -62,7 +62,9 @@ CHECK_ERROR_RETRY_AFTER = timedelta(hours=6)
 # Same bound the scout runner puts on a stored failure reason.
 MAX_CHECK_ERROR_REASON_LENGTH = 300
 
-# A check pauses while its report is soft-deleted or suppressed, and resumes when the report does.
+# A check stops running while its report is soft-deleted or suppressed, and runs again when the report
+# comes back. Its horizon keeps advancing meanwhile: a check that outlives `expires_at` while paused
+# expires like any other, because the soak window is the author's deadline, not the report's.
 CHECKABLE_REPORT_STATUSES = tuple(
     status
     for status in SignalReport.Status.values
@@ -95,12 +97,13 @@ class _CheckTransition:
 
 
 def resolve_check_query(config: MetricThresholdConfig, report: SignalReport) -> dict:
-    """The query this check measures: its own, or the one behind the report metric it rides.
+    """The query this check measures: the one stored on it, else the report metric it names.
 
-    A referenced row is re-validated here, the way the metric refresh re-validates before it
-    measures. `report.metrics` is plain JSON that can change after the check was written, and the
-    runner reads one series out of the result, so a row carrying a breakdown or several output
-    series would turn an arbitrary slice into a recorded verdict.
+    The create path copies a named metric's query onto the check, so the fallback only serves rows
+    written another way. Such a row is re-validated here, the way the metric refresh re-validates
+    before it measures: `report.metrics` is plain JSON that can change after the check was written,
+    and the runner reads one series out of the result, so a row carrying a breakdown or several
+    output series would turn an arbitrary slice into a recorded verdict.
     """
 
     if config.query is not None:

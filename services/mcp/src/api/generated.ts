@@ -53993,7 +53993,7 @@ export namespace Schemas {
     } as const;
 
     /**
-     * Live InsightVizNode wrapping one TrendsQuery, when the check carries its own query.
+     * Live InsightVizNode wrapping one TrendsQuery: supplied by the caller, or copied from the named metric when the check is created.
      */
     export type MetricThresholdConfigQuery = { [key: string]: unknown } | null;
 
@@ -54004,13 +54004,17 @@ export namespace Schemas {
      * the author supplies. Both end up in the same runner, so a supplied query must satisfy the live
      * metric contract — the node allowlist, the bounded window, and the single-output-series rule.
      *
+     * A caller names one source. When it names a metric, the create path copies that metric's query
+     * into ``query`` before the row is stored, so the check keeps measuring what its author saw even if
+     * the report's metric is later rewritten under the same id; ``metric_id`` stays as provenance.
+     *
      * Unknown keys are refused rather than ignored, so a misspelled field name is reported instead of
      * being dropped in silence and stored as it arrived.
      */
     export interface MetricThresholdConfig {
-      /** Identifier of a metric on the report whose query this check measures. */
+      /** Identifier of a metric on the report whose query this check measures. The metric's query is copied into `query` when the check is created. */
       metric_id?: string | null;
-      /** Live InsightVizNode wrapping one TrendsQuery, when the check carries its own query. */
+      /** Live InsightVizNode wrapping one TrendsQuery: supplied by the caller, or copied from the named metric when the check is created. */
       query?: MetricThresholdConfigQuery;
       /** What the measured value must satisfy to pass. */
       comparison: CheckComparison;
@@ -59288,7 +59292,7 @@ export namespace Schemas {
        * * `expired` - Expired
        * * `cancelled` - Cancelled */
       readonly status: SignalReportCheckStatusEnum;
-      /** What the check measures and what the result must satisfy; the shape depends on `kind`. */
+      /** What the check measures and what the result must satisfy; the shape depends on `kind`. `query` and `baseline_value` are null when you cannot read the data they describe. */
       config: SignalReportCheckConfig;
       /** When the coordinator next evaluates the check. */
       readonly next_run_at: string;

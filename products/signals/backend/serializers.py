@@ -1,4 +1,5 @@
 import json
+import uuid
 from collections.abc import Mapping
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, cast
@@ -835,6 +836,29 @@ _REPORT_METRIC_QUERY_HELP = (
 )
 
 
+def report_metric_access_policy(context: dict) -> ReportMetricAccessPolicy:
+    """The viewer's policy for this request, built once per serializer context.
+
+    Report metrics, check configs, and check results all carry data materialized without a viewer,
+    so every one of them is gated by the same policy rather than by three readings of "who may see a
+    query and its value".
+    """
+    context_key = "_report_metric_access_policy"
+    cached = context.get(context_key)
+    if isinstance(cached, ReportMetricAccessPolicy):
+        return cached
+
+    request = context.get("request")
+    get_team = context.get("get_team")
+    team = get_team() if callable(get_team) else None
+    policy = ReportMetricAccessPolicy(
+        request=request if isinstance(request, Request) else None,
+        team=team if isinstance(team, Team) else None,
+    )
+    context[context_key] = policy
+    return policy
+
+
 class ReportMetricSerializer(serializers.Serializer):
     """One impact measurement shown on a report."""
 
@@ -937,20 +961,7 @@ class ReportMetricSerializer(serializers.Serializer):
         return representation
 
     def _access_policy(self) -> ReportMetricAccessPolicy:
-        context_key = "_report_metric_access_policy"
-        cached = self.context.get(context_key)
-        if isinstance(cached, ReportMetricAccessPolicy):
-            return cached
-
-        request = self.context.get("request")
-        get_team = self.context.get("get_team")
-        team = get_team() if callable(get_team) else None
-        policy = ReportMetricAccessPolicy(
-            request=request if isinstance(request, Request) else None,
-            team=team if isinstance(team, Team) else None,
-        )
-        self.context[context_key] = policy
-        return policy
+        return report_metric_access_policy(self.context)
 
 
 class ReportMetricWriteSerializer(ReportMetricSerializer):
@@ -1540,6 +1551,20 @@ class ReportSignalsResponseSerializer(serializers.Serializer):
 # ── Report checks ───────────────────────────────────────────────────────────────
 
 
+# Shown in place of a check result's explanation when the viewer cannot read the measured data.
+CHECK_RESULT_HIDDEN_EXPLANATION = (
+    "You don't have access to the data this check measures. Ask a project admin to grant it."
+)
+
+
+def _is_uuid(value: str) -> bool:
+    try:
+        uuid.UUID(value)
+    except (ValueError, TypeError):
+        return False
+    return True
+
+
 @extend_schema_field(
     PolymorphicProxySerializer(
         component_name="SignalReportCheckConfig",
@@ -1553,10 +1578,35 @@ class SignalReportCheckConfigField(serializers.JSONField):
     """Kind-specific check configuration, validated against its kind's schema on every write."""
 
 
+def redact_check_config(config: Mapping[str, object], policy: ReportMetricAccessPolicy) -> dict[str, object]:
+    """Hide the data-bearing fields of a check config this viewer may not read.
+
+    The query names events, actions, and property filters with literal values, and the baseline is a
+    number measured without a viewer, so both go through the same gate as a report metric's query
+    and snapshot. The comparison and schedule stay: they are the author's expectation, not data.
+    """
+    redacted = dict(config)
+    if "query" in redacted and not policy.may_read_query(config):
+        redacted["query"] = None
+    if "baseline_value" in redacted and not policy.may_read_snapshot(config):
+        redacted["baseline_value"] = None
+    return redacted
+
+
 class SignalReportCheckSerializer(serializers.ModelSerializer):
     config = SignalReportCheckConfigField(
-        help_text="What the check measures and what the result must satisfy; the shape depends on `kind`."
+        help_text=(
+            "What the check measures and what the result must satisfy; the shape depends on `kind`. "
+            "`query` and `baseline_value` are null when you cannot read the data they describe."
+        )
     )
+
+    def to_representation(self, instance: SignalReportCheck) -> dict[str, object]:
+        representation = dict(super().to_representation(instance))
+        config = representation.get("config")
+        if isinstance(config, Mapping):
+            representation["config"] = redact_check_config(config, report_metric_access_policy(self.context))
+        return representation
 
     class Meta:
         model = SignalReportCheck
@@ -1690,6 +1740,11 @@ class SignalReportCheckWriteSerializer(serializers.Serializer):
             parse_check_config(attrs["kind"], attrs["config"])
         except CheckConfigValidationError as error:
             raise serializers.ValidationError({"config": str(error)})
+        config = attrs["config"]
+        if isinstance(config, Mapping) and config.get("metric_id") is not None and config.get("query") is not None:
+            raise serializers.ValidationError(
+                {"config": "provide either metric_id or query, not both. The metric's query is copied onto the check."}
+            )
 
         attrs["next_run_at"] = next_run_at
         attrs["expires_at"] = expires_at
@@ -1770,7 +1825,38 @@ class SignalReportArtefactSerializer(serializers.ModelSerializer):
                 uuid_to_user=reviewer_uuid_map,
             )
 
+        if obj.type == SignalReportArtefact.ArtefactType.CHECK_RESULT and isinstance(parsed, dict):
+            return self._redact_check_result(obj, parsed)
+
         return parsed
+
+    def _redact_check_result(self, obj: SignalReportArtefact, content: dict) -> dict:
+        """Hide a check result's measured numbers from a viewer who may not read the check's query.
+
+        The value was measured without a viewer, exactly like a report metric snapshot, so the same
+        policy decides. The outcome tag stays so the timeline still reads; the numbers and the line
+        that quotes them do not. A result whose check no longer exists fails closed.
+        """
+        policy = report_metric_access_policy(self.context)
+        configs: dict[str, object] = self.context.setdefault("_signals_check_configs", {})
+        check_id = str(content.get("check_id"))
+        if check_id not in configs:
+            configs[check_id] = (
+                SignalReportCheck.all_teams.filter(id=check_id, report_id=obj.report_id)
+                .values_list("config", flat=True)
+                .first()
+                if _is_uuid(check_id)
+                else None
+            )
+        config = configs[check_id]
+        if isinstance(config, Mapping) and policy.may_read_snapshot(config):
+            return content
+        return {
+            **content,
+            "observed_value": None,
+            "baseline_value": None,
+            "explanation": CHECK_RESULT_HIDDEN_EXPLANATION,
+        }
 
 
 class SuggestedReviewerEntryWriteSerializer(serializers.Serializer):

@@ -15,6 +15,7 @@ from pydantic import ValidationError
 
 from posthog.migration_helpers import deprecate_field
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
+from posthog.models.scoping.manager import EnvironmentScopedManager
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.team.extensions import register_team_extension_signal
 from posthog.models.utils import UUIDModel
@@ -1604,7 +1605,7 @@ class SignalReportAction(TeamScopedRootMixin, UUIDModel):
             row.update(**updates)
 
 
-class SignalReportCheck(TeamScopedRootMixin, UUIDModel):
+class SignalReportCheck(UUIDModel):
     """A forward-looking claim attached to a report: at time T, evaluate this and record the verdict.
 
     A report and its artefacts are backward-looking — every row says what was already observed.
@@ -1638,6 +1639,12 @@ class SignalReportCheck(TeamScopedRootMixin, UUIDModel):
         FAILED = "failed"
         ERRORED = "errored"
 
+    # Environment-scoped, not project-scoped. `SignalReport` stores the environment's own team, and a
+    # check has to sit on the same team as its report or the report's reads never find it and its
+    # result artefacts land on a team the report does not have. So no `RootTeamMixin` (its save()
+    # canonicalizes the team to the parent), and `EnvironmentScopedManager` filters by the literal id
+    # callers pass through `objects.for_team(team_id)`.
+    objects = EnvironmentScopedManager()
     # See SignalReportRefund.all_teams for rationale.
     all_teams = models.Manager()  # noqa: DJ012
 
