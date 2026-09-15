@@ -9,7 +9,13 @@ _LISTED_PER_SECTION = 40
 
 
 def render_summary(
-    *, repository: str, scope: str, head_sha: str, drafts: Sequence[ClusterDraft], outcome: ScanOutcome
+    *,
+    repository: str,
+    scope: str,
+    head_sha: str,
+    drafts: Sequence[ClusterDraft],
+    outcome: ScanOutcome,
+    failed_scouts: Sequence[str] = (),
 ) -> str:
     strong = [d for d in drafts if d.strong]
     weak = [d for d in drafts if d.rank == ClusterRank.WEAK and d.blocked_reason is None]
@@ -26,6 +32,8 @@ def render_summary(
         "By scout: " + ", ".join(f"{scout} {count}" for scout, count in sorted(by_scout.items())) + ".",
         "",
     ]
+    if failed_scouts:
+        lines += ["Scouts that failed this run (their roots are missing above): " + ", ".join(failed_scouts) + ".", ""]
     lines += _section("Strong candidates (harvestable)", strong)
     lines += _section("Weak candidates (needs a human)", weak)
     lines += _section("Blocked (too big for one PR)", blocked)
