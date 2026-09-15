@@ -10,6 +10,7 @@ const sessionService = vi.hoisted(() => ({
 
 const connectState = vi.hoisted(() => ({
   connect: vi.fn(async () => undefined),
+  reset: vi.fn(),
   /** Every mounted hook hears the host-wide GitHub callback. */
   onConnected: [] as Array<() => void>,
   projectHasTeamIntegration: undefined as boolean | null | undefined,
@@ -86,11 +87,12 @@ vi.mock("@posthog/ui/features/integrations/useGithubUserConnect", () => ({
       hasError: false,
       isPending: false,
       connect: connectState.connect,
+      reset: connectState.reset,
     };
   },
 }));
 
-function makeTask(id: string): Task {
+function makeTask(id: string, state?: Record<string, unknown>): Task {
   return {
     id,
     task_number: 1,
@@ -100,6 +102,9 @@ function makeTask(id: string): Task {
     created_at: "2026-01-01T00:00:00.000Z",
     updated_at: "2026-01-01T00:00:00.000Z",
     origin_product: "user_created",
+    ...(state
+      ? { latest_run: { state } as NonNullable<Task["latest_run"]> }
+      : {}),
   };
 }
 
@@ -195,7 +200,7 @@ describe("GithubConnectionRequiredRecovery", () => {
     },
   );
 
-  it("offers a direct retry after a restart fails", async () => {
+  it("waits for an explicit retry after connecting", async () => {
     sessionService.retryGithubRequiredCloudRun
       .mockRejectedValueOnce(
         new Error(
@@ -224,15 +229,23 @@ describe("GithubConnectionRequiredRecovery", () => {
 
     expect(onOpenChange).not.toHaveBeenCalled();
     expect(
-      screen.getByText(
-        "Only the person who created this task can send it messages.",
-      ),
+      screen.getByText("GitHub is connected. Retry the task to continue."),
     ).toBeInTheDocument();
 
     const retryButton = document.querySelector<HTMLButtonElement>(
       '[data-attr="retry-github-blocked-task"]',
     );
     expect(retryButton).not.toBeNull();
+    await act(async () => {
+      fireEvent.click(retryButton as HTMLButtonElement);
+    });
+
+    expect(
+      screen.getByText(
+        "Only the person who created this task can send it messages.",
+      ),
+    ).toBeInTheDocument();
+
     await act(async () => {
       fireEvent.click(retryButton as HTMLButtonElement);
     });
@@ -269,11 +282,57 @@ describe("GithubConnectionRequiredRecovery", () => {
       for (const onConnected of connectState.onConnected) onConnected();
     });
 
+    fireEvent.click(
+      document.querySelector(
+        '[data-attr="retry-github-blocked-task"]',
+      ) as HTMLButtonElement,
+    );
+
     expect(
       sessionService.retryGithubRequiredCloudRun,
     ).toHaveBeenCalledExactlyOnceWith(
       "task-started",
       "Investigate task-started",
     );
+  });
+
+  it("offers a retry when the web host regains focus after connecting", () => {
+    render(
+      <GithubConnectionRequiredRecovery
+        task={makeTask("task-1")}
+        open
+        onOpenChange={() => undefined}
+      />,
+    );
+
+    fireEvent.click(
+      document.querySelector(
+        '[data-attr="connect-github-for-code-context"]',
+      ) as HTMLButtonElement,
+    );
+    fireEvent.focus(window);
+
+    expect(connectState.reset).toHaveBeenCalledOnce();
+    expect(
+      screen.getByText("GitHub is connected. Retry the task to continue."),
+    ).toBeInTheDocument();
+  });
+
+  it("warns when the failed task had attachments", () => {
+    render(
+      <GithubConnectionRequiredRecovery
+        task={makeTask("task-1", {
+          pending_user_artifact_ids: ["attachment-1"],
+        })}
+        open
+        onOpenChange={() => undefined}
+      />,
+    );
+
+    expect(
+      screen.getByText(
+        "This restart does not include attachments from the failed task. Add them again after it starts.",
+      ),
+    ).toBeInTheDocument();
   });
 });

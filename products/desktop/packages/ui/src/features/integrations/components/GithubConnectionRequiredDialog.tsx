@@ -25,7 +25,9 @@ interface GithubConnectionRequiredDialogProps {
   open: boolean;
   isConnecting: boolean;
   connectionMessage?: string;
+  connectionReady?: boolean;
   requirementMessage?: string;
+  recoveryWarning?: string;
   approvalPending?: boolean;
   /** False until the caller knows which connection flow this project needs. */
   canConnect?: boolean;
@@ -44,7 +46,9 @@ export function GithubConnectionRequiredDialog({
   open,
   isConnecting,
   connectionMessage,
+  connectionReady = false,
   requirementMessage = GITHUB_CLOUD_TASK_CONNECTION_REQUIRED_MESSAGE,
+  recoveryWarning,
   approvalPending = false,
   canConnect = true,
   installRequests,
@@ -90,11 +94,17 @@ export function GithubConnectionRequiredDialog({
             className={
               approvalPending
                 ? "text-(--gray-11) text-sm"
+                : connectionReady
+                  ? "text-(--green-11) text-sm"
                 : "text-(--red-11) text-sm"
             }
           >
             {connectionMessage}
           </p>
+        ) : null}
+
+        {recoveryWarning ? (
+          <p className="m-0 text-(--gray-11) text-sm">{recoveryWarning}</p>
         ) : null}
 
         {installRequests}

@@ -83,10 +83,15 @@ export function GithubConnectionRequiredRecovery({
 
   const [restartError, setRestartError] = useState<string | null>(null);
   const [isRestarting, setIsRestarting] = useState(false);
+  const [connectionReady, setConnectionReady] = useState(false);
+  const pendingArtifactIds = task.latest_run?.state.pending_user_artifact_ids;
+  const hasPendingArtifacts =
+    Array.isArray(pendingArtifactIds) && pendingArtifactIds.length > 0;
 
   const retryInvestigation = useCallback(async () => {
     setIsRestarting(true);
     setRestartError(null);
+    setConnectionReady(false);
     try {
       await sessionService.retryGithubRequiredCloudRun(
         task.id,
@@ -116,7 +121,15 @@ export function GithubConnectionRequiredRecovery({
   // on screen. Retry the task whose dialog the user actually used.
   const connectStartedRef = useRef(false);
 
-  const { error, isConnecting, isTimedOut, hasError, isPending, connect } =
+  const {
+    error,
+    isConnecting,
+    isTimedOut,
+    hasError,
+    isPending,
+    connect,
+    reset,
+  } =
     useGithubConnect({
       projectId,
       // Unknown until the list lands: an empty list reads as "no team
@@ -128,13 +141,27 @@ export function GithubConnectionRequiredRecovery({
       onConnected: () => {
         if (!connectStartedRef.current) return;
         connectStartedRef.current = false;
-        void retryInvestigation();
+        setConnectionReady(true);
       },
     });
 
   useEffect(() => {
     if (hasError || isTimedOut) connectStartedRef.current = false;
   }, [hasError, isTimedOut]);
+
+  // The web host learns about OAuth only when its tab regains focus. It has no
+  // deep-link callback, so release the loading state and let the user retry.
+  useEffect(() => {
+    if (localWorkspaces) return;
+    const handleFocus = () => {
+      if (!connectStartedRef.current) return;
+      connectStartedRef.current = false;
+      reset();
+      setConnectionReady(true);
+    };
+    window.addEventListener("focus", handleFocus);
+    return () => window.removeEventListener("focus", handleFocus);
+  }, [localWorkspaces, reset]);
 
   // A task can carry several repositories, and the folder holds one of them.
   // The agent has to name the rest as unchecked rather than read as complete.
@@ -164,7 +191,9 @@ export function GithubConnectionRequiredRecovery({
 
   const connectionMessage =
     restartError ??
-    (hasError
+    (connectionReady
+      ? "GitHub is connected. Retry the task to continue."
+      : hasError
       ? describeGithubConnectError(error)
       : isTimedOut
         ? GITHUB_CONNECT_TIMEOUT_MESSAGE
@@ -185,6 +214,7 @@ export function GithubConnectionRequiredRecovery({
       open={open}
       isConnecting={primaryActionBusy}
       connectionMessage={connectionMessage}
+      connectionReady={connectionReady && !restartError}
       requirementMessage={
         task.signal_report
           ? GITHUB_CONNECTION_REQUIRED_MESSAGE
@@ -199,9 +229,16 @@ export function GithubConnectionRequiredRecovery({
         />
       }
       canRunLocally={localWorkspaces && !!localFolder}
+      recoveryWarning={
+        hasPendingArtifacts
+          ? "This restart does not include attachments from the failed task. Add them again after it starts."
+          : undefined
+      }
       onOpenChange={onOpenChange}
       onConnect={startConnect}
-      onRetryTask={restartError ? () => void retryInvestigation() : undefined}
+      onRetryTask={
+        restartError || connectionReady ? () => void retryInvestigation() : undefined
+      }
       onRunLocally={runLocally}
     />
   );

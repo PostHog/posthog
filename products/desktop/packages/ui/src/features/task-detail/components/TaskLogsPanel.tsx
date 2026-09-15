@@ -97,15 +97,18 @@ export function TaskLogsPanel({ taskId, task, hideInput }: TaskLogsPanelProps) {
     typeof task.latest_run?.state?.slack_thread_url === "string"
       ? task.latest_run.state.slack_thread_url
       : undefined;
+  const canRecoverGithubTask = session?.isTaskAuthor !== false;
+  const githubRecoveryAvailable =
+    githubConnectionRequired && canRecoverGithubTask;
   const [githubRecoveryOpen, setGithubRecoveryOpen] = useState(
-    githubConnectionRequired,
+    githubRecoveryAvailable,
   );
 
   useEffect(() => {
-    if (githubConnectionRequired) {
+    if (githubRecoveryAvailable) {
       setGithubRecoveryOpen(true);
     }
-  }, [githubConnectionRequired]);
+  }, [githubRecoveryAvailable]);
 
   useEffect(() => {
     requestFocus(taskId);
@@ -190,18 +193,26 @@ export function TaskLogsPanel({ taskId, task, hideInput }: TaskLogsPanelProps) {
               errorTitle={errorTitle}
               errorMessage={
                 githubConnectionRequired
-                  ? GITHUB_CONNECTION_REQUIRED_MESSAGE
+                  ? githubRecoveryAvailable
+                    ? GITHUB_CONNECTION_REQUIRED_MESSAGE
+                    : "Only the person who created this task can connect GitHub and restart it."
                   : (errorMessage ?? undefined)
               }
-              errorRetryable={githubConnectionRequired || errorRetryable}
+              errorRetryable={
+                githubRecoveryAvailable
+                  ? true
+                  : githubConnectionRequired
+                    ? false
+                    : errorRetryable
+              }
               hideInput={hideInput}
               onRetry={
-                githubConnectionRequired
+                githubRecoveryAvailable
                   ? () => setGithubRecoveryOpen(true)
                   : handleRetry
               }
               retryLabel={
-                githubConnectionRequired ? "Connect GitHub" : undefined
+                githubRecoveryAvailable ? "Connect GitHub" : undefined
               }
               onNewSession={isCloud ? undefined : handleNewSession}
               isInitializing={isInitializing}
@@ -213,7 +224,7 @@ export function TaskLogsPanel({ taskId, task, hideInput }: TaskLogsPanelProps) {
       </Flex>
 
       {dialogProps && <BranchMismatchDialog {...dialogProps} />}
-      {githubConnectionRequired ? (
+      {githubRecoveryAvailable ? (
         <GithubConnectionRequiredRecovery
           task={task}
           open={githubRecoveryOpen}
