@@ -212,7 +212,15 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
                 fields=["team_id", "name"],
                 name="dwsavedquery_team_live_name",
                 condition=~models.Q(deleted=True),
-            )
+            ),
+            # The daily materialized view health check reads the live materialized views of a
+            # batch of teams. Without `is_materialized` in the key it reads every live saved query
+            # those teams own. The partial condition matches the index above, for the same reason.
+            models.Index(
+                fields=["team_id", "is_materialized"],
+                name="dwsavedquery_team_live_matvw",
+                condition=~models.Q(deleted=True),
+            ),
         ]
 
     @property
