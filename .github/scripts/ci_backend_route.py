@@ -15,11 +15,14 @@ import urllib.request
 from collections.abc import Callable
 from contextlib import AbstractContextManager
 from dataclasses import dataclass
+from functools import partial
 from typing import IO
 
 LABEL_FORCE_GITHUB = "ci-backend-github"
 LABEL_FORCE_DEPOT = "ci-backend-depot"
 PERCENT_VARIABLE = "CI_BACKEND_DEPOT_PERCENT"
+# A hung read would hold the job to its own timeout; failing fast routes to GitHub Actions.
+FETCH_TIMEOUT_SECONDS = 10
 
 
 @dataclass(frozen=True)
@@ -72,9 +75,10 @@ def decide(
 
 
 Opener = Callable[[urllib.request.Request], AbstractContextManager[IO[str] | IO[bytes]]]
+TIMED_OPENER: Opener = partial(urllib.request.urlopen, timeout=FETCH_TIMEOUT_SECONDS)
 
 
-def fetch_percent(repository: str, token: str, opener: Opener = urllib.request.urlopen) -> str | None:
+def fetch_percent(repository: str, token: str, opener: Opener = TIMED_OPENER) -> str | None:
     request = urllib.request.Request(
         f"https://api.github.com/repos/{repository}/actions/variables/{PERCENT_VARIABLE}",
         headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"},

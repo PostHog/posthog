@@ -82,9 +82,17 @@ def test_fetch_percent_reads_value():
     assert value == "30"
 
 
-def test_fetch_percent_returns_none_on_http_error():
+@pytest.mark.parametrize(
+    "error",
+    [
+        urllib.error.HTTPError("https://api.github.com", 404, "Not Found", None, None),
+        urllib.error.URLError("unreachable"),
+        TimeoutError("timed out"),
+    ],
+)
+def test_fetch_percent_returns_none_on_read_failure(error):
     def opener(request):
-        raise urllib.error.HTTPError(request.full_url, 404, "Not Found", None, None)
+        raise error
 
     assert route.fetch_percent("PostHog/posthog", "token", opener=opener) is None
 
