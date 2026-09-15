@@ -17,7 +17,7 @@ from typing import Any
 
 import time_machine
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from django.conf import settings
 from django.core import signing
@@ -61,6 +61,7 @@ from products.notebooks.backend.sql_v2 import (
     dispatch_sql_v2_run,
     ensure_sql_v2_server,
     fetch_sql_v2_page,
+    is_sql_v2_enabled,
     kernel_server_secret,
     mint_callback_token,
     mint_command_token,
@@ -1866,7 +1867,25 @@ class TestSQLV2DataPlaneToken(SimpleTestCase):
             verify_data_plane_token(make_token())
 
 
-class TestFrameStoreFlagResolution(SimpleTestCase):
+class TestNotebookFlagResolution(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("neither", False, False, True, False),
+            ("python_only", True, False, True, True),
+            ("widgets_only", False, True, True, True),
+            ("both", True, True, True, True),
+            ("anonymous", True, True, False, False),
+        ]
+    )
+    def test_dataframe_runs_require_either_flag(
+        self, _name: str, python_enabled: bool, widgets_enabled: bool, has_user: bool, expected: bool
+    ) -> None:
+        enabled = {"revamped-py-notebooks": python_enabled, "notebook-generated-widgets": widgets_enabled}
+        user = Mock(spec=User, distinct_id="example-user", organization=None) if has_user else None
+        with patch("products.notebooks.backend.sql_v2.posthoganalytics.feature_enabled") as feature_enabled:
+            feature_enabled.side_effect = lambda flag, *_args, **_kwargs: enabled.get(flag, False)
+            assert is_sql_v2_enabled(user) is expected
+
     @parameterized.expand([("enabled", True), ("disabled", False)])
     def test_frame_store_flag_is_its_own_flag(self, _name, flag_value):
         # Every other frame-store test patches is_frame_store_enabled, so this is the only

@@ -24,7 +24,12 @@ export function NotebookInsightDataframe({
     const { notebookLogic, nodeId } = useValues(useRequiredNotebookNode())
     const { canEditNotebook, isShared } = useValues(notebookLogic)
     const { featureFlags } = useValues(featureFlagLogic)
-    const enabled = !!featureFlags[FEATURE_FLAGS.REVAMPED_PY_NOTEBOOKS] && canEditNotebook && !isShared
+    const enabled =
+        !!(
+            featureFlags[FEATURE_FLAGS.REVAMPED_PY_NOTEBOOKS] || featureFlags[FEATURE_FLAGS.NOTEBOOK_GENERATED_WIDGETS]
+        ) &&
+        canEditNotebook &&
+        !isShared
     const logic = notebookInsightDataframeLogic({
         notebookLogic,
         nodeId,

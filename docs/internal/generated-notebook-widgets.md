@@ -30,6 +30,8 @@ Widget IDs are saved when their settings, title, or panel visibility change, so 
 
 New SQL cells receive a unique name beginning with `sql_df_`; Python cells receive one beginning with `df_`.
 You can rename a dataframe in its result panel.
+The SQL and insight dataframe name rows are visible when either `revamped-py-notebooks` or `notebook-generated-widgets` is enabled.
+Either flag also enables the backend dataframe run endpoints.
 Insights that expose SQL have the same dataframe name field below their results, starting with `insight_df` (with a numeric suffix when needed).
 The insight prepares its dataframe automatically, so SQL, Python, and generated widgets can reference that name without another cell.
 Preparation runs the insight's SQL once and saves the run reference and column metadata.
