@@ -134,7 +134,8 @@ export const shouldOfferXmin = (schema: ExternalDataSourceSyncSchema): boolean =
 const getSaveDisabledReason = (
     syncType: 'full_refresh' | 'incremental' | 'append' | 'webhook' | 'cdc' | 'xmin' | undefined,
     incrementalField: string | null,
-    appendField: string | null
+    appendField: string | null,
+    mergeKey: string[] | null
 ): string | undefined => {
     if (!syncType) {
         return 'You must select a sync method before saving'
@@ -142,6 +143,12 @@ const getSaveDisabledReason = (
 
     if (syncType === 'incremental' && !incrementalField) {
         return 'You must select an incremental field'
+    }
+
+    // An incremental sync merges rows on a key. Saved without one, the table syncs once and then
+    // fails on every later run, so the key is required here rather than at the first merge.
+    if (syncType === 'incremental' && !mergeKey?.length) {
+        return 'Select primary key columns, or use full table replication instead'
     }
 
     if (syncType === 'append' && !appendField) {
@@ -152,7 +159,8 @@ const getSaveDisabledReason = (
 const getInitialRadioState = (
     schema: ExternalDataSourceSyncSchema,
     incrementalSyncSupported: boolean,
-    appendSyncSupported: boolean
+    appendSyncSupported: boolean,
+    hasMergeKey: boolean
 ): 'full_refresh' | 'incremental' | 'append' | 'webhook' | 'cdc' | 'xmin' => {
     if (schema.sync_type) {
         return schema.sync_type
@@ -167,7 +175,9 @@ const getInitialRadioState = (
     if (schema.cdc_available) {
         return 'cdc'
     }
-    if (incrementalSyncSupported) {
+    // Offering incremental to a table with no key only leads to a sync that fails on its second
+    // run, so a keyless table falls through to a method it can actually run.
+    if (incrementalSyncSupported && hasMergeKey) {
         return 'incremental'
     }
     if (appendSyncSupported) {
@@ -201,7 +211,12 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
     const defaultField = schema.incremental_field ?? schema.incremental_fields[0]?.field ?? null
 
     const [radioValue, setRadioValue] = useState(() =>
-        getInitialRadioState(schema, !incrementalSyncSupported.disabled, !appendSyncSupported.disabled)
+        getInitialRadioState(
+            schema,
+            !incrementalSyncSupported.disabled,
+            !appendSyncSupported.disabled,
+            !!(schema.primary_key_columns?.length || resolvedDetectedPks?.length)
+        )
     )
     const [incrementalFieldValue, setIncrementalFieldValue] = useState(defaultField)
     const [appendFieldValue, setAppendFieldValue] = useState(defaultField)
@@ -219,7 +234,14 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
     const [lookbackUnit, setLookbackUnit] = useState<LookbackUnit>(initialLookback.unit)
 
     useEffect(() => {
-        setRadioValue(getInitialRadioState(schema, !incrementalSyncSupported.disabled, !appendSyncSupported.disabled))
+        setRadioValue(
+            getInitialRadioState(
+                schema,
+                !incrementalSyncSupported.disabled,
+                !appendSyncSupported.disabled,
+                !!(schema.primary_key_columns?.length || resolvedDetectedPks?.length)
+            )
+        )
         setIncrementalFieldValue(defaultField)
         setAppendFieldValue(defaultField)
         setPrimaryKeyColumns(schema.primary_key_columns ?? (primaryKeyLocked ? [] : (resolvedDetectedPks ?? [])))
@@ -629,7 +651,12 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
         return false
     })()
 
-    const validationDisabledReason = getSaveDisabledReason(radioValue, incrementalFieldValue, appendFieldValue)
+    const validationDisabledReason = getSaveDisabledReason(
+        radioValue,
+        incrementalFieldValue,
+        appendFieldValue,
+        primaryKeyColumns.length ? primaryKeyColumns : resolvedDetectedPks
+    )
     const saveDisabledReason = validationDisabledReason ?? (!isDirty ? 'No changes to save' : undefined)
 
     const handleSave = (): void => {
