@@ -63,6 +63,11 @@ export interface CdcStatus {
     schedule_paused?: boolean
 }
 
+/** Set by the poll timers only, so a load the user triggered is never mistaken for a poll. */
+interface PollLoadOptions {
+    isPoll?: boolean
+}
+
 const REFRESH_INTERVAL = 5000
 const SCHEMA_UPDATE_DEBOUNCE_MS = 500
 const JOBS_POLL_MAX_BACKOFF_MS = 60000
@@ -517,7 +522,7 @@ export interface sourceSettingsLogicActions {
         }
         payload?: any
     }
-    loadJobs: () => any
+    loadJobs: ({ isPoll }?: PollLoadOptions) => PollLoadOptions
     loadJobsFailure: (
         error: string,
         errorObject?: any
@@ -527,10 +532,10 @@ export interface sourceSettingsLogicActions {
     }
     loadJobsSuccess: (
         jobs: ExternalDataJob[],
-        payload?: any
+        payload?: PollLoadOptions
     ) => {
         jobs: ExternalDataJob[]
-        payload?: any
+        payload?: PollLoadOptions
     }
     loadMoreJobs: () => any
     loadMoreJobsFailure: (
@@ -547,7 +552,7 @@ export interface sourceSettingsLogicActions {
         jobs: ExternalDataJob[]
         payload?: any
     }
-    loadSource: () => any
+    loadSource: ({ isPoll }?: PollLoadOptions) => PollLoadOptions
     loadSourceFailure: (
         error: string,
         errorObject?: any
@@ -557,10 +562,10 @@ export interface sourceSettingsLogicActions {
     }
     loadSourceSuccess: (
         source: ExternalDataSource | null,
-        payload?: any
+        payload?: PollLoadOptions
     ) => {
         source: ExternalDataSource | null
-        payload?: any
+        payload?: PollLoadOptions
     }
     pausePolling: () => {
         value: true
@@ -764,9 +769,16 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
         source: [
             null as ExternalDataSource | null,
             {
-                loadSource: async () => {
+                loadSource: async ({ isPoll }: PollLoadOptions = {}) => {
                     try {
-                        return await api.externalDataSources.get(values.sourceId)
+                        const source = await api.externalDataSources.get(values.sourceId)
+                        // A poll already in flight when polling pauses still lands, and applying it
+                        // re-renders the table under whatever is open over a row. Drop it. A load
+                        // the user triggered still applies, so its result is never lost.
+                        if (isPoll && values.pollPauseCount > 0) {
+                            return values.source
+                        }
+                        return source
                     } catch (error: any) {
                         // Source soft-deleted. Bounce to the list and swallow
                         // the failure so kea-loaders doesn't toast "Not found".
@@ -782,7 +794,7 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
         jobs: [
             [] as ExternalDataJob[],
             {
-                loadJobs: async () => {
+                loadJobs: async ({ isPoll }: PollLoadOptions = {}) => {
                     const schemas = values.selectedSchemas.length > 0 ? values.selectedSchemas : undefined
 
                     try {
@@ -807,6 +819,10 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                             )
                         }
                         cache.jobsPollSoftFailureCount = 0
+                        // Same as loadSource: a poll landing while paused would re-render the table.
+                        if (isPoll && values.pollPauseCount > 0) {
+                            return values.jobs
+                        }
                         return result
                     } catch (error) {
                         // Gateway timeouts / transient upstream errors are expected when the jobs
@@ -1194,6 +1210,39 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
     listeners(({ values, actions, props, cache }) => {
         const schemaUpdateCache = getSchemaUpdateCache(cache)
 
+        // Both polls re-render the schemas table, so pausing has to hold them together: a jobs
+        // poll on its own still dismisses a row menu open over the table.
+        const scheduleSourceRefresh = (): void => {
+            // Skip while a load runs: its success or failure listener arms the next poll, so a
+            // timer here would put two requests in flight and let the older one land last.
+            if (values.pollPauseCount > 0 || values.sourceLoading) {
+                return
+            }
+            cache.disposables.add(() => {
+                const timerId = setTimeout(() => {
+                    actions.loadSource({ isPoll: true })
+                }, REFRESH_INTERVAL)
+                return () => clearTimeout(timerId)
+            }, 'sourceRefreshTimeout')
+        }
+
+        const scheduleJobsRefresh = (delay: number): void => {
+            // Only the jobs poll loop reaches here, so this marks the loop as live — a resume must
+            // not start jobs polling on a tab that never asked for jobs.
+            cache.jobsPollActive = true
+            // No `jobsLoading` guard here: `loadMoreJobs` shares that flag and schedules nothing
+            // when it finishes, so skipping on it would end the jobs poll for the rest of the visit.
+            if (values.pollPauseCount > 0) {
+                return
+            }
+            cache.disposables.add(() => {
+                const timerId = setTimeout(() => {
+                    actions.loadJobs({ isPoll: true })
+                }, delay)
+                return () => clearTimeout(timerId)
+            }, 'jobsRefreshTimeout')
+        }
+
         const scheduleSchemaUpdateFlush = (): void => {
             if (schemaUpdateCache.schemaUpdateFlushTimer) {
                 clearTimeout(schemaUpdateCache.schemaUpdateFlushTimer)
@@ -1347,14 +1396,7 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                         ? values.source?.prefix || values.source?.source_type || 'Source'
                         : values.source?.source_type || 'Source'
 
-                if (values.pollPauseCount === 0) {
-                    cache.disposables.add(() => {
-                        const timerId = setTimeout(() => {
-                            actions.loadSource()
-                        }, REFRESH_INTERVAL)
-                        return () => clearTimeout(timerId)
-                    }, 'sourceRefreshTimeout')
-                }
+                scheduleSourceRefresh()
 
                 const sceneLogicInstance =
                     sourceSceneLogic.findMounted({ id: `managed-${props.id}` }) ??
@@ -1363,28 +1405,22 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                 sceneLogicInstance?.actions.setBreadcrumbName(breadcrumbName)
             },
             loadSourceFailure: () => {
-                if (values.pollPauseCount === 0) {
-                    cache.disposables.add(() => {
-                        const timerId = setTimeout(() => {
-                            actions.loadSource()
-                        }, REFRESH_INTERVAL)
-                        return () => clearTimeout(timerId)
-                    }, 'sourceRefreshTimeout')
-                }
+                scheduleSourceRefresh()
             },
             pausePolling: () => {
-                // Cancel the refresh already scheduled by the last load. Skipping the *reschedule*
-                // isn't enough on its own — without this, one more poll would still fire within
-                // REFRESH_INTERVAL and re-render the table, dismissing anything open over it (e.g. a
-                // row's "more" menu).
+                // Cancel the refreshes already scheduled by the last loads. Skipping the
+                // *reschedule* isn't enough on its own — without this, one more poll would still
+                // fire within REFRESH_INTERVAL and re-render the table, dismissing anything open
+                // over it (e.g. a row's "more" menu).
                 cache.disposables.dispose('sourceRefreshTimeout')
+                cache.disposables.dispose('jobsRefreshTimeout')
             },
             resumePolling: () => {
-                // After the reducer runs we may have dropped to 0 — but no fresh load has been
-                // scheduled (the prior loadSourceSuccess fired while paused and skipped its
-                // reschedule). Kick a load now so the source page resumes auto-refreshing status.
-                if (values.pollPauseCount === 0) {
-                    actions.loadSource()
+                // Schedule rather than load now: an immediate load re-renders the table right as
+                // the menu closes, so a quick reopen lands in that window and is dismissed again.
+                scheduleSourceRefresh()
+                if (cache.jobsPollActive) {
+                    scheduleJobsRefresh(nextJobsPollDelay(cache.jobsPollSoftFailureCount ?? 0))
                 }
             },
             refreshSchemas: async () => {
@@ -1447,21 +1483,10 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                 actions.loadJobs()
             },
             loadJobsSuccess: () => {
-                const delay = nextJobsPollDelay(cache.jobsPollSoftFailureCount ?? 0)
-                cache.disposables.add(() => {
-                    const timerId = setTimeout(() => {
-                        actions.loadJobs()
-                    }, delay)
-                    return () => clearTimeout(timerId)
-                }, 'jobsRefreshTimeout')
+                scheduleJobsRefresh(nextJobsPollDelay(cache.jobsPollSoftFailureCount ?? 0))
             },
             loadJobsFailure: () => {
-                cache.disposables.add(() => {
-                    const timerId = setTimeout(() => {
-                        actions.loadJobs()
-                    }, REFRESH_INTERVAL)
-                    return () => clearTimeout(timerId)
-                }, 'jobsRefreshTimeout')
+                scheduleJobsRefresh(REFRESH_INTERVAL)
             },
             syncNow: async () => {
                 try {

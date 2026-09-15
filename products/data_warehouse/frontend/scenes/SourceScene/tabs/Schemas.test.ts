@@ -1,6 +1,9 @@
+import { act, renderHook } from '@testing-library/react'
+
 import type { ExternalDataSourceSchema } from '~/types'
 
 import { groupDirectQuerySourceSchemasBySchema, splitDirectQuerySchemaName } from './DirectQuerySchemasTab'
+import { useMenuPollPause } from './SchemasTab'
 
 const makeSchema = (name: string): ExternalDataSourceSchema => ({
     id: name,
@@ -58,5 +61,23 @@ describe('Schemas', () => {
                 schemas: [makeSchema('events')],
             },
         ])
+    })
+
+    it.each([
+        ['is open at unmount', [true], 1, 1],
+        ['already closed before unmount', [true, false], 1, 1],
+        ['never opened', [], 0, 0],
+    ])('pauses and resumes polling exactly once when the menu %s', (_case, visibilities, pauses, resumes) => {
+        const pausePolling = jest.fn()
+        const resumePolling = jest.fn()
+        const { result, unmount } = renderHook(() => useMenuPollPause(pausePolling, resumePolling))
+
+        for (const visible of visibilities as boolean[]) {
+            act(() => result.current(visible))
+        }
+        unmount()
+
+        expect(pausePolling).toHaveBeenCalledTimes(pauses)
+        expect(resumePolling).toHaveBeenCalledTimes(resumes)
     })
 })

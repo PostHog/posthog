@@ -1,6 +1,6 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { IconInfo } from '@posthog/icons'
 import {
@@ -372,6 +372,9 @@ function ManagedSchemaTable({
     return (
         <LemonTable
             dataSource={schemas}
+            // Key rows by schema id: with the default index key, a refresh that reorders the rows
+            // hands an open row menu to a different schema.
+            rowKey="id"
             loading={initialLoad}
             disableTableWhileLoading={false}
             pagination={{ pageSize: 100, hideOnSinglePage: true }}
@@ -646,6 +649,37 @@ function ManagedSchemaTable({
     )
 }
 
+// `LemonDropdown` reports a close through `onVisibilityChange`, but not when it unmounts while
+// open, and `sourceSettingsLogic` outlives the tab. Releasing the pause here stops a menu that is
+// open at that moment from freezing both refresh loops for the rest of the scene visit.
+export function useMenuPollPause(pausePolling: () => void, resumePolling: () => void): (visible: boolean) => void {
+    const ownsPauseRef = useRef(false)
+    const resumeRef = useRef(resumePolling)
+    resumeRef.current = resumePolling
+
+    useEffect(
+        () => () => {
+            if (ownsPauseRef.current) {
+                ownsPauseRef.current = false
+                resumeRef.current()
+            }
+        },
+        []
+    )
+
+    return (visible: boolean): void => {
+        if (visible === ownsPauseRef.current) {
+            return
+        }
+        ownsPauseRef.current = visible
+        if (visible) {
+            pausePolling()
+        } else {
+            resumePolling()
+        }
+    }
+}
+
 function SchemaBulkActions({
     schemas,
     clearSelection,
@@ -665,6 +699,7 @@ function SchemaBulkActions({
         resumePolling,
     } = useActions(sourceSettingsLogic)
     const { bulkEnableLoading } = useValues(sourceSettingsLogic)
+    const onMenuVisibilityChange = useMenuPollPause(pausePolling, resumePolling)
 
     // Wrap every action so the selection clears once it's been kicked off.
     const run = (action: () => void): void => {
@@ -778,7 +813,7 @@ function SchemaBulkActions({
                 // Pause the 5s source refresh while the menu is open — a poll re-renders the table
                 // and dismisses the menu out from under the user.
                 dropdown={{
-                    onVisibilityChange: (visible) => (visible ? pausePolling() : resumePolling()),
+                    onVisibilityChange: onMenuVisibilityChange,
                 }}
                 overlay={
                     <>
@@ -849,160 +884,155 @@ function SchemaRowMore({
     onOpenAccessControl?: (schema: ExternalDataSourceSchema) => void
 }): JSX.Element {
     const { pausePolling, resumePolling } = useActions(sourceSettingsLogic)
+    const onMenuVisibilityChange = useMenuPollPause(pausePolling, resumePolling)
 
     return (
-        <SchemaEditorAction schema={schema}>
-            {({ disabledReason }) => (
-                <More
-                    disabledReason={disabledReason}
-                    // Pause the 5s source refresh while the menu is open — a poll re-renders the
-                    // table and dismisses the menu out from under the user.
-                    dropdown={{
-                        onVisibilityChange: (visible) => (visible ? pausePolling() : resumePolling()),
-                    }}
-                    overlay={
-                        <>
-                            {onOpenAccessControl && schema.table && (
-                                <LemonButton
-                                    type="tertiary"
-                                    size="xsmall"
-                                    fullWidth
-                                    onClick={() => onOpenAccessControl(schema)}
-                                >
-                                    Access control
-                                </LemonButton>
-                            )}
-                            <Tooltip
-                                title={
-                                    schema.sync_type === 'cdc'
-                                        ? 'Trigger a CDC extraction run now.'
-                                        : schema.incremental
-                                          ? 'Sync incremental data since the last run.'
-                                          : 'Sync all data.'
-                                }
+        // Read the access reason as a value rather than through the render-prop form of
+        // `SchemaEditorAction`: that form hands React a fresh inline component on every render, so
+        // each poll remounted `More` and wiped the open state of its dropdown.
+        <More
+            disabledReason={schemaEditDisabledReason(schema)}
+            // Pause the refresh polls while the menu is open — a poll re-renders the table and
+            // dismisses the menu out from under the user.
+            dropdown={{
+                onVisibilityChange: onMenuVisibilityChange,
+            }}
+            overlay={
+                <>
+                    {onOpenAccessControl && schema.table && (
+                        <LemonButton
+                            type="tertiary"
+                            size="xsmall"
+                            fullWidth
+                            onClick={() => onOpenAccessControl(schema)}
+                        >
+                            Access control
+                        </LemonButton>
+                    )}
+                    <Tooltip
+                        title={
+                            schema.sync_type === 'cdc'
+                                ? 'Trigger a CDC extraction run now.'
+                                : schema.incremental
+                                  ? 'Sync incremental data since the last run.'
+                                  : 'Sync all data.'
+                        }
+                    >
+                        <LemonButton
+                            type="tertiary"
+                            size="xsmall"
+                            fullWidth
+                            onClick={() => reloadSchema(schema)}
+                            disabledReason={
+                                !schema.sync_type
+                                    ? 'Set up the sync method first'
+                                    : schema.status === 'Running'
+                                      ? 'A sync is already running'
+                                      : undefined
+                            }
+                        >
+                            {schema.sync_type === 'cdc' ? 'Sync CDC now' : 'Sync now'}
+                        </LemonButton>
+                    </Tooltip>
+                    {schema.status === 'Running' && (
+                        <LemonButton
+                            type="tertiary"
+                            size="xsmall"
+                            fullWidth
+                            status="danger"
+                            onClick={() => cancelSchema(schema)}
+                        >
+                            Cancel sync
+                        </LemonButton>
+                    )}
+                    {schema.sync_type === 'cdc' && (
+                        <Tooltip title="Re-snapshot the full table and replay all CDC changes on top. Use this to recover from a corrupted or out-of-sync table.">
+                            <LemonButton
+                                type="tertiary"
+                                size="xsmall"
+                                fullWidth
+                                status="danger"
+                                onClick={() => {
+                                    const hasCdcTable =
+                                        schema.cdc_table_mode === 'cdc_only' || schema.cdc_table_mode === 'both'
+                                    LemonDialog.open({
+                                        title: 'Full resync — all existing data will be replaced',
+                                        content: (
+                                            <div className="text-sm text-secondary space-y-2">
+                                                <p>
+                                                    This will re-snapshot the entire table from the source database. All
+                                                    rows currently in the{' '}
+                                                    <strong>{schema.table?.name ?? schema.name}</strong> table will be
+                                                    replaced with the new snapshot.
+                                                </p>
+                                                {hasCdcTable && (
+                                                    <p>
+                                                        The{' '}
+                                                        <strong>{(schema.table?.name ?? schema.name) + '_cdc'}</strong>{' '}
+                                                        history table will also be reset — all change history will be
+                                                        lost and replaced with the new snapshot as the starting point.
+                                                    </p>
+                                                )}
+                                            </div>
+                                        ),
+                                        primaryButton: {
+                                            children: 'Full resync',
+                                            status: 'danger',
+                                            onClick: () => resyncSchema(schema),
+                                        },
+                                        secondaryButton: { children: 'Cancel', type: 'tertiary' },
+                                    })
+                                }}
                             >
-                                <LemonButton
-                                    type="tertiary"
-                                    size="xsmall"
-                                    fullWidth
-                                    onClick={() => reloadSchema(schema)}
-                                    disabledReason={
-                                        !schema.sync_type
-                                            ? 'Set up the sync method first'
-                                            : schema.status === 'Running'
-                                              ? 'A sync is already running'
-                                              : undefined
-                                    }
-                                >
-                                    {schema.sync_type === 'cdc' ? 'Sync CDC now' : 'Sync now'}
-                                </LemonButton>
-                            </Tooltip>
-                            {schema.status === 'Running' && (
-                                <LemonButton
-                                    type="tertiary"
-                                    size="xsmall"
-                                    fullWidth
-                                    status="danger"
-                                    onClick={() => cancelSchema(schema)}
-                                >
-                                    Cancel sync
-                                </LemonButton>
-                            )}
-                            {schema.sync_type === 'cdc' && (
-                                <Tooltip title="Re-snapshot the full table and replay all CDC changes on top. Use this to recover from a corrupted or out-of-sync table.">
-                                    <LemonButton
-                                        type="tertiary"
-                                        size="xsmall"
-                                        fullWidth
-                                        status="danger"
-                                        onClick={() => {
-                                            const hasCdcTable =
-                                                schema.cdc_table_mode === 'cdc_only' || schema.cdc_table_mode === 'both'
-                                            LemonDialog.open({
-                                                title: 'Full resync — all existing data will be replaced',
-                                                content: (
-                                                    <div className="text-sm text-secondary space-y-2">
-                                                        <p>
-                                                            This will re-snapshot the entire table from the source
-                                                            database. All rows currently in the{' '}
-                                                            <strong>{schema.table?.name ?? schema.name}</strong> table
-                                                            will be replaced with the new snapshot.
-                                                        </p>
-                                                        {hasCdcTable && (
-                                                            <p>
-                                                                The{' '}
-                                                                <strong>
-                                                                    {(schema.table?.name ?? schema.name) + '_cdc'}
-                                                                </strong>{' '}
-                                                                history table will also be reset — all change history
-                                                                will be lost and replaced with the new snapshot as the
-                                                                starting point.
-                                                            </p>
-                                                        )}
-                                                    </div>
-                                                ),
-                                                primaryButton: {
-                                                    children: 'Full resync',
-                                                    status: 'danger',
-                                                    onClick: () => resyncSchema(schema),
-                                                },
-                                                secondaryButton: { children: 'Cancel', type: 'tertiary' },
-                                            })
-                                        }}
-                                    >
-                                        Full resync
-                                    </LemonButton>
-                                </Tooltip>
-                            )}
-                            {(schema.incremental || schema.sync_type === 'webhook') && (
-                                <Tooltip title="Completely resync data by deleting the existing table and re-importing. Only recommended if there is an issue with data quality in previously imported data.">
-                                    <LemonButton
-                                        type="tertiary"
-                                        size="xsmall"
-                                        fullWidth
-                                        status="danger"
-                                        onClick={() => resyncSchema(schema)}
-                                    >
-                                        Delete table and resync
-                                    </LemonButton>
-                                </Tooltip>
-                            )}
-                            {schema.table && (
-                                <Tooltip
-                                    title={`Delete this table from PostHog. ${
-                                        source?.source_type
-                                            ? `This will not delete the data in ${source.source_type}`
-                                            : ''
-                                    }`}
-                                >
-                                    <LemonButton
-                                        type="tertiary"
-                                        size="xsmall"
-                                        fullWidth
-                                        status="danger"
-                                        onClick={() => {
-                                            LemonDialog.open({
-                                                title: `Delete ${schema.table?.name ?? schema.name} from PostHog?`,
-                                                description: source?.source_type
-                                                    ? `The data in ${source.source_type} will not be touched.`
-                                                    : undefined,
-                                                primaryButton: {
-                                                    children: 'Delete',
-                                                    status: 'danger',
-                                                    onClick: () => deleteTable(schema),
-                                                },
-                                                secondaryButton: { children: 'Cancel', type: 'tertiary' },
-                                            })
-                                        }}
-                                    >
-                                        Delete table from PostHog
-                                    </LemonButton>
-                                </Tooltip>
-                            )}
-                        </>
-                    }
-                />
-            )}
-        </SchemaEditorAction>
+                                Full resync
+                            </LemonButton>
+                        </Tooltip>
+                    )}
+                    {(schema.incremental || schema.sync_type === 'webhook') && (
+                        <Tooltip title="Completely resync data by deleting the existing table and re-importing. Only recommended if there is an issue with data quality in previously imported data.">
+                            <LemonButton
+                                type="tertiary"
+                                size="xsmall"
+                                fullWidth
+                                status="danger"
+                                onClick={() => resyncSchema(schema)}
+                            >
+                                Delete table and resync
+                            </LemonButton>
+                        </Tooltip>
+                    )}
+                    {schema.table && (
+                        <Tooltip
+                            title={`Delete this table from PostHog. ${
+                                source?.source_type ? `This will not delete the data in ${source.source_type}` : ''
+                            }`}
+                        >
+                            <LemonButton
+                                type="tertiary"
+                                size="xsmall"
+                                fullWidth
+                                status="danger"
+                                onClick={() => {
+                                    LemonDialog.open({
+                                        title: `Delete ${schema.table?.name ?? schema.name} from PostHog?`,
+                                        description: source?.source_type
+                                            ? `The data in ${source.source_type} will not be touched.`
+                                            : undefined,
+                                        primaryButton: {
+                                            children: 'Delete',
+                                            status: 'danger',
+                                            onClick: () => deleteTable(schema),
+                                        },
+                                        secondaryButton: { children: 'Cancel', type: 'tertiary' },
+                                    })
+                                }}
+                            >
+                                Delete table from PostHog
+                            </LemonButton>
+                        </Tooltip>
+                    )}
+                </>
+            }
+        />
     )
 }

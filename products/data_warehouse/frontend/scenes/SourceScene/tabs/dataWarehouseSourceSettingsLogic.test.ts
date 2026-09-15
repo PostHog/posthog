@@ -344,6 +344,100 @@ describe('sourceSettingsLogic', () => {
         }
     )
 
+    it('pauses the jobs poll alongside the source poll', async () => {
+        jest.useFakeTimers()
+        logic = sourceSettingsLogic({ id: 'source-1' })
+        logic.mount()
+        await jest.advanceTimersByTimeAsync(0)
+        logic.actions.loadJobs()
+        await jest.advanceTimersByTimeAsync(0)
+
+        const getSpy = jest.spyOn(api.externalDataSources, 'get').mockClear()
+        const jobsSpy = jest.spyOn(api.externalDataSources, 'jobs').mockClear()
+
+        logic.actions.pausePolling()
+        await jest.advanceTimersByTimeAsync(15000)
+
+        expect(getSpy).not.toHaveBeenCalled()
+        expect(jobsSpy).not.toHaveBeenCalled()
+    })
+
+    it('resumes polling after an interval instead of reloading immediately', async () => {
+        jest.useFakeTimers()
+        logic = sourceSettingsLogic({ id: 'source-1' })
+        logic.mount()
+        await jest.advanceTimersByTimeAsync(0)
+        logic.actions.loadJobs()
+        await jest.advanceTimersByTimeAsync(0)
+
+        const getSpy = jest.spyOn(api.externalDataSources, 'get').mockClear()
+        const jobsSpy = jest.spyOn(api.externalDataSources, 'jobs').mockClear()
+
+        logic.actions.pausePolling()
+        logic.actions.resumePolling()
+        await jest.advanceTimersByTimeAsync(0)
+
+        expect(getSpy).not.toHaveBeenCalled()
+
+        await jest.advanceTimersByTimeAsync(5000)
+
+        expect(getSpy).toHaveBeenCalledTimes(1)
+        expect(jobsSpy).toHaveBeenCalledTimes(1)
+    })
+
+    it('does not start the jobs poll when resuming on a tab that never loaded jobs', async () => {
+        jest.useFakeTimers()
+        logic = sourceSettingsLogic({ id: 'source-1' })
+        logic.mount()
+        await jest.advanceTimersByTimeAsync(0)
+
+        const jobsSpy = jest.spyOn(api.externalDataSources, 'jobs').mockClear()
+
+        logic.actions.pausePolling()
+        logic.actions.resumePolling()
+        await jest.advanceTimersByTimeAsync(15000)
+
+        expect(jobsSpy).not.toHaveBeenCalled()
+    })
+
+    it('drops a source poll that lands while polling is paused', async () => {
+        jest.useFakeTimers()
+        logic = sourceSettingsLogic({ id: 'source-1' })
+        logic.mount()
+        await jest.advanceTimersByTimeAsync(0)
+
+        const sourceBeforePoll = logic.values.source
+        let resolvePoll: ((source: ExternalDataSource) => void) | null = null
+        jest.spyOn(api.externalDataSources, 'get').mockImplementationOnce(
+            () => new Promise<ExternalDataSource>((resolve) => (resolvePoll = resolve))
+        )
+
+        await jest.advanceTimersByTimeAsync(5000)
+        logic.actions.pausePolling()
+        resolvePoll!(makeSource([makeSchema({ id: 'schema-2', name: 'public.other' })]))
+        await jest.advanceTimersByTimeAsync(0)
+
+        expect(logic.values.source).toBe(sourceBeforePoll)
+    })
+
+    it('applies a manual refresh that lands while a menu is open', async () => {
+        logic = sourceSettingsLogic({ id: 'source-1' })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        let resolveRefresh: ((source: ExternalDataSource) => void) | null = null
+        jest.spyOn(api.externalDataSources, 'get').mockImplementationOnce(
+            () => new Promise<ExternalDataSource>((resolve) => (resolveRefresh = resolve))
+        )
+
+        logic.actions.loadSource()
+        logic.actions.pausePolling()
+        resolveRefresh!(makeSource([makeSchema({ id: 'schema-2', name: 'public.other' })]))
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.source?.schemas.map((schema) => schema.id)).toEqual(['schema-2'])
+    })
+
     it('re-throws non-transient errors from loadJobs so the failure path runs', async () => {
         logic = sourceSettingsLogic({ id: 'source-1' })
         logic.mount()
