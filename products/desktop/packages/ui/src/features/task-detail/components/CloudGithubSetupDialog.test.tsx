@@ -95,6 +95,9 @@ describe("CloudGithubSetupDialog", () => {
     expect(
       waitingState?.querySelector('[aria-label="Loading"]'),
     ).not.toBeNull();
+    expect(
+      waitingState?.querySelector('[data-slot="dialog-header"]'),
+    ).toHaveAttribute("aria-live", "polite");
   });
 
   it("keeps the current location after the user selects Not now", async () => {

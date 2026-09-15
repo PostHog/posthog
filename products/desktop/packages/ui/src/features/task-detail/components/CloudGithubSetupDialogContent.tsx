@@ -56,7 +56,9 @@ export function CloudGithubSetupDialogContent({
       }}
     >
       <DialogContent className="max-w-sm" showCloseButton={false}>
-        <DialogHeader className="items-center text-center">
+        {/* The dialog role speaks the title and description once, on open, so
+            the later waiting, error and connected states need a live region. */}
+        <DialogHeader className="items-center text-center" aria-live="polite">
           <GithubConnectionIcon connected={connected} loading={loading} />
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription
