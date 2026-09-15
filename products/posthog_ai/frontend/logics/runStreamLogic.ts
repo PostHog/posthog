@@ -3054,6 +3054,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 // The cursor is a Redis id from the previous run's stream — it addresses nothing in
                 // this one, so resuming from it can skip this run's opening frames.
                 cache.lastEventId = undefined
+                cache.resyncPending = false
             }
             // Track the active run so the reconnect loop can refetch it on a drop.
             cache.activeRun = { taskId, runId }
@@ -3096,6 +3097,20 @@ export const runStreamLogic = kea<runStreamLogicType>([
                         })
                     } catch {
                         actions.handleStreamError({ errorTitle: 'Cloud stream failed', retryable: true })
+                    }
+                    return
+                }
+                if (event === 'end') {
+                    let control: unknown
+                    try {
+                        control = JSON.parse(data)
+                    } catch {
+                        return
+                    }
+                    if (isRecord(control) && control.type === 'resync') {
+                        cache.lastEventId = undefined
+                        clearStreamResumeId(runId)
+                        cache.resyncPending = true
                     }
                     return
                 }
@@ -3219,11 +3234,12 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 if (
                     bootstrap?.taskId === taskId &&
                     bootstrap.runId === runId &&
-                    (cache.bufferingLiveFrames || (startLatest && !lastEventId))
+                    (cache.bufferingLiveFrames || cache.resyncPending || (startLatest && !lastEventId))
                 ) {
                     // A cursorless open skips to the new head, so read history only after this connection succeeds.
                     actions.bootstrapRun({ ...bootstrap, reconcileHistory: true })
                 }
+                cache.resyncPending = false
                 const decoder = new TextDecoder()
                 const parser = createParser({ onEvent: handleSseEvent })
                 try {
@@ -3356,7 +3372,11 @@ export const runStreamLogic = kea<runStreamLogicType>([
                         // the gap with no re-broadcast. `startLatest: true` only matters if no frame
                         // was ever seen (dropped before the first one): then resume from the head
                         // rather than re-streaming from `0`.
-                        actions.openSseForRun({ taskId: activeRun.taskId, runId: activeRun.runId, startLatest: true })
+                        actions.openSseForRun({
+                            taskId: activeRun.taskId,
+                            runId: activeRun.runId,
+                            startLatest: !cache.resyncPending,
+                        })
                     }, delayMs)
                     return () => clearTimeout(timer)
                 },

@@ -5367,10 +5367,11 @@ const api = {
                     // only on a first connect (no resume cursor); the Last-Event-ID header, when
                     // present, takes precedence and an exact resume ignores `start`.
                     const base = options.proxyTarget.baseUrl.replace(/\/+$/, '')
-                    const url =
-                        !options.lastEventId && options.startLatest
-                            ? `${base}/v1/runs/${runId}/stream?start=latest`
-                            : `${base}/v1/runs/${runId}/stream`
+                    const params = new URLSearchParams({ resync: '1' })
+                    if (!options.lastEventId && options.startLatest) {
+                        params.set('start', 'latest')
+                    }
+                    const url = `${base}/v1/runs/${runId}/stream?${params.toString()}`
                     headers['Authorization'] = `Bearer ${options.proxyTarget.token}`
                     return api.getResponse(url, { signal: options.signal, headers })
                 }
