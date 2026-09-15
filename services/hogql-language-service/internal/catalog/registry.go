@@ -11,6 +11,7 @@ import (
 var (
 	ErrInvalidScope    = errors.New("team ID and user ID must be positive")
 	ErrInvalidRevision = errors.New("invalid catalog revision")
+	ErrInvalidCatalog  = errors.New("catalog must contain tables and properties")
 	ErrCatalogTooLarge = errors.New("catalog exceeds cache capacity")
 )
 
@@ -46,15 +47,29 @@ func newRegistry(maxEntries int, maxBytes int64, ttl time.Duration, now func() t
 	return &Registry{entries: map[serviceauth.Authorization]registryEntry{}, maxEntries: maxEntries, maxBytes: maxBytes, ttl: ttl, now: now}
 }
 
+func ValidateRevision(revision string) error {
+	if revision == "" || len(revision) > 128 {
+		return ErrInvalidRevision
+	}
+	return nil
+}
+
+func ValidateCatalog(value *Catalog) error {
+	if value == nil || value.Tables == nil || value.Properties == nil {
+		return ErrInvalidCatalog
+	}
+	return nil
+}
+
 func (r *Registry) Put(authorization serviceauth.Authorization, revision string, value *PreparedCatalog) error {
 	if !authorization.Valid() {
 		return ErrInvalidScope
 	}
-	if revision == "" || len(revision) > 128 {
-		return ErrInvalidRevision
+	if err := ValidateRevision(revision); err != nil {
+		return err
 	}
 	if value == nil || !value.valid {
-		return errors.New("catalog must contain tables and properties")
+		return ErrInvalidCatalog
 	}
 	sizeBytes := value.EstimatedBytes()
 	if sizeBytes > r.maxBytes {
