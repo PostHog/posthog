@@ -1,5 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
+
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
@@ -166,6 +168,35 @@ describe('scannerRunTabLogic', () => {
 
         // The quota that bound on the first batch binds on every later one, so asking again only burns requests.
         expect(postedBatches).toHaveLength(1)
+    })
+
+    it('does not ask the user to retry a selection that is already scanned', async () => {
+        const errorToast = jest.spyOn(lemonToast, 'error').mockImplementation(() => 'toast-id')
+        const infoToast = jest.spyOn(lemonToast, 'info').mockImplementation(() => 'toast-id')
+        useMocks({
+            post: {
+                '/api/projects/:team/vision/scanners/:id/bulk_observe/': () => [
+                    202,
+                    {
+                        started: 0,
+                        results: [
+                            { session_id: 'a', scan_outcome: 'already_scanned' },
+                            { session_id: 'b', scan_outcome: 'already_running' },
+                        ],
+                    },
+                ],
+            },
+        })
+
+        await expectLogic(logic, () => logic.actions.startBulkScan(['a', 'b'])).toFinishAllListeners()
+
+        // Nothing started because every answer already exists or is on the way, so "try again" is
+        // the one instruction that cannot help. The scanner load in the mounted logic toasts its own
+        // error here, so match the message rather than the call count.
+        expect(errorToast).not.toHaveBeenCalledWith(expect.stringContaining('Please try again'))
+        expect(infoToast).toHaveBeenCalledTimes(1)
+        errorToast.mockRestore()
+        infoToast.mockRestore()
     })
 
     it('keeps polling after a bulk scan whose refetch beats the new observation rows', async () => {

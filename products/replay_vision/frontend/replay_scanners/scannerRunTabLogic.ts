@@ -269,6 +269,8 @@ export const scannerRunTabLogic = kea<scannerRunTabLogicType>([
                 }
                 let started = 0
                 let failed = 0
+                let alreadyScanned = 0
+                let alreadyRunning = 0
                 try {
                     for (let sent = 0; sent < sessionIds.length; sent += MAX_SESSIONS_PER_REQUEST) {
                         const batch = sessionIds.slice(sent, sent + MAX_SESSIONS_PER_REQUEST)
@@ -283,6 +285,10 @@ export const scannerRunTabLogic = kea<scannerRunTabLogicType>([
                                 batchSkipped += 1
                             } else if (r.scan_outcome === 'failed') {
                                 failed += 1
+                            } else if (r.scan_outcome === 'already_scanned') {
+                                alreadyScanned += 1
+                            } else if (r.scan_outcome === 'already_running') {
+                                alreadyRunning += 1
                             }
                         }
                         if (batchSkipped > 0) {
@@ -296,6 +302,8 @@ export const scannerRunTabLogic = kea<scannerRunTabLogicType>([
                         skipCounts.skipped_limit + skipCounts.skipped_quota + skipCounts.skipped_scanner_limit
                     const extras = [
                         limited ? `${limited} skipped (${BULK_SKIP_REASONS[dominantSkip(skipCounts)]})` : null,
+                        alreadyScanned ? `${alreadyScanned} already scanned` : null,
+                        alreadyRunning ? `${alreadyRunning} already scanning` : null,
                         failed ? `${failed} failed to start` : null,
                     ]
                         .filter(Boolean)
@@ -306,6 +314,10 @@ export const scannerRunTabLogic = kea<scannerRunTabLogicType>([
                         )
                     } else if (limited > 0) {
                         lemonToast.warning(BULK_SKIP_MESSAGES[dominantSkip(skipCounts)])
+                    } else if (alreadyScanned + alreadyRunning > 0 && failed === 0) {
+                        // Every session already has an answer or one on the way, so retrying is the one
+                        // thing that would not help.
+                        lemonToast.info('Nothing new to scan. These recordings are already scanned or in progress.')
                     } else {
                         lemonToast.error('No scans started. Please try again.')
                     }
