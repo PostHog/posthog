@@ -104,7 +104,6 @@ class WidgetSecurityReviewSerializer(serializers.Serializer):
             "properties": {
                 "source": {"type": "string"},
                 "hog": {"type": "string"},
-                "bytecode": {"type": "array", "items": {}},
             },
             "required": ["source"],
         },

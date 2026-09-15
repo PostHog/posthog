@@ -28,6 +28,8 @@ export type ReusableWidgetLogicProps = {
 }
 
 export interface reusableWidgetLogicValues {
+    approvedDemoBuildHash: string | null
+    demoBuildTrusted: boolean
     demoDataModalOpen: boolean
     demoDataRevision: number
     artifactUnavailable: boolean
@@ -57,6 +59,7 @@ export interface reusableWidgetLogicValues {
 }
 
 export interface reusableWidgetLogicActions {
+    approveDemoBuild: (buildHash: string) => { buildHash: string }
     openDemoDataModal: () => { value: true }
     closeDemoDataModal: () => { value: true }
     demoDataSaved: () => { value: true }
@@ -124,6 +127,7 @@ export const reusableWidgetLogic = kea<reusableWidgetLogicType>([
     path((key) => ['products', 'notebooks', 'ReusableWidget', 'reusableWidgetLogic', key]),
     connect(() => ({ values: [teamLogic, ['currentTeamId']] })),
     actions({
+        approveDemoBuild: (buildHash: string) => ({ buildHash }),
         openDemoDataModal: true,
         closeDemoDataModal: true,
         demoDataSaved: true,
@@ -142,6 +146,14 @@ export const reusableWidgetLogic = kea<reusableWidgetLogicType>([
         updateStarted: (operation: 'improve' | 'regenerate' = 'improve') => ({ operation }),
     }),
     reducers({
+        approvedDemoBuildHash: [
+            null as string | null,
+            {
+                approveDemoBuild: (_, { buildHash }) => buildHash,
+                demoDataSaved: () => null,
+                selectVersion: () => null,
+            },
+        ],
         demoDataModalOpen: [
             false,
             { openDemoDataModal: () => true, closeDemoDataModal: () => false, selectVersion: () => false },
@@ -312,6 +324,10 @@ export const reusableWidgetLogic = kea<reusableWidgetLogicType>([
         ],
     })),
     selectors({
+        demoBuildTrusted: [
+            (s) => [s.approvedDemoBuildHash, s.selectedVersion],
+            (buildHash, version): boolean => !!buildHash && buildHash === version?.build_hash,
+        ],
         selectedVersion: [
             (s) => [s.selectedVersionId, s.reusableWidget, s.versionHistory],
             (selectedVersionId, widget, history): ReusableWidgetVersionDetailApi | null => {

@@ -53,7 +53,7 @@ class ReusableWidgetAttachRequestSerializer(serializers.Serializer):
         default=dict,
         help_text=(
             "Notebook-local input mappings keyed by contract slot. Each value names a source dataframe and may "
-            "include a pure Hog expression plus compiled bytecode for reshaping its rows."
+            "include pure Hog source for reshaping its rows."
         ),
     )
 

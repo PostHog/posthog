@@ -21,7 +21,7 @@ export function NotebookWidgetPublishModal(props: NotebookNodeGeneratedWidgetLog
             isOpen={publishModalOpen}
             onClose={closePublishModal}
             title="Make widget reusable"
-            description="This publishes the widget to your project and saves a small snapshot of its current inputs as demo data."
+            description="This publishes the widget to your project. Add sample rows in Demo data after publishing."
             footer={
                 <>
                     <LemonButton onClick={closePublishModal}>Cancel</LemonButton>
@@ -72,9 +72,8 @@ export function NotebookWidgetPublishModal(props: NotebookNodeGeneratedWidgetLog
                     <div className="mt-1 text-xs text-muted">Separate tags with commas.</div>
                 </div>
                 <LemonBanner type="info">
-                    This copies up to 20 rows from each current input into a project-scoped demo. Check that the sample
-                    is suitable for everyone with access to this project. Unpinned instances will follow new versions
-                    automatically.
+                    Demo inputs start empty. Any sample rows you add will be shared with everyone who can access the
+                    project catalog. Use invented data. Unpinned instances will follow new versions automatically.
                 </LemonBanner>
                 {publishError ? <LemonBanner type="error">{publishError}</LemonBanner> : null}
             </div>

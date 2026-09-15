@@ -413,9 +413,14 @@ def _queue_build(version: CanvasSourceVersion) -> CanvasBuild:
         source_version=version,
         status=CanvasBuild.STATUS_QUEUED,
     )
-    CanvasBuild.objects.for_team(version.team_id).filter(
-        canvas_id=version.canvas_id, status=CanvasBuild.STATUS_QUEUED
-    ).exclude(id=build.id).update(
+    superseded_builds = (
+        CanvasBuild.objects.for_team(version.team_id)
+        .filter(canvas_id=version.canvas_id, status=CanvasBuild.STATUS_QUEUED)
+        .exclude(id=build.id)
+    )
+    if version.draft:
+        superseded_builds = superseded_builds.exclude(source_version_id=version.canvas.current_source_version_id)
+    superseded_builds.update(
         status=CanvasBuild.STATUS_FAILED,
         diagnostics=[
             diagnostic(

@@ -79,7 +79,7 @@ describe('reusableWidgetPickerLogic', () => {
         expect(notebooksWidgetAttach).toHaveBeenCalledWith('1', 'sales-notebook', 'chart', {
             widget_id: widget.id,
             version_id: null,
-            input_bindings: { revenue: { source: 'sales_df', hog: undefined, bytecode: undefined } },
+            input_bindings: { revenue: { source: 'sales_df', hog: undefined } },
         })
         expect(onAttached).toHaveBeenCalled()
     })

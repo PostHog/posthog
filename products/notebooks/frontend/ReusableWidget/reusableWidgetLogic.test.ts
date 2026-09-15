@@ -10,6 +10,10 @@ import {
 } from 'products/notebooks/frontend/generated/api'
 import type { ReusableWidgetDetailApi, WidgetStatusApi } from 'products/notebooks/frontend/generated/api.schemas'
 
+import {
+    getNotebookWidgetTrust,
+    notebookWidgetTrustLogic,
+} from '../NotebookNodeGeneratedWidget/notebookWidgetTrustLogic'
 import { reusableWidgetLogic } from './reusableWidgetLogic'
 
 jest.mock('products/notebooks/frontend/generated/api', () => ({
@@ -82,6 +86,29 @@ describe('reusableWidgetLogic', () => {
     afterEach(() => {
         logic.unmount()
         jest.useRealTimers()
+    })
+
+    it('keeps demo approval separate from notebook consent and resets it when demo data changes', async () => {
+        logic.mount()
+        notebookWidgetTrustLogic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        const buildHash = 'a'.repeat(64)
+        logic.actions.loadReusableWidgetSuccess({
+            ...widget,
+            current_version: { ...widget.current_version, build_hash: buildHash },
+        })
+        logic.actions.approveDemoBuild(buildHash)
+        expect(logic.values.demoBuildTrusted).toBe(true)
+        expect(
+            getNotebookWidgetTrust({
+                ...notebookWidgetTrustLogic.values,
+                userId: null,
+                buildHash,
+            }).buildTrusted
+        ).toBe(false)
+        logic.actions.demoDataSaved()
+        expect(logic.values.demoBuildTrusted).toBe(false)
+        notebookWidgetTrustLogic.unmount()
     })
 
     it.each(['failed', 'ready'] as const)(

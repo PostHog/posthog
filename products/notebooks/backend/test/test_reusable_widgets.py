@@ -195,7 +195,7 @@ class TestReusableWidgets(APIBaseTest):
         assert self.widget.pending_version_id == draft.id
 
     @parameterized.expand([("direct", False, False), ("mapped_fork", True, False), ("legacy", False, True)])
-    def test_publish_saves_demo_data_and_unpins_the_source_instance(
+    def test_publish_saves_empty_demo_frames_and_unpins_the_source_instance(
         self, _name: str, mapped: bool, legacy: bool
     ) -> None:
         expected_columns = self.version.input_contract[0]["columns"]
@@ -225,9 +225,10 @@ class TestReusableWidgets(APIBaseTest):
         assert self.widget.publication_status == GeneratedWidget.PublicationStatus.PUBLISHED
         assert self.widget.published_by == self.user
         assert self.instance.pinned_version is None
-        assert len(self.version.demo_data[self.input_name]["rows"]) == 20
-        assert self.version.demo_data[self.input_name]["runId"] == str(self.node_run.id)
-        assert self.version.demo_data[self.input_name]["truncated"] is True
+        assert self.version.demo_data[self.input_name]["rows"] == []
+        assert self.version.demo_data[self.input_name]["runId"] == str(self.version.id)
+        assert self.version.demo_data[self.input_name]["totalRowCount"] == 0
+        assert self.version.demo_data[self.input_name]["truncated"] is False
 
         frame = read_reusable_widget_demo_frame(
             team_id=self.team.id,
@@ -236,7 +237,7 @@ class TestReusableWidgets(APIBaseTest):
         )
         rows = frame.frame["rows"]
         assert isinstance(rows, list)
-        assert rows[1] == ["Plan 1", 1 if mapped else 100]
+        assert rows == []
         assert frame.frame["columns"] == self.version.input_contract[0]["columns"]
         if mapped:
             assert self.instance.input_bindings == bindings
@@ -404,7 +405,7 @@ class TestReusableWidgets(APIBaseTest):
         with patch("products.notebooks.backend.reusable_widgets.is_notebook_widget_enabled", return_value=False):
             assert reusable_widget_catalog_context(team_id=self.team.id, user=self.user) == ""
 
-    def test_catalog_detail_and_demo_frame_use_the_saved_snapshot(self) -> None:
+    def test_catalog_detail_and_demo_frame_start_without_notebook_rows(self) -> None:
         self._publish()
         with patch(
             "products.canvas.backend.notebook_integration.list_notebook_canvas_versions",
@@ -419,7 +420,7 @@ class TestReusableWidgets(APIBaseTest):
         assert detail.json()["current_version"]["artifact_url"] == "https://example.com/revenue-widget.html"
         assert detail.json()["current_version"]["has_demo_data"] is True
         assert demo.status_code == 200
-        assert len(demo.json()["rows"]) == 20
+        assert demo.json()["rows"] == []
 
     def test_notebook_mutation_redirects_after_publication(self) -> None:
         self._publish()
@@ -437,16 +438,22 @@ class TestReusableWidgets(APIBaseTest):
 
         assert error.exception.code == "reusable_widget_shared"
 
-    def test_publish_requires_current_frame_access(self) -> None:
+    @parameterized.expand([("contract", False), ("legacy_schema", True)])
+    def test_publish_only_requires_frame_access_to_fill_missing_schema(self, _name: str, legacy: bool) -> None:
+        if legacy:
+            del self.version.input_contract[0]["columns"]
+            self.version.save(update_fields=["input_contract"])
         with patch(
             "products.notebooks.backend.presentation.views.notebook.NotebookViewSet._authorize_widget_run",
             side_effect=PermissionDenied,
         ):
             response = self._publish()
 
-        assert response.status_code == 403
+        assert response.status_code == (403 if legacy else 201)
         self.widget.refresh_from_db()
-        assert self.widget.publication_status == GeneratedWidget.PublicationStatus.PRIVATE
+        assert self.widget.publication_status == (
+            GeneratedWidget.PublicationStatus.PRIVATE if legacy else GeneratedWidget.PublicationStatus.PUBLISHED
+        )
 
     def test_pin_selects_an_immutable_version_and_unpin_follows_latest(self) -> None:
         self._publish()
@@ -499,7 +506,16 @@ class TestReusableWidgets(APIBaseTest):
         assert unpinned.current_version_id == latest.id
         assert unpinned.pinned_version_id is None
 
-    def test_attach_remaps_a_contract_slot_to_a_local_dataframe(self) -> None:
+    @parameterized.expand(
+        [
+            ("source_only", "return rows", 200),
+            ("invalid_source", "return {{{", 400),
+            ("whitespace", "   ", 200),
+        ]
+    )
+    def test_attach_remaps_a_contract_slot_to_a_local_dataframe(
+        self, _name: str, hog: str, expected_status: int
+    ) -> None:
         self._publish()
         notebook = Notebook.objects.create(
             team=self.team,
@@ -541,18 +557,28 @@ class TestReusableWidgets(APIBaseTest):
                     "widget_id": str(self.widget.id),
                     "version_id": None,
                     "input_bindings": {
-                        self.input_name: {"source": "other_df", "hog": "return rows"},
+                        self.input_name: {"source": "other_df", "hog": hog, "bytecode": ["_H", "untrusted"]},
                     },
                 },
                 format="json",
             )
 
-        assert response.status_code == 200
+        assert response.status_code == expected_status, response.json()
+        if expected_status != 200:
+            assert (
+                not NotebookWidgetInstance.objects.for_team(self.team.id)
+                .filter(notebook=notebook, node_id="copy")
+                .exists()
+            )
+            return
         assert response.json()["is_reusable"] is True
         assert response.json()["input_bindings"][self.input_name]["source"] == "other_df"
         instance = NotebookWidgetInstance.objects.for_team(self.team.id).get(notebook=notebook, node_id="copy")
         assert instance.pinned_version is None
-        assert instance.input_bindings[self.input_name]["hog"] == "return rows"
+        assert instance.input_bindings[self.input_name] == {
+            "source": "other_df",
+            **({"hog": hog} if hog.strip() else {}),
+        }
         frame = read_widget_frame(
             notebook=notebook,
             node_id="copy",

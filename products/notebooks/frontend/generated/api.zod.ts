@@ -698,12 +698,11 @@ export const NotebooksWidgetAttachBody = /* @__PURE__ */ zod.object({
             zod.object({
                 source: zod.string(),
                 hog: zod.string().optional(),
-                bytecode: zod.array(zod.unknown()).optional(),
             })
         )
         .optional()
         .describe(
-            'Notebook-local input mappings keyed by contract slot. Each value names a source dataframe and may include a pure Hog expression plus compiled bytecode for reshaping its rows.'
+            'Notebook-local input mappings keyed by contract slot. Each value names a source dataframe and may include pure Hog source for reshaping its rows.'
         ),
 })
 

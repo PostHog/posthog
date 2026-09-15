@@ -25,6 +25,7 @@ const sourceFrame: WidgetFrameApi = {
 describe('reusableWidgetBindings', () => {
     beforeEach(() => {
         jest.resetAllMocks()
+        jest.spyOn(api.hog, 'create').mockResolvedValue({ bytecode: ['_H', 1] } as never)
     })
 
     afterEach(() => jest.restoreAllMocks())
@@ -36,7 +37,11 @@ describe('reusableWidgetBindings', () => {
             .mockResolvedValue({ bytecode: ['_H', 1] } as never)
         jest.mocked(execHog).mockReturnValue({ finished: true, error: null, result: [] } as never)
         jest.mocked(convertHogToJS).mockReturnValue([{ amount: 500 }] as never)
-        const binding = { source: 'orders', hog: "return arrayMap(row -> {'amount': row.amount}, rows)" }
+        const binding = {
+            source: 'orders',
+            bytecode: ['_H', 'untrusted'],
+            hog: "return arrayMap(row -> {'amount': row.amount}, rows)",
+        }
         await expect(applyReusableWidgetBinding(sourceFrame, 'revenue', binding, ['amount'])).rejects.toThrow(
             'Compiler unavailable'
         )
@@ -46,13 +51,12 @@ describe('reusableWidgetBindings', () => {
         ])
         expect(frames.map((frame) => frame.rows)).toEqual([[[500]], [[500]]])
         expect(compile).toHaveBeenCalledTimes(2)
+        expect(execHog).toHaveBeenCalledWith(['_H', 1], expect.anything())
     })
 
     it('renames a directly bound notebook dataframe to the logical contract slot', async () => {
-        const result = await applyReusableWidgetBinding(sourceFrame, 'revenue', { source: 'orders' }, [
-            'plan_name',
-            'amount',
-        ])
+        const binding = { source: 'orders', bytecode: ['_H', 'untrusted'] }
+        const result = await applyReusableWidgetBinding(sourceFrame, 'revenue', binding, ['plan_name', 'amount'])
 
         expect(result).toEqual({ ...sourceFrame, name: 'revenue' })
         expect(execHog).not.toHaveBeenCalled()
@@ -65,7 +69,7 @@ describe('reusableWidgetBindings', () => {
         const result = await applyReusableWidgetBinding(
             sourceFrame,
             'revenue',
-            { source: 'orders', hog: 'return rows', bytecode: ['_H', 1] },
+            { source: 'orders', hog: 'return rows' },
             ['plan', 'revenue']
         )
 
@@ -119,7 +123,7 @@ describe('reusableWidgetBindings', () => {
         const result = await applyReusableWidgetBinding(
             sourceFrame,
             'revenue',
-            { source: 'orders', hog: 'return rows', bytecode: ['_H', 1] },
+            { source: 'orders', hog: 'return rows' },
             expectedColumns
         )
 
@@ -138,7 +142,7 @@ describe('reusableWidgetBindings', () => {
         const result = await applyReusableWidgetBinding(
             { ...sourceFrame, totalRowCount: 200, nextOffset: 100, truncated: true },
             'revenue',
-            { source: 'orders', hog: 'return rows', bytecode: ['_H', 1] },
+            { source: 'orders', hog: 'return rows' },
             ['revenue']
         )
 
@@ -155,12 +159,10 @@ describe('reusableWidgetBindings', () => {
         jest.mocked(convertHogToJS).mockReturnValue(rows as never)
 
         await expect(
-            applyReusableWidgetBinding(
-                sourceFrame,
+            applyReusableWidgetBinding(sourceFrame, 'revenue', { source: 'orders', hog: 'return rows' }, [
+                'plan',
                 'revenue',
-                { source: 'orders', hog: 'return rows', bytecode: ['_H', 1] },
-                ['plan', 'revenue']
-            )
+            ])
         ).rejects.toThrow(`must return the contract column "${missingColumn}"`)
     })
 })

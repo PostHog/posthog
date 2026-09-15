@@ -1,6 +1,5 @@
 import { LogicWrapper, MakeLogicType, actions, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 
-import api from 'lib/api'
 import { JSONContent } from 'lib/components/RichContentEditor/types'
 import { collectNotebookFrameNodes } from 'scenes/notebooks/Nodes/notebookNodeContent'
 
@@ -334,13 +333,10 @@ export const reusableWidgetPickerLogic: LogicWrapper<reusableWidgetPickerLogicTy
                     await props.persistNotebook()
                     const bindings = values.resolvedBindings
                     const inputBindings = Object.fromEntries(
-                        await Promise.all(
-                            Object.entries(bindings).map(async ([slot, binding]) => {
-                                const hog = binding.hog.trim()
-                                const bytecode = hog ? (await api.hog.create(hog)).bytecode : undefined
-                                return [slot, { source: binding.source, hog: hog || undefined, bytecode }]
-                            })
-                        )
+                        Object.entries(bindings).map(([slot, binding]) => [
+                            slot,
+                            { source: binding.source, hog: binding.hog.trim() || undefined },
+                        ])
                     )
                     const status = await notebooksWidgetAttach(
                         String(props.projectId),

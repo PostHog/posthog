@@ -410,13 +410,14 @@ describe('NotebookNodeGeneratedWidget', () => {
 
     it('sends only contract columns to a reusable widget after applying its mapping', async () => {
         jest.spyOn(HTMLIFrameElement.prototype, 'contentWindow', 'get').mockReturnValue(window)
+        jest.spyOn(api.hog, 'create').mockResolvedValue({ bytecode: ['_H', 1, 32, 'rows', 1, 1, 38] } as never)
         jest.mocked(notebooksWidgetStatus).mockResolvedValue({
             lifecycle_status: 'ready',
             error_detail: null,
             artifact_url: 'https://example.com/revenue-widget.html',
             frame_names: ['revenue'],
             input_bindings: {
-                revenue: { source: 'orders', hog: 'return rows', bytecode: ['_H', 1, 32, 'rows', 1, 1, 38] },
+                revenue: { source: 'orders', hog: 'return rows' },
             },
             input_contract: [
                 {

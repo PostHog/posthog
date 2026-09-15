@@ -1,5 +1,6 @@
 import json
-from datetime import datetime, timedelta
+from collections.abc import Callable
+from datetime import datetime
 from typing import TYPE_CHECKING, Protocol, cast
 from uuid import UUID
 
@@ -17,6 +18,7 @@ from products.notebooks.backend.models import (
     GeneratedWidgetGenerationJob,
     GeneratedWidgetVersion,
     Notebook,
+    NotebookNodeRun,
     NotebookWidgetInstance,
 )
 from products.notebooks.backend.widgets import (
@@ -33,8 +35,8 @@ from products.notebooks.backend.widgets import (
     _security_review_state,
     assert_widget_node_exists,
     get_widget_status,
+    inspect_widget_inputs,
     is_notebook_widget_enabled,
-    read_widget_frame,
     start_widget_generation,
 )
 
@@ -289,32 +291,12 @@ def get_reusable_widget(*, team_id: int, widget_id: UUID) -> ReusableWidgetDetai
     )
 
 
-def _fit_demo_data(frames: dict[str, dict[str, object]]) -> dict[str, dict[str, object]]:
-    while len(json.dumps(frames, separators=(",", ":"), default=str).encode()) > MAX_REUSABLE_WIDGET_DEMO_BYTES:
-
-        def row_count(frame: dict[str, object]) -> int:
-            rows = frame.get("rows")
-            return len(rows) if isinstance(rows, list) else 0
-
-        largest = max(frames.values(), key=row_count, default=None)
-        if largest is None:
-            break
-        rows = largest.get("rows")
-        if not isinstance(rows, list) or not rows:
-            raise WidgetError("The widget demo data is too large to save.", "demo_data_too_large")
-        rows.pop()
-        largest["includedRowCount"] = len(rows)
-        largest["truncated"] = True
-    return frames
-
-
-def _capture_demo_data(
+def _empty_demo_data(
     *,
     notebook: Notebook,
     node_id: str,
     version: GeneratedWidgetVersion,
-    authorize_run,
-    user: User | None,
+    authorize_run: Callable[[NotebookNodeRun], None],
     input_bindings: dict[str, object],
 ) -> dict[str, dict[str, object]]:
     frames: dict[str, dict[str, object]] = {}
@@ -322,73 +304,39 @@ def _capture_demo_data(
         slot = contract_item.get("slot")
         if not isinstance(slot, str):
             continue
-        frame = read_widget_frame(
-            notebook=notebook,
-            node_id=node_id,
-            frame_name=slot,
-            authorize_run=authorize_run,
-            user=user,
-            version_id=version.id,
-            limit=MAX_REUSABLE_WIDGET_DEMO_ROWS,
-        ).frame
         if "columns" not in contract_item:
-            contract_item["columns"] = frame["columns"]
-        frame = _map_demo_frame(frame, slot, contract_item, input_bindings.get(slot))
-        frame["runId"] = str(frame["runId"])
-        frame["nextOffset"] = None
-        frames[slot] = frame
-    return _fit_demo_data(frames)
+            binding = input_bindings.get(slot)
+            source = (
+                str(binding["source"])
+                if isinstance(binding, dict) and isinstance(binding.get("source"), str)
+                else str(contract_item.get("sourceName") or slot)
+            )
+            inspection = inspect_widget_inputs(notebook, [source], authorize_run, node_id=node_id)
+            contract_item["columns"] = inspection.contract[0]["columns"]
+        frames[slot] = {
+            "name": slot,
+            "runId": str(version.id),
+            "columns": contract_item["columns"],
+            "rows": [],
+            "totalRowCount": 0,
+            "includedRowCount": 0,
+            "offset": 0,
+            "nextOffset": None,
+            "truncated": False,
+        }
+    return frames
 
 
-def _map_demo_frame(
-    frame: dict[str, object], slot: str, contract: dict[str, object], binding: object
-) -> dict[str, object]:
-    if not isinstance(binding, dict) or not (binding.get("hog") or binding.get("bytecode")):
-        return frame
-
-    # Compile and run only when publishing so the VM stays off Django's startup path.
+def _validate_binding_hog(hog: str, slot: str) -> None:
+    # Mapping compilation is only needed when attaching a widget, outside Django startup.
     from posthog.hogql.compiler.bytecode import create_bytecode  # noqa: PLC0415
     from posthog.hogql.errors import ExposedHogQLError  # noqa: PLC0415
     from posthog.hogql.parser import parse_program  # noqa: PLC0415
 
-    from common.hogvm.python.execute import execute_bytecode  # noqa: PLC0415
-    from common.hogvm.python.stl import BLOCKING_FUNCTIONS  # noqa: PLC0415
-    from common.hogvm.python.utils import HogVMException  # noqa: PLC0415
-
-    columns = cast(list[dict[str, object]], frame["columns"])
-    source_rows = [
-        {str(column["name"]): row[index] if index < len(row) else None for index, column in enumerate(columns)}
-        for row in cast(list[list[object]], frame["rows"])
-    ]
     try:
-        bytecode = binding.get("bytecode")
-        if not isinstance(bytecode, list):
-            bytecode = create_bytecode(parse_program(str(binding["hog"]))).bytecode
-        mapped = execute_bytecode(
-            bytecode,
-            globals={"rows": source_rows, "columns": columns, "frame": {**frame, "rows": source_rows}},
-            functions={},
-            timeout=timedelta(milliseconds=100),
-            disallowed_functions=BLOCKING_FUNCTIONS,
-        ).result
-    except (ExposedHogQLError, HogVMException) as error:
-        raise WidgetError(f'The input mapping for "{slot}" could not be evaluated.', "binding_hog_invalid") from error
-    expected_columns = cast(list[dict[str, object]], contract.get("columns", []))
-    if not isinstance(mapped, list) or any(
-        not isinstance(row, dict) or any(column["name"] not in row for column in expected_columns) for row in mapped
-    ):
-        raise WidgetError(
-            f'The input mapping for "{slot}" must return row objects with every input column.', "binding_hog_invalid"
-        )
-    rows = [[row[column["name"]] for column in expected_columns] for row in mapped[:MAX_REUSABLE_WIDGET_DEMO_ROWS]]
-    return {
-        **frame,
-        "name": slot,
-        "columns": expected_columns,
-        "rows": rows,
-        "includedRowCount": len(rows),
-        "truncated": bool(frame.get("truncated")) or len(mapped) > len(rows),
-    }
+        create_bytecode(parse_program(hog))
+    except ExposedHogQLError as error:
+        raise WidgetError(f'The Hog mapping for "{slot}" is invalid.', "binding_hog_invalid") from error
 
 
 def publish_reusable_widget(
@@ -413,12 +361,11 @@ def publish_reusable_widget(
     if instance.widget.publication_status != GeneratedWidget.PublicationStatus.PRIVATE:
         raise WidgetConflictError("This widget is already reusable.", "widget_already_reusable")
     version = instance.widget.current_version
-    demo_data = _capture_demo_data(
+    demo_data = _empty_demo_data(
         notebook=notebook,
         node_id=node_id,
         version=version,
         authorize_run=authorize_run,
-        user=user,
         input_bindings=instance.input_bindings,
     )
     original_bindings = {
@@ -493,15 +440,13 @@ def _normalized_bindings(
             raise WidgetError(f'Choose a dataframe for "{slot}".', "binding_source_missing")
         binding: dict[str, object] = {"source": source}
         hog = raw_binding.get("hog")
-        bytecode = raw_binding.get("bytecode")
         if hog is not None:
             if not isinstance(hog, str) or len(hog) > MAX_REUSABLE_WIDGET_BINDING_HOG_LENGTH:
                 raise WidgetError(f'The Hog mapping for "{slot}" is invalid.', "binding_hog_invalid")
-            binding["hog"] = hog
-        if bytecode is not None:
-            if not isinstance(bytecode, list) or not bytecode or bytecode[0] != "_H":
-                raise WidgetError(f'The compiled Hog mapping for "{slot}" is invalid.', "binding_bytecode_invalid")
-            binding["bytecode"] = bytecode
+            hog = hog.strip()
+            if hog:
+                _validate_binding_hog(hog, slot)
+                binding["hog"] = hog
         result[slot] = binding
     if len(json.dumps(result, separators=(",", ":"), default=str).encode()) > MAX_REUSABLE_WIDGET_BINDINGS_BYTES:
         raise WidgetError("The reusable widget input mappings are too large.", "bindings_too_large")

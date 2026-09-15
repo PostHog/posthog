@@ -1,13 +1,9 @@
 import api from 'lib/api'
 import { convertHogToJS, execHog } from 'lib/hog'
 
-import type { WidgetFrameApi } from 'products/notebooks/frontend/generated/api.schemas'
+import type { WidgetFrameApi, WidgetStatusApiInputBindings } from 'products/notebooks/frontend/generated/api.schemas'
 
-export type ReusableWidgetInputBinding = {
-    source: string
-    hog?: string
-    bytecode?: unknown[]
-}
+export type ReusableWidgetInputBinding = WidgetStatusApiInputBindings[string]
 
 function frameRowsAsObjects(frame: WidgetFrameApi): Record<string, unknown>[] {
     return frame.rows.map((row) =>
@@ -18,9 +14,6 @@ function frameRowsAsObjects(frame: WidgetFrameApi): Record<string, unknown>[] {
 const compiledBindings = new Map<string, Promise<unknown[]>>()
 
 async function bindingBytecode(binding: ReusableWidgetInputBinding): Promise<unknown[] | undefined> {
-    if (binding.bytecode) {
-        return binding.bytecode
-    }
     if (!binding.hog?.trim()) {
         return undefined
     }
@@ -105,6 +98,5 @@ export function getReusableWidgetInputBinding(
     return {
         source: value.source,
         hog: typeof value.hog === 'string' ? value.hog : undefined,
-        bytecode: Array.isArray(value.bytecode) ? value.bytecode : undefined,
     }
 }

@@ -1,4 +1,4 @@
-import { useActions, useMountedLogic, useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
 import {
     LemonBanner,
@@ -15,7 +15,6 @@ import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
-import { userLogic } from 'scenes/userLogic'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
@@ -23,10 +22,6 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { reusableWidgetsDemoFrame } from 'products/notebooks/frontend/generated/api'
 
 import { NotebookWidgetTrustControls } from '../NotebookNodeGeneratedWidget/NotebookWidgetTrustControls'
-import {
-    getNotebookWidgetTrust,
-    notebookWidgetTrustLogic,
-} from '../NotebookNodeGeneratedWidget/notebookWidgetTrustLogic'
 import { WidgetArtifactFrame } from '../NotebookNodeGeneratedWidget/WidgetArtifactFrame'
 import { WIDGET_MODEL_OPTIONS } from '../NotebookNodeGeneratedWidget/widgetModels'
 import { ReusableWidgetDemoDataModal } from './ReusableWidgetDemoDataModal'
@@ -41,9 +36,9 @@ export const scene: SceneExport<ReusableWidgetLogicProps> = {
 
 export function ReusableWidgetScene({ widgetId }: ReusableWidgetLogicProps): JSX.Element {
     const logic = reusableWidgetLogic({ widgetId })
-    const trustLogic = useMountedLogic(notebookWidgetTrustLogic)
     const {
         artifactUnavailable,
+        demoBuildTrusted,
         changePrompt,
         demoDataModalOpen,
         demoDataRevision,
@@ -63,6 +58,7 @@ export function ReusableWidgetScene({ widgetId }: ReusableWidgetLogicProps): JSX
         updateOperation,
     } = useValues(logic)
     const {
+        approveDemoBuild,
         loadReusableWidget,
         markArtifactUnavailable,
         openSourceModal,
@@ -79,10 +75,7 @@ export function ReusableWidgetScene({ widgetId }: ReusableWidgetLogicProps): JSX
         setUpdateModel,
         updateReusableWidget,
     } = useActions(logic)
-    const { sessionBuildHashes, trustByUser } = useValues(trustLogic)
-    const { trustBuild } = useActions(trustLogic)
     const { currentTeamId } = useValues(teamLogic)
-    const { user } = useValues(userLogic)
 
     if (reusableWidgetLoading && !reusableWidget) {
         return (
@@ -101,12 +94,6 @@ export function ReusableWidgetScene({ widgetId }: ReusableWidgetLogicProps): JSX
     const isDraft = version.id === pendingVersion?.id
     const isHistorical = !isDraft && version.id !== reusableWidget.current_version.id
     const draftReady = pendingVersion?.build_status === 'ready' && !!pendingVersion.artifact_url
-    const trust = getNotebookWidgetTrust({
-        trustByUser,
-        sessionBuildHashes,
-        userId: user?.id ?? null,
-        buildHash: version.build_hash,
-    })
     const trustControls = (variant: 'gate' | 'toolbar'): JSX.Element => (
         <NotebookWidgetTrustControls
             buildHash={version.build_hash}
@@ -115,7 +102,7 @@ export function ReusableWidgetScene({ widgetId }: ReusableWidgetLogicProps): JSX
             variant={variant}
             onRun={() => {
                 if (version.build_hash) {
-                    trustBuild(user?.id ?? null, version.build_hash)
+                    approveDemoBuild(version.build_hash)
                 }
             }}
             onViewSource={openSourceModal}
@@ -404,7 +391,7 @@ export function ReusableWidgetScene({ widgetId }: ReusableWidgetLogicProps): JSX
                             </span>
                             <LemonButton onClick={openSourceModal}>View source</LemonButton>
                         </div>
-                    ) : !trust.buildTrusted &&
+                    ) : !demoBuildTrusted &&
                       (version.security_review?.severity !== 'none' || version.frame_names.length > 0) ? (
                         trustControls('gate')
                     ) : (

@@ -385,7 +385,6 @@ export type WidgetStatusApiInputBindings = {
     [key: string]: {
         source: string
         hog?: string
-        bytecode?: unknown[]
     }
 }
 
@@ -1193,13 +1192,12 @@ export interface NotebookSQLV2StateResponseApi {
 }
 
 /**
- * Notebook-local input mappings keyed by contract slot. Each value names a source dataframe and may include a pure Hog expression plus compiled bytecode for reshaping its rows.
+ * Notebook-local input mappings keyed by contract slot. Each value names a source dataframe and may include pure Hog source for reshaping its rows.
  */
 export type ReusableWidgetAttachRequestApiInputBindings = {
     [key: string]: {
         source: string
         hog?: string
-        bytecode?: unknown[]
     }
 }
 
@@ -1211,7 +1209,7 @@ export interface ReusableWidgetAttachRequestApi {
      * @nullable
      */
     version_id?: string | null
-    /** Notebook-local input mappings keyed by contract slot. Each value names a source dataframe and may include a pure Hog expression plus compiled bytecode for reshaping its rows. */
+    /** Notebook-local input mappings keyed by contract slot. Each value names a source dataframe and may include pure Hog source for reshaping its rows. */
     input_bindings?: ReusableWidgetAttachRequestApiInputBindings
 }
 

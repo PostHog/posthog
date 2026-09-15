@@ -116,7 +116,7 @@ class TestRunCanvasBuild(BuildServiceBaseTest):
         assert self.canvas.published_build_id == published.id
 
     def test_prepared_draft_keeps_the_published_source_head(self):
-        self._publish()
+        published = self._publish()
         published_version_id = self.canvas.current_source_version_id
         project = synthetic_source_project("export default function C() { return 2 }")
         prepared = build_service.prepare_source_project_publish(
@@ -152,6 +152,14 @@ class TestRunCanvasBuild(BuildServiceBaseTest):
         assert draft.parent_version_id == published_version_id
         assert self.canvas.current_source_version_id == published_version_id
         assert build_service.read_source_project(draft) == project
+        published.refresh_from_db()
+        assert published.status == CanvasBuild.STATUS_QUEUED
+        with patch.object(
+            build_service, "run_cloud_builder", return_value=_builder_result({"index.html": "<html></html>"})
+        ):
+            build_service.run_canvas_build(self.team.id, str(published.id))
+        self.canvas.refresh_from_db()
+        assert self.canvas.published_build_id == published.id
 
     def test_stale_head_does_not_advance_pointer(self):
         build = self._publish()
