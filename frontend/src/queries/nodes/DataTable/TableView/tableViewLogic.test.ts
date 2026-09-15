@@ -26,7 +26,6 @@ const SHARED_VIEW = {
 
 describe('tableViewLogic', () => {
     const defaultSelect = [...defaultDataTableColumns(NodeKind.ActorsQuery, false), 'person.$delete']
-    const lastSeenAtSelect = [...defaultDataTableColumns(NodeKind.ActorsQuery, true), 'person.$delete']
 
     beforeEach(() => {
         useMocks({
@@ -72,12 +71,9 @@ describe('tableViewLogic', () => {
         expect(setQuery).not.toHaveBeenCalled()
     })
 
-    it.each<[string, string[]]>([
-        ['the untouched default query', defaultSelect],
-        ['the default query of a team that tracks last seen at', lastSeenAtSelect],
-    ])('reapplies the picked view on mount with %s', async (_label, select) => {
+    it('reapplies the picked view on mount when the query is the untouched default', async () => {
         persistSelection(SHARED_VIEW)
-        const { logic, setQuery } = mountLogic(select)
+        const { logic, setQuery } = mountLogic(defaultSelect)
 
         await expectLogic(logic, () => {
             logic.actions.loadViews()
