@@ -377,8 +377,20 @@ class DataWarehouseSavedQuerySerializer(
 
             # Get latest activity log for this model
 
-            if validated_data.get("query", None) and not soft_update:
-                edited_history_id = self.context["request"].data.get("edited_history_id", None)
+            edited_history_id = self.context["request"].data.get("edited_history_id", None)
+            declares_base_version = edited_history_id is not None
+            # `update()` serves a PATCH, and the POST that upserts onto an existing name. An upsert
+            # names the view it wants to replace, not a version it edited from, and the create
+            # payload has no `edited_history_id` to carry one. Checking it there makes
+            # replace-by-name impossible as soon as the view has any query history, which is from
+            # its own creation onwards. A caller that does declare a base version is still checked,
+            # on either path.
+            is_upsert = self.context["request"].method == "POST"
+            checks_base_version = (
+                bool(validated_data.get("query")) and not soft_update and (declares_base_version or not is_upsert)
+            )
+
+            if checks_base_version:
                 latest_activity_id = (
                     ActivityLog.objects.filter(
                         team_id=locked_instance.team_id,
@@ -392,7 +404,21 @@ class DataWarehouseSavedQuerySerializer(
                 )
 
                 if str(edited_history_id) != str(latest_activity_id):
-                    raise serializers.ValidationError("The query was modified by someone else.")
+                    # A stale base version needs a refetch; a missing one needs the field at all.
+                    raise serializers.ValidationError(
+                        {
+                            "edited_history_id": (
+                                "The query was modified by someone else. Read the view again and "
+                                "send its current latest_history_id as edited_history_id."
+                            )
+                            if declares_base_version
+                            else (
+                                "Changing the query needs edited_history_id, so a concurrent edit "
+                                "cannot be overwritten. Read the view first and send its "
+                                "latest_history_id as edited_history_id."
+                            )
+                        }
+                    )
 
             if frequency_changed:
                 # The node target is the only store of frequency intent. The interval column

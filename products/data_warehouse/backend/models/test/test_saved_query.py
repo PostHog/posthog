@@ -1,13 +1,17 @@
 from datetime import timedelta
 from types import SimpleNamespace
+from uuid import uuid4
 
-from posthog.test.base import BaseTest
+from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
 from unittest.mock import patch
 
 from django.db.models.query import QuerySet as DjangoQuerySet
 
+from parameterized import parameterized
+
 from products.data_modeling.backend.facade.modeling import DataWarehouseModelPath
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
+from products.warehouse_sources.backend.facade.hogql import hogql_type_name_for_clickhouse_type
 from products.warehouse_sources.backend.facade.models import DataWarehouseCredential, DataWarehouseTable
 
 
@@ -102,8 +106,8 @@ class TestGetColumnsQueryTagging(BaseTest):
     feature query tags (enforced as a hard error in DEBUG). Untagged, view creation over any table —
     including ai_events — fails with UntaggedQueryError. The inference query must be tagged."""
 
-    @patch("posthog.api.services.query.process_query_dict")
-    def test_get_columns_tags_the_inference_query(self, mock_process_query_dict):
+    @patch("posthog.hogql.query.execute_hogql_query")
+    def test_get_columns_tags_the_inference_query(self, mock_execute_hogql_query):
         from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags
 
         captured: dict[str, object] = {}
@@ -114,7 +118,7 @@ class TestGetColumnsQueryTagging(BaseTest):
             captured["feature"] = tags.feature
             return SimpleNamespace(types=[("trace_id", "String")])
 
-        mock_process_query_dict.side_effect = _capture
+        mock_execute_hogql_query.side_effect = _capture
 
         saved_query = DataWarehouseSavedQuery(
             team=self.team,
@@ -126,3 +130,79 @@ class TestGetColumnsQueryTagging(BaseTest):
         assert captured["product"] == Product.WAREHOUSE
         assert captured["feature"] == Feature.DATA_MODELING
         assert columns == {"trace_id": {"hogql": "StringDatabaseField", "clickhouse": "String", "valid": True}}
+
+
+class TestGetColumnsZeroRowProbe(ClickhouseTestMixin, BaseTest):
+    """get_columns reads column types from the ClickHouse response header behind a zero-row probe.
+
+    The types must stay identical to what executing the view itself reports, and the probe must not
+    read any rows — a view whose own result set is expensive to compute is exactly the case where
+    inference used to time out and reject the save.
+    """
+
+    def setUp(self):
+        super().setUp()
+        _create_person(distinct_ids=["u1"], team=self.team)
+        for i in range(25):
+            _create_event(team=self.team, event=f"e{i % 3}", distinct_id="u1")
+        flush_persons_and_events()
+
+    def _types_from_executing_the_view(self, sql: str) -> dict:
+        from posthog.api.services.query import process_query_dict
+        from posthog.clickhouse.query_tagging import Feature, Product, tags_context
+        from posthog.hogql_queries.query_runner import ExecutionMode
+
+        with tags_context(product=Product.WAREHOUSE, feature=Feature.DATA_MODELING):
+            response = process_query_dict(
+                self.team,
+                {"kind": "HogQLQuery", "query": sql},
+                execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+                user=self.user,
+            )
+        return {
+            str(name): {
+                "hogql": hogql_type_name_for_clickhouse_type(str(ch_type)),
+                "clickhouse": ch_type,
+                "valid": True,
+            }
+            for name, ch_type in response.types
+        }
+
+    @parameterized.expand(
+        [
+            ("projection", "SELECT event, timestamp, 1 AS n FROM events"),
+            ("union", "SELECT event FROM events UNION ALL SELECT event FROM events"),
+            ("cte", "WITH x AS (SELECT event FROM events) SELECT event FROM x"),
+            ("aggregate_with_limit", "SELECT count() AS c, event FROM events GROUP BY event ORDER BY c DESC LIMIT 10"),
+            ("nullable_expression", "SELECT toString(uuid) AS u, nullIf(event, '') AS maybe FROM events"),
+            ("join", "SELECT e.event AS a, p.id AS b FROM events e LEFT JOIN persons p ON e.person_id = p.id"),
+            ("array_aggregate", "SELECT groupArray(event) AS evs FROM events"),
+            ("window", "SELECT event, row_number() OVER (PARTITION BY event ORDER BY timestamp) AS rn FROM events"),
+        ]
+    )
+    def test_probe_types_match_executing_the_view(self, _name: str, sql: str) -> None:
+        saved_query = DataWarehouseSavedQuery(team=self.team, name="my_view", query={"query": sql})
+
+        assert saved_query.get_columns(user=self.user) == self._types_from_executing_the_view(sql)
+
+    def test_probe_reads_no_rows(self) -> None:
+        from posthog.clickhouse.client import sync_execute
+
+        # system.query_log is shared and keeps history, so a fresh alias per run is what keeps an
+        # earlier run's entries from satisfying this assertion.
+        marker = f"probe_{uuid4().hex[:12]}"
+        sql = f"SELECT count() AS {marker} FROM events GROUP BY event"
+        DataWarehouseSavedQuery(team=self.team, name="my_view", query={"query": sql}).get_columns(user=self.user)
+        sync_execute("SYSTEM FLUSH LOGS")
+
+        scans = sync_execute(
+            """
+            SELECT read_rows FROM system.query_log
+            WHERE type = 'QueryFinish' AND is_initial_query AND query LIKE %(pattern)s
+              AND NOT has(tables, 'system.query_log')
+            """,
+            {"pattern": f"%{marker}%"},
+        )
+
+        assert scans, "column inference did not reach ClickHouse"
+        assert max(row[0] for row in scans) == 0
