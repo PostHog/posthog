@@ -66,12 +66,6 @@ class MemberProjectAccessResponseSerializer(serializers.Serializer):
 
 
 class OrganizationMemberProjectAccessViewSetMixin(_GenericViewSet):
-    def dangerously_get_required_scopes(self, request: Request, view: GenericViewSet) -> list[str] | None:
-        if self.action == "project_access":
-            return ["organization_member:read"]
-        parent = getattr(super(), "dangerously_get_required_scopes", None)
-        return parent(request, view) if parent is not None else None
-
     @extend_schema(
         description="Every visible member's access to every project the caller can reach, with the rule behind it.",
         parameters=[
@@ -86,7 +80,7 @@ class OrganizationMemberProjectAccessViewSetMixin(_GenericViewSet):
         responses={200: MemberProjectAccessResponseSerializer},
         extensions={"x-product": "access_control"},
     )
-    @action(methods=["GET"], detail=False, url_path="project_access")
+    @action(methods=["GET"], detail=False, url_path="project_access", required_scopes=["organization_member:read"])
     def project_access(self, request: Request, *args: object, **kwargs: object) -> Response:
         organization = cast(Organization, self.organization)  # type: ignore[attr-defined]
         user = cast(User, request.user)
