@@ -63,6 +63,9 @@ describe('errorTrackingIssueSceneLogic', () => {
                 scopedLogic.mount()
             }).toNotHaveDispatchedActions(['loadIssue'])
             expect(scopedLogic.values.issueIdValid).toBe(false)
+            // Shared consumers such as the notebook views read issueLoading as final. A default of
+            // true would never clear here, leaving them on a permanent placeholder.
+            expect(scopedLogic.values.issueLoading).toBe(false)
             scopedLogic.unmount()
         }
     )

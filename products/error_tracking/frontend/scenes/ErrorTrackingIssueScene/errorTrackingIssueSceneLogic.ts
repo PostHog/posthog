@@ -706,7 +706,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         setListDateRange: (dateRange: DateRange) => ({ dateRange }),
     }),
 
-    defaults({
+    defaults(({ props }) => ({
         issue: null as ErrorTrackingRelationalIssue | null,
         summary: null as ErrorTrackingIssueSummary | null,
         properties: null as ErrorEventProperties | null,
@@ -717,10 +717,11 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         initialEventTimestamp: null as string | null,
         initialEventLoading: true as boolean,
         // The scene branches on this before the mount dispatches loadIssue, so a false default
-        // would flash the load-error state on every issue page.
-        issueLoading: true as boolean,
+        // would flash the load-error state on every issue page. A non-UUID id never dispatches it,
+        // so starting true there would leave shared consumers loading forever.
+        issueLoading: isUUIDLike(props.id),
         listDateRange: null as DateRange | null,
-    }),
+    })),
 
     reducers({
         summary: {},
