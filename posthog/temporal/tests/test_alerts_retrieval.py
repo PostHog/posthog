@@ -12,7 +12,7 @@ from posthog.schema import AlertCalculationInterval
 
 from posthog.models import Team
 from posthog.temporal.alerts.activities import _RetrievedAlerts, retrieve_due_alerts
-from posthog.temporal.alerts.types import ScheduleDueAlertChecksWorkflowInputs
+from posthog.temporal.alerts.types import AlertInfo, ScheduleDueAlertChecksWorkflowInputs
 from posthog.temporal.tests.test_alerts_activities import _create_alert
 
 
@@ -175,7 +175,7 @@ async def test_retrieve_due_alerts_records_capacity_and_selected_alert_counters(
 @pytest.mark.asyncio
 @pytest.mark.parametrize("failing_metrics", ["due_alerts", "scheduler_counters"])
 async def test_retrieve_due_alerts_succeeds_when_metric_recording_fails(failing_metrics: str) -> None:
-    expected_alerts = [MagicMock()]
+    expected_alerts: list[AlertInfo] = [MagicMock()]
     polled_at = datetime(2026, 9, 10, 12, 0, tzinfo=UTC)
 
     async def fake_get_alerts() -> _RetrievedAlerts:
