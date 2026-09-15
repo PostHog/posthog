@@ -118,6 +118,10 @@ class LLMPromptDependency(UUIDModel):
     Like LLMPromptLabel, `child_name` keys the referenced prompt family by
     name rather than FK, because prompts have no parent entity and the
     referenced family's version rows keep changing.
+
+    Also like LLMPromptLabel, deliberately not on TeamScopedRootMixin: rows
+    must stay in the same team-space as the LLMPrompt rows they point into
+    (see the LLMPromptLabel docstring). Migrate all three models together.
     """
 
     class Meta:
