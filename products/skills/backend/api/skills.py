@@ -33,6 +33,7 @@ from posthog.auth import (
     PersonalAPIKeyAuthentication,
     SessionAuthentication,
 )
+from posthog.dataclasses import frozen
 from posthog.event_usage import report_user_action
 from posthog.models import User
 from posthog.models.utils import execute_with_timeout
@@ -135,6 +136,13 @@ from .skill_services import (
     skill_names_owned_by,
     skills_list_version,
 )
+
+
+@frozen
+class SkillsListValidators:
+    version: str
+    etag: str
+
 
 logger = structlog.get_logger(__name__)
 
@@ -1833,12 +1841,12 @@ class LLMSkillViewSet(
     @llma_track_latency("llma_skills_list")
     @monitor(feature=None, endpoint="llma_skills_list", method="GET")
     def list(self, request: Request, *args, **kwargs) -> HttpResponseBase:
-        version, etag = self._list_validators(request)
+        validators = self._list_validators(request)
         # get_conditional_response (not a string compare) matches weak validators too, so a proxy
         # or middleware that weakens the ETag cannot silently break the 304 path.
-        response = get_conditional_response(request._request, etag=etag) or self._list_response(request)
-        response["ETag"] = etag
-        response["X-Skills-Version"] = version
+        response = get_conditional_response(request._request, etag=validators.etag) or self._list_response(request)
+        response["ETag"] = validators.etag
+        response["X-Skills-Version"] = validators.version
         # no-cache means "store, but revalidate every time": a polling client that sends
         # If-None-Match pays two aggregates instead of the filtered query and a full body. The
         # ETag is per-user, so a shared cache must never key this response on the URL alone.
@@ -1860,7 +1868,7 @@ class LLMSkillViewSet(
         data = serializer.data
         return Response({"count": len(data), "results": data})
 
-    def _list_validators(self, request: Request) -> tuple[str, str]:
+    def _list_validators(self, request: Request) -> SkillsListValidators:
         """The team's skills version, and an ETag identifying this exact list response.
 
         `skills_list_version` covers the store rows; the ETag adds what only the request knows.
@@ -1874,12 +1882,19 @@ class LLMSkillViewSet(
         next store change. Nothing new is disclosed, because the client only keeps a body it already
         had and every read path still enforces access on the skill itself.
         """
-        version, store_fingerprint = skills_list_version(self.team)
+        list_version = skills_list_version(self.team)
         seed = urlencode(
-            [("store", store_fingerprint), ("user", request.user.pk), *sorted(request.query_params.lists())],
+            [
+                ("store", list_version.store_fingerprint),
+                ("user", request.user.pk),
+                *sorted(request.query_params.lists()),
+            ],
             doseq=True,
         )
-        return version, '"' + hashlib.sha256(seed.encode()).hexdigest() + '"'
+        return SkillsListValidators(
+            version=list_version.version,
+            etag='"' + hashlib.sha256(seed.encode()).hexdigest() + '"',
+        )
 
     # `Sequence`, not `list[...]`: the viewset defines a `list` method that shadows the builtin in the
     # class body where this annotation is evaluated.

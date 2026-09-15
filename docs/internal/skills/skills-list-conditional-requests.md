@@ -13,12 +13,12 @@ Version and fingerprint: `products/skills/backend/api/skill_services.py` (`team_
 GET /api/projects/{team_id}/llm_skills/
 ```
 
-| Response header    | Value                                                                                        |
-| ------------------ | -------------------------------------------------------------------------------------------- |
-| `ETag`             | Strong validator, `"<sha256 hex>"`. Send it back as `If-None-Match` to revalidate.            |
-| `X-Skills-Version` | The team's content version, `1.0.<epoch millis>`. For clients that compare without a 304.    |
-| `Cache-Control`    | `private, no-cache`. Store the body, but revalidate on every use.                            |
-| `Vary`             | `Authorization, Cookie`. The validator is per user, so a shared cache must not key on URL.   |
+| Response header    | Value                                                                                      |
+| ------------------ | ------------------------------------------------------------------------------------------ |
+| `ETag`             | Strong validator, `"<sha256 hex>"`. Send it back as `If-None-Match` to revalidate.         |
+| `X-Skills-Version` | The team's content version, `1.0.<epoch millis>`. For clients that compare without a 304.  |
+| `Cache-Control`    | `private, no-cache`. Store the body, but revalidate on every use.                          |
+| `Vary`             | `Authorization, Cookie`. The validator is per user, so a shared cache must not key on URL. |
 
 A request whose `If-None-Match` matches gets `304` with no body, before the list query runs.
 A stale or absent `If-None-Match` gets the usual `200` and a fresh `ETag`.
@@ -31,12 +31,12 @@ It is the same version the git marketplace stamps on its plugin, so the two surf
 
 The `ETag` covers more, because the list body shows more than the skill rows:
 
-| Input                        | Why it is in the ETag                                                                             |
-| ---------------------------- | ------------------------------------------------------------------------------------------------- |
-| The skills version           | Publishes, file edits and archives.                                                               |
-| The team's owner rows        | Owners are keyed on the skill name, so an owner-only `PATCH` changes no skill row.                |
-| The requesting user          | Access filtering is per user, so one caller's validator must never match another caller's list.   |
-| The whole query string       | `search`, `created_by_id`, `owner_id`, `category`, ordering and the page all change the body.     |
+| Input                  | Why it is in the ETag                                                                           |
+| ---------------------- | ----------------------------------------------------------------------------------------------- |
+| The skills version     | Publishes, file edits and archives.                                                             |
+| The team's owner rows  | Owners are keyed on the skill name, so an owner-only `PATCH` changes no skill row.              |
+| The requesting user    | Access filtering is per user, so one caller's validator must never match another caller's list. |
+| The whole query string | `search`, `created_by_id`, `owner_id`, `category`, ordering and the page all change the body.   |
 
 The version is read uncached.
 `team_skills_version_cached` exists for the marketplace, which polls it far more often than it changes; its TTL would let a publish inside the window answer `304` for a list that already moved.

@@ -381,7 +381,13 @@ def team_skills_version_cached(team: Team) -> str:
     return version
 
 
-def skills_list_version(team: Team) -> tuple[str, str]:
+@frozen
+class SkillsListVersion:
+    version: str
+    store_fingerprint: str
+
+
+def skills_list_version(team: Team) -> SkillsListVersion:
     """The team's skills version, and a fingerprint of every store row the skills list body shows.
 
     Two values because they answer different questions: the version is the label clients compare,
@@ -395,7 +401,10 @@ def skills_list_version(team: Team) -> tuple[str, str]:
     """
     version = team_skills_version(team)
     owners = _owner_qs(team).aggregate(latest=Max("created_at"), total=Count("id"))
-    return version, f"{version}|{owners['total']}.{_epoch_millis(owners['latest'])}"
+    return SkillsListVersion(
+        version=version,
+        store_fingerprint=f"{version}|{owners['total']}.{_epoch_millis(owners['latest'])}",
+    )
 
 
 def get_skill_by_name_from_db(
