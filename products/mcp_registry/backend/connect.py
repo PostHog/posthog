@@ -129,10 +129,22 @@ def _remote_url(server: MCPRegistryServer) -> str:
     return server.canonical_url
 
 
+def _remote_url_blocked(server: MCPRegistryServer) -> bool:
+    """True when the remote URL must not be handed to an agent to execute.
+
+    A dead URL only wastes a call, but an `ssrf_blocked` one failed the probe's own
+    address validation: the publisher pointed the registry entry at a loopback,
+    private-network, or metadata address, and emitting it as an agent command would
+    tell the caller's agent to connect into its own local network.
+    """
+    return server.liveness in ("dead", "not_mcp") or server.probe_detail.startswith("ssrf_blocked")
+
+
 def _derived_methods(server: MCPRegistryServer) -> list[dict[str, Any]]:
     methods: list[dict[str, Any]] = []
     slug = _slug(server)
     url = _remote_url(server)
+    remote_blocked = bool(url) and _remote_url_blocked(server)
 
     stripe_provider = _stripe_projects_provider(server)
     if stripe_provider:
@@ -165,7 +177,7 @@ def _derived_methods(server: MCPRegistryServer) -> list[dict[str, Any]]:
             }
         )
 
-    if server.supports_agent_provisioning and url:
+    if server.supports_agent_provisioning and url and not remote_blocked:
         methods.append(
             {
                 "method": "agent_provisioning",
@@ -182,6 +194,8 @@ def _derived_methods(server: MCPRegistryServer) -> list[dict[str, Any]]:
         )
 
     if url and server.liveness == "alive_open":
+        # alive_open is the one liveness a blocked URL can never carry, so this branch
+        # needs no remote_blocked check.
         methods.append(
             {
                 "method": "remote_open",
@@ -196,7 +210,7 @@ def _derived_methods(server: MCPRegistryServer) -> list[dict[str, Any]]:
                 ],
             }
         )
-    elif url and server.auth_method == "oauth":
+    elif url and server.auth_method == "oauth" and not remote_blocked:
         methods.append(
             {
                 "method": "remote_oauth",
@@ -216,7 +230,7 @@ def _derived_methods(server: MCPRegistryServer) -> list[dict[str, Any]]:
                 ],
             }
         )
-    elif url and server.auth_method == "api_key":
+    elif url and server.auth_method == "api_key" and not remote_blocked:
         methods.append(
             {
                 "method": "remote_api_key",
@@ -240,7 +254,7 @@ def _derived_methods(server: MCPRegistryServer) -> list[dict[str, Any]]:
                 ],
             }
         )
-    elif url:
+    elif url and not remote_blocked:
         methods.append(
             {
                 "method": "remote_oauth",

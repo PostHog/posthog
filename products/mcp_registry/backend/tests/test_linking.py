@@ -51,3 +51,23 @@ class TestLinking(BaseTest):
 
         assert first.server == second.server
         assert MCPRegistryServer.objects.filter(display_name="Internal Tools").count() == 1
+
+    def test_template_default_name_resolves_to_no_server(self) -> None:
+        resolution = resolve_measured_server("mcp-typescript server on vercel")
+
+        assert resolution.server is None
+        assert resolution.link_method == "template_default"
+        # No shared global row is created for a name many projects' scaffolds advertise.
+        assert MCPRegistryServer.objects.filter(display_name="mcp-typescript server on vercel").count() == 0
+
+    def test_template_default_matching_is_normalized(self) -> None:
+        for name in ("MCP Server", "mcp-server", "  server  "):
+            resolution = resolve_measured_server(name)
+            assert resolution.server is None, name
+            assert resolution.link_method == "template_default", name
+
+    def test_non_default_name_still_creates_standalone(self) -> None:
+        resolution = resolve_measured_server("Acme Internal Tools")
+
+        assert resolution.server is not None
+        assert resolution.link_method == "standalone"

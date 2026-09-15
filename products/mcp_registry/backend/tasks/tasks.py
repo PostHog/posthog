@@ -67,7 +67,27 @@ def run_sync_pipeline(skip_crawl: bool = False, skip_probe: bool = False) -> dic
             logger.exception("mcp_registry.sync.ranking_failed", version=version)
             outcome["ranking_runs"][version] = "failed"
     logger.info("mcp_registry.sync.done", **{k: v for k, v in outcome.items() if k != "ranking_runs"})
+    _capture_pipeline_heartbeat(outcome)
     return outcome
+
+
+def _capture_pipeline_heartbeat(outcome: dict[str, Any]) -> None:
+    """One heartbeat event per scheduled sweep, so a run that never happened (Sep 9:
+    no error, no outcome, nothing to alert on) is as observable as a failed one. Never
+    let reporting take the pipeline down with it."""
+    try:
+        posthoganalytics.capture(
+            distinct_id=MCP_REGISTRY_PIPELINE_DISTINCT_ID,
+            event="mcp_registry_sync_completed",
+            properties={
+                "crawl": outcome.get("crawl"),
+                "measured_sources": outcome.get("measured_sources"),
+                "probed": outcome.get("probed"),
+                "ranking_runs": outcome.get("ranking_runs"),
+            },
+        )
+    except Exception:
+        logger.exception("mcp_registry.sync.heartbeat_failed")
 
 
 @shared_task(ignore_result=True, queue=CeleryQueue.LONG_RUNNING.value)
