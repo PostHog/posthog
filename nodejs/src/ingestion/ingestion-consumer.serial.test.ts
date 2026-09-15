@@ -1097,37 +1097,9 @@ describe('IngestionConsumer', () => {
                     }),
                 ],
             ],
-            [
-                'person property merging via alias',
-                () => {
-                    const anonId1 = new UUIDT().toString()
-                    const anonId2 = new UUIDT().toString()
-                    return [
-                        createEvent({
-                            distinct_id: anonId1,
-                            event: 'custom event',
-                            properties: { $set: { k: 'v' } },
-                        }),
-                        createEvent({
-                            distinct_id: anonId2,
-                            event: 'custom event',
-                            properties: { $set: { j: 'w' } },
-                        }),
-                        // final event should have k, j, l
-                        createEvent({
-                            distinct_id: anonId2,
-                            event: '$create_alias',
-                            properties: { alias: anonId1, $set: { l: 'x' } },
-                        }),
-                    ]
-                },
-            ],
         ]
 
-        it.each(eventTests)('%s', async (_, createEvents) => {
-            const messages = createKafkaMessages(createEvents())
-            await ingester.handleKafkaBatch(messages)
-
+        const expectProducedMessagesToMatchSnapshot = () => {
             // Tricky due to some parallel processing race conditions order isn't deterministic
             // So we sort by specific properties to make it deterministic
             const sortingKey = (message: DecodedKafkaMessage) => {
@@ -1140,6 +1112,49 @@ describe('IngestionConsumer', () => {
                 .sort((a, b) => sortingKey(a).localeCompare(sortingKey(b)))
 
             expect(forSnapshot(sortedMessages)).toMatchSnapshot()
+        }
+
+        it.each(eventTests)('%s', async (_, createEvents) => {
+            const messages = createKafkaMessages(createEvents())
+            await ingester.handleKafkaBatch(messages)
+
+            expectProducedMessagesToMatchSnapshot()
+        })
+
+        it('person property merging via alias', async () => {
+            const anonId1 = new UUIDT().toString()
+            const anonId2 = new UUIDT().toString()
+
+            // The pipeline groups by token:distinct_id and runs the groups concurrently, so the
+            // alias merge races the other anonymous id's person write if they share a batch.
+            // Send the seed events in their own batch and let it complete first.
+            await ingester.handleKafkaBatch(
+                createKafkaMessages([
+                    createEvent({
+                        distinct_id: anonId1,
+                        event: 'custom event',
+                        properties: { $set: { k: 'v' } },
+                    }),
+                    createEvent({
+                        distinct_id: anonId2,
+                        event: 'custom event',
+                        properties: { $set: { j: 'w' } },
+                    }),
+                ])
+            )
+
+            // final event should have k, j, l
+            await ingester.handleKafkaBatch(
+                createKafkaMessages([
+                    createEvent({
+                        distinct_id: anonId2,
+                        event: '$create_alias',
+                        properties: { alias: anonId1, $set: { l: 'x' } },
+                    }),
+                ])
+            )
+
+            expectProducedMessagesToMatchSnapshot()
         })
     })
 
