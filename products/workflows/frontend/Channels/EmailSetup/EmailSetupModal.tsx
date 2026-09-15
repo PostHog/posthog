@@ -23,7 +23,7 @@ export const EmailSetupModal = (props: EmailSetupModalLogicProps): JSX.Element =
     const logic = emailSetupModalLogic(props)
     const { savedIntegration, verificationLoading, isEmailSenderSubmitting, dnsRecords, domain, isDomainVerified } =
         useValues(logic)
-    const { verifyDomain, submitEmailSender } = useActions(logic)
+    const { verifyDomain, submitEmailSender, copyAllDnsRecords } = useActions(logic)
 
     const emailDomain = savedIntegration?.config?.domain || ''
 
@@ -97,7 +97,19 @@ export const EmailSetupModal = (props: EmailSetupModalLogicProps): JSX.Element =
 
                 {savedIntegration && (
                     <div className="mt-8 space-y-2 w-full">
-                        <h2>DNS records</h2>
+                        <div className="flex gap-2 justify-between items-center">
+                            <h2 className="mb-0">DNS records</h2>
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                icon={<IconCopy />}
+                                onClick={copyAllDnsRecords}
+                                disabledReason={dnsRecords.length === 0 ? 'No DNS records to copy yet' : undefined}
+                                tooltip="Copy every record as a table you can paste into your DNS provider or a spreadsheet"
+                            >
+                                Copy all records
+                            </LemonButton>
+                        </div>
                         <p className="text-sm text-muted">
                             These DNS records are required to verify ownership of your domain. They also ensure your
                             emails are delivered to inboxes and not marked as spam.
