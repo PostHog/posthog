@@ -1,3 +1,6 @@
+import { MCP_TOOL_OUTPUT_CHAR_BUDGET } from '@/lib/constants'
+import { formatResponse } from '@/lib/response'
+
 /**
  * Bounds the size of LLM trace results before they are serialized toward the MCP
  * client. `query-llm-trace` returns every event in a trace at every nesting
@@ -11,8 +14,14 @@
  * walks the result within a character budget, truncating long string values and
  * dropping content that doesn't fit, and stops traversing once the budget is
  * spent so it never materializes a full clone of a pathological trace. A final
- * pass measures the real encoded output and shrinks again if the walk's estimate
- * was wrong, so the response cannot breach the cap.
+ * pass measures the text the client actually receives and shrinks again if the
+ * walk's estimate was wrong, so the response cannot breach the cap.
+ *
+ * The caps sit below the output budget MCP clients enforce per tool call. A cap
+ * above that budget protects nothing: the client truncates the oversized frame
+ * itself, mid-value and unflagged, so the agent loses the tail of the trace
+ * without being told. Truncating here instead keeps the response parseable and
+ * says what was dropped.
  *
  * Compaction is a client-boundary safeguard only — the underlying query and the
  * PostHog UI still have the complete, untruncated trace. Everything it shortens
@@ -24,19 +33,20 @@
 export const PER_VALUE_CHAR_LIMIT = 10_000
 
 /**
- * Hard cap on the serialized size of a single trace, and on the combined size of
- * a trace-list response (~125K tokens at the ~4-chars-per-token heuristic).
- * Comfortably below any agent context window while still large enough to inspect
- * a real multi-step trace.
+ * Hard cap on the size of a single trace, and on the combined size of a
+ * trace-list response (~20K tokens). The results take four fifths of the output
+ * budget and the rest covers the response envelope around them — the echoed
+ * query, the PostHog link, warnings — so a full-detail read of a large trace
+ * arrives whole instead of being cut by the transport.
  */
-export const MAX_TRACE_CHARS = 500_000
+export const MAX_TRACE_CHARS = Math.floor(MCP_TOOL_OUTPUT_CHAR_BUDGET * 0.8)
 
 /**
- * Cap for `summary` detail (~30K tokens). Much tighter than the full-detail cap,
+ * Cap for `summary` detail (~8K tokens). Much tighter than the full-detail cap,
  * because the point of a summary is to survey a trace without spending the
  * agent's context on prompt and completion bodies.
  */
-export const MAX_SUMMARY_CHARS = 120_000
+export const MAX_SUMMARY_CHARS = 32_000
 
 /** How much of each previewed value a summary keeps. */
 export const SUMMARY_PREVIEW_CHARS = 600
@@ -129,6 +139,15 @@ function serializedLength(value: unknown): number {
     } catch {
         return 0
     }
+}
+
+/**
+ * Length of the text the client actually receives. The walk budgets JSON size,
+ * but a tool response is TOON-encoded, and TOON is not always smaller than JSON
+ * — for a nested trace it runs slightly larger.
+ */
+function deliveredLength(value: unknown): number {
+    return formatResponse(value).length
 }
 
 /**
@@ -260,18 +279,23 @@ function compactValue(value: unknown, budget: number): Compacted {
  * client as an oversized frame. This measures the compacted output only, never
  * the raw input, so the check itself stays cheap.
  */
-function fitToEncodedBudget(budget: number, compact: (walkBudget: number) => unknown, fallback: unknown): unknown {
+function fitToEncodedBudget(
+    budget: number,
+    compact: (walkBudget: number) => unknown,
+    fallback: unknown,
+    measure: (value: unknown) => number = serializedLength
+): unknown {
     let walkBudget = budget
     let out = compact(walkBudget)
     for (let pass = 0; pass < MAX_FIT_PASSES; pass++) {
-        const encoded = serializedLength(out)
+        const encoded = measure(out)
         if (encoded <= budget) {
             return out
         }
         walkBudget = Math.max(MIN_ITEM_BUDGET, Math.floor((walkBudget * budget) / encoded / FIT_HEADROOM))
         out = compact(walkBudget)
     }
-    return serializedLength(out) <= budget ? out : fallback
+    return measure(out) <= budget ? out : fallback
 }
 
 /** Shorten one value to a preview an agent can scan without reading it in full. */
@@ -372,11 +396,15 @@ function compactTraceWithin(trace: Record<string, unknown>, budget: number, deta
     assignKey(base, 'events', kept)
     const omitted = events.length - kept.length
     if (omitted > 0) {
+        const note =
+            detail === 'full'
+                ? 'Re-run with detail: "summary" to see metadata for every event, or open the trace in PostHog for the complete data.'
+                : 'Open the trace in PostHog for the complete, untruncated data, or narrow the query to the events you need.'
         assignKey(base, '_truncated', {
             omittedEvents: omitted,
             totalEvents: events.length,
             reason: 'Trace exceeded the response size limit; some events were dropped and large values were shortened.',
-            note: 'Open the trace in PostHog for the complete, untruncated data, or narrow the query to the events you need.',
+            note,
         })
     }
     return base
@@ -409,12 +437,15 @@ export function compactTraceResults(results: unknown, detail: TraceDetail = 'ful
         return results
     }
     const budget = detail === 'summary' ? MAX_SUMMARY_CHARS : MAX_TRACE_CHARS
-    if (results.length <= 1) {
-        return results.map((trace) => compactTrace(trace, budget, detail))
-    }
-    return fitToEncodedBudget(budget, (walkBudget) => compactTraceList(results, walkBudget, detail), [
-        listTruncationSentinel(results.length, results.length),
-    ])
+    // A single trace shares the list path, so `query-llm-trace` gets the same
+    // measurement of the text the client receives.
+    const single = results.length === 1 && isRecord(results[0]) ? results[0] : null
+    return fitToEncodedBudget(
+        budget,
+        (walkBudget) => compactTraceList(results, walkBudget, detail),
+        single ? [minimalTracePlaceholder(single)] : [listTruncationSentinel(results.length, results.length)],
+        deliveredLength
+    )
 }
 
 function compactTraceList(results: unknown[], budget: number, detail: TraceDetail): unknown[] {
