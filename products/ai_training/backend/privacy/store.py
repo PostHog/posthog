@@ -15,11 +15,10 @@ from botocore.config import Config
 
 from products.ai_training.backend.config import key_table_name
 from products.ai_training.backend.models import AITrainingDeletionRequest
-from products.ai_training.backend.privacy.reader import KEY_READ_LEASE_SECONDS
+from products.ai_training.backend.privacy.reader import KEY_READ_LEASE_SECONDS, KEY_SHARDS
 
 logger = structlog.get_logger(__name__)
 
-KEY_SHARDS = 32
 DynamoItem = dict[str, dict[str, str | bool | bytes]]
 
 
@@ -72,19 +71,19 @@ class AITrainingPrivacyStore:
         return cls(cast(PrivacyDynamoClient, client), key_table_name())
 
     def block(self, team_id: int) -> None:
-        self.client.transact_write_items(TransactItems=self.block_markers(f"team:{team_id}"))
+        self.write_block_markers(f"team:{team_id}")
 
-    # Each ingestion commit guards on the marker for its own key shard, so every shard gets one; the unsharded marker stays for readers that predate sharding.
-    def block_markers(self, pk: str) -> list[dict[str, object]]:
-        return [
-            {"Put": {"TableName": self.table_name, "Item": {**item_key(marker, "deleted"), "deleted": {"BOOL": True}}}}
-            for marker in [pk, *(f"{pk}:shard:{shard}" for shard in range(KEY_SHARDS))]
-        ]
+    # The unsharded marker goes first because every reader gates on it. The per-shard markers are what ingestion commits guard on. Each put is idempotent and retried by the SDK on throttling, and a transaction is not needed: a guard fails closed on any marker present, and the sweep starts only after all of them are written.
+    def write_block_markers(self, pk: str) -> None:
+        for marker in [pk, *(f"{pk}:shard:{shard}" for shard in range(KEY_SHARDS))]:
+            self.client.put_item(
+                TableName=self.table_name, Item={**item_key(marker, "deleted"), "deleted": {"BOOL": True}}
+            )
 
     def delete_month(self, session_month: str) -> int:
         if re.fullmatch(r"[0-9]{4}-(0[1-9]|1[0-2])", session_month) is None:
             raise ValueError("Session month must use YYYY-MM")
-        self.client.transact_write_items(TransactItems=self.block_markers(f"month:{session_month}"))
+        self.write_block_markers(f"month:{session_month}")
         count = 0
         for shard in range(KEY_SHARDS):
             cursor = None

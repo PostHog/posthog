@@ -178,7 +178,7 @@ export class MlKeyBatch {
         return image ? { session, image } : undefined
     }
 
-    // The unsharded markers predate sharding and gate a batch at read time only; a commit guards on the shard markers that deletion writes alongside them.
+    // Deletion writes the unsharded marker first and every reader gates on it, so a batch honours it at read time; a commit guards only on the shard markers, which is what keeps commits from contending on one item.
     private blockMarkerIds(identity: MlSessionIdentity): TableKey[] {
         const month = sessionStartMonth(identity.sessionId)
         const shard = blockShard(identity)

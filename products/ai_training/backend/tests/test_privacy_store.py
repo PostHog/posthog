@@ -43,8 +43,8 @@ class TestAITrainingPrivacyStore(SimpleTestCase):
         pages.extend({"Items": []} for _ in range(31))
 
         def query(**kwargs: object) -> DynamoResponse:
-            markers = client.transact_write_items.call_args_list[0].kwargs["TransactItems"]
-            self.assertEqual(markers[0]["Put"]["Item"]["pk"]["S"], "month:2026-09")
+            self.assertEqual(client.put_item.call_count, 33)
+            self.assertEqual(client.put_item.call_args_list[0].kwargs["Item"]["pk"]["S"], "month:2026-09")
             self.assertTrue(kwargs["ConsistentRead"])
             return pages.pop(0)
 
@@ -52,10 +52,7 @@ class TestAITrainingPrivacyStore(SimpleTestCase):
         store = AITrainingPrivacyStore(client, "table")
         self.assertEqual(store.delete_month("2026-09"), 2)
         self.assertEqual(
-            [
-                call.kwargs["TransactItems"][0]["Update"]["Key"]
-                for call in client.transact_write_items.call_args_list[1:]
-            ],
+            [call.kwargs["TransactItems"][0]["Update"]["Key"] for call in client.transact_write_items.call_args_list],
             targets,
         )
         self.assertEqual(client.query.call_args_list[1].kwargs["ExclusiveStartKey"], cursor)
@@ -72,17 +69,11 @@ class TestAITrainingPrivacyStore(SimpleTestCase):
             store.initialize(MagicMock(kind="team", team_id=7))
         else:
             store.delete_month("2026-09")
-        markers = client.transact_write_items.call_args_list[0].kwargs["TransactItems"]
+        markers = [call.kwargs["Item"] for call in client.put_item.call_args_list]
         self.assertEqual(
-            [marker["Put"]["Item"]["pk"]["S"] for marker in markers],
-            [pk, *(f"{pk}:shard:{shard}" for shard in range(32))],
+            [marker["pk"]["S"] for marker in markers], [pk, *(f"{pk}:shard:{shard}" for shard in range(32))]
         )
-        self.assertTrue(
-            all(
-                marker["Put"]["Item"]["sk"]["S"] == "deleted" and marker["Put"]["Item"]["deleted"]["BOOL"] is True
-                for marker in markers
-            )
-        )
+        self.assertTrue(all(marker["sk"]["S"] == "deleted" and marker["deleted"]["BOOL"] is True for marker in markers))
 
     def test_session_deletion_shreds_keys_without_querying_user_indexes(self) -> None:
         client = MagicMock()

@@ -213,6 +213,7 @@ describe('ML session key batches', () => {
     })
 
     it('keeps every transaction inside one key shard', async () => {
+        expect(ML_KEY_SHARDS).toBe(32)
         const identities = Array.from({ length: 60 }, (_, index) => ({
             ...session,
             sessionId: `01994569-4380-7000-8000-${(index + 300).toString(16).padStart(12, '0')}`,

@@ -108,6 +108,8 @@ Session keys and image keys appear in this index.
 
 Run `python manage.py delete_ai_training_month YYYY-MM` to permanently block that UTC session month and remove its keys.
 The command writes the month block marker and one marker per key shard before it sweeps, because each ingestion commit guards on the marker for its own shard and commits from different shards do not contend.
+Ingestion guards only on the per-shard markers, so the deletion side must deploy before ingestion. The 32 shard count is shared by the ingestion schema and the deletion store and must change on both sides together.
+A team blocked before per-shard markers existed has only the unsharded marker, which still gates every batch at read time; the marker predates every read, so no commit can race it.
 The command uses strongly consistent queries and bounded writes.
 Rerun the command after an interrupted run; it preserves the month block and safely repeats completed pages.
 Readers reject blocked months even when a wrapped key remains during deletion.

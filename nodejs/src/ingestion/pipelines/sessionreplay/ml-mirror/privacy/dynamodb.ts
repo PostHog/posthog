@@ -24,6 +24,8 @@ export function decodeKey(item: DynamoItem): TableKey {
 
 export class MlPrivacyDynamoDB {
     private readonly concurrency = pLimit(4)
+    // A batch commits one transaction per shard and those never share an item, so writes take a wider limit than reads.
+    private readonly writeConcurrency = pLimit(16)
 
     constructor(
         private readonly client: Pick<DynamoDBClient, 'send'>,
@@ -70,7 +72,7 @@ export class MlPrivacyDynamoDB {
     public async write(transactions: TransactWriteItem[][]): Promise<void> {
         await Promise.all(
             transactions.map((items) =>
-                this.concurrency(async () => {
+                this.writeConcurrency(async () => {
                     if (!items.length || items.length > 100) {
                         throw new Error('Invalid ML privacy transaction size')
                     }

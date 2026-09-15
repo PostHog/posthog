@@ -19,6 +19,8 @@ from nacl.secret import SecretBox
 from posthog.dataclasses import frozen
 
 KEY_READ_LEASE_SECONDS = 300
+# Must equal ML_KEY_SHARDS in the Node ingestion schema: deletion writes one block marker per shard, and ingestion guards each commit on its own shard's marker.
+KEY_SHARDS = 32
 
 DynamoItem = dict[str, dict[str, str | bool | bytes]]
 
@@ -123,7 +125,7 @@ class TrainingKeyLocation:
 
     @classmethod
     def session(cls, team_id: int, session_id: str) -> TrainingKeyLocation:
-        shard = int(hashlib.sha256(session_id.encode()).hexdigest()[:8], 16) % 32
+        shard = int(hashlib.sha256(session_id.encode()).hexdigest()[:8], 16) % KEY_SHARDS
         return cls(pk=f"team:{team_id}:shard:{shard}", sk=f"session:{session_id}")
 
     @classmethod

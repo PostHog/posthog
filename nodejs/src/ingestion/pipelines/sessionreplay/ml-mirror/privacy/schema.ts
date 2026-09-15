@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto'
 
 import { sessionStartMonth } from '~/ingestion/pipelines/sessionreplay/ml-mirror/session-identifier-format'
 
+// Must equal KEY_SHARDS in products/ai_training/backend/privacy/store.py: deletion writes one block marker per shard, and a shard with no marker has no commit guard.
 export const ML_KEY_SHARDS = 32
 export const INGESTION_VERSION_HEADER = 'ai_research_ingestion_version'
 
@@ -42,7 +43,7 @@ export function teamBlockShardId(teamId: number, shard: number): TableKey {
     return { pk: `team:${teamId}:shard:${shard}`, sk: 'deleted' }
 }
 
-// Deletion writes a marker in every shard, so any deterministic shard is correct; a key's own shard keeps a commit's guards inside the partitions it already writes.
+// Deletion writes a marker in every shard, so any deterministic shard is correct; the session shard spreads a batch's guards evenly.
 export function blockShard(identity: MlKeyIdentity): number {
     return identity.sessionId
         ? sessionShard(identity.sessionId)
