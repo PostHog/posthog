@@ -146,6 +146,33 @@ class TestBackfillReadiness(BaseTest):
         self.assertEqual(run.status, CohortBackfillRunStatus.AWAITING_BOUNDARY)
 
     @parameterized.expand(KINDS)
+    def test_composition_edit_before_supersession_cannot_stamp(
+        self, name: str, make_run, stamp, hash_column: str, stamp_column: str, *_edits
+    ) -> None:
+        filters = self._filters(7, person_hash="person-a")
+        if name == "person_properties":
+            filters["properties"]["values"] = filters["properties"]["values"][1:]
+        cohort = Cohort.objects.create(team=self.team, cohort_type=CohortType.REALTIME, filters=filters)
+        run = make_run(self.team.id, cohort.id, "cohort_created")
+        assert run is not None
+        pinned_hash = getattr(cohort, hash_column)
+
+        cohort.filters["properties"]["values"][-1]["negation"] = True
+        cohort.save(update_fields=["filters"])
+
+        participation = CohortBackfillRunCohort.objects.for_team(self.team.id).get(run=run)
+        self.assertIsNone(participation.superseded_at)
+        self.assertEqual(getattr(cohort, hash_column), pinned_hash)
+        self.assertFalse(stamp(run, cohort.id))
+
+        cohort.refresh_from_db()
+        run.refresh_from_db()
+        participation.refresh_from_db()
+        self.assertIsNone(getattr(cohort, stamp_column))
+        self.assertIsNotNone(participation.superseded_at)
+        self.assertEqual(run.status, CohortBackfillRunStatus.SUPERSEDED)
+
+    @parameterized.expand(KINDS)
     def test_already_stamped_readiness_is_not_overwritten(
         self, _name: str, make_run, stamp, _hash: str, stamp_column: str, *_edits
     ) -> None:

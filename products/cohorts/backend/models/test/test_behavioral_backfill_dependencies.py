@@ -383,7 +383,10 @@ class TestBehavioralBackfillDependencies(BaseTest):
 
         self._assert_one_debounced_task(enqueue, redis, cohort, kind)
 
-    def test_composition_edit_nulls_the_events_stamp_and_moves_no_kind_hash(self) -> None:
+    @parameterized.expand([("group_operator", None), ("empty_and", "AND"), ("empty_or", "OR")])
+    def test_composition_edit_nulls_the_events_stamp_and_moves_no_kind_hash(
+        self, _name: str, empty_group: str | None
+    ) -> None:
         cohort = self._cohort(7, person_hash="person-a")
         old_behavioral_hash = cohort.behavioral_filters_shape_hash
         old_person_hash = cohort.person_filters_shape_hash
@@ -398,7 +401,11 @@ class TestBehavioralBackfillDependencies(BaseTest):
 
         # A partial save, because `resave_cohorts` re-drives the fleet with a frozen field set. The
         # stamp this edit nulls has to be added to that set, or the null is decided and never written.
-        cohort.filters = self._filters(7, person_hash="person-a", group_type="OR")
+        if empty_group is None:
+            cohort.filters = self._filters(7, person_hash="person-a", group_type="OR")
+        else:
+            assert cohort.filters is not None
+            cohort.filters["properties"]["values"].append({"type": empty_group, "values": []})
         cohort.save(update_fields=["filters"])
 
         cohort.refresh_from_db()
@@ -448,25 +455,33 @@ class TestBehavioralBackfillDependencies(BaseTest):
 
         self._assert_one_debounced_task(enqueue, redis, cohort, CohortBackfillKind.BEHAVIORAL)
 
-    def test_malformed_persisted_filters_still_invalidate_on_a_leaf_edit(self) -> None:
+    @parameterized.expand([("stored_hashes", False), ("null_hashes", True)])
+    def test_malformed_persisted_filters_still_invalidate_on_a_leaf_edit(self, _name: str, null_hashes: bool) -> None:
         # The composition signal reads the persisted filters, which the leaf-shape comparison never
         # had to parse. A row the renderer cannot walk must cost only that signal: the method
         # swallows its own exceptions, so letting one escape here would silently turn off every
         # invalidation for this cohort, including the leaf edits that worked before the rule existed.
-        cohort = self._cohort(7)
+        cohort = self._cohort(7, person_hash="person-a")
         Cohort.objects.filter(id=cohort.id).update(
             filters={"properties": {"type": "AND", "values": 3}},
+            behavioral_filters_shape_hash=None if null_hashes else cohort.behavioral_filters_shape_hash,
+            person_filters_shape_hash=None if null_hashes else cohort.person_filters_shape_hash,
             last_backfill_events_at=timezone.now(),
+            last_backfill_person_properties_at=timezone.now(),
         )
         cohort.refresh_from_db()
 
-        cohort.filters = self._filters(30)
+        cohort.filters = self._filters(30, person_hash="person-b")
         cohort.save()
 
         cohort.refresh_from_db()
         self.assertIsNone(cohort.last_backfill_events_at)
+        self.assertIsNone(cohort.last_backfill_person_properties_at)
+        self.assertTrue(cohort.behavioral_filters_shape_hash)
+        self.assertTrue(cohort.person_filters_shape_hash)
 
-    def test_save_with_unchanged_filters_enqueues_nothing(self) -> None:
+    @parameterized.expand([("legacy_hash", True), ("current_hash", False)])
+    def test_save_with_unchanged_filters_enqueues_nothing(self, _name: str, legacy_hash: bool) -> None:
         # Every stored full hash was computed from the leaf set alone before the fingerprint existed.
         # Reading the previous definition from that column rather than from the persisted filters
         # would turn each cohort's first save after the deploy into an edit, and the fleet would
@@ -476,7 +491,7 @@ class TestBehavioralBackfillDependencies(BaseTest):
         old_person_hash = cohort.person_filters_shape_hash
         ready_at = timezone.now()
         Cohort.objects.filter(id=cohort.id).update(
-            filters_shape_hash="a-hash-written-under-the-old-rule",
+            filters_shape_hash="a-hash-written-under-the-old-rule" if legacy_hash else cohort.filters_shape_hash,
             last_backfill_events_at=ready_at,
             last_backfill_person_properties_at=ready_at,
             last_realtime_cohort_calculation_at=ready_at,
@@ -499,6 +514,21 @@ class TestBehavioralBackfillDependencies(BaseTest):
         self.assertEqual(cohort.last_backfill_events_at, ready_at)
         self.assertEqual(cohort.last_backfill_person_properties_at, ready_at)
         self.assertEqual(cohort.last_realtime_cohort_calculation_at, ready_at)
+
+    def test_stale_instance_restoring_definition_invalidates_readiness(self) -> None:
+        cohort = self._cohort(7, person_hash="person-a")
+        stale = Cohort.objects.get(id=cohort.id)
+        cohort.filters = self._filters(7, person_hash="person-a", group_type="OR")
+        cohort.save(update_fields=["filters"])
+        Cohort.objects.filter(id=cohort.id).update(last_backfill_events_at=timezone.now())
+
+        stale.name = "renamed"
+        stale.save()
+
+        stale.refresh_from_db()
+        assert stale.filters is not None
+        self.assertEqual(stale.filters["properties"]["type"], "AND")
+        self.assertIsNone(stale.last_backfill_events_at)
 
     @parameterized.expand(TRIGGER_KINDS)
     def test_two_edits_share_one_debounce_key(self, _name: str, kind: CohortBackfillKind, edits) -> None:

@@ -21,6 +21,7 @@ from products.cohorts.backend.models.backfill import (
 )
 from products.cohorts.backend.models.cohort import Cohort
 from products.cohorts.backend.models.leaf_shape import (
+    FilterShapeHashes,
     extract_behavioral_leaf_shape_hash,
     extract_leaf_shape_hash,
     extract_person_leaf_shape_hash,
@@ -106,6 +107,7 @@ def stamp_events_readiness(run: CohortBackfillRun, cohort_id: int) -> bool:
     a way no other run repairs (see ``_maintain_filter_shape_hashes``).
     A person-property edit mid-backfill shifts the full hash without touching events readiness, so
     keying on the full hash would wrongly supersede a still-valid events backfill.
+    A separate, locked definition check refuses a run that predates a required composition repair.
     """
     return _stamp_readiness(run, cohort_id, _EVENTS)
 
@@ -137,13 +139,23 @@ def _stamp_readiness(run: CohortBackfillRun, cohort_id: int, spec: _ReadinessSpe
         )
         return False
 
+    # Serialize the definition check with edits; supersession runs only after the edit commits.
+    cohort = (
+        Cohort.objects.select_for_update(of=("self",)).only("filters").filter(id=cohort_id, team_id=run.team_id).first()
+    )
+    composition_stale = False
+    if cohort is not None:
+        current_shape = FilterShapeHashes.from_filters(cohort.filters)
+        pinned_shape = FilterShapeHashes.from_filters(participation.pinned_filters)
+        composition_stale = current_shape.composition_repair_kind(pinned_shape, cohort.filters) == run.backfill_kind
+
     pinned = getattr(participation, spec.hash_field)
     # Reused by the rollback below, so both writes fence on the same pinned fingerprint.
     cohort_fence = {"id": cohort_id, "team_id": run.team_id, spec.hash_field: pinned}
 
-    updated = Cohort.objects.filter(**cohort_fence, **{f"{spec.stamp_field}__isnull": True}).update(
-        **{spec.stamp_field: Now()}
-    )
+    updated = not composition_stale and Cohort.objects.filter(
+        **cohort_fence, **{f"{spec.stamp_field}__isnull": True}
+    ).update(**{spec.stamp_field: Now()})
     if updated:
         # ``superseded_at__isnull`` guards a supersession racing in after the up-front check; a
         # 0-row stamp then means the participation lost the race, so refuse (finalizer treats it
@@ -158,7 +170,12 @@ def _stamp_readiness(run: CohortBackfillRun, cohort_id: int, spec: _ReadinessSpe
     current_readiness = (
         Cohort.objects.filter(id=cohort_id, team_id=run.team_id).values_list(spec.hash_field, spec.stamp_field).first()
     )
-    if current_readiness is not None and current_readiness[0] == pinned and current_readiness[1] is not None:
+    if (
+        not composition_stale
+        and current_readiness is not None
+        and current_readiness[0] == pinned
+        and current_readiness[1] is not None
+    ):
         return _ratify(run, participation.id)
 
     error = "Cohort definition changed before readiness was stamped"

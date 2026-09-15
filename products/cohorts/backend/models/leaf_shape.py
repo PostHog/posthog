@@ -2,7 +2,9 @@ import json
 import hashlib
 from collections.abc import Iterator
 from enum import StrEnum
-from typing import NamedTuple
+from typing import Literal, NamedTuple
+
+from posthog.dataclasses import frozen
 
 _I32_MIN = -(2**31)
 _I32_MAX = 2**31 - 1
@@ -148,8 +150,7 @@ def _render_definition(node: object) -> list[object] | None:
         for child in node.get("values") or []:
             if (rendered := _render_definition(child)) is not None:
                 unique.setdefault(_canonical(rendered), rendered)
-        if not unique:
-            return None
+        # Rust retains empty groups and excludes their cohort from realtime evaluation.
         children = [unique[key] for key in sorted(unique)]
         if len(children) == 1:
             return children[0]
@@ -184,8 +185,8 @@ def extract_leaf_shape_hash(filters: dict | None) -> str:
 
     This is the only fingerprint that sees composition. The two kind hashes below key on leaf
     identity alone, so an edit that only moves AND/OR, negation, or a nested-cohort reference moves
-    this hash and neither of theirs. `_maintain_filter_shape_hashes` is the sole consumer, and it
-    uses that difference to decide when an edit needs a repair run that no kind hash would trigger.
+    this hash and neither of theirs. Saves and readiness stamps use `FilterShapeHashes` to agree
+    on which kind must repair a definition change that no leaf hash would trigger.
     Keep the leaf fields in lockstep with Rust: behavioral leaves via `BehavioralLeafKey`; person
     conditionHash; cohort value; the negation rules in `_render_definition`.
     """
@@ -206,3 +207,39 @@ def extract_behavioral_leaf_shape_hash(filters: dict | None) -> str:
 def extract_person_leaf_shape_hash(filters: dict | None) -> str:
     """Fingerprint only person-property condition hashes."""
     return _hash_keys(_extract_leaf_shape_keys(filters, mode=_LeafShapeMode.PERSON_ONLY))
+
+
+@frozen
+class FilterShapeHashes:
+    definition: str | None
+    behavioral: str | None
+    person: str | None
+
+    @classmethod
+    def from_filters(cls, filters: dict | None) -> "FilterShapeHashes":
+        return cls(
+            definition=extract_leaf_shape_hash(filters),
+            behavioral=extract_behavioral_leaf_shape_hash(filters),
+            person=extract_person_leaf_shape_hash(filters),
+        )
+
+    def composition_repair_kind(
+        self, previous: "FilterShapeHashes", filters: dict | None
+    ) -> Literal["behavioral", "person_property"] | None:
+        if previous.definition is None or previous.definition == self.definition:
+            return None
+
+        leaf_types = {leaf.get("type") for leaf in walk_filter_leaves((filters or {}).get("properties"))}
+        person_backfillable = bool(self.person) and "person_metadata" not in leaf_types
+        # Match the run creators: an unhashed behavioral leaf can trigger a run, but person metadata cannot.
+        if previous.behavioral != self.behavioral and "behavioral" in leaf_types:
+            return None
+        if previous.person != self.person and person_backfillable:
+            return None
+
+        # Either kind reconciles the whole tree. Prefer the events stamp used by strict flag routing.
+        if self.behavioral:
+            return "behavioral"
+        if person_backfillable:
+            return "person_property"
+        return None

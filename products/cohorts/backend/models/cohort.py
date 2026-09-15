@@ -36,6 +36,7 @@ from posthog.schema_enums import ProductKey
 from posthog.settings.base_variables import TEST
 
 from products.cohorts.backend.models.leaf_shape import (
+    FilterShapeHashes,
     extract_behavioral_leaf_shape_hash,
     extract_leaf_shape_hash,
     extract_person_leaf_shape_hash,
@@ -385,53 +386,51 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             previous_shape_hash = None
 
             if not self._state.adding:
-                # Read on every update, not only to fill a NULL hash column: the composition rule
-                # below compares definitions, and the persisted `filters` are the only record of the
-                # previous one. The stored `filters_shape_hash` cannot stand in for it, because every
-                # value written before this rule existed was computed from the leaf set alone and
-                # would read as a change on the cohort's first save.
-                persisted = (
-                    Cohort.objects.filter(id=self.pk, team_id=self.team_id)
-                    .values(
-                        "filters",
-                        "filters_shape_hash",
-                        "behavioral_filters_shape_hash",
-                        "person_filters_shape_hash",
-                    )
-                    .first()
-                )
+                persisted_query = Cohort.objects.filter(id=self.pk, team_id=self.team_id)
+                if (
+                    stored_shape_hash is not None
+                    and stored_behavioral_shape_hash is not None
+                    and stored_person_shape_hash is not None
+                ):
+                    # Check equality in Postgres: a stale instance can overwrite a concurrent edit.
+                    # Matching rows need no JSONB transfer or rehash; legacy hashes still fall through.
+                    persisted_query = persisted_query.exclude(filters_shape_hash=new_shape_hash)
+                persisted = persisted_query.values(
+                    "filters",
+                    "filters_shape_hash",
+                    "behavioral_filters_shape_hash",
+                    "person_filters_shape_hash",
+                ).first()
                 if persisted is not None:
-                    # The two baselines are deliberately drawn from different places. The definition
-                    # fingerprint comes from the persisted filters because its stored column predates
-                    # the rule and means something else. The kind baselines keep coming from the
-                    # stored column, which also catches an edit made in the same save that took the
-                    # cohort out of realtime: the column froze on the way out, so it still differs on
-                    # the way back. Deriving those from the persisted filters too would lose that.
-                    # The fingerprint has no such catch, so a composition edit made on the way out is
-                    # not seen on the way back. That path is the tracked-set exit gap, not this rule.
+                    # Kind hashes retain edits made while the cohort was outside realtime tracking.
+                    # Recomputing those baselines from filters would lose that invalidation signal.
                     try:
                         previous_shape_hash = extract_leaf_shape_hash(persisted["filters"])
                     except Exception:
-                        # Only this signal is lost, so the save still invalidates on a leaf-shape
-                        # change. The outer handler would instead return with every invalidation
-                        # off, which is the failure this rule exists to prevent.
+                        # A malformed baseline must not disable invalidation for a valid replacement.
                         previous_shape_hash = None
                     if stored_shape_hash is None:
                         stored_shape_hash = persisted["filters_shape_hash"]
                     if stored_behavioral_shape_hash is None:
                         stored_behavioral_shape_hash = persisted["behavioral_filters_shape_hash"]
-                        previous_behavioral_shape_hash = (
-                            stored_behavioral_shape_hash
-                            if stored_behavioral_shape_hash is not None
-                            else extract_behavioral_leaf_shape_hash(persisted["filters"])
-                        )
+                        try:
+                            previous_behavioral_shape_hash = (
+                                stored_behavioral_shape_hash
+                                if stored_behavioral_shape_hash is not None
+                                else extract_behavioral_leaf_shape_hash(persisted["filters"])
+                            )
+                        except Exception:
+                            previous_behavioral_shape_hash = None
                     if stored_person_shape_hash is None:
                         stored_person_shape_hash = persisted["person_filters_shape_hash"]
-                        previous_person_shape_hash = (
-                            stored_person_shape_hash
-                            if stored_person_shape_hash is not None
-                            else extract_person_leaf_shape_hash(persisted["filters"])
-                        )
+                        try:
+                            previous_person_shape_hash = (
+                                stored_person_shape_hash
+                                if stored_person_shape_hash is not None
+                                else extract_person_leaf_shape_hash(persisted["filters"])
+                            )
+                        except Exception:
+                            previous_person_shape_hash = None
 
             shape_hash_needs_update = stored_shape_hash != new_shape_hash
             behavioral_shape_hash_needs_update = stored_behavioral_shape_hash != new_behavioral_shape_hash
@@ -441,39 +440,17 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             )
             person_shape_changed = not self._state.adding and previous_person_shape_hash != new_person_shape_hash
 
-            # These two mirror what the receivers actually enqueue on: `has_behavioral_filters` and
-            # `person_backfill_ineligibility_reason` in backfill/runs.py, minus the realtime, static
-            # and deleted checks the early returns above already made. They must not be read off the
-            # kind hashes instead. The behavioral hash drops a leaf that carries no condition hash
-            # while the receiver still runs for it, and the person hash says nothing about a
-            # `person_metadata` leaf, which the person creator refuses outright. Either mismatch puts
-            # a second run on an edit that already has one, or picks a kind that is then refused.
-            a_behavioral_run_can_be_created = self._has_filter_type("behavioral")
-            a_person_run_can_be_created = bool(new_person_shape_hash) and not self._has_filter_type("person_metadata")
-
-            # An edit to AND/OR, to a leaf's negation, to a nested-cohort reference, or one that
-            # moves a leaf between groups changes the definition without changing either leaf set,
-            # so neither flag above is set and nothing supersedes the membership rows the processor
-            # already wrote. Reconcile evaluates the whole tree from the current catalog whichever
-            # kind of run it belongs to, so one run of any kind that can run repairs the cohort.
-            # Behavioral is preferred for what nulling `last_backfill_events_at` buys: under the
-            # flags service's `events_or_calculation_stamp` policy that stamp is what routes a
-            # cohort to the membership table, so nulling it takes the stale rows out of flag
-            # evaluation while the repair run is in flight. Under the `any_backfill_stamp` default a
-            # legacy person stamp keeps a mixed cohort routed either way, so there the preference
-            # only decides which run pays, not what flags read.
-            composition_changed = previous_shape_hash is not None and previous_shape_hash != new_shape_hash
-            behavioral_run_repairs = behavioral_shape_changed and a_behavioral_run_can_be_created
-            person_run_repairs = person_shape_changed and a_person_run_can_be_created
-            if composition_changed and not behavioral_run_repairs and not person_run_repairs:
-                # Picking a kind asks a stricter question than "would a run already fire": the run
-                # must also do something. A behavioral run for a leaf with no condition hash seeds
-                # nothing, and the processor drops the whole cohort from its catalog over that leaf,
-                # so prefer the person run, which at least reconciles once the hash comes back.
-                if new_behavioral_shape_hash:
-                    behavioral_shape_changed = True
-                elif a_person_run_can_be_created:
-                    person_shape_changed = True
+            current_shape = FilterShapeHashes(
+                definition=new_shape_hash, behavioral=new_behavioral_shape_hash, person=new_person_shape_hash
+            )
+            previous_shape = FilterShapeHashes(
+                definition=previous_shape_hash,
+                behavioral=previous_behavioral_shape_hash,
+                person=previous_person_shape_hash,
+            )
+            repair_kind = current_shape.composition_repair_kind(previous_shape, self.filters)
+            behavioral_shape_changed |= repair_kind == "behavioral"
+            person_shape_changed |= repair_kind == "person_property"
 
             self.filters_shape_hash = new_shape_hash
             self.behavioral_filters_shape_hash = new_behavioral_shape_hash

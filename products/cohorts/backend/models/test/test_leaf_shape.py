@@ -98,6 +98,16 @@ class TestLeafShape(SimpleTestCase):
                 {"properties": _group("OR", _group("AND", _BEHAVIORAL, _PERSON), _group("AND", _OTHER_BEHAVIORAL))},
                 {"properties": _group("OR", _group("AND", _BEHAVIORAL), _group("AND", _OTHER_BEHAVIORAL, _PERSON))},
             ),
+            (
+                "empty_and_group",
+                {"properties": _group("AND", _BEHAVIORAL, _PERSON)},
+                {"properties": _group("AND", _BEHAVIORAL, _PERSON, _group("AND"))},
+            ),
+            (
+                "empty_or_group",
+                {"properties": _group("AND", _BEHAVIORAL, _PERSON)},
+                {"properties": _group("AND", _BEHAVIORAL, _PERSON, _group("OR"))},
+            ),
         ]
     )
     def test_composition_edits_move_only_the_full_hash(self, _name: str, before: dict, after: dict) -> None:
@@ -242,5 +252,9 @@ class TestLeafShape(SimpleTestCase):
 
     def test_empty_or_null_group_values_are_safe(self) -> None:
         self.assertEqual(extract_leaf_shape_hash(None), "")
-        self.assertEqual(extract_leaf_shape_hash(self._filters()), "")
+        self.assertNotEqual(extract_leaf_shape_hash(self._filters()), "")
+        self.assertEqual(
+            extract_leaf_shape_hash(self._filters()),
+            extract_leaf_shape_hash({"properties": {"type": "AND", "values": None}}),
+        )
         self.assertEqual(list(walk_filter_leaves({"type": "AND", "values": None})), [])
