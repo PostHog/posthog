@@ -231,7 +231,11 @@ describe('databaseTableListLogic', () => {
         })
 
         it('a shallow load requests no fields and marks the schema incomplete', async () => {
+            jest.useFakeTimers()
             await loadShallow()
+            await jest.advanceTimersByTimeAsync(5000)
+            expect(performQuery).toHaveBeenCalledTimes(1)
+            jest.useRealTimers()
 
             expect((performQuery as jest.Mock).mock.calls[0][0]).toMatchObject({ includeFields: false })
             expect(logic.values.databaseFieldsComplete).toBe(false)

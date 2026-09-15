@@ -754,6 +754,12 @@ class ExternalDataSourceConnectionMetadataSerializer(serializers.Serializer):
 
 
 class ExternalDataSourceConnectionOptionSerializer(serializers.ModelSerializer):
+    schema_name = serializers.CharField(
+        source="job_inputs.schema",
+        read_only=True,
+        allow_null=True,
+        help_text="Default database schema used to group tables in the SQL editor.",
+    )
     engine = serializers.ChoiceField(
         source="connection_metadata.engine",
         read_only=True,
@@ -798,6 +804,7 @@ class ExternalDataSourceConnectionOptionSerializer(serializers.ModelSerializer):
         model = ExternalDataSource
         fields = [
             "id",
+            "schema_name",
             "prefix",
             "engine",
             "source_type",
@@ -5008,6 +5015,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 "prefix",
                 "description",
                 "connection_metadata",
+                "job_inputs",
                 "source_type",
                 "access_method",
             )

@@ -1,6 +1,11 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
+        "include_columns": {
+            "default": true,
+            "description": "Include column definitions. Set to false for table-only lists.",
+            "type": "boolean"
+        },
         "page": {
             "description": "A page number within the paginated result set.",
             "type": "number"

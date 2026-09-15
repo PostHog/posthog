@@ -16,7 +16,10 @@ import {
     DataWarehouseSavedQueryIncremental,
 } from '~/types'
 
-import { warehouseSavedQueriesMaterializeCreate } from 'products/data_warehouse/frontend/generated/api'
+import {
+    warehouseSavedQueriesList,
+    warehouseSavedQueriesMaterializeCreate,
+} from 'products/data_warehouse/frontend/generated/api'
 
 import type { DatabaseSchemaViewTable } from '../../../queries/schema/schema-general'
 import type { UserType } from '../../../types'
@@ -465,8 +468,11 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
             [] as DataWarehouseSavedQuery[],
             {
                 loadDataWarehouseSavedQueries: async () => {
-                    const savedQueries = await api.dataWarehouseSavedQueries.list()
-                    return savedQueries.results
+                    const savedQueries = await warehouseSavedQueriesList(String(ApiConfig.getCurrentTeamId()), {
+                        include_columns: false,
+                    })
+                    // The editor still uses the legacy saved-query shape; list responses omit the SQL and columns.
+                    return savedQueries.results as unknown as DataWarehouseSavedQuery[]
                 },
                 createDataWarehouseSavedQuery: async (
                     view: Partial<DataWarehouseSavedQuery> & {

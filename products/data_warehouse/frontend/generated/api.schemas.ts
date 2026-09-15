@@ -5148,6 +5148,10 @@ export type WarehouseExpressionsListParams = {
 
 export type WarehouseSavedQueriesListParams = {
     /**
+     * Include column definitions. Set to false for table-only lists.
+     */
+    include_columns?: boolean
+    /**
      * A page number within the paginated result set.
      */
     page?: number

@@ -38296,6 +38296,11 @@ export namespace Schemas {
 
     export interface ExternalDataSourceConnectionOption {
       readonly id: string;
+      /**
+         * Default database schema used to group tables in the SQL editor.
+         * @nullable
+         */
+      readonly schema_name: string | null;
       /** @nullable */
       readonly prefix: string | null;
       /** Backend engine detected for the direct connection.
@@ -106629,6 +106634,10 @@ export namespace Schemas {
     };
 
     export type WarehouseSavedQueriesListParams = {
+    /**
+     * Include column definitions. Set to false for table-only lists.
+     */
+    include_columns?: boolean;
     /**
      * A page number within the paginated result set.
      */

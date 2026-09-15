@@ -538,7 +538,7 @@ export const databaseTableListLogic = kea<databaseTableListLogicType>([
     }),
     listeners(({ actions, values }) => ({
         refreshDatabaseSchema: () => {
-            actions.loadDatabase({ force: true })
+            actions.loadDatabase({ force: true, shallow: !values.databaseFieldsComplete })
         },
         hydrateTableFields: async ({ tableNames }) => {
             const requestConnectionId = values.connectionId ?? undefined
@@ -598,18 +598,6 @@ export const databaseTableListLogic = kea<databaseTableListLogicType>([
                 }
                 actions.hydrateTableFieldsFailure(toLoad)
             }
-        },
-        loadDatabaseSuccess: async ({ payload }, breakpoint) => {
-            if (!payload?.shallow || values.databaseFieldsComplete) {
-                return
-            }
-            // A shallow load renders the table tree immediately; upgrade to the full schema in the
-            // background so every other consumer of this shared store (taxonomic filters, join
-            // modal, insights) still converges on complete field data. The delay lets tables the
-            // user expands right away hydrate through their own small requests first; tables
-            // already loaded or loading are skipped by the upgrade.
-            await breakpoint(3000)
-            actions.ensureAllTableFields()
         },
         ensureAllTableFields: () => {
             if (values.databaseFieldsComplete && values.database) {
