@@ -27,8 +27,8 @@ jest.mock('lib/colors', () => ({
 const DATES = ['2026-01-01', '2026-01-02', '2026-01-03']
 
 const SERIES: BillingSeriesType[] = [
-    { id: 0, label: 'Events', data: [10, 20, 30], dates: DATES },
-    { id: 1, label: 'Recordings', data: [1, 2, 3], dates: DATES },
+    { id: 0, key: 'Events', label: 'Events', data: [10, 20, 30], dates: DATES },
+    { id: 1, key: 'Recordings', label: 'Recordings', data: [1, 2, 3], dates: DATES },
 ]
 
 describe('BillingChart', () => {
@@ -42,13 +42,13 @@ describe('BillingChart', () => {
     })
 
     it('renders only the series that are not hidden', async () => {
-        render(<BillingChart series={SERIES} dates={DATES} hiddenSeries={[1]} />)
+        render(<BillingChart series={SERIES} dates={DATES} hiddenSeries={['Recordings']} />)
 
         await waitFor(() => expect(getHogChart().seriesCount).toBe(1))
     })
 
     it('colors the surviving series by its id, not its position after filtering', async () => {
-        render(<BillingChart series={SERIES} dates={DATES} hiddenSeries={[0]} />)
+        render(<BillingChart series={SERIES} dates={DATES} hiddenSeries={['Events']} />)
 
         const chart = getHogChart()
         await waitFor(() => expect(chart.seriesCount).toBe(1))
@@ -156,13 +156,20 @@ describe('BillingChart', () => {
         // Enough distinct totals to tell the largest from the rest, ranked by their sum over the range.
         const MANY: BillingSeriesType[] = [0, 1, 2, 3].map((id) => ({
             id,
+            key: `Project ${id}`,
             label: `Project ${id}`,
             data: [id, id],
             dates: DATES,
         }))
 
         it('stacks the largest series first and the folded series last, whatever the order it came in', () => {
-            const folded: BillingSeriesType = { id: 9, label: 'All other projects (40)', data: [50, 50], dates: DATES }
+            const folded: BillingSeriesType = {
+                id: 9,
+                key: 'other',
+                label: 'All other projects (40)',
+                data: [50, 50],
+                dates: DATES,
+            }
             const drawn = orderSeriesForDrawing([MANY[1], folded, MANY[3], MANY[0], MANY[2]], 10)
             expect(drawn.map((s) => s.label)).toEqual([
                 'Project 3',
@@ -203,7 +210,7 @@ describe('BillingChart', () => {
 
         it('does not let hidden series take up room under the cap', async () => {
             // Two of four are hidden, so the two that remain fit and nothing is left out.
-            render(<BillingChart series={MANY} dates={DATES} hiddenSeries={[2, 3]} maxSeries={2} />)
+            render(<BillingChart series={MANY} dates={DATES} hiddenSeries={['Project 2', 'Project 3']} maxSeries={2} />)
 
             await waitFor(() => expect(getHogChart().seriesCount).toBe(2))
             expect(screen.queryByText(/more are in the table below/)).toBeNull()
@@ -239,12 +246,15 @@ describe('BillingChart', () => {
             // depend on which chart consumes the result.
             const many: BillingSeriesType[] = [0, 1, 2, 3].map((id) => ({
                 id,
+                key: `Project ${id}`,
                 label: `Project ${id}`,
                 data: [id, id],
                 dates: DATES,
             }))
 
-            render(<BillingChart series={many} dates={DATES} hiddenSeries={[0]} maxSeries={2} chartType="bar" />)
+            render(
+                <BillingChart series={many} dates={DATES} hiddenSeries={['Project 0']} maxSeries={2} chartType="bar" />
+            )
 
             await waitFor(() => expect(getHogChart().seriesCount).toBe(2))
             expect(await screen.findByText(/1 more are in the table below/)).toBeTruthy()
@@ -279,7 +289,7 @@ describe('BillingChart', () => {
                 <BillingChart
                     series={SERIES}
                     dates={DATES}
-                    hiddenSeries={[1]}
+                    hiddenSeries={['Recordings']}
                     chartType="bar"
                     cumulativeLabel={LABEL}
                 />
@@ -296,6 +306,7 @@ describe('BillingChart', () => {
         it('counts the series the cap leaves undrawn', async () => {
             const many: BillingSeriesType[] = [0, 1, 2, 3].map((id) => ({
                 id,
+                key: `Project ${id}`,
                 label: `Project ${id}`,
                 data: [id, id, id],
                 dates: DATES,
@@ -345,7 +356,9 @@ describe('runningTotal', () => {
     })
 
     it('treats a series shorter than the range as zero where it has no value', () => {
-        expect(runningTotal([{ id: 0, label: 'Short', data: [5], dates: DATES }], DATES.length)).toEqual([5, 5, 5])
+        expect(runningTotal([{ id: 0, key: 'Short', label: 'Short', data: [5], dates: DATES }], DATES.length)).toEqual([
+            5, 5, 5,
+        ])
     })
 
     it('is zero throughout with nothing visible', () => {
