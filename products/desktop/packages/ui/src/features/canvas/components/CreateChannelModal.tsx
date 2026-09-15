@@ -106,6 +106,7 @@ interface CreateChannelModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   existingContext?: { channelId: string; channelName: string };
+  /** Which control opened the dialog, so create can be attributed to it. */
   surface?: ChannelsSurface;
 }
 
