@@ -58,32 +58,29 @@ export function getCommentText(comment: { content?: string | null; rich_content?
     try {
         return generateText(content, DEFAULT_EXTENSIONS, serializationOptions)
     } catch {
-        // generateText builds a schema from DEFAULT_EXTENSIONS, which keeps no marks (italic, bold,
-        // link, ...) and only paragraph/mention nodes. Conversations authors comments with a richer
-        // schema, so any such mark or node makes ProseMirror throw "There is no mark type ... in this
-        // schema". Fall back to a schema-free walk so one formatted comment can't crash the caller.
+        // Conversations authors comments with a richer schema than DEFAULT_EXTENSIONS, so a mark or
+        // node it lacks (italic, list, image, ...) makes generateText throw. Extract text schema-free.
         return extractPlainText(content)
     }
 }
 
-/** Inline node types that concatenate with no separator, as opposed to block nodes separated by a blank line. */
 const INLINE_NODE_TYPES = new Set<string>(['text', 'hardBreak', RichContentNodeType.Mention])
 
-/**
- * Concatenate the text of a rich-content doc without a ProseMirror schema, so no node or mark can throw.
- * Block children are separated by a blank line to match generateText's default block separator, while
- * inline runs within a block concatenate directly.
- */
+/** Concatenate a rich-content doc's text with no ProseMirror schema, so no node or mark can throw. */
 function extractPlainText(node: JSONContent): string {
     if (node.type === RichContentNodeType.Mention) {
-        return `@member:${node.attrs?.id}`
+        return node.attrs?.id != null ? `@member:${node.attrs.id}` : ''
     }
     if (node.type === 'hardBreak') {
         return '\n'
     }
+    if (node.type === 'image') {
+        return node.attrs?.src ? `![${node.attrs.alt || 'image'}](${node.attrs.src})` : ''
+    }
     const children = node.content ?? []
     const joined = children
         .map(extractPlainText)
+        // Block children are separated by a blank line, inline runs concatenate directly.
         .map((part, index) => {
             const isBlock = index > 0 && !INLINE_NODE_TYPES.has(children[index].type ?? '')
             return isBlock ? `\n\n${part}` : part

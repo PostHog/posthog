@@ -3,9 +3,8 @@ import { JSONContent } from 'lib/components/RichContentEditor/types'
 import { getCommentText } from './commentUtils'
 
 describe('getCommentText', () => {
-    // DEFAULT_EXTENSIONS keeps no marks and only paragraph/mention nodes, but conversations authors
-    // comments with a richer schema. Each of these used to throw "There is no mark/node type ... in
-    // this schema" out of generateText and crash the ticket thread. The fallback must return the text.
+    // Each shape here carries a mark or node DEFAULT_EXTENSIONS lacks, which used to throw out of
+    // generateText and crash the ticket thread. The fallback must return readable text instead.
     it.each([
         [
             'italic mark',
@@ -44,6 +43,33 @@ describe('getCommentText', () => {
                 ],
             },
             'one\n\ntwo',
+        ],
+        [
+            'image node',
+            {
+                type: 'doc',
+                content: [
+                    { type: 'paragraph', content: [{ type: 'text', text: 'see', marks: [{ type: 'italic' }] }] },
+                    { type: 'image', attrs: { src: 'https://example.com/a.png', alt: 'a' } },
+                ],
+            },
+            'see\n\n![a](https://example.com/a.png)',
+        ],
+        [
+            'id-less mention',
+            {
+                type: 'doc',
+                content: [
+                    {
+                        type: 'paragraph',
+                        content: [
+                            { type: 'text', text: 'hi ', marks: [{ type: 'bold' }] },
+                            { type: 'ph-mention', attrs: {} },
+                        ],
+                    },
+                ],
+            },
+            'hi ',
         ],
     ])('renders %s content without throwing', (_label, richContent, expected) => {
         expect(getCommentText({ rich_content: richContent as JSONContent })).toBe(expected)
