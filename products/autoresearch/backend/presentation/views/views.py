@@ -43,6 +43,7 @@ from .serializers import (
     ValidatePipelineRequestSerializer,
     ValidatePipelineResponseSerializer,
     resolve_target,
+    validate_event_target,
 )
 
 logger = structlog.get_logger(__name__)
@@ -278,6 +279,8 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin
             )
         except AutoresearchConflict as exc:
             raise ValidationError(str(exc)) from exc
+        # The auto-resolved event is the team's own data, so it gets the same check as an override.
+        validate_event_target(resolved.target_event, error_key="target_event")
         return Response(ResolvedTemplateSerializer(instance=resolved).data)
 
     @validated_request(
@@ -291,9 +294,9 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin
         summary="Validate a pipeline definition",
         description=(
             "Validate a proposed pipeline's target event and population before creating it. "
-            "Returns volume estimates, base rate, and any warnings. The result is advice: a warning "
-            "with severity 'error' means the data is too thin for a reliable model, but creation "
-            "and training do not enforce it. Call this before autoresearch-create."
+            "Returns volume estimates, base rate, and any warnings. Creation does not enforce the result: "
+            "'population_too_large' and 'horizon_exceeds_lookback' mean a training run would fail, and the other "
+            "'error' codes mean the data is too thin for a reliable model. Call this before autoresearch-create."
         ),
     )
     @action(

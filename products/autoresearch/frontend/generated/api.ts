@@ -213,7 +213,7 @@ export const getAutoresearchValidateCreateUrl = (projectId: string) => {
 }
 
 /**
- * Validate a proposed pipeline's target event and population before creating it. Returns volume estimates, base rate, and any warnings. The result is advice: a warning with severity 'error' means the data is too thin for a reliable model, but creation and training do not enforce it. Call this before autoresearch-create.
+ * Validate a proposed pipeline's target event and population before creating it. Returns volume estimates, base rate, and any warnings. Creation does not enforce the result: 'population_too_large' and 'horizon_exceeds_lookback' mean a training run would fail, and the other 'error' codes mean the data is too thin for a reliable model. Call this before autoresearch-create.
  * @summary Validate a pipeline definition
  */
 export const autoresearchValidateCreate = async (

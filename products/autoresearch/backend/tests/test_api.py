@@ -428,6 +428,8 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
         [
             ("missing_required_target_event", {"template_key": "feature_adoption"}),
             ("unknown_template_key", {"template_key": "not_a_real_template"}),
+            ("own_prediction_event", {"template_key": "feature_adoption", "target_event": "autoresearch_prediction"}),
+            ("unsafe_target_event", {"template_key": "repeat_key_behavior", "target_event": "signup`whoami`"}),
         ]
     )
     def test_resolve_template_rejects(self, _name: str, body: dict):

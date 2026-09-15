@@ -152,11 +152,11 @@ class TestValidationWarnings(BaseTest):
         assert all(f"event != '{PREDICTION_EVENT_NAME}'" in q.query for q in queries)
 
     @parameterized.expand([("short_horizon_floors_at_30", 7, 30), ("long_horizon_is_4x", 14, 56)])
-    def test_inference_preview_uses_scoring_lookback(
+    def test_inference_preview_matches_the_scoring_window(
         self, _name: str, horizon_days: int, expected_lookback: int
     ) -> None:
-        # Scoring anchors on max(30, 4 * horizon); previewing over the 180-day training
-        # lookback overstates the population that will actually be scored.
+        # Scoring anchors on max(30, 4 * horizon) at the UTC midnight of the prediction date;
+        # previewing over the training lookback at now() would count a different population.
         with patch("products.autoresearch.backend.dataset.validation.run_hogql_rows") as mock_run:
             mock_run.side_effect = _mock_rows(100, 1000)
             _run_validation(
@@ -169,6 +169,7 @@ class TestValidationWarnings(BaseTest):
             )
         inference_query = mock_run.call_args_list[2].kwargs["query"]
         assert inference_query.values["lookback"] == expected_lookback
+        assert inference_query.values["cutoff_ts"] % 86400 == 0
 
     def test_training_window_is_the_configured_lookback(self) -> None:
         with patch("products.autoresearch.backend.dataset.validation.run_hogql_rows") as mock_run:
