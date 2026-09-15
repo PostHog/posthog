@@ -403,24 +403,24 @@ export interface PaginatedDashboardBasicListApi {
     results: DashboardBasicApi[]
 }
 
-export type DashboardApiFilters = { [key: string]: unknown }
+export type DashboardCreateApiFilters = { [key: string]: unknown }
 
 /**
  * @nullable
  */
-export type DashboardApiVariables = { [key: string]: unknown } | null
+export type DashboardCreateApiVariables = { [key: string]: unknown } | null
 
 /**
  * @nullable
  */
-export type DashboardApiPersistedFilters = { [key: string]: unknown } | null
+export type DashboardCreateApiPersistedFilters = { [key: string]: unknown } | null
 
 /**
  * @nullable
  */
-export type DashboardApiPersistedVariables = { [key: string]: unknown } | null
+export type DashboardCreateApiPersistedVariables = { [key: string]: unknown } | null
 
-export type DashboardApiTilesItem = { [key: string]: unknown }
+export type DashboardCreateApiTilesItem = { [key: string]: unknown }
 
 /**
  * * `auto` - auto
@@ -514,15 +514,154 @@ export interface DashboardCustomizationApi {
  * * `onboarding` - onboarding
  * * `posthog_ai` - posthog_ai
  */
-export type SourceContextEnumApi = (typeof SourceContextEnumApi)[keyof typeof SourceContextEnumApi]
+export type DashboardSourceContextEnumApi =
+    (typeof DashboardSourceContextEnumApi)[keyof typeof DashboardSourceContextEnumApi]
 
-export const SourceContextEnumApi = {
+export const DashboardSourceContextEnumApi = {
     Templates: 'templates',
     Experiments: 'experiments',
     Metrics: 'metrics',
     Onboarding: 'onboarding',
     PosthogAi: 'posthog_ai',
 } as const
+
+/**
+ * Serializer mixin that handles tags for objects.
+ */
+export interface DashboardCreateApi {
+    readonly id: number
+    /**
+     * @maxLength 400
+     * @nullable
+     */
+    name?: string | null
+    description?: string
+    pinned?: boolean
+    readonly created_at: string
+    readonly created_by: UserBasicApi
+    /** @nullable */
+    last_accessed_at?: string | null
+    /** @nullable */
+    readonly last_viewed_at: string | null
+    /**
+     * Path of the project-tree folder this dashboard is filed under in the file system, e.g. 'Unfiled/Dashboards'. An empty string means the project root; null means the dashboard has no file system entry. The dashboard's own name is not part of the path.
+     * @nullable
+     */
+    readonly folder: string | null
+    /**
+     * Id of this dashboard's file system entry, or null when it has none. Together with `file_system_path` this is everything a caller needs to move the dashboard between folders, so a list page does not have to look the entry up separately.
+     * @nullable
+     */
+    readonly file_system_id: string | null
+    /**
+     * Full path of this dashboard's file system entry, e.g. 'Unfiled/Dashboards/Revenue'. Unlike `folder` this keeps the dashboard's own name as the last segment, which is what a move needs in order to compute the destination path. Null when it has no entry.
+     * @nullable
+     */
+    readonly file_system_path: string | null
+    readonly is_shared: boolean
+    deleted?: boolean
+    readonly creation_mode: DashboardCreationModeEnumApi
+    readonly filters: DashboardCreateApiFilters
+    /** @nullable */
+    readonly variables: DashboardCreateApiVariables
+    /**
+     * Colors pinned to specific breakdown values across the dashboard's tiles. A list of entries, not an object keyed by breakdown value. Send an empty list to clear them.
+     * @nullable
+     */
+    breakdown_colors?: BreakdownColorConfigApi[] | null
+    /**
+     * ID of the color theme used for chart visualizations.
+     * @nullable
+     */
+    data_color_theme_id?: number | null
+    tags?: unknown[]
+    restriction_level?: RestrictionLevelEnumApi
+    readonly effective_restriction_level: RestrictionLevelEnumApi
+    readonly effective_privilege_level: PrivilegeLevelEnumApi
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level: string | null
+    readonly access_control_version: string
+    /** @nullable */
+    last_refresh?: string | null
+    /** @nullable */
+    readonly persisted_filters: DashboardCreateApiPersistedFilters
+    /** @nullable */
+    readonly persisted_variables: DashboardCreateApiPersistedVariables
+    readonly team_id: number
+    /**
+     * List of quick filter IDs associated with this dashboard
+     * @nullable
+     */
+    quick_filter_ids?: string[] | null
+    /** Dashboard display settings. */
+    readonly customization: DashboardCustomizationApi
+    /** Named tile density preset. Use tight, condensed, standard, relaxed, or wide.
+     *
+     * * `tight` - tight
+     * * `condensed` - condensed
+     * * `standard` - standard
+     * * `relaxed` - relaxed
+     * * `wide` - wide */
+    grid_spacing?: TileSpacingEnumApi
+    /** How tiles rearrange after a move or resize. vertical stacks tiles upward, horizontal stacks tiles to the left, and stable preserves positions while moving colliding tiles.
+     *
+     * * `vertical` - vertical
+     * * `horizontal` - horizontal
+     * * `stable` - stable */
+    layout_compaction?: LayoutCompactionEnumApi
+    /** @nullable */
+    readonly tiles: readonly DashboardCreateApiTilesItem[] | null
+    /** Template key to create the dashboard from a predefined template. */
+    use_template?: string
+    /**
+     * ID of an existing dashboard to duplicate.
+     * @nullable
+     */
+    use_dashboard?: number | null
+    /** When deleting, also delete insights that are only on this dashboard. */
+    delete_insights?: boolean
+    _create_in_folder?: string
+    /** Surface that created the dashboard. Reported on the `dashboard created` event.
+     *
+     * * `templates` - templates
+     * * `experiments` - experiments
+     * * `metrics` - metrics
+     * * `onboarding` - onboarding
+     * * `posthog_ai` - posthog_ai */
+    source_context?: DashboardSourceContextEnumApi | null
+}
+
+export interface DashboardCollaboratorApi {
+    readonly id: string
+    readonly dashboard_id: number
+    readonly user: UserBasicApi
+    level: RestrictionLevelEnumApi
+    readonly added_at: string
+    readonly updated_at: string
+    user_uuid: string
+}
+
+export type DashboardApiFilters = { [key: string]: unknown }
+
+/**
+ * @nullable
+ */
+export type DashboardApiVariables = { [key: string]: unknown } | null
+
+/**
+ * @nullable
+ */
+export type DashboardApiPersistedFilters = { [key: string]: unknown } | null
+
+/**
+ * @nullable
+ */
+export type DashboardApiPersistedVariables = { [key: string]: unknown } | null
+
+export type DashboardApiTilesItem = { [key: string]: unknown }
 
 /**
  * Serializer mixin that handles tags for objects.
@@ -622,25 +761,7 @@ export interface DashboardApi {
     use_dashboard?: number | null
     /** When deleting, also delete insights that are only on this dashboard. */
     delete_insights?: boolean
-    /** Surface that created the dashboard. Reported on the `dashboard created` event.
-     *
-     * * `templates` - templates
-     * * `experiments` - experiments
-     * * `metrics` - metrics
-     * * `onboarding` - onboarding
-     * * `posthog_ai` - posthog_ai */
-    source_context?: SourceContextEnumApi | null
     _create_in_folder?: string
-}
-
-export interface DashboardCollaboratorApi {
-    readonly id: string
-    readonly dashboard_id: number
-    readonly user: UserBasicApi
-    level: RestrictionLevelEnumApi
-    readonly added_at: string
-    readonly updated_at: string
-    user_uuid: string
 }
 
 /**

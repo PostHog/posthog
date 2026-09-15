@@ -1795,6 +1795,15 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             expected_status=status.HTTP_400_BAD_REQUEST,
         )
 
+    def test_dashboard_update_rejects_source_context(self):
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "another"})
+
+        self.dashboard_api.update_dashboard(
+            dashboard_id,
+            {"source_context": "experiments"},
+            expected_status=status.HTTP_400_BAD_REQUEST,
+        )
+
     @patch("products.dashboards.backend.api.dashboard.report_user_action")
     def test_soft_delete_reports_dashboard_deleted(self, mock_report_user_action):
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "to delete"})

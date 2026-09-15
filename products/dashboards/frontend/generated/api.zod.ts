@@ -359,6 +359,7 @@ export const DashboardsCreateBody = /* @__PURE__ */ zod
             .boolean()
             .default(dashboardsCreateBodyDeleteInsightsDefault)
             .describe('When deleting, also delete insights that are only on this dashboard.'),
+        _create_in_folder: zod.string().optional(),
         source_context: zod
             .union([
                 zod
@@ -372,7 +373,6 @@ export const DashboardsCreateBody = /* @__PURE__ */ zod
             .describe(
                 'Surface that created the dashboard. Reported on the `dashboard created` event.\n\n\* `templates` - templates\n\* `experiments` - experiments\n\* `metrics` - metrics\n\* `onboarding` - onboarding\n\* `posthog_ai` - posthog_ai'
             ),
-        _create_in_folder: zod.string().optional(),
     })
     .describe('Serializer mixin that handles tags for objects.')
 
@@ -475,19 +475,6 @@ export const DashboardsUpdateBody = /* @__PURE__ */ zod
             .boolean()
             .default(dashboardsUpdateBodyDeleteInsightsDefault)
             .describe('When deleting, also delete insights that are only on this dashboard.'),
-        source_context: zod
-            .union([
-                zod
-                    .enum(['templates', 'experiments', 'metrics', 'onboarding', 'posthog_ai'])
-                    .describe(
-                        '\* `templates` - templates\n\* `experiments` - experiments\n\* `metrics` - metrics\n\* `onboarding` - onboarding\n\* `posthog_ai` - posthog_ai'
-                    ),
-                zod.null(),
-            ])
-            .optional()
-            .describe(
-                'Surface that created the dashboard. Reported on the `dashboard created` event.\n\n\* `templates` - templates\n\* `experiments` - experiments\n\* `metrics` - metrics\n\* `onboarding` - onboarding\n\* `posthog_ai` - posthog_ai'
-            ),
         _create_in_folder: zod.string().optional(),
     })
     .describe('Serializer mixin that handles tags for objects.')
@@ -3713,19 +3700,6 @@ export const DashboardsCreateFromTemplateJsonCreateBody = /* @__PURE__ */ zod
             .boolean()
             .default(dashboardsCreateFromTemplateJsonCreateBodyDeleteInsightsDefault)
             .describe('When deleting, also delete insights that are only on this dashboard.'),
-        source_context: zod
-            .union([
-                zod
-                    .enum(['templates', 'experiments', 'metrics', 'onboarding', 'posthog_ai'])
-                    .describe(
-                        '\* `templates` - templates\n\* `experiments` - experiments\n\* `metrics` - metrics\n\* `onboarding` - onboarding\n\* `posthog_ai` - posthog_ai'
-                    ),
-                zod.null(),
-            ])
-            .optional()
-            .describe(
-                'Surface that created the dashboard. Reported on the `dashboard created` event.\n\n\* `templates` - templates\n\* `experiments` - experiments\n\* `metrics` - metrics\n\* `onboarding` - onboarding\n\* `posthog_ai` - posthog_ai'
-            ),
         _create_in_folder: zod.string().optional(),
     })
     .describe('Serializer mixin that handles tags for objects.')
@@ -3827,19 +3801,6 @@ export const DashboardsCreateUnlistedDashboardCreateBody = /* @__PURE__ */ zod
             .boolean()
             .default(dashboardsCreateUnlistedDashboardCreateBodyDeleteInsightsDefault)
             .describe('When deleting, also delete insights that are only on this dashboard.'),
-        source_context: zod
-            .union([
-                zod
-                    .enum(['templates', 'experiments', 'metrics', 'onboarding', 'posthog_ai'])
-                    .describe(
-                        '\* `templates` - templates\n\* `experiments` - experiments\n\* `metrics` - metrics\n\* `onboarding` - onboarding\n\* `posthog_ai` - posthog_ai'
-                    ),
-                zod.null(),
-            ])
-            .optional()
-            .describe(
-                'Surface that created the dashboard. Reported on the `dashboard created` event.\n\n\* `templates` - templates\n\* `experiments` - experiments\n\* `metrics` - metrics\n\* `onboarding` - onboarding\n\* `posthog_ai` - posthog_ai'
-            ),
         _create_in_folder: zod.string().optional(),
     })
     .describe('Serializer mixin that handles tags for objects.')

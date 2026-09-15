@@ -125,7 +125,7 @@ from products.dashboards.backend.constants import (
     MAX_WIDGETS_BATCH_SIZE,
 )
 from products.dashboards.backend.facade.api import DashboardTileBasicSerializer
-from products.dashboards.backend.facade.enums import PrivilegeLevel, RestrictionLevel
+from products.dashboards.backend.facade.enums import DashboardSourceContext, PrivilegeLevel, RestrictionLevel
 from products.dashboards.backend.feature_flags import dashboard_widgets_enabled
 from products.dashboards.backend.models.dashboard import (
     DASHBOARD_GRID_COMPACTION_MODES,
@@ -1523,13 +1523,6 @@ class DashboardSerializer(DashboardMetadataSerializer):
         default=False,
         help_text="When deleting, also delete insights that are only on this dashboard.",
     )
-    source_context = serializers.ChoiceField(
-        choices=DASHBOARD_SOURCE_CONTEXT_CHOICES,
-        write_only=True,
-        required=False,
-        allow_null=True,
-        help_text="Surface that created the dashboard. Reported on the `dashboard created` event.",
-    )
     _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
 
     class Meta:
@@ -1540,7 +1533,6 @@ class DashboardSerializer(DashboardMetadataSerializer):
             "use_template",
             "use_dashboard",
             "delete_insights",
-            "source_context",
             "_create_in_folder",
         ]
         read_only_fields = ["creation_mode", "effective_restriction_level", "is_shared", "user_access_level"]
@@ -1856,7 +1848,6 @@ class DashboardSerializer(DashboardMetadataSerializer):
             )
 
         validated_data.pop("use_template", None)  # Remove attribute if present
-        validated_data.pop("source_context", None)
         grid_spacing = validated_data.pop("grid_spacing", None)
         layout_compaction = validated_data.pop("layout_compaction", None)
         if grid_spacing is not None or layout_compaction is not None:
@@ -2429,6 +2420,8 @@ class DashboardSerializer(DashboardMetadataSerializer):
         return serialized_tiles
 
     def validate(self, data):
+        if self.instance is not None and "source_context" in self.initial_data:
+            raise serializers.ValidationError({"source_context": "This field is only valid when creating a dashboard."})
         if data.get("use_dashboard", None) and data.get("use_template", None):
             raise serializers.ValidationError("`use_dashboard` and `use_template` cannot be used together")
         return data
@@ -2440,6 +2433,19 @@ class DashboardSerializer(DashboardMetadataSerializer):
             return {**validated_data, "creation_mode": "duplicate"}
 
         return {**validated_data, "creation_mode": "default"}
+
+
+class DashboardCreateSerializer(DashboardSerializer):
+    source_context = serializers.ChoiceField(
+        choices=DashboardSourceContext.choices,
+        write_only=True,
+        required=False,
+        allow_null=True,
+        help_text="Surface that created the dashboard. Reported on the `dashboard created` event.",
+    )
+
+    class Meta(DashboardSerializer.Meta):
+        fields = [*DashboardSerializer.Meta.fields, "source_context"]
 
 
 class DashboardSubscribeNudgeResponseSerializer(serializers.Serializer):
@@ -2518,7 +2524,11 @@ class DashboardsViewSet(
         return context
 
     def get_serializer_class(self) -> type[BaseSerializer]:
-        return DashboardBasicSerializer if self.action == "list" else DashboardSerializer
+        if self.action == "list":
+            return DashboardBasicSerializer
+        if self.action == "create":
+            return DashboardCreateSerializer
+        return DashboardSerializer
 
     def filter_queryset(self, queryset: QuerySet) -> QuerySet:
         queryset = super().filter_queryset(queryset)

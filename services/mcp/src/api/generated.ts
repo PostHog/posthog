@@ -22110,24 +22110,6 @@ export namespace Schemas {
     }
 
     /**
-     * * `templates` - templates
-     * * `experiments` - experiments
-     * * `metrics` - metrics
-     * * `onboarding` - onboarding
-     * * `posthog_ai` - posthog_ai
-     */
-    export type SourceContextEnum = typeof SourceContextEnum[keyof typeof SourceContextEnum];
-
-
-    export const SourceContextEnum = {
-      Templates: 'templates',
-      Experiments: 'experiments',
-      Metrics: 'metrics',
-      Onboarding: 'onboarding',
-      PosthogAi: 'posthog_ai',
-    } as const;
-
-    /**
      * Serializer mixin that handles tags for objects.
      */
     export interface Dashboard {
@@ -22225,14 +22207,6 @@ export namespace Schemas {
       use_dashboard?: number | null;
       /** When deleting, also delete insights that are only on this dashboard. */
       delete_insights?: boolean;
-      /** Surface that created the dashboard. Reported on the `dashboard created` event.
-       *
-       * * `templates` - templates
-       * * `experiments` - experiments
-       * * `metrics` - metrics
-       * * `onboarding` - onboarding
-       * * `posthog_ai` - posthog_ai */
-      source_context?: SourceContextEnum | null;
       _create_in_folder?: string;
     }
 
@@ -22303,6 +22277,152 @@ export namespace Schemas {
       readonly added_at: string;
       readonly updated_at: string;
       user_uuid: string;
+    }
+
+    export type DashboardCreateFilters = { [key: string]: unknown };
+
+    /**
+     * @nullable
+     */
+    export type DashboardCreateVariables = { [key: string]: unknown } | null;
+
+    /**
+     * @nullable
+     */
+    export type DashboardCreatePersistedFilters = { [key: string]: unknown } | null;
+
+    /**
+     * @nullable
+     */
+    export type DashboardCreatePersistedVariables = { [key: string]: unknown } | null;
+
+    export type DashboardCreateTilesItem = { [key: string]: unknown };
+
+    /**
+     * * `templates` - templates
+     * * `experiments` - experiments
+     * * `metrics` - metrics
+     * * `onboarding` - onboarding
+     * * `posthog_ai` - posthog_ai
+     */
+    export type DashboardSourceContextEnum = typeof DashboardSourceContextEnum[keyof typeof DashboardSourceContextEnum];
+
+
+    export const DashboardSourceContextEnum = {
+      Templates: 'templates',
+      Experiments: 'experiments',
+      Metrics: 'metrics',
+      Onboarding: 'onboarding',
+      PosthogAi: 'posthog_ai',
+    } as const;
+
+    /**
+     * Serializer mixin that handles tags for objects.
+     */
+    export interface DashboardCreate {
+      readonly id: number;
+      /**
+         * @maxLength 400
+         * @nullable
+         */
+      name?: string | null;
+      description?: string;
+      pinned?: boolean;
+      readonly created_at: string;
+      readonly created_by: UserBasic;
+      /** @nullable */
+      last_accessed_at?: string | null;
+      /** @nullable */
+      readonly last_viewed_at: string | null;
+      /**
+         * Path of the project-tree folder this dashboard is filed under in the file system, e.g. 'Unfiled/Dashboards'. An empty string means the project root; null means the dashboard has no file system entry. The dashboard's own name is not part of the path.
+         * @nullable
+         */
+      readonly folder: string | null;
+      /**
+         * Id of this dashboard's file system entry, or null when it has none. Together with `file_system_path` this is everything a caller needs to move the dashboard between folders, so a list page does not have to look the entry up separately.
+         * @nullable
+         */
+      readonly file_system_id: string | null;
+      /**
+         * Full path of this dashboard's file system entry, e.g. 'Unfiled/Dashboards/Revenue'. Unlike `folder` this keeps the dashboard's own name as the last segment, which is what a move needs in order to compute the destination path. Null when it has no entry.
+         * @nullable
+         */
+      readonly file_system_path: string | null;
+      readonly is_shared: boolean;
+      deleted?: boolean;
+      readonly creation_mode: DashboardCreationModeEnum;
+      readonly filters: DashboardCreateFilters;
+      /** @nullable */
+      readonly variables: DashboardCreateVariables;
+      /**
+         * Colors pinned to specific breakdown values across the dashboard's tiles. A list of entries, not an object keyed by breakdown value. Send an empty list to clear them.
+         * @nullable
+         */
+      breakdown_colors?: BreakdownColorConfig[] | null;
+      /**
+         * ID of the color theme used for chart visualizations.
+         * @nullable
+         */
+      data_color_theme_id?: number | null;
+      tags?: unknown[];
+      restriction_level?: RestrictionLevelEnum;
+      readonly effective_restriction_level: RestrictionLevelEnum;
+      readonly effective_privilege_level: PrivilegeLevelEnum;
+      /**
+         * The effective access level the user has for this object
+         * @nullable
+         */
+      readonly user_access_level: string | null;
+      readonly access_control_version: string;
+      /** @nullable */
+      last_refresh?: string | null;
+      /** @nullable */
+      readonly persisted_filters: DashboardCreatePersistedFilters;
+      /** @nullable */
+      readonly persisted_variables: DashboardCreatePersistedVariables;
+      readonly team_id: number;
+      /**
+         * List of quick filter IDs associated with this dashboard
+         * @nullable
+         */
+      quick_filter_ids?: string[] | null;
+      /** Dashboard display settings. */
+      readonly customization: DashboardCustomization;
+      /** Named tile density preset. Use tight, condensed, standard, relaxed, or wide.
+       *
+       * * `tight` - tight
+       * * `condensed` - condensed
+       * * `standard` - standard
+       * * `relaxed` - relaxed
+       * * `wide` - wide */
+      grid_spacing?: TileSpacingEnum;
+      /** How tiles rearrange after a move or resize. vertical stacks tiles upward, horizontal stacks tiles to the left, and stable preserves positions while moving colliding tiles.
+       *
+       * * `vertical` - vertical
+       * * `horizontal` - horizontal
+       * * `stable` - stable */
+      layout_compaction?: LayoutCompactionEnum;
+      /** @nullable */
+      readonly tiles: readonly DashboardCreateTilesItem[] | null;
+      /** Template key to create the dashboard from a predefined template. */
+      use_template?: string;
+      /**
+         * ID of an existing dashboard to duplicate.
+         * @nullable
+         */
+      use_dashboard?: number | null;
+      /** When deleting, also delete insights that are only on this dashboard. */
+      delete_insights?: boolean;
+      _create_in_folder?: string;
+      /** Surface that created the dashboard. Reported on the `dashboard created` event.
+       *
+       * * `templates` - templates
+       * * `experiments` - experiments
+       * * `metrics` - metrics
+       * * `onboarding` - onboarding
+       * * `posthog_ai` - posthog_ai */
+      source_context?: DashboardSourceContextEnum | null;
     }
 
     /**

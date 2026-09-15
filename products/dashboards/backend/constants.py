@@ -1,3 +1,6 @@
+from products.dashboards.backend.facade.enums import DashboardSourceContext
+
+
 # Keep in sync with frontend `BREAKPOINT_COLUMN_COUNTS.sm`.
 DASHBOARD_GRID_COLUMN_COUNT = 12
 
@@ -55,12 +58,6 @@ WIDGET_DATE_FROM_LABELS: dict[str, str] = {
 }
 
 # Surface that creates a dashboard, reported on the `dashboard created` event.
-DASHBOARD_SOURCE_CONTEXT_POSTHOG_AI = "posthog_ai"
+DASHBOARD_SOURCE_CONTEXT_POSTHOG_AI = DashboardSourceContext.POSTHOG_AI
 
-DASHBOARD_SOURCE_CONTEXT_CHOICES: tuple[str, ...] = (
-    "templates",
-    "experiments",
-    "metrics",
-    "onboarding",
-    DASHBOARD_SOURCE_CONTEXT_POSTHOG_AI,
-)
+DASHBOARD_SOURCE_CONTEXT_CHOICES: tuple[str, ...] = tuple(DashboardSourceContext.values)

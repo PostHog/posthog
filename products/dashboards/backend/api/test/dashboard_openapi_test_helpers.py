@@ -14,7 +14,6 @@ DASHBOARD_PATCH_OPENAPI_EXCLUDED_RUNTIME_FIELDS: frozenset[str] = frozenset(
     {
         "_create_in_folder",  # create-only write_only
         "created_at",
-        "source_context",  # create-only write_only, discarded by DashboardSerializer.update
         "deleted",
         "id",
         "last_accessed_at",
