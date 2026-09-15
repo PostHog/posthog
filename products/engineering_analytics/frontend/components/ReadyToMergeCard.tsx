@@ -6,9 +6,32 @@ import { LemonCard, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 
 import type { DeliverySummaryApi } from '../generated/api.schemas'
 import { compactAgeLabel, percent } from '../lib/format'
+import { ComparisonBarRow } from './ComparisonBarRow'
 
 const BEFORE_APPROVAL_COLOR = 'var(--data-color-3)'
 const AFTER_APPROVAL_COLOR = 'var(--data-color-1)'
+
+function ApprovalSplit({ beforeShare }: { beforeShare: number | null }): JSX.Element {
+    if (beforeShare == null) {
+        return <div className="h-full bg-[var(--muted)]" />
+    }
+    return (
+        <div className="flex h-full gap-px">
+            <Tooltip title={`Before the first approval: ${percent(beforeShare)} of the hours`}>
+                <div
+                    className="h-full"
+                    style={{ flex: `${beforeShare} 1 0`, backgroundColor: BEFORE_APPROVAL_COLOR }}
+                />
+            </Tooltip>
+            <Tooltip title={`After the first approval: ${percent(1 - beforeShare)} of the hours`}>
+                <div
+                    className="h-full"
+                    style={{ flex: `${1 - beforeShare} 1 0`, backgroundColor: AFTER_APPROVAL_COLOR }}
+                />
+            </Tooltip>
+        </div>
+    )
+}
 
 function SplitRow({
     label,
@@ -26,43 +49,15 @@ function SplitRow({
     isScope: boolean
 }): JSX.Element {
     return (
-        <div className="flex items-center gap-2">
-            <span className="w-20 shrink-0 text-[11px] text-tertiary">{label}</span>
-            <div className="relative h-2.5 flex-1">
-                <div
-                    className={`flex h-full gap-px overflow-hidden rounded-sm ${isScope ? '' : 'opacity-50'}`}
-                    style={{ width: `${Math.max((value / max) * 100, 2)}%` }}
-                >
-                    {beforeShare != null ? (
-                        <>
-                            <Tooltip title={`Before the first approval: ${percent(beforeShare)} of the hours`}>
-                                <div
-                                    className="h-full"
-                                    style={{ flex: `${beforeShare} 1 0`, backgroundColor: BEFORE_APPROVAL_COLOR }}
-                                />
-                            </Tooltip>
-                            <Tooltip title={`After the first approval: ${percent(1 - beforeShare)} of the hours`}>
-                                <div
-                                    className="h-full"
-                                    style={{ flex: `${1 - beforeShare} 1 0`, backgroundColor: AFTER_APPROVAL_COLOR }}
-                                />
-                            </Tooltip>
-                        </>
-                    ) : (
-                        <div className="h-full flex-1 bg-[var(--muted)]" />
-                    )}
-                </div>
-                {p90 != null && (
-                    <Tooltip title={`90th percentile ${compactAgeLabel(p90)}`}>
-                        <div
-                            className="absolute -top-0.5 h-3.5 w-0.5 -translate-x-1/2 rounded-sm bg-[var(--text-3000)]"
-                            style={{ left: `${(p90 / max) * 100}%` }}
-                        />
-                    </Tooltip>
-                )}
-            </div>
-            <span className="w-14 shrink-0 text-right text-xs font-medium tabular-nums">{compactAgeLabel(value)}</span>
-        </div>
+        <ComparisonBarRow
+            label={label}
+            value={compactAgeLabel(value)}
+            fraction={value / max}
+            muted={!isScope}
+            marker={p90 != null ? { fraction: p90 / max, tooltip: `90th percentile ${compactAgeLabel(p90)}` } : null}
+        >
+            <ApprovalSplit beforeShare={beforeShare} />
+        </ComparisonBarRow>
     )
 }
 

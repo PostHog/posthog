@@ -7,6 +7,7 @@ import { ReactNode } from 'react'
 import { LemonCard, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 
 import type { ScopeRepoFigureApi } from '../generated/api.schemas'
+import { ComparisonBarRow } from './ComparisonBarRow'
 
 function ComparisonRow({
     label,
@@ -26,24 +27,17 @@ function ComparisonRow({
     markerLabel?: string
 }): JSX.Element {
     return (
-        <div className="flex items-center gap-2">
-            <span className="w-20 shrink-0 text-[11px] text-tertiary">{label}</span>
-            <div className="relative h-2.5 flex-1 rounded-sm">
-                <div
-                    className={`h-full rounded-sm ${isScope ? 'bg-[var(--data-color-1)]' : 'bg-[var(--muted)]'}`}
-                    style={{ width: `${Math.max(max > 0 ? (value / max) * 100 : 0, 2)}%` }}
-                />
-                {marker != null && max > 0 && (
-                    <Tooltip title={`${markerLabel} ${formatValue(marker)}`}>
-                        <div
-                            className="absolute -top-0.5 h-3.5 w-0.5 -translate-x-1/2 rounded-sm bg-[var(--text-3000)]"
-                            style={{ left: `${(marker / max) * 100}%` }}
-                        />
-                    </Tooltip>
-                )}
-            </div>
-            <span className="w-14 shrink-0 text-right text-xs font-medium tabular-nums">{formatValue(value)}</span>
-        </div>
+        <ComparisonBarRow
+            label={label}
+            value={formatValue(value)}
+            fraction={max > 0 ? value / max : 0}
+            muted={!isScope}
+            marker={
+                marker != null && max > 0
+                    ? { fraction: marker / max, tooltip: `${markerLabel} ${formatValue(marker)}` }
+                    : null
+            }
+        />
     )
 }
 
