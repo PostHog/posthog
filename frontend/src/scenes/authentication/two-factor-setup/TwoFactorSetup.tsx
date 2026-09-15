@@ -25,17 +25,18 @@ export function TwoFactorSetup({ onSuccess }: { onSuccess: () => void }): JSX.El
                 enableFormOnSubmit
                 className="flex flex-col deprecated-space-y-4"
             >
-                <div className="flex flex-col items-center">
-                    <div className="bg-white p-4 rounded">
-                        <img
-                            src="/account/two_factor/qrcode/"
-                            className="Setup2FA__image"
-                            alt="QR code for two-factor authentication setup"
-                        />
-                    </div>
+                {/* Without a secret the user already has an authenticator and only has to verify. */}
+                {startSetup?.secret && (
+                    <div className="flex flex-col items-center">
+                        <div className="bg-white p-4 rounded">
+                            <img
+                                src="/account/two_factor/qrcode/"
+                                className="Setup2FA__image"
+                                alt="QR code for two-factor authentication setup"
+                            />
+                        </div>
 
-                    {/* Secret key for manual entry */}
-                    {startSetup?.secret && (
+                        {/* Secret key for manual entry */}
                         <div className="ph-no-capture mt-4 p-3 bg-secondary rounded text-center w-full max-w-md">
                             <p className="text-default">
                                 If you can't scan the QR code, you can use the secret key below to manually set up your
@@ -45,8 +46,8 @@ export function TwoFactorSetup({ onSuccess }: { onSuccess: () => void }): JSX.El
                                 {startSetup.secret}
                             </CopyToClipboardInline>
                         </div>
-                    )}
-                </div>
+                    </div>
+                )}
                 {generalError && <LemonBanner type="error">{generalError.detail}</LemonBanner>}
                 <LemonField name="token" label="Authenticator token">
                     {({ value, onChange, id }) => (
