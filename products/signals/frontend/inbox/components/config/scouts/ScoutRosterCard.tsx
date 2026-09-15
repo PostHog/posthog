@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
+import { Link } from '@posthog/lemon-ui'
 
 import { cn } from 'lib/utils/css-classes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -10,7 +10,7 @@ import { scoutFleetLogic } from '../../../logics/scoutFleetLogic'
 import { nextRunAt, SCOUT_GROUP_LABEL, ScoutRosterRow, scoutSubtitle } from '../../../utils/scoutGroups'
 import { scoutDisplayName } from '../../../utils/scoutRunsWindow'
 import { inboxCardRowClassName } from '../../cards/inboxCardRowClassName'
-import { ScoutLifecycleBadge } from './ScoutBadges'
+import { ScoutExemptionBadge, ScoutLifecycleBadge } from './ScoutBadges'
 import { ScoutCadenceLabel } from './ScoutCadenceLabel'
 import { ScoutEnabledSwitch } from './ScoutConfigControls'
 import { ScoutCostLine } from './ScoutCostLine'
@@ -71,11 +71,7 @@ export function ScoutRosterCard({ row }: { row: ScoutRosterRow }): JSX.Element {
                             {scoutDisplayName(config)}
                         </span>
                         <ScoutWriteAccessTag writeScopes={config.write_scopes} emit={config.emit} />
-                        {config.auto_pause_exempt && group === 'watching' && (
-                            <Tooltip title="Exempt from auto-pause, because this scout is supposed to stay quiet">
-                                <LemonTag size="small">Quiet by design</LemonTag>
-                            </Tooltip>
-                        )}
+                        <ScoutExemptionBadge config={config} group={group} />
                         <ScoutLifecycleBadge config={config} />
                     </div>
                     {subtitle && (

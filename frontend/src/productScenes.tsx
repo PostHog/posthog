@@ -98,6 +98,7 @@ export const productScenes: Record<string, () => Promise<any>> = {
     FeatureFlagsStaffTools: () => import('../../products/feature_flags/frontend/staff/FeatureFlagsStaffToolsScene'),
     Game368Hedgehogs: () => import('../../products/games/368Hedgehogs/368Hedgehogs'),
     FlappyHog: () => import('../../products/games/FlappyHog/FlappyHog'),
+    ShipIt: () => import('../../products/games/frontend/ShipIt/ShipIt'),
     Group: () => import('../../products/groups/frontend/pages/Group'),
     Groups: () => import('../../products/groups/frontend/pages/Groups'),
     GroupsNew: () => import('../../products/groups/frontend/pages/GroupsNew'),
