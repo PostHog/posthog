@@ -105,6 +105,7 @@ let body := {
     'data': [
         {
             'event_name': inputs.eventType,
+            'event_id': inputs.eventId,
             'action_source': inputs.actionSource,
             'event_time': inputs.eventTime,
             'event_source_url': inputs.eventSourceUrl,
