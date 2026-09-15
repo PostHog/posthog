@@ -126,7 +126,7 @@ function isScrollEvent(event: eventWithTime): boolean {
     return event.type === EventType.IncrementalSnapshot && event.data?.source === IncrementalSource.Scroll
 }
 
-// Subtract two nullable measurements; null unless both sides are present, so a gap of 0 stays meaningful
+// null unless both sides are present, so a real gap of 0 stays distinct from "unknown"
 function nullableDiff(a: number | null, b: number | null): number | null {
     return a !== null && b !== null ? a - b : null
 }
@@ -143,27 +143,27 @@ function pickWindow(byWindowId: Record<number, eventWithTime[]>, windowId: numbe
     return windowId !== null ? (byWindowId[windowId] ?? []) : []
 }
 
-// The window the player spends the timeline in (the most events), plus the loaded/dropped totals
+// The window the player spends the timeline in (the most events), plus the processed/dropped totals
 function summarizeWindows(
     snapshotsByWindowId: Record<number, eventWithTime[]>,
     playableSnapshotsByWindowId: Record<number, eventWithTime[]>
-): { windowCount: number; loadedEventCount: number; droppedEventCount: number; primaryWindowId: number | null } {
+): { windowCount: number; processedEventCount: number; droppedEventCount: number; primaryWindowId: number | null } {
     const windowIds = Object.keys(snapshotsByWindowId)
     let primaryWindowId: number | null = null
     let primaryCount = -1
-    let loadedEventCount = 0
+    let processedEventCount = 0
     let droppedEventCount = 0
     for (const windowIdKey of windowIds) {
-        const windowId = windowIdKey as unknown as number
+        const windowId = Number(windowIdKey)
         const rawCount = snapshotsByWindowId[windowId]?.length ?? 0
-        loadedEventCount += rawCount
+        processedEventCount += rawCount
         droppedEventCount += rawCount - (playableSnapshotsByWindowId[windowId]?.length ?? 0)
         if (rawCount > primaryCount) {
             primaryCount = rawCount
             primaryWindowId = windowId
         }
     }
-    return { windowCount: windowIds.length, loadedEventCount, droppedEventCount, primaryWindowId }
+    return { windowCount: windowIds.length, processedEventCount, droppedEventCount, primaryWindowId }
 }
 
 // The node scrolled most often — the main page scroll rather than an inner carousel or table
@@ -223,7 +223,6 @@ function countOversizedRanges(oversizedMutationRanges: Record<number, OversizedM
     return total
 }
 
-// Bounded by the fixed set of source types, so the payload stays small
 function countSources(sources: SessionRecordingSnapshotSource[] | null): Record<string, number> {
     const sourceCounts: Record<string, number> = {}
     for (const source of sources ?? []) {
@@ -232,13 +231,11 @@ function countSources(sources: SessionRecordingSnapshotSource[] | null): Record<
     return sourceCounts
 }
 
-// One bounded snapshot of the values that decide which frame the player first draws. Two viewers of
-// the same recording who see different frames must differ in one of these fields, so capturing it on
-// each load lets us diff the two loads instead of guessing. The likely culprits, in order: a
-// loaded_vs_server_gap (the client decoded fewer events than the server counted — dropped head bytes
-// move the time base later), a start_gap_ms (event start and snapshot start disagree), a base_shift_ms
-// (the playable filter moved the base after first render), a different source_counts set, or a
-// scroll_y_at_start that lands the first frame far down the page.
+// One bounded snapshot of the values that decide which frame the player first draws. Two viewers of the
+// same recording who see different frames must differ in one of these fields, so capturing it on each
+// load lets us diff the two loads instead of guessing. Likely culprits: processed_vs_server_gap (fewer
+// events reached the player than the server counted — dropped bytes move the time base later),
+// start_gap_ms, base_shift_ms, a different source_counts set, or a scroll_y_at_start far down the page.
 export function buildAnchorDiagnostic(
     meta: SessionRecordingType | null,
     snapshotsByWindowId: Record<number, eventWithTime[]>,
@@ -267,8 +264,11 @@ export function buildAnchorDiagnostic(
         recording_id: meta?.id ?? null,
         is_brave: !!(navigator as unknown as { brave?: unknown }).brave,
         server_event_count: serverEventCount,
-        loaded_event_count: windows.loadedEventCount,
-        loaded_vs_server_gap: nullableDiff(serverEventCount, windows.loadedEventCount),
+        // Post-processing count (processAllSnapshots can synthesize full snapshots and patch meta events),
+        // so a clean load is not exactly 0. Read it by diffing the two loads: a large positive gap on one
+        // side means events did not reach that player.
+        processed_event_count: windows.processedEventCount,
+        processed_vs_server_gap: nullableDiff(serverEventCount, windows.processedEventCount),
         server_total_size: meta?.total_size ?? null,
         window_count: windows.windowCount,
         event_start_ms: eventStartMs,
