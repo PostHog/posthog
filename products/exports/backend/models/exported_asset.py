@@ -32,6 +32,8 @@ EXPORTED_ASSET_PURPOSE_RENDER = "render"
 EXPORTED_ASSET_PURPOSE_SUBSCRIPTION_DELIVERY = "subscription_delivery"
 DATASET_EXPORT_KIND = "dataset"
 
+_EXPIRY_DELETE_BATCH = 1000
+
 SEVEN_DAYS = timedelta(days=7)
 THIRTY_DAYS = timedelta(days=30)
 SIX_MONTHS = timedelta(days=180)
@@ -262,7 +264,24 @@ class ExportedAsset(models.Model):
     def delete_expired_assets(cls):
         expired_assets = ExportedAsset.objects_including_ttl_deleted.filter(expires_after__lte=now())
         logger.info("deleting_expired_assets", count=expired_assets.count())
-        expired_assets.delete()
+
+        # The file goes first: the row is the only pointer to it.
+        stored = expired_assets.exclude(content_location=None).exclude(content_location="")
+        while True:
+            chunk = list(stored.values_list("id", "content_location")[:_EXPIRY_DELETE_BATCH])
+            if not chunk:
+                break
+            failed = set(object_storage.delete_objects([location for _, location in chunk]))
+            if failed:
+                logger.warning("deleting_expired_assets_object_failures", count=len(failed))
+            # A row whose object survived stays expired, so the next run retries it.
+            deletable = [asset_id for asset_id, location in chunk if location not in failed]
+            if not deletable:
+                break
+            ExportedAsset.objects_including_ttl_deleted.filter(id__in=deletable).delete()
+
+        # Only rows that never stored an object.
+        expired_assets.filter(Q(content_location=None) | Q(content_location="")).delete()
 
     @classmethod
     def get_supported_format_values(cls):

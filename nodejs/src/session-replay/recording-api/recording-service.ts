@@ -399,7 +399,13 @@ export class RecordingService {
             return
         }
 
-        const tables = ['ee_single_session_summary', 'posthog_exportedrecording', 'posthog_comment'] as const
+        const tables = [
+            'ee_single_session_summary',
+            'posthog_exportedrecording',
+            'posthog_comment',
+            'replay_vision_replayobservation',
+            'posthog_exportedasset',
+        ] as const
         const results = await Promise.allSettled([
             this.postgres.query(
                 PostgresUse.COMMON_WRITE,
@@ -418,6 +424,43 @@ export class RecordingService {
                 `DELETE FROM posthog_comment WHERE team_id = $1 AND scope = 'recording' AND item_id = ANY($2)`,
                 [teamId, sessionIds],
                 'deleteRecordingComments'
+            ),
+            // One statement: the children's foreign keys are NO ACTION, so separate deletes would have to run child-first.
+            this.postgres.query(
+                PostgresUse.COMMON_WRITE,
+                `WITH observations AS (
+                     SELECT id FROM replay_vision_replayobservation
+                     WHERE team_id = $1 AND session_id = ANY($2)
+                 ), deleted_labels AS (
+                     DELETE FROM replay_vision_replayobservationlabel
+                     WHERE observation_id IN (SELECT id FROM observations)
+                 ), deleted_views AS (
+                     DELETE FROM replay_vision_replayobservationview
+                     WHERE observation_id IN (SELECT id FROM observations)
+                 ), deleted_matches AS (
+                     DELETE FROM replay_vision_visionalertmatch
+                     WHERE observation_id IN (SELECT id FROM observations)
+                 )
+                 DELETE FROM replay_vision_replayobservation
+                 WHERE id IN (SELECT id FROM observations)`,
+                [teamId, sessionIds],
+                'deleteReplayVisionObservations'
+            ),
+            // Expired, not deleted: the row is the only pointer to the stored object, which the expiry sweep needs.
+            this.postgres.query(
+                PostgresUse.COMMON_WRITE,
+                // `->` matches the jsonb value that exportedasset_system_session indexes; `->>` would not.
+                `UPDATE posthog_exportedasset
+                 SET expires_after = now()
+                 WHERE team_id = $1
+                   AND is_system
+                   AND export_format = 'video/mp4'
+                   AND expires_after > now()
+                   AND export_context -> 'session_recording_id' IN (
+                       SELECT to_jsonb(session_id) FROM unnest($2::text[]) AS session_id
+                   )`,
+                [teamId, sessionIds],
+                'expireReplayVisionAssets'
             ),
         ])
 

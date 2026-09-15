@@ -504,13 +504,25 @@ describe('RecordingService', () => {
 
             await service.deleteRecordings(['session-1', 'session-2'], 1, 'test@example.com')
 
-            // 3 DELETE statements + 1 activity log INSERT
-            expect(mockPostgres.query).toHaveBeenCalledTimes(4)
+            // 4 DELETE statements + 1 asset expiry UPDATE + 1 activity log INSERT
+            expect(mockPostgres.query).toHaveBeenCalledTimes(6)
             expect(mockPostgres.query).toHaveBeenCalledWith(
                 expect.anything(),
                 expect.stringContaining('ee_single_session_summary'),
                 [1, ['session-1', 'session-2']],
                 'deleteSessionSummaries'
+            )
+            expect(mockPostgres.query).toHaveBeenCalledWith(
+                expect.anything(),
+                expect.stringContaining('replay_vision_replayobservation'),
+                [1, ['session-1', 'session-2']],
+                'deleteReplayVisionObservations'
+            )
+            expect(mockPostgres.query).toHaveBeenCalledWith(
+                expect.anything(),
+                expect.stringContaining('posthog_exportedasset'),
+                [1, ['session-1', 'session-2']],
+                'expireReplayVisionAssets'
             )
         })
 
@@ -525,8 +537,8 @@ describe('RecordingService', () => {
 
             await service.deleteRecordings(['new-session', 'already-deleted-session'], 1, 'test@example.com')
 
-            // 3 DELETE statements + 1 activity log INSERT
-            expect(mockPostgres.query).toHaveBeenCalledTimes(4)
+            // 4 DELETE statements + 1 asset expiry UPDATE + 1 activity log INSERT
+            expect(mockPostgres.query).toHaveBeenCalledTimes(6)
             expect(mockPostgres.query).toHaveBeenCalledWith(
                 expect.anything(),
                 expect.stringContaining('ee_single_session_summary'),

@@ -74,6 +74,44 @@ class TestExportedAssetModel(APIBaseTest):
             assert list(ExportedAsset.objects.filter(id=asset.id)) == []
             assert list(ExportedAsset.objects_including_ttl_deleted.filter(id=asset.id)) == [asset]
 
+    def test_delete_expired_assets_removes_the_stored_object_first(self) -> None:
+        # A row deleted without its file strands the file in the bucket permanently.
+        expired = ExportedAsset.objects_including_ttl_deleted.create(
+            team=self.team,
+            created_by=self.user,
+            content_location="exports/mp4/team-1/task-1.mp4",
+            expires_after=datetime.now() - timedelta(days=1),
+        )
+        ExportedAsset.objects.create(
+            team=self.team,
+            created_by=self.user,
+            content_location="exports/mp4/team-1/task-2.mp4",
+            expires_after=datetime.now() + timedelta(days=1),
+        )
+
+        with patch("posthog.storage.object_storage.delete_objects", return_value=[]) as mock_delete:
+            ExportedAsset.delete_expired_assets()
+
+        mock_delete.assert_called_once_with(["exports/mp4/team-1/task-1.mp4"])
+        assert not ExportedAsset.objects_including_ttl_deleted.filter(id=expired.id).exists()
+
+    def test_delete_expired_assets_keeps_the_row_when_the_object_delete_fails(self) -> None:
+        # Losing the row here would leave the file unreachable, so the row waits for the next run.
+        expired = ExportedAsset.objects_including_ttl_deleted.create(
+            team=self.team,
+            created_by=self.user,
+            content_location="exports/mp4/team-1/task-3.mp4",
+            expires_after=datetime.now() - timedelta(days=1),
+        )
+
+        with patch(
+            "posthog.storage.object_storage.delete_objects",
+            return_value=["exports/mp4/team-1/task-3.mp4"],
+        ):
+            ExportedAsset.delete_expired_assets()
+
+        assert ExportedAsset.objects_including_ttl_deleted.filter(id=expired.id).exists()
+
     def test_delete_expired_assets(self) -> None:
         assert ExportedAsset.objects.count() == 0
 
