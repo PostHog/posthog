@@ -3,6 +3,7 @@ import { expectLogic } from 'kea-test-utils'
 import api from 'lib/api'
 
 import { initKeaTests } from '~/test/init'
+import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { type DailyToolStat, buildDailyChartData, mcpAnalyticsToolDetailLogic } from './mcpAnalyticsToolDetailLogic'
 
@@ -147,7 +148,7 @@ describe('failure drill-down', () => {
     // Guards the stale-response race: bucket A selected, then bucket B before A resolves.
     // Without the loader breakpoint, A's late response would overwrite B's occurrences
     // while the modal header still shows B.
-    it('discards a superseded bucket load so a slow earlier bucket cannot overwrite the latest one', async () => {
+    it.each(['select another bucket', 'deselect'])('discards a pending failure load on %s', async (change) => {
         const logic = mcpAnalyticsToolDetailLogic({ toolName: 'query_run' })
         logic.mount()
         const occurrenceFor = (id: string): Record<string, string> => ({
@@ -177,17 +178,25 @@ describe('failure drill-down', () => {
         })
         await expectLogic(logic, () => {
             logic.actions.selectFailure(bucket('api_5xx'))
-            logic.actions.selectFailure(bucket('internal'))
-        }).toDispatchActions(['loadFailureOccurrencesSuccess'])
-        expect(logic.values.failureOccurrences).toEqual([occurrenceFor('bucketB')])
+            if (change === 'select another bucket') {
+                logic.actions.selectFailure(bucket('internal'))
+            } else {
+                logic.actions.selectFailure(null)
+            }
+        }).toMatchValues({ selectedFailure: change === 'deselect' ? null : bucket('internal') })
+        const expected = change === 'deselect' ? [] : [occurrenceFor('bucketB')]
+        if (change === 'select another bucket') {
+            await expectLogic(logic).toMatchValues({ failureOccurrences: expected })
+        }
 
         // Bucket A's request resolves late — its stale result must be discarded.
-        resolveSlowA({ results: [occurrenceFor('bucketA')] })
-        await new Promise((resolve) => setTimeout(resolve, 0))
-        expect(logic.values.failureOccurrences).toEqual([occurrenceFor('bucketB')])
+        await expectLogic(logic, () => {
+            resolveSlowA({ results: [occurrenceFor('bucketA')] })
+        }).toFinishAllListeners()
+        expect(logic.values.failureOccurrences).toEqual(expected)
     })
 
-    it('clears the previous bucket occurrences when deselecting', async () => {
+    it.each(['deselect', 'properties', 'test accounts'])('clears the open failure on %s', async (change) => {
         const logic = mcpAnalyticsToolDetailLogic({ toolName: 'query_run' })
         logic.mount()
         jest.spyOn(mockApi, 'query').mockResolvedValue({
@@ -216,7 +225,103 @@ describe('failure drill-down', () => {
         }).toDispatchActions(['loadFailureOccurrencesSuccess'])
 
         await expectLogic(logic, () => {
-            logic.actions.selectFailure(null)
+            if (change === 'properties') {
+                logic.actions.setPropertyFilters([
+                    {
+                        key: '$mcp_tool_name',
+                        value: ['query_run'],
+                        operator: PropertyOperator.Exact,
+                        type: PropertyFilterType.Event,
+                    },
+                ])
+            } else if (change === 'test accounts') {
+                logic.actions.setFilterTestAccounts(true)
+            } else {
+                logic.actions.selectFailure(null)
+            }
         }).toMatchValues({ selectedFailure: null, failureOccurrences: [] })
+    })
+})
+
+describe('shared filter wiring', () => {
+    beforeEach(() => {
+        jest.clearAllMocks()
+        initKeaTests()
+        jest.spyOn(mockApi, 'query').mockResolvedValue({ results: [] })
+    })
+
+    function queryCallsSince(callIndex: number): Record<string, any>[] {
+        return mockApi.query.mock.calls.slice(callIndex).map((call) => call[0] as any)
+    }
+
+    const EVENT_FILTER: AnyPropertyFilter = {
+        key: '$mcp_tool_name',
+        value: ['query_run'],
+        operator: PropertyOperator.Exact,
+        type: PropertyFilterType.Event,
+    }
+
+    // All ten sections loadAllSections triggers read the shared filters, so one reload proves
+    // the wiring reaches all of them rather than duplicating this per section.
+    it('spreads the shared property filters into every section query and reloads on change', async () => {
+        const logic = mcpAnalyticsToolDetailLogic({ toolName: 'query_run' })
+        logic.mount()
+        await expectLogic(logic, () => {
+            logic.actions.loadAllSections()
+        }).toFinishAllListeners()
+        const callsBefore = mockApi.query.mock.calls.length
+
+        await expectLogic(logic, () => {
+            logic.actions.setPropertyFilters([EVENT_FILTER])
+        }).toFinishAllListeners()
+
+        const reloads = queryCallsSince(callsBefore)
+        expect(reloads.length).toBe(10)
+        expect(reloads.every((call) => JSON.stringify(call.properties) === JSON.stringify([EVENT_FILTER]))).toBe(true)
+    })
+
+    it('spreads filterTestAccounts into every section query and reloads on change', async () => {
+        const logic = mcpAnalyticsToolDetailLogic({ toolName: 'query_run' })
+        logic.mount()
+        await expectLogic(logic, () => {
+            logic.actions.loadAllSections()
+        }).toFinishAllListeners()
+        const callsBefore = mockApi.query.mock.calls.length
+
+        await expectLogic(logic, () => {
+            logic.actions.setFilterTestAccounts(true)
+        }).toFinishAllListeners()
+
+        const reloads = queryCallsSince(callsBefore)
+        expect(reloads.length).toBe(10)
+        expect(reloads.every((call) => call.filterTestAccounts === true)).toBe(true)
+    })
+
+    // Regression: every section loader now depends on the shared filters, so a filter change while
+    // one is in flight fires it again. Without a breakpoint, a slower response from before the
+    // change could resolve last and overwrite the section with results for a stale filter.
+    it('discards a superseded summary response so a slow earlier request cannot overwrite it', async () => {
+        const logic = mcpAnalyticsToolDetailLogic({ toolName: 'query_run' })
+        logic.mount()
+
+        let resolveSlow: (value: unknown) => void = () => {}
+        const slow = new Promise((resolve) => {
+            resolveSlow = resolve
+        })
+        jest.spyOn(mockApi, 'query')
+            .mockImplementationOnce(() => slow as any)
+            .mockImplementationOnce(() => Promise.resolve({ results: [{ calls: 42 }] }))
+
+        await expectLogic(logic, () => {
+            logic.actions.loadSummary()
+            logic.actions.loadSummary()
+        }).toDispatchActions(['loadSummarySuccess'])
+
+        expect(logic.values.summary?.calls).toBe(42)
+
+        // The stale first request resolving late must not overwrite the fresher result.
+        resolveSlow({ results: [{ calls: 1 }] })
+        await new Promise((resolve) => setTimeout(resolve, 0))
+        expect(logic.values.summary?.calls).toBe(42)
     })
 })
