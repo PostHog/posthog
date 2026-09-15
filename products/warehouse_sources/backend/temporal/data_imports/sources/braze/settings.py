@@ -144,6 +144,10 @@ class BrazeDataSeriesConfig:
     parent_id_field: Optional[str] = None
     parent_id_param: Optional[str] = None
     parent_id_column: Optional[str] = None
+    # Parent row field that must be truthy for the parent to have a series at all. Braze only
+    # keeps a size history for segments with analytics tracking switched on, and asking for an
+    # untracked one errors, which would abort the whole fan-out.
+    parent_filter_field: Optional[str] = None
     # /canvas/data_series nests its series under `data.stats`; every other series returns `data`
     # as a flat list.
     shape: DataSeriesShape = "list"
@@ -193,6 +197,18 @@ BRAZE_DATA_SERIES_ENDPOINTS: dict[str, BrazeDataSeriesConfig] = {
         parent_id_column="event_name",
         partition_key="time",
     ),
+    "segment_analytics": BrazeDataSeriesConfig(
+        name="segment_analytics",
+        path="/segments/data_series",
+        primary_keys=["segment_id", "time"],
+        max_length_days=100,
+        parent="segments",
+        parent_id_field="id",
+        parent_id_param="segment_id",
+        parent_id_column="segment_id",
+        parent_filter_field="analytics_tracking_enabled",
+        partition_key="time",
+    ),
     "kpi_dau": BrazeDataSeriesConfig(
         name="kpi_dau",
         path="/kpi/dau/data_series",
@@ -220,6 +236,50 @@ BRAZE_DATA_SERIES_ENDPOINTS: dict[str, BrazeDataSeriesConfig] = {
 }
 
 
+# Braze's `details` endpoints return one object describing a single campaign or Canvas — the
+# variants, steps, channels and conversion behaviors the matching list endpoint leaves out. Each
+# takes only the parent id, so they fan out one request per row of that list endpoint.
+@frozen
+class BrazeDetailsConfig:
+    name: str
+    path: str
+    # The list endpoint supplying the required id, the row field holding it, the query param it
+    # goes in, and the column it lands in.
+    parent: str
+    parent_id_field: str
+    parent_id_param: str
+    parent_id_column: str
+    # Response fields whose keys or member shapes vary per row — the variation map keyed by API
+    # identifier, and the step/variant/behavior lists. JSON-encoded so the column keeps one type.
+    json_fields: tuple[str, ...] = ()
+    # `created_at` never moves once the campaign or Canvas exists.
+    partition_key: Optional[str] = None
+
+
+BRAZE_DETAILS_ENDPOINTS: dict[str, BrazeDetailsConfig] = {
+    "campaign_details": BrazeDetailsConfig(
+        name="campaign_details",
+        path="/campaigns/details",
+        parent="campaigns",
+        parent_id_field="id",
+        parent_id_param="campaign_id",
+        parent_id_column="campaign_id",
+        json_fields=("messages", "conversion_behaviors"),
+        partition_key="created_at",
+    ),
+    "canvas_details": BrazeDetailsConfig(
+        name="canvas_details",
+        path="/canvas/details",
+        parent="canvases",
+        parent_id_field="id",
+        parent_id_param="canvas_id",
+        parent_id_column="canvas_id",
+        json_fields=("variants", "steps"),
+        partition_key="created_at",
+    ),
+}
+
+
 def _probe_target(config: BrazeDataSeriesConfig) -> str:
     # A data series rejects a request missing its required params, so probe with enough of one to
     # get a 200/401/403 back. The fan-out series need a parent id we don't have before syncing,
@@ -233,13 +293,20 @@ def _probe_target(config: BrazeDataSeriesConfig) -> str:
 BRAZE_PROBE_TARGETS: dict[str, str] = {
     **{name: f"{config.path}?page=0" for name, config in BRAZE_ENDPOINTS.items()},
     **{name: _probe_target(config) for name, config in BRAZE_DATA_SERIES_ENDPOINTS.items()},
+    # A details endpoint rejects a request without its parent id, so it probes the list endpoint
+    # its fan-out walks — same reasoning as the fan-out series above.
+    **{name: f"{BRAZE_ENDPOINTS[config.parent].path}?page=0" for name, config in BRAZE_DETAILS_ENDPOINTS.items()},
 }
 
 DEFAULT_PROBE_TARGET = BRAZE_PROBE_TARGETS["campaigns"]
 
-ENDPOINTS = tuple(BRAZE_ENDPOINTS.keys()) + tuple(BRAZE_DATA_SERIES_ENDPOINTS.keys())
+ENDPOINTS = (
+    tuple(BRAZE_ENDPOINTS.keys()) + tuple(BRAZE_DATA_SERIES_ENDPOINTS.keys()) + tuple(BRAZE_DETAILS_ENDPOINTS.keys())
+)
 
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
     **{name: config.incremental_fields for name, config in BRAZE_ENDPOINTS.items()},
     **dict.fromkeys(BRAZE_DATA_SERIES_ENDPOINTS, DATA_SERIES_INCREMENTAL_FIELDS),
+    # A details endpoint takes only the parent id — no server-side time filter, so full refresh.
+    **dict.fromkeys(BRAZE_DETAILS_ENDPOINTS, []),
 }
