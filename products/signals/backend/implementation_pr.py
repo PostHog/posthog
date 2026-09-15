@@ -470,8 +470,16 @@ def _close_implementation_pr(
             comment += f"\n\n{comment_marker}"
         if not already_commented:
             comment_outcome = github.comment_on_pull_request(parsed.repository, parsed.number, comment)
-            if not comment_outcome.get("success") and comment_marker:
-                return False
+            if not comment_outcome.get("success"):
+                logger.warning(
+                    "close_implementation_pr_comment_failed",
+                    report_id=str(report_id),
+                    pr_url=pr_url,
+                    error=comment_outcome.get("error"),
+                    status_code=comment_outcome.get("status_code"),
+                )
+                if comment_marker:
+                    return False
 
         if before_close is not None and not before_close():
             return False
