@@ -1,6 +1,11 @@
-from typing import Literal, TypedDict
-
 from django.conf import settings
+
+from products.growth.backend.facade.contracts import (
+    LEGACY_JAVA_SDK as LEGACY_JAVA_SDK,
+    SDK_TYPES as SDK_TYPES,
+    SdkTypes as SdkTypes,
+    SdkVersionEntry as SdkVersionEntry,
+)
 
 SDK_CACHE_EXPIRY = 60 * 60 * 24 * 7  # 7 days — used by the GitHub `latestVersion` cache (hourly Dagster job)
 
@@ -13,66 +18,6 @@ SDK_CACHE_EXPIRY = 60 * 60 * 24 * 7  # 7 days — used by the GitHub `latestVers
 # single-team HogQL query and repopulates Redis. Steady-state load is unchanged; the trade-off
 # prevents days-long stale snapshots when a team's batch is skipped or times out.
 TEAM_SDK_CACHE_EXPIRY = 60 * 60 * 26  # 26 hours
-
-
-# Canonical list of the SDK identifiers SDK Health tracks. Lives here (rather than in
-# products/growth/dags/github_sdk_versions.py) so non-Dagster consumers — the Temporal
-# health check, the API view, and tests — don't need to import from a Dagster module.
-SdkTypes = Literal[
-    "web",
-    "posthog-ios",
-    "posthog-android",
-    "posthog-java",
-    "posthog-server",
-    "posthog-node",
-    "posthog-python",
-    "posthog-php",
-    "posthog-ruby",
-    "posthog-go",
-    "posthog-flutter",
-    "posthog-react-native",
-    "posthog-kmp",
-    "posthog-dotnet",
-    "posthog-elixir",
-    "posthog-unity",
-    "posthog-node-mcp",
-    "posthog-python-mcp",
-    "posthog-edge",
-    "posthog-convex",
-    "posthog-rails",
-    "posthog-aspnetcore",
-]
-SDK_TYPES: list[SdkTypes] = [
-    "web",
-    "posthog-ios",
-    "posthog-android",
-    "posthog-java",
-    "posthog-server",
-    "posthog-node",
-    "posthog-python",
-    "posthog-php",
-    "posthog-ruby",
-    "posthog-go",
-    "posthog-flutter",
-    "posthog-react-native",
-    "posthog-kmp",
-    "posthog-dotnet",
-    "posthog-elixir",
-    "posthog-unity",
-    "posthog-node-mcp",
-    "posthog-python-mcp",
-    "posthog-edge",
-    "posthog-convex",
-    "posthog-rails",
-    "posthog-aspnetcore",
-]
-LEGACY_JAVA_SDK = "posthog-java"
-
-
-class SdkVersionEntry(TypedDict):
-    lib_version: str | None
-    max_timestamp: str
-    count: int
 
 
 # Identity matching no longer persists tables on the ClickHouse cluster. Each run of

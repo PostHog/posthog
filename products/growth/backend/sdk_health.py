@@ -9,7 +9,6 @@ The single source of truth for SDK outdatedness detection. Consumed by:
 The frontend renders these pre-computed values.
 """
 
-from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from json import dumps as json_dumps
 from math import ceil
@@ -24,6 +23,18 @@ import humanize
 import structlog
 
 from products.growth.backend.constants import LEGACY_JAVA_SDK, SdkVersionEntry
+from products.growth.backend.facade.contracts import (
+    DiffKind as DiffKind,
+    OutdatedTrafficAlert as OutdatedTrafficAlert,
+    OverallHealth as OverallHealth,
+    ReleaseAssessment as ReleaseAssessment,
+    SdkAssessment as SdkAssessment,
+    SdkHealthReport as SdkHealthReport,
+    SemanticVersion as SemanticVersion,
+    SemanticVersionDiff as SemanticVersionDiff,
+    Severity as Severity,
+    UsageEntry as UsageEntry,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -108,102 +119,6 @@ SIGNIFICANT_TRAFFIC_THRESHOLD_DEFAULT = 0.1
 # Minor-version outdatedness: flag if 3+ minors behind OR >180 days old
 MINOR_VERSIONS_BEHIND_THRESHOLD = 3
 MINOR_AGE_THRESHOLD_DAYS = 180
-
-# --- Types ----------------------------------
-
-Severity = Literal["none", "warning", "danger"]
-OverallHealth = Literal["healthy", "needs_attention"]
-DiffKind = Literal["major", "minor", "patch", "extra"]
-
-
-@dataclass
-class SemanticVersion:
-    major: int
-    minor: Optional[int] = None
-    patch: Optional[int] = None
-    extra: Optional[str] = None
-
-    def to_string(self) -> str:
-        parts = str(self.major)
-        if self.minor is not None:
-            parts += f".{self.minor}"
-            if self.patch is not None:
-                parts += f".{self.patch}"
-        if self.extra:
-            parts += f"-{self.extra}"
-        return parts
-
-
-@dataclass
-class SemanticVersionDiff:
-    kind: DiffKind
-    diff: int
-
-
-@dataclass
-class UsageEntry:
-    """Single (version, event_count, release_date) tuple for an SDK."""
-
-    lib_version: str
-    count: int
-    max_timestamp: str
-    release_date: Optional[str] = None
-    is_latest: bool = False
-
-
-@dataclass
-class ReleaseAssessment:
-    """Per-version outdatedness assessment (corresponds to AugmentedTeamSdkVersionsInfoRelease)."""
-
-    version: str
-    count: int
-    max_timestamp: str
-    release_date: Optional[str]
-    days_since_release: Optional[int]
-    released_ago: Optional[str]
-    is_outdated: bool
-    is_old: bool
-    needs_updating: bool
-    is_current_or_newer: bool
-    status_reason: str
-    sql_query: str
-    activity_page_url: str
-
-
-@dataclass
-class OutdatedTrafficAlert:
-    version: str
-    threshold_percent: float
-
-
-@dataclass
-class SdkAssessment:
-    """Per-SDK health assessment (corresponds to AugmentedTeamSdkVersionsInfo entry)."""
-
-    lib: str
-    readable_name: str
-    latest_version: str
-    needs_updating: bool
-    is_outdated: bool
-    is_old: bool
-    migration_required: bool
-    severity: Severity
-    reason: str
-    banners: list[str] = field(default_factory=list)
-    releases: list[ReleaseAssessment] = field(default_factory=list)
-    outdated_traffic_alerts: list[OutdatedTrafficAlert] = field(default_factory=list)
-
-
-@dataclass
-class SdkHealthReport:
-    """Top-level report returned to agents / frontend."""
-
-    overall_health: OverallHealth
-    needs_updating_count: int
-    team_sdk_count: int
-    health: Literal["success", "warning", "danger"]
-    sdks: list[SdkAssessment] = field(default_factory=list)
-
 
 # --- Semver parsing / diffing (mirrors frontend/src/lib/utils/semver.ts) ---
 

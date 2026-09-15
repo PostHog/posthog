@@ -32,7 +32,7 @@ from products.growth.backend.product_push.cadence import (
     is_retry_eligible,
 )
 from products.growth.backend.product_push.selection import Selection, select_next_product
-from products.growth.backend.product_push.surfaces import SURFACE_ADOPTION_CHECKS
+from products.growth.backend.product_push.surfaces import SURFACE_ADOPTION_CHECKS, OrganizationId
 
 logger = structlog.get_logger(__name__)
 
@@ -455,6 +455,18 @@ def cancel_campaigns(campaign_ids: list[str], now: datetime) -> int:
 
     _capture_campaign_events(cancelled)
     return len(cancelled)
+
+
+def active_campaigns(organization_id: OrganizationId, *, started_before: datetime) -> list[tuple[str, str | None]]:
+    return list(
+        ProductPushCampaign.objects.filter(
+            organization_id=organization_id,
+            status=ProductPushCampaign.Status.ACTIVE,
+            started_at__lte=started_before,
+        )
+        .order_by("-started_at")
+        .values_list("product_key", "reason_text")
+    )
 
 
 def _is_eligible_for_selection(organization: Organization, selection: Selection, now: datetime) -> bool:

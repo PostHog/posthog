@@ -1,15 +1,17 @@
 """Runner pieces behind the staff AI enrichment lab endpoints (products/growth/backend/api/ai_enrichment.py):
-the gateway model list, and the concurrent stream that drives a test run.
+the gateway model list, and the concurrent stream that drives a test run. Also the sequential
+sample run behind the enrichment_label_dry_run command, which persists nothing.
 
-Org-agnostic on purpose: everything here takes (config, fetch, client) in and a verdict out.
-Callers build the input fetches themselves - see products.growth.backend.enrichment.labels for
+The endpoint runners are org-agnostic on purpose: they take (config, fetch, client) in and a verdict
+out. Their callers build the input fetches themselves - see products.growth.backend.enrichment.labels for
 recent_latest_fetches_qs / signup_domain_for_organization, the internal fetch source.
 """
 
 import time
 import asyncio
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Iterator
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 from typing import Any
 
 from django.db import close_old_connections, connection
@@ -21,13 +23,29 @@ from posthog.exceptions_capture import capture_exception
 from posthog.llm.gateway_client import get_llm_client
 
 from products.growth.backend.enrichment.labels import (
+    PromptConfigError,
     ai_processing_approved,
     bound_inputs,
     classify_payload,
     extract_input_fields,
+    get_active_config,
+    recent_latest_fetches_qs,
+    signup_domain_for_organization,
     unknown_output,
+    validate_input_fields,
+    validate_output_fields,
+    verdict_field_key,
 )
-from products.growth.backend.models import EnrichmentPromptConfig, OrganizationEnrichmentFetch
+from products.growth.backend.facade.contracts import (
+    LabelCompareVersionNotFound,
+    LabelConfigInvalid,
+    LabelConfigNotFound,
+    LabelDryRun,
+    LabelDryRunRow,
+    LabelOutputField,
+    LabelPromptFileUnreadable,
+)
+from products.growth.backend.models import EnrichmentLabelResult, EnrichmentPromptConfig, OrganizationEnrichmentFetch
 
 logger = structlog.get_logger(__name__)
 
@@ -171,3 +189,90 @@ def format_run_row(
     assert output is not None
     outputs = {field["key"]: output.get(field["key"]) for field in config.output_fields}
     return {"company": company, "domain": domain, "inputs": inputs, "outputs": outputs, "meta": output.get("meta", {})}
+
+
+def _output_fields(config: EnrichmentPromptConfig) -> tuple[LabelOutputField, ...]:
+    return tuple(LabelOutputField(key=field["key"], type=field["type"]) for field in config.output_fields)
+
+
+def dry_run(label: str, *, sample: int, prompt_file: str | None, compare_version: str | None) -> LabelDryRun:
+    config = get_active_config(label)
+    if config is None:
+        raise LabelConfigNotFound(label)
+    try:
+        validate_input_fields(config)
+        validate_output_fields(config)
+    except PromptConfigError as e:
+        raise LabelConfigInvalid(str(e)) from e
+
+    display_version = config.version
+    if prompt_file:
+        try:
+            config.prompt_text = Path(prompt_file).read_text()
+        except OSError as e:
+            raise LabelPromptFileUnreadable(prompt_file, e) from e
+        # Never saved — an in-memory override for iteration, not a new version.
+        display_version = f"{config.version}+file"
+
+    # tenacity in labels.py already owns retries; the SDK's own internal retries underneath
+    # would multiply that budget nine-fold per row.
+    client = get_llm_client(product="growth").with_options(max_retries=0)
+
+    compare_config: EnrichmentPromptConfig | None = None
+    if compare_version:
+        compare_config = EnrichmentPromptConfig.objects.filter(name=label, version=compare_version).first()
+        if compare_config is None:
+            raise LabelCompareVersionNotFound(label, compare_version)
+
+    fetches = list(recent_latest_fetches_qs().select_related("organization")[:sample])
+    return LabelDryRun(
+        display_version=display_version,
+        # A custom output schema's pass/fail key differs from `label` - see verdict_field_key's docstring.
+        verdict_key=verdict_field_key(config),
+        output_fields=_output_fields(config),
+        compare_output_fields=_output_fields(compare_config) if compare_config is not None else None,
+        rows=_dry_run_rows(
+            config,
+            fetches,
+            client,
+            label=label,
+            compare_version=compare_version if compare_config is not None else None,
+        ),
+    )
+
+
+def _dry_run_rows(
+    config: EnrichmentPromptConfig,
+    fetches: list[OrganizationEnrichmentFetch],
+    client: OpenAI,
+    *,
+    label: str,
+    compare_version: str | None,
+) -> Iterator[LabelDryRunRow]:
+    for fetch in fetches:
+        # Its own outcome rather than an error: a declined org is a correct result, and counting it
+        # as an error would trip the every-row-failed check.
+        if not ai_processing_approved(fetch.organization_id):
+            yield LabelDryRunRow(company=fetch.organization.name, skipped_no_ai_consent=True)
+            continue
+        try:
+            # Inside the guard too: an archived payload that isn't a dict (classify_payload
+            # already tolerates this) must produce one error row, not end the whole sample.
+            company = fetch.payload.get("name") or fetch.organization.name
+            signup_domain = signup_domain_for_organization(fetch.organization)
+            output = classify_payload(config, fetch.payload, signup_domain, client)
+        except Exception as e:
+            yield LabelDryRunRow(company=fetch.organization.name, error=str(e))
+            continue
+
+        prior_output = None
+        if compare_version is not None:
+            prior = (
+                EnrichmentLabelResult.objects.filter(
+                    organization_id=fetch.organization_id, label_name=label, prompt_version=compare_version
+                )
+                .order_by("-created_at")
+                .first()
+            )
+            prior_output = prior.output if prior is not None else {}
+        yield LabelDryRunRow(company=company, signup_domain=signup_domain, output=output, prior_output=prior_output)
