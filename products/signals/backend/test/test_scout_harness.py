@@ -1347,7 +1347,7 @@ class TestPromptBuilder(BaseTest):
 # The fixture-based pattern (matching test_agentic_report_activity.py) gives us that.
 
 
-def _make_fake_session(team: Team, summary_text: str = "ok") -> tuple[MagicMock, object]:
+def _make_fake_session(team: Team, summary_text: str = "ok") -> tuple[MagicMock, MagicMock]:
     """Build a (session, summary_result) pair to return from `MultiTurnSession.start`.
 
     The session must carry a saved `task_run` so the bridge insert succeeds
