@@ -284,6 +284,15 @@ const RETIRED_MODEL_NAMES: Record<string, string> = {
     'gemini-3.6-flash': 'Gemini 3.6 Flash',
 }
 
+// Arms of the replay-vision-home-redesign-experiment flag. Narrows a raw flag value so control,
+// booleans, and unknown variants all degrade to the control experience instead of half-applying
+// the redesigned layout.
+export type HomeRedesignVariant = 'control' | 'test'
+
+export function homeRedesignVariant(flagValue: unknown): HomeRedesignVariant | null {
+    return flagValue === 'control' || flagValue === 'test' ? flagValue : null
+}
+
 // Tier-name arms of the replay-vision-model-tier-naming-experiment flag: capability tiers instead
 // of provider model names, keyed by the flag's variant key. Every surface that shows a model must
 // resolve the variant the same way so a user never sees mixed naming schemes for one scanner.
