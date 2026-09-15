@@ -169,8 +169,10 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin
         partial = kwargs.pop("partial", False)
         context = {**self.get_serializer_context(), "pipeline_id": self.kwargs["pk"]}
         serializer = AutoresearchPipelineCreateSerializer(data=request.data, partial=partial, context=context)
-        serializer.is_valid(raise_exception=True)
+        # Validation reads the stored pipeline (the trained-model guard), so a missing or archived
+        # id surfaces there first and must map to the same 404 as the write.
         try:
+            serializer.is_valid(raise_exception=True)
             pipeline = api.update_pipeline(
                 self.team_id,
                 self.kwargs["pk"],

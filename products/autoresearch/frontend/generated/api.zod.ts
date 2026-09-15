@@ -29,7 +29,9 @@ export const autoresearchCreateBodyCadenceDaysMax = 365
 
 export const autoresearchCreateBodyIterationBudgetMax = 500
 
-export const autoresearchCreateBodyPlateauIterationsMin = -2147483648
+export const autoresearchCreateBodySuccessAucMin = 0
+export const autoresearchCreateBodySuccessAucMax = 1
+
 export const autoresearchCreateBodyPlateauIterationsMax = 2147483647
 
 export const autoresearchCreateBodyOutputPersonPropertyMax = 255
@@ -45,7 +47,19 @@ export const AutoresearchCreateBody = /* @__PURE__ */ zod.object({
             "PostHog event name to predict, e.g. '$pageview' or 'signed_up'. Omit when predicting an action target (pass target_definition instead)."
         ),
     target_definition: zod
-        .looseObject({})
+        .union([
+            zod
+                .object({
+                    type: zod.enum(['event']),
+                })
+                .describe('Predict target_event. The default when target_definition is omitted.'),
+            zod
+                .object({
+                    type: zod.enum(['action']),
+                    action_id: zod.number().min(1).describe('ID of the action to predict.'),
+                })
+                .describe('Predict a PostHog action in this project.'),
+        ])
         .optional()
         .describe(
             'Omit (or pass {\"type\": \"event\"}) to predict target_event; pass {\"type\": \"action\", \"action_id\": N} to predict a PostHog action. No other shapes are accepted.'
@@ -88,20 +102,22 @@ export const AutoresearchCreateBody = /* @__PURE__ */ zod.object({
         .describe('Total training iterations allowed for the autoresearch loop (1-500). Default: 50.'),
     success_auc: zod
         .number()
+        .min(autoresearchCreateBodySuccessAucMin)
+        .max(autoresearchCreateBodySuccessAucMax)
         .nullish()
-        .describe('Target AUC threshold. Training stops early if reached. Default: 0.75.'),
+        .describe('Target AUC threshold (0-1). Training stops early if reached. Default: 0.75.'),
     plateau_iterations: zod
         .number()
-        .min(autoresearchCreateBodyPlateauIterationsMin)
+        .min(1)
         .max(autoresearchCreateBodyPlateauIterationsMax)
         .optional()
-        .describe('Stop training if no improvement in this many consecutive iterations. Default: 10.'),
+        .describe('Stop training if no improvement in this many consecutive iterations (at least 1). Default: 10.'),
     output_person_property: zod
         .string()
         .max(autoresearchCreateBodyOutputPersonPropertyMax)
         .optional()
         .describe(
-            "Person property name for the prediction score, e.g. 'predicted_p_pageview'. Auto-derived from target_event if omitted. Letters, digits, and _ $ . - only; must be unique among this project's non-archived pipelines."
+            "Person property name for the prediction score, e.g. 'predicted_p_pageview'. Auto-derived from target_event if omitted. Letters, digits, and _ $ . - only, and it cannot start with $ (reserved for PostHog's own properties); must be unique among this project's non-archived pipelines."
         ),
 })
 
@@ -125,7 +141,9 @@ export const autoresearchUpdateBodyCadenceDaysMax = 365
 
 export const autoresearchUpdateBodyIterationBudgetMax = 500
 
-export const autoresearchUpdateBodyPlateauIterationsMin = -2147483648
+export const autoresearchUpdateBodySuccessAucMin = 0
+export const autoresearchUpdateBodySuccessAucMax = 1
+
 export const autoresearchUpdateBodyPlateauIterationsMax = 2147483647
 
 export const autoresearchUpdateBodyOutputPersonPropertyMax = 255
@@ -141,7 +159,19 @@ export const AutoresearchUpdateBody = /* @__PURE__ */ zod.object({
             "PostHog event name to predict, e.g. '$pageview' or 'signed_up'. Omit when predicting an action target (pass target_definition instead)."
         ),
     target_definition: zod
-        .looseObject({})
+        .union([
+            zod
+                .object({
+                    type: zod.enum(['event']),
+                })
+                .describe('Predict target_event. The default when target_definition is omitted.'),
+            zod
+                .object({
+                    type: zod.enum(['action']),
+                    action_id: zod.number().min(1).describe('ID of the action to predict.'),
+                })
+                .describe('Predict a PostHog action in this project.'),
+        ])
         .optional()
         .describe(
             'Omit (or pass {\"type\": \"event\"}) to predict target_event; pass {\"type\": \"action\", \"action_id\": N} to predict a PostHog action. No other shapes are accepted.'
@@ -184,20 +214,22 @@ export const AutoresearchUpdateBody = /* @__PURE__ */ zod.object({
         .describe('Total training iterations allowed for the autoresearch loop (1-500). Default: 50.'),
     success_auc: zod
         .number()
+        .min(autoresearchUpdateBodySuccessAucMin)
+        .max(autoresearchUpdateBodySuccessAucMax)
         .nullish()
-        .describe('Target AUC threshold. Training stops early if reached. Default: 0.75.'),
+        .describe('Target AUC threshold (0-1). Training stops early if reached. Default: 0.75.'),
     plateau_iterations: zod
         .number()
-        .min(autoresearchUpdateBodyPlateauIterationsMin)
+        .min(1)
         .max(autoresearchUpdateBodyPlateauIterationsMax)
         .optional()
-        .describe('Stop training if no improvement in this many consecutive iterations. Default: 10.'),
+        .describe('Stop training if no improvement in this many consecutive iterations (at least 1). Default: 10.'),
     output_person_property: zod
         .string()
         .max(autoresearchUpdateBodyOutputPersonPropertyMax)
         .optional()
         .describe(
-            "Person property name for the prediction score, e.g. 'predicted_p_pageview'. Auto-derived from target_event if omitted. Letters, digits, and _ $ . - only; must be unique among this project's non-archived pipelines."
+            "Person property name for the prediction score, e.g. 'predicted_p_pageview'. Auto-derived from target_event if omitted. Letters, digits, and _ $ . - only, and it cannot start with $ (reserved for PostHog's own properties); must be unique among this project's non-archived pipelines."
         ),
 })
 
@@ -221,7 +253,9 @@ export const autoresearchPartialUpdateBodyCadenceDaysMax = 365
 
 export const autoresearchPartialUpdateBodyIterationBudgetMax = 500
 
-export const autoresearchPartialUpdateBodyPlateauIterationsMin = -2147483648
+export const autoresearchPartialUpdateBodySuccessAucMin = 0
+export const autoresearchPartialUpdateBodySuccessAucMax = 1
+
 export const autoresearchPartialUpdateBodyPlateauIterationsMax = 2147483647
 
 export const autoresearchPartialUpdateBodyOutputPersonPropertyMax = 255
@@ -237,7 +271,19 @@ export const AutoresearchPartialUpdateBody = /* @__PURE__ */ zod.object({
             "PostHog event name to predict, e.g. '$pageview' or 'signed_up'. Omit when predicting an action target (pass target_definition instead)."
         ),
     target_definition: zod
-        .looseObject({})
+        .union([
+            zod
+                .object({
+                    type: zod.enum(['event']),
+                })
+                .describe('Predict target_event. The default when target_definition is omitted.'),
+            zod
+                .object({
+                    type: zod.enum(['action']),
+                    action_id: zod.number().min(1).describe('ID of the action to predict.'),
+                })
+                .describe('Predict a PostHog action in this project.'),
+        ])
         .optional()
         .describe(
             'Omit (or pass {\"type\": \"event\"}) to predict target_event; pass {\"type\": \"action\", \"action_id\": N} to predict a PostHog action. No other shapes are accepted.'
@@ -280,19 +326,21 @@ export const AutoresearchPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe('Total training iterations allowed for the autoresearch loop (1-500). Default: 50.'),
     success_auc: zod
         .number()
+        .min(autoresearchPartialUpdateBodySuccessAucMin)
+        .max(autoresearchPartialUpdateBodySuccessAucMax)
         .nullish()
-        .describe('Target AUC threshold. Training stops early if reached. Default: 0.75.'),
+        .describe('Target AUC threshold (0-1). Training stops early if reached. Default: 0.75.'),
     plateau_iterations: zod
         .number()
-        .min(autoresearchPartialUpdateBodyPlateauIterationsMin)
+        .min(1)
         .max(autoresearchPartialUpdateBodyPlateauIterationsMax)
         .optional()
-        .describe('Stop training if no improvement in this many consecutive iterations. Default: 10.'),
+        .describe('Stop training if no improvement in this many consecutive iterations (at least 1). Default: 10.'),
     output_person_property: zod
         .string()
         .max(autoresearchPartialUpdateBodyOutputPersonPropertyMax)
         .optional()
         .describe(
-            "Person property name for the prediction score, e.g. 'predicted_p_pageview'. Auto-derived from target_event if omitted. Letters, digits, and _ $ . - only; must be unique among this project's non-archived pipelines."
+            "Person property name for the prediction score, e.g. 'predicted_p_pageview'. Auto-derived from target_event if omitted. Letters, digits, and _ $ . - only, and it cannot start with $ (reserved for PostHog's own properties); must be unique among this project's non-archived pipelines."
         ),
 })

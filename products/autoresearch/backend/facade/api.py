@@ -43,7 +43,9 @@ def _pipeline_to_contract(
         name=row.name,
         description=row.description,
         target_event=row.target_event,
-        target_definition=row.target_definition or {},
+        # A row created outside the API keeps the column default ({}); it means the bare event
+        # target, which is the shape the read schema declares.
+        target_definition=row.target_definition or {"type": "event"},
         horizon_days=row.horizon_days,
         training_lookback_days=row.training_lookback_days,
         training_population=row.training_population or {},
@@ -184,15 +186,15 @@ def resolve_action_target(project_id: int, action_id: Any) -> tuple[str, int]:
     (``team__project_id``) rather than the pipeline's own team, which would miss them from
     any other environment of the project.
 
-    Raises ``PipelineNotFound`` when the action is missing or belongs to another project,
-    so a foreign action id cannot be probed through this endpoint, and ``InvalidTarget``
+    Raises ``PipelineNotFound`` when the action is missing, soft-deleted, or belongs to another
+    project, so a foreign action id cannot be probed through this endpoint, and ``InvalidTarget``
     when a step could match the product's own prediction event: the labeler and online
     validation exclude that event from every scan, so such a target could never be
     observed as an outcome.
     """
     try:
-        action = Action.objects.get(id=action_id, team__project_id=project_id)
-    except (Action.DoesNotExist, ValueError, TypeError):
+        action = Action.objects.get(id=action_id, team__project_id=project_id, deleted=False)
+    except (Action.DoesNotExist, ValueError, TypeError, OverflowError):
         raise PipelineNotFound(f"Action {action_id} was not found in this project.")
     step_events = action.get_step_events()
     if any(event is None or event == PREDICTION_EVENT_NAME for event in step_events):

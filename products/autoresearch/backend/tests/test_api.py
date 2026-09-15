@@ -1,3 +1,4 @@
+import uuid
 from typing import Any
 
 from posthog.test.base import APIBaseTest
@@ -92,6 +93,18 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
         )
         assert resp.status_code == status.HTTP_400_BAD_REQUEST
 
+    def test_create_pipeline_with_deleted_action_rejected(self):
+        action = Action.objects.create(
+            team=self.team, name="Gone", steps_json=[{"event": "uploaded_file"}], deleted=True
+        )
+        resp = self.client.post(
+            f"{self.base_url}/",
+            {"name": "Bad", "target_definition": {"type": "action", "action_id": action.id}},
+            format="json",
+        )
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST
+        assert resp.json()["attr"] == "target_definition"
+
     def test_create_pipeline_without_target_rejected(self):
         resp = self.client.post(f"{self.base_url}/", {"name": "No target"}, format="json")
         assert resp.status_code == status.HTTP_400_BAD_REQUEST
@@ -115,6 +128,7 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
         resp = self.client.get(f"{self.base_url}/{pipeline.id}/")
         assert resp.status_code == status.HTTP_200_OK
         assert resp.json()["id"] == str(pipeline.id)
+        assert resp.json()["target_definition"] == {"type": "event"}
 
     def test_other_team_cannot_access_pipeline(self):
         other_org = Organization.objects.create(name="Other Org")
@@ -181,6 +195,15 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
         resp = self.client.patch(f"{self.base_url}/{pipeline.id}/", {"target_event": "$pageview"}, format="json")
         assert resp.status_code == status.HTTP_200_OK, resp.json()
 
+    @parameterized.expand([("archived",), ("unknown",)])
+    def test_update_of_missing_pipeline_returns_404(self, case: str):
+        if case == "archived":
+            pipeline_id = self._make_pipeline(status=AutoresearchPipeline.Status.ARCHIVED).id
+        else:
+            pipeline_id = uuid.uuid4()
+        resp = self.client.patch(f"{self.base_url}/{pipeline_id}/", {"name": "Renamed"}, format="json")
+        assert resp.status_code == status.HTTP_404_NOT_FOUND
+
     def test_target_editable_before_any_model_is_trained(self):
         pipeline = self._make_pipeline()
         resp = self.client.patch(f"{self.base_url}/{pipeline.id}/", {"horizon_days": 30}, format="json")
@@ -240,9 +263,12 @@ class TestPipelineCreateSerializerValidation(SimpleTestCase):
             ("cadence_above_max", "cadence_days", 366),
             ("iteration_budget_below_min", "iteration_budget", 0),
             ("iteration_budget_above_max", "iteration_budget", 501),
+            ("plateau_iterations_below_min", "plateau_iterations", 0),
+            ("success_auc_below_min", "success_auc", -0.1),
+            ("success_auc_above_max", "success_auc", 1.5),
         ]
     )
-    def test_out_of_range_numeric_field_rejected(self, _name: str, field: str, value: int) -> None:
+    def test_out_of_range_numeric_field_rejected(self, _name: str, field: str, value: float) -> None:
         serializer = self._serializer(**{field: value})
         assert not serializer.is_valid()
         assert field in serializer.errors
@@ -301,9 +327,16 @@ class TestPipelineCreateSerializerValidation(SimpleTestCase):
             ("event_with_filters", {"type": "event", "filters": [{"key": "$current_url"}]}),
             ("legacy_event_shape", {"event": "$pageview", "filters": []}),
             ("unknown_type", {"type": "cohort", "cohort_id": 1}),
+            ("not_an_object", "action"),
+            ("list", [{"type": "event"}]),
+            ("action_id_missing", {"type": "action"}),
+            ("action_id_string", {"type": "action", "action_id": "1"}),
+            ("action_id_bool", {"type": "action", "action_id": True}),
+            ("action_id_zero", {"type": "action", "action_id": 0}),
+            ("action_id_overflows_int", {"type": "action", "action_id": 1e400}),
         ]
     )
-    def test_unsupported_event_target_definition_rejected(self, _name: str, definition: dict) -> None:
+    def test_unsupported_target_definition_rejected(self, _name: str, definition: Any) -> None:
         serializer = self._serializer(target_definition=definition)
         assert not serializer.is_valid()
         assert "target_definition" in serializer.errors
@@ -314,6 +347,7 @@ class TestPipelineCreateSerializerValidation(SimpleTestCase):
             ("backtick", "predicted`p"),
             ("braces", "predicted{p}"),
             ("newline", "predicted\np"),
+            ("posthog_namespace", "$browser"),
         ]
     )
     def test_invalid_output_person_property_shape_rejected(self, _name: str, value: str) -> None:

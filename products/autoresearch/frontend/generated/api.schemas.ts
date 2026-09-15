@@ -87,7 +87,18 @@ export interface UserBasicApi {
 /**
  * Resolved target definition: {"type": "event"} or {"type": "action", "action_id": N}.
  */
-export type AutoresearchPipelineApiTargetDefinition = { [key: string]: unknown }
+export type AutoresearchPipelineApiTargetDefinition =
+    | {
+          type: 'event'
+      }
+    | {
+          type: 'action'
+          /**
+           * ID of the action to predict.
+           * @minimum 1
+           */
+          action_id: number
+      }
 
 /**
  * Population used for training. Defines which users can appear as training examples.
@@ -203,7 +214,18 @@ export interface PaginatedAutoresearchPipelineListApi {
 /**
  * Omit (or pass {"type": "event"}) to predict target_event; pass {"type": "action", "action_id": N} to predict a PostHog action. No other shapes are accepted.
  */
-export type AutoresearchPipelineCreateApiTargetDefinition = { [key: string]: unknown }
+export type AutoresearchPipelineCreateApiTargetDefinition =
+    | {
+          type: 'event'
+      }
+    | {
+          type: 'action'
+          /**
+           * ID of the action to predict.
+           * @minimum 1
+           */
+          action_id: number
+      }
 
 /**
  * Training population filter. Use {} for all identified users.
@@ -259,18 +281,20 @@ export interface AutoresearchPipelineCreateApi {
      */
     iteration_budget?: number
     /**
-     * Target AUC threshold. Training stops early if reached. Default: 0.75.
+     * Target AUC threshold (0-1). Training stops early if reached. Default: 0.75.
+     * @minimum 0
+     * @maximum 1
      * @nullable
      */
     success_auc?: number | null
     /**
-     * Stop training if no improvement in this many consecutive iterations. Default: 10.
-     * @minimum -2147483648
+     * Stop training if no improvement in this many consecutive iterations (at least 1). Default: 10.
+     * @minimum 1
      * @maximum 2147483647
      */
     plateau_iterations?: number
     /**
-     * Person property name for the prediction score, e.g. 'predicted_p_pageview'. Auto-derived from target_event if omitted. Letters, digits, and _ $ . - only; must be unique among this project's non-archived pipelines.
+     * Person property name for the prediction score, e.g. 'predicted_p_pageview'. Auto-derived from target_event if omitted. Letters, digits, and _ $ . - only, and it cannot start with $ (reserved for PostHog's own properties); must be unique among this project's non-archived pipelines.
      * @maxLength 255
      */
     output_person_property?: string
@@ -279,7 +303,18 @@ export interface AutoresearchPipelineCreateApi {
 /**
  * Omit (or pass {"type": "event"}) to predict target_event; pass {"type": "action", "action_id": N} to predict a PostHog action. No other shapes are accepted.
  */
-export type PatchedAutoresearchPipelineCreateApiTargetDefinition = { [key: string]: unknown }
+export type PatchedAutoresearchPipelineCreateApiTargetDefinition =
+    | {
+          type: 'event'
+      }
+    | {
+          type: 'action'
+          /**
+           * ID of the action to predict.
+           * @minimum 1
+           */
+          action_id: number
+      }
 
 /**
  * Training population filter. Use {} for all identified users.
@@ -335,18 +370,20 @@ export interface PatchedAutoresearchPipelineCreateApi {
      */
     iteration_budget?: number
     /**
-     * Target AUC threshold. Training stops early if reached. Default: 0.75.
+     * Target AUC threshold (0-1). Training stops early if reached. Default: 0.75.
+     * @minimum 0
+     * @maximum 1
      * @nullable
      */
     success_auc?: number | null
     /**
-     * Stop training if no improvement in this many consecutive iterations. Default: 10.
-     * @minimum -2147483648
+     * Stop training if no improvement in this many consecutive iterations (at least 1). Default: 10.
+     * @minimum 1
      * @maximum 2147483647
      */
     plateau_iterations?: number
     /**
-     * Person property name for the prediction score, e.g. 'predicted_p_pageview'. Auto-derived from target_event if omitted. Letters, digits, and _ $ . - only; must be unique among this project's non-archived pipelines.
+     * Person property name for the prediction score, e.g. 'predicted_p_pageview'. Auto-derived from target_event if omitted. Letters, digits, and _ $ . - only, and it cannot start with $ (reserved for PostHog's own properties); must be unique among this project's non-archived pipelines.
      * @maxLength 255
      */
     output_person_property?: string

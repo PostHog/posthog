@@ -26,7 +26,7 @@ OUTPUT_PERSON_PROPERTY_MAX_LENGTH = 255
 # while keeping real event names ('$pageview', 'signed up', 'app.download-file') valid.
 _FORBIDDEN_TARGET_EVENT_CHARS = re.compile(r"[\x00-\x1f\x7f`{}]")
 
-_OUTPUT_PERSON_PROPERTY_RE = re.compile(r"^[A-Za-z0-9_$][A-Za-z0-9_$.\-]*$")
+_OUTPUT_PERSON_PROPERTY_RE = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_$.\-]*$")
 
 
 def _validate_target_event_value(value: str, *, error_key: str) -> None:
@@ -73,8 +73,10 @@ def resolve_target(
     definition = target_definition or {}
     if definition.get("type") == "action":
         action_id = definition.get("action_id")
-        if action_id is None:
-            raise serializers.ValidationError({"target_definition": "Action target requires 'action_id'."})
+        if not isinstance(action_id, int) or isinstance(action_id, bool) or action_id < 1:
+            raise serializers.ValidationError(
+                {"target_definition": "Action target requires a positive integer 'action_id'."}
+            )
         try:
             action_name, action_id = api.resolve_action_target(team.project_id, action_id)
         except (api.PipelineNotFound, api.InvalidTarget) as exc:
@@ -111,7 +113,27 @@ def resolve_target(
 
 @extend_schema_field(
     {
-        "type": "object",
+        "oneOf": [
+            {
+                "type": "object",
+                "title": "EventTarget",
+                "description": "Predict target_event. The default when target_definition is omitted.",
+                "properties": {"type": {"type": "string", "enum": ["event"]}},
+                "required": ["type"],
+                "additionalProperties": False,
+            },
+            {
+                "type": "object",
+                "title": "ActionTarget",
+                "description": "Predict a PostHog action in this project.",
+                "properties": {
+                    "type": {"type": "string", "enum": ["action"]},
+                    "action_id": {"type": "integer", "minimum": 1, "description": "ID of the action to predict."},
+                },
+                "required": ["type", "action_id"],
+                "additionalProperties": False,
+            },
+        ],
         "description": (
             'Target definition. Two supported shapes: {"type": "event"} (predict target_event; the default) '
             'or {"type": "action", "action_id": N} (predict a PostHog action). Event filters are not supported.'
@@ -120,7 +142,13 @@ def resolve_target(
     }
 )
 class TargetDefinitionField(serializers.JSONField):
-    pass
+    def to_internal_value(self, data: Any) -> Any:
+        value = super().to_internal_value(data)
+        if not isinstance(value, dict):
+            raise serializers.ValidationError(
+                'Target definition must be an object, e.g. {"type": "event"} or {"type": "action", "action_id": N}.'
+            )
+        return value
 
 
 # Required keys per semantic population kind, mirrored by the compiler in
@@ -365,13 +393,15 @@ class AutoresearchPipelineCreateSerializer(DataclassSerializer):
     success_auc = serializers.FloatField(
         required=False,
         allow_null=True,
-        help_text="Target AUC threshold. Training stops early if reached. Default: 0.75.",
+        min_value=0.0,
+        max_value=1.0,
+        help_text="Target AUC threshold (0-1). Training stops early if reached. Default: 0.75.",
     )
     plateau_iterations = serializers.IntegerField(
         required=False,
-        min_value=-2147483648,
+        min_value=1,
         max_value=2147483647,
-        help_text="Stop training if no improvement in this many consecutive iterations. Default: 10.",
+        help_text="Stop training if no improvement in this many consecutive iterations (at least 1). Default: 10.",
     )
     output_person_property = serializers.CharField(
         required=False,
@@ -379,8 +409,9 @@ class AutoresearchPipelineCreateSerializer(DataclassSerializer):
         max_length=255,
         help_text=(
             "Person property name for the prediction score, e.g. 'predicted_p_pageview'. "
-            "Auto-derived from target_event if omitted. Letters, digits, and _ $ . - only; "
-            "must be unique among this project's non-archived pipelines."
+            "Auto-derived from target_event if omitted. Letters, digits, and _ $ . - only, and it cannot "
+            "start with $ (reserved for PostHog's own properties); must be unique among this project's "
+            "non-archived pipelines."
         ),
     )
 
@@ -420,7 +451,8 @@ class AutoresearchPipelineCreateSerializer(DataclassSerializer):
     def validate_output_person_property(self, value: str) -> str:
         if value and not _OUTPUT_PERSON_PROPERTY_RE.fullmatch(value):
             raise serializers.ValidationError(
-                "Use only letters, digits, and _ $ . - characters, e.g. 'predicted_p_signup_7d'."
+                "Use only letters, digits, and _ $ . - characters, and do not start with $ (reserved for "
+                "PostHog's own properties), e.g. 'predicted_p_signup_7d'."
             )
         return value
 
