@@ -9,12 +9,12 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
-import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { StackedBar, type StackedBarSegment } from 'scenes/surveys/components/StackedBar'
 import { urls } from 'scenes/urls'
 
 import { SurveyEventName, type SurveyRates, type SurveyStats } from '~/types'
 
+import { PersonDisplay } from 'products/persons/frontend/components/PersonDisplay'
 import type { SurveyResponseAnswerApi, SurveyResponseRowApi } from 'products/surveys/frontend/generated/api.schemas'
 
 import { WidgetCardBodyMessage, WidgetCardContent } from '../../components/WidgetCard'

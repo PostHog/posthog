@@ -13,6 +13,9 @@
             ],
             "description": "For a recurring reminder: a 5-field cron expression (e.g. '0 9 * * 1' = Mondays 9am). May fire at most 4 times per day. Mutually exclusive with recurrence_interval."
         },
+        "deleted": {
+            "type": "boolean"
+        },
         "end_date": {
             "anyOf": [
                 {

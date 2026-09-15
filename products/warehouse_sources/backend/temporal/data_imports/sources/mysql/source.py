@@ -22,7 +22,9 @@ from posthog.exceptions_capture import capture_exception
 from products.data_warehouse.backend.facade.api import reconcile_mysql_schemas
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
+    HostNotAllowedError,
     SSHTunnelMixin,
+    TemporaryHostResolutionError,
     ValidateDatabaseHostMixin,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
@@ -182,6 +184,23 @@ class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabase
                             SourceFieldSelectConfigOption(label="No", value="false"),
                         ],
                     ),
+                    SourceFieldSelectConfig(
+                        name="verify_server_certificate",
+                        label="Verify the server certificate?",
+                        required=True,
+                        defaultValue="false",
+                        converter=SourceFieldSelectConfigConverter.STR_TO_BOOL,
+                        caption=(
+                            "Check that your database's TLS certificate comes from a trusted authority. "
+                            "A self-signed certificate or a private authority does not pass, so leave this off "
+                            "if you use one. Through an SSH tunnel we check the certificate chain but not the "
+                            "hostname, because the tunnel presents your database on a local address."
+                        ),
+                        options=[
+                            SourceFieldSelectConfigOption(label="Yes", value="true"),
+                            SourceFieldSelectConfigOption(label="No", value="false"),
+                        ],
+                    ),
                     SourceFieldSSHTunnelConfig(name="ssh_tunnel", label="Use SSH tunnel?"),
                 ],
             ),
@@ -212,6 +231,19 @@ class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabase
             # source — so the user fixes credentials instead of the generic "check connection
             # details" message sending them to check the host/port.
             "Access denied for user": _INVALID_CREDENTIALS_ERROR,
+            # TiDB Cloud's own ER_ACCESS_DENIED_ERROR (also 1105) wording, distinct from the
+            # standard MySQL "Access denied for user" text above: it points the user at TiDB
+            # Cloud's docs on the cluster-tier username prefix a Serverless cluster requires
+            # (e.g. `<prefix>.root`). Same root cause — wrong credentials, or a username missing
+            # that prefix — so it's non-retryable for the same reason, but needs its own key since
+            # neither existing "Access denied" phrase appears in it. Match the stable sentence,
+            # excluding TiDB's own docs URL that follows it.
+            "Access denied. Please check your user name and password": (
+                "TiDB Cloud rejected the username or password. If you're connecting to a TiDB "
+                "Cloud Serverless cluster, make sure your username includes the required cluster "
+                "prefix (see TiDB Cloud's connection docs). Otherwise check the user and password "
+                "for this source and try again."
+            ),
             # MySQL/MariaDB error 1049 (ER_BAD_DB_ERROR): the configured database doesn't exist on
             # the server — it was renamed or dropped after the source was set up, or the connection
             # was reconfigured to point at a different server. `validate_credentials` already
@@ -305,8 +337,11 @@ class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabase
             # PostHog's connecting host, so the handshake is rejected before any credentials are
             # checked. Only a DB admin can fix this server-side (GRANT for the host, or allow our
             # egress / SSH-tunnel host) — retrying connects from the same host fails identically.
-            # Match the stable tail phrase, not the volatile host in the message prefix.
-            "is not allowed to connect to this MySQL server": "Your MySQL/MariaDB server isn't allowing connections from PostHog's host (error 1130). Ask your database admin to grant access for the connecting host (or allow our IP / SSH-tunnel host), then retry the sync.",
+            # Match the stable tail phrase, not the volatile host in the message prefix, and not the
+            # vendor name that follows it: MariaDB renders this same error as "...this MariaDB
+            # server", not "...this MySQL server", so anchoring on the vendor name missed every
+            # MariaDB server.
+            "is not allowed to connect to this": "Your MySQL/MariaDB server isn't allowing connections from PostHog's host (error 1130). Ask your database admin to grant access for the connecting host (or allow our IP / SSH-tunnel host), then retry the sync.",
             # MySQL/MariaDB error 1226 (ER_USER_LIMIT_REACHED): the connecting user account has a
             # `MAX_CONNECTIONS_PER_HOUR` resource limit set (via `CREATE USER`/`GRANT ... WITH
             # MAX_CONNECTIONS_PER_HOUR`), and this hour's quota is used up. The counter only resets
@@ -444,7 +479,7 @@ class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabase
     ) -> dict[str, object]:
         # `require_ssl` keeps signature parity with Postgres; MySQL SSL is governed by
         # `config.using_ssl` inside `connect`.
-        with self.get_implementation.connect(config) as conn:
+        with self.get_implementation.connect(config, team_id=team_id) as conn:
             return get_mysql_connection_metadata(conn, database=config.database)
 
     def validate_credentials(
@@ -477,6 +512,10 @@ class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabase
 
         try:
             self.get_schemas(config, team_id, api_version=api_version)
+        except (HostNotAllowedError, TemporaryHostResolutionError) as e:
+            # The host policy refused the host, or its lookup never answered. Both carry their own
+            # user-facing wording and neither is a PostHog defect, so they are not captured.
+            return False, str(e)
         except BaseSSHTunnelForwarderError as e:
             # sshtunnel surfaces raw library strings (e.g. "Could not establish session to SSH
             # gateway"); map them to the friendly guidance in `get_non_retryable_errors` — which the

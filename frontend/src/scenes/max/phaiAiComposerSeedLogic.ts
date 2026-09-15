@@ -36,7 +36,7 @@ export const phaiAiComposerSeedLogic = kea<phaiAiComposerSeedLogicType>([
 
     urlToAction(({ actions, values }) => ({
         [urls.ai()]: (_, search, hash) => {
-            if (search.ask && !search.chat) {
+            if (search.ask && !search.chat && !search.task) {
                 const { ask, ...remainingSearch } = search
                 // Hash changes also run this handler. Remove the prompt before handing it off so they
                 // cannot submit it again.

@@ -1,7 +1,7 @@
 from typing import TYPE_CHECKING, TypedDict
 
 from django.db import IntegrityError, transaction
-from django.db.models import QuerySet
+from django.db.models import Q, QuerySet
 
 import structlog
 
@@ -36,13 +36,35 @@ class DegradedSyncMarker(TypedDict):
     at: str
 
 
+def materializes(saved_query: "DataWarehouseSavedQuery") -> bool:
+    """Whether a saved query is asking to be materialized.
+
+    `is_materialized` is the customer's intent, and `table` is one artifact of acting on it. The two
+    come apart, because `table` is `on_delete=SET_NULL`: a backing table that goes away nulls
+    `table_id` and leaves the intent untouched. Reading the artifact instead of the intent then
+    types the node VIEW, which `get_dag_structure` calls ephemeral and a run skips, so the table can
+    never come back and the query stops updating for good, without an error.
+
+    Managed views are excluded because their flag is not a statement of intent: the Revenue
+    Analytics viewsets set `is_materialized` at provisioning, before anything runs, so reading it
+    would enroll a large population of views that have never materialized a row.
+    """
+    from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+
+    if saved_query.origin == DataWarehouseSavedQuery.Origin.MANAGED_VIEWSET:
+        return saved_query.table_id is not None
+    # The column is nullable, and NULL predates its default: it means the same as False here, which
+    # is also how `_materializes_q` reads it.
+    return bool(saved_query.is_materialized)
+
+
 def node_type_for(saved_query: "DataWarehouseSavedQuery") -> NodeType:
     """The node type a saved query's DAG node should carry."""
     from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 
     if saved_query.origin == DataWarehouseSavedQuery.Origin.ENDPOINT:
         return NodeType.ENDPOINT
-    if saved_query.table_id is not None:
+    if materializes(saved_query):
         return NodeType.MAT_VIEW
     return NodeType.VIEW
 
@@ -344,8 +366,16 @@ def update_node_type(saved_query: "DataWarehouseSavedQuery", type: NodeType) -> 
         maybe_reconcile_dag(dag)
 
 
+def _materializes_q() -> Q:
+    """`materializes` as a filter, for the callers that cannot ask row by row."""
+    from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+
+    managed = Q(saved_query__origin=DataWarehouseSavedQuery.Origin.MANAGED_VIEWSET)
+    return (~managed & Q(saved_query__is_materialized=True)) | (managed & Q(saved_query__table_id__isnull=False))
+
+
 def _promote_view_nodes(nodes: QuerySet[Node]) -> int:
-    """Retype the nodes in `nodes` that a table backs but the graph still calls ephemeral views.
+    """Retype the nodes in `nodes` that materialize but the graph still calls ephemeral views.
 
     `get_dag_structure` calls every VIEW node ephemeral, so a scheduled run reports success for one
     without materializing it and without writing a job row — it just stops updating, silently. A
@@ -353,11 +383,11 @@ def _promote_view_nodes(nodes: QuerySet[Node]) -> int:
     below existed, only the `materialize` action ever typed it back.
 
     Only VIEW nodes are touched: ENDPOINT nodes are a materializing type already and must keep
-    theirs. Views with no backing table are left alone, being genuinely ephemeral. No reconcile
-    follows, because tier membership keys off the node's frequency target, not its type.
+    theirs. Views nobody asked to materialize are left alone, being genuinely ephemeral. No
+    reconcile follows, because tier membership keys off the node's frequency target, not its type.
     """
     return (
-        nodes.filter(type=NodeType.VIEW, saved_query__table_id__isnull=False)
+        nodes.filter(_materializes_q(), type=NodeType.VIEW)
         .exclude(saved_query__deleted=True)
         .update(type=NodeType.MAT_VIEW)
     )

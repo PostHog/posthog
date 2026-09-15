@@ -259,7 +259,9 @@ class MotherDuckImplementation(SQLSourceImplementation[MotherduckSourceConfig, A
     # ------------------------------------------------------------------
 
     @contextmanager
-    def connect(self, config: MotherduckSourceConfig, catalog: Optional[str] = None) -> Iterator[Any]:
+    def connect(
+        self, config: MotherduckSourceConfig, catalog: Optional[str] = None, *, team_id: int | None = None
+    ) -> Iterator[Any]:
         """Open a MotherDuck-backed DuckDB connection for the duration of the context.
 
         `catalog` pins the connection's current database, so a caller reading one table

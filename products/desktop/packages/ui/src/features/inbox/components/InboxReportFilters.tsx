@@ -13,35 +13,14 @@ import {
 } from "@posthog/quill";
 import {
   INBOX_PRIORITY_OPTIONS,
+  INBOX_REPORT_STATE_OPTIONS,
   INBOX_SORT_OPTIONS,
   inboxPriorityFilterLabel,
+  inboxReportStateFilterLabel,
+  inboxSortOptionFromKey,
   inboxSortOptionKey,
 } from "@posthog/ui/features/inbox/filterOptions";
-import {
-  type InboxReportStateFilter,
-  useInboxSignalsFilterStore,
-} from "@posthog/ui/features/inbox/stores/inboxSignalsFilterStore";
-
-const REPORT_STATE_OPTIONS: {
-  value: InboxReportStateFilter;
-  label: string;
-}[] = [
-  { value: "review_and_merge", label: "Review and merge" },
-  { value: "needs_decision", label: "Needs decision" },
-  { value: "resolved", label: "Resolved" },
-  { value: "dismissed", label: "Dismissed" },
-];
-
-function reportStateFilterLabel(selected: InboxReportStateFilter[]): string {
-  if (selected.length === 0) return "All statuses";
-  if (selected.length === 1) {
-    return (
-      REPORT_STATE_OPTIONS.find((option) => option.value === selected[0])
-        ?.label ?? "1 status"
-    );
-  }
-  return `${selected.length} statuses`;
-}
+import { useInboxSignalsFilterStore } from "@posthog/ui/features/inbox/stores/inboxSignalsFilterStore";
 
 export function InboxReportFilters(): React.JSX.Element {
   const sortField = useInboxSignalsFilterStore((state) => state.sortField);
@@ -107,7 +86,7 @@ export function InboxReportFilters(): React.JSX.Element {
               size="default"
               data-attr="inbox-filter-state"
             >
-              {reportStateFilterLabel(reportStateFilter)}
+              {inboxReportStateFilterLabel(reportStateFilter)}
               <CaretDownIcon size={12} />
             </Button>
           }
@@ -118,7 +97,7 @@ export function InboxReportFilters(): React.JSX.Element {
           sideOffset={6}
           className="min-w-48"
         >
-          {REPORT_STATE_OPTIONS.map((option) => (
+          {INBOX_REPORT_STATE_OPTIONS.map((option) => (
             <DropdownMenuCheckboxItem
               key={option.value}
               checked={reportStateFilter.includes(option.value)}
@@ -138,10 +117,7 @@ export function InboxReportFilters(): React.JSX.Element {
           label: option.label,
         }))}
         onValueChange={(key) => {
-          const option = INBOX_SORT_OPTIONS.find(
-            (candidate) =>
-              inboxSortOptionKey(candidate.field, candidate.direction) === key,
-          );
+          const option = inboxSortOptionFromKey(key ?? "");
           if (option) setSort(option.field, option.direction);
         }}
       >
@@ -149,11 +125,7 @@ export function InboxReportFilters(): React.JSX.Element {
           <span>Sort:</span>
           <SelectValue>
             {(selected: string) =>
-              INBOX_SORT_OPTIONS.find(
-                (option) =>
-                  inboxSortOptionKey(option.field, option.direction) ===
-                  selected,
-              )?.label ?? selected
+              inboxSortOptionFromKey(selected)?.label ?? selected
             }
           </SelectValue>
         </SelectTrigger>

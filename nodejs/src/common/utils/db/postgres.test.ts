@@ -6,6 +6,7 @@ describe('transient postgres error classification', () => {
         ['connect ECONNREFUSED 10.0.0.1:6543', true],
         ['connect EHOSTUNREACH 10.0.0.1:6543', true],
         ['pooler is shutting down', true],
+        ['Cannot use a pool after calling end on the pool', true],
         ['server conn crashed?', true],
         ['duplicate key value violates unique constraint', false],
         ['syntax error at or near "SELCT"', false],

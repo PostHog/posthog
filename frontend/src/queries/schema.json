@@ -76,6 +76,10 @@
                     "description": "Match accounts with no active relationship of any definition.",
                     "type": "boolean"
                 },
+                "assignedOnly": {
+                    "description": "Match accounts with at least one active relationship of any definition.",
+                    "type": "boolean"
+                },
                 "assignedToUserIds": {
                     "description": "Match accounts where any of these user ids actively holds any relationship (CSM, Account executive, or a custom definition). Drives the \"My accounts\" shortcut (the current user's id) and the shareable \"Assigned to\" filter — the ids are explicit so a shared URL resolves identically for every viewer.",
                     "items": {
@@ -959,6 +963,9 @@
             "properties": {
                 "actionId": {
                     "$ref": "#/definitions/integer"
+                },
+                "properties": {
+                    "$ref": "#/definitions/WebAnalyticsPropertyFilters"
                 }
             },
             "required": ["actionId"],
@@ -4871,17 +4878,6 @@
         "AssistantStickinessQuery": {
             "additionalProperties": false,
             "properties": {
-                "aggregation_group_type_index": {
-                    "anyOf": [
-                        {
-                            "$ref": "#/definitions/integer"
-                        },
-                        {
-                            "type": "null"
-                        }
-                    ],
-                    "description": "Groups aggregation"
-                },
                 "compareFilter": {
                     "$ref": "#/definitions/CompareFilter",
                     "description": "Compare to date range. When enabled, shows the current and previous period side by side."
@@ -4901,7 +4897,7 @@
                     "description": "Granularity of the response. Can be one of `hour`, `day`, `week` or `month`. This determines what counts as one \"interval\" for stickiness measurement. For example, with `day` interval over a 30-day range, the X-axis shows 1 through 30 days, and each bar/point shows how many users performed the event on exactly that many days."
                 },
                 "intervalCount": {
-                    "$ref": "#/definitions/integer",
+                    "$ref": "#/definitions/positive_integer",
                     "description": "How many base intervals comprise one stickiness period. Defaults to 1. For example, `interval: \"day\"` with `intervalCount: 7` groups by 7-day periods."
                 },
                 "kind": {
@@ -10118,6 +10114,10 @@
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
+                },
+                "hasMore": {
+                    "description": "Whether another page of individual model identifiers is available.",
+                    "type": "boolean"
                 },
                 "hogql": {
                     "description": "Generated HogQL query.",
@@ -17387,6 +17387,9 @@
             "properties": {
                 "customEventName": {
                     "type": "string"
+                },
+                "properties": {
+                    "$ref": "#/definitions/WebAnalyticsPropertyFilters"
                 }
             },
             "required": ["customEventName"],
@@ -27327,7 +27330,11 @@
                 "Cybersource",
                 "GoogleAdSense",
                 "Sequenzy",
-                "Skio"
+                "Skio",
+                "Smartlead",
+                "Substack",
+                "ElectricityMaps",
+                "Amplemarket"
             ],
             "type": "string"
         },
@@ -30981,6 +30988,7 @@
                 "linear",
                 "github",
                 "gitlab",
+                "helpscout",
                 "meta-ads",
                 "instagram",
                 "clickup",
@@ -32611,13 +32619,28 @@
                 "filterTestAccounts": {
                     "type": "boolean"
                 },
+                "includeAllModels": {
+                    "description": "Return individual reported models, excluding Unknown, instead of the top-six grouping.",
+                    "type": "boolean"
+                },
                 "kind": {
                     "const": "MCPModelBreakdownQuery",
                     "type": "string"
                 },
+                "limit": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Page size when includeAllModels is enabled.",
+                    "maximum": 100,
+                    "minimum": 1
+                },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
+                },
+                "offset": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Number of individual models to skip when includeAllModels is enabled.",
+                    "minimum": 0
                 },
                 "properties": {
                     "items": {
@@ -32645,6 +32668,10 @@
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
+                },
+                "hasMore": {
+                    "description": "Whether another page of individual model identifiers is available.",
+                    "type": "boolean"
                 },
                 "hogql": {
                     "description": "Generated HogQL query.",
@@ -37946,14 +37973,43 @@
                     },
                     "type": "array"
                 },
+                "legendCalcs": {
+                    "description": "Time-series panels only: which reducers the legend table shows. Empty means no legend calcs.",
+                    "items": {
+                        "$ref": "#/definitions/MetricsReducer"
+                    },
+                    "type": "array"
+                },
+                "nullMode": {
+                    "$ref": "#/definitions/MetricsNullMode",
+                    "default": "gap",
+                    "description": "How a null bucket renders on a time-series chart."
+                },
+                "reduce": {
+                    "$ref": "#/definitions/MetricsReducer",
+                    "default": "last",
+                    "description": "How scalar panels and legend calcs collapse a series to one number."
+                },
                 "statSummary": {
                     "$ref": "#/definitions/MetricsStatSummary",
                     "default": "latest",
+                    "deprecated": "Use `reduce`.",
                     "description": "`stat` display only: which summary the headline value shows."
+                },
+                "thresholds": {
+                    "description": "Color bands for the scalar panels. Sorted by `value` at read time, so entry order does not matter.",
+                    "items": {
+                        "$ref": "#/definitions/MetricsThreshold"
+                    },
+                    "type": "array"
                 },
                 "type": {
                     "$ref": "#/definitions/MetricsDisplayType",
                     "default": "line"
+                },
+                "unit": {
+                    "description": "UCUM unit string as OTel writes it, e.g. \"By\", \"ms\", \"%\". Defaults from the response unit.",
+                    "type": "string"
                 },
                 "yAxis": {
                     "$ref": "#/definitions/MetricsYAxisSettings"
@@ -37963,11 +38019,16 @@
         },
         "MetricsDisplayType": {
             "description": "How a metrics result is charted. `stat` is a single headline value plus sparkline, not a time series.",
-            "enum": ["line", "area", "bar", "stat"],
+            "enum": ["line", "area", "bar", "stat", "gauge", "bargauge", "table", "heatmap"],
             "type": "string"
         },
         "MetricsFilterOp": {
             "enum": ["eq", "neq", "regex", "not_regex"],
+            "type": "string"
+        },
+        "MetricsNullMode": {
+            "description": "How a null bucket renders on a time-series chart.",
+            "enum": ["gap", "zero", "connect"],
             "type": "string"
         },
         "MetricsOtelType": {
@@ -38099,7 +38160,8 @@
                     "type": "string"
                 },
                 "value": {
-                    "type": "number"
+                    "description": "The bucket's aggregate; null when it isn't representable (a gap).",
+                    "type": ["number", "null"]
                 }
             },
             "required": ["time", "value"],
@@ -38192,15 +38254,41 @@
                         "$ref": "#/definitions/MetricsQueryPoint"
                     },
                     "type": "array"
+                },
+                "unit": {
+                    "description": "UCUM unit of the metric as ingested, e.g. \"By\", \"ms\", \"1\". Empty when the SDK did not set one.",
+                    "type": "string"
                 }
             },
             "required": ["labels", "points"],
             "type": "object"
         },
+        "MetricsReducer": {
+            "description": "How a series collapses to one number for the scalar panels and legend calcs.",
+            "enum": ["last", "mean", "min", "max", "sum", "delta"],
+            "type": "string"
+        },
         "MetricsStatSummary": {
+            "deprecated": "Use `MetricsDisplaySettings.reduce`. Kept so saved insights keep working.",
             "description": "Which summary the `stat` display's headline value shows.",
             "enum": ["latest", "average", "total"],
             "type": "string"
+        },
+        "MetricsThreshold": {
+            "additionalProperties": false,
+            "description": "A threshold band: `color` applies from `value` up to the next step.",
+            "properties": {
+                "color": {
+                    "description": "A named color token (e.g. \"green\", \"red\"), never raw hex, so light and dark themes both work.",
+                    "type": "string"
+                },
+                "value": {
+                    "description": "Lower bound of this band. The lowest step is the base color below every other step.",
+                    "type": "number"
+                }
+            },
+            "required": ["value", "color"],
+            "type": "object"
         },
         "MetricsYAxisSettings": {
             "additionalProperties": false,
@@ -39916,10 +40004,14 @@
                 "session_replay_set_filters",
                 "session_replay_experiment_link_clicked",
                 "session_replay_save_filters_as_scanner",
+                "replay_vision_viewed",
+                "replay_vision_scanner_created",
+                "replay_vision_scan_triggered",
                 "error_tracking_exception_autocapture_enabled",
                 "error_tracking_issue_sorting",
                 "error_tracking_docs_viewed",
                 "error_tracking_issue_explained",
+                "error_tracking_scan_with_vision",
                 "llm_analytics_viewed",
                 "llm_analytics_trace_viewed",
                 "llm_analytics_docs_viewed",
@@ -47770,6 +47862,10 @@
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
                         },
+                        "hasMore": {
+                            "description": "Whether another page of individual model identifiers is available.",
+                            "type": "boolean"
+                        },
                         "hogql": {
                             "description": "Generated HogQL query.",
                             "type": "string"
@@ -52662,6 +52758,11 @@
             },
             "required": ["id", "tool_call_id", "content"],
             "type": "object"
+        },
+        "SubscriptionAIContextLimit": {
+            "const": 3,
+            "description": "Maximum number of dashboards and insights an AI subscription may use as context.",
+            "type": "number"
         },
         "SubscriptionAIPromptMaxLength": {
             "const": 4000,
@@ -57572,6 +57673,9 @@
                     "type": "boolean"
                 },
                 "includeScrollDepth": {
+                    "type": "boolean"
+                },
+                "includeTrafficMetrics": {
                     "type": "boolean"
                 },
                 "interval": {

@@ -1,0 +1,92 @@
+---
+name: adding-inbound-webhooks
+description: >
+  Use when adding a webhook endpoint for a third party that sends to PostHog, adding an inbound webhook consumer for a provider that already has an endpoint, or migrating a hand-rolled hmac verifier that the `inbound-webhooks-go-through-ingress` semgrep rule flags.
+  Covers the two jobs separately: a consumer in `products/<product>/backend/webhook_consumers.py`, and a provider incarnation under `posthog/ingress/<provider>/` wired with `build_webhook_view()`.
+  Carries the rules that are easy to get wrong: a consumer name is a dedup cache key, event types must be declared by the provider app or the registry raises, and the module stays cheap to import.
+  Trigger terms: add a webhook, webhook consumer, inbound webhook, hand-rolled hmac, inbound-webhooks-go-through-ingress.
+---
+
+# Adding an inbound webhook
+
+Every webhook a third party sends to PostHog goes through `posthog/ingress/`.
+Read [posthog/ingress/README.md](../../../posthog/ingress/README.md) for the transport contract and the package reference.
+This skill is the decision tree and the checklists.
+
+Which job are you doing?
+
+- The provider already has an endpoint (see the Endpoints table in `posthog/ingress/README.md`) and you want to react to its events: **add a consumer**.
+- No endpoint exists for this third party, or the semgrep rule flagged a hand-rolled verifier: **add a provider**, then add its consumer.
+- Outbound call to a vendor API, which is the other direction: `/routing-outbound-api-calls`.
+
+## Add a consumer
+
+A product declares its consumers in `products/<product>/backend/webhook_consumers.py`, in a `WEBHOOK_CONSUMERS` sequence of `WebhookConsumer` values from `posthog.ingress.contracts`.
+`products/stamphog/backend/webhook_consumers.py` is the smallest complete example.
+
+```python
+WEBHOOK_CONSUMERS = (
+    WebhookConsumer(
+        name="stamphog_review",
+        provider="github",
+        app="stamphog",
+        event_types=frozenset({"pull_request"}),
+        handler=_run_review,
+    ),
+)
+```
+
+Rules that decide whether this works:
+
+- `name` is unique per provider and is part of the dedup cache key. **Treat it as fixed once it ships**: renaming one lets a redelivery run the consumer a second time.
+- `provider` and `app` must match a `ProviderSpec` some incarnation declares, and `event_types` must be a subset of what that app declares. Anything else raises `RegistryError` when the registry is built, rather than sitting there looking registered and never running.
+- `handler` takes one `WebhookDelivery` and returns nothing. Its return value is ignored and it never decides the HTTP status.
+- Keep the module cheap to import. The registry imports it on the first delivery through `load_product_modules("webhook_consumers")`, so defer heavy imports into the handler behind `# noqa: PLC0415` with a reason.
+- The handler runs synchronously inside the request. Enqueue a task for real work, the way stamphog and conversations do.
+- A handler that reads the database wraps the read in `bounded_statement_timeout(ms, models=...)` from `posthog.ingress.dispatch.database`, passing only the models the read actually uses. Opening an alias is itself unbounded, so naming one the read never touches can stall the delivery on connection setup.
+- An import-linter contract (`webhook consumers must only import facade`) holds the module to its own product's `facade/`. Reach product internals through the facade.
+
+Tests: extend the product's existing webhook test module rather than starting a parallel one.
+`products/stamphog/backend/tests/test_webhook_consumers.py` is the shape: drive the real view with a signed `RequestFactory` request and assert the enqueue, plus the event type the app does not register, the bad signature, the unparseable body, the non-POST, and the missing secret.
+Reset the process-cached registry and the dedup cache between tests with `reset_consumer_registry()` and `cache.clear()`.
+
+## Add a provider
+
+Create `posthog/ingress/<provider>/` with an `__init__.py` and a `provider.py`.
+Copy `github/` for the full shape, or `vapi/` for a small one.
+`provider.py` holds three things:
+
+- `SPECS`, one `ProviderSpec` per app, naming the event types that app is subscribed to. The registry validates consumers against these.
+- A `WebhookProvider` subclass with `scheme()` (from `posthog/ingress/verify/`), `deliveries()` (how to read the event type, delivery id and context off the verified request), and any status codes the provider's protocol fixes. Defaults are 403 on a bad signature, 500 when unconfigured, 202 on success.
+- A `build_<provider>_provider(...)` function returning it. Secrets and verifiers a product owns are **passed into this builder**, never imported: nothing under `posthog/ingress/` may import a product.
+
+Then:
+
+1. Add the module path to `_INCARNATION_MODULES` in `posthog/ingress/providers.py`, or the registry never sees its specs or core consumers.
+2. Wire the URL with `build_webhook_view()`, for example `opt_slash_path("webhooks/<provider>", build_webhook_view(build_<provider>_provider()))`. GitHub and SES sit in `posthog/urls.py`; the others are declared by the owning product.
+3. Write `posthog/ingress/<provider>/README.md` with the fixed sections, in this order: headers, signature scheme, delivery id and event type, apps and secrets, quirks, consumers. `posthog/ingress/test/test_provider_readme_sections.py` fails on a provider folder without one, and on a README with different or reordered headings.
+4. Add the provider's signature header name to the `$HEADER` regex in `.semgrep/rules/devex/inbound-webhooks-go-through-ingress.yaml`, plus a fixture case in the `.py` beside it. The header names are spelled out rather than matched generically because a generic header pattern makes semgrep time out on a large module, which drops that file from the scan without failing it.
+5. Delete the migrated endpoint's line from `paths.exclude` in the same rule. That list is a ratchet of verifiers that predate ingress, and the migrating PR removes its own entry.
+6. Preserve the endpoint's externally observable behavior. Existing tests are the contract: move or extend them, do not drop assertions.
+
+### The DRF adapter path
+
+An endpoint that genuinely needs DRF team scoping keeps its view and subclasses `posthog.auth.WebhookSignatureAuthentication`, which computes and compares through `posthog/ingress/verify/schemes.py`.
+Customer.io is the reference: team-scoped, secret from that team's integration row, no fan-out, so `customerio/` contributes a scheme only and declares no spec.
+Everything else goes through `build_webhook_view()`.
+
+## Non-goals
+
+Ingress stores no delivery log, runs no queue, retry or dead letter, lets no consumer decide the response, and promises no consumer order.
+Each was a real proposal already; ["Non-goals" in the package README](../../../posthog/ingress/README.md#non-goals) records the reason for each one, so read it before proposing any of them again.
+
+## Verify
+
+```sh
+semgrep --config .semgrep/rules/devex/ .          # the ratchet entry is really gone
+semgrep --test .semgrep/                          # only if you changed the rule itself
+lint-imports                                      # the webhook_consumers contract
+hogli test products/<product>/backend/tests/test_webhook_consumers.py
+hogli test posthog/ingress/test/
+ruff check --fix <touched files> && ruff format <touched files>
+```
