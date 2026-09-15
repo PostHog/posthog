@@ -1584,6 +1584,7 @@ class TestRecordTriageActivity:
                     reply="answer",
                     citations=["aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"],
                     confidence=0.9,
+                    sandbox_seconds=1.5,
                 ),
             ),
             patch(
@@ -1642,6 +1643,22 @@ class TestRecordTriageActivity:
             assert last_call_patch["status"] == "done"
             assert last_call_patch["result"] == expected_result
             assert "finished_at" in last_call_patch
+            expected_llm_calls = {
+                "persisted": 5,
+                "blocked_unsafe": 1,
+                "skipped_unactionable": 2,
+                "blocked_unsafe_reply": 5,
+            }[_name]
+            expected_sandbox = {
+                "persisted": 1.5,
+                "blocked_unsafe": 0.0,
+                "skipped_unactionable": 0.0,
+                "blocked_unsafe_reply": 1.5,
+            }[_name]
+            assert last_call_patch["cost"] == {
+                "sandbox_seconds": expected_sandbox,
+                "llm_calls": expected_llm_calls,
+            }
 
     @pytest.mark.django_db
     @pytest.mark.asyncio
@@ -1673,7 +1690,7 @@ class TestRecordTriageActivity:
             patch(
                 f"{DRAFT_MODULE}._draft_async",
                 new_callable=AsyncMock,
-                return_value=DraftOutput(reply="", citations=[], confidence=0.0),
+                return_value=DraftOutput(reply="", citations=[], confidence=0.0, sandbox_seconds=0.25),
             ),
             patch(
                 f"{VALIDATE_MODULE}._validate",
@@ -1719,6 +1736,8 @@ class TestRecordTriageActivity:
             assert last_call_patch["status"] == "done"
             assert last_call_patch["result"] == "escalated_no_reply"
             assert last_call_patch["attempts"] == MAX_ATTEMPTS
+            assert last_call_patch["cost"]["sandbox_seconds"] == pytest.approx(0.25 * MAX_ATTEMPTS)
+            assert last_call_patch["cost"]["llm_calls"] == 2 + MAX_ATTEMPTS * 2
 
 
 class TestRecordTriageSync:

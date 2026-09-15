@@ -150,6 +150,8 @@ class SupportReplyWorkflow:
         # --- Outcome tracking: set before each return, recorded in finally ---
         outcome: dict[str, Any] = {}
         draft_task_run_ids: list[str] = []
+        llm_calls = 0
+        sandbox_seconds = 0.0
         try:
             # Input safety gate: block prompt-injection / exfiltration attempts before any LLM
             # draft work. Mirrored from the signals product's safety_filter_activity pattern.
@@ -161,6 +163,7 @@ class SupportReplyWorkflow:
                 start_to_close_timeout=timedelta(minutes=2),
                 retry_policy=RetryPolicy(maximum_attempts=3),
             )
+            llm_calls += 1
             if not safety_output.safe:
                 workflow.logger.info(
                     "support_reply: ticket blocked by safety filter", extra={"threat_type": safety_output.threat_type}
@@ -178,6 +181,7 @@ class SupportReplyWorkflow:
                 start_to_close_timeout=timedelta(minutes=2),
                 retry_policy=RetryPolicy(maximum_attempts=3),
             )
+            llm_calls += 1
             if classify_output.ticket_type == "unactionable":
                 # Distinct outcome from `escalated_no_reply` (which means "tried and exhausted
                 # retries"): this ticket had no answerable question, so downstream routing/metrics
@@ -219,6 +223,7 @@ class SupportReplyWorkflow:
                     start_to_close_timeout=timedelta(minutes=2),
                     retry_policy=RetryPolicy(maximum_attempts=3),
                 )
+                llm_calls += 1
 
                 # Retrieve + rerank
                 retrieve_output = await workflow.execute_activity(
@@ -257,6 +262,8 @@ class SupportReplyWorkflow:
                     start_to_close_timeout=timedelta(minutes=20),
                     retry_policy=RetryPolicy(maximum_attempts=2),
                 )
+                # Default 0.0 on histories recorded before DraftOutput.sandbox_seconds existed.
+                sandbox_seconds += getattr(draft_output, "sandbox_seconds", 0.0) or 0.0
 
                 if draft_output.task_run_id:
                     draft_task_run_ids.append(draft_output.task_run_id)
@@ -278,6 +285,7 @@ class SupportReplyWorkflow:
                     start_to_close_timeout=timedelta(minutes=2),
                     retry_policy=RetryPolicy(maximum_attempts=3),
                 )
+                llm_calls += 1
 
                 # Track best-so-far by the validator's confidence (the trusted score, same
                 # signal the threshold gate uses) — not the draft's self-reported confidence —
@@ -306,6 +314,7 @@ class SupportReplyWorkflow:
                         start_to_close_timeout=timedelta(minutes=2),
                         retry_policy=RetryPolicy(maximum_attempts=3),
                     )
+                    llm_calls += 1
                     if not review_output.safe:
                         workflow.logger.info(
                             "support_reply: reply blocked by output review", extra={"reason": review_output.reason}
@@ -369,6 +378,7 @@ class SupportReplyWorkflow:
                     start_to_close_timeout=timedelta(minutes=2),
                     retry_policy=RetryPolicy(maximum_attempts=3),
                 )
+                llm_calls += 1
                 if not review_output.safe:
                     workflow.logger.info(
                         "support_reply: reply blocked by output review", extra={"reason": review_output.reason}
@@ -432,5 +442,9 @@ class SupportReplyWorkflow:
                         "finished_at": workflow.now().isoformat(),
                         "ai_trace_id": trace_id,
                         "draft_task_run_ids": draft_task_run_ids,
+                        "cost": {
+                            "sandbox_seconds": round(sandbox_seconds, 3),
+                            "llm_calls": llm_calls,
+                        },
                     }
                 )

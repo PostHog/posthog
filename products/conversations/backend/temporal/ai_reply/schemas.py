@@ -112,6 +112,9 @@ class DraftOutput:
     sources: list[dict[str, str]] = field(default_factory=list)
     # The Tasks TaskRun id for this draft session -- join key to LLMA cost data.
     task_run_id: str = ""
+    # Wall time of the sandbox session, recorded for ai_triage.cost. Defaults so
+    # histories from before this field still deserialize.
+    sandbox_seconds: float = 0.0
 
 
 @dataclass
