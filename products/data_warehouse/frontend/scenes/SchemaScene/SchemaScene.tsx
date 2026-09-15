@@ -67,7 +67,7 @@ function SchemaSceneContent({ sourceId, schemaId }: SchemaSceneProps): JSX.Eleme
 
     const cleanedSourceId = cleanSourceId(sourceId)
     const showSyncs = shouldShowManagedSourceSyncsTab(source)
-    const showMetrics = shouldShowManagedSourceMetricsTab(source, !!featureFlags[FEATURE_FLAGS.DWH_SOURCE_METRICS])
+    const showMetrics = shouldShowManagedSourceMetricsTab(source)
     const showDescriptions = !!featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE_SEMANTIC_ENRICHMENT]
     // The warehouse table only exists once the schema has synced, and checks hang off that table.
     const showDataQuality = !!featureFlags[FEATURE_FLAGS.DATA_QUALITY_CHECKS] && !!schema?.table?.id

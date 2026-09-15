@@ -16,10 +16,8 @@ import {
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { AppMetricsSparkline } from 'lib/components/AppMetrics/AppMetricsSparkline'
 import { TZLabel } from 'lib/components/TZLabel'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
 import { AccessControlLevel, AccessControlResourceType, ExternalDataSchemaStatus } from '~/types'
@@ -46,8 +44,6 @@ export function ManagedSourcesTable(): JSX.Element {
         useValues(sourceManagementLogic)
     const { deleteSource, reloadSource, setManagedSearchTerm } = useActions(sourceManagementLogic)
     const { availableSources, availableSourcesLoading } = useValues(availableSourcesLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
-    const showMetrics = !!featureFlags[FEATURE_FLAGS.DWH_SOURCE_METRICS]
 
     if (availableSourcesLoading) {
         return <LemonSkeleton />
@@ -126,32 +122,28 @@ export function ManagedSourcesTable(): JSX.Element {
                                 .reduce((acc, schema) => acc + (schema.table?.row_count ?? 0), 0)
                                 .toLocaleString(),
                     },
-                    ...(showMetrics
-                        ? [
-                              {
-                                  title: 'Rows synced (7d)',
-                                  key: 'rows_synced_sparkline',
-                                  render: function RenderSparkline(_: unknown, source: { id: string }) {
-                                      return (
-                                          <AppMetricsSparkline
-                                              logicKey={`dwh-source-sparkline-${source.id}`}
-                                              loadOnChanges
-                                              successMetricNames={['rows_synced']}
-                                              metricLabels={{ rows_synced: 'Rows synced' }}
-                                              forceParams={{
-                                                  appSource: DATA_WAREHOUSE_APP_SOURCE,
-                                                  appSourceId: source.id,
-                                                  metricName: ['rows_synced'],
-                                                  breakdownBy: 'metric_name',
-                                                  interval: 'day',
-                                                  dateFrom: '-7d',
-                                              }}
-                                          />
-                                      )
-                                  },
-                              },
-                          ]
-                        : []),
+                    {
+                        title: 'Rows synced (7d)',
+                        key: 'rows_synced_sparkline',
+                        render: function RenderSparkline(_, source) {
+                            return (
+                                <AppMetricsSparkline
+                                    logicKey={`dwh-source-sparkline-${source.id}`}
+                                    loadOnChanges
+                                    successMetricNames={['rows_synced']}
+                                    metricLabels={{ rows_synced: 'Rows synced' }}
+                                    forceParams={{
+                                        appSource: DATA_WAREHOUSE_APP_SOURCE,
+                                        appSourceId: source.id,
+                                        metricName: ['rows_synced'],
+                                        breakdownBy: 'metric_name',
+                                        interval: 'day',
+                                        dateFrom: '-7d',
+                                    }}
+                                />
+                            )
+                        },
+                    },
                     {
                         title: 'Status',
                         key: 'status',

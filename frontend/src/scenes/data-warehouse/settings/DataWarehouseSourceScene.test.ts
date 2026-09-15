@@ -28,11 +28,10 @@ describe('DataWarehouseSourceScene', () => {
     })
 
     it.each([
-        [null, true, false],
-        [{ access_method: 'direct' as const }, true, false],
-        [{ access_method: 'warehouse' as const }, true, true],
-        [{ access_method: 'warehouse' as const }, false, false],
-    ])('hides the metrics tab for direct query sources (source %p, flag %p)', (source, flagEnabled, expected) => {
-        expect(shouldShowManagedSourceMetricsTab(source, flagEnabled)).toEqual(expected)
+        [null, false],
+        [{ access_method: 'direct' as const }, false],
+        [{ access_method: 'warehouse' as const }, true],
+    ])('hides the metrics tab for direct query sources (source %p)', (source, expected) => {
+        expect(shouldShowManagedSourceMetricsTab(source)).toEqual(expected)
     })
 })
