@@ -2320,7 +2320,7 @@ class TestEnsureSessionAssetActivity:
         assert ctx["recording_fps"] == 3
         assert ctx["show_metadata_footer"] is True
         # No local override: the expiry has to stay whatever the bucket's lifecycle rule drops at.
-        assert asset.expires_after == dt.datetime(2026, 7, 15, tzinfo=dt.UTC)
+        assert asset.expires_after == dt.datetime(2026, 7, 16, tzinfo=dt.UTC)
 
     @pytest.mark.asyncio
     async def test_reuses_existing_system_asset_for_same_session(self) -> None:

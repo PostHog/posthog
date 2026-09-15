@@ -172,7 +172,9 @@ class ExportedAsset(models.Model):
 
     @classmethod
     def compute_expires_after(cls, export_format: str) -> datetime:
-        expiry_datetime = now() + cls.get_expiry_delta(export_format)
+        # Rounded up, because S3 rounds a lifecycle rule up to the next UTC midnight; rounding down
+        # retires the row while the object it points at is still there.
+        expiry_datetime = now() + cls.get_expiry_delta(export_format) + timedelta(days=1)
         return expiry_datetime.replace(hour=0, minute=0, second=0, microsecond=0)
 
     @property

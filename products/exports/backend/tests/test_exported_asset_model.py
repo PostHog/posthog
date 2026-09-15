@@ -131,7 +131,7 @@ class TestExportedAssetExpiresAfter(APIBaseTest):
             export_format=export_format,
         )
 
-        expected_expiry = (datetime(2024, 6, 15, tzinfo=UTC) + expected_delta).replace(
+        expected_expiry = (datetime(2024, 6, 15, tzinfo=UTC) + expected_delta + timedelta(days=1)).replace(
             hour=0, minute=0, second=0, microsecond=0
         )
         assert asset.expires_after == expected_expiry
