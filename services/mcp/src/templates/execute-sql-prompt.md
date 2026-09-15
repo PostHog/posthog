@@ -2,12 +2,11 @@ Executes HogQL — PostHog's variant of SQL that supports most of ClickHouse SQL
 
 ### When to use `execute-sql`
 
-Use SQL for record inspection, custom calculations, joins, existing SQL, or requests for SQL. It can also prepare data for a typed query. SQL cases include:
+Use SQL for record inspection, custom calculations, joins, existing SQL, or requests for SQL. SQL results can inform how you construct a later typed query. Typed query tools cannot accept SQL results as input. SQL cases include:
 
 - **Searching or listing existing PostHog entities** — insights, dashboards, cohorts, feature flags, experiments, surveys. No typed query tool covers these; query the `system.*` tables.
 - **Multi-event joins or aggregations across event types** that do not fit a single series.
 - **Sophisticated queries beyond typed query schemas** — custom grouping, window functions, non-trivial CTEs, data warehouse joins.
-- **Pre-filtering or shaping** a large dataset before running a typed query.
 
 For governed measures, check for a matching approved metric before deriving a new calculation.
 

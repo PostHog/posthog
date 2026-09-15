@@ -46,7 +46,7 @@ Use `posthog:execute-sql` when:
 - The request searches `system.*` tables for PostHog entities.
 - The user requests SQL, record inspection, or changes to an existing SQL query.
 - The analysis needs custom joins, CTEs, window functions, or warehouse SQL.
-- SQL must pre-filter or shape data before a typed query.
+- SQL results must inform how you construct a later typed query. Typed query tools cannot accept SQL results as input.
 
 ### When either method fits
 
