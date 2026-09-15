@@ -31,11 +31,10 @@ You only need the full setup below when you want to run the app in a worktree. F
 
 ## Prerequisites
 
-1. **Flox installed**: https://flox.dev/docs/install-flox/
+1. **Flox 1.16 or later**: https://flox.dev/docs/install-flox/
 2. **Git worktrees support** (Git 2.5+)
 3. **GitHub CLI** (for PR checkout): `brew install gh`
 4. **jq** (for PR JSON parsing): `brew install jq`
-5. **direnv** (recommended): `brew install direnv`
 
 ## Configuration
 
@@ -61,20 +60,30 @@ export POSTHOG_WORKTREE_BASE="$HOME/code/worktrees"
 
 In all these examples, replace `~/dev/posthog/posthog` with your local path to the PostHog repo.
 
+Flox activates an environment when you `cd` into its directory, and deactivates it when you leave. This needs the Flox prompt hook, which any in-place activation in your shell's startup file installs. You don't need a FloxHub account.
+
 ```bash
 # Install dependencies
-brew install direnv gh jq
+brew install gh jq
 
-# Add direnv hook to your shell (~/.zshrc or ~/.bashrc)
-eval "$(direnv hook zsh)"  # or bash
+# Create a local default environment and activate it in every new shell.
+# If you already activate a FloxHub default environment in your rc file, skip these two lines.
+flox init -d ~
+echo 'eval "$(flox activate -d ~ -m run)"' >> ~/.zshrc  # or ~/.bashrc
 
 # Reload your shell
 source ~/.zshrc  # or ~/.bashrc
 
-# Verify setup in main repo
+# Allow auto-activation in the main repo
 cd ~/dev/posthog/posthog
-flox activate
-# You should see Flox environment activate and uv sync run
+flox activate allow
+# The environment activates at the next prompt and runs uv sync
+```
+
+Worktrees that `phw` creates are allowed for you. To allow other checkouts without a prompt, add a glob. `*` matches one directory name and `**` matches any depth:
+
+```bash
+flox config --set 'auto_activate_environments."/Users/you/.worktrees/posthog/*"' allow
 ```
 
 ### 2. Daily Workflow with `phw`
@@ -149,7 +158,6 @@ hogli start
 # 2:00 PM - Back to feature work
 # Stop current instance and switch back
 phw switch haacked/analytics-dashboard
-# You may see interactive prompt - press Enter to skip nesting, or run 'exit' first
 hogli start  # Continue where you left off
 
 # 5:00 PM - Cleanup
@@ -258,7 +266,7 @@ phw list                            # List all worktrees
 
 ## How It Works
 
-1. **direnv + `.envrc`**: Automatically activates Flox when you enter any worktree directory
+1. **Flox auto-activation**: Activates a worktree's Flox environment when you `cd` into it and deactivates it when you leave
 2. **Flox Environment**: Each worktree gets its own `.flox/env/manifest.toml` and Python venv
 3. **UV Caching**: Flox's `uv sync` uses its own caching, so dependencies are efficiently shared
 4. **Git Worktrees**: Each branch lives in its own directory with isolated Git state
@@ -268,35 +276,15 @@ phw list                            # List all worktrees
 ### The Magic Flow
 
 ```text
-phw create branch → creates worktree → copies .envrc → cd to worktree →
-direnv detects .envrc → activates Flox → runs uv sync → ready to code!
+phw create branch → creates worktree → allows auto-activation → cd to worktree →
+Flox activates → runs uv sync → ready to code!
 ```
 
-### Interactive Environment Switching
+### Switching environments
 
-When you switch between worktrees while already in a Flox environment, you'll see an interactive prompt to prevent unexpected nested environments:
+When you `cd` from one worktree into another, Flox deactivates the first environment and activates the second. You don't need to run `exit` first.
 
-```text
-⚠️  About to activate Flox environment in worktree while already in environment for:
-   /Users/username/dev/posthog/posthog
-
-Continue with nested activation? (y/N):
-```
-
-**Your options:**
-
-- **Press Enter or 'n'** (recommended): Skips activation. Run `exit` first to cleanly switch environments
-- **Type 'y'**: Proceeds with nested activation (you'll need multiple `exit` commands later)
-- **Ctrl+C**: Cancels direnv entirely so you can run `exit` and retry
-
-**Best practice:** When switching between worktrees, exit your current Flox environment first:
-
-```bash
-# Currently in main repo with Flox active
-exit  # Leave current Flox environment
-cd ~/.worktrees/posthog/my-branch  # Switch to worktree
-# Flox activates cleanly without nesting prompt
-```
+The first `cd` into a worktree runs the environment's setup, which takes a few seconds. If you leave and come back while no other shell uses that environment, the setup runs again.
 
 ## Tips and Tricks
 
@@ -333,17 +321,18 @@ git worktree list
 
 ## Troubleshooting
 
-### direnv not activating
+### Environment not activating
 
 ```bash
-# Make sure direnv is allowed in the worktree
+# Allow auto-activation for the worktree
 phw switch your-branch
-direnv allow
+flox activate allow
 
-# Check direnv is properly hooked into your shell
-which direnv  # Should show /opt/homebrew/bin/direnv or similar
-echo $DIRENV_DIR  # Should show something when in a direnv directory
+# Check which directories are allowed
+flox config | grep auto_activate
 ```
+
+If nothing activates in any directory, check that your shell's startup file runs `flox activate` in place, as shown in the [one-time setup](#1-one-time-setup).
 
 ### Flox activation fails
 
@@ -373,25 +362,6 @@ flox activate
 flox activate -- uv sync --reinstall
 ```
 
-### Interactive Flox prompt behavior
-
-**Problem**: You see the interactive prompt every time you switch directories
-
-**Solution**: This is expected behavior when switching between worktrees. Choose the best approach:
-
-```bash
-# Option 1: Skip nesting (recommended)
-# Press Enter or 'n' when prompted, then:
-exit  # Leave current environment
-phw switch your-branch  # Switch cleanly and consistently
-
-# Option 2: Allow nesting (if you prefer)
-# Type 'y' when prompted, then remember to exit multiple times later
-
-# Option 3: Use phw commands (avoids the prompt)
-phw checkout your-branch  # Automatically handles switching
-```
-
 ## Clean Up
 
 ```bash
@@ -408,20 +378,22 @@ For a complete one-time setup, run:
 
 ```bash
 # For zsh users (replace ~/dev/posthog/posthog with your repo path)
-brew install direnv gh jq && \
-echo 'eval "$(direnv hook zsh)"' >> ~/.zshrc && \
-source ~/.zshrc && \
+brew install gh jq && \
+flox init -d ~ && \
+echo 'eval "$(flox activate -d ~ -m run)"' >> ~/.zshrc && \
 cd ~/dev/posthog/posthog && \
+flox activate allow && \
 flox activate -- true && \
-echo "✅ Setup complete! You can now use 'phw' commands."
+echo "✅ Setup complete! Open a new shell to use 'phw' commands."
 
 # For bash users (replace ~/dev/posthog/posthog with your repo path)
-brew install direnv gh jq && \
-echo 'eval "$(direnv hook bash)"' >> ~/.bashrc && \
-source ~/.bashrc && \
+brew install gh jq && \
+flox init -d ~ && \
+echo 'eval "$(flox activate -d ~ -m run)"' >> ~/.bashrc && \
 cd ~/dev/posthog/posthog && \
+flox activate allow && \
 flox activate -- true && \
-echo "✅ Setup complete! You can now use 'phw' commands."
+echo "✅ Setup complete! Open a new shell to use 'phw' commands."
 ```
 
 After setup, you're ready to use commands like:
