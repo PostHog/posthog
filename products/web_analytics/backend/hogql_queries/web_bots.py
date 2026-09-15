@@ -13,6 +13,7 @@ from posthog.hogql.property import property_to_expr
 from posthog.hogql_queries.paginators import HogQLHasMorePaginator
 
 from products.web_analytics.backend.hogql_queries.web_analytics_query_runner import WebAnalyticsQueryRunner
+from products.web_analytics.backend.hogql_queries.web_bots_lazy_precompute import execute_lazy_precomputed_query
 
 # Events bots are detected on. Mirrors BOT_ANALYTICS_EVENTS in
 # frontend/src/scenes/web-analytics/common.ts — $http_log covers server-side
@@ -88,16 +89,17 @@ ORDER BY "Requests" DESC
         properties = self.query.properties + self._test_account_filters
         return property_to_expr(properties, team=self.team)
 
-    def _calculate(self):
-        query = self.to_query()
-        response = self.paginator.execute_hogql_query(
-            query_type="web_bots_query",
-            query=query,
-            team=self.team,
-            user=self.user,
-            timings=self.timings,
-            modifiers=self.modifiers,
-        )
+    def _calculate(self) -> WebBotsTableQueryResponse:
+        response = execute_lazy_precomputed_query(self)
+        if response is None:
+            response = self.paginator.execute_hogql_query(
+                query_type="web_bots_query",
+                query=self.to_query(),
+                team=self.team,
+                user=self.user,
+                timings=self.timings,
+                modifiers=self.modifiers,
+            )
         results = self.paginator.results
         assert results is not None
 
