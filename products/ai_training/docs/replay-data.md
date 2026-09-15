@@ -44,7 +44,7 @@ The authenticated payload also binds the dataset kind and, for images, the objec
 
 Ingestion processes privacy state in batches:
 
-1. Bulk-read session keys, team blocks, month blocks, and image keys.
+1. Bulk-read session keys, team and month block markers, and image keys.
 2. Resolve keys in memory while processing the batch.
 3. Commit bounded DynamoDB transactions before publishing replay blocks or image messages.
 4. On a competing write, bulk-read the winning state and retry with its keys.
@@ -78,11 +78,11 @@ Consent changes do not enqueue privacy requests.
 The outbox survives removal of the source team or organization.
 Its team IDs refer to the original environment, without resolving a child environment to its parent.
 
-| Scope   | Effect                                                                              |
-| ------- | ----------------------------------------------------------------------------------- |
-| Session | Remove its wrapped key and permanently block that session ID.                       |
-| Person  | Resolve its session IDs through replay, then apply session deletion to each result. |
-| Team    | Permanently block the team and remove its session and image keys.                   |
+| Scope   | Effect                                                                               |
+| ------- | ------------------------------------------------------------------------------------ |
+| Session | Remove its wrapped key and permanently block that session ID.                        |
+| Person  | Resolve its session IDs through replay, then apply session deletion to each result.  |
+| Team    | Permanently block the team in every key shard and remove its session and image keys. |
 
 The person lookup matches any available replay row for the requested IDs, then deduplicates and paginates sessions.
 It does not filter out recordings marked deleted or past their replay retention date while their index rows remain.
@@ -107,6 +107,7 @@ The index uses 32 partitions named `month:<YYYY-MM>:shard:<0..31>` and stores ke
 Session keys and image keys appear in this index.
 
 Run `python manage.py delete_ai_training_month YYYY-MM` to permanently block that UTC session month and remove its keys.
+The command writes the month block marker and one marker per key shard before it sweeps, because each ingestion commit guards on the marker for its own shard and commits from different shards do not contend.
 The command uses strongly consistent queries and bounded writes.
 Rerun the command after an interrupted run; it preserves the month block and safely repeats completed pages.
 Readers reject blocked months even when a wrapped key remains during deletion.

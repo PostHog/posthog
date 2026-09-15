@@ -34,6 +34,21 @@ export function sessionShard(sessionId: string): number {
     return Number.parseInt(identityDigest(sessionId).slice(0, 8), 16) % ML_KEY_SHARDS
 }
 
+export function monthBlockShardId(month: string, shard: number): TableKey {
+    return { pk: `month:${month}:shard:${shard}`, sk: 'deleted' }
+}
+
+export function teamBlockShardId(teamId: number, shard: number): TableKey {
+    return { pk: `team:${teamId}:shard:${shard}`, sk: 'deleted' }
+}
+
+// Deletion writes a marker in every shard, so any deterministic shard is correct; a key's own shard keeps a commit's guards inside the partitions it already writes.
+export function blockShard(identity: MlKeyIdentity): number {
+    return identity.sessionId
+        ? sessionShard(identity.sessionId)
+        : sessionShard(tableKeyString(imageKeyId(identity.teamId, keySessionMonth(identity))))
+}
+
 export function sessionKeyId(teamId: number, sessionId: string): TableKey {
     return { pk: `team:${teamId}:shard:${sessionShard(sessionId)}`, sk: `session:${sessionId}` }
 }

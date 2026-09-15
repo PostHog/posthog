@@ -72,17 +72,19 @@ class AITrainingPrivacyStore:
         return cls(cast(PrivacyDynamoClient, client), key_table_name())
 
     def block(self, team_id: int) -> None:
-        self.client.put_item(
-            TableName=self.table_name, Item={**item_key(f"team:{team_id}", "deleted"), "deleted": {"BOOL": True}}
-        )
+        self.client.transact_write_items(TransactItems=self.block_markers(f"team:{team_id}"))
+
+    # Each ingestion commit guards on the marker for its own key shard, so every shard gets one; the unsharded marker stays for readers that predate sharding.
+    def block_markers(self, pk: str) -> list[dict[str, object]]:
+        return [
+            {"Put": {"TableName": self.table_name, "Item": {**item_key(marker, "deleted"), "deleted": {"BOOL": True}}}}
+            for marker in [pk, *(f"{pk}:shard:{shard}" for shard in range(KEY_SHARDS))]
+        ]
 
     def delete_month(self, session_month: str) -> int:
         if re.fullmatch(r"[0-9]{4}-(0[1-9]|1[0-2])", session_month) is None:
             raise ValueError("Session month must use YYYY-MM")
-        self.client.put_item(
-            TableName=self.table_name,
-            Item={**item_key(f"month:{session_month}", "deleted"), "deleted": {"BOOL": True}},
-        )
+        self.client.transact_write_items(TransactItems=self.block_markers(f"month:{session_month}"))
         count = 0
         for shard in range(KEY_SHARDS):
             cursor = None

@@ -8,13 +8,16 @@ import {
     MlKeyIdentity,
     MlSessionIdentity,
     TableKey,
+    blockShard,
     imageKeyId,
     keySessionMonth,
     monthBlockId,
+    monthBlockShardId,
     monthKeyIndexId,
     sessionKeyId,
     tableKeyString,
     teamBlockId,
+    teamBlockShardId,
 } from './schema'
 
 export interface MlSessionKeys {
@@ -69,6 +72,20 @@ export function groupTransactions(units: TransactWriteItem[][]): TransactWriteIt
     return transactions
 }
 
+function addUnit(unitsByShard: Map<number, TransactWriteItem[][]>, shard: number, unit: TransactWriteItem[]): void {
+    const units = unitsByShard.get(shard)
+    if (units) {
+        units.push(unit)
+    } else {
+        unitsByShard.set(shard, [unit])
+    }
+}
+
+// A transaction never spans two shards, so commits across the fleet contend per shard instead of on one marker item.
+function shardedTransactions(unitsByShard: Map<number, TransactWriteItem[][]>): TransactWriteItem[][] {
+    return [...unitsByShard.values()].flatMap(groupTransactions)
+}
+
 export class MlSessionKeyStore {
     constructor(
         private readonly db: MlPrivacyDynamoDB,
@@ -105,19 +122,14 @@ export class MlKeyBatch {
     public async read(): Promise<void> {
         this.keys.clear()
         const initial = this.identities.flatMap((identity) => [
-            monthBlockId(sessionStartMonth(identity.sessionId)),
-            teamBlockId(identity.teamId),
+            ...this.blockMarkerIds(identity),
             sessionKeyId(identity.teamId, identity.sessionId),
         ])
         this.state = await this.db.read(initial)
         const keyIdentities = new Map<string, MlKeyIdentity>()
         for (const identity of this.identities) {
             const id = tableKeyString(sessionKeyId(identity.teamId, identity.sessionId))
-            if (
-                this.state.has(tableKeyString(teamBlockId(identity.teamId))) ||
-                this.state.has(tableKeyString(monthBlockId(sessionStartMonth(identity.sessionId)))) ||
-                this.state.get(id)?.deleted?.BOOL === true
-            ) {
+            if (this.blocked(identity) || this.state.get(id)?.deleted?.BOOL === true) {
                 continue
             }
             for (const sessionId of [identity.sessionId, undefined]) {
@@ -166,10 +178,27 @@ export class MlKeyBatch {
         return image ? { session, image } : undefined
     }
 
-    private guards(identity: MlKeyIdentity): TransactWriteItem[] {
+    // The unsharded markers predate sharding and gate a batch at read time only; a commit guards on the shard markers that deletion writes alongside them.
+    private blockMarkerIds(identity: MlSessionIdentity): TableKey[] {
+        const month = sessionStartMonth(identity.sessionId)
+        const shard = blockShard(identity)
         return [
-            this.db.check(monthBlockId(keySessionMonth(identity)), 'attribute_not_exists(pk)'),
-            this.db.check(teamBlockId(identity.teamId), 'attribute_not_exists(pk)'),
+            monthBlockId(month),
+            teamBlockId(identity.teamId),
+            monthBlockShardId(month, shard),
+            teamBlockShardId(identity.teamId, shard),
+        ]
+    }
+
+    private blocked(identity: MlSessionIdentity): boolean {
+        return this.blockMarkerIds(identity).some((key) => this.state.has(tableKeyString(key)))
+    }
+
+    private guards(identity: MlKeyIdentity): TransactWriteItem[] {
+        const shard = blockShard(identity)
+        return [
+            this.db.check(monthBlockShardId(keySessionMonth(identity), shard), 'attribute_not_exists(pk)'),
+            this.db.check(teamBlockShardId(identity.teamId, shard), 'attribute_not_exists(pk)'),
         ]
     }
 
@@ -184,12 +213,12 @@ export class MlKeyBatch {
     }
 
     private async persist(): Promise<void> {
-        const creations: TransactWriteItem[][] = []
+        const creations = new Map<number, TransactWriteItem[][]>()
         for (const [id, key] of this.keys) {
             if (this.state.has(id)) {
                 continue
             }
-            creations.push([
+            addUnit(creations, blockShard(key.identity), [
                 ...this.guards(key.identity),
                 this.put(
                     storedKeyId(key.identity),
@@ -207,14 +236,14 @@ export class MlKeyBatch {
                 }),
             ])
         }
-        await this.db.write(groupTransactions(creations))
-        const validations: TransactWriteItem[][] = []
+        await this.db.write(shardedTransactions(creations))
+        const validations = new Map<number, TransactWriteItem[][]>()
         for (const identity of this.identities) {
             const key = this.get(identity.teamId, identity.sessionId)?.session
             if (!key) {
                 continue
             }
-            validations.push([
+            addUnit(validations, blockShard(key.identity), [
                 ...this.guards(key.identity),
                 this.db.check(
                     sessionKeyId(identity.teamId, identity.sessionId),
@@ -222,7 +251,7 @@ export class MlKeyBatch {
                 ),
             ])
         }
-        await this.db.write(groupTransactions(validations))
+        await this.db.write(shardedTransactions(validations))
     }
 
     public async commit(): Promise<void> {

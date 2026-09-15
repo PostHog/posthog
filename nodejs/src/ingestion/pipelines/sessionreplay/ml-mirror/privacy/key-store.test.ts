@@ -16,7 +16,16 @@ import { MlKeyEncryption } from './crypto'
 import { DynamoItem, MlPrivacyDynamoDB, encodeKey } from './dynamodb'
 import { MlSessionKeyStore } from './key-store'
 import { MlKeyReader } from './reader'
-import { MlSessionIdentity, imageKeyId, monthBlockId, monthKeyIndexId, sessionKeyId, tableKeyString } from './schema'
+import {
+    ML_KEY_SHARDS,
+    MlSessionIdentity,
+    imageKeyId,
+    monthBlockId,
+    monthBlockShardId,
+    monthKeyIndexId,
+    sessionKeyId,
+    tableKeyString,
+} from './schema'
 import { MlKafkaEncryption, encryptedKafkaValue } from './transport'
 
 const session: MlSessionIdentity = {
@@ -31,6 +40,7 @@ class DynamoBoundary {
     public readSizes: number[] = []
     public writeSizes: number[] = []
     public transactionConflicts = 0
+    public transactions: string[][] = []
     private readonly pendingWrites = new Set<string>()
 
     public async send(command: BatchGetItemCommand | TransactWriteItemsCommand): Promise<object> {
@@ -50,6 +60,13 @@ class DynamoBoundary {
             })
         }
         const actions = command.input.TransactItems!
+        this.transactions.push(
+            actions.map((action) => {
+                const operation = action.ConditionCheck ?? action.Put!
+                const key = 'Item' in operation ? operation.Item! : operation.Key!
+                return JSON.stringify([key.pk.S, key.sk.S])
+            })
+        )
         const writes = actions.flatMap((action) =>
             action.Put ? [JSON.stringify([action.Put.Item!.pk.S, action.Put.Item!.sk.S])] : []
         )
@@ -87,6 +104,16 @@ class DynamoBoundary {
         } finally {
             writes.forEach((key) => this.pendingWrites.delete(key))
         }
+    }
+}
+
+function blockMonth(boundary: DynamoBoundary, month: string): void {
+    const markers = [
+        monthBlockId(month),
+        ...Array.from({ length: ML_KEY_SHARDS }, (_, shard) => monthBlockShardId(month, shard)),
+    ]
+    for (const key of markers) {
+        boundary.items.set(tableKeyString(key), { ...encodeKey(key), deleted: { BOOL: true } })
     }
 }
 
@@ -170,8 +197,7 @@ describe('ML session key batches', () => {
             })
         }
         const inFlight = await store.prepare([session])
-        const blocked = monthBlockId('2025-09')
-        boundary.items.set(tableKeyString(blocked), { ...encodeKey(blocked), deleted: { BOOL: true } })
+        blockMonth(boundary, '2025-09')
         jest.useFakeTimers()
         const committing = inFlight.commit()
         await jest.runAllTimersAsync()
@@ -184,6 +210,32 @@ describe('ML session key batches', () => {
             imageKeyId(session.teamId, '2025-10'),
         ]
         expect([...(await reader.read(locations))].map(([id]) => id)).toEqual(locations.slice(2).map(tableKeyString))
+    })
+
+    it('keeps every transaction inside one key shard', async () => {
+        const identities = Array.from({ length: 60 }, (_, index) => ({
+            ...session,
+            sessionId: `01994569-4380-7000-8000-${(index + 300).toString(16).padStart(12, '0')}`,
+        }))
+        const batch = await store.prepare(identities)
+        jest.useFakeTimers()
+        const committed = batch.commit()
+        await jest.runAllTimersAsync()
+        await committed
+        const shardsPerTransaction = boundary.transactions.map(
+            (keys) => new Set(keys.flatMap((key) => key.match(/:shard:(\d+)","deleted"\]$/)?.[1] ?? []))
+        )
+        expect(shardsPerTransaction.every((shards) => shards.size === 1)).toBe(true)
+        expect(new Set(shardsPerTransaction.flatMap((shards) => [...shards])).size).toBeGreaterThan(1)
+    })
+
+    it('honours an unsharded month marker at read time', async () => {
+        const blocked = monthBlockId('2025-09')
+        boundary.items.set(tableKeyString(blocked), { ...encodeKey(blocked), deleted: { BOOL: true } })
+        const batch = await store.prepare([session])
+        await batch.commit()
+        expect(batch.get(session.teamId, session.sessionId)).toBeUndefined()
+        expect(boundary.writeSizes).toEqual([])
     })
 
     it('adopts a competing writer key', async () => {
