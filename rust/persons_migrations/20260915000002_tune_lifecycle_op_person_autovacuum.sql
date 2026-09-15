@@ -1,9 +1,9 @@
 -- The claim table is a churn table by design: the saga inserts one row per person per merge or
 -- delete, walks that row through its statuses, and the GC pass a day later deletes the parent op
--- row, which cascades the claim rows away. A cascade delete cannot take the heap-only tuple path,
--- and neither can the status transitions, because `status` sits in the partial mark index. Each
--- pass leaves dead entries in the primary key and in that index, which the claim insert's
--- `ON CONFLICT` clause then has to probe.
+-- row, which cascades the claim rows away. A delete can never take the heap-only tuple path, so
+-- every pass leaves dead entries in the primary key and in the partial mark index that the claim
+-- insert's `ON CONFLICT` clause has to probe. The status transitions add to that while `status`
+-- stays in the mark index predicate.
 --
 -- Default autovacuum waits for 20% dead tuples. That bloat is on the write path of every merge
 -- and delete, because the claim insert is the saga's first step. 2% keeps the conflict probe on
