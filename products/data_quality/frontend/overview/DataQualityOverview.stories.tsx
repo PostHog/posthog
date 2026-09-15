@@ -99,7 +99,6 @@ function mocks(overviewChecks: unknown[], subjectHealth: unknown[]): Record<stri
                 count: overviewChecks.length,
             },
             '/api/projects/:team_id/data_quality_checks/health/': subjectHealth,
-            '/api/projects/:team_id/data_warehouse/data_quality_gate/': { gate_materialization_on_checks: true },
         },
     }
 }
