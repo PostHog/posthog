@@ -21,6 +21,7 @@ def _run(run_id: int) -> WorkflowRunDetail:
         run_attempt=1,
         pr_number=5,
         commit_pr_number=None,
+        is_merge_queue=False,
     )
 
 

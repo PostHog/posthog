@@ -1,4 +1,5 @@
 from django.db import models
+from django.utils.functional import Promise
 
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import UUIDModel
@@ -9,7 +10,12 @@ EMAIL_THREAD_COMMENT_SCOPE = "EmailThread"
 class EmailThreadAccountMatchSource(models.TextChoices):
     KNOWN_EMAIL = "known_email", "Known email"
     PERSON_GROUP = "person_group", "Person group"
+    ORGANIZATION_MEMBER = "organization_member", "Organization member"
     EMAIL_DOMAIN = "email_domain", "Email domain"
+
+
+def email_thread_account_match_source_choices() -> list[tuple[str, str | Promise]]:
+    return list(EmailThreadAccountMatchSource.choices)
 
 
 class EmailThreadMessageDirection(models.TextChoices):
@@ -23,7 +29,7 @@ class EmailThreadParticipantKind(models.TextChoices):
 
 
 class EmailThread(TeamScopedRootMixin, UUIDModel):
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     canonical_thread_key = models.CharField(max_length=998)
     subject = models.TextField(default="", blank=True)
     first_message_at = models.DateTimeField(null=True, blank=True)
@@ -47,11 +53,11 @@ class EmailThread(TeamScopedRootMixin, UUIDModel):
 
 
 class EmailThreadAccountLink(TeamScopedRootMixin, UUIDModel):
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     thread = models.ForeignKey("conversations.EmailThread", on_delete=models.CASCADE, related_name="account_links")
     account_id = models.CharField(max_length=64)
     account_external_id = models.CharField(max_length=400, null=True, blank=True)
-    match_source = models.CharField(max_length=32, choices=EmailThreadAccountMatchSource.choices)
+    match_source = models.CharField(max_length=32, choices=email_thread_account_match_source_choices)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -69,7 +75,7 @@ class EmailThreadAccountLink(TeamScopedRootMixin, UUIDModel):
 
 
 class EmailThreadMessage(TeamScopedRootMixin, UUIDModel):
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     thread = models.ForeignKey("conversations.EmailThread", on_delete=models.CASCADE, related_name="messages")
     comment = models.OneToOneField(
         "posthog.Comment",
@@ -111,7 +117,7 @@ class EmailThreadMessage(TeamScopedRootMixin, UUIDModel):
 
 
 class EmailThreadParticipant(TeamScopedRootMixin, UUIDModel):
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     thread = models.ForeignKey("conversations.EmailThread", on_delete=models.CASCADE, related_name="participants")
     email = models.CharField(max_length=400)
     display_name = models.CharField(max_length=400, default="", blank=True)

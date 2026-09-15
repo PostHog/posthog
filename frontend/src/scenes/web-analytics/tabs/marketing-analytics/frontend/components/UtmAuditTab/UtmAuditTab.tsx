@@ -32,7 +32,7 @@ import type {
     UtmIssueKind,
 } from '../../logic/utmAuditLogic'
 import { utmAuditLogic } from '../../logic/utmAuditLogic'
-import { NonIntegratedConversionsCellActions } from '../NonIntegratedConversionsTable/NonIntegratedConversionsCellActions'
+import { CampaignMappingCellActions } from '../CampaignMapping/CampaignMappingCellActions'
 import { CampaignFieldPreferencesConfiguration } from '../settings/CampaignFieldPreferencesConfiguration'
 import { CampaignNameMappingsConfiguration } from '../settings/CampaignNameMappingsConfiguration'
 import { CustomSourceMappingsConfiguration } from '../settings/CustomSourceMappingsConfiguration'
@@ -165,7 +165,7 @@ function ActionsMenu({ columnName, value }: { columnName: string; value: string 
         <Popover
             visible={showActions}
             onClickOutside={() => setShowActions(false)}
-            overlay={<NonIntegratedConversionsCellActions columnName={columnName} value={value} />}
+            overlay={<CampaignMappingCellActions columnName={columnName} value={value} />}
         >
             <LemonButton size="xsmall" icon={<IconEllipsis />} onClick={() => setShowActions(!showActions)} />
         </Popover>

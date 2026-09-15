@@ -197,6 +197,29 @@ describe('instrumentationChecklistLogic', () => {
         expect(logic.values.refreshFailed).toBe(false)
     })
 
+    it('asks for a fresh read only when the refresh is explicit', async () => {
+        logic = instrumentationChecklistLogic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadInstrumentationChecklistSuccess'])
+        expect(mockRetrieve).toHaveBeenLastCalledWith(expect.any(String), { refresh: undefined })
+
+        logic.actions.loadInstrumentationChecklist({ refresh: true })
+        await expectLogic(logic).toDispatchActions(['loadInstrumentationChecklistSuccess'])
+
+        // Without this the button serves whatever the server cached, so someone who just fixed
+        // their instrumentation is told it is still broken.
+        expect(mockRetrieve).toHaveBeenLastCalledWith(expect.any(String), { refresh: true })
+    })
+
+    it('reports it is still checking until the first read answers', async () => {
+        mockRetrieve.mockReturnValue(new Promise(() => {}))
+        logic = instrumentationChecklistLogic()
+        logic.mount()
+
+        // 'hidden' here would flash the scene one layout, then another once the read lands.
+        await expectLogic(logic).toMatchValues({ checklistCardState: 'checking' })
+    })
+
     const cardStateCases: [string, InstrumentationCheckStatusEnumApi[], InstrumentationChecklistCardState][] = [
         [
             'a warning is present',

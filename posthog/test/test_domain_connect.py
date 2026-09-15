@@ -324,30 +324,39 @@ class TestTemplateResolverAlignment(BaseTest):
         mock_proxy_cls.objects.get.return_value = mock_record
 
         with self.settings(CLOUD_DEPLOYMENT=region):
-            domain, service_id, host, variables = resolve_proxy_context("test-id", "test-org")
+            resolved = resolve_proxy_context("test-id", "test-org")
 
-        self.assertEqual(set(variables.keys()), expected_vars)
-        self.assertEqual(service_id, template["serviceId"])
+        self.assertEqual(set(resolved.variables.keys()), expected_vars)
+        self.assertEqual(resolved.service_id, template["serviceId"])
+        self.assertEqual(resolved.root_domain, "example.com")
+        self.assertEqual(resolved.host, "ph")
         if template.get("hostRequired"):
-            self.assertTrue(host, "hostRequired template but resolver returned empty host")
+            self.assertTrue(resolved.host, "hostRequired template but resolver returned empty host")
 
     @parameterized.expand(
         [
-            ("posthog.com.email-verification-us.json", "US"),
-            ("posthog.com.email-verification-eu.json", "EU"),
+            ("subdomain sender", "posthog.com.email-verification-us.json", "US", "news.example.com", "news"),
+            ("root domain sender", "posthog.com.email-verification-eu.json", "EU", "example.com", ""),
         ]
     )
     @patch("posthog.models.integration.EmailIntegration")
     @patch("posthog.models.integration.Integration")
     def test_email_resolver_variables_match_template(
-        self, template_file: str, region: str, mock_integration_cls: MagicMock, mock_email_cls: MagicMock
+        self,
+        _name: str,
+        template_file: str,
+        region: str,
+        sender_domain: str,
+        expected_host: str,
+        mock_integration_cls: MagicMock,
+        mock_email_cls: MagicMock,
     ) -> None:
         template = _load_template(template_file)
         expected_vars = _extract_template_variables(template)
 
         mock_instance = MagicMock()
         mock_instance.kind = "email"
-        mock_instance.config = {"domain": "example.com", "mail_from_subdomain": "feedback"}
+        mock_instance.config = {"domain": sender_domain, "mail_from_subdomain": "feedback"}
         mock_integration_cls.objects.get.return_value = mock_instance
 
         mock_email = MagicMock()
@@ -356,18 +365,23 @@ class TestTemplateResolverAlignment(BaseTest):
                 {
                     "type": "verification",
                     "recordType": "TXT",
-                    "recordHostname": "_amazonses.example.com",
+                    "recordHostname": f"_amazonses.{sender_domain}",
                     "recordValue": "verify-token-123",
                 },
-                {"type": "dkim", "recordHostname": "aaa._domainkey.example.com"},
-                {"type": "dkim", "recordHostname": "bbb._domainkey.example.com"},
-                {"type": "dkim", "recordHostname": "ccc._domainkey.example.com"},
+                {"type": "dkim", "recordHostname": f"aaa._domainkey.{sender_domain}"},
+                {"type": "dkim", "recordHostname": f"bbb._domainkey.{sender_domain}"},
+                {"type": "dkim", "recordHostname": f"ccc._domainkey.{sender_domain}"},
             ]
         }
         mock_email_cls.return_value = mock_email
 
         with self.settings(CLOUD_DEPLOYMENT=region, SES_REGION="us-east-1"):
-            domain, service_id, variables = resolve_email_context(1, 1)
+            resolved = resolve_email_context(1, 1)
 
-        self.assertEqual(set(variables.keys()), expected_vars)
-        self.assertEqual(service_id, template["serviceId"])
+        self.assertEqual(set(resolved.variables.keys()), expected_vars)
+        self.assertEqual(resolved.service_id, template["serviceId"])
+        self.assertEqual(resolved.root_domain, "example.com")
+        self.assertEqual(resolved.host, expected_host)
+        self.assertEqual(resolved.variables["verifyToken"], "verify-token-123")
+        self.assertEqual(resolved.variables["dkim1"], "aaa")
+        self.assertEqual(resolved.variables["mailFromSub"], "feedback")

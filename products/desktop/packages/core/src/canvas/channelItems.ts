@@ -12,7 +12,7 @@ import type {
 import { isTaskUnread, type TaskTimestamp } from "../sidebar/buildSidebarData";
 import { getRepositoryInfo, repositoryLabel } from "../sidebar/groupTasks";
 import { taskActivityAt, taskActivityTimestamp } from "../tasks/taskActivity";
-import type { DashboardRecord } from "./dashboardSchemas";
+import type { CanvasCreator, DashboardRecord } from "./dashboardSchemas";
 
 /** Where a session runs. `worktree` is a local checkout, so it reads as local. */
 export type ChannelItemEnvironment = "local" | "cloud";
@@ -49,7 +49,7 @@ export interface ChannelItemModel {
   repository: ChannelItemRepository | null;
   /** The branch its work is on, from the local checkout or the run. */
   branch: string | null;
-  authorUser: UserBasic | null;
+  authorUser: UserBasic | CanvasCreator | null;
   authorName: string | null;
   authorUuid: string | null;
   templateId: string | null;
@@ -174,7 +174,7 @@ export function buildChannelItems({
     source: null,
     needsInput: false,
     unread: false,
-    authorUser: null,
+    authorUser: d.createdByUser ?? null,
     authorName: d.createdBy ?? null,
     authorUuid: d.createdByUuid ?? null,
     templateId: d.templateId,

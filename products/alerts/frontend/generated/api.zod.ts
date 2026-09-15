@@ -22,6 +22,40 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod
     .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
 
 /**
+ * Send this alert to a Slack channel as well as by email. The workspace must already be connected to the project. The returned IDs identify the destination.
+ */
+export const alertsDestinationsCreateBodyTypeDefault = `slack`
+
+export const AlertsDestinationsCreateBody = /* @__PURE__ */ zod.object({
+    type: zod
+        .enum(['slack'])
+        .describe('\* `slack` - slack')
+        .default(alertsDestinationsCreateBodyTypeDefault)
+        .describe('Destination type. Slack is the only type this endpoint creates.\n\n\* `slack` - slack'),
+    slack_workspace_id: zod
+        .number()
+        .describe('Integration ID of the Slack workspace to post in. List them with the integrations endpoint.'),
+    slack_channel_id: zod.string().describe('Slack channel ID to post in, for example C0123456789.'),
+    slack_channel_name: zod
+        .string()
+        .optional()
+        .describe('Channel name shown on the destination, for example product-alerts.'),
+})
+
+/**
+ * Stop sending this alert to a destination. The alert keeps its email recipients.
+ */
+export const alertsDestinationsDeleteCreateBodyHogFunctionIdsMax = 100
+
+export const AlertsDestinationsDeleteCreateBody = /* @__PURE__ */ zod.object({
+    hog_function_ids: zod
+        .array(zod.uuid())
+        .min(1)
+        .max(alertsDestinationsDeleteCreateBodyHogFunctionIdsMax)
+        .describe('Destination IDs to delete, as returned when the destination was created.'),
+})
+
+/**
  * Simulate a detector on an insight's historical data. Read-only — no AlertCheck records are created.
  */
 export const alertsSimulateCreateBodyDetectorConfigOneOneDetectorsItemOneTypeDefault = `zscore`
@@ -56,7 +90,9 @@ export const alertsSimulateCreateBodyConfigOneThreeTypeDefault = `FunnelsAlertCo
 export const alertsSimulateCreateBodyConfigOneFourTypeDefault = `MetricsAlertConfig`
 
 export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
-    insight: zod.number().describe('Insight ID to simulate the detector on.'),
+    insight: zod
+        .union([zod.number(), zod.string()])
+        .describe('Numeric insight ID or saved insight short ID to simulate the detector on.'),
     detector_config: zod
         .union([
             zod.object({
@@ -1060,7 +1096,10 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
             }),
         ])
         .describe('Detector configuration types')
-        .describe('Detector configuration to simulate.'),
+        .optional()
+        .describe(
+            'Detector configuration to simulate. Omit it to use the default daily z-score detector (threshold 0.95, window 90, first-difference preprocessing).'
+        ),
     series_index: zod
         .number()
         .default(alertsSimulateCreateBodySeriesIndexDefault)

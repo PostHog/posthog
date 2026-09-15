@@ -3,7 +3,7 @@ from datetime import timedelta
 from functools import wraps
 from urllib.parse import quote
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, Mock, patch
 
@@ -15,6 +15,7 @@ from django.utils.timezone import now
 from parameterized import parameterized
 from rest_framework import status
 from rest_framework.exceptions import PermissionDenied
+from rest_framework.test import APIClient
 
 from posthog.api.sharing import (
     SHARING_RESOURCE_ACCESS_CHECKS,
@@ -24,6 +25,7 @@ from posthog.api.sharing import (
     shared_url_as_png,
 )
 from posthog.constants import AvailableFeature
+from posthog.jwt import PosthogJwtAudience, decode_jwt
 from posthog.models import ActivityLog, OrganizationMembership
 from posthog.models.data_color_theme import DataColorTheme
 from posthog.models.filters.filter import Filter
@@ -137,7 +139,7 @@ class TestSharing(APIBaseTest):
             created_by=cls.user,
         )
 
-    @freeze_time("2022-01-01")
+    @time_machine.travel("2022-01-01", tick=False)
     @patch("products.exports.backend.api.exports.ExportedAssetSerializer._start_export_workflow")
     def test_gets_sharing_config(self, patched_exporter_task: Mock):
         assert SharingConfiguration.objects.count() == 0
@@ -179,7 +181,7 @@ class TestSharing(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         mock_record_access.assert_called_once_with(expected_access_method)
 
-    @freeze_time("2022-01-01")
+    @time_machine.travel("2022-01-01", tick=False)
     @patch("products.exports.backend.api.exports.ExportedAssetSerializer._start_export_workflow")
     def test_does_not_change_token_when_toggling_enabled_state(self, patched_exporter_task: Mock):
         assert SharingConfiguration.objects.count() == 0
@@ -490,7 +492,7 @@ class TestSharing(APIBaseTest):
 
         # Create an asset that's past its expiry (PNG assets expire after 180 days)
         time_in_the_past = now() - timedelta(days=181)
-        with freeze_time(time_in_the_past):
+        with time_machine.travel(time_in_the_past, tick=False):
             share_response = self.client.patch(
                 f"/api/projects/{self.team.id}/{type}/{target.pk}/sharing",
                 {"enabled": True},
@@ -572,7 +574,7 @@ class TestSharing(APIBaseTest):
         assert first is not None
         assert first.item_id == str(self.insight.id)
 
-    @freeze_time("2025-01-01 00:00:00")
+    @time_machine.travel("2025-01-01 00:00:00", tick=False)
     @patch("products.exports.backend.api.exports.ExportedAssetSerializer._start_export_workflow")
     def test_refresh_token_grace_period(self, patched_exporter_task: Mock):
         # Enable sharing
@@ -598,17 +600,17 @@ class TestSharing(APIBaseTest):
 
         # Within grace period (4 minutes later), old token should still work
         # Note: Grace period is 5 minutes (SHARING_TOKEN_GRACE_PERIOD_SECONDS)
-        with freeze_time("2025-01-01 00:04:00"):
+        with time_machine.travel("2025-01-01 00:04:00", tick=False):
             response = self.client.get(f"/shared/{initial_token}")
             assert response.status_code == 200
 
         # After grace period (6 minutes later), old token should not work
-        with freeze_time("2025-01-01 00:06:00"):
+        with time_machine.travel("2025-01-01 00:06:00", tick=False):
             response = self.client.get(f"/shared/{initial_token}")
             assert response.status_code == 404
 
         # New token should still work after grace period
-        with freeze_time("2025-01-01 00:06:00"):
+        with time_machine.travel("2025-01-01 00:06:00", tick=False):
             response = self.client.get(f"/shared/{new_token}")
             assert response.status_code == 200
 
@@ -1626,6 +1628,75 @@ class TestSharedAdhocQueryExport(APIBaseTest):
         assert response.status_code == 404
 
 
+class TestExportRendererTokenFlow(APIBaseTest):
+    @staticmethod
+    def _exported_data(response: HttpResponse) -> dict:
+        html = response.content.decode()
+        marker = '<script id="posthog-exported-data" type="application/json">'
+        start = html.index(marker) + len(marker)
+        end = html.index("</script>", start)
+        encoded_data = json.loads(html[start:end])
+        return json.loads(encoded_data) if isinstance(encoded_data, str) else encoded_data
+
+    @mock_exporter_template
+    def test_exporter_page_mints_token_that_only_serves_its_heatmap_query(self) -> None:
+        export_context = {
+            "heatmap_url": "https://example.com",
+            "heatmap_data_url": "https://example.com",
+            "heatmap_type": "click",
+            "width": 1400,
+            "common_filters": {"date_from": "-7d"},
+            "heatmap_filters": {"type": "click", "aggregation": "total_count", "viewportAccuracy": 0.9},
+        }
+        asset = ExportedAsset.objects.create(
+            team=self.team,
+            created_by=self.user,
+            export_format=ExportedAsset.ExportFormat.PNG,
+            export_context=export_context,
+        )
+
+        with patch("products.exports.backend.url_security.is_url_allowed", return_value=(True, None)):
+            response = self.client.get(f"/exporter?token={get_render_access_token(asset)}")
+
+        assert response.status_code == status.HTTP_200_OK
+        renderer_token = self._exported_data(response)["exportToken"]
+        claims = decode_jwt(renderer_token, PosthogJwtAudience.EXPORT_RENDERER)
+        assert claims["id"] == self.user.id
+        assert claims["team_id"] == self.team.id
+        assert claims["exported_asset_id"] == asset.id
+        assert claims["scopes"] == ["heatmap:read"]
+
+        heatmap_response = APIClient().get(
+            f"/api/environments/{self.team.id}/heatmaps",
+            {
+                "type": "click",
+                "date_from": "-7d",
+                "url_exact": "https://example.com",
+                "viewport_width_min": "1260",
+                "viewport_width_max": "1540",
+                "aggregation": "total_count",
+                "limit": "0",
+            },
+            headers={"authorization": f"Bearer {renderer_token}"},
+        )
+        assert heatmap_response.status_code == status.HTTP_200_OK
+
+    def test_exporter_page_rejects_stored_cross_origin_screenshot_asset(self) -> None:
+        asset = ExportedAsset.objects.create(
+            team=self.team,
+            created_by=self.user,
+            export_format=ExportedAsset.ExportFormat.PNG,
+            export_context={
+                "heatmap_url": "https://example.com/collect",
+                "heatmap_data_url": "https://example.com/page",
+                "heatmap_type": "screenshot",
+            },
+        )
+
+        response = self.client.get(f"/exporter?token={get_render_access_token(asset)}")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+
 class TestSharedCohortInlining(APIBaseTest):
     @mock_exporter_template
     def test_shared_insight_inlines_referenced_cohort_names(self):
@@ -2248,8 +2319,22 @@ class TestSaveTimeAccessBlock(APIBaseTest):
             "source": {"kind": "HogQLQuery", "query": "SELECT 1 AS one"},
         }
 
-    def test_query_update_allowed_when_not_shared(self):
+    @parameterized.expand([("no_share",), ("deleted_tile",)])
+    def test_query_update_allowed_when_not_shared(self, coverage: str):
         self._deny_editor()
+        if coverage == "deleted_tile":
+            dashboard = Dashboard.objects.create(team=self.team, created_by=self.user)
+            # The shared dashboard also carries a live tile for another insight. A share lookup
+            # that matched the deleted tile and the live tile as two separate rows would report
+            # this insight as shared.
+            other_insight = Insight.objects.create(
+                team=self.team,
+                query={"kind": "DataTableNode", "source": {"kind": "HogQLQuery", "query": "SELECT 2 AS two"}},
+                created_by=self.user,
+            )
+            DashboardTile.objects.create(dashboard=dashboard, insight=other_insight)
+            DashboardTile.objects.create(dashboard=dashboard, insight=self.insight, deleted=True)
+            SharingConfiguration.objects.create(team=self.team, dashboard=dashboard, enabled=True)
 
         response = self._patch_insight_query()
 

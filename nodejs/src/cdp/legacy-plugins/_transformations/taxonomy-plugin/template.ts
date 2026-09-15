@@ -6,7 +6,7 @@ export const taxonomyPlugin: LegacyTransformationPlugin = {
     processEvent,
     template: {
         free: true,
-        status: 'stable',
+        status: 'deprecated',
         type: 'transformation',
         id: 'plugin-taxonomy-plugin',
         name: 'Taxonomy',

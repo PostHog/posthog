@@ -4,6 +4,7 @@ import { useMemo } from 'react'
 import { IconCalendar, IconPencil, IconPlus, IconTrends, IconWarning } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonCard, LemonTag } from '@posthog/lemon-ui'
 
+import { ProjectTimezoneHint } from 'lib/components/ScheduledRunStatus'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
@@ -47,21 +48,21 @@ function ScoutTemplateCard({
         <LemonCard hoverEffect={false} className="flex flex-col gap-3 p-3">
             <div className="flex min-w-0 items-start gap-2">
                 <span className="mt-0.5 shrink-0 text-muted">{TEMPLATE_ICONS[template.key]}</span>
-                <div className="min-w-0">
-                    <h3 className="m-0 text-sm font-semibold">{template.title}</h3>
-                    <p className="m-0 text-xs text-muted">{template.description}</p>
+                <div className="flex min-w-0 flex-col gap-2">
+                    <div>
+                        <h3 className="m-0 text-sm font-semibold">{template.title}</h3>
+                        <p className="m-0 text-xs text-muted">{template.description}</p>
+                    </div>
+                    {/* The scratch card carries the same default cron, but it isn't a ready-made scout,
+                        so advertising a schedule would promise more than it hands you. */}
+                    {template.key !== 'scratch' && (
+                        <LemonTag type="muted" size="small" className="self-start">
+                            {templateScheduleLabel(template)} <ProjectTimezoneHint />
+                        </LemonTag>
+                    )}
                 </div>
             </div>
-            <div className="mt-auto flex items-center justify-between gap-2">
-                {/* The scratch card carries the same default cron, but it isn't a ready-made scout,
-                    so advertising a schedule would promise more than it hands you. */}
-                {template.key === 'scratch' ? (
-                    <span />
-                ) : (
-                    <LemonTag type="muted" size="small">
-                        {templateScheduleLabel(template)}
-                    </LemonTag>
-                )}
+            <div className="mt-auto flex justify-end">
                 <LemonButton
                     type="primary"
                     size="small"
@@ -139,15 +140,18 @@ export function ScannerScoutsTab({ scannerId }: { scannerId: string }): JSX.Elem
                         worth a look. Pick a starting point, then review and edit it before saving.
                     </p>
                 </div>
-                <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-4">
-                    {templates.map((template) => (
-                        <ScoutTemplateCard
-                            key={template.key}
-                            template={template}
-                            disabledReason={createDisabledReason}
-                            onUse={() => openCreateModal(template.key)}
-                        />
-                    ))}
+                {/* Container query: the scene is much narrower than the viewport with a side panel open. */}
+                <div className="@container">
+                    <div className="grid gap-2 @md:grid-cols-2 @4xl:grid-cols-4">
+                        {templates.map((template) => (
+                            <ScoutTemplateCard
+                                key={template.key}
+                                template={template}
+                                disabledReason={createDisabledReason}
+                                onUse={() => openCreateModal(template.key)}
+                            />
+                        ))}
+                    </div>
                 </div>
             </section>
 

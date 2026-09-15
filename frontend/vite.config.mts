@@ -44,7 +44,9 @@ export default defineConfig(({ mode }) => {
             },
         ],
         resolve: {
-            dedupe: ['@base-ui/react'],
+            // Linked workspace packages (including Quill) must share the app's
+            // React instance or hooks are dispatched through a second runtime.
+            dedupe: ['react', 'react-dom', '@base-ui/react'],
             alias: {
                 '@base-ui/react': resolve(__dirname, 'node_modules/@base-ui/react'),
                 '~': fileURLToPath(new URL('./src', import.meta.url)),
@@ -73,7 +75,10 @@ export default defineConfig(({ mode }) => {
                 // it by default when imported from products/*/frontend, like the @posthog/icons case above.
                 // Alias each export explicitly, subpath first: a lone package-root alias would rewrite the
                 // '@posthog/llm-normalizer/types' import to a nonexistent path instead of src/types.ts.
-                '@posthog/llm-normalizer/types': resolve(__dirname, 'node_modules/@posthog/llm-normalizer/src/types.ts'),
+                '@posthog/llm-normalizer/types': resolve(
+                    __dirname,
+                    'node_modules/@posthog/llm-normalizer/src/types.ts'
+                ),
                 '@posthog/llm-normalizer': resolve(__dirname, 'node_modules/@posthog/llm-normalizer/src/index.ts'),
                 // These @tiptap packages live only in frontend/node_modules, which products/*/frontend
                 // files can't reach by walking up from their own directory. Alias each package

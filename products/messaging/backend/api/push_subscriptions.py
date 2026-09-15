@@ -1,6 +1,7 @@
 import hmac
 import time
 import hashlib
+import threading
 from datetime import UTC, datetime
 
 from django.conf import settings
@@ -10,6 +11,7 @@ from django.http import HttpResponse, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 
 import structlog
+from cachetools import TTLCache
 from prometheus_client import Counter
 from rest_framework import status
 from rest_framework.request import Request
@@ -69,12 +71,32 @@ _DISCARD_LOG_WINDOW_SECONDS = 60
 # Staleness costs at most one window: a team that configures push keeps discarding for up to a minute,
 # and the device re-posts on its next launch anyway.
 _CONFIGURED_APP_IDS_CACHE_SECONDS = 60
+
+# A token that resolves to no team costs a Redis miss and then a Postgres query on every request,
+# and the lookup has no negative cache of its own. A misconfigured mobile client repeats the same
+# unknown token on every app open, so that query runs at the client's retry rate indefinitely.
+#
+# This cache is in-process and size-bounded, not in Redis. The token is request-controlled and this
+# endpoint is public, so a Redis key per submitted value would let anyone grow the shared cache and
+# evict unrelated entries. A TTLCache holds at most _INVALID_TOKEN_CACHE_SIZE entries per worker and
+# evicts its own oldest, so the memory cost is fixed no matter what callers send.
+#
+# The TTL is short on purpose. A token can become valid, for example when a project is recreated,
+# and this bounds how long such a token keeps being rejected after that.
+_INVALID_TOKEN_CACHE_SECONDS = 60
+_INVALID_TOKEN_CACHE_SIZE = 2048
+_invalid_token_cache: TTLCache = TTLCache(maxsize=_INVALID_TOKEN_CACHE_SIZE, ttl=_INVALID_TOKEN_CACHE_SECONDS)
+# cachetools is not thread-safe and Granian serves requests on threads within a worker.
+_invalid_token_lock = threading.Lock()
 _PUSH_INTEGRATION_KINDS = ("firebase", "apns")
 
-VALID_PLATFORMS = ("android", "ios")
+# SDKs send a `platform` field. It is ignored: the property is keyed on app_id and the provider is
+# resolved from app_id alone. Rejecting on it cost a registration per device, because a rejected
+# device re-posts on every app open and never registers.
+
 
 # A device registration payload is a handful of short string fields (distinct_id, device_token,
-# platform, app_id, api_key) — well under 1 KiB. Cap the raw request body far above that but far below
+# app_id, api_key) — well under 1 KiB. Cap the raw request body far above that but far below
 # Django's global limit, so a compressed body can't inflate into a memory-exhaustion payload when
 # load_data_from_request decompresses it.
 MAX_BODY_BYTES = 16 * 1024
@@ -89,6 +111,18 @@ _encrypted_fields = EncryptedFieldMixin()
 # closed: take the strictest mode across every match so a lax duplicate can't downgrade a sibling's
 # `required` policy. Unknown/garbage values sort to 0 (treated as disabled).
 _VERIFICATION_MODE_PRECEDENCE = {"disabled": 0, "optional": 1, "required": 2}
+
+
+def _is_known_invalid_token(api_key: str) -> bool:
+    """True when this worker resolved this token to no team recently. Stores a fingerprint rather
+    than the token itself, so the raw value is never held."""
+    with _invalid_token_lock:
+        return _api_key_fingerprint(api_key) in _invalid_token_cache
+
+
+def _remember_invalid_token(api_key: str) -> None:
+    with _invalid_token_lock:
+        _invalid_token_cache[_api_key_fingerprint(api_key)] = True
 
 
 def _is_first_discard_in_window(team_id: int) -> bool:
@@ -209,7 +243,8 @@ def _rejection_response(
         method=request.method,
         team_id=team_id,
         # app_id is client-supplied, so bound it to keep a hostile value from bloating the log line.
-        app_id=app_id[:128] if isinstance(app_id, str) else app_id,
+        # A non-string (a large array or object) is dropped rather than serialized whole.
+        app_id=app_id[:128] if isinstance(app_id, str) else None,
         detail=detail,
         sdk_name=sdk.name,
         sdk_version=sdk.version,
@@ -286,8 +321,20 @@ def push_subscriptions(request: Request):
             status_code=status.HTTP_401_UNAUTHORIZED,
         )
 
+    if _is_known_invalid_token(api_key):
+        return _rejection_response(
+            request,
+            "Invalid project token.",
+            error_type="authentication_error",
+            code="invalid_api_key",
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            api_key_fingerprint=_api_key_fingerprint(api_key),
+            app_id=data.get("app_id"),
+        )
+
     team = Team.objects.get_team_from_cache_or_token(api_key)
     if not team:
+        _remember_invalid_token(api_key)
         # Fingerprint the rejected token so a cohort of these can be traced to one bad app
         # configuration, which is the usual cause of a burst of invalid-token rejections.
         return _rejection_response(
@@ -297,11 +344,11 @@ def push_subscriptions(request: Request):
             code="invalid_api_key",
             status_code=status.HTTP_401_UNAUTHORIZED,
             api_key_fingerprint=_api_key_fingerprint(api_key),
+            app_id=data.get("app_id"),
         )
 
     distinct_id = data.get("distinct_id")
     device_token = data.get("device_token")
-    platform = data.get("platform")
     app_id = data.get("app_id")
 
     missing_fields = [
@@ -309,7 +356,6 @@ def push_subscriptions(request: Request):
         for field_name, value in [
             ("distinct_id", distinct_id),
             ("device_token", device_token),
-            ("platform", platform),
             ("app_id", app_id),
         ]
         if not value or not isinstance(value, str)
@@ -333,19 +379,7 @@ def push_subscriptions(request: Request):
 
     assert isinstance(distinct_id, str)
     assert isinstance(device_token, str)
-    assert isinstance(platform, str)
     assert isinstance(app_id, str)
-
-    if platform not in VALID_PLATFORMS:
-        return _rejection_response(
-            request,
-            f"Invalid platform. Must be one of: {', '.join(VALID_PLATFORMS)}.",
-            error_type="validation_error",
-            code="invalid_platform",
-            status_code=status.HTTP_400_BAD_REQUEST,
-            team_id=team.id,
-            app_id=app_id,
-        )
 
     # Skip the JSONB lookup when the team has no integration for this app_id, which is the endpoint's
     # normal case. A cache miss or outage returns None and falls through to the real query.
@@ -368,7 +402,6 @@ def push_subscriptions(request: Request):
             JsonResponse(
                 {
                     "distinct_id": distinct_id,
-                    "platform": platform,
                     "stored": False,
                     "push_enabled": False,
                 },
@@ -446,7 +479,6 @@ def push_subscriptions(request: Request):
         JsonResponse(
             {
                 "distinct_id": distinct_id,
-                "platform": platform,
             },
             status=status.HTTP_200_OK,
         ),

@@ -9,10 +9,10 @@ import {
   EmptyMedia,
   EmptyTitle,
   Heading,
-  Spinner,
 } from "@posthog/quill";
 import { AUTH_SCOPED_QUERY_META } from "@posthog/ui/features/auth/useCurrentUser";
 import { useCanvasChatPanelStore } from "@posthog/ui/features/canvas/stores/canvasChatPanelStore";
+import { LoadingState } from "@posthog/ui/primitives/LoadingState";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { GridCanvasView } from "./GridCanvasView";
@@ -80,11 +80,7 @@ export function HomeView() {
   }
 
   if (!home) {
-    return (
-      <div className="flex h-full items-center justify-center">
-        <Spinner />
-      </div>
-    );
+    return <LoadingState />;
   }
   return (
     <div className="flex h-full flex-col">

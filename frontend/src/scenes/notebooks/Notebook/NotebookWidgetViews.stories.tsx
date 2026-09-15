@@ -333,6 +333,12 @@ const meta: Meta = {
                 [`/api/projects/:team_id/feature_flags/${FEATURE_FLAG_ID}/status`]: {
                     status: 'active',
                     reason: 'Feature flag is active',
+                    rollout: {
+                        effectively_full_rollout: false,
+                        has_targeting_conditions: false,
+                        max_rollout_percentage: 50,
+                        is_multivariate: false,
+                    },
                 },
                 [`/api/projects/:team_id/surveys/${SURVEY_ID}/`]: survey,
                 '/api/projects/:team_id/surveys/responses_count/': { [SURVEY_ID]: 42 },

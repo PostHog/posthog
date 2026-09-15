@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import cast
 from zoneinfo import ZoneInfo
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_person, flush_persons_and_events
 from unittest.mock import MagicMock, patch
 
@@ -448,13 +448,13 @@ class TestHogQLCohortQuery(ClickhouseTestMixin, APIBaseTest):
 
     def test_person_metadata_cohort_membership_end_to_end(self) -> None:
         # Persons need a deterministic created_at in BOTH Postgres and ClickHouse.
-        # _create_person with immediate=True under freeze_time writes both stores; we also
+        # _create_person with immediate=True under a frozen clock writes both stores; we also
         # pass created_at explicitly so the assertion stays valid even if Postgres stops
         # using auto_now_add or default=timezone.now in a future migration.
         utc = ZoneInfo("UTC")
         old_dt = datetime(2023, 1, 1, tzinfo=utc)
         new_dt = datetime(2025, 1, 1, tzinfo=utc)
-        with freeze_time(old_dt):
+        with time_machine.travel(old_dt, tick=False):
             old_person = _create_person(
                 team=self.team,
                 distinct_ids=["old"],
@@ -462,7 +462,7 @@ class TestHogQLCohortQuery(ClickhouseTestMixin, APIBaseTest):
                 created_at=old_dt,
                 immediate=True,
             )
-        with freeze_time(new_dt):
+        with time_machine.travel(new_dt, tick=False):
             new_person = _create_person(
                 team=self.team,
                 distinct_ids=["new"],
@@ -577,7 +577,7 @@ class TestHogQLCohortQuery(ClickhouseTestMixin, APIBaseTest):
         utc = ZoneInfo("UTC")
         old_dt = datetime(2023, 1, 1, tzinfo=utc)
         new_dt = datetime(2025, 1, 1, tzinfo=utc)
-        with freeze_time(old_dt):
+        with time_machine.travel(old_dt, tick=False):
             old_person = _create_person(
                 team=self.team,
                 distinct_ids=["old_neg"],
@@ -585,7 +585,7 @@ class TestHogQLCohortQuery(ClickhouseTestMixin, APIBaseTest):
                 created_at=old_dt,
                 immediate=True,
             )
-        with freeze_time(new_dt):
+        with time_machine.travel(new_dt, tick=False):
             new_person = _create_person(
                 team=self.team,
                 distinct_ids=["new_neg"],

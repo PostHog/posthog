@@ -287,13 +287,27 @@ export function buildSandboxDocument(
       actions: {
         invoke: (verb, payload) => call("actionInvoke", { verb, payload: payload ?? {} }),
       },
+      // Read live third-party data with the viewer's own connection. Every
+      // provider and tool must be declared in capabilities.connectors; the
+      // result is cached per canvas for \`refresh\` seconds (default 60):
+      // \`ph.connectors.call("github", "list_pull_requests", { repository: "app" })\`.
+      // A "not_connected" status carries a connect_path; \`connect(provider)\`
+      // opens that settings page from a click.
+      connectors: {
+        call: (provider, tool, args, options) =>
+          call("connectorCall", { provider, tool, arguments: args ?? {}, refresh: options?.refresh }),
+        connect: (provider) => {
+          if (!navigator.userActivation?.isActive) throw new Error("Connecting a provider requires a user action");
+          post({ type: "navigate", nav: { target: "connect", provider } });
+        },
+      },
       // Ask the authoring agent for a change; the host shows the exact prompt
       // and asks the viewer to approve before anything is dispatched:
       // \`ph.agent.request("Make the square blue")\`.
       agent: {
         request: (prompt) => call("agentRequest", { prompt }),
       },
-      // Brokered by the host: PostHog-only https URLs, rate-limited, and
+      // Brokered by the host: PostHog and GitHub PR HTTPS URLs, rate-limited, and
       // ignored while the canvas is unfocused (no auto-opens on load).
       openExternal: (url) => post({ type: "open-external", url }),
       // Navigate the host app. Fire-and-forget: the host validates the intent
@@ -301,7 +315,10 @@ export function buildSandboxDocument(
       // cannot pick the channel or an arbitrary path — only these four targets.
       navigate: {
         toTask: (taskId) => post({ type: "navigate", nav: { target: "task", taskId } }),
-        toNewTask: () => post({ type: "navigate", nav: { target: "new-task" } }),
+        toNewTask: (options) => {
+          if (!navigator.userActivation?.isActive) throw new Error("Opening a task requires a user action");
+          post({ type: "navigate", nav: { target: options ? "compose-task" : "new-task", prompt: options?.prompt, repository: options?.repository } });
+        },
         toCanvas: (dashboardId) => post({ type: "navigate", nav: { target: "canvas", dashboardId } }),
         toNewCanvas: () => post({ type: "navigate", nav: { target: "new-canvas" } }),
       },

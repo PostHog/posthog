@@ -74,10 +74,10 @@ export interface PaginatedMCPAnalyticsSubmissionListApi {
  * * `docs` - Docs
  * * `other` - Other
  */
-export type MCPFeedbackCreateCategoryEnumApi =
-    (typeof MCPFeedbackCreateCategoryEnumApi)[keyof typeof MCPFeedbackCreateCategoryEnumApi]
+export type MCPAnalyticsSubmissionFeedbackCategoryEnumApi =
+    (typeof MCPAnalyticsSubmissionFeedbackCategoryEnumApi)[keyof typeof MCPAnalyticsSubmissionFeedbackCategoryEnumApi]
 
-export const MCPFeedbackCreateCategoryEnumApi = {
+export const MCPAnalyticsSubmissionFeedbackCategoryEnumApi = {
     Results: 'results',
     Usability: 'usability',
     Bug: 'bug',
@@ -138,7 +138,7 @@ export interface MCPFeedbackCreateApi {
      * * `bug` - Bug
      * * `docs` - Docs
      * * `other` - Other */
-    category?: MCPFeedbackCreateCategoryEnumApi
+    category?: MCPAnalyticsSubmissionFeedbackCategoryEnumApi
 }
 
 /**
@@ -172,9 +172,10 @@ export interface MCPIntentClusterToolEntryApi {
  * * `completed` - Completed
  * * `error` - Error
  */
-export type OutcomeEnumApi = (typeof OutcomeEnumApi)[keyof typeof OutcomeEnumApi]
+export type MCPIntentClusterJourneyPathOutcomeEnumApi =
+    (typeof MCPIntentClusterJourneyPathOutcomeEnumApi)[keyof typeof MCPIntentClusterJourneyPathOutcomeEnumApi]
 
-export const OutcomeEnumApi = {
+export const MCPIntentClusterJourneyPathOutcomeEnumApi = {
     Completed: 'completed',
     Error: 'error',
 } as const
@@ -186,7 +187,7 @@ export interface MCPIntentClusterJourneyPathApi {
      *
      * * `completed` - Completed
      * * `error` - Error */
-    readonly outcome: OutcomeEnumApi
+    readonly outcome: MCPIntentClusterJourneyPathOutcomeEnumApi
     /** Number of sessions in this cluster that followed this exact path. */
     readonly count: number
 }

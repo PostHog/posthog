@@ -4,7 +4,7 @@ rules:
     - match: '/ai_observability/'
       owners: team-ai-observability
     - match: '/alerts/'
-      owners: team-analytics-platform
+      owners: team-product-analytics
     - match: '/data_modeling/'
       owners: team-data-modeling
     - match: '/delete_persons/'
@@ -12,7 +12,7 @@ rules:
     - match: '/experiments/'
       owners: team-experiments
     - match: '/exports/'
-      owners: team-analytics-platform
+      owners: team-product-analytics
     - match: '/logs_alerting/'
       owners: team-apm
     - match: '/mcp_analytics/'

@@ -9,6 +9,7 @@ import {
     UsageIngestion,
 } from '~/common/generated/usage-ingestion/usage_ingestion/v1/service_pb'
 import { logger } from '~/common/utils/logger'
+import { delay } from '~/common/utils/utils'
 
 const usageRecordsSentCounter = new Counter({
     name: 'usage_ingestion_records_sent_total',
@@ -22,7 +23,28 @@ const usageRecordsFailedCounter = new Counter({
     labelNames: ['producer_id', 'usage_key', 'error_code'],
 })
 
-const RETRYABLE_CODES = new Set([Code.Unavailable, Code.DeadlineExceeded, Code.ResourceExhausted, Code.Aborted])
+const usageRetriesCounter = new Counter({
+    name: 'usage_ingestion_retries_total',
+    help: 'Ingest calls retried after a transient error. A retry that succeeds drops no records.',
+    labelNames: ['producer_id', 'error_code'],
+})
+
+// Canceled and Internal are how connect-node reports a connection that went away underneath the
+// call: the service ends every connection with GOAWAY at max_connection_age, and a flush that
+// races that teardown never reaches the service. Retrying is safe because recordId makes ingest
+// idempotent. Unlike personhog this set includes Canceled, because no caller passes an abort
+// signal here, so Canceled can only mean the transport went away.
+const RETRYABLE_CODES = new Set([
+    Code.Unavailable,
+    Code.DeadlineExceeded,
+    Code.ResourceExhausted,
+    Code.Aborted,
+    Code.Canceled,
+    Code.Internal,
+])
+
+const MAX_ATTEMPTS = 3
+const RETRY_BACKOFF_MS = 100
 
 /**
  * The record IDs the service left out of its accepted list. The service skips a record it can
@@ -135,7 +157,10 @@ export class UsageIngestionClient {
             }
         } catch (error) {
             const code = error instanceof ConnectError ? error.code : Code.Unknown
-            if (attempt === 0 && RETRYABLE_CODES.has(code)) {
+            if (attempt + 1 < MAX_ATTEMPTS && RETRYABLE_CODES.has(code)) {
+                usageRetriesCounter.inc({ producer_id: this.producerId, error_code: Code[code] ?? 'unknown' })
+                // Backoff so a burst of connection churn does not eat every attempt at once.
+                await delay(RETRY_BACKOFF_MS * 2 ** attempt)
                 await this.ingestChunk(chunk, attempt + 1)
                 return
             }

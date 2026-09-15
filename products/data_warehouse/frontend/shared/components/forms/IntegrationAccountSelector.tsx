@@ -436,7 +436,7 @@ function IntegrationAccountFieldWithDropdown({
     placeholder,
     caption,
 }: IntegrationAccountSelectorProps & { integrationId: number }): JSX.Element {
-    const { accounts, accountsLoading, accountsLoaded, accountsError } = useValues(
+    const { accounts, accountsLoading, accountsLoaded, accountsError, search } = useValues(
         integrationAccountsLogic({ id: integrationId, sourceType })
     )
     const { loadAccounts, setSearch } = useActions(integrationAccountsLogic({ id: integrationId, sourceType }))
@@ -444,6 +444,11 @@ function IntegrationAccountFieldWithDropdown({
     useEffect(() => {
         loadAccounts()
     }, [loadAccounts])
+
+    // The list is filtered server-side, so while a search term is active `accounts` holds the
+    // matches rather than everything the connection can reach. Every "we found nothing" hint below
+    // is about the connection, so hold them back until the list is unfiltered.
+    const filtering = !!search.trim()
 
     const suggestions = useMemo<InputSuggestion[]>(() => {
         const sorted = [...accounts].sort((a, b) => Number(b.is_primary) - Number(a.is_primary))
@@ -475,7 +480,11 @@ function IntegrationAccountFieldWithDropdown({
             {({ value, onChange }) => {
                 const accountValues = accounts.map((account) => account.value)
                 const savedValueMissing =
-                    !!value && !accountsLoading && accounts.length > 0 && !accountValues.includes(String(value))
+                    !!value &&
+                    !accountsLoading &&
+                    !filtering &&
+                    accounts.length > 0 &&
+                    !accountValues.includes(String(value))
                 return (
                     <div className="flex flex-col gap-2">
                         <InputWithSuggestionsDropdown
@@ -488,6 +497,9 @@ function IntegrationAccountFieldWithDropdown({
                             onSearchChange={setSearch}
                             searchPlaceholder="Filter accounts…"
                             emptyMessage="No accounts accessible by this integration."
+                            noMatchMessage={() =>
+                                'No accounts match your filter. Clear it to see every account this connection can reach.'
+                            }
                             loadingMessage="Loading accounts…"
                         />
                         {accountsError && (
@@ -495,12 +507,17 @@ function IntegrationAccountFieldWithDropdown({
                                 {accountsError} <ReconnectLink integrationKind={integrationKind} />
                             </p>
                         )}
-                        {accountsLoaded && !accountsLoading && !accountsError && accounts.length === 0 && (
-                            <p className="m-0 text-xs text-warning">
-                                No accounts to show. If you know the {fieldLabel}, enter it above and save. You can also{' '}
-                                <ReconnectLink integrationKind={integrationKind} /> to grant access to more accounts.
-                            </p>
-                        )}
+                        {accountsLoaded &&
+                            !accountsLoading &&
+                            !accountsError &&
+                            !filtering &&
+                            accounts.length === 0 && (
+                                <p className="m-0 text-xs text-warning">
+                                    No accounts to show. If you know the {fieldLabel}, enter it above and save. You can
+                                    also <ReconnectLink integrationKind={integrationKind} /> to grant access to more
+                                    accounts.
+                                </p>
+                            )}
                         {savedValueMissing && (
                             <p className="m-0 text-xs text-warning">
                                 The currently saved {fieldLabel} <code>{value}</code> isn't in the accessible list for

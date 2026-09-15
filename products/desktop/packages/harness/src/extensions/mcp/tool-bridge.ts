@@ -22,6 +22,7 @@ import {
   CallToolResultSchema,
   ListToolsResultSchema,
 } from "@modelcontextprotocol/sdk/types.js";
+import { boundPersistedMcpResult } from "@posthog/shared";
 import type { McpServerConfig, McpSettings } from "./config";
 import { McpError } from "./errors";
 import { renderMcpToolCall } from "./render";
@@ -213,6 +214,46 @@ export function truncateBridgedContent(
   });
 }
 
+export interface McpResultMeta {
+  structuredContent?: Record<string, unknown>;
+  _meta?: Record<string, unknown>;
+}
+
+export interface McpCallDetails {
+  posthog: {
+    mcp: {
+      server: string;
+      tool: string;
+      result?: McpResultMeta;
+    };
+  };
+}
+
+export function mcpCallDetails(
+  server: string,
+  tool: string,
+  result: McpResultMeta,
+): McpCallDetails["posthog"] {
+  const hasResult =
+    result.structuredContent !== undefined || result._meta !== undefined;
+  return {
+    mcp: {
+      server,
+      tool,
+      ...(hasResult
+        ? {
+            result: {
+              ...(result.structuredContent !== undefined && {
+                structuredContent: result.structuredContent,
+              }),
+              ...(result._meta !== undefined && { _meta: result._meta }),
+            },
+          }
+        : {}),
+    },
+  };
+}
+
 export async function invokeTool(
   client: Client,
   serverName: string,
@@ -220,7 +261,7 @@ export async function invokeTool(
   args: Record<string, unknown>,
   timeoutMs: number,
   signal?: AbortSignal,
-): Promise<{ content: BridgedContent[] }> {
+): Promise<{ content: BridgedContent[] } & McpResultMeta> {
   if (signal?.aborted) {
     return { content: [{ type: "text", text: "Cancelled" }] };
   }
@@ -244,7 +285,21 @@ export async function invokeTool(
       throw new McpError(text || "Tool reported an error", serverName, "tool");
     }
 
-    return { content };
+    const bounded = boundPersistedMcpResult({
+      ...(result.structuredContent !== undefined && {
+        structuredContent: result.structuredContent as Record<string, unknown>,
+      }),
+      ...(result._meta !== undefined && {
+        _meta: result._meta as Record<string, unknown>,
+      }),
+    });
+    return {
+      content,
+      ...(bounded.structuredContent !== undefined && {
+        structuredContent: bounded.structuredContent,
+      }),
+      ...(bounded._meta !== undefined && { _meta: bounded._meta }),
+    };
   } catch (err) {
     if (err instanceof McpError) throw err;
     throw new McpError(
@@ -541,7 +596,7 @@ export class ToolBridge {
 
       async execute(_toolCallId, params, signal) {
         onToolUsed?.(serverName);
-        const { content } = await invokeTool(
+        const { content, structuredContent, _meta } = await invokeTool(
           client,
           serverName,
           tool.name,
@@ -549,7 +604,15 @@ export class ToolBridge {
           timeoutMs,
           signal,
         );
-        return { content, details: {} };
+        return {
+          content,
+          details: {
+            posthog: mcpCallDetails(serverName, tool.name, {
+              structuredContent,
+              _meta,
+            }),
+          },
+        };
       },
     });
     return description;

@@ -1,11 +1,21 @@
 ---
 name: writing-skills
-description: 'Guide for writing PostHog agent skills — job-to-be-done templates that teach agents how to use MCP tools to achieve a goal. Use when adding new product functionality that agents should know how to work with, creating a new skill, or updating existing skills in products/*/skills/.'
+description: 'Guide for writing PostHog agent skills — job-to-be-done templates that teach agents how to use MCP tools to achieve a goal. Use when adding new product functionality that agents should know how to work with, creating a new skill, or updating existing skills in products/*/skills/ or .agents/skills/.'
 ---
 
 # Writing skills for PostHog agents
 
 Read the full guide at [docs/published/handbook/engineering/ai/writing-skills.md](../../../docs/published/handbook/engineering/ai/writing-skills.md).
+
+## Choose a location
+
+- Use `products/<product>/skills/` for work through PostHog tools, APIs, or customer code. These skills are published.
+- Use `.agents/skills/` for work that requires a checkout of the PostHog repository. These skills stay in the repository.
+- Staff-only access is not a reason to move a skill. An MCP workflow without a checkout stays published.
+- For mixed skills, keep customer diagnosis published and move PostHog development steps into an existing internal skill or reference.
+- Published workflows must not depend on internal skill files.
+
+`hogli lint:skills` checks both locations. The scaffold, build, and sync commands below apply to published product skills.
 
 ## Quick workflow
 
@@ -29,6 +39,8 @@ hogli unsync:skill -- --name <skill-name>
 ```
 
 Distribution is automatic after merge — CI publishes to [PostHog/skills](https://github.com/PostHog/skills).
+
+This repo is not the only source. [`PostHog/context-mill`](https://github.com/PostHog/context-mill) publishes the omnibus skills — `instrument-integration`, `instrument-product-analytics`, `instrument-feature-flags`, `instrument-error-tracking`, `instrument-llm-analytics`, `instrument-logs` — and **every shipping consumer overlays them on top of this repo's**, so context-mill wins on a same-named skill. `hogli lint:skills` fails if you add one of those names under `products/*/skills/`; change the context-mill source instead. Local builds are the opposite case: they carry no omnibus skills at all, so anything that depends on one has to overlay it or fail loudly. See [Context-mill skills override this repo's](../../../docs/published/handbook/engineering/ai/writing-skills.md#context-mill-skills-override-this-repos) for the merge sites.
 
 ## When to write a skill
 

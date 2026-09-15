@@ -10,6 +10,7 @@ too, bounding how many namespaces the loosened filter gate lets a team mint.
 """
 
 import json
+import time
 import hashlib
 from collections.abc import Callable
 from dataclasses import replace
@@ -24,7 +25,7 @@ import structlog
 import posthoganalytics
 from prometheus_client import Counter
 
-from posthog.schema import SessionsV2JoinMode
+from posthog.schema import SessionsV2JoinMode, WebAnalyticsPreComputeStrategy
 
 from posthog.hogql import ast
 from posthog.hogql.property import get_property_type, property_to_expr
@@ -63,6 +64,96 @@ OOM_PIN_TTL_SECONDS = 14 * 24 * 60 * 60
 
 def _oom_pin_key(team_id: int) -> str:
     return f"{TEAM_OOM_PIN_REDIS_PREFIX}{team_id}"
+
+
+# Above-floor team set, refreshed by the hourly demand warmer from a
+# marks-only fleet event count. Reads consult it fail-open: an unpublished or
+# expired set (sentinel absent, or Redis down) keeps current behavior, so the
+# floor can only narrow precompute when the warmer is actively maintaining it.
+VOLUME_FLOOR_TEAMS_KEY = "{web_precompute_volume_floor}:teams"
+VOLUME_FLOOR_READY_KEY = "{web_precompute_volume_floor}:ready"
+VOLUME_FLOOR_TTL_SECONDS = 48 * 3600
+
+
+# One dashboard load passes the gate once per family, so cache the verdict
+# in-process for a short window. 60s is far below the hourly publish cadence,
+# and the dict is bounded per process by web analytics' active-team working set.
+_VOLUME_FLOOR_LOCAL_CACHE: dict[int, tuple[float, bool]] = {}
+_VOLUME_FLOOR_LOCAL_CACHE_SECONDS = 60.0
+_VOLUME_FLOOR_LOCAL_CACHE_MAX_ENTRIES = 50_000
+
+
+def is_team_above_volume_floor(team_id: int) -> bool:
+    if settings.WEB_ANALYTICS_PRECOMPUTE_MIN_WEEKLY_EVENTS <= 0:
+        return True
+    # Explicit env enrollment beats the volume heuristic: those teams were
+    # opted in deliberately (dogfooding, support escalations) regardless of size.
+    if team_id in settings.WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS:
+        return True
+    cached = _VOLUME_FLOOR_LOCAL_CACHE.get(team_id)
+    if cached is not None and time.monotonic() - cached[0] < _VOLUME_FLOOR_LOCAL_CACHE_SECONDS:
+        return cached[1]
+    try:
+        client = redis.get_client()
+        # Membership first: above-floor teams (the vast majority of gate
+        # traffic) resolve in one round trip. On a miss, the floor only
+        # enforces when BOTH keys exist: the sentinel alone is not trusted, so
+        # a lost or expired teams set (eviction, TTL drift) fails open instead
+        # of silently disabling precompute fleet-wide. Intentionally-empty
+        # publishes keep the set alive via a placeholder member.
+        # Accepted transient: a reader racing the very first publish can miss
+        # membership then see both keys, reading below-floor for up to the
+        # local cache window — it degrades to the live path, never breaks.
+        if client.sismember(VOLUME_FLOOR_TEAMS_KEY, str(team_id)):
+            result = True
+        else:
+            result = not (client.exists(VOLUME_FLOOR_READY_KEY) and client.exists(VOLUME_FLOOR_TEAMS_KEY))
+    except Exception:
+        logger.exception("web_precompute_volume_floor_check_failed", team_id=team_id)
+        result = True
+    if len(_VOLUME_FLOOR_LOCAL_CACHE) >= _VOLUME_FLOOR_LOCAL_CACHE_MAX_ENTRIES:
+        _VOLUME_FLOOR_LOCAL_CACHE.clear()
+    _VOLUME_FLOOR_LOCAL_CACHE[team_id] = (time.monotonic(), result)
+    return result
+
+
+def publish_volume_floor_teams(above_floor: list[int], above_exit_floor: Optional[list[int]] = None) -> None:
+    """Atomically replace the above-floor set. RENAME keeps readers off a
+    half-written set; the TTLs make a dead warmer fail open within 48h.
+
+    `above_exit_floor` enables hysteresis: teams in it that are already
+    members stay members even when they fell under the entry floor, so a team
+    oscillating around the threshold does not flap in and out hourly (each
+    exit discards warm buckets that re-entry rebuilds from scratch).
+    """
+    client = redis.get_client()
+    members: set[str] = {str(t) for t in above_floor}
+    if above_exit_floor:
+        try:
+            current = {m.decode() if isinstance(m, bytes) else str(m) for m in client.smembers(VOLUME_FLOOR_TEAMS_KEY)}
+        except Exception:
+            # Degrading to no hysteresis evicts every between-floors member
+            # this pass; they re-enter next pass if they recover. Loud so a
+            # persistent Redis problem does not silently churn buckets.
+            logger.exception("web_precompute_volume_floor_hysteresis_read_failed")
+            current = set()
+        members |= {str(t) for t in above_exit_floor if str(t) in current}
+    member_list = sorted(members)
+    if not member_list:
+        # An empty publish is a valid verdict (no team above the floor). A
+        # placeholder member keeps the set alive: RENAME from a never-written
+        # staging key would raise mid-transaction, and the gate reads a
+        # MISSING set as "lost, fail open" rather than "empty, enforce".
+        member_list = ["__none__"]
+    tmp_key = f"{VOLUME_FLOOR_TEAMS_KEY}:staging"
+    pipe = client.pipeline()
+    pipe.delete(tmp_key)
+    for chunk_start in range(0, len(member_list), 5000):
+        pipe.sadd(tmp_key, *member_list[chunk_start : chunk_start + 5000])
+    pipe.rename(tmp_key, VOLUME_FLOOR_TEAMS_KEY)
+    pipe.expire(VOLUME_FLOOR_TEAMS_KEY, VOLUME_FLOOR_TTL_SECONDS)
+    pipe.set(VOLUME_FLOOR_READY_KEY, "1", ex=VOLUME_FLOOR_TTL_SECONDS)
+    pipe.execute()
 
 
 def is_team_oom_pinned(team_id: int) -> bool:
@@ -542,6 +633,11 @@ class NonIntegerTimezone(LazyPrecomputeIneligible):
     pass
 
 
+class BelowVolumeFloor(LazyPrecomputeIneligible):
+    """The team's 7-day event volume is under the precompute floor — its live
+    path is sub-second and always fresh, so the query stays live."""
+
+
 class ConversionGoalUnsupported(LazyPrecomputeIneligible):
     pass
 
@@ -673,6 +769,13 @@ def check_common_eligibility(
     if use_web_analytics_precompute is False:
         raise PerQueryOptedOut()
 
+    # After the free local checks (this one costs a Redis round trip on local
+    # cache miss). Deliberately checked for background warming too: the floor
+    # exists to stop building buckets for teams whose live path already
+    # serves them better.
+    if not is_team_above_volume_floor(team.pk):
+        raise BelowVolumeFloor()
+
     if not is_integer_timezone(team.timezone):
         raise NonIntegerTimezone()
 
@@ -742,7 +845,15 @@ def set_lazy_precompute_ineligible_reason(reason: Optional[str]) -> None:
         tag_queries(web_analytics_precompute_ineligible_reason=reason)
 
 
-def lazy_precompute_ineligible_reason() -> Optional[str]:
+def lazy_precompute_ineligible_reason(strategy: WebAnalyticsPreComputeStrategy) -> Optional[str]:
+    """Give the reason a gate refused this read, but only for a response the live path served.
+
+    The gates run before the runner selects a strategy. A read the lazy gate rejects can still be
+    served from the pre-aggregated tables, so the tag must not ride out next to a strategy that is
+    not `LIVE`.
+    """
+    if strategy != WebAnalyticsPreComputeStrategy.LIVE:
+        return None
     return get_query_tag_value("web_analytics_precompute_ineligible_reason")
 
 

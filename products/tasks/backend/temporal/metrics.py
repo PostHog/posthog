@@ -275,6 +275,27 @@ def increment_credential_refresh(kind: str, outcome: str) -> None:
         pass
 
 
+def increment_sandbox_wedge_probe(verdict: str, write_stage: str) -> None:
+    try:
+        meter = _metric_meter({"verdict": verdict, "write_stage": write_stage})
+        meter.create_counter(
+            "tasks_sandbox_wedge_probe",
+            "Sandbox pressure probe results after credential file write failures",
+        ).add(1)
+    except Exception:
+        pass
+
+
+def increment_tool_call_only_heartbeat() -> None:
+    try:
+        _metric_meter().create_counter(
+            "tasks_tool_call_only_heartbeat",
+            "Run keep-alives carried only by an unfinished tool call through a long event silence",
+        ).add(1)
+    except Exception:
+        pass
+
+
 def increment_pr_babysit_decision(decision: str) -> None:
     try:
         meter = workflow.metric_meter().with_additional_attributes({"decision": decision})

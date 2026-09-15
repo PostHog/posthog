@@ -237,18 +237,19 @@ Each flag has one or more condition groups (OR'd). Within each group, property f
 
 Defined in `rust/feature-flags/src/properties/property_matching.rs`. The service supports 23 operators:
 
-| Category     | Operators                                                                       | Behavior                                                                                                                                                                                                                                                                                     |
-| ------------ | ------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Existence    | `is_set`, `is_not_set`                                                          | Key presence check in property map                                                                                                                                                                                                                                                           |
-| Equality     | `exact`, `is_not`                                                               | Case-insensitive comparison. Arrays checked with contains. Boolean normalization for `"true"`/`"false"` strings.                                                                                                                                                                             |
-| String       | `icontains`, `not_icontains`                                                    | ASCII-case-insensitive substring match                                                                                                                                                                                                                                                       |
-| Regex        | `regex`, `not_regex`                                                            | `fancy_regex` with 10,000 step backtrack limit (ReDoS protection). Patterns are pre-compiled once per request via `prepare_regexes()`. Three-state dispatch in `match_property()`: pre-compiled fast path → `InvalidPattern` short-circuit to `Ok(false)` → fallback on-the-fly compilation. |
-| Numeric      | `gt`, `gte`, `lt`, `lte`                                                        | Parse both sides as `f64`                                                                                                                                                                                                                                                                    |
-| Semver       | `semver_gt`, `semver_gte`, `semver_lt`, `semver_lte`, `semver_eq`, `semver_neq` | Direct `Version` comparison                                                                                                                                                                                                                                                                  |
-| Semver range | `semver_tilde`, `semver_caret`, `semver_wildcard`                               | `VersionReq` parsing (`~1.2.3`, `^1.2.3`, `1.2.x`)                                                                                                                                                                                                                                           |
-| Date         | `is_date_exact`, `is_date_after`, `is_date_before`                              | Supports relative dates, ISO 8601, Unix timestamps                                                                                                                                                                                                                                           |
-| Cohort       | `in`, `not_in`                                                                  | Handled by cohort matching, not property matching                                                                                                                                                                                                                                            |
-| Flag         | `flag_evaluates_to`                                                             | Handled by flag dependency matching                                                                                                                                                                                                                                                          |
+| Category     | Operators                                                                       | Behavior                                                                                                                                                                                                                                                                                             |
+| ------------ | ------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Existence    | `is_set`, `is_not_set`                                                          | Key presence check in property map                                                                                                                                                                                                                                                                   |
+| Equality     | `exact`, `is_not`                                                               | Case-insensitive comparison. Arrays checked with contains. Boolean normalization for `"true"`/`"false"` strings.                                                                                                                                                                                     |
+| String       | `icontains`, `not_icontains`                                                    | ASCII-case-insensitive substring match                                                                                                                                                                                                                                                               |
+| Regex        | `regex`, `not_regex`                                                            | `fancy_regex` with 10,000 step backtrack limit (ReDoS protection). Patterns are pre-compiled once per request via `prepare_regexes()`. Three-state dispatch in `match_property()`: pre-compiled fast path → `InvalidPattern` short-circuit to `Ok(false)` → fallback on-the-fly compilation.         |
+| Numeric      | `gt`, `gte`, `lt`, `lte`                                                        | Parse both sides as `f64`                                                                                                                                                                                                                                                                            |
+| Range        | `between`, `not_between`                                                        | Inclusive on both ends, parsed as `f64`. A value that is missing, JSON null, or not a number is out of range (`between` false, `not_between` true), mirroring HogQL where it reads as NULL. NaN is a non-match for both. Malformed bounds are a `ValidationError` even when the property is missing. |
+| Semver       | `semver_gt`, `semver_gte`, `semver_lt`, `semver_lte`, `semver_eq`, `semver_neq` | Direct `Version` comparison                                                                                                                                                                                                                                                                          |
+| Semver range | `semver_tilde`, `semver_caret`, `semver_wildcard`                               | `VersionReq` parsing (`~1.2.3`, `^1.2.3`, `1.2.x`)                                                                                                                                                                                                                                                   |
+| Date         | `is_date_exact`, `is_date_after`, `is_date_before`                              | Supports relative dates, ISO 8601, Unix timestamps                                                                                                                                                                                                                                                   |
+| Cohort       | `in`, `not_in`                                                                  | Handled by cohort matching, not property matching                                                                                                                                                                                                                                                    |
+| Flag         | `flag_evaluates_to`                                                             | Handled by flag dependency matching                                                                                                                                                                                                                                                                  |
 
 ## Multivariate flags (variant selection)
 
@@ -448,10 +449,11 @@ The `FlagEvaluationState` struct caches all data needed for a single request, av
 ```rust
 pub struct FlagEvaluationState {
     person_id: Option<PersonId>,
-    person_properties: Option<HashMap<String, Value>>,
+    person_uuid: Option<Uuid>,
+    person_property_state: PersonPropertyState,
     group_properties: HashMap<GroupTypeIndex, HashMap<String, Value>>,
-    cohorts: Option<Vec<Cohort>>,
-    static_cohort_matches: Option<HashMap<CohortId, bool>>,
+    cohorts: Option<Arc<[Cohort]>>,
+    cohort_matches: Option<HashMap<CohortId, bool>>,
     flag_evaluation_results: HashMap<FeatureFlagId, FlagValue>,
 }
 ```
@@ -460,14 +462,28 @@ Property overrides from the request body are merged on top of DB-fetched propert
 GeoIP-derived `$geoip_*` properties follow the same rule. They are added to the request overrides before evaluation, but only fill keys the request didn't supply.
 See [GeoIP enrichment of `person_properties`](rust-service-overview.md#geoip-enrichment-of-person_properties).
 
+### Unfetched properties fail closed
+
+A property map that was never fetched is not the same as a property map that came back empty. An empty map means the property is unset, which makes a negative operator such as `is_not` match. A map that was never fetched says nothing, so treating it as empty grants the flag to exactly the people or groups the condition excludes.
+
+Both property sources record whether their fetch ran, and a filter whose source never ran evaluates to no match whichever way the filter points:
+
+- `person_property_state` distinguishes `Pending` (prep has not run) from `Skipped` (request overrides cover every key the batch needs) and `Fetched`.
+- The key set of `group_properties` carries the same distinction per group type. A missing index means the fetch never ran; a present index is authoritative, so an empty map there means the group has no stored properties.
+- `group_type_mapping` records `Uninitialized`, `Loaded`, or `Failed`. A group filter fails closed unless the mapping resolves its group type index: a failed lookup says nothing about any group, and a loaded mapping that lacks the index — a cache entry from before the group type was added — says nothing about that one.
+
+One case deliberately keeps the old behavior: a group type the request supplies no key for. It applies only after the mapping resolves the filter's index to a group type name and the request omits that name. The request never claimed to be in a group of that type, so there is no group context to fail closed on, and filters on it match as before.
+
+Self-hosted upgrades across this change can see different `/flags` and `/decide` responses without any change to the request or the flag. A negative group filter that previously matched because of a fetch miss now stops matching. A condition that combines person and group filters now loads the group types referenced only by those filters, so the group's stored properties decide the filter where an empty map used to.
+
 ## Data fetching strategy
 
 The evaluation engine follows a lazy-but-batched approach:
 
 1. **Flag definitions**: Fetched once per request from HyperCache (Redis -> S3 -> PostgreSQL), including pre-computed `evaluation_metadata` when available
-2. **Group type mappings**: Fetched once per request if any flag uses groups
+2. **Group type mappings**: Fetched once per request if any flag references a group type, through flag-level or condition-level aggregation or through an individual group property filter. The outcome is reused for the rest of the request, so a failed lookup is not retried
 3. **Person properties**: Fetched once per request from PostgreSQL, merged with request overrides
-4. **Group properties**: Fetched once per request from PostgreSQL, merged with request overrides
+4. **Group properties**: Fetched once per request from PostgreSQL, merged with request overrides. A group filter keeps its flag in this preparation only when the fetch can serve it — the mapping resolves the filter's index, the request carries a usable key for that group type, and no request override already supplies the filtered property — so a flag whose only database need is an unservable group filter skips the person and group queries entirely
 5. **Cohort definitions**: Fetched from moka cache (backed by PostgreSQL)
 6. **Static cohort memberships**: Fetched once per request via batched query
 7. **Hash key overrides**: Fetched once per request if any flag uses experience continuity

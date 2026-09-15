@@ -1,6 +1,6 @@
 from datetime import UTC, datetime
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, BaseTest, ClickhouseTestMixin
 from unittest import mock
 
@@ -13,11 +13,13 @@ from structlog.contextvars import get_contextvars
 from posthog.schema import (
     CohortPropertyFilter,
     CompareFilter,
+    CustomEventConversionGoal,
     DateRange,
     EventPropertyFilter,
     PersonPropertyFilter,
     PropertyOperator,
     SessionPropertyFilter,
+    WebAnalyticsPreComputeStrategy,
     WebOverviewQuery,
     WebStatsBreakdown,
     WebStatsTableQuery,
@@ -34,13 +36,18 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
     TtlSchedule,
 )
 from products.web_analytics.backend.hogql_queries.stats_table import WebStatsTableQueryRunner
+from products.web_analytics.backend.hogql_queries.web_analytics_lazy_precompute import can_use_lazy_precompute
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import (
+    _VOLUME_FLOOR_LOCAL_CACHE,
     OOM_PIN_TTL_SECONDS,
     REVALIDATION_START_DELAY_SECONDS,
     REVALIDATION_TRIGGER,
     SESSION_SETTLING_SECONDS,
     STALE_WHILE_REVALIDATE_SECONDS,
     TEAM_SHAPE_SET_TTL_SECONDS,
+    VOLUME_FLOOR_READY_KEY,
+    VOLUME_FLOOR_TEAMS_KEY,
+    BelowVolumeFloor,
     DateRangeOverMax,
     PerQueryOptedOut,
     PropertyAccessControlled,
@@ -53,14 +60,19 @@ from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common imp
     handle_stale_served,
     host_filter_expr,
     is_precompute_enabled_for_team,
+    is_team_above_volume_floor,
     is_team_oom_pinned,
     lazy_precompute_ineligible_reason,
     log_eligibility_outcome,
     pin_team_oom,
+    publish_volume_floor_teams,
     try_reserve_precompute_shape,
     web_ensure_precomputed,
 )
 from products.web_analytics.backend.hogql_queries.web_overview import WebOverviewQueryRunner
+from products.web_analytics.backend.hogql_queries.web_stats_lazy_precompute import (
+    can_use_lazy_precompute as can_use_stats_lazy_precompute,
+)
 from products.web_analytics.backend.tasks.lazy_precompute_revalidation import REVALIDATION_EXPIRES_SECONDS
 
 _COMMON = "products.web_analytics.backend.hogql_queries.web_lazy_precompute_common"
@@ -172,10 +184,143 @@ class TestEligibilityReasonTagging(BaseTest):
 
     def test_rejection_reason_is_tagged_then_cleared_once_a_gate_admits(self) -> None:
         log_eligibility_outcome(log_prefix="web_goals", team_id=self.team.pk, error=DateRangeOverMax(120))
-        assert lazy_precompute_ineligible_reason() == "DateRangeOverMax"
+        assert lazy_precompute_ineligible_reason(WebAnalyticsPreComputeStrategy.LIVE) == "DateRangeOverMax"
 
         log_eligibility_outcome(log_prefix="web_goals", team_id=self.team.pk, error=None)
-        assert lazy_precompute_ineligible_reason() is None
+        assert lazy_precompute_ineligible_reason(WebAnalyticsPreComputeStrategy.LIVE) is None
+
+    @parameterized.expand(
+        [
+            (WebAnalyticsPreComputeStrategy.PRE_AGGREGATED,),
+            (WebAnalyticsPreComputeStrategy.LAZY_PRECOMPUTE,),
+        ]
+    )
+    def test_rejection_reason_is_dropped_when_another_strategy_serves_the_read(
+        self, strategy: WebAnalyticsPreComputeStrategy
+    ) -> None:
+        # The lazy gate can refuse a read that the pre-aggregated tables then serve. Telemetry that
+        # breaks down by the reason must not count such a read as live.
+        log_eligibility_outcome(log_prefix="web_stats_table", team_id=self.team.pk, error=DateRangeOverMax(120))
+
+        assert lazy_precompute_ineligible_reason(strategy) is None
+
+    def test_a_remapped_breakdown_records_a_reason(self) -> None:
+        # First-pageview attribution rewrites the breakdown and no family precomputes the rewritten
+        # shape, so this gate refuses before any reason is recorded. Left silent, the read is
+        # indistinguishable from one the owning family admitted but had no data for.
+        runner = WebStatsTableQueryRunner(
+            team=self.team,
+            query=WebStatsTableQuery(
+                dateRange=DateRange(date_from="-7d"),
+                properties=[],
+                breakdownBy=WebStatsBreakdown.INITIAL_UTM_SOURCE,
+            ),
+        )
+
+        with mock.patch.object(
+            WebStatsTableQueryRunner,
+            "_first_pageview_attribution_enabled",
+            new_callable=mock.PropertyMock,
+            return_value=True,
+        ):
+            with override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS=[self.team.pk]):
+                assert not can_use_stats_lazy_precompute(runner)
+
+        assert lazy_precompute_ineligible_reason(WebAnalyticsPreComputeStrategy.LIVE) == "BreakdownRemapped"
+
+
+class TestOwningLazyPrecomputeFamily(BaseTest):
+    @parameterized.expand(
+        [
+            (
+                "page with bounce rate",
+                WebStatsTableQuery(
+                    dateRange=DateRange(date_from="-7d"),
+                    properties=[],
+                    breakdownBy=WebStatsBreakdown.PAGE,
+                    includeBounceRate=True,
+                ),
+                "paths",
+            ),
+            (
+                "page with avg time and no bounce rate",
+                WebStatsTableQuery(
+                    dateRange=DateRange(date_from="-7d"),
+                    properties=[],
+                    breakdownBy=WebStatsBreakdown.PAGE,
+                    includeAvgTimeOnPage=True,
+                ),
+                "paths",
+            ),
+            (
+                "page with neither",
+                WebStatsTableQuery(
+                    dateRange=DateRange(date_from="-7d"), properties=[], breakdownBy=WebStatsBreakdown.PAGE
+                ),
+                "simple",
+            ),
+            (
+                "page with a conversion goal",
+                WebStatsTableQuery(
+                    dateRange=DateRange(date_from="-7d"),
+                    properties=[],
+                    breakdownBy=WebStatsBreakdown.PAGE,
+                    includeBounceRate=True,
+                    conversionGoal=CustomEventConversionGoal(customEventName="signed_up"),
+                ),
+                "simple",
+            ),
+            (
+                "entry page with bounce rate",
+                WebStatsTableQuery(
+                    dateRange=DateRange(date_from="-7d"),
+                    properties=[],
+                    breakdownBy=WebStatsBreakdown.INITIAL_PAGE,
+                    includeBounceRate=True,
+                ),
+                "paths",
+            ),
+            (
+                "entry page without bounce rate",
+                WebStatsTableQuery(
+                    dateRange=DateRange(date_from="-7d"), properties=[], breakdownBy=WebStatsBreakdown.INITIAL_PAGE
+                ),
+                "simple",
+            ),
+            (
+                "frustration metrics",
+                WebStatsTableQuery(
+                    dateRange=DateRange(date_from="-7d"),
+                    properties=[],
+                    breakdownBy=WebStatsBreakdown.FRUSTRATION_METRICS,
+                ),
+                "frustration",
+            ),
+            (
+                "previous page",
+                WebStatsTableQuery(
+                    dateRange=DateRange(date_from="-7d"), properties=[], breakdownBy=WebStatsBreakdown.PREVIOUS_PAGE
+                ),
+                "simple",
+            ),
+            (
+                "browser",
+                WebStatsTableQuery(
+                    dateRange=DateRange(date_from="-7d"), properties=[], breakdownBy=WebStatsBreakdown.BROWSER
+                ),
+                "simple",
+            ),
+        ]
+    )
+    def test_family_mirrors_the_live_strategy_taxonomy(
+        self, _name: str, query: WebStatsTableQuery, expected: str
+    ) -> None:
+        # The classifier hand-mirrors the family-level branches of `_get_strategy`, and drift is
+        # silent either way: too narrow and a read consults a family that could never serve it, too
+        # broad and it skips the family that can and loses the precompute hit.
+        runner = WebStatsTableQueryRunner(team=self.team, query=query)
+
+        assert runner._owning_lazy_precompute_family() == expected
 
 
 class TestCacheKeyVariesWithRolloutState(BaseTest):
@@ -197,6 +342,16 @@ class TestCacheKeyVariesWithRolloutState(BaseTest):
         with mock.patch(f"{self._RUNNER_MOD}.is_precompute_enabled_for_team", return_value=False):
             key_disabled = self._cache_key()
         assert key_enabled != key_disabled
+
+    def test_crossing_the_volume_floor_changes_cache_key(self) -> None:
+        # A team crossing below the floor switches to the live path; the key must
+        # change so a precompute-produced response is not served until it stales.
+        with mock.patch(f"{self._RUNNER_MOD}.is_precompute_enabled_for_team", return_value=True):
+            with mock.patch(f"{self._RUNNER_MOD}.is_team_above_volume_floor", return_value=True):
+                key_above = self._cache_key()
+            with mock.patch(f"{self._RUNNER_MOD}.is_team_above_volume_floor", return_value=False):
+                key_below = self._cache_key()
+        assert key_above != key_below
 
 
 class TestHostFilterExpr(BaseTest):
@@ -646,7 +801,7 @@ class TestWebEnsurePrecomputed(BaseTest):
         reset_query_tags()
         self.team.timezone = tz
         with (
-            freeze_time("2026-08-20T12:00:00Z"),
+            time_machine.travel("2026-08-20T12:00:00Z", tick=False),
             tags_context(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS.value),
         ):
             web_ensure_precomputed(team=self.team, ttl_seconds={"0d": 4 * 3600, "default": 3600}, table=None)
@@ -654,6 +809,124 @@ class TestWebEnsurePrecomputed(BaseTest):
         for window_start in expired_window_starts:
             assert schedule.get_ttl(window_start) == 1
         assert schedule.get_ttl(fresh_window_start) == 3600
+
+
+class TestVolumeFloor(BaseTest):
+    def setUp(self):
+        super().setUp()
+        _VOLUME_FLOOR_LOCAL_CACHE.clear()
+
+    def tearDown(self):
+        client = redis.get_client()
+        client.delete(VOLUME_FLOOR_TEAMS_KEY, VOLUME_FLOOR_READY_KEY, f"{VOLUME_FLOOR_TEAMS_KEY}:staging")
+        _VOLUME_FLOOR_LOCAL_CACHE.clear()
+        super().tearDown()
+
+    @override_settings(WEB_ANALYTICS_PRECOMPUTE_MIN_WEEKLY_EVENTS=100_000)
+    def test_fail_open_until_published_then_enforces_membership(self):
+        assert is_team_above_volume_floor(self.team.pk) is True  # unpublished: fail open
+        _VOLUME_FLOOR_LOCAL_CACHE.clear()
+
+        publish_volume_floor_teams([self.team.pk + 1])
+        assert is_team_above_volume_floor(self.team.pk) is False
+        assert is_team_above_volume_floor(self.team.pk + 1) is True
+        _VOLUME_FLOOR_LOCAL_CACHE.clear()
+
+        # Republish replaces the whole set: the previous member drops out.
+        publish_volume_floor_teams([self.team.pk])
+        assert is_team_above_volume_floor(self.team.pk) is True
+        assert is_team_above_volume_floor(self.team.pk + 1) is False
+
+    @override_settings(WEB_ANALYTICS_PRECOMPUTE_MIN_WEEKLY_EVENTS=100_000)
+    def test_hysteresis_keeps_existing_members_above_exit_floor(self):
+        member = self.team.pk + 1
+        newcomer = self.team.pk + 2
+        publish_volume_floor_teams([member])
+        # Next pass: member fell under the entry floor but stays above the exit
+        # floor; newcomer is between the floors and was never a member.
+        publish_volume_floor_teams([], above_exit_floor=[member, newcomer])
+        assert is_team_above_volume_floor(member) is True
+        assert is_team_above_volume_floor(newcomer) is False
+
+    @override_settings(WEB_ANALYTICS_PRECOMPUTE_MIN_WEEKLY_EVENTS=100_000)
+    def test_env_enrolled_teams_bypass_the_floor(self):
+        publish_volume_floor_teams([self.team.pk + 1])
+        with override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS=[self.team.pk]):
+            assert is_team_above_volume_floor(self.team.pk) is True
+
+    @override_settings(WEB_ANALYTICS_PRECOMPUTE_MIN_WEEKLY_EVENTS=100_000)
+    def test_empty_publish_enforces_below_floor_for_everyone(self):
+        publish_volume_floor_teams([self.team.pk])
+        _VOLUME_FLOOR_LOCAL_CACHE.clear()
+        # No team above the floor is a valid verdict, not an error: the set is
+        # dropped, the sentinel stays, and every non-enrolled team reads below
+        # floor instead of the publish raising mid-pipeline.
+        publish_volume_floor_teams([])
+        assert is_team_above_volume_floor(self.team.pk) is False
+
+    @override_settings(WEB_ANALYTICS_PRECOMPUTE_MIN_WEEKLY_EVENTS=100_000)
+    def test_lost_teams_set_fails_open_despite_sentinel(self):
+        publish_volume_floor_teams([self.team.pk + 1])
+        _VOLUME_FLOOR_LOCAL_CACHE.clear()
+        # Eviction or TTL drift can lose the set while the sentinel survives;
+        # that must read as "state lost, fail open", not fleet-wide below-floor.
+        redis.get_client().delete(VOLUME_FLOOR_TEAMS_KEY)
+        assert is_team_above_volume_floor(self.team.pk) is True
+
+    @override_settings(WEB_ANALYTICS_PRECOMPUTE_MIN_WEEKLY_EVENTS=0)
+    def test_zero_floor_disables_the_check(self):
+        publish_volume_floor_teams([self.team.pk + 1])
+        assert is_team_above_volume_floor(self.team.pk) is True
+
+    @override_settings(WEB_ANALYTICS_PRECOMPUTE_MIN_WEEKLY_EVENTS=100_000)
+    def test_gate_rejects_below_floor_team_including_background(self):
+        publish_volume_floor_teams([self.team.pk + 1])
+        runner = WebOverviewQueryRunner(
+            query=WebOverviewQuery(dateRange=DateRange(date_from="-7d"), properties=[]), team=self.team
+        )
+        with mock.patch(
+            "products.web_analytics.backend.hogql_queries.web_lazy_precompute_common.posthoganalytics.feature_enabled",
+            return_value=True,
+        ):
+            with self.assertRaises(BelowVolumeFloor):
+                check_common_eligibility(
+                    team=self.team,
+                    use_web_analytics_precompute=None,
+                    conversion_goal=None,
+                    sampling=None,
+                    modifiers=runner.modifiers,
+                    properties=[],
+                    resolve_date_range=lambda: (None, None),
+                )
+            # The floor must hold for warming replays too — building buckets
+            # for a below-floor team is the waste the floor exists to stop.
+            with tags_context(trigger="webAnalyticsStaleRevalidation", feature=Feature.CACHE_WARMUP):
+                with self.assertRaises(BelowVolumeFloor):
+                    check_common_eligibility(
+                        team=self.team,
+                        use_web_analytics_precompute=None,
+                        conversion_goal=None,
+                        sampling=None,
+                        modifiers=runner.modifiers,
+                        properties=[],
+                        resolve_date_range=lambda: (None, None),
+                    )
+
+    @override_settings(WEB_ANALYTICS_PRECOMPUTE_MIN_WEEKLY_EVENTS=100_000)
+    def test_overview_stats_trends_gate_rejects_below_floor_team(self):
+        # Overview, stats, and trends reach the gate through `can_use_lazy_precompute`
+        # / `check_common_eligible`, not `check_common_eligibility`. Without the floor
+        # check there, a below-floor team keeps serving those primary tiles from
+        # precompute. The flag is forced on so the floor is the only rejection reason.
+        publish_volume_floor_teams([self.team.pk + 1])
+        runner = WebOverviewQueryRunner(
+            query=WebOverviewQuery(dateRange=DateRange(date_from="-7d"), properties=[]), team=self.team
+        )
+        with mock.patch(
+            "products.web_analytics.backend.hogql_queries.web_analytics_lazy_precompute.is_precompute_enabled_for_team",
+            return_value=True,
+        ):
+            assert can_use_lazy_precompute(runner, log_prefix="web_overview") is False
 
 
 class TestStaleRevalidationEnqueue(BaseTest):

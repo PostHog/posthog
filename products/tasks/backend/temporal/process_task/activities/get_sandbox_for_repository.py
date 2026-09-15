@@ -18,22 +18,14 @@ from products.tasks.backend.exceptions import (
     OAuthTokenError,
     TaskNotFoundError,
 )
-from products.tasks.backend.logic.services.connection_token import (
-    SANDBOX_JWT_STATE_KID_KEY,
-    get_primary_sandbox_jwt_kid,
-    get_sandbox_jwt_public_key,
-)
+from products.tasks.backend.logic.services.connection_token import get_sandbox_jwt_public_key
 from products.tasks.backend.logic.services.sandbox import (
     Sandbox,
     SandboxConfig,
     SandboxTemplate,
+    needs_full_history,
     parse_sandbox_repo_mount_map,
     workload_for_origin_product,
-)
-from products.tasks.backend.logic.services.sandbox_usage import (
-    measure_sandbox_billed_cpu_usage,
-    measure_sandbox_cpu_usage,
-    open_sandbox_session,
 )
 from products.tasks.backend.models import SandboxSnapshot, Task, TaskRun
 from products.tasks.backend.temporal.metrics import (
@@ -45,6 +37,7 @@ from products.tasks.backend.temporal.metrics import (
 )
 from products.tasks.backend.temporal.oauth import create_oauth_access_token_for_run
 from products.tasks.backend.temporal.observability import emit_agent_log, log_activity_execution
+from products.tasks.backend.temporal.process_task.sandbox_connection import persist_sandbox_connection
 from products.tasks.backend.temporal.process_task.utils import (
     get_git_identity_env_vars,
     get_sandbox_api_url,
@@ -52,6 +45,7 @@ from products.tasks.backend.temporal.process_task.utils import (
     get_sandbox_name_for_task,
     get_sandbox_snapshot_metadata,
     get_task_run_credential_user,
+    mcp_exec_skills_env_vars,
     parse_run_state,
     run_gateway_env_vars,
 )
@@ -145,6 +139,7 @@ def _build_environment_variables(
         environment_variables["LLM_GATEWAY_URL"] = settings.SANDBOX_LLM_GATEWAY_URL
 
     environment_variables.update(run_gateway_env_vars(ctx, task))
+    environment_variables.update(mcp_exec_skills_env_vars(ctx))
     return environment_variables
 
 
@@ -223,9 +218,9 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
         except Task.DoesNotExist as e:
             raise TaskNotFoundError(f"Task {ctx.task_id} not found", {"task_id": ctx.task_id}, cause=e)
 
-        # Signal report research sandboxes need full history for git blame.
+        # Signal report research and pinned Signals scouts need full history for git log and git blame.
         # All other sandboxes use shallow clone (--depth 1) for faster boot.
-        shallow = task.origin_product != Task.OriginProduct.SIGNAL_REPORT
+        shallow = not needs_full_history(task.origin_product)
 
         actor_user = get_task_run_credential_user(task, ctx.state)
         github_token = ""
@@ -429,25 +424,12 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
         credentials = sandbox.get_connect_credentials()
 
         try:
-            sandbox_state = {
-                "sandbox_id": sandbox.id,
-                "sandbox_url": credentials.url,
-                SANDBOX_JWT_STATE_KID_KEY: get_primary_sandbox_jwt_kid(),
-            }
-            if credentials.token:
-                sandbox_state["sandbox_connect_token"] = credentials.token
-            TaskRun.update_state_atomic(ctx.run_id, updates=sandbox_state)
-            cpu_usage_attribution_usec, cpu_usage_attribution_measured_at = measure_sandbox_cpu_usage(sandbox)
-            billed_cpu_usage_attribution_usec = measure_sandbox_billed_cpu_usage(sandbox)
-            open_sandbox_session(
+            persist_sandbox_connection(
                 run_id=ctx.run_id,
-                sandbox_id=sandbox.id,
-                config=sandbox.config,
+                sandbox=sandbox,
+                credentials=credentials,
                 sandbox_created_at=sandbox_created_at,
-                cpu_usage_attribution_usec=cpu_usage_attribution_usec,
-                billed_cpu_usage_attribution_usec=billed_cpu_usage_attribution_usec,
-                cpu_usage_attribution_measured_at=cpu_usage_attribution_measured_at,
-                required=ctx.task_runtime == "pi",
+                task_runtime=ctx.task_runtime,
             )
         except Exception:
             try:

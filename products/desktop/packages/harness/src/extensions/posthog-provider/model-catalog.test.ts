@@ -52,6 +52,33 @@ describe("resolvePosthogPiModelCatalog", () => {
     ]);
   });
 
+  it("gives Fable 5.1 the same thinking levels as Fable 5", () => {
+    const models = resolvePosthogPiModelCatalog(
+      [
+        {
+          id: "claude-fable-5",
+          context_window: 1_000_000,
+          supports_vision: true,
+          allowed: true,
+        },
+        {
+          id: "claude-fable-5-1",
+          context_window: 1_000_000,
+          supports_vision: true,
+          allowed: true,
+        },
+      ],
+      "us",
+    );
+
+    const [fable5, fable51] = models;
+    expect(fable51.thinkingLevels).toEqual(fable5.thinkingLevels);
+    expect(fable51.thinkingLevels).toEqual(
+      expect.arrayContaining(["xhigh", "max"]),
+    );
+    expect(fable51.thinkingLevels).not.toContain("off");
+  });
+
   it("marks the default model without changing catalog order", () => {
     const models = resolvePosthogPiModelCatalog(
       [
@@ -88,6 +115,7 @@ describe("resolvePosthogPiModelCatalog", () => {
     ["gpt-5.6-sol", "GPT-5.6 Sol"],
     ["gpt-5.6-terra", "GPT-5.6 Terra"],
     ["gpt-5.6-luna", "GPT-5.6 Luna"],
+    ["gpt-6-astra", "GPT-6 Astra"],
     ["zai-org/glm-5.3", "GLM-5.3"],
     ["moonshotai/kimi-k3", "Kimi K3"],
     ["deepseek-ai/deepseek-v4-flash-0731", "DeepSeek V4 Flash"],

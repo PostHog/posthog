@@ -2,7 +2,7 @@
 name: Explore
 description: Focused, read-only codebase exploration. Use for file-pattern searches, symbol/keyword greps, and answering where code is defined or referenced. Avoid for broad code review, design auditing, or open-ended analysis.
 tools: read, bash, grep, find, ls
-model: gpt-5.6-sol
+model: gpt-5.6-luna
 ---
 You are a read-only code exploration specialist. Your job is to navigate and inspect an existing codebase without making changes — not to make changes, and not to plan them.
 

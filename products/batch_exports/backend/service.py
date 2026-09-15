@@ -6,7 +6,6 @@ from dataclasses import Field, asdict, dataclass, field, fields
 from uuid import UUID
 
 from django.conf import settings
-from django.db.models import Q
 
 import structlog
 import temporalio
@@ -269,20 +268,18 @@ class S3BatchExportInputs(BaseBatchExportInputs):
     and on the worker side deserializes into `S3BatchExportInputs`, with any
     missing fields falling through to the defaults declared here.
 
+    Credentials and the provider endpoint are never carried here: the activity resolves them from
+    the linked Integration at run time (see `integration_id`).
+
     Attributes:
         bucket_name: The S3 bucket we are exporting to.
         region: The AWS region where the bucket is located.
         prefix: A prefix for the file name to be created in S3.
-        aws_access_key_id: Access key id used to authenticate with S3. Optional; integration-backed
-            exports resolve credentials from the linked Integration at run time (see `integration_id`),
-            while legacy exports carry them inline.
-        aws_secret_access_key: Secret access key used to authenticate with S3. See `aws_access_key_id`.
         compression: Compression algorithm to apply to exported files (e.g. "gzip", "brotli"), or None.
         file_format: File format of exported objects (e.g. "JSONLines", "Parquet"). Defaults to JSONLines.
         max_file_size_mb: The maximum file size in MB for each file to be uploaded.
         encryption: Server-side encryption algorithm to apply (e.g. "AES256", "aws:kms"), or None. AWS-only.
         kms_key_id: KMS key id to use when `encryption == "aws:kms"`, or None. AWS-only.
-        endpoint_url: Override endpoint for S3-compatible providers (e.g. MinIO, R2). None for AWS.
         use_virtual_style_addressing: Whether to use virtual-hosted-style
             addressing rather than path-style. None for AWS.
     """
@@ -290,14 +287,11 @@ class S3BatchExportInputs(BaseBatchExportInputs):
     bucket_name: str
     region: str
     prefix: str
-    aws_access_key_id: str | None = None
-    aws_secret_access_key: str | None = field(default=None, repr=False)
     compression: str | None = None
     file_format: str = "JSONLines"
     max_file_size_mb: int | None = None
     encryption: str | None = None
     kms_key_id: str | None = None
-    endpoint_url: str | None = None
     use_virtual_style_addressing: bool = False
 
 
@@ -305,16 +299,14 @@ class S3BatchExportInputs(BaseBatchExportInputs):
 class S3FamilyBaseInputs(BaseBatchExportInputs):
     """Shared fields for every S3-family destination.
 
-    Per-destination dataclasses extend this with provider-specific fields. Credentials are optional:
-    integration-backed exports resolve them from the linked Integration at run time (see
-    `integration_id`), while legacy exports carry them inline.
+    Per-destination dataclasses extend this with provider-specific fields. Credentials are never
+    carried here: the activity resolves them from the linked Integration at run time (see
+    `integration_id`).
     """
 
     bucket_name: str
     region: str
     prefix: str
-    aws_access_key_id: str | None = None
-    aws_secret_access_key: str | None = field(default=None, repr=False)
     compression: str | None = None
     file_format: str = "JSONLines"
     max_file_size_mb: int | None = None
@@ -328,16 +320,15 @@ class AwsS3BatchExportInputs(S3FamilyBaseInputs):
     kms_key_id: str | None = None
 
 
-@dataclass(kw_only=True)
+@dataclass(frozen=False, kw_only=True)
 class S3CompatibleBatchExportInputs(S3FamilyBaseInputs):
     """Inputs for a non-AWS S3-compatible batch export.
 
     Covers providers like DigitalOcean Spaces, Cloudflare R2, Hetzner, OVH, Backblaze, etc.
-    `endpoint_url` is resolved from the linked Integration at run time when `integration_id` is set,
-    otherwise carried inline (legacy).
+    `endpoint_url` lives on the linked Integration alongside the credentials, so it is resolved at
+    run time rather than configured per export.
     """
 
-    endpoint_url: str | None = None
     use_virtual_style_addressing: bool = False
 
 
@@ -1066,7 +1057,12 @@ def update_batch_export_run(
         run_id: The id of the BatchExportRun to update.
     """
     # nosemgrep: idor-lookup-without-team (internal service, team_id passed as parameter)
-    model = BatchExportRun.objects.select_related("batch_export", "batch_export__destination").filter(id=run_id)
+    model = BatchExportRun.objects.select_related(
+        "batch_export",
+        "batch_export__destination",
+        "batch_export_on_demand",
+        "batch_export_on_demand__destination",
+    ).filter(id=run_id)
     update_at = dt.datetime.now(dt.UTC)
 
     updated = model.update(
@@ -1362,7 +1358,7 @@ async def aupdate_records_total_count(
 
 
 async def afetch_last_run_records_completed(
-    parent_id: UUID,
+    batch_export_id: UUID,
     *,
     matching_interval_duration: dt.timedelta | None,
     before_or_at_interval_end: dt.datetime | None = None,
@@ -1370,9 +1366,9 @@ async def afetch_last_run_records_completed(
 ) -> int | None:
     """Async fetch the `records_completed` of the most recent completed run for a batch export.
 
-    Used as a rough estimate to pick how many staging files to write. A run belongs to exactly one of
-    a `BatchExport` (scheduled) or a `BatchExportOnDemand`, and their ids are globally unique UUIDs, so
-    we match `parent_id` against either parent.
+    Used as a rough estimate to pick how many staging files to write. Only scheduled `BatchExport`
+    runs are matched. A `BatchExportOnDemand` is created for each request and runs once, so it has no
+    earlier run to estimate from, and `compute_num_partitions` does not call this for one.
 
     The `before_or_at_interval_end` and `not_older_than` filters are relative to the interval being
     processed (which improves accuracy for backfills):
@@ -1388,7 +1384,7 @@ async def afetch_last_run_records_completed(
     Returns None when no usable run exists (e.g. the first ever run, or a frequency change).
     """
     queryset = BatchExportRun.objects.filter(
-        Q(batch_export_id=parent_id) | Q(batch_export_on_demand_id=parent_id),
+        batch_export_id=batch_export_id,
         status=BatchExportRun.Status.COMPLETED,
         records_completed__isnull=False,
     )

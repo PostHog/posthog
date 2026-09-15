@@ -132,8 +132,10 @@ const cleanProperty = (property: Record<string, any>): AnyPropertyFilter => {
         property['key'] = 'id'
     }
 
-    // set a default operator for properties that support it, but don't have an operator set
-    if (isPropertyWithOperator(property) && property['operator'] === undefined) {
+    // set a default operator for properties that support it, but don't have an operator set.
+    // A behavioral filter is exempt: its operator is the count comparison for
+    // performed_event_multiple, so an absent one means "no count comparison", not "exactly".
+    if (isPropertyWithOperator(property) && property['type'] !== 'behavioral' && property['operator'] === undefined) {
         property['operator'] = 'exact'
     }
 
