@@ -50,9 +50,7 @@ class TestProjectAdminDeleteNow(BaseTest):
                 "posthog.temporal.delete_teams.dispatch.start_delete_project_data_workflow",
                 side_effect=start_side_effect,
             ) as mock_start,
-            patch(
-                "posthog.temporal.delete_teams.dispatch.cancel_delete_project_data_workflow"
-            ) as mock_cancel,
+            patch("posthog.temporal.delete_teams.dispatch.cancel_delete_project_data_workflow") as mock_cancel,
         ):
             response = self.admin.delete_now_view(http_request, str(self.project.pk))
         return response, mock_start, mock_cancel
