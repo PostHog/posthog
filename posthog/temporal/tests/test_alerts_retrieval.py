@@ -1,3 +1,4 @@
+import asyncio
 from datetime import UTC, datetime
 
 import pytest
@@ -195,9 +196,11 @@ async def test_retrieve_due_alerts_succeeds_when_metric_recording_fails(failing_
         ),
         patch("posthog.temporal.alerts.activities.record_due_insight_alert_metrics", new=record_due_metrics),
         patch("posthog.temporal.alerts.activities.get_metric_meter", new=get_metric_meter),
+        patch("posthog.temporal.alerts.activities.asyncio.to_thread", wraps=asyncio.to_thread) as to_thread,
     ):
         alerts = await ActivityEnvironment().run(retrieve_due_alerts)
 
     assert alerts == expected_alerts
+    to_thread.assert_awaited_once_with(record_due_metrics, 1, None, polled_at)
     record_due_metrics.assert_called_once_with(1, None, polled_at)
     get_metric_meter.assert_called_once_with()

@@ -1,3 +1,4 @@
+import asyncio
 import traceback
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
@@ -194,11 +195,15 @@ async def retrieve_due_alerts(inputs: ScheduleDueAlertChecksWorkflowInputs | Non
 
     async with Heartbeater():
         retrieved = await get_alerts()
-
-    try:
-        record_due_insight_alert_metrics(retrieved.due_count, retrieved.oldest_due_at, retrieved.polled_at)
-    except Exception:
-        logger.exception("Failed to record due insight alert metrics")
+        try:
+            await asyncio.to_thread(
+                record_due_insight_alert_metrics,
+                retrieved.due_count,
+                retrieved.oldest_due_at,
+                retrieved.polled_at,
+            )
+        except Exception:
+            logger.exception("Failed to record due insight alert metrics")
 
     try:
         meter = get_metric_meter()
