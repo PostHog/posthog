@@ -125,7 +125,14 @@ describe("isGithubConnectionRequiredError", () => {
       "User-authored run requires a linked GitHub account with repo access.",
       true,
     ],
+    ["GitHub user integration for this run requires reauthorization", true],
+    [
+      "GitHub user integration requires reauthorization and no team installation is available",
+      true,
+    ],
+    ["GitHub integration for this run no longer exists", true],
     ["GitHub returned a temporary API error", false],
+    ["TaskRun 42 no longer exists; its rows were deleted", false],
     [null, false],
   ])("classifies %s", (message, expected) => {
     expect(isGithubConnectionRequiredError(message)).toBe(expected);

@@ -31,6 +31,10 @@ const GITHUB_CONNECTION_REQUIRED_PATTERNS = [
   /link a github account with repo access/i,
   /requires (?:an acting user with|a linked) github (?:account with )?repo access/i,
   /check that github is connected for this project/i,
+  // Provisioning wraps the reauthorization error, so the run records the
+  // wrapper's wording rather than the "repo access" phrasing above.
+  /github (?:user )?integration\b.*\brequires reauthorization/i,
+  /github (?:user )?integration\b.*\bno longer exists/i,
 ];
 
 export function isGithubConnectionRequiredError(
