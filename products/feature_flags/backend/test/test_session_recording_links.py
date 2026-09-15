@@ -201,6 +201,27 @@ class TestRelinkTeamsConvergesOnTheStoredKey(BaseTest):
             assert team.session_recording_linked_flag == {"id": flag.id, "key": "gate-c"}
 
 
+class TestRelinkTeamsMovesEveryReferenceNamingTheFlag(BaseTest):
+    def test_a_group_naming_the_flag_by_id_moves_off_a_key_the_flag_never_held(self) -> None:
+        # The SDK resolves a trigger group by key alone, so a group holding a key no flag holds
+        # turns recording off for the team. Only the stored id still says which flag this group
+        # meant. The rename is the last moment it resolves to a key.
+        flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="gate-new")
+        other = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="other-gate")
+        set_trigger_groups(
+            self.team,
+            {"flag": {"id": flag.id, "key": "stale"}},
+            {"flag": {"id": other.id, "key": "other-gate"}},
+        )
+
+        relink_teams(flag, old_key="gate-old")
+
+        self.team.refresh_from_db()
+        groups = self.team.session_recording_trigger_groups["groups"]
+        assert groups[0]["conditions"]["flag"] == {"id": flag.id, "key": "gate-new"}
+        assert groups[1]["conditions"]["flag"] == {"id": other.id, "key": "other-gate"}
+
+
 class TestRelinkTeamsIsolatesAWriteFailure(BaseTest):
     def test_one_teams_write_failure_does_not_strand_its_siblings(self) -> None:
         flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="gate-old")

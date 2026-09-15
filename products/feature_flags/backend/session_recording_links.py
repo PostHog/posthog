@@ -244,8 +244,10 @@ def save_replay_gate_rewrites(team_id: int, compute: Callable[[Team], ReplayGate
     with transaction.atomic():
         # Loads every column rather than deferring: the `post_save` cache receiver reads about
         # thirty other fields, each its own query when deferred.
-        # nosemgrep: hot-parent-row-select-for-update -- this locks the Team row it then rewrites
-        team = Team.objects.select_for_update().filter(pk=team_id).first()
+        # `no_key=True` because this writes no key column, so the lock does not block the
+        # `KEY SHARE` that a foreign key check on this Team row takes. Two `FOR NO KEY UPDATE`
+        # locks still conflict, so two gate writers for one team stay serialized.
+        team = Team.objects.select_for_update(no_key=True).filter(pk=team_id).first()
         if team is None:
             return
 
@@ -303,7 +305,17 @@ def relink_teams(feature_flag: FeatureFlag, *, old_key: str) -> None:
             # team at. `repair_replay_linked_flag_keys` reports it as flag_missing on its next run.
             return ReplayGateRewrite()
         trigger_groups = team.session_recording_trigger_groups
-        moving = {ref.group_index: new_key for ref in trigger_group_flag_refs(trigger_groups) if ref.key == old_key}
+        # Matched by id as well as by key, because `teams_gating_replay_on_flag` also selects a
+        # team whose group names this flag by id while holding a key the flag no longer has. The
+        # rename is the last moment that stored id still resolves to a key.
+        # `repair_replay_linked_flag_keys` does not read trigger groups, so a group skipped here
+        # keeps the stale key for good. A bare string reference carries no id, so it still moves
+        # on its key alone.
+        moving = {
+            ref.group_index: new_key
+            for ref in trigger_group_flag_refs(trigger_groups)
+            if ref.key == old_key or ref.flag_id == feature_flag.pk
+        }
         return ReplayGateRewrite(
             linked_flag=rewritten_linked_flag(
                 team.session_recording_linked_flag, flag_id=feature_flag.pk, new_key=new_key
