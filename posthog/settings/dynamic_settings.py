@@ -283,7 +283,7 @@ CONSTANCE_CONFIG = {
     ),
     "GROWTH_RESCORE_WEBHOOK_SECRET": (
         get_from_env("GROWTH_RESCORE_WEBHOOK_SECRET", default=""),
-        "Shared secret the wizard-stamp ICP re-score webhook (products/growth/backend/api/rescore.py) "
+        "Shared secret the wizard-stamp ICP re-score webhook (products/growth/backend/presentation/views/rescore.py) "
         "checks against the X-PostHog-Webhook-Secret header. Set by the realtime destination that calls it.",
         str,
     ),

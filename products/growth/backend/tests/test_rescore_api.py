@@ -88,7 +88,7 @@ class TestGrowthEnrichmentRescoreAPI(APIBaseTest):
 
     def test_valid_request_dispatches_and_returns_queued_true(self):
         OrganizationEnrichment.objects.create(organization=self.organization)
-        with patch(f"{_MODULE}.dispatch_wizard_stamp_rescore") as dispatch_mock:
+        with patch(f"{_MODULE}.dispatch_wizard_stamp_rescore", return_value=None) as dispatch_mock:
             response = self._post(str(self.organization.id))
 
         assert response.status_code == 202
@@ -97,12 +97,20 @@ class TestGrowthEnrichmentRescoreAPI(APIBaseTest):
 
     def test_full_dispatch_pool_returns_queued_false(self):
         OrganizationEnrichment.objects.create(organization=self.organization)
-        with patch(f"{_MODULE}.dispatch_wizard_stamp_rescore", return_value=False) as dispatch_mock:
+        with patch(f"{_MODULE}.dispatch_wizard_stamp_rescore", return_value="dispatch_backlog_full") as dispatch_mock:
             response = self._post(str(self.organization.id))
 
         assert response.status_code == 202
         assert response.json() == {"queued": False, "reason": "dispatch_backlog_full"}
         dispatch_mock.assert_called_once_with(str(self.organization.id))
+
+    def test_failed_dispatch_submission_returns_queued_false(self):
+        OrganizationEnrichment.objects.create(organization=self.organization)
+        with patch(f"{_MODULE}.dispatch_wizard_stamp_rescore", return_value="dispatch_failed"):
+            response = self._post(str(self.organization.id))
+
+        assert response.status_code == 202
+        assert response.json() == {"queued": False, "reason": "dispatch_failed"}
 
     def test_unknown_organization_id_returns_no_enrichment_record(self):
         with patch(f"{_MODULE}.dispatch_wizard_stamp_rescore") as dispatch_mock:

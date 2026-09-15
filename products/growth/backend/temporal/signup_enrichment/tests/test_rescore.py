@@ -197,5 +197,17 @@ class TestDispatchWizardStampRescore:
         connect, run = self._dispatch_mocks()
         with patch(f"{_TRIGGER_MODULE}._dispatch_slots", full):
             with connect as connect_mock, run:
-                assert dispatch_wizard_stamp_rescore("org-1") is False
+                assert dispatch_wizard_stamp_rescore("org-1") == "dispatch_backlog_full"
+        connect_mock.assert_not_called()
+
+    def test_a_rejected_submission_is_reported_separately_from_a_full_backlog(self):
+        class _RejectingExecutor:
+            def submit(self, fn, *args):
+                raise RuntimeError("executor is shut down")
+
+        connect, run = self._dispatch_mocks()
+        with patch(f"{_TRIGGER_MODULE}._dispatch_executor", _RejectingExecutor()):
+            with patch(f"{_TRIGGER_MODULE}.capture_exception"):
+                with connect as connect_mock, run:
+                    assert dispatch_wizard_stamp_rescore("org-1") == "dispatch_failed"
         connect_mock.assert_not_called()
