@@ -5,6 +5,10 @@ import {
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { POSTHOG_METHODS } from "../../acp-extensions";
 import { Pushable } from "../../utils/streams";
+import {
+  getMcpToolApprovalState,
+  replaceCloudMcpToolPolicies,
+} from "./mcp/tool-metadata";
 import { FALLBACK_MODEL } from "./session/models";
 
 type InitResult = {
@@ -69,14 +73,25 @@ vi.mock("@anthropic-ai/claude-agent-sdk", () => ({
   }),
 }));
 
-const fetchMcpToolMetadataMock = vi.fn().mockResolvedValue(undefined);
-const clearMcpToolMetadataCacheMock = vi.fn();
-vi.mock("./mcp/tool-metadata", () => ({
-  fetchMcpToolMetadata: fetchMcpToolMetadataMock,
-  getConnectedMcpServerNames: vi.fn().mockReturnValue([]),
-  getCachedMcpTools: vi.fn().mockReturnValue([]),
-  clearMcpToolMetadataCache: clearMcpToolMetadataCacheMock,
-}));
+const { fetchMcpToolMetadataMock, clearMcpToolMetadataCacheMock } = vi.hoisted(
+  () => ({
+    fetchMcpToolMetadataMock: vi.fn().mockResolvedValue(undefined),
+    clearMcpToolMetadataCacheMock: vi.fn(),
+  }),
+);
+vi.mock("./mcp/tool-metadata", async (importOriginal) => {
+  const original = await importOriginal<typeof import("./mcp/tool-metadata")>();
+  clearMcpToolMetadataCacheMock.mockImplementation(
+    original.clearMcpToolMetadataCache,
+  );
+  return {
+    ...original,
+    fetchMcpToolMetadata: fetchMcpToolMetadataMock,
+    getConnectedMcpServerNames: vi.fn().mockReturnValue([]),
+    getCachedMcpTools: vi.fn().mockReturnValue([]),
+    clearMcpToolMetadataCache: clearMcpToolMetadataCacheMock,
+  };
+});
 
 // Import after the mocks so ClaudeAcpAgent resolves the mocked SDK
 const { ClaudeAcpAgent } = await import("./claude-agent");
@@ -699,6 +714,40 @@ describe("ClaudeAcpAgent.extMethod refresh_session", () => {
     // A brand-new instance object, never the stale reused one.
     expect(servers["posthog-code-tools"].instance).not.toBe(staleInstance);
     expect(servers["posthog-code-tools"].instance).toEqual({ fresh: 1 });
+  });
+
+  it("replaces cloud policies while refreshing tool metadata, including an empty replacement", async () => {
+    const { agent } = makeAgent();
+    const { session } = installFakeSession(agent, "s-policy");
+    Object.assign(session, { cloudMode: true });
+    replaceCloudMcpToolPolicies([
+      {
+        serverName: "removed",
+        toolName: "write",
+        installationId: "old-installation",
+        approvalState: "approved",
+      },
+    ]);
+    await agent.extMethod(POSTHOG_METHODS.REFRESH_SESSION, {
+      mcpServers: freshMcpServers,
+      mcpToolPolicies: [
+        {
+          serverName: "posthog",
+          toolName: "exec",
+          installationId: "new-installation",
+          approvalState: "needs_approval",
+        },
+      ],
+    });
+    expect(getMcpToolApprovalState("mcp__removed__write")).toBeUndefined();
+    expect(getMcpToolApprovalState("mcp__posthog__exec")).toBe(
+      "needs_approval",
+    );
+    await agent.extMethod(POSTHOG_METHODS.REFRESH_SESSION, {
+      mcpServers: [],
+      mcpToolPolicies: [],
+    });
+    expect(getMcpToolApprovalState("mcp__posthog__exec")).toBeUndefined();
   });
 
   it("clears the MCP tool metadata cache on refresh", async () => {

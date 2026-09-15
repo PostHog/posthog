@@ -1,4 +1,5 @@
 import type { McpServerStatus, Query } from "@anthropic-ai/claude-agent-sdk";
+import type { McpToolPolicy } from "@posthog/shared";
 import { Logger } from "../../../utils/logger";
 
 export type McpToolApprovalState = "approved" | "needs_approval" | "do_not_use";
@@ -158,6 +159,26 @@ export function setMcpToolApprovalStates(approvals: McpToolApprovals): void {
       });
     }
   }
+}
+
+export function replaceMcpToolApprovalStates(
+  approvals: McpToolApprovals,
+): void {
+  for (const metadata of mcpToolMetadataCache.values()) {
+    metadata.approvalState = undefined;
+  }
+  setMcpToolApprovalStates(approvals);
+}
+
+export function replaceCloudMcpToolPolicies(policies: McpToolPolicy[]): void {
+  replaceMcpToolApprovalStates(
+    Object.fromEntries(
+      policies.map((policy) => [
+        buildToolKey(sanitizeMcpServerName(policy.serverName), policy.toolName),
+        policy.approvalState,
+      ]),
+    ),
+  );
 }
 
 export function clearMcpToolMetadataCache(): void {

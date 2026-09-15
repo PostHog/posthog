@@ -18,6 +18,10 @@ import {
   createTaskHook,
   type EnrichedReadCache,
 } from "./hooks";
+import {
+  clearMcpToolMetadataCache,
+  setMcpToolApprovalStates,
+} from "./mcp/tool-metadata";
 import type {
   PermissionCheckResult,
   SettingsManager,
@@ -432,6 +436,44 @@ describe("createSubagentRewriteHook", () => {
 });
 
 describe("createPreToolUseHook", () => {
+  test.each([
+    { state: "needs_approval", cloud: true, expected: "ask" },
+    { state: "do_not_use", cloud: true, expected: "deny" },
+    { state: "needs_approval", cloud: false, expected: "allow" },
+  ] as const)(
+    "$state overrides saved allow rules in cloud: $cloud",
+    async ({ state, cloud, expected }) => {
+      setMcpToolApprovalStates({ mcp__server__write: state });
+      try {
+        const settings = {
+          checkPermission: () => ({
+            decision: "allow",
+            rule: "mcp__server__*",
+          }),
+        } as unknown as SettingsManager;
+        const hook = createPreToolUseHook(
+          settings,
+          new Logger({ debug: false }),
+          undefined,
+          cloud,
+        );
+        const result = await hook(
+          {
+            hook_event_name: "PreToolUse",
+            tool_name: "mcp__server__write",
+            tool_input: {},
+          } as HookInput,
+          "tool-1",
+          { signal: new AbortController().signal },
+        );
+        expect(result).toMatchObject({
+          hookSpecificOutput: { permissionDecision: expected },
+        });
+      } finally {
+        clearMcpToolMetadataCache();
+      }
+    },
+  );
   const logger = new Logger({ debug: false });
   const posthogExecPermissionRegex =
     /(^|-)(partial-update|update|patch|delete|destroy)(-|$)/i;

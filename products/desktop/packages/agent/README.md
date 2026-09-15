@@ -70,9 +70,45 @@ Four modes defined in `src/execution-mode.ts`:
 | Plan mode           | `plan`              | Read-only — the agent can analyze but not modify files          |
 | Bypass permissions  | `bypassPermissions` | Auto-approves everything (hidden when running as root)          |
 
-In cloud background mode, permissions are always auto-approved. In interactive mode, the permission system is active and configurable per session. Tool categorization lives in `src/adapters/claude/tools.ts` — each tool belongs to a group (read, write, bash, search, web, agent) and modes whitelist groups.
+Cloud run mode (`interactive` or `background`) is separate from session permission mode (`auto`, `default`, and the adapter's other modes).
+Claude and Codex apply this policy in cloud auto mode:
 
-Cloud provisioning can pass `--posthogExecPermissionRegex <regex>` to require one-time client approval for matching PostHog MCP `exec` sub-tools in every interactive cloud Claude and Codex permission mode. Non-matching sub-tools never prompt. Locally, hands-off modes stay hands-off: Claude `auto` and `bypassPermissions`, and Codex `auto` and `full-access`, auto-approve matching sub-tools; other local modes prompt. Matching is case-insensitive against the delegated name in `call [--json] <sub-tool> ...`. These prompts offer Claude users an always-allow choice remembered in local repository settings; Codex approvals remain one-time. An invalid or empty regex is logged and falls back to the default. Background runs keep their existing auto-approval behavior. The default is `(^|-)(partial-update|update|patch|delete|destroy)(-|$)`.
+| Tool policy | Foreground (`interactive`) | Background |
+| --- | --- | --- |
+| Ordinary tool | Automatically approve | Automatically approve |
+| `needs_approval` | Wait for the user's decision | Reject with an explanation |
+| `do_not_use` | Reject | Reject |
+
+Background rejection returns: "This tool requires user approval, which is unavailable in background runs. Run this task interactively to approve it."
+These denials do not create pending approvals or retry the tool.
+Foreground installation-tool approvals offer **Always allow** and **Reject**, survive disconnects through the persisted permission lifecycle, and save through `approveMcpTool` before execution.
+A failed save denies execution.
+Approving an installation tool does not grant native command, network, or session permissions.
+
+`getMcpRuntimeConfiguration` loads effective PostHog tool policies on initialization, resume, and MCP configuration or acting-user changes, replacing old entries.
+Cloud policy reads and approval saves use the connection's current bearer credential, including after the acting user changes.
+Failed policy loads exclude the affected installation and report the failure.
+Server-supplied MCP annotations cannot grant permission.
+Claude keeps auto mode mapped to SDK `default` so the application permission checks run.
+Codex sets per-tool `approval_mode: "prompt"` for `needs_approval` and excludes `do_not_use` through `disabled_tools`, using the exact generated server keys for policy lookup.
+See the [Codex configuration reference](https://learn.chatgpt.com/docs/config-file/config-reference) for these native controls.
+Both Codex command approvals and MCP elicitations enforce policies before automatic-approval shortcuts and decline unresolved tool identities on policy-controlled servers.
+Policy requests carry `_meta.posthog.approvalReason: "mcp_tool_policy"` and the tool descriptor.
+Claude returns policy denials as tool results; Codex declines them and sends the reason to the task stream and running turn, retaining rotated turn IDs.
+
+Desktop-relayed tools, connected-project operations, questions, and publishing retain their existing gates.
+Local desktop sessions and Pi are unchanged.
+Ship the shared server and both adapters together through the normal sandbox release, and verify fresh foreground and background tasks.
+Existing sandboxes retain their bundled code.
+
+Cloud provisioning can pass `--posthogExecPermissionRegex <regex>` to require one-time client approval for matching PostHog MCP `exec` sub-tools in every interactive cloud Claude and Codex permission mode.
+Non-matching sub-tools bypass this regex gate, but remain subject to installation-tool policies.
+Locally, hands-off modes stay hands-off: Claude `auto` and `bypassPermissions`, and Codex `auto` and `full-access`, auto-approve matching sub-tools; other local modes prompt.
+Matching is case-insensitive against the delegated name in `call [--json] <sub-tool> ...`.
+Regex-gated prompts offer Claude users an always-allow choice remembered in local repository settings; Codex approvals remain one-time.
+An invalid or empty regex is logged and falls back to the default.
+Background runs auto-approve this regex gate, subject to installation-tool policies.
+The default is `(^|-)(partial-update|update|patch|delete|destroy)(-|$)`.
 
 ## ACP connection layer
 
@@ -144,7 +180,9 @@ When `POST /command` receives a `user_message`, it doesn't handle it directly �
 
 ### Permission routing in cloud mode
 
-The `AgentServer` provides the `requestPermission` callback to the `ClientSideConnection`. Background mode selects an allow option automatically. Interactive mode relays approvals that need a person over SSE and parks them until a client responds; other requests follow the selected permission mode.
+The `AgentServer` provides the `requestPermission` callback to the `ClientSideConnection`.
+It checks installation-tool policies before ordinary automatic approval, following the matrix above.
+Interactive mode relays approvals that need a person over SSE and parks them until a client responds; other requests follow the selected permission mode and existing special gates.
 
 ### CLI
 

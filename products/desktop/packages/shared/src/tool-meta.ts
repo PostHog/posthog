@@ -13,6 +13,7 @@ export interface PosthogToolMeta {
   /** Set only for MCP tool calls — the originating server + tool. */
   mcp?: { server: string; tool: string };
   mcpInstallationId?: string;
+  approvalReason?: "mcp_tool_policy";
   /** Parent subagent tool call for nested activity. */
   parentToolCallId?: string;
 }

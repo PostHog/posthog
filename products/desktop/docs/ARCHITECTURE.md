@@ -96,6 +96,42 @@ initialization ends. Successful submissions are marked as submitted so startup
 recovery does not reopen them as unsent drafts. Failed creation retains the prompt
 for recovery into the originating composer.
 
+## Cloud tool approvals
+
+Claude and Codex cloud runs share the installation-tool approval policy in `AgentServer`.
+Run mode chooses whether a person can answer (`interactive` or `background`).
+Permission mode, such as `auto`, chooses how ordinary tools run.
+Auto mode does not override a tool's effective PostHog `approval_state`, which includes team restrictions and defaults.
+
+| Tool policy | Foreground (`interactive`), auto mode | Background, auto mode |
+| --- | --- | --- |
+| Ordinary tool | Automatically approve | Automatically approve |
+| `needs_approval` | Wait for the user's decision | Reject with an explanation |
+| `do_not_use` | Reject | Reject |
+
+Background rejection returns: "This tool requires user approval, which is unavailable in background runs. Run this task interactively to approve it."
+It creates no pending permission request and does not retry the tool.
+Foreground requests use the persisted permission lifecycle, so disconnecting does not approve or discard them.
+Installation-backed requests offer **Always allow** and **Reject**.
+The server saves approval through `approveMcpTool` before allowing execution; a failed save denies the call.
+The adapter receives an acceptance for that call, without a native command, network, or session permission grant.
+
+Both adapters receive typed policies loaded through `getMcpRuntimeConfiguration` on initialization, resume, and MCP configuration or acting-user refresh.
+Each load replaces prior policies.
+Cloud policy reads and approval saves use the connection's current bearer credential, so an acting-user change cannot reuse the startup user's permissions.
+An installation whose policies cannot be loaded is excluded and the failure is reported.
+MCP server annotations cannot grant permission.
+ACP tool metadata marks policy requests with `_meta.posthog.approvalReason: "mcp_tool_policy"` and the MCP descriptor.
+Claude keeps `auto` mapped to SDK `default` so application checks run.
+Codex uses per-tool `approval_mode: "prompt"` and `disabled_tools`, with policies bound to the exact generated server keys, including collision suffixes.
+Unresolved tool identities on policy-controlled Codex servers are declined.
+Policy denials appear in the task stream and reach the agent as a Claude denial result or Codex rejection feedback.
+
+Desktop-relayed tools, connected-project operations, questions, and publishing retain their separate gates.
+Local desktop sessions and Pi retain their existing behavior.
+Release the shared server and both adapters together in the normal sandbox release.
+Existing sandboxes keep their bundled code; verify changes in fresh foreground and background tasks.
+
 ## Dependency Injection
 
 Use plain Inversify through `@posthog/di`.

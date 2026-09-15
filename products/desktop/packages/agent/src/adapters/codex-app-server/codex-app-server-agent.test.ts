@@ -7,9 +7,14 @@ import type {
   InitializeRequest,
   NewSessionRequest,
   PromptRequest,
+  RequestPermissionRequest,
 } from "@agentclientprotocol/sdk";
 import { RequestError } from "@agentclientprotocol/sdk";
 import { describe, expect, it, vi } from "vitest";
+import {
+  BACKGROUND_MCP_APPROVAL_DENIAL,
+  UNRESOLVED_MCP_TOOL_DENIAL,
+} from "../mcp-tool-policy";
 import type {
   AppServerClientHandlers,
   AppServerRpc,
@@ -1072,6 +1077,142 @@ describe("CodexAppServerAgent", () => {
     });
   });
 
+  it.each([
+    { server: "posthog", tool: "exec" },
+    { server: "posthog-code-tools", tool: "clone_repo" },
+  ])(
+    "cloud policies override the $server/$tool auto-accept shortcut while local sessions stay unchanged",
+    async ({ server, tool }) => {
+      const stub = makeStubRpc({ "thread/start": { thread: { id: "t" } } });
+      const requestPermission = vi.fn(
+        async (_params: RequestPermissionRequest) => ({
+          outcome: { outcome: "selected", optionId: "reject" },
+        }),
+      );
+      const { client } = makeFakeClient();
+      client.requestPermission =
+        requestPermission as AgentSideConnection["requestPermission"];
+      const agent = new CodexAppServerAgent(client, {
+        processOptions: { binaryPath: "/x/codex" },
+        rpcFactory: stub.factory,
+      });
+      for (const environment of ["cloud", "local"] as const) {
+        await agent.newSession({
+          cwd: "/r",
+          mcpServers: [
+            {
+              name: server,
+              type: "http",
+              url: "https://example.com/mcp",
+              headers: [],
+            },
+          ],
+          _meta: {
+            environment,
+            permissionMode: "auto",
+            mcpToolPolicies: [
+              {
+                serverName: server,
+                toolName: tool,
+                installationId: "test-installation",
+                approvalState: "needs_approval",
+              },
+            ],
+          },
+        });
+        stub.emit("item/started", {
+          item: {
+            type: "mcpToolCall",
+            id: "tool-1",
+            server,
+            tool,
+            arguments: { command: "call experiment-get {}" },
+          },
+        });
+        const response = await stub.invokeRequest(
+          "item/commandExecution/requestApproval",
+          { itemId: "tool-1" },
+        );
+        expect(response).toEqual({
+          decision: environment === "cloud" ? "decline" : "accept",
+        });
+      }
+      expect(requestPermission).toHaveBeenCalledOnce();
+      expect(requestPermission.mock.calls[0]).toEqual([
+        expect.objectContaining({
+          toolCall: expect.objectContaining({
+            _meta: expect.objectContaining({
+              posthog: expect.objectContaining({
+                approvalReason: "mcp_tool_policy",
+              }),
+            }),
+          }),
+        }),
+      ]);
+    },
+  );
+
+  it.each(["command", "elicitation"] as const)(
+    "declines unresolved %s identities on a policy-controlled server",
+    async (path) => {
+      const stub = makeStubRpc({ "thread/start": { thread: { id: "t" } } });
+      const { client, sessionUpdates } = makeFakeClient();
+      const requestPermission = vi.spyOn(client, "requestPermission");
+      const agent = new CodexAppServerAgent(client, {
+        processOptions: { binaryPath: "/x/codex" },
+        rpcFactory: stub.factory,
+      });
+      await agent.newSession({
+        cwd: "/r",
+        mcpServers: [
+          {
+            name: "protected",
+            type: "http",
+            url: "https://example.com/mcp",
+            headers: [],
+          },
+        ],
+        _meta: {
+          environment: "cloud",
+          permissionMode: "auto",
+          mcpToolPolicies: [
+            {
+              serverName: "protected",
+              toolName: "write",
+              installationId: "test-installation",
+              approvalState: "needs_approval",
+            },
+          ],
+        },
+      });
+      for (const count of [0, 2]) {
+        for (let i = 0; i < count; i++)
+          stub.emit("item/started", {
+            item: {
+              type: "mcpToolCall",
+              id: `tool-${i}`,
+              server: "protected",
+              tool: "write",
+              arguments: {},
+            },
+          });
+        const response = await stub.invokeRequest(
+          path === "command"
+            ? "item/commandExecution/requestApproval"
+            : "mcpServer/elicitation/request",
+          { itemId: "unresolved", serverName: "protected", message: "Approve" },
+        );
+        expect(response).toMatchObject(
+          path === "command" ? { decision: "decline" } : { action: "decline" },
+        );
+      }
+      expect(requestPermission).not.toHaveBeenCalled();
+      expect(JSON.stringify(sessionUpdates)).toContain(
+        UNRESOLVED_MCP_TOOL_DENIAL,
+      );
+    },
+  );
+
   it("auto-accepts a PostHog exec approval for a sub-tool the permission regex does not gate", async () => {
     const stub = makeStubRpc({
       initialize: {},
@@ -1621,6 +1762,92 @@ describe("CodexAppServerAgent", () => {
     stub.emit("turn/completed", { turn: { status: "completed" } });
     await done;
   });
+
+  it.each([
+    ["command", "cloud"],
+    ["elicitation", "cloud"],
+    ["command", "local"],
+    ["elicitation", "local"],
+  ] as const)(
+    "handles a %s cancellation with a reason in %s, preserving turn IDs",
+    async (path, environment) => {
+      const stub = makeStubRpc({
+        "thread/start": { thread: { id: "thr_1" } },
+        "turn/start": { turn: { id: "turn_1" } },
+        "turn/steer": { turnId: "turn_2" },
+      });
+      const { client, sessionUpdates } = makeFakeClient();
+      client.requestPermission = vi.fn(async () => ({
+        outcome: { outcome: "cancelled" as const },
+        _meta: { message: BACKGROUND_MCP_APPROVAL_DENIAL },
+      }));
+      const agent = new CodexAppServerAgent(client, {
+        processOptions: { binaryPath: "/x/codex" },
+        rpcFactory: stub.factory,
+      });
+      await agent.newSession({
+        cwd: "/r",
+        mcpServers: [],
+        _meta: { environment, permissionMode: "auto" },
+      });
+      const done = agent.prompt({
+        sessionId: "thr_1",
+        prompt: [{ type: "text", text: "go" }],
+      });
+      await waitUntil(() =>
+        stub.requests.some((request) => request.method === "turn/start"),
+      );
+      stub.emit("turn/started", { turn: { id: "turn_1" } });
+      stub.emit("item/started", {
+        item: {
+          type: "mcpToolCall",
+          id: "tool-1",
+          server: "protected",
+          tool: "write",
+          arguments: {},
+        },
+      });
+      const turnIds =
+        environment === "cloud" ? ["turn_1", "turn_2"] : ["turn_1"];
+      for (const turnId of turnIds) {
+        const response = await stub.invokeRequest(
+          path === "command"
+            ? "item/commandExecution/requestApproval"
+            : "mcpServer/elicitation/request",
+          { itemId: "tool-1", serverName: "protected", message: "Approve" },
+        );
+        const decision = environment === "cloud" ? "decline" : "cancel";
+        expect(response).toMatchObject(
+          path === "command" ? { decision } : { action: decision },
+        );
+        if (environment === "local") continue;
+        expect(
+          stub.requests
+            .filter((request) => request.method === "turn/steer")
+            .at(-1)?.params,
+        ).toMatchObject({
+          expectedTurnId: turnId,
+          input: [{ type: "text", text: BACKGROUND_MCP_APPROVAL_DENIAL }],
+        });
+      }
+      if (environment === "cloud") {
+        expect(JSON.stringify(sessionUpdates)).toContain(
+          BACKGROUND_MCP_APPROVAL_DENIAL,
+        );
+      } else {
+        expect(JSON.stringify(sessionUpdates)).not.toContain(
+          BACKGROUND_MCP_APPROVAL_DENIAL,
+        );
+        expect(
+          stub.requests.some((request) => request.method === "turn/steer"),
+        ).toBe(false);
+      }
+      stub.emit("turn/completed", {
+        turn: { id: turnIds.at(-1), status: "completed" },
+      });
+      await done;
+    },
+  );
 
   it("routes a non-MCP file-change approval to an edit permission (kind + diff + locations)", async () => {
     const { agent, stub, permissionToolCalls } = makeApprovalAgent();
@@ -5357,6 +5584,102 @@ describe("CodexAppServerAgent", () => {
       Object.keys(mcpServersFor("thread/start")),
     );
   });
+
+  it.each(["refresh", "resume"] as const)(
+    "%s replaces policies using the new collision assignments",
+    async (method) => {
+      const stub = makeStubRpc({
+        "thread/start": { thread: { id: "t" } },
+        "thread/resume": { thread: { id: "t" } },
+      });
+      const { client } = makeFakeClient({
+        outcome: "selected",
+        optionId: "reject",
+      });
+      const permission = vi.spyOn(client, "requestPermission");
+      const agent = new CodexAppServerAgent(client, {
+        processOptions: { binaryPath: "/x/codex" },
+        rpcFactory: stub.factory,
+      });
+      const servers = ["Notion (A)", "Notion [A]"].map((name) => ({
+        name,
+        type: "http" as const,
+        url: "https://example.com/mcp",
+        headers: [],
+      }));
+      const policies = servers.map((server, i) => ({
+        serverName: server.name,
+        toolName: "write",
+        installationId: `installation-${i}`,
+        approvalState: "needs_approval",
+      }));
+      await agent.newSession({
+        cwd: "/r",
+        mcpServers: servers,
+        _meta: {
+          environment: "cloud",
+          permissionMode: "auto",
+          mcpToolPolicies: policies,
+        },
+      });
+      const invoke = async (server: string) => {
+        stub.emit("item/started", {
+          item: {
+            type: "mcpToolCall",
+            id: "tool-1",
+            server,
+            tool: "write",
+            arguments: {},
+          },
+        });
+        return stub.invokeRequest("item/commandExecution/requestApproval", {
+          itemId: "tool-1",
+        });
+      };
+      await invoke("Notion__A__2");
+      expect(permission.mock.calls.at(-1)?.[0].toolCall._meta).toMatchObject({
+        posthog: { mcpInstallationId: "installation-1" },
+      });
+      const replacement = [
+        { ...policies[1], approvalState: "needs_approval" },
+        { ...policies[0], approvalState: "do_not_use" },
+      ];
+      if (method === "refresh") {
+        await agent.extMethod("_posthog/refresh_session", {
+          mcpServers: [...servers].reverse(),
+          mcpToolPolicies: replacement,
+        });
+      } else {
+        await agent.resumeSession({
+          cwd: "/r",
+          sessionId: "t",
+          mcpServers: [...servers].reverse(),
+          _meta: {
+            environment: "cloud",
+            permissionMode: "auto",
+            mcpToolPolicies: replacement,
+          },
+        });
+      }
+      await invoke("Notion__A_");
+      expect(permission.mock.calls.at(-1)?.[0].toolCall._meta).toMatchObject({
+        posthog: { mcpInstallationId: "installation-1" },
+      });
+      expect(await invoke("Notion__A__2")).toEqual({ decision: "decline" });
+      expect(permission).toHaveBeenCalledTimes(2);
+      expect(
+        stub.requests.find((request) => request.method === "thread/resume")
+          ?.params,
+      ).toMatchObject({
+        config: {
+          mcp_servers: {
+            Notion__A_: { tools: { write: { approval_mode: "prompt" } } },
+            Notion__A__2: { disabled_tools: ["write"] },
+          },
+        },
+      });
+    },
+  );
 
   it("refresh_session is refused while a turn is in flight", async () => {
     const stub = makeStubRpc({

@@ -26,7 +26,10 @@ import {
   IDLE_RESUME_STOP_REASON,
   isIgnoredSkillPath,
   isSkillBundleArtifactMetadata,
+  MCP_TOOL_PERMISSION_OPTIONS,
   type McpServerConnection,
+  type McpToolPolicy,
+  mcpToolKey,
   mergePrUrls,
   parseMcpToolName,
   readMcpToolDescriptor,
@@ -60,13 +63,19 @@ import {
   appendBenjaminGuidance,
   isBenjaminEnabled,
 } from "../adapters/benjamin-guidance";
-import { setAlwaysAskMcpServers } from "../adapters/claude/mcp/tool-metadata";
+import {
+  sanitizeMcpServerName,
+  setAlwaysAskMcpServers,
+} from "../adapters/claude/mcp/tool-metadata";
 import {
   getSessionJsonlPath,
   hydrateSessionJsonl,
 } from "../adapters/claude/session/jsonl-hydration";
 import type { GatewayEnv } from "../adapters/claude/session/options";
-import { codexKeyMatchesMcpServerName } from "../adapters/codex-app-server/mcp-config";
+import {
+  codexKeyMatchesMcpServerName,
+  mapCodexMcpToolPolicies,
+} from "../adapters/codex-app-server/mcp-config";
 import { hasCodexThreadState } from "../adapters/codex-app-server/thread-state";
 import { mergeUsage } from "../adapters/codex-app-server/usage-tracker";
 import {
@@ -77,6 +86,11 @@ import {
   sanitizeAgentErrorCause,
 } from "../adapters/error-classification";
 import { GH_STACK_QUALIFIED_TOOL_NAME } from "../adapters/local-tools/tools/gh-stack";
+import {
+  BACKGROUND_MCP_APPROVAL_DENIAL,
+  BLOCKED_MCP_TOOL_DENIAL,
+  UNRESOLVED_MCP_TOOL_DENIAL,
+} from "../adapters/mcp-tool-policy";
 import { isSupportedReasoningEffort } from "../adapters/reasoning-effort";
 import { appendRtkGuidanceForCodex } from "../adapters/rtk-guidance";
 import {
@@ -479,6 +493,8 @@ export class AgentServer {
   private session: ActiveSession | null = null;
   private app: Hono;
   private posthogAPI: PostHogAPIClient;
+  private mcpToolPolicies = new Map<string, McpToolPolicy>();
+  private mcpPolicyServers = new Map<string, McpServerConnection>();
   private eventStreamSender: TaskRunEventStreamSender | null = null;
   private readonly nextEventId = createEventIdSource();
   private rtkSavingsAttempted = false;
@@ -721,13 +737,7 @@ export class AgentServer {
   private shouldRelayPermissionToClient(mode: PermissionMode): boolean {
     // "plan" relays like "read-only" (look-don't-touch): escalations need a human
     // veto, not silent auto-approval.
-    return (
-      mode === "default" ||
-      mode === "read-only" ||
-      mode === "plan" ||
-      // codex relays every approval, so relaying "auto" prompts for what it runs unattended.
-      (mode === "auto" && this.getRuntimeAdapter() !== "codex")
-    );
+    return mode === "default" || mode === "read-only" || mode === "plan";
   }
 
   private createApp(): Hono {
@@ -1661,8 +1671,8 @@ export class AgentServer {
         // actor's skill names and descriptions do not outlive their turn.
         await this.refreshStoreSkills("refresh_session");
 
-        if (mcpServers.length === 0) {
-          return { refreshed: true };
+        if (Array.isArray(params.mcpServers)) {
+          this.config.mcpServers = mcpServers;
         }
 
         // refresh_session replaces the session's MCP server list wholesale, and
@@ -1671,25 +1681,24 @@ export class AgentServer {
         // bearer live only here. Re-append them so a mid-run refresh (token
         // rotation, follow-up past the refresh window) doesn't silently drop
         // every relayed server from the session.
-        const relayServers = this.mcpRelayServer?.mcpServers ?? [];
-        const refreshedMcpServers = [
-          ...mcpServers,
-          ...relayServers.filter(
-            (relay) =>
-              !mcpServers.some(
-                (s: { name?: unknown }) => s?.name === relay.name,
-              ),
-          ),
-        ];
+        const configuration = await this.loadMcpRuntimeConfiguration();
+        const refreshedMcpServers = configuration.servers;
+        this.session.sessionMeta = {
+          ...this.session.sessionMeta,
+          mcpToolPolicies: configuration.policies,
+        };
 
         this.logger.debug("Refresh session requested", {
           serverCount: refreshedMcpServers.length,
-          relayServerCount: relayServers.length,
+          relayServerCount: this.mcpRelayServer?.mcpServers.length ?? 0,
         });
 
         return await this.session.clientConnection.extMethod(
           POSTHOG_METHODS.REFRESH_SESSION,
-          { mcpServers: toAcpMcpServers(refreshedMcpServers) },
+          {
+            mcpServers: refreshedMcpServers,
+            mcpToolPolicies: configuration.policies,
+          },
         );
       }
 
@@ -2195,6 +2204,7 @@ export class AgentServer {
     const channelMode =
       !this.config.repositoryPath && this.taskRepositories.length === 0;
     const sessionMeta = {
+      mcpToolPolicies: [] as McpToolPolicy[],
       sessionId: payload.run_id,
       taskRunId: payload.run_id,
       taskId: payload.task_id,
@@ -2261,11 +2271,10 @@ export class AgentServer {
             sessionCwd,
             initialPermissionMode,
           );
-          const preparedMcpServers: AcpMcpServer[] = toAcpMcpServers([
-            ...(this.config.mcpServers ?? []),
-            ...(await this.startMcpRelayServer()),
-          ]);
-          return [preparedNativeResume, preparedMcpServers] as const;
+          await this.startMcpRelayServer();
+          const configuration = await this.loadMcpRuntimeConfiguration();
+          sessionMeta.mcpToolPolicies = configuration.policies;
+          return [preparedNativeResume, configuration.servers] as const;
         } finally {
           if (existingPrCheckoutPromise) {
             this.logExistingPrCheckoutResult(
@@ -3115,9 +3124,11 @@ export class AgentServer {
     if (!resumeState?.conversation.length) return null;
 
     try {
+      const configuration = await this.loadMcpRuntimeConfiguration();
+      this.session.sessionMeta.mcpToolPolicies = configuration.policies;
       const response = await this.session.clientConnection.newSession({
         cwd: this.config.repositoryPath ?? "/tmp/workspace",
-        mcpServers: this.config.mcpServers ?? [],
+        mcpServers: configuration.servers,
         _meta: this.session.sessionMeta,
       });
       this.session.acpSessionId = response.sessionId;
@@ -3230,9 +3241,11 @@ export class AgentServer {
     );
 
     try {
+      const configuration = await this.loadMcpRuntimeConfiguration();
+      this.session.sessionMeta.mcpToolPolicies = configuration.policies;
       const response = await this.session.clientConnection.newSession({
         cwd: this.config.repositoryPath ?? "/tmp/workspace",
-        mcpServers: toAcpMcpServers(this.config.mcpServers ?? []),
+        mcpServers: configuration.servers,
         _meta: this.session.sessionMeta,
       });
       this.session.acpSessionId = response.sessionId;
@@ -5303,6 +5316,140 @@ ${commonInstructions}
     );
   }
 
+  private async loadMcpRuntimeConfiguration(): Promise<{
+    servers: AcpMcpServer[];
+    policies: McpToolPolicy[];
+  }> {
+    const requested = this.config.mcpServers ?? [];
+    const configuration = await this.posthogAPI.getMcpRuntimeConfiguration(
+      requested,
+      { useServerCredentials: true },
+    );
+    for (const server of requested) {
+      if (!configuration.servers.includes(server)) {
+        this.logger.warn(
+          "MCP installation excluded because its tool policies could not be loaded",
+          {
+            serverName: server.name,
+          },
+        );
+        this.broadcastEvent({
+          type: "error",
+          message: `Could not load tool approval policies for ${server.name}. This connection is unavailable. Refresh the task's MCP configuration to try again.`,
+        });
+      }
+    }
+    const servers = toAcpMcpServers([
+      ...configuration.servers,
+      ...(this.mcpRelayServer?.mcpServers ?? []).filter(
+        (relay) =>
+          !configuration.servers.some((server) => server.name === relay.name),
+      ),
+    ]);
+    const policies =
+      this.getRuntimeAdapter() === "codex"
+        ? mapCodexMcpToolPolicies(servers, configuration.policies)
+        : configuration.policies.map((policy) => ({
+            ...policy,
+            serverName: sanitizeMcpServerName(policy.serverName),
+          }));
+    this.mcpToolPolicies = new Map(
+      policies.map((policy) => [
+        mcpToolKey({ server: policy.serverName, tool: policy.toolName }),
+        policy,
+      ]),
+    );
+    this.mcpPolicyServers = new Map(
+      configuration.policies.flatMap((policy) => {
+        const server = configuration.servers.find(
+          (server) => server.name === policy.serverName,
+        );
+        return server ? [[policy.installationId, server] as const] : [];
+      }),
+    );
+    return { servers, policies: configuration.policies };
+  }
+
+  private async applyMcpToolPolicy(
+    params: RequestPermissionRequest,
+    mode: "interactive" | "background",
+  ): Promise<RequestPermissionResponse | undefined> {
+    const descriptor = this.readPermissionMcpDescriptor(params);
+    const policyKey = descriptor ? mcpToolKey(descriptor) : "";
+    const policy = this.mcpToolPolicies.get(policyKey);
+    const deny = (message: string): RequestPermissionResponse => ({
+      outcome: { outcome: "cancelled" },
+      _meta: { message },
+    });
+    const meta = params.toolCall?._meta?.posthog as
+      | { approvalReason?: string }
+      | undefined;
+    if (!policy) {
+      return meta?.approvalReason === "mcp_tool_policy"
+        ? deny(UNRESOLVED_MCP_TOOL_DENIAL)
+        : undefined;
+    }
+    if (policy.approvalState === "do_not_use") {
+      return deny(BLOCKED_MCP_TOOL_DENIAL);
+    }
+    if (policy.approvalState !== "needs_approval") return undefined;
+    if (mode === "background") return deny(BACKGROUND_MCP_APPROVAL_DENIAL);
+
+    const accept = params.options.find(
+      (option) => option.kind === "allow_once",
+    );
+    if (!accept) return deny(UNRESOLVED_MCP_TOOL_DENIAL);
+    const response = await this.relayPermissionToClient({
+      ...params,
+      options: MCP_TOOL_PERMISSION_OPTIONS.map((option) => ({
+        ...option,
+        _meta: { preservePermissionMode: true },
+      })),
+      toolCall: {
+        ...params.toolCall,
+        _meta: {
+          ...params.toolCall._meta,
+          posthog: {
+            toolName: policyKey,
+            mcp: descriptor,
+            mcpInstallationId: policy.installationId,
+            approvalReason: "mcp_tool_policy",
+          },
+        },
+      },
+    });
+    if (response.outcome.outcome === "cancelled") return response;
+    if (response.outcome.optionId !== "allow_always") {
+      return deny(
+        typeof response._meta?.customInput === "string"
+          ? response._meta.customInput
+          : "The user rejected this tool call. Follow their direction before trying again.",
+      );
+    }
+    // A refresh can change the acting user or policy while the prompt is pending.
+    if (this.mcpToolPolicies.get(policyKey) !== policy) {
+      return deny(UNRESOLVED_MCP_TOOL_DENIAL);
+    }
+    const policyServer = this.mcpPolicyServers.get(policy.installationId);
+    if (!policyServer) return deny(UNRESOLVED_MCP_TOOL_DENIAL);
+    try {
+      await this.posthogAPI.approveMcpTool(
+        policy.installationId,
+        policy.toolName,
+        policyServer,
+      );
+    } catch {
+      return deny(
+        "Could not save approval for this tool. Refresh the task's MCP configuration and approve it again.",
+      );
+    }
+    if (this.mcpToolPolicies.get(policyKey) !== policy) {
+      return deny(UNRESOLVED_MCP_TOOL_DENIAL);
+    }
+    policy.approvalState = "approved";
+    return { outcome: { outcome: "selected", optionId: accept.optionId } };
+  }
+
   private readPermissionMcpDescriptor(
     params: RequestPermissionRequest,
   ): { server: string; tool: string } | undefined {
@@ -5356,6 +5503,14 @@ ${commonInstructions}
 
         const codeToolKind = params.toolCall?._meta?.codeToolKind;
         const isPlanApproval = params.toolCall?.kind === "switch_mode";
+
+        if (
+          this.readPermissionMcpDescriptor(params) ||
+          params.toolCall?._meta?.posthog
+        ) {
+          const policyResponse = await this.applyMcpToolPolicy(params, mode);
+          if (policyResponse) return policyResponse;
+        }
 
         // Relay questions to Slack when interaction originated there
         if (interactionOrigin === "slack") {
@@ -6099,10 +6254,7 @@ ${commonInstructions}
   private relayPermissionToClient(params: {
     options: Array<{ kind: string; optionId: string; name?: string }>;
     toolCall?: Record<string, unknown> | null;
-  }): Promise<{
-    outcome: { outcome: "selected"; optionId: string };
-    _meta?: Record<string, unknown>;
-  }> {
+  }): Promise<RequestPermissionResponse> {
     const requestId = crypto.randomUUID();
     const toolCallId = params.toolCall?.toolCallId as string | undefined;
 

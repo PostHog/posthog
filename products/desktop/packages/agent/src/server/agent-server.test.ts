@@ -2872,7 +2872,7 @@ describe("AgentServer HTTP Mode", () => {
 
     it.each([
       { runtimeAdapter: "codex" as Adapter, relayed: false },
-      { runtimeAdapter: "claude" as Adapter, relayed: true },
+      { runtimeAdapter: "claude" as Adapter, relayed: false },
     ])(
       "auto mode relays an edit approval on $runtimeAdapter: $relayed",
       async ({ runtimeAdapter, relayed }) => {
@@ -3068,7 +3068,10 @@ describe("AgentServer HTTP Mode", () => {
           clientConnection: { extMethod: ReturnType<typeof vi.fn> };
         } | null;
         mcpRelayServer: { mcpServers: unknown[] } | null;
-        posthogAPI: { getTaskRun: ReturnType<typeof vi.fn> };
+        posthogAPI: {
+          getTaskRun: ReturnType<typeof vi.fn>;
+          getMcpRuntimeConfiguration: PostHogAPIClient["getMcpRuntimeConfiguration"];
+        };
         executeCommand(
           method: string,
           params: Record<string, unknown>,
@@ -3088,6 +3091,10 @@ describe("AgentServer HTTP Mode", () => {
         clientConnection: { extMethod },
       };
       testServer.posthogAPI = {
+        getMcpRuntimeConfiguration: async (servers) => ({
+          servers,
+          policies: [],
+        }),
         getTaskRun: vi.fn(async () => {
           throw new Error("run fetch unavailable");
         }),

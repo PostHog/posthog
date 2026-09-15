@@ -11,9 +11,18 @@ import type {
   PermissionOption,
   RequestPermissionResponse,
 } from "@agentclientprotocol/sdk";
-import { mcpToolKey, posthogToolMeta } from "@posthog/shared";
+import {
+  type McpToolPolicy,
+  mcpToolKey,
+  posthogToolMeta,
+} from "@posthog/shared";
 import type { Logger } from "../../utils/logger";
 import { OPTION_PREFIX } from "../claude/questions/utils";
+import {
+  BLOCKED_MCP_TOOL_DENIAL,
+  permissionDenialReason,
+  UNRESOLVED_MCP_TOOL_DENIAL,
+} from "../mcp-tool-policy";
 import { APP_SERVER_REQUESTS } from "./protocol";
 
 // Native app-server shapes, re-declared locally so this module doesn't depend on
@@ -111,6 +120,12 @@ export interface HandleServerRequestResult {
 export interface HandleServerRequestOptions {
   sessionId: string;
   logger?: Logger;
+  isPolicyControlledMcpServer?: (server: string) => boolean;
+  getMcpToolPolicy?: (mcp: {
+    server: string;
+    tool: string;
+  }) => McpToolPolicy | undefined;
+  onDenial?: (toolCallId: string, message: string) => Promise<void>;
   /**
    * Resolve the in-flight MCP tool call for an elicitation's `serverName`. codex's
    * elicitation carries no tool/args, so supplying the originating `mcpToolCall`
@@ -413,7 +428,23 @@ async function handleMcpElicitation(
   // If the elicitation gates a known in-flight MCP call, carry its real tool +
   // args + `_meta.posthog` so the host renders the proper MCP permission.
   const mcp = opts.resolveMcpToolCall?.(params.serverName);
-  if (mcp && opts.shouldAutoAcceptMcpToolCall?.(mcp)) {
+  const policy = mcp ? opts.getMcpToolPolicy?.(mcp) : undefined;
+  const toolCallId = `${params.serverName}:elicitation`;
+  const denialReason =
+    policy?.approvalState === "do_not_use"
+      ? BLOCKED_MCP_TOOL_DENIAL
+      : !policy && opts.isPolicyControlledMcpServer?.(params.serverName)
+        ? UNRESOLVED_MCP_TOOL_DENIAL
+        : undefined;
+  if (denialReason) {
+    await opts.onDenial?.(toolCallId, denialReason);
+    return declined;
+  }
+  if (
+    policy?.approvalState !== "needs_approval" &&
+    mcp &&
+    opts.shouldAutoAcceptMcpToolCall?.(mcp)
+  ) {
     return { action: "accept", content: {}, _meta: null };
   }
   const toolCall = mcp
@@ -425,6 +456,12 @@ async function handleMcpElicitation(
         _meta: posthogToolMeta({
           toolName: mcpToolKey({ server: mcp.server, tool: mcp.tool }),
           mcp: { server: mcp.server, tool: mcp.tool },
+          ...(policy?.approvalState === "needs_approval"
+            ? {
+                approvalReason: "mcp_tool_policy",
+                mcpInstallationId: policy.installationId,
+              }
+            : {}),
         }),
       }
     : {
@@ -451,6 +488,11 @@ async function handleMcpElicitation(
     return declined;
   }
 
+  const message = opts.onDenial ? permissionDenialReason(response) : undefined;
+  if (message) {
+    await opts.onDenial?.(toolCallId, message);
+    return declined;
+  }
   if (response.outcome.outcome === "cancelled") {
     return { action: "cancel", content: null, _meta: null };
   }

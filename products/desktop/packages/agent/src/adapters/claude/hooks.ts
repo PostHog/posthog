@@ -9,11 +9,13 @@ import {
   matchesPostHogExecPermission,
 } from "../../posthog-exec-permission";
 import type { Logger } from "../../utils/logger";
+import { BLOCKED_MCP_TOOL_DENIAL } from "../mcp-tool-policy";
 import { SIGNED_COMMIT_QUALIFIED_TOOL_NAME } from "../signed-commit-shared";
 import { stripCatLineNumbers } from "./conversion/sdk-to-acp";
 import type { TaskState } from "./conversion/task-state";
 import { gitSubcommand } from "./git-command";
 import { neutralizeUnprocessableImages } from "./image-sanitization";
+import { getMcpToolApprovalState } from "./mcp/tool-metadata";
 import type { SettingsManager } from "./session/settings";
 import type { CodeExecutionMode } from "./tools";
 
@@ -409,6 +411,7 @@ export const createPreToolUseHook =
     settingsManager: SettingsManager,
     logger: Logger,
     posthogExecPermissionRegex?: RegExp,
+    cloudMode = false,
   ): HookCallback =>
   async (input: HookInput, _toolUseID: string | undefined) => {
     if (input.hook_event_name !== "PreToolUse") {
@@ -417,6 +420,25 @@ export const createPreToolUseHook =
 
     const toolName = input.tool_name;
     const toolInput = input.tool_input;
+    const approvalState = cloudMode
+      ? getMcpToolApprovalState(toolName)
+      : undefined;
+    if (approvalState === "needs_approval" || approvalState === "do_not_use") {
+      return {
+        continue: true,
+        hookSpecificOutput: {
+          hookEventName: "PreToolUse" as const,
+          permissionDecision:
+            approvalState === "do_not_use"
+              ? ("deny" as const)
+              : ("ask" as const),
+          permissionDecisionReason:
+            approvalState === "do_not_use"
+              ? BLOCKED_MCP_TOOL_DENIAL
+              : "This tool requires approval under the PostHog tool policy.",
+        },
+      };
+    }
     const permissionCheck = settingsManager.checkPermission(
       toolName,
       toolInput,

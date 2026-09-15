@@ -61,7 +61,8 @@ vi.mock("@anthropic-ai/claude-agent-sdk", () => ({
   tool: vi.fn(),
 }));
 
-vi.mock("./mcp/tool-metadata", () => ({
+vi.mock("./mcp/tool-metadata", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./mcp/tool-metadata")>()),
   fetchMcpToolMetadata: vi.fn().mockResolvedValue(undefined),
   getConnectedMcpServerNames: vi.fn().mockReturnValue([]),
   setMcpToolApprovalStates: vi.fn(),
@@ -297,6 +298,45 @@ describe("ClaudeAcpAgent session creation", () => {
         (agent as unknown as { session: { cloudMode: boolean } }).session
           .cloudMode,
       ).toBe(expectedCloudMode);
+    },
+  );
+
+  it.each(["new", "resume"] as const)(
+    "loads fresh cloud policies for a %s session and replaces prior approvals",
+    async (method) => {
+      const metadata = await vi.importActual<
+        typeof import("./mcp/tool-metadata")
+      >("./mcp/tool-metadata");
+      metadata.setMcpToolApprovalStates({ mcp__old__write: "approved" });
+      const agent = makeAgent();
+      const request = {
+        cwd,
+        mcpServers: [],
+        _meta: {
+          environment: "cloud",
+          taskRunId: "run-policy",
+          permissionMode: "auto",
+          mcpToolPolicies: [
+            {
+              serverName: "New Server",
+              toolName: "write",
+              installationId: "test-installation",
+              approvalState: "needs_approval",
+            },
+          ],
+        },
+      };
+      if (method === "new") await agent.newSession(request);
+      else
+        await agent.resumeSession({ ...request, sessionId: "session-policy" });
+      expect(
+        metadata.getMcpToolApprovalState("mcp__old__write"),
+      ).toBeUndefined();
+      expect(metadata.getMcpToolApprovalState("mcp__New_Server__write")).toBe(
+        "needs_approval",
+      );
+      expect(createdQueryOptions.at(-1)?.permissionMode).toBe("default");
+      metadata.clearMcpToolMetadataCache();
     },
   );
 

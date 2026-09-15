@@ -1,4 +1,5 @@
 import type { McpServer } from "@agentclientprotocol/sdk";
+import type { McpToolPolicy } from "@posthog/shared";
 import { isPostHogExecDescriptor } from "../../posthog-exec-permission";
 import { sanitizeMcpServerName } from "../claude/mcp/tool-metadata";
 
@@ -8,6 +9,7 @@ interface CodexMcpServerToolConfig {
 
 interface CodexMcpServerPolicyConfig {
   tools?: Record<string, CodexMcpServerToolConfig>;
+  disabled_tools?: string[];
 }
 
 /**
@@ -49,6 +51,29 @@ function uniqueCodexMcpServerName(name: string, taken: Set<string>): string {
   return key;
 }
 
+function codexMcpServerEntries(servers: McpServer[]): Array<{
+  key: string;
+  server: McpServer;
+}> {
+  const taken = new Set<string>();
+  return servers.flatMap((server) =>
+    ("command" in server && server.command) || ("url" in server && server.url)
+      ? [{ key: uniqueCodexMcpServerName(server.name, taken), server }]
+      : [],
+  );
+}
+
+export function mapCodexMcpToolPolicies(
+  servers: McpServer[],
+  policies: McpToolPolicy[],
+): McpToolPolicy[] {
+  return codexMcpServerEntries(servers).flatMap(({ key, server }) =>
+    policies
+      .filter((policy) => policy.serverName === server.name)
+      .map((policy) => ({ ...policy, serverName: key })),
+  );
+}
+
 /**
  * Whether a codex-reported server key can belong to the server named `name`.
  * {@link toCodexMcpServers} registers `codexMcpServerName(name)` or, after a
@@ -78,26 +103,35 @@ export function codexKeyMatchesMcpServerName(
  */
 export function toCodexMcpServers(
   servers: McpServer[] | undefined,
-  options?: { gatePosthogExec?: boolean },
+  options?: { gatePosthogExec?: boolean; policies?: McpToolPolicy[] },
 ): Record<string, CodexMcpServerConfig> | undefined {
   if (!servers || servers.length === 0) {
     return undefined;
   }
 
   const out: Record<string, CodexMcpServerConfig> = {};
-  const taken = new Set<string>();
-  for (const server of servers) {
+  for (const { key, server } of codexMcpServerEntries(servers)) {
     // `approval_mode: "prompt"` makes codex ask before every exec call; the
     // per-sub-tool regex filtering happens in the adapter's approval handlers,
     // which auto-accept calls the session's permission policy does not gate.
-    const policy =
+    const policy: CodexMcpServerPolicyConfig =
       options?.gatePosthogExec &&
       isPostHogExecDescriptor({ server: server.name, tool: "exec" })
         ? { tools: { exec: { approval_mode: "prompt" as const } } }
         : {};
+    for (const tool of options?.policies ?? []) {
+      if (tool.serverName !== server.name) continue;
+      if (tool.approvalState === "needs_approval") {
+        policy.tools ??= {};
+        policy.tools[tool.toolName] = { approval_mode: "prompt" };
+      } else if (tool.approvalState === "do_not_use") {
+        policy.disabled_tools ??= [];
+        policy.disabled_tools.push(tool.toolName);
+      }
+    }
     if ("command" in server && server.command) {
       const env = pairsToRecord(server.env);
-      out[uniqueCodexMcpServerName(server.name, taken)] = {
+      out[key] = {
         command: server.command,
         args: server.args ?? [],
         ...(env ? { env } : {}),
@@ -105,7 +139,7 @@ export function toCodexMcpServers(
       };
     } else if ("url" in server && server.url) {
       const headers = pairsToRecord(server.headers);
-      out[uniqueCodexMcpServerName(server.name, taken)] = {
+      out[key] = {
         url: server.url,
         ...(headers ? { http_headers: headers } : {}),
         ...policy,

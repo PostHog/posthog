@@ -116,6 +116,7 @@ import {
   fetchMcpToolMetadata,
   getCachedMcpTools,
   getConnectedMcpServerNames,
+  replaceCloudMcpToolPolicies,
   setMcpToolApprovalStates,
 } from "./mcp/tool-metadata";
 import { canUseTool } from "./permissions/permission-handlers";
@@ -1844,7 +1845,12 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       params as Pick<NewSessionRequest, "mcpServers">,
       this.logger,
     );
-    await this.refreshSession(mcpServers);
+    await this.refreshSession(
+      mcpServers,
+      (params.mcpToolPolicies ?? []) as NonNullable<
+        NewSessionMeta["mcpToolPolicies"]
+      >,
+    );
     return { refreshed: true };
   }
 
@@ -2261,6 +2267,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
 
   private refreshSession(
     mcpServers: Record<string, McpServerConfig>,
+    policies: NonNullable<NewSessionMeta["mcpToolPolicies"]>,
   ): Promise<void> {
     const prev = this.session;
     if (prev.querySwap) {
@@ -2282,9 +2289,13 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       );
     }
 
-    return this.withQuerySwap(prev, () =>
-      this.performRefresh(prev, mcpServers),
-    );
+    return this.withQuerySwap(prev, () => {
+      if (prev.cloudMode) {
+        prev.mcpToolPolicies = policies;
+        replaceCloudMcpToolPolicies(policies);
+      }
+      return this.performRefresh(prev, mcpServers);
+    });
   }
 
   /** Body of {@link refreshSession}; see {@link withQuerySwap} for the claim
@@ -2433,6 +2444,9 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
   /** Clear stale MCP tool metadata, then re-fetch it for the new server set. */
   private refreshMcpMetadata(q: Query): void {
     clearMcpToolMetadataCache();
+    if (this.session.cloudMode) {
+      replaceCloudMcpToolPolicies(this.session.mcpToolPolicies ?? []);
+    }
     this.deferBackgroundFetches(q);
   }
 
@@ -2802,7 +2816,9 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       contextWikiPath: this.options?.contextWiki?.path,
     });
 
-    if (meta?.mcpToolApprovals) {
+    if (cloudRun) {
+      replaceCloudMcpToolPolicies(meta?.mcpToolPolicies ?? []);
+    } else if (meta?.mcpToolApprovals) {
       setMcpToolApprovalStates(meta.mcpToolApprovals);
     }
 
@@ -2920,6 +2936,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       settingsManager,
       permissionMode,
       cloudMode: cloudRun,
+      mcpToolPolicies: cloudRun ? (meta?.mcpToolPolicies ?? []) : undefined,
       posthogExecPermissionRegex,
       abortController,
       accumulatedUsage: {
