@@ -41,7 +41,7 @@ pub(super) async fn attach_distinct_ids(
         JOIN {person} p
           ON p.team_id = $3 AND p.id = $2 AND p.is_deleted = false
         WHERE NOT EXISTS (
-            SELECT 1 FROM lifecycle_op_person m
+            SELECT 1 FROM {lop} m
             WHERE m.team_id = p.team_id AND m.person_id = p.id
               AND m.status IN ('marked', 'sealed')
         )
@@ -54,6 +54,7 @@ pub(super) async fn attach_distinct_ids(
         "#,
         pdi = tables.person_distinct_id,
         person = tables.person,
+        lop = tables.lifecycle_op_person,
     );
     let mut conn = super::acquire_timed(pool).await?;
     let written = sqlx::query(&insert_sql)

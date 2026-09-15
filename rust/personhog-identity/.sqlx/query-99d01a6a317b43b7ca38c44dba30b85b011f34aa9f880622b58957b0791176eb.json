@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT step, completed_at FROM lifecycle_op WHERE op_id = $1",
+  "query": "SELECT step, completed_at IS NOT NULL AS \"completed!\" FROM lifecycle_op WHERE op_id = $1",
   "describe": {
     "columns": [
       {
@@ -10,8 +10,8 @@
       },
       {
         "ordinal": 1,
-        "name": "completed_at",
-        "type_info": "Timestamptz"
+        "name": "completed!",
+        "type_info": "Bool"
       }
     ],
     "parameters": {
@@ -21,8 +21,8 @@
     },
     "nullable": [
       false,
-      true
+      null
     ]
   },
-  "hash": "4f7055551415aa49ddb2798120763770e4125150bd4c7c2774f2266ecd851bbd"
+  "hash": "99d01a6a317b43b7ca38c44dba30b85b011f34aa9f880622b58957b0791176eb"
 }
